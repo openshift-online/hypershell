@@ -1,23 +1,23 @@
 ---
 name: jira-log
 description: >
-  Log one or more Jira issues to the ENGPROD project with the hypershell component
-  pre-filled. Gathers context to make issues agent-actionable from cold start.
-  Use this whenever work needs tracking in Jira -- creating stories, filing
-  bugs, logging tasks, opening spikes, creating epics, or any time the user says
-  "create a jira", "log this", "file a bug", "new ticket", "open a story",
-  "track this", "create tickets", "batch create", "create a card", "new card",
-  or provides a bullet list of work items. Supports single tickets and batch
-  creation from bullet lists.
-  Triggers on: "log jira", "create jira", "file a bug", "new ticket",
-  "open a story", "jira issue", "track this work", "open a jira",
-  "create a ticket", "create tickets", "batch tickets", "log these items",
-  "create a card", "new card", "log a card", "open a card", "batch cards".
+  Log Jira issues to the ENGPROD project with hypershell component and
+  team:hypershell label pre-filled. Makes issues agent-actionable from cold
+  start. Supports single tickets and batch creation from bullet lists.
+  Use whenever the user wants to create, log, file, track, or open Jira
+  issues — stories, bugs, tasks, spikes, epics, cards, or tickets. Also
+  triggers on batch creation requests and bullet lists of work items.
 ---
 
 # Jira Issue Logger
 
 Create well-structured Jira issues in the ENGPROD project with the `hypershell` (HyperShell) component and `team:hypershell` label pre-filled. Every issue is built to be agent-actionable from a cold start — meaning another agent (or human) can pick it up and start working immediately without asking clarifying questions.
+
+## What Makes a Jira Agent-Actionable
+
+A Jira is ready for cold-start work when it has: a user story (who/why), acceptance criteria (definition of done), repo + file paths (where to edit), constraints (what not to do), and testing requirements (expected coverage). Bug reports additionally need repro steps. Spikes need deliverables and a time-box. Epics need an overview and linked children — their actionability comes from the children being well-structured, not from the epic itself.
+
+This principle drives every step below — when gathering context, building descriptions, or reviewing batch tickets, ask yourself whether an agent picking this up cold would have enough information to start working without asking questions.
 
 ## User Input
 
@@ -325,35 +325,13 @@ Creates 1 epic + 2 stories + 1 bug, links stories to the epic.
 ```
 Creates 1 epic + 1 story + 1 task + 1 spike, links all to the epic, creates blocking relationship from audit → RBAC story.
 
-## Field Reference
+## Quick Reference
 
-| Field | Value | Notes |
-|-------|-------|-------|
-| Project | ENGPROD | Engineering Productivity |
-| Component | hypershell | HyperShell (lowercase) |
-| Label | `team:hypershell` | Set on create |
-| Issue Type | Story | Default; also Bug, Task, Spike, Epic |
-| Priority | (inferred or ask) | Blocker > Critical > Major > Normal > Minor. Ask user if unresolvable (single); default Normal (batch). |
-| Activity Type | `customfield_10464` | Single-select dropdown, inferred from context |
-| Browse URL | `https://redhat.atlassian.net/browse/` | |
-| Board | 348 | ENGPROD kanban board (no sprints) |
-
-## Activity Type Values
-
-| Value | When to use |
-|-------|-------------|
-| `Product / Portfolio Work` | Default. New features, stories, product capabilities, CLI commands, UI views, API endpoints, tests for product work |
-| `Quality / Stability / Reliability` | Bugs, alerts, stability fixes, quality improvements, rebranding, lint/format, flaky tests |
-| `Security & Compliance` | Security hardening, CVEs, compliance, image migrations, RBAC, credential handling, vulnerability remediation |
-| `Future Sustainability` | Tech debt, refactoring, long-term improvements, dependency upgrades, code cleanup, architectural simplification |
-
-## Jira Link Types
-
-| Relationship | `link_type` value | Notes |
-|-------------|-------------------|-------|
-| Blocking | `"Blocks"` | inward issue blocks outward issue |
-| Related | `"Related"` | Not "Relates" — wrong name silently fails |
-
-## What Makes a Jira Agent-Actionable
-
-A Jira is ready for cold-start work when it has: a user story (who/why), acceptance criteria (definition of done), repo + file paths (where to edit), constraints (what not to do), and testing requirements (expected coverage). Bug reports additionally need repro steps. Spikes need deliverables and a time-box. Epics need an overview and linked children — their actionability comes from the children being well-structured, not from the epic itself.
+| Field | Value |
+|-------|-------|
+| Project | ENGPROD |
+| Component | `hypershell` (lowercase) |
+| Label | `team:hypershell` |
+| Activity Type field | `customfield_10464` |
+| Browse URL | `https://redhat.atlassian.net/browse/` |
+| Board | 348 (ENGPROD kanban, no sprints) |
