@@ -1,10 +1,10 @@
 # OpenShell Gateway TLS Specification
 
-**Date:** 2026-07-22
-**Status:** Implementation-Verified
+**Date:** 2026-08-04
+**Status:** Draft
 **Parent:** `openshell-gateway.spec.md` — core gateway provisioning
 **Related:** `openshell-gateway-oidc.spec.md` — OIDC authentication; `openshell-gateway-routing.spec.md` — external connectivity
-**Verified by:** Working ROSA deployment (PR #415), e2e-openshell.sh (11/11 pass)
+**Context:** Adapted from Agent Control Plane for HyperShell gateway fleet management
 
 ---
 
