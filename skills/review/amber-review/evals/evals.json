@@ -1,0 +1,49 @@
+{
+  "skill_name": "amber-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review this Go handler code for HyperShell conventions. The file is at skills/review/amber-review/evals/files/panic_in_handler.go — it's a gateway deletion handler.",
+      "expected_output": "Should flag multiple panic() calls as Critical/Blocker violations. Should recommend replacing with proper error handling using fmt.Errorf and HTTP error responses. Should also flag missing errors.IsNotFound check.",
+      "files": ["evals/files/panic_in_handler.go"],
+      "expectations": [
+        "Identifies panic() usage as a Critical or Blocker severity finding",
+        "Recommends replacing panic() with proper error returns and HTTP error responses",
+        "References the HyperShell convention that forbids panic() in production code",
+        "Suggests using errors.IsNotFound or equivalent for the 404 case",
+        "Overall assessment is REQUEST_CHANGES, not APPROVE",
+        "Includes a Findings Summary table and Convention Checklist table"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Please review skills/review/amber-review/evals/files/secret_in_logs.go — this is an authentication handler for the HyperShell API server.",
+      "expected_output": "Should flag logging of API keys and tokens as Blocker severity. Should recommend using len(secretValue) or redacted placeholders instead of raw secret values in log output.",
+      "files": ["evals/files/secret_in_logs.go"],
+      "expectations": [
+        "Identifies logging of API key values as a Blocker or Critical severity finding",
+        "Identifies logging of the generated token as a security violation",
+        "Identifies the API key being included in the HTTP error response body as a security issue",
+        "Recommends using len(secretValue) or redacted placeholders instead of raw values",
+        "References the HyperShell security standard about no secrets in logs",
+        "Flags general best-practice issues beyond convention violations (e.g., structured logging, request correlation, input validation)",
+        "Overall assessment is REQUEST_CHANGES, not APPROVE",
+        "Includes a Findings Summary table and Convention Checklist table"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review skills/review/amber-review/evals/files/clean_code.go — it's a fleet GET handler for HyperShell.",
+      "expected_output": "Should find the code largely compliant. Proper error wrapping, IsNotFound handling, no panic(), no secrets logged. May note minor improvements but overall should approve.",
+      "files": ["evals/files/clean_code.go"],
+      "expectations": [
+        "Does NOT flag any Blocker or Critical severity findings",
+        "Recognizes proper error handling with errors.Is for NotFound",
+        "Recognizes no panic() usage",
+        "Recognizes no secrets in log output",
+        "Overall assessment is APPROVE or COMMENT, not REQUEST_CHANGES",
+        "Includes a Findings Summary table and Convention Checklist table"
+      ]
+    }
+  ]
+}

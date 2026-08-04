@@ -34,7 +34,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("connecting to gRPC server: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("ERROR closing gRPC connection: %v", err)
+		}
+	}()
 
 	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()

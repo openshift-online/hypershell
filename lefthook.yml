@@ -1,0 +1,17 @@
+min_version: 2.1.10
+lefthook: go tool lefthook
+
+pre-commit:
+  jobs:
+    - name: Run repository policy checks
+      run: make check
+
+pre-push:
+  jobs:
+    - name: Run repository policy checks
+      run: make check
+
+check:
+  jobs:
+    - name: Run repository policy checks
+      run: make check

@@ -1,14 +1,12 @@
-FROM openapitools/openapi-generator-cli:v7.16.0
+FROM golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651 AS go-toolchain
 
-RUN apt-get update
-RUN apt-get install -y make sudo git golang-1.21
+FROM openapitools/openapi-generator-cli:v7.16.0@sha256:e56372add5e038753fb91aa1bbb470724ef58382fdfc35082bf1b3e079ce353c
+
+COPY --from=go-toolchain /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
 RUN mkdir -p /local
 COPY . /local
 
-ENV PATH="/uhc/bin:/usr/lib/go-1.21/bin/:${PATH}"
-ENV GOPATH="/uhc"
-ENV GOBIN /usr/lib/go-1.21/bin/
 ENV CGO_ENABLED=0
 
 WORKDIR /local

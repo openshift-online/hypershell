@@ -1,0 +1,50 @@
+name: OpenAPI SDK drift
+
+on:
+  pull_request:
+    paths:
+      - components/api-server/openapi/**
+      - components/api-server/pkg/api/openapi/**
+      - components/api-server/Dockerfile.openapi
+      - components/api-server/Makefile
+      - .github/workflows/sdk-drift-check.yml
+  push:
+    branches:
+      - main
+    paths:
+      - components/api-server/openapi/**
+      - components/api-server/pkg/api/openapi/**
+      - components/api-server/Dockerfile.openapi
+      - components/api-server/Makefile
+      - .github/workflows/sdk-drift-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-drift-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-drift:
+    name: Check generated OpenAPI SDK
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Regenerate OpenAPI SDK
+        working-directory: components/api-server
+        run: make generate
+      - name: Check for drift
+        run: |
+          drift="$(git status --porcelain --untracked-files=all -- components/api-server/pkg/api/openapi)"
+          if [[ -n "${drift}" ]]; then
+            echo "Generated OpenAPI SDK files are out of date."
+            echo "Run 'cd components/api-server && make generate' and commit the result."
+            echo "Changed files:"
+            echo "${drift}"
+            git diff -- components/api-server/pkg/api/openapi
+            exit 1
+          fi
+          echo "Generated OpenAPI SDK files are up to date."

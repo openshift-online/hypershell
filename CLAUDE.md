@@ -2,12 +2,24 @@
 
 Distributed API gateway fleet management platform that orchestrates gateway deployments across multiple Kubernetes clusters and cloud providers. Built with Go (API server, control plane). PostgreSQL is the source of truth; the control plane reconciles via gRPC watch streams.
 
+## Before Developing
+
+Install the repository's pinned Git hooks from the repository root before making
+changes:
+
+```shell
+make hooks-install
+```
+
+The pre-commit and pre-push hooks run the repository policy checks. Run the same
+checks manually with `make check`.
+
 ## Structure
 
 - `components/api-server/` - Go REST + gRPC API microservice (rh-trex-ai framework), PostgreSQL-backed
 - `components/control-plane/` - Go service, watches API server via gRPC and reconciles gateway resources into K8s
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
-- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [review](skills/review/review-guidance), [tooling](skills/tooling/)
+- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [tooling](skills/tooling/)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
 
 ## Key Files
@@ -55,7 +67,9 @@ Idempotent: safe to run repeatedly.
 
 Support skills available at any point:
 - `/review-guidance` -- PR review checklist
+- `/amber-review` -- Amber agent comprehensive code review
 - `/align` -- convention health check
+- `/maintain-ci` -- CI workflow and component registration maintenance
 - `/memory` -- project memory management
 
 ## Commands
@@ -96,6 +110,7 @@ Cross-cutting rules that apply across ALL components.
 - **Never silently swallow partial failures**: Every error path must propagate or be collected
 - **Restricted SecurityContext on all containers**: `runAsNonRoot`, drop `ALL` capabilities
 - **Image references must match across the stack**: After changing an image name or tag, grep all overlays and manifests
+- **Register every component in CI**: Use `/maintain-ci` when adding, renaming, moving, or removing a component
 - **Verify contracts and references**: Before building on an assumption, verify the contract
 - **Separate configuration from code**: Config changes must not require code changes
 

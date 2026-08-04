@@ -1,0 +1,16 @@
+[
+  {
+    "kind": "go",
+    "name": "github.com/openshift-online/rh-trex-ai",
+    "version": "v0.0.32-0.20260803221848-ee905fbd54a8",
+    "reason": "HyperShell requires the framework test account API introduced after the cooldown cutoff.",
+    "compensatingVerification": "The dependency is commit-pinned; API server formatting, vet, and golangci-lint run against that exact commit."
+  },
+  {
+    "kind": "go",
+    "name": "go.opentelemetry.io/proto/otlp",
+    "version": "v1.11.0",
+    "reason": "The current telemetry dependency graph resolves this transitive version within the cooldown window.",
+    "compensatingVerification": "The module is checksum-locked; API server and control plane vet and golangci-lint checks cover the resolved graph."
+  }
+]

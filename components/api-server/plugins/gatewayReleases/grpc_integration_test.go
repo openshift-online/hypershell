@@ -45,7 +45,9 @@ func TestGRPCGatewayReleaseCRUD(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewGatewayReleaseServiceClient(conn)
 
@@ -115,7 +117,9 @@ func TestGRPCWatchGatewayReleases(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewGatewayReleaseServiceClient(conn)
 
@@ -222,7 +226,9 @@ func TestGRPCGatewayReleaseErrorHandling(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewGatewayReleaseServiceClient(conn)
 
@@ -232,4 +238,5 @@ func TestGRPCGatewayReleaseErrorHandling(t *testing.T) {
 
 	deleteReq := &pb.DeleteGatewayReleaseRequest{Id: "nonexistent"}
 	_, err = grpcClient.DeleteGatewayRelease(context.Background(), deleteReq)
+	Expect(err).To(HaveOccurred())
 }

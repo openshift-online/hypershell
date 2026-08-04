@@ -70,6 +70,7 @@ func TestManagedClusterPost(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Post(h.RestURL("/managed_clusters"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
@@ -97,6 +98,7 @@ func TestManagedClusterPatch(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Patch(h.RestURL("/managed_clusters/foo"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 

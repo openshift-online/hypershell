@@ -45,7 +45,9 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 
@@ -119,7 +121,9 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 
@@ -226,7 +230,9 @@ func TestGRPCManagedDatabaseErrorHandling(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 
@@ -236,4 +242,5 @@ func TestGRPCManagedDatabaseErrorHandling(t *testing.T) {
 
 	deleteReq := &pb.DeleteManagedDatabaseRequest{Id: "nonexistent"}
 	_, err = grpcClient.DeleteManagedDatabase(context.Background(), deleteReq)
+	Expect(err).To(HaveOccurred())
 }

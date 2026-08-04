@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain CI"
+  short_description: "Keep component-aware CI checks complete"
+  default_prompt: "Use $maintain-ci to update CI safely when adding or changing a component."

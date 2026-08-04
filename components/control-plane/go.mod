@@ -1,6 +1,6 @@
 module github.com/openshift-online/hypershell/components/control-plane
 
-go 1.25.0
+go 1.26.4
 
 require (
 	github.com/openshift-online/hypershell/components/api-server v0.0.0-00010101000000-000000000000

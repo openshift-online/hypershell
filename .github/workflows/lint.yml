@@ -1,0 +1,134 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect changed components
+    runs-on: ubuntu-24.04
+    outputs:
+      api_server: ${{ steps.detect.outputs.api_server }}
+      control_plane: ${{ steps.detect.outputs.control_plane }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Detect changed components
+        id: detect
+        run: bash .github/scripts/detect-components.sh
+
+  lint-api-server:
+    name: Go lint - API server
+    needs: detect-changes
+    if: needs.detect-changes.outputs.api_server == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: hypershell
+      - name: Check out framework dependency
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: openshift-online/rh-trex-ai
+          ref: ee905fbd54a8653e16cfc2115ca684adf5d29bb4
+          path: rh-trex-ai
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: hypershell/components/api-server/go.mod
+          cache-dependency-path: hypershell/components/api-server/go.sum
+      - name: Check formatting
+        working-directory: hypershell/components/api-server
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "${unformatted}" ]]; then
+            echo "The following Go files are not formatted:"
+            echo "${unformatted}"
+            echo "Run 'gofmt -w .' in components/api-server and commit the result."
+            exit 1
+          fi
+      - name: Run go vet
+        working-directory: hypershell/components/api-server
+        run: go vet ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          install-mode: goinstall
+          working-directory: hypershell/components/api-server
+          args: --timeout=5m
+
+  lint-control-plane:
+    name: Go lint - control plane
+    needs: detect-changes
+    if: needs.detect-changes.outputs.control_plane == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: components/control-plane/go.mod
+          cache-dependency-path: components/control-plane/go.sum
+      - name: Check formatting
+        working-directory: components/control-plane
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "${unformatted}" ]]; then
+            echo "The following Go files are not formatted:"
+            echo "${unformatted}"
+            echo "Run 'gofmt -w .' in components/control-plane and commit the result."
+            exit 1
+          fi
+      - name: Run go vet
+        working-directory: components/control-plane
+        run: go vet ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          install-mode: goinstall
+          working-directory: components/control-plane
+          args: --timeout=5m
+
+  summary:
+    name: Lint CI gate
+    if: always()
+    needs:
+      - detect-changes
+      - lint-api-server
+      - lint-control-plane
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check lint results
+        env:
+          DETECTION_RESULT: ${{ needs.detect-changes.result }}
+          API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
+          CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
+        run: |
+          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}"; do
+            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
+              echo "One or more lint jobs failed or were cancelled."
+              exit 1
+            fi
+          done
+          echo "All relevant lint jobs passed or were skipped."
