@@ -1,0 +1,7 @@
+[
+  {
+    "kind": "go",
+    "name": "github.com/golangci/golangci-lint/v2",
+    "version": "v2.12.2"
+  }
+]

@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: openshift-online/rh-trex-ai
-          ref: 7b5a01f4c73a5993dc433977c154eab15fea2de0
+          ref: ee905fbd54a8653e16cfc2115ca684adf5d29bb4
           path: rh-trex-ai
           persist-credentials: false
       - name: Set up Go

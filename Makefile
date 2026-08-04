@@ -3,6 +3,7 @@ LEFTHOOK_CMD=go tool lefthook
 GO_TOOLCHAIN=go1.26.4
 GOLANGCI_LINT_VERSION=v2.12.2
 GOLANGCI_LINT_PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+DEPENDENCY_MIN_AGE_DAYS=14
 
 .PHONY: build-all
 build-all:
@@ -21,8 +22,16 @@ check-dependency-pins:
 check-ci-components:
 	python3 scripts/check_ci_components.py
 
+.PHONY: test-dependency-age-policy
+test-dependency-age-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_dependency_age.py
+
+.PHONY: check-dependency-age
+check-dependency-age: test-dependency-age-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
 
 .PHONY: hooks-install
 hooks-install:

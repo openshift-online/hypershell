@@ -23,7 +23,9 @@ Keep required CI coverage complete while running expensive checks only for affec
 5. Use `pull_request` for PR validation and restrict `push` to `main` to avoid duplicate
    feature-branch runs. Include `merge_group` when the check is required for merge queues.
 6. Pin every action to a full commit SHA, every container image to a digest, and every
-   installed tool to an exact version. Run `make check` to enforce repository policy.
+   installed tool to an exact version. Register tools that are not part of a module or
+   lockfile in `dependency-age-tools.json`. Run `make check` to enforce immutable pins
+   and the minimum dependency age.
 
 ## Component Lifecycle Checklist
 
