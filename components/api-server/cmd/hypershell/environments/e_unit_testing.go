@@ -3,9 +3,9 @@ package environments
 import (
 	"os"
 
-	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/pkg/config"
 	dbmocks "github.com/openshift-online/rh-trex-ai/pkg/db/mocks"
+	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
 )
 
 var _ pkgenv.EnvironmentImpl = &UnitTestingEnvImpl{}

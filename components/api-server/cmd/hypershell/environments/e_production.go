@@ -1,9 +1,9 @@
 package environments
 
 import (
-	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/pkg/config"
 	"github.com/openshift-online/rh-trex-ai/pkg/db/db_session"
+	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
 )
 
 var _ pkgenv.EnvironmentImpl = &ProductionEnvImpl{}
@@ -35,8 +35,8 @@ func (e *ProductionEnvImpl) OverrideClients(c *pkgenv.Clients) error {
 
 func (e *ProductionEnvImpl) Flags() map[string]string {
 	return map[string]string{
-		"v":               "1",
-		"debug":           "false",
-		"enable-mock":     "false",
+		"v":           "1",
+		"debug":       "false",
+		"enable-mock": "false",
 	}
 }

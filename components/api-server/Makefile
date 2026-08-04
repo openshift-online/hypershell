@@ -1,5 +1,6 @@
 BINARY_NAME=hypershell
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
+POSTGRES_IMAGE=postgres:13@sha256:4689940c683801b4ab839ab3b0a0a3555a5fe425371422310944e89eca7d8068
 
 # Version information for ldflags
 git_sha:=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -54,7 +55,7 @@ db/setup:
 		-e POSTGRES_PASSWORD=postgres \
 		-e POSTGRES_USER=postgres \
 		-e POSTGRES_DB=hypershell \
-		postgres:13
+		$(POSTGRES_IMAGE)
 
 .PHONY: db/teardown
 db/teardown:

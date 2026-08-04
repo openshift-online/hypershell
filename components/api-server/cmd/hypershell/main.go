@@ -7,14 +7,14 @@ import (
 	pkgcmd "github.com/openshift-online/rh-trex-ai/pkg/cmd"
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
-	_ "github.com/openshift-online/rh-trex-ai/plugins/events"
-	_ "github.com/openshift-online/rh-trex-ai/plugins/generic"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/fleets"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
+	_ "github.com/openshift-online/rh-trex-ai/plugins/events"
+	_ "github.com/openshift-online/rh-trex-ai/plugins/generic"
 )
 
 func main() {

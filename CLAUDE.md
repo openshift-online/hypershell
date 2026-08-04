@@ -2,6 +2,18 @@
 
 Distributed API gateway fleet management platform that orchestrates gateway deployments across multiple Kubernetes clusters and cloud providers. Built with Go (API server, control plane). PostgreSQL is the source of truth; the control plane reconciles via gRPC watch streams.
 
+## Before Developing
+
+Install the repository's pinned Git hooks from the repository root before making
+changes:
+
+```shell
+make hooks-install
+```
+
+The pre-commit and pre-push hooks run the repository policy checks. Run the same
+checks manually with `make check`.
+
 ## Structure
 
 - `components/api-server/` - Go REST + gRPC API microservice (rh-trex-ai framework), PostgreSQL-backed

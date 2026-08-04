@@ -1,12 +1,32 @@
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
+LEFTHOOK_CMD=go tool lefthook
 
 .PHONY: build-all
 build-all:
 	cd components/api-server && $(MAKE) image
 	cd components/api-server && $(MAKE) image-controller
 
+.PHONY: check-forbidden-terms
+check-forbidden-terms:
+	python3 scripts/check_forbidden_terms.py
+
+.PHONY: check-dependency-pins
+check-dependency-pins:
+	python3 scripts/check_dependency_pins.py
+
+.PHONY: check
+check: check-forbidden-terms check-dependency-pins
+
+.PHONY: hooks-install
+hooks-install:
+	$(LEFTHOOK_CMD) install
+
+.PHONY: hooks-run
+hooks-run:
+	$(LEFTHOOK_CMD) run check
+
 .PHONY: lint
-lint:
+lint: check
 	cd components/api-server && go fmt ./... && go vet ./...
 	cd components/control-plane && go fmt ./... && go vet ./...
 

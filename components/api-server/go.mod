@@ -1,6 +1,6 @@
 module github.com/openshift-online/hypershell/components/api-server
 
-go 1.25.0
+go 1.26.4
 
 require (
 	github.com/go-gormigrate/gormigrate/v2 v2.1.5

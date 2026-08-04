@@ -6,7 +6,7 @@ targets:
 - claude
 dependencies:
   apm:
-  - OpenShift-Fleet/agentic-sdlc
+  - OpenShift-Fleet/agentic-sdlc#7995f9bacb12392234ee89ef380aa65f455ba4ea
   mcp: []
 includes: auto
 scripts: {}

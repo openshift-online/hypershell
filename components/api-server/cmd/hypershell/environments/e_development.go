@@ -1,9 +1,9 @@
 package environments
 
 import (
-	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/pkg/config"
 	"github.com/openshift-online/rh-trex-ai/pkg/db/db_session"
+	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
 )
 
 type DevEnvImpl struct {
@@ -40,7 +40,7 @@ func (e *DevEnvImpl) Flags() map[string]string {
 		"v":                      "10",
 		"enable-authz":           "false",
 		"debug":                  "false",
-		"enable-mock":             "true",
+		"enable-mock":            "true",
 		"enable-https":           "false",
 		"enable-metrics-https":   "false",
 		"api-server-hostname":    "localhost",
