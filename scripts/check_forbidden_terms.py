@@ -21,6 +21,8 @@ _TERM_PARTS = (
     ("agent", "-control", "-plane"),
     ("amb", "ient", "-code"),
     ("amb", "ient"),
+    ("v", "team"),
+    ("v", "-team"),
 )
 _DISPLAY_TERMS = tuple("".join(parts) for parts in _TERM_PARTS)
 _PATTERNS = tuple(
