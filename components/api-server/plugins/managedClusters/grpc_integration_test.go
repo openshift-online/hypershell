@@ -45,7 +45,9 @@ func TestGRPCManagedClusterCRUD(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewManagedClusterServiceClient(conn)
 
@@ -115,7 +117,9 @@ func TestGRPCWatchManagedClusters(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewManagedClusterServiceClient(conn)
 
@@ -222,7 +226,9 @@ func TestGRPCManagedClusterErrorHandling(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewManagedClusterServiceClient(conn)
 
@@ -232,4 +238,5 @@ func TestGRPCManagedClusterErrorHandling(t *testing.T) {
 
 	deleteReq := &pb.DeleteManagedClusterRequest{Id: "nonexistent"}
 	_, err = grpcClient.DeleteManagedCluster(context.Background(), deleteReq)
+	Expect(err).To(HaveOccurred())
 }

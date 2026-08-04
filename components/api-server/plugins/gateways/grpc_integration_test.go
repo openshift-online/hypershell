@@ -45,7 +45,9 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewGatewayServiceClient(conn)
 
@@ -123,7 +125,9 @@ func TestGRPCWatchGateways(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewGatewayServiceClient(conn)
 
@@ -230,7 +234,9 @@ func TestGRPCGatewayErrorHandling(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewGatewayServiceClient(conn)
 
@@ -240,4 +246,5 @@ func TestGRPCGatewayErrorHandling(t *testing.T) {
 
 	deleteReq := &pb.DeleteGatewayRequest{Id: "nonexistent"}
 	_, err = grpcClient.DeleteGateway(context.Background(), deleteReq)
+	Expect(err).To(HaveOccurred())
 }

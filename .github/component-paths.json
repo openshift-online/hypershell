@@ -1,0 +1,26 @@
+{
+  "api_server": {
+    "directory": "components/api-server",
+    "lint_job": "lint-api-server",
+    "paths": [
+      "components/api-server/**",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
+  },
+  "control_plane": {
+    "directory": "components/control-plane",
+    "lint_job": "lint-control-plane",
+    "paths": [
+      "components/control-plane/**",
+      "components/api-server/pkg/api/grpc/**",
+      "components/api-server/proto/**",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
+  }
+}

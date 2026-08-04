@@ -66,6 +66,7 @@ func TestFleetPost(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Post(h.RestURL("/fleets"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
@@ -93,6 +94,7 @@ func TestFleetPatch(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Patch(h.RestURL("/fleets/foo"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 

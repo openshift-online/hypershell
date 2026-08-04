@@ -68,6 +68,7 @@ Idempotent: safe to run repeatedly.
 Support skills available at any point:
 - `/review-guidance` -- PR review checklist
 - `/align` -- convention health check
+- `/maintain-ci` -- CI workflow and component registration maintenance
 - `/memory` -- project memory management
 
 ## Commands
@@ -108,6 +109,7 @@ Cross-cutting rules that apply across ALL components.
 - **Never silently swallow partial failures**: Every error path must propagate or be collected
 - **Restricted SecurityContext on all containers**: `runAsNonRoot`, drop `ALL` capabilities
 - **Image references must match across the stack**: After changing an image name or tag, grep all overlays and manifests
+- **Register every component in CI**: Use `/maintain-ci` when adding, renaming, moving, or removing a component
 - **Verify contracts and references**: Before building on an assumption, verify the contract
 - **Separate configuration from code**: Config changes must not require code changes
 

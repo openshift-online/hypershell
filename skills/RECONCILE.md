@@ -29,6 +29,8 @@ skills/
 │   └── review-guidance/      # PR review checklists
 └── tooling/
     ├── align/                # Convention compliance scoring
+    ├── jira-log/             # Jira work logging
+    ├── maintain-ci/          # CI and component registration maintenance
     └── memory/               # Project memory management
 ```
 

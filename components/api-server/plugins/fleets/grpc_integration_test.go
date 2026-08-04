@@ -45,7 +45,9 @@ func TestGRPCFleetCRUD(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewFleetServiceClient(conn)
 
@@ -107,7 +109,9 @@ func TestGRPCWatchFleets(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewFleetServiceClient(conn)
 
@@ -214,7 +218,9 @@ func TestGRPCFleetErrorHandling(t *testing.T) {
 		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
 	)
 	Expect(err).NotTo(HaveOccurred())
-	defer conn.Close()
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
 
 	grpcClient := pb.NewFleetServiceClient(conn)
 
@@ -224,4 +230,5 @@ func TestGRPCFleetErrorHandling(t *testing.T) {
 
 	deleteReq := &pb.DeleteFleetRequest{Id: "nonexistent"}
 	_, err = grpcClient.DeleteFleet(context.Background(), deleteReq)
+	Expect(err).To(HaveOccurred())
 }

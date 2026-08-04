@@ -72,6 +72,7 @@ func TestManagedDatabasePost(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Post(h.RestURL("/managed_databases"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
@@ -99,6 +100,7 @@ func TestManagedDatabasePatch(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Patch(h.RestURL("/managed_databases/foo"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 

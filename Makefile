@@ -1,5 +1,8 @@
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
 LEFTHOOK_CMD=go tool lefthook
+GO_TOOLCHAIN=go1.26.4
+GOLANGCI_LINT_VERSION=v2.12.2
+GOLANGCI_LINT_PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: build-all
 build-all:
@@ -14,8 +17,12 @@ check-forbidden-terms:
 check-dependency-pins:
 	python3 scripts/check_dependency_pins.py
 
+.PHONY: check-ci-components
+check-ci-components:
+	python3 scripts/check_ci_components.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins
+check: check-forbidden-terms check-dependency-pins check-ci-components
 
 .PHONY: hooks-install
 hooks-install:
@@ -25,10 +32,30 @@ hooks-install:
 hooks-run:
 	$(LEFTHOOK_CMD) run check
 
+.PHONY: lint-api-server
+lint-api-server:
+	@unformatted="$$(gofmt -l components/api-server)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following API server files are not formatted:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	cd components/api-server && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
+	cd components/api-server && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+
+.PHONY: lint-control-plane
+lint-control-plane:
+	@unformatted="$$(gofmt -l components/control-plane)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following control plane files are not formatted:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	cd components/control-plane && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
+	cd components/control-plane && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+
 .PHONY: lint
-lint: check
-	cd components/api-server && go fmt ./... && go vet ./...
-	cd components/control-plane && go fmt ./... && go vet ./...
+lint: check lint-api-server lint-control-plane
 
 .PHONY: test-all
 test-all:

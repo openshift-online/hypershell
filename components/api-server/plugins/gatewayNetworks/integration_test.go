@@ -69,6 +69,7 @@ func TestGatewayNetworkPost(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Post(h.RestURL("/gateway_networks"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
@@ -96,6 +97,7 @@ func TestGatewayNetworkPatch(t *testing.T) {
 		SetBody(`{ this is invalid }`).
 		Patch(h.RestURL("/gateway_networks/foo"))
 
+	Expect(err).NotTo(HaveOccurred())
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
