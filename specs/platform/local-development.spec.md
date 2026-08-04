@@ -17,9 +17,52 @@ Developers selectively swap individual components with local builds using per-co
 | API Server | Deployment | Registry: `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest` | REST + gRPC API, with init container for DB migrations |
 | Control Plane | Deployment | Registry: `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-controller-main:latest` | gRPC watcher + reconciler for gateway lifecycle; provisions the database |
 
-### Database Provisioning
+### Cluster Prerequisites
 
-The local environment SHALL NOT deploy PostgreSQL directly. Instead, `make kind-up` SHALL create a Gateway resource with `database.type: postgres` and `database.image: registry.redhat.io/rhel9/postgresql-16:latest` so that the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
+`make kind-up` SHALL install the following cluster-level prerequisites before deploying HyperShell components:
+
+| Prerequisite | Purpose |
+|--------------|---------|
+| cert-manager | TLS certificate lifecycle for gateway certificates (issuance, renewal, rotation) |
+| Keycloak | OIDC identity provider for local gateway authentication testing |
+
+cert-manager SHALL be installed via `kubectl apply -f` from the cert-manager release manifests (with CRDs enabled) and the setup SHALL wait for the cert-manager controller deployment to reach ready state before proceeding.
+
+### Gateway Resource
+
+`make kind-up` SHALL create a Gateway resource that the control plane reconciler uses to provision the full gateway stack. The Gateway resource SHALL include:
+
+```yaml
+kind: Gateway
+name: openshell-gateway
+database:
+  type: postgres
+  image: registry.redhat.io/rhel9/postgresql-16:latest
+serverDnsNames:
+  - openshell-gateway.hypershell-system.svc.cluster.local
+oidc:
+  issuer: http://keycloak-service:8080/realms/hypershell
+  audience: openshell-cli
+  roles_claim: realm_access.roles
+  admin_role: openshell-admin
+  user_role: openshell-user
+```
+
+The local environment SHALL NOT deploy PostgreSQL directly. The control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
+
+### Keycloak Configuration
+
+The Kind cluster Keycloak instance SHALL be configured with:
+
+| Setting | Value |
+|---------|-------|
+| Realm | `hypershell` |
+| Client | `openshell-cli` (public, standard flow + direct access grants) |
+| Admin role | `openshell-admin` |
+| User role | `openshell-user` |
+| Users | `admin` (admin role), `developer` (user role) |
+
+The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
 
 ## Requirements
 
@@ -239,4 +282,7 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | Deployment restart on swap | Forces pods to pick up newly loaded images even when the tag hasn't changed |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-16 image; control plane reconciler provisions the database via GatewayReconciler (`openshell-gateway-database.spec.md`), exercising the same path as production |
+| PostgreSQL 16 (not 18) | Stability over cutting-edge; Red Hat hardened image (`registry.redhat.io/rhel9/postgresql-16`) avoids Docker Hub rate limits and matches production image policy |
+| cert-manager as prerequisite | Automates TLS certificate lifecycle (issuance, renewal, rotation) for gateway certificates; eliminates manual re-runs of the certgen job |
+| Keycloak for local OIDC | Enables end-to-end OIDC testing without an external identity provider; realm and roles mirror production Keycloak configuration |
 | Configurable `IMAGE_REGISTRY` and `IMAGE_TAG` | Allows teams to test against different builds or staging registries |
