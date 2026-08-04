@@ -1,9 +1,9 @@
 # OpenShell Gateway Database Specification
 
-**Date:** 2026-07-22
-**Status:** Implementation-Verified
+**Date:** 2026-08-04
+**Status:** Draft
 **Parent:** `openshell-gateway.spec.md` — core gateway provisioning
-**Verified by:** Working ROSA deployment (PR #415)
+**Context:** Adapted from Agent Control Plane for HyperShell gateway fleet management
 
 ---
 
@@ -23,10 +23,10 @@ The Gateway API resource SHALL accept an optional `database` object.
 |---|---|---|---|---|
 | `database.type` | string | Yes (when `database` set) | `sqlite` | `sqlite`, `postgres`, or future `rds` |
 | `database.storageSize` | string | No | `5Gi` | PVC size for PostgreSQL data |
-| `database.image` | string | No | `registry.redhat.io/rhel9/postgresql-16:latest` | PostgreSQL container image |
+| `database.image` | string | No | `registry.redhat.io/rhel9/postgresql-16:latest` | Red Hat hardened PostgreSQL container image |
 | `database.externalSecretRef` | string | No | — | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
 
-> **Implementation note (corrected):** The default database image is `registry.redhat.io/rhel9/postgresql-16:latest`, not `postgres:16`. Docker Hub images are rate-limited on ROSA/OpenShift. The RHEL image is pre-authenticated via the cluster's pull secret and matches the API server's database deployment pattern.
+> **Implementation note:** The default database image uses Red Hat hardened PostgreSQL `registry.redhat.io/rhel9/postgresql-16:latest` for security and enterprise support. Docker Hub images have rate limits and lack security hardening. PostgreSQL 16 provides stable, production-ready features while PostgreSQL 18 adoption will be evaluated for future updates.
 
 ---
 
@@ -73,6 +73,14 @@ When the database image contains `rhel`, the reconciler SHALL use `POSTGRESQL_*`
 - The database Secret SHALL be created with create-or-skip semantics (do NOT update password on re-reconciliation)
 - The `url` key in the Secret provides the full connection string for the gateway's `--db-url` argument
 
+#### Manual Credential Rotation
+
+For security incident response, database credentials can be rotated manually:
+1. Add annotation `hypershell.io/rotate-db-credentials: "<timestamp>"` to the Gateway resource
+2. The reconciler will detect the annotation, generate new credentials, and restart the gateway
+3. This process incurs brief downtime during gateway restart (~30-60 seconds)
+4. Automatic credential rotation is not implemented in this initial version
+
 ---
 
 ### Requirement: Gateway Workload Switching
@@ -114,6 +122,7 @@ Database resources (Secret, PVC, Deployment, Service, NetworkPolicy) SHALL be ap
 - AND it SHALL delete the existing StatefulSet
 - AND it SHALL create a Deployment for the gateway
 - AND existing SQLite data SHALL NOT be migrated (fresh database)
+- **WARNING**: This transition will result in complete data loss. All gateway configuration, sandbox state, and user data will be lost.
 
 #### Scenario: Postgres to SQLite
 
@@ -122,6 +131,7 @@ Database resources (Secret, PVC, Deployment, Service, NetworkPolicy) SHALL be ap
 - THEN the reconciler SHALL delete the Deployment
 - AND it SHALL create a StatefulSet for the gateway
 - AND database resources (DB Deployment, PVC, Service, Secret) SHALL be cleaned up
+- **WARNING**: This transition will result in complete data loss. All gateway configuration and database contents will be permanently deleted.
 
 ---
 

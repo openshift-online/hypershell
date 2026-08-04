@@ -1,9 +1,9 @@
 # OpenShell Gateway Specification
 
-**Date:** 2026-07-22
-**Status:** Implementation-Verified
-**Supersedes:** Previous ConfigMap-based `platform-config` gateway provisioning design; individual `gateway-provisioning.spec.md`, `gateway-oidc.spec.md`, `gateway-route-exposure.spec.md`, `gateway-db-provisioning.spec.md` specs (now consolidated here)
-**Related:** `openshell-sandbox-provisioning.spec.md` — gateway mode usage; `control-plane.spec.md` — CP reconciliation patterns; `data-model.spec.md` — Gateway kind definition; `security/gateway-rbac-policy.spec.md` — gateway RBAC; `e2e-test-tooling.spec.md` — mock LLM and self-contained testing; `cli/gateway-cli.spec.md` — CLI gateway commands
+**Date:** 2026-08-04
+**Status:** Draft
+**Supersedes:** N/A (Initial HyperShell gateway specification)
+**Related:** `control-plane.spec.md` — CP reconciliation patterns; `data-model.spec.md` — Gateway kind definition
 **Skill:** `skills/build/full-stack-pipeline/` — wave-based implementation pipeline
 **Upstream:** [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) — gateway Helm chart, `server.externalDbSecret` pattern; [OpenShell OIDC User Authentication](https://docs.nvidia.com/openshell/latest/kubernetes/access-control#oidc-user-authentication)
 
