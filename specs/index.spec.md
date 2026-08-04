@@ -23,3 +23,4 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
 | `standards/security/security.spec.md` | standards | - | ALL | - |
+| `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |
