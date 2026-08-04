@@ -131,5 +131,3 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
 )
-
-replace github.com/openshift-online/rh-trex-ai => ../../../rh-trex-ai

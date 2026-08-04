@@ -23,6 +23,9 @@ skills/
 │   ├── reconcile/            # Meta-orchestrator: reads this file, executes waves
 │   ├── full-stack-pipeline/  # Single-spec wave-based implementation pipeline
 │   └── dev-cluster/          # Kind cluster lifecycle for local testing
+├── deploy/
+│   ├── deploy-cluster/       # OpenShift deployment (internal registry, kustomize)
+│   └── kind/                 # Kind local development (image loading, NodePort)
 ├── plan/
 │   └── spec/                 # Spec authoring (desired state)
 ├── review/
@@ -36,7 +39,7 @@ skills/
     └── memory/               # Project memory management
 ```
 
-**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/dev-cluster`
+**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/kind`
 
 ---
 

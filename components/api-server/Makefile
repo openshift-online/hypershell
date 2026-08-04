@@ -99,7 +99,7 @@ KIND_API_PORT?=23080
 IMAGE_NAME=hypershell
 CONTROLLER_IMAGE_NAME=hypershell-controller
 IMAGE_TAG=dev
-BUILD_CONTEXT=$(shell dirname $(shell pwd))
+COMPONENTS_DIR=$(shell dirname $(shell pwd))
 
 .PHONY: image
 image:
@@ -107,13 +107,13 @@ image:
 		-f Dockerfile \
 		--build-arg GIT_VERSION=$(build_version) \
 		--build-arg BUILD_TIME="$(build_time)" \
-		$(BUILD_CONTEXT)
+		.
 
 .PHONY: image-controller
 image-controller:
 	$(CONTAINER_ENGINE) build -t $(CONTROLLER_IMAGE_NAME):$(IMAGE_TAG) \
 		-f Dockerfile.controller \
-		$(BUILD_CONTEXT)
+		$(COMPONENTS_DIR)
 
 .PHONY: images
 images: image image-controller
