@@ -6,7 +6,7 @@
 
 ## Purpose
 
-HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components — API server and control plane — so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors.
+HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components — API server, control plane, and web console — so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors.
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
 
@@ -16,6 +16,7 @@ Developers selectively swap individual components with local builds using per-co
 |-----------|------|-------|---------|
 | API Server | Deployment | Registry: `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest` | REST + gRPC API, with init container for DB migrations |
 | Control Plane | Deployment | Registry: `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-controller-main:latest` | gRPC watcher + reconciler for gateway lifecycle; provisions the database |
+| Web Console | Deployment | Registry: `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-web-console-main:latest` | Browser-based management UI (Node.js); supports hot reload |
 
 ### Cluster Prerequisites
 
@@ -116,6 +117,13 @@ The system SHALL provide per-component Make targets that build a single componen
 - AND the control plane deployment SHALL be replaced with the newly built image
 - AND the system SHALL wait for the control plane to become ready
 
+#### Scenario: Swap Web Console
+- GIVEN a Kind cluster is running
+- WHEN a developer runs `make kind-web-console-up`
+- THEN if `KIND_HOT_RELOAD=true`, the web console source SHALL be mounted from the host and a dev server (`npm run dev`) SHALL be started
+- OTHERWISE the web console image SHALL be built from the current working tree, loaded, and the deployment replaced
+- AND the system SHALL wait for the web console to become ready
+
 #### Scenario: Re-Swap Already Swapped Component
 - GIVEN the API server is already running a local build
 - WHEN a developer runs `make kind-api-server-up` again
@@ -125,7 +133,7 @@ The system SHALL provide per-component Make targets that build a single componen
 
 #### Scenario: No Cluster Running
 - GIVEN no Kind cluster exists
-- WHEN a developer runs `make kind-api-server-up` or `make kind-control-plane-up`
+- WHEN a developer runs any per-component swap target
 - THEN the command SHALL exit with an error
 - AND print a message directing the developer to run `make kind-up` first
 
@@ -145,9 +153,17 @@ The system SHALL provide per-component Make targets that build a single componen
 - AND the system SHALL wait for the control plane to become ready
 - AND swap tracking SHALL be cleared for the control plane
 
+#### Scenario: Revert Web Console Swap
+- GIVEN the web console is running a local build or hot reload
+- WHEN a developer runs `make kind-web-console-down`
+- THEN the web console image SHALL be reverted to the baseline image
+- AND the web console deployment SHALL be restarted
+- AND the system SHALL wait for the web console to become ready
+- AND swap tracking SHALL be cleared for the web console
+
 #### Scenario: Revert When Not Swapped
 - GIVEN a component is already running the baseline image
-- WHEN a developer runs `make kind-api-server-down` or `make kind-control-plane-down`
+- WHEN a developer runs the corresponding `-down` target
 - THEN the command SHALL print an info message indicating the component is already running the baseline image
 - AND exit without error (no-op)
 
@@ -206,6 +222,7 @@ All services that developers need to access during development SHALL be exposed 
 | HTTP API | `KIND_API_PORT` | `23080` | `30080` | REST API access |
 | gRPC | `KIND_GRPC_PORT` | `29000` | `30090` | gRPC streaming (control plane, CLI) |
 | Health | `KIND_HEALTH_PORT` | `24434` | `30434` | Health check endpoint |
+| Web Console | `KIND_CONSOLE_PORT` | `23000` | `30300` | Browser UI |
 
 #### Scenario: Default Ports
 - GIVEN no port environment variables are set
@@ -213,6 +230,7 @@ All services that developers need to access during development SHALL be exposed 
 - THEN the HTTP API SHALL be accessible at `localhost:23080`
 - AND the gRPC endpoint SHALL be accessible at `localhost:29000`
 - AND the health endpoint SHALL be accessible at `localhost:24434`
+- AND the web console SHALL be accessible at `localhost:23000`
 
 #### Scenario: Custom Ports
 - GIVEN `KIND_API_PORT` is set to `8080`
@@ -262,11 +280,11 @@ The system SHALL track which components have been swapped to local builds using 
 
 ### Requirement: No Separate Rebuild Target
 
-The system SHALL NOT provide a separate `make kind-rebuild` target. The `make kind-up` target SHALL absorb full rebuild-and-redeploy behavior. Per-component targets (`make kind-api-server-up`, `make kind-control-plane-up`) handle selective rebuilds from local source.
+The system SHALL NOT provide a separate `make kind-rebuild` target. The `make kind-up` target SHALL absorb full rebuild-and-redeploy behavior. Per-component targets (`make kind-api-server-up`, `make kind-control-plane-up`, `make kind-web-console-up`) handle selective rebuilds from local source.
 
 ### Requirement: Hot Reload Support
 
-The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes, enabling `hostPath` volumes for live source mounting.
+The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes, enabling `hostPath` volumes for live source mounting. The web console is the first component to support hot reload.
 
 | Setting | Value |
 |---------|-------|
@@ -274,30 +292,36 @@ The Kind cluster configuration SHALL include `extraMounts` that map a host direc
 | Container path | `/mnt/host` on each Kind node |
 | Read-only | `false` (writable, required for npm file watchers) |
 
-When hot reload is enabled for a component, `kind-<component>-up` SHALL mount the host source directory into the container and run a dev server (e.g. `npm run dev`) instead of performing a full image rebuild. File changes on the host are reflected inside the container immediately. When hot reload is disabled (the default), `kind-<component>-up` SHALL rebuild the image from the working tree and replace the deployment as normal.
+When hot reload is enabled, `kind-<component>-up` for a supported component SHALL mount the host source directory into the container and run a dev server (e.g. `npm run dev`) instead of performing a full image rebuild. File changes on the host are reflected inside the container immediately. When hot reload is disabled (the default), `kind-<component>-up` SHALL rebuild the image from the working tree and replace the deployment as normal.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `KIND_HOT_RELOAD` | (unset — disabled) | Set to `true` to enable hot reload mode for components that support it |
 
-#### Scenario: Hot Reload Enabled
+| Component | Hot Reload Support |
+|-----------|-------------------|
+| Web Console | Yes — mounts `components/web-console/` and runs `npm run dev` |
+| API Server | No — Go service, rebuild-and-replace only |
+| Control Plane | No — Go service, rebuild-and-replace only |
+
+#### Scenario: Web Console Hot Reload
 - GIVEN a Kind cluster is running
 - AND `KIND_HOT_RELOAD=true` is set
-- WHEN a developer runs `make kind-<component>-up` for a component that supports hot reload
-- THEN the component's source directory SHALL be mounted from the host into the container via a `hostPath` volume
-- AND a dev server process (e.g. `npm run dev`) SHALL be started inside the container
+- WHEN a developer runs `make kind-web-console-up`
+- THEN the `components/web-console/` source directory SHALL be mounted from the host into the container via a `hostPath` volume
+- AND `npm run dev` SHALL be started inside the container
 - AND file changes on the host SHALL be reflected inside the container without rebuilding
 
-#### Scenario: Hot Reload Disabled
+#### Scenario: Web Console Without Hot Reload
 - GIVEN a Kind cluster is running
 - AND `KIND_HOT_RELOAD` is not set
-- WHEN a developer runs `make kind-<component>-up`
-- THEN the component image SHALL be rebuilt from the working tree
+- WHEN a developer runs `make kind-web-console-up`
+- THEN the web console image SHALL be rebuilt from the working tree
 - AND the deployment SHALL be replaced with the newly built image
 
-#### Scenario: Component Does Not Support Hot Reload
+#### Scenario: Hot Reload on Unsupported Component
 - GIVEN `KIND_HOT_RELOAD=true` is set
-- WHEN a developer runs `make kind-<component>-up` for a component that does not support hot reload (e.g. a Go service)
+- WHEN a developer runs `make kind-api-server-up` or `make kind-control-plane-up`
 - THEN the component SHALL fall back to the normal rebuild-and-replace flow
 - AND an info message SHALL indicate that hot reload is not supported for that component
 
@@ -321,6 +345,8 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | `make kind-api-server-down` | Revert api-server to baseline image + restart + wait |
 | `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
+| `make kind-web-console-up` | With `KIND_HOT_RELOAD`: mount source + run `npm run dev`; without: build + load + replace deployment + wait |
+| `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
 
 ## Design Decisions
 
@@ -334,7 +360,8 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | `kind create cluster \|\| true` for idempotency | Re-running after cluster exists is a no-op, not an error |
 | Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
-| Hot reload via `KIND_HOT_RELOAD` flag | When enabled, swap targets mount host source and run a dev server instead of rebuilding; when disabled (default), swap targets rebuild and replace as normal. Keeps the same `kind-<component>-up` entrypoint for both workflows |
+| Web console as first-class component | Node.js frontend (`components/web-console/`) deployed alongside API server and control plane; supports hot reload via `KIND_HOT_RELOAD` for rapid UI iteration |
+| Hot reload via `KIND_HOT_RELOAD` flag | When enabled, swap targets for supported components (web console) mount host source and run a dev server instead of rebuilding; when disabled (default), swap targets rebuild and replace as normal. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`openshell-gateway-database.spec.md`), exercising the same path as production |
 | PostgreSQL 18 with RHEL hardened image | Red Hat hardened image (`registry.redhat.io/rhel9/postgresql-18`) avoids Docker Hub rate limits and matches production image policy |
