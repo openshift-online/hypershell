@@ -170,7 +170,7 @@ spec:
       protocol: TCP
 ```
 
-> **Implementation note:** The reconciler SHOULD create this NetworkPolicy automatically when it detects OpenShift (`isOpenShift=true`). This is a known gap — currently it must be created manually. See "Reconciler Improvements" below.
+> **Implementation note (resolved):** The reconciler now creates this NetworkPolicy automatically when it detects OpenShift (`isOpenShift=true`). Implemented in `internal/gateway/reconciler.go` — `reconcileRouterNetworkPolicy()`. Verified on ROSA `vteam-stage` (2026-08-05).
 
 ---
 
@@ -293,7 +293,7 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
 
 ## Reconciler Improvements (Planned)
 
-1. **NetworkPolicy for router ingress**: The reconciler SHOULD create `openshell-gateway-allow-router` automatically when a Route is configured on an OpenShift cluster.
+1. ~~**NetworkPolicy for router ingress**: The reconciler SHOULD create `openshell-gateway-allow-router` automatically when a Route is configured on an OpenShift cluster.~~ **Done** — `reconcileRouterNetworkPolicy()` in `internal/gateway/reconciler.go` (2026-08-05).
 
 2. **Route management**: The reconciler SHOULD create/update the passthrough Route with the `router: grpc` label for NLB-backed ingress, as an alternative to Gateway API GRPCRoutes.
 
@@ -310,6 +310,7 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
 | 503 Service Unavailable from route | SNI mismatch — HAProxy can't match hostname | Ensure Route hostname matches cert SAN |
 | grpcurl hangs but openssl s_client works | grpcurl blocked by NetworkPolicy | Check source namespace |
 | `acpctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` or create NLB Route manually |
+| `CertificateRequired` via route, curl works with certs | openshell CLI does not load `mtls/` certs for remote gateways | Remove `client_ca_path` (no OIDC mode) or configure OIDC (optional mTLS mode) |
 
 ---
 

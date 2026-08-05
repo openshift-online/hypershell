@@ -11,10 +11,17 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 )
+
+const defaultManifestsDir = "/manifests/gateway"
 
 func main() {
 	cfg, err := config.Load()
@@ -36,12 +43,51 @@ func main() {
 	}
 	defer conn.Close()
 
+	k8sConfig, err := rest.InClusterConfig()
+	if err != nil {
+		log.Printf("WARN not running in-cluster, gateway reconciliation will be limited: %v", err)
+	}
+
+	var clientset *kubernetes.Clientset
+	var dynamicClient dynamic.Interface
+
+	if k8sConfig != nil {
+		clientset, err = kubernetes.NewForConfig(k8sConfig)
+		if err != nil {
+			log.Fatalf("creating kubernetes clientset: %v", err)
+		}
+
+		dynamicClient, err = dynamic.NewForConfig(k8sConfig)
+		if err != nil {
+			log.Fatalf("creating dynamic client: %v", err)
+		}
+	}
+
 	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
 	databaseReconciler := reconciler.NewManagedDatabaseReconciler()
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler()
-	gatewayReconciler := reconciler.NewGatewayReconciler()
 	networkReconciler := reconciler.NewGatewayNetworkReconciler()
+
+	manifestsDir := os.Getenv("GATEWAY_MANIFESTS_DIR")
+	if manifestsDir == "" {
+		manifestsDir = defaultManifestsDir
+	}
+
+	var gatewayReconciler watcher.Handler[*pb.Gateway]
+
+	if clientset != nil && dynamicClient != nil {
+		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir)
+		if grErr != nil {
+			log.Printf("WARN gateway reconciler disabled: %v", grErr)
+			gatewayReconciler = reconciler.NewStubGatewayReconciler()
+		} else {
+			gatewayReconciler = gr
+		}
+	} else {
+		log.Printf("WARN no kubernetes client available, using stub gateway reconciler")
+		gatewayReconciler = reconciler.NewStubGatewayReconciler()
+	}
 
 	errCh := make(chan error, 6)
 

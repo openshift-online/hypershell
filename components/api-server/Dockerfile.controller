@@ -1,6 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
-
-USER root
+FROM golang:1.26 AS builder
 
 WORKDIR /workspace
 
@@ -21,6 +19,9 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 WORKDIR /
 
 COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
+COPY control-plane/manifests/ /manifests/
+
+USER 1001
 
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 
