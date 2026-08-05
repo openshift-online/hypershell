@@ -1,6 +1,10 @@
 BINARY_NAME=hypershell
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
 POSTGRES_IMAGE=postgres:13@sha256:4689940c683801b4ab839ab3b0a0a3555a5fe425371422310944e89eca7d8068
+OPENAPI_SPEC=$(abspath openapi/openapi.yaml)
+SDK_GENERATOR_DIR=$(abspath ../../scripts/sdk-generator)
+SDK_TYPESCRIPT_DIR=$(abspath ../sdk-typescript)
+SDK_API_PREFIX=/api/hypershell/v1
 
 # Version information for ldflags
 git_sha:=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -47,6 +51,22 @@ generate:
 	id=$$($(CONTAINER_ENGINE) create $(BINARY_NAME)-openapi) && \
 	$(CONTAINER_ENGINE) cp $$id:/local/pkg/api/openapi ./pkg/api/openapi && \
 	$(CONTAINER_ENGINE) rm $$id
+
+.PHONY: generate-sdk generate-sdk-ts generate-sdk-typescript
+generate-sdk: generate-sdk-ts
+generate-sdk-typescript: generate-sdk-ts
+
+generate-sdk-ts:
+	test -f "$(SDK_GENERATOR_DIR)/go.mod"
+	rm -rf "$(SDK_TYPESCRIPT_DIR)/src"
+	cd "$(SDK_GENERATOR_DIR)" && GOWORK=off go run . \
+		--spec "$(OPENAPI_SPEC)" \
+		--ts-out "$(SDK_TYPESCRIPT_DIR)" \
+		--api-prefix "$(SDK_API_PREFIX)" \
+		--project hypershell
+	find "$(SDK_TYPESCRIPT_DIR)/src" -type f -name '*.ts' -exec sed -i \
+		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|' \
+		-e '\|^// Generated:|d' {} +
 
 .PHONY: db/setup
 db/setup:

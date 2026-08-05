@@ -31,12 +31,12 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FleetServiceClient interface {
-	GetFleet(ctx context.Context, in *GetFleetRequest, opts ...grpc.CallOption) (*Fleet, error)
-	CreateFleet(ctx context.Context, in *CreateFleetRequest, opts ...grpc.CallOption) (*Fleet, error)
-	UpdateFleet(ctx context.Context, in *UpdateFleetRequest, opts ...grpc.CallOption) (*Fleet, error)
+	GetFleet(ctx context.Context, in *GetFleetRequest, opts ...grpc.CallOption) (*GetFleetResponse, error)
+	CreateFleet(ctx context.Context, in *CreateFleetRequest, opts ...grpc.CallOption) (*CreateFleetResponse, error)
+	UpdateFleet(ctx context.Context, in *UpdateFleetRequest, opts ...grpc.CallOption) (*UpdateFleetResponse, error)
 	DeleteFleet(ctx context.Context, in *DeleteFleetRequest, opts ...grpc.CallOption) (*DeleteFleetResponse, error)
 	ListFleets(ctx context.Context, in *ListFleetsRequest, opts ...grpc.CallOption) (*ListFleetsResponse, error)
-	WatchFleets(ctx context.Context, in *WatchFleetsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FleetWatchEvent], error)
+	WatchFleets(ctx context.Context, in *WatchFleetsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchFleetsResponse], error)
 }
 
 type fleetServiceClient struct {
@@ -47,9 +47,9 @@ func NewFleetServiceClient(cc grpc.ClientConnInterface) FleetServiceClient {
 	return &fleetServiceClient{cc}
 }
 
-func (c *fleetServiceClient) GetFleet(ctx context.Context, in *GetFleetRequest, opts ...grpc.CallOption) (*Fleet, error) {
+func (c *fleetServiceClient) GetFleet(ctx context.Context, in *GetFleetRequest, opts ...grpc.CallOption) (*GetFleetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Fleet)
+	out := new(GetFleetResponse)
 	err := c.cc.Invoke(ctx, FleetService_GetFleet_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -57,9 +57,9 @@ func (c *fleetServiceClient) GetFleet(ctx context.Context, in *GetFleetRequest, 
 	return out, nil
 }
 
-func (c *fleetServiceClient) CreateFleet(ctx context.Context, in *CreateFleetRequest, opts ...grpc.CallOption) (*Fleet, error) {
+func (c *fleetServiceClient) CreateFleet(ctx context.Context, in *CreateFleetRequest, opts ...grpc.CallOption) (*CreateFleetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Fleet)
+	out := new(CreateFleetResponse)
 	err := c.cc.Invoke(ctx, FleetService_CreateFleet_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -67,9 +67,9 @@ func (c *fleetServiceClient) CreateFleet(ctx context.Context, in *CreateFleetReq
 	return out, nil
 }
 
-func (c *fleetServiceClient) UpdateFleet(ctx context.Context, in *UpdateFleetRequest, opts ...grpc.CallOption) (*Fleet, error) {
+func (c *fleetServiceClient) UpdateFleet(ctx context.Context, in *UpdateFleetRequest, opts ...grpc.CallOption) (*UpdateFleetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Fleet)
+	out := new(UpdateFleetResponse)
 	err := c.cc.Invoke(ctx, FleetService_UpdateFleet_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -97,13 +97,13 @@ func (c *fleetServiceClient) ListFleets(ctx context.Context, in *ListFleetsReque
 	return out, nil
 }
 
-func (c *fleetServiceClient) WatchFleets(ctx context.Context, in *WatchFleetsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FleetWatchEvent], error) {
+func (c *fleetServiceClient) WatchFleets(ctx context.Context, in *WatchFleetsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchFleetsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &FleetService_ServiceDesc.Streams[0], FleetService_WatchFleets_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchFleetsRequest, FleetWatchEvent]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WatchFleetsRequest, WatchFleetsResponse]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -114,18 +114,18 @@ func (c *fleetServiceClient) WatchFleets(ctx context.Context, in *WatchFleetsReq
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FleetService_WatchFleetsClient = grpc.ServerStreamingClient[FleetWatchEvent]
+type FleetService_WatchFleetsClient = grpc.ServerStreamingClient[WatchFleetsResponse]
 
 // FleetServiceServer is the server API for FleetService service.
 // All implementations must embed UnimplementedFleetServiceServer
 // for forward compatibility.
 type FleetServiceServer interface {
-	GetFleet(context.Context, *GetFleetRequest) (*Fleet, error)
-	CreateFleet(context.Context, *CreateFleetRequest) (*Fleet, error)
-	UpdateFleet(context.Context, *UpdateFleetRequest) (*Fleet, error)
+	GetFleet(context.Context, *GetFleetRequest) (*GetFleetResponse, error)
+	CreateFleet(context.Context, *CreateFleetRequest) (*CreateFleetResponse, error)
+	UpdateFleet(context.Context, *UpdateFleetRequest) (*UpdateFleetResponse, error)
 	DeleteFleet(context.Context, *DeleteFleetRequest) (*DeleteFleetResponse, error)
 	ListFleets(context.Context, *ListFleetsRequest) (*ListFleetsResponse, error)
-	WatchFleets(*WatchFleetsRequest, grpc.ServerStreamingServer[FleetWatchEvent]) error
+	WatchFleets(*WatchFleetsRequest, grpc.ServerStreamingServer[WatchFleetsResponse]) error
 	mustEmbedUnimplementedFleetServiceServer()
 }
 
@@ -136,13 +136,13 @@ type FleetServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedFleetServiceServer struct{}
 
-func (UnimplementedFleetServiceServer) GetFleet(context.Context, *GetFleetRequest) (*Fleet, error) {
+func (UnimplementedFleetServiceServer) GetFleet(context.Context, *GetFleetRequest) (*GetFleetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetFleet not implemented")
 }
-func (UnimplementedFleetServiceServer) CreateFleet(context.Context, *CreateFleetRequest) (*Fleet, error) {
+func (UnimplementedFleetServiceServer) CreateFleet(context.Context, *CreateFleetRequest) (*CreateFleetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateFleet not implemented")
 }
-func (UnimplementedFleetServiceServer) UpdateFleet(context.Context, *UpdateFleetRequest) (*Fleet, error) {
+func (UnimplementedFleetServiceServer) UpdateFleet(context.Context, *UpdateFleetRequest) (*UpdateFleetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateFleet not implemented")
 }
 func (UnimplementedFleetServiceServer) DeleteFleet(context.Context, *DeleteFleetRequest) (*DeleteFleetResponse, error) {
@@ -151,7 +151,7 @@ func (UnimplementedFleetServiceServer) DeleteFleet(context.Context, *DeleteFleet
 func (UnimplementedFleetServiceServer) ListFleets(context.Context, *ListFleetsRequest) (*ListFleetsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListFleets not implemented")
 }
-func (UnimplementedFleetServiceServer) WatchFleets(*WatchFleetsRequest, grpc.ServerStreamingServer[FleetWatchEvent]) error {
+func (UnimplementedFleetServiceServer) WatchFleets(*WatchFleetsRequest, grpc.ServerStreamingServer[WatchFleetsResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchFleets not implemented")
 }
 func (UnimplementedFleetServiceServer) mustEmbedUnimplementedFleetServiceServer() {}
@@ -270,11 +270,11 @@ func _FleetService_WatchFleets_Handler(srv interface{}, stream grpc.ServerStream
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(FleetServiceServer).WatchFleets(m, &grpc.GenericServerStream[WatchFleetsRequest, FleetWatchEvent]{ServerStream: stream})
+	return srv.(FleetServiceServer).WatchFleets(m, &grpc.GenericServerStream[WatchFleetsRequest, WatchFleetsResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FleetService_WatchFleetsServer = grpc.ServerStreamingServer[FleetWatchEvent]
+type FleetService_WatchFleetsServer = grpc.ServerStreamingServer[WatchFleetsResponse]
 
 // FleetService_ServiceDesc is the grpc.ServiceDesc for FleetService service.
 // It's only intended for direct use with grpc.RegisterService,

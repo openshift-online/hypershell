@@ -111,6 +111,10 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 }
 
 func (s *sqlManagedDatabaseService) Delete(ctx context.Context, id string) *errors.ServiceError {
+	if _, svcErr := s.Get(ctx, id); svcErr != nil {
+		return svcErr
+	}
+
 	if err := s.managedDatabaseDao.Delete(ctx, id); err != nil {
 		return services.HandleDeleteError("ManagedDatabase", errors.GeneralError("Unable to delete managedDatabase: %s", err))
 	}

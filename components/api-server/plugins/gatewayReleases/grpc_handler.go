@@ -26,7 +26,7 @@ func NewGatewayReleaseGRPCHandler(svc GatewayReleaseService, generic services.Ge
 	return &gatewayReleaseGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
 }
 
-func (h *gatewayReleaseGRPCHandler) GetGatewayRelease(ctx context.Context, req *pb.GetGatewayReleaseRequest) (*pb.GatewayRelease, error) {
+func (h *gatewayReleaseGRPCHandler) GetGatewayRelease(ctx context.Context, req *pb.GetGatewayReleaseRequest) (*pb.GetGatewayReleaseResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -35,10 +35,10 @@ func (h *gatewayReleaseGRPCHandler) GetGatewayRelease(ctx context.Context, req *
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return gatewayReleaseToProto(gatewayRelease), nil
+	return &pb.GetGatewayReleaseResponse{GatewayRelease: gatewayReleaseToProto(gatewayRelease)}, nil
 }
 
-func (h *gatewayReleaseGRPCHandler) CreateGatewayRelease(ctx context.Context, req *pb.CreateGatewayReleaseRequest) (*pb.GatewayRelease, error) {
+func (h *gatewayReleaseGRPCHandler) CreateGatewayRelease(ctx context.Context, req *pb.CreateGatewayReleaseRequest) (*pb.CreateGatewayReleaseResponse, error) {
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
@@ -68,10 +68,10 @@ func (h *gatewayReleaseGRPCHandler) CreateGatewayRelease(ctx context.Context, re
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return gatewayReleaseToProto(result), nil
+	return &pb.CreateGatewayReleaseResponse{GatewayRelease: gatewayReleaseToProto(result)}, nil
 }
 
-func (h *gatewayReleaseGRPCHandler) UpdateGatewayRelease(ctx context.Context, req *pb.UpdateGatewayReleaseRequest) (*pb.GatewayRelease, error) {
+func (h *gatewayReleaseGRPCHandler) UpdateGatewayRelease(ctx context.Context, req *pb.UpdateGatewayReleaseRequest) (*pb.UpdateGatewayReleaseResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (h *gatewayReleaseGRPCHandler) UpdateGatewayRelease(ctx context.Context, re
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return gatewayReleaseToProto(result), nil
+	return &pb.UpdateGatewayReleaseResponse{GatewayRelease: gatewayReleaseToProto(result)}, nil
 }
 
 func (h *gatewayReleaseGRPCHandler) DeleteGatewayRelease(ctx context.Context, req *pb.DeleteGatewayReleaseRequest) (*pb.DeleteGatewayReleaseResponse, error) {
@@ -175,7 +175,7 @@ func (h *gatewayReleaseGRPCHandler) ListGatewayReleases(ctx context.Context, req
 	}, nil
 }
 
-func (h *gatewayReleaseGRPCHandler) WatchGatewayReleases(req *pb.WatchGatewayReleasesRequest, stream grpc.ServerStreamingServer[pb.GatewayReleaseWatchEvent]) error {
+func (h *gatewayReleaseGRPCHandler) WatchGatewayReleases(req *pb.WatchGatewayReleasesRequest, stream grpc.ServerStreamingServer[pb.WatchGatewayReleasesResponse]) error {
 	broker := h.brokerFunc()
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
@@ -202,7 +202,7 @@ func (h *gatewayReleaseGRPCHandler) WatchGatewayReleases(req *pb.WatchGatewayRel
 				continue
 			}
 
-			watchEvent := &pb.GatewayReleaseWatchEvent{
+			watchEvent := &pb.WatchGatewayReleasesResponse{
 				Type:       pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId: evt.SourceID,
 			}

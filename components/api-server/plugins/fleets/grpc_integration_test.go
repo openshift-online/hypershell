@@ -58,14 +58,14 @@ func TestGRPCFleetCRUD(t *testing.T) {
 	}
 	created, err := grpcClient.CreateFleet(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(created.Metadata.Id).NotTo(BeEmpty())
+	Expect(created.Fleet.Metadata.Id).NotTo(BeEmpty())
 
-	fleetID := created.Metadata.Id
+	fleetID := created.Fleet.Metadata.Id
 
 	getReq := &pb.GetFleetRequest{Id: fleetID}
 	retrieved, err := grpcClient.GetFleet(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(retrieved.Metadata.Id).To(Equal(fleetID))
+	Expect(retrieved.Fleet.Metadata.Id).To(Equal(fleetID))
 
 	updateReq := &pb.UpdateFleetRequest{
 		Id:          fleetID,
@@ -75,7 +75,7 @@ func TestGRPCFleetCRUD(t *testing.T) {
 	}
 	updated, err := grpcClient.UpdateFleet(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(updated.Metadata.Id).To(Equal(fleetID))
+	Expect(updated.Fleet.Metadata.Id).To(Equal(fleetID))
 
 	listReq := &pb.ListFleetsRequest{
 		Page: 1,
@@ -136,7 +136,7 @@ func TestGRPCWatchFleets(t *testing.T) {
 			fleetInput := openapi.Fleet{
 				Name: name,
 			}
-			_, resp, postErr := client.DefaultAPI.ApiHypershellV1FleetsPost(ctx).Fleet(fleetInput).Execute()
+			_, resp, postErr := client.DefaultAPI.CreateFleet(ctx).Fleet(fleetInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)
 				return

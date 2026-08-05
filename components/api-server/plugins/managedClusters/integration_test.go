@@ -19,17 +19,17 @@ func TestManagedClusterGet(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	_, _, err := client.DefaultAPI.ApiHypershellV1ManagedClustersIdGet(context.Background(), "foo").Execute()
+	_, _, err := client.DefaultAPI.GetManagedCluster(context.Background(), "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 401 but got nil error")
 
-	_, resp, err := client.DefaultAPI.ApiHypershellV1ManagedClustersIdGet(ctx, "foo").Execute()
+	_, resp, err := client.DefaultAPI.GetManagedCluster(ctx, "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 404")
 	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 
 	managedClusterModel, err := newManagedCluster(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	managedClusterOutput, resp, err := client.DefaultAPI.ApiHypershellV1ManagedClustersIdGet(ctx, managedClusterModel.ID).Execute()
+	managedClusterOutput, resp, err := client.DefaultAPI.GetManagedCluster(ctx, managedClusterModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -56,7 +56,7 @@ func TestManagedClusterPost(t *testing.T) {
 		ApiServerUrl:     openapi.PtrString("test-api_server_url"),
 	}
 
-	managedClusterOutput, resp, err := client.DefaultAPI.ApiHypershellV1ManagedClustersPost(ctx).ManagedCluster(managedClusterInput).Execute()
+	managedClusterOutput, resp, err := client.DefaultAPI.CreateManagedCluster(ctx).ManagedCluster(managedClusterInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(*managedClusterOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
@@ -83,7 +83,7 @@ func TestManagedClusterPatch(t *testing.T) {
 	managedClusterModel, err := newManagedCluster(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	managedClusterOutput, resp, err := client.DefaultAPI.ApiHypershellV1ManagedClustersIdPatch(ctx, managedClusterModel.ID).ManagedClusterPatchRequest(openapi.ManagedClusterPatchRequest{}).Execute()
+	managedClusterOutput, resp, err := client.DefaultAPI.UpdateManagedCluster(ctx, managedClusterModel.ID).ManagedClusterPatchRequest(openapi.ManagedClusterPatchRequest{}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(*managedClusterOutput.Id).To(Equal(managedClusterModel.ID))
@@ -102,6 +102,24 @@ func TestManagedClusterPatch(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
+func TestManagedClusterDelete(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	managedClusterModel, err := newManagedCluster(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	resp, err := client.DefaultAPI.DeleteManagedCluster(ctx, managedClusterModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	_, resp, err = client.DefaultAPI.GetManagedCluster(ctx, managedClusterModel.ID).Execute()
+	Expect(err).To(HaveOccurred(), "Expected deleted managed cluster to return 404")
+	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+}
+
 func TestManagedClusterPaging(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -111,19 +129,19 @@ func TestManagedClusterPaging(t *testing.T) {
 	_, err := newManagedClusterList("Bronto", 20)
 	Expect(err).NotTo(HaveOccurred())
 
-	list, _, err := client.DefaultAPI.ApiHypershellV1ManagedClustersGet(ctx).Execute()
+	list, _, err := client.DefaultAPI.ListManagedClusters(ctx).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting managedCluster list: %v", err)
 	Expect(len(list.Items)).To(Equal(20))
-	Expect(list.Size).To(Equal(int32(20)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(1)))
+	Expect(list.GetSize()).To(Equal(int32(20)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(1)))
 
-	list, _, err = client.DefaultAPI.ApiHypershellV1ManagedClustersGet(ctx).Page(2).Size(5).Execute()
+	list, _, err = client.DefaultAPI.ListManagedClusters(ctx).Page(2).Size(5).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting managedCluster list: %v", err)
 	Expect(len(list.Items)).To(Equal(5))
-	Expect(list.Size).To(Equal(int32(5)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(2)))
+	Expect(list.GetSize()).To(Equal(int32(5)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(2)))
 }
 
 func TestManagedClusterListSearch(t *testing.T) {
@@ -136,9 +154,9 @@ func TestManagedClusterListSearch(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	search := fmt.Sprintf("id in ('%s')", managedClusters[0].ID)
-	list, _, err := client.DefaultAPI.ApiHypershellV1ManagedClustersGet(ctx).Search(search).Execute()
+	list, _, err := client.DefaultAPI.ListManagedClusters(ctx).Search(search).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting managedCluster list: %v", err)
 	Expect(len(list.Items)).To(Equal(1))
-	Expect(list.Total).To(Equal(int32(1)))
+	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(managedClusters[0].ID))
 }

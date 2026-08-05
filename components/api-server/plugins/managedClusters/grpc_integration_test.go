@@ -62,14 +62,14 @@ func TestGRPCManagedClusterCRUD(t *testing.T) {
 	}
 	created, err := grpcClient.CreateManagedCluster(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(created.Metadata.Id).NotTo(BeEmpty())
+	Expect(created.ManagedCluster.Metadata.Id).NotTo(BeEmpty())
 
-	managedClusterID := created.Metadata.Id
+	managedClusterID := created.ManagedCluster.Metadata.Id
 
 	getReq := &pb.GetManagedClusterRequest{Id: managedClusterID}
 	retrieved, err := grpcClient.GetManagedCluster(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(retrieved.Metadata.Id).To(Equal(managedClusterID))
+	Expect(retrieved.ManagedCluster.Metadata.Id).To(Equal(managedClusterID))
 
 	updateReq := &pb.UpdateManagedClusterRequest{
 		Id:               managedClusterID,
@@ -83,7 +83,7 @@ func TestGRPCManagedClusterCRUD(t *testing.T) {
 	}
 	updated, err := grpcClient.UpdateManagedCluster(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(updated.Metadata.Id).To(Equal(managedClusterID))
+	Expect(updated.ManagedCluster.Metadata.Id).To(Equal(managedClusterID))
 
 	listReq := &pb.ListManagedClustersRequest{
 		Page: 1,
@@ -144,7 +144,7 @@ func TestGRPCWatchManagedClusters(t *testing.T) {
 			managedClusterInput := openapi.ManagedCluster{
 				Name: name,
 			}
-			_, resp, postErr := client.DefaultAPI.ApiHypershellV1ManagedClustersPost(ctx).ManagedCluster(managedClusterInput).Execute()
+			_, resp, postErr := client.DefaultAPI.CreateManagedCluster(ctx).ManagedCluster(managedClusterInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)
 				return

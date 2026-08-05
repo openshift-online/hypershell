@@ -12,6 +12,8 @@ Data model, API, control plane, gateway lifecycle, fleet management.
 
 Cross-cutting engineering constraints by component.
 
+UI standards cover accessible, usable, trustworthy, resilient, and verifiable web interfaces in `standards/ui/`.
+
 ## Spec Registry
 
 Machine-readable index for autonomous reconciliation (`/reconcile` skill).
@@ -24,3 +26,11 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
 | `standards/security/security.spec.md` | standards | - | ALL | - |
 | `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |
+| `standards/ui/foundations.spec.md` | standards | UI foundations | WEB | - |
+| `standards/ui/brand-color.spec.md` | standards | Red Hat brand color | WEB | foundations, accessibility |
+| `standards/ui/interaction.spec.md` | standards | UI interaction | WEB | foundations |
+| `standards/ui/patternfly.spec.md` | standards | PatternFly 6, reusable components | WEB | foundations, brand-color, accessibility |
+| `standards/ui/accessibility.spec.md` | standards | UI accessibility | WEB | foundations, interaction |
+| `standards/ui/content-localization.spec.md` | standards | UI content, localization | WEB | foundations |
+| `standards/ui/trust-performance.spec.md` | standards | UI trust, performance, resilience | WEB | foundations, interaction |
+| `standards/ui/verification.spec.md` | standards | UI verification | WEB | foundations, brand-color, interaction, patternfly, accessibility, content-localization, trust-performance |

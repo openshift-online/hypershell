@@ -19,17 +19,17 @@ func TestFleetGet(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	_, _, err := client.DefaultAPI.ApiHypershellV1FleetsIdGet(context.Background(), "foo").Execute()
+	_, _, err := client.DefaultAPI.GetFleet(context.Background(), "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 401 but got nil error")
 
-	_, resp, err := client.DefaultAPI.ApiHypershellV1FleetsIdGet(ctx, "foo").Execute()
+	_, resp, err := client.DefaultAPI.GetFleet(ctx, "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 404")
 	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 
 	fleetModel, err := newFleet(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	fleetOutput, resp, err := client.DefaultAPI.ApiHypershellV1FleetsIdGet(ctx, fleetModel.ID).Execute()
+	fleetOutput, resp, err := client.DefaultAPI.GetFleet(ctx, fleetModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -52,7 +52,7 @@ func TestFleetPost(t *testing.T) {
 		Status:      openapi.PtrString("test-status"),
 	}
 
-	fleetOutput, resp, err := client.DefaultAPI.ApiHypershellV1FleetsPost(ctx).Fleet(fleetInput).Execute()
+	fleetOutput, resp, err := client.DefaultAPI.CreateFleet(ctx).Fleet(fleetInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(*fleetOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
@@ -79,7 +79,7 @@ func TestFleetPatch(t *testing.T) {
 	fleetModel, err := newFleet(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	fleetOutput, resp, err := client.DefaultAPI.ApiHypershellV1FleetsIdPatch(ctx, fleetModel.ID).FleetPatchRequest(openapi.FleetPatchRequest{}).Execute()
+	fleetOutput, resp, err := client.DefaultAPI.UpdateFleet(ctx, fleetModel.ID).FleetPatchRequest(openapi.FleetPatchRequest{}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(*fleetOutput.Id).To(Equal(fleetModel.ID))
@@ -98,6 +98,24 @@ func TestFleetPatch(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
+func TestFleetDelete(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	fleetModel, err := newFleet(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	resp, err := client.DefaultAPI.DeleteFleet(ctx, fleetModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	_, resp, err = client.DefaultAPI.GetFleet(ctx, fleetModel.ID).Execute()
+	Expect(err).To(HaveOccurred(), "Expected deleted fleet to return 404")
+	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+}
+
 func TestFleetPaging(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -107,19 +125,19 @@ func TestFleetPaging(t *testing.T) {
 	_, err := newFleetList("Bronto", 20)
 	Expect(err).NotTo(HaveOccurred())
 
-	list, _, err := client.DefaultAPI.ApiHypershellV1FleetsGet(ctx).Execute()
+	list, _, err := client.DefaultAPI.ListFleets(ctx).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting fleet list: %v", err)
 	Expect(len(list.Items)).To(Equal(20))
-	Expect(list.Size).To(Equal(int32(20)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(1)))
+	Expect(list.GetSize()).To(Equal(int32(20)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(1)))
 
-	list, _, err = client.DefaultAPI.ApiHypershellV1FleetsGet(ctx).Page(2).Size(5).Execute()
+	list, _, err = client.DefaultAPI.ListFleets(ctx).Page(2).Size(5).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting fleet list: %v", err)
 	Expect(len(list.Items)).To(Equal(5))
-	Expect(list.Size).To(Equal(int32(5)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(2)))
+	Expect(list.GetSize()).To(Equal(int32(5)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(2)))
 }
 
 func TestFleetListSearch(t *testing.T) {
@@ -132,9 +150,9 @@ func TestFleetListSearch(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	search := fmt.Sprintf("id in ('%s')", fleets[0].ID)
-	list, _, err := client.DefaultAPI.ApiHypershellV1FleetsGet(ctx).Search(search).Execute()
+	list, _, err := client.DefaultAPI.ListFleets(ctx).Search(search).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting fleet list: %v", err)
 	Expect(len(list.Items)).To(Equal(1))
-	Expect(list.Total).To(Equal(int32(1)))
+	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(fleets[0].ID))
 }

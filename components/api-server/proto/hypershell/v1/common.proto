@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hypershell.v1;
 
-option go_package = "github.com/openshift-online/hypershell/pkg/api/grpc/hypershell/v1;hypershell_v1";
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "google/protobuf/timestamp.proto";
 

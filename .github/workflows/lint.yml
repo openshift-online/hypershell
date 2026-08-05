@@ -24,6 +24,7 @@ jobs:
     outputs:
       api_server: ${{ steps.detect.outputs.api_server }}
       control_plane: ${{ steps.detect.outputs.control_plane }}
+      sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
       web_console: ${{ steps.detect.outputs.web_console }}
     steps:
       - name: Check out repository
@@ -111,6 +112,27 @@ jobs:
           working-directory: components/control-plane
           args: --timeout=5m
 
+  lint-sdk-typescript:
+    name: TypeScript check - SDK
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk_typescript == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: components/sdk-typescript/package-lock.json
+      - name: Install dependencies
+        working-directory: components/sdk-typescript
+        run: npm ci
+      - name: Check generated SDK
+        working-directory: components/sdk-typescript
+        run: npm run check
+
   lint-web-console:
     name: Validate web console placeholder
     needs: detect-changes
@@ -129,6 +151,7 @@ jobs:
       - detect-changes
       - lint-api-server
       - lint-control-plane
+      - lint-sdk-typescript
       - lint-web-console
     runs-on: ubuntu-24.04
     steps:
@@ -137,9 +160,10 @@ jobs:
           DETECTION_RESULT: ${{ needs.detect-changes.result }}
           API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
           CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
+          SDK_TYPESCRIPT_RESULT: ${{ needs.lint-sdk-typescript.result }}
           WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${WEB_CONSOLE_RESULT}"; do
+          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more lint jobs failed or were cancelled."
               exit 1

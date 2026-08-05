@@ -31,12 +31,12 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type GatewayNetworkServiceClient interface {
-	GetGatewayNetwork(ctx context.Context, in *GetGatewayNetworkRequest, opts ...grpc.CallOption) (*GatewayNetwork, error)
-	CreateGatewayNetwork(ctx context.Context, in *CreateGatewayNetworkRequest, opts ...grpc.CallOption) (*GatewayNetwork, error)
-	UpdateGatewayNetwork(ctx context.Context, in *UpdateGatewayNetworkRequest, opts ...grpc.CallOption) (*GatewayNetwork, error)
+	GetGatewayNetwork(ctx context.Context, in *GetGatewayNetworkRequest, opts ...grpc.CallOption) (*GetGatewayNetworkResponse, error)
+	CreateGatewayNetwork(ctx context.Context, in *CreateGatewayNetworkRequest, opts ...grpc.CallOption) (*CreateGatewayNetworkResponse, error)
+	UpdateGatewayNetwork(ctx context.Context, in *UpdateGatewayNetworkRequest, opts ...grpc.CallOption) (*UpdateGatewayNetworkResponse, error)
 	DeleteGatewayNetwork(ctx context.Context, in *DeleteGatewayNetworkRequest, opts ...grpc.CallOption) (*DeleteGatewayNetworkResponse, error)
 	ListGatewayNetworks(ctx context.Context, in *ListGatewayNetworksRequest, opts ...grpc.CallOption) (*ListGatewayNetworksResponse, error)
-	WatchGatewayNetworks(ctx context.Context, in *WatchGatewayNetworksRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GatewayNetworkWatchEvent], error)
+	WatchGatewayNetworks(ctx context.Context, in *WatchGatewayNetworksRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchGatewayNetworksResponse], error)
 }
 
 type gatewayNetworkServiceClient struct {
@@ -47,9 +47,9 @@ func NewGatewayNetworkServiceClient(cc grpc.ClientConnInterface) GatewayNetworkS
 	return &gatewayNetworkServiceClient{cc}
 }
 
-func (c *gatewayNetworkServiceClient) GetGatewayNetwork(ctx context.Context, in *GetGatewayNetworkRequest, opts ...grpc.CallOption) (*GatewayNetwork, error) {
+func (c *gatewayNetworkServiceClient) GetGatewayNetwork(ctx context.Context, in *GetGatewayNetworkRequest, opts ...grpc.CallOption) (*GetGatewayNetworkResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GatewayNetwork)
+	out := new(GetGatewayNetworkResponse)
 	err := c.cc.Invoke(ctx, GatewayNetworkService_GetGatewayNetwork_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -57,9 +57,9 @@ func (c *gatewayNetworkServiceClient) GetGatewayNetwork(ctx context.Context, in 
 	return out, nil
 }
 
-func (c *gatewayNetworkServiceClient) CreateGatewayNetwork(ctx context.Context, in *CreateGatewayNetworkRequest, opts ...grpc.CallOption) (*GatewayNetwork, error) {
+func (c *gatewayNetworkServiceClient) CreateGatewayNetwork(ctx context.Context, in *CreateGatewayNetworkRequest, opts ...grpc.CallOption) (*CreateGatewayNetworkResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GatewayNetwork)
+	out := new(CreateGatewayNetworkResponse)
 	err := c.cc.Invoke(ctx, GatewayNetworkService_CreateGatewayNetwork_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -67,9 +67,9 @@ func (c *gatewayNetworkServiceClient) CreateGatewayNetwork(ctx context.Context, 
 	return out, nil
 }
 
-func (c *gatewayNetworkServiceClient) UpdateGatewayNetwork(ctx context.Context, in *UpdateGatewayNetworkRequest, opts ...grpc.CallOption) (*GatewayNetwork, error) {
+func (c *gatewayNetworkServiceClient) UpdateGatewayNetwork(ctx context.Context, in *UpdateGatewayNetworkRequest, opts ...grpc.CallOption) (*UpdateGatewayNetworkResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GatewayNetwork)
+	out := new(UpdateGatewayNetworkResponse)
 	err := c.cc.Invoke(ctx, GatewayNetworkService_UpdateGatewayNetwork_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -97,13 +97,13 @@ func (c *gatewayNetworkServiceClient) ListGatewayNetworks(ctx context.Context, i
 	return out, nil
 }
 
-func (c *gatewayNetworkServiceClient) WatchGatewayNetworks(ctx context.Context, in *WatchGatewayNetworksRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GatewayNetworkWatchEvent], error) {
+func (c *gatewayNetworkServiceClient) WatchGatewayNetworks(ctx context.Context, in *WatchGatewayNetworksRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchGatewayNetworksResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &GatewayNetworkService_ServiceDesc.Streams[0], GatewayNetworkService_WatchGatewayNetworks_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchGatewayNetworksRequest, GatewayNetworkWatchEvent]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WatchGatewayNetworksRequest, WatchGatewayNetworksResponse]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -114,18 +114,18 @@ func (c *gatewayNetworkServiceClient) WatchGatewayNetworks(ctx context.Context, 
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type GatewayNetworkService_WatchGatewayNetworksClient = grpc.ServerStreamingClient[GatewayNetworkWatchEvent]
+type GatewayNetworkService_WatchGatewayNetworksClient = grpc.ServerStreamingClient[WatchGatewayNetworksResponse]
 
 // GatewayNetworkServiceServer is the server API for GatewayNetworkService service.
 // All implementations must embed UnimplementedGatewayNetworkServiceServer
 // for forward compatibility.
 type GatewayNetworkServiceServer interface {
-	GetGatewayNetwork(context.Context, *GetGatewayNetworkRequest) (*GatewayNetwork, error)
-	CreateGatewayNetwork(context.Context, *CreateGatewayNetworkRequest) (*GatewayNetwork, error)
-	UpdateGatewayNetwork(context.Context, *UpdateGatewayNetworkRequest) (*GatewayNetwork, error)
+	GetGatewayNetwork(context.Context, *GetGatewayNetworkRequest) (*GetGatewayNetworkResponse, error)
+	CreateGatewayNetwork(context.Context, *CreateGatewayNetworkRequest) (*CreateGatewayNetworkResponse, error)
+	UpdateGatewayNetwork(context.Context, *UpdateGatewayNetworkRequest) (*UpdateGatewayNetworkResponse, error)
 	DeleteGatewayNetwork(context.Context, *DeleteGatewayNetworkRequest) (*DeleteGatewayNetworkResponse, error)
 	ListGatewayNetworks(context.Context, *ListGatewayNetworksRequest) (*ListGatewayNetworksResponse, error)
-	WatchGatewayNetworks(*WatchGatewayNetworksRequest, grpc.ServerStreamingServer[GatewayNetworkWatchEvent]) error
+	WatchGatewayNetworks(*WatchGatewayNetworksRequest, grpc.ServerStreamingServer[WatchGatewayNetworksResponse]) error
 	mustEmbedUnimplementedGatewayNetworkServiceServer()
 }
 
@@ -136,13 +136,13 @@ type GatewayNetworkServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedGatewayNetworkServiceServer struct{}
 
-func (UnimplementedGatewayNetworkServiceServer) GetGatewayNetwork(context.Context, *GetGatewayNetworkRequest) (*GatewayNetwork, error) {
+func (UnimplementedGatewayNetworkServiceServer) GetGatewayNetwork(context.Context, *GetGatewayNetworkRequest) (*GetGatewayNetworkResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetGatewayNetwork not implemented")
 }
-func (UnimplementedGatewayNetworkServiceServer) CreateGatewayNetwork(context.Context, *CreateGatewayNetworkRequest) (*GatewayNetwork, error) {
+func (UnimplementedGatewayNetworkServiceServer) CreateGatewayNetwork(context.Context, *CreateGatewayNetworkRequest) (*CreateGatewayNetworkResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateGatewayNetwork not implemented")
 }
-func (UnimplementedGatewayNetworkServiceServer) UpdateGatewayNetwork(context.Context, *UpdateGatewayNetworkRequest) (*GatewayNetwork, error) {
+func (UnimplementedGatewayNetworkServiceServer) UpdateGatewayNetwork(context.Context, *UpdateGatewayNetworkRequest) (*UpdateGatewayNetworkResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateGatewayNetwork not implemented")
 }
 func (UnimplementedGatewayNetworkServiceServer) DeleteGatewayNetwork(context.Context, *DeleteGatewayNetworkRequest) (*DeleteGatewayNetworkResponse, error) {
@@ -151,7 +151,7 @@ func (UnimplementedGatewayNetworkServiceServer) DeleteGatewayNetwork(context.Con
 func (UnimplementedGatewayNetworkServiceServer) ListGatewayNetworks(context.Context, *ListGatewayNetworksRequest) (*ListGatewayNetworksResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListGatewayNetworks not implemented")
 }
-func (UnimplementedGatewayNetworkServiceServer) WatchGatewayNetworks(*WatchGatewayNetworksRequest, grpc.ServerStreamingServer[GatewayNetworkWatchEvent]) error {
+func (UnimplementedGatewayNetworkServiceServer) WatchGatewayNetworks(*WatchGatewayNetworksRequest, grpc.ServerStreamingServer[WatchGatewayNetworksResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchGatewayNetworks not implemented")
 }
 func (UnimplementedGatewayNetworkServiceServer) mustEmbedUnimplementedGatewayNetworkServiceServer() {}
@@ -270,11 +270,11 @@ func _GatewayNetworkService_WatchGatewayNetworks_Handler(srv interface{}, stream
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(GatewayNetworkServiceServer).WatchGatewayNetworks(m, &grpc.GenericServerStream[WatchGatewayNetworksRequest, GatewayNetworkWatchEvent]{ServerStream: stream})
+	return srv.(GatewayNetworkServiceServer).WatchGatewayNetworks(m, &grpc.GenericServerStream[WatchGatewayNetworksRequest, WatchGatewayNetworksResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type GatewayNetworkService_WatchGatewayNetworksServer = grpc.ServerStreamingServer[GatewayNetworkWatchEvent]
+type GatewayNetworkService_WatchGatewayNetworksServer = grpc.ServerStreamingServer[WatchGatewayNetworksResponse]
 
 // GatewayNetworkService_ServiceDesc is the grpc.ServiceDesc for GatewayNetworkService service.
 // It's only intended for direct use with grpc.RegisterService,

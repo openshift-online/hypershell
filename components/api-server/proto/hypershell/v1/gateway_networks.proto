@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hypershell.v1;
 
-option go_package = "github.com/openshift-online/hypershell/pkg/api/grpc/hypershell/v1;hypershell_v1";
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
 
@@ -25,8 +25,16 @@ message CreateGatewayNetworkRequest {
   optional string status = 6;
 }
 
+message CreateGatewayNetworkResponse {
+  GatewayNetwork gateway_network = 1;
+}
+
 message GetGatewayNetworkRequest {
   string id = 1;
+}
+
+message GetGatewayNetworkResponse {
+  GatewayNetwork gateway_network = 1;
 }
 
 message UpdateGatewayNetworkRequest {
@@ -37,6 +45,10 @@ message UpdateGatewayNetworkRequest {
   optional string tunnel_mode = 5;
   optional string hub_gateway_id = 6;
   optional string status = 7;
+}
+
+message UpdateGatewayNetworkResponse {
+  GatewayNetwork gateway_network = 1;
 }
 
 message DeleteGatewayNetworkRequest {
@@ -57,17 +69,17 @@ message DeleteGatewayNetworkResponse {}
 
 message WatchGatewayNetworksRequest {}
 
-message GatewayNetworkWatchEvent {
+message WatchGatewayNetworksResponse {
   EventType type = 1;
-  GatewayNetwork gatewayNetwork = 2;
+  GatewayNetwork gateway_network = 2;
   string resource_id = 3;
 }
 
 service GatewayNetworkService {
-  rpc GetGatewayNetwork(GetGatewayNetworkRequest) returns (GatewayNetwork);
-  rpc CreateGatewayNetwork(CreateGatewayNetworkRequest) returns (GatewayNetwork);
-  rpc UpdateGatewayNetwork(UpdateGatewayNetworkRequest) returns (GatewayNetwork);
+  rpc GetGatewayNetwork(GetGatewayNetworkRequest) returns (GetGatewayNetworkResponse);
+  rpc CreateGatewayNetwork(CreateGatewayNetworkRequest) returns (CreateGatewayNetworkResponse);
+  rpc UpdateGatewayNetwork(UpdateGatewayNetworkRequest) returns (UpdateGatewayNetworkResponse);
   rpc DeleteGatewayNetwork(DeleteGatewayNetworkRequest) returns (DeleteGatewayNetworkResponse);
   rpc ListGatewayNetworks(ListGatewayNetworksRequest) returns (ListGatewayNetworksResponse);
-  rpc WatchGatewayNetworks(WatchGatewayNetworksRequest) returns (stream GatewayNetworkWatchEvent);
+  rpc WatchGatewayNetworks(WatchGatewayNetworksRequest) returns (stream WatchGatewayNetworksResponse);
 }

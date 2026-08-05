@@ -31,12 +31,12 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ManagedDatabaseServiceClient interface {
-	GetManagedDatabase(ctx context.Context, in *GetManagedDatabaseRequest, opts ...grpc.CallOption) (*ManagedDatabase, error)
-	CreateManagedDatabase(ctx context.Context, in *CreateManagedDatabaseRequest, opts ...grpc.CallOption) (*ManagedDatabase, error)
-	UpdateManagedDatabase(ctx context.Context, in *UpdateManagedDatabaseRequest, opts ...grpc.CallOption) (*ManagedDatabase, error)
+	GetManagedDatabase(ctx context.Context, in *GetManagedDatabaseRequest, opts ...grpc.CallOption) (*GetManagedDatabaseResponse, error)
+	CreateManagedDatabase(ctx context.Context, in *CreateManagedDatabaseRequest, opts ...grpc.CallOption) (*CreateManagedDatabaseResponse, error)
+	UpdateManagedDatabase(ctx context.Context, in *UpdateManagedDatabaseRequest, opts ...grpc.CallOption) (*UpdateManagedDatabaseResponse, error)
 	DeleteManagedDatabase(ctx context.Context, in *DeleteManagedDatabaseRequest, opts ...grpc.CallOption) (*DeleteManagedDatabaseResponse, error)
 	ListManagedDatabases(ctx context.Context, in *ListManagedDatabasesRequest, opts ...grpc.CallOption) (*ListManagedDatabasesResponse, error)
-	WatchManagedDatabases(ctx context.Context, in *WatchManagedDatabasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ManagedDatabaseWatchEvent], error)
+	WatchManagedDatabases(ctx context.Context, in *WatchManagedDatabasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchManagedDatabasesResponse], error)
 }
 
 type managedDatabaseServiceClient struct {
@@ -47,9 +47,9 @@ func NewManagedDatabaseServiceClient(cc grpc.ClientConnInterface) ManagedDatabas
 	return &managedDatabaseServiceClient{cc}
 }
 
-func (c *managedDatabaseServiceClient) GetManagedDatabase(ctx context.Context, in *GetManagedDatabaseRequest, opts ...grpc.CallOption) (*ManagedDatabase, error) {
+func (c *managedDatabaseServiceClient) GetManagedDatabase(ctx context.Context, in *GetManagedDatabaseRequest, opts ...grpc.CallOption) (*GetManagedDatabaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ManagedDatabase)
+	out := new(GetManagedDatabaseResponse)
 	err := c.cc.Invoke(ctx, ManagedDatabaseService_GetManagedDatabase_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -57,9 +57,9 @@ func (c *managedDatabaseServiceClient) GetManagedDatabase(ctx context.Context, i
 	return out, nil
 }
 
-func (c *managedDatabaseServiceClient) CreateManagedDatabase(ctx context.Context, in *CreateManagedDatabaseRequest, opts ...grpc.CallOption) (*ManagedDatabase, error) {
+func (c *managedDatabaseServiceClient) CreateManagedDatabase(ctx context.Context, in *CreateManagedDatabaseRequest, opts ...grpc.CallOption) (*CreateManagedDatabaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ManagedDatabase)
+	out := new(CreateManagedDatabaseResponse)
 	err := c.cc.Invoke(ctx, ManagedDatabaseService_CreateManagedDatabase_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -67,9 +67,9 @@ func (c *managedDatabaseServiceClient) CreateManagedDatabase(ctx context.Context
 	return out, nil
 }
 
-func (c *managedDatabaseServiceClient) UpdateManagedDatabase(ctx context.Context, in *UpdateManagedDatabaseRequest, opts ...grpc.CallOption) (*ManagedDatabase, error) {
+func (c *managedDatabaseServiceClient) UpdateManagedDatabase(ctx context.Context, in *UpdateManagedDatabaseRequest, opts ...grpc.CallOption) (*UpdateManagedDatabaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ManagedDatabase)
+	out := new(UpdateManagedDatabaseResponse)
 	err := c.cc.Invoke(ctx, ManagedDatabaseService_UpdateManagedDatabase_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -97,13 +97,13 @@ func (c *managedDatabaseServiceClient) ListManagedDatabases(ctx context.Context,
 	return out, nil
 }
 
-func (c *managedDatabaseServiceClient) WatchManagedDatabases(ctx context.Context, in *WatchManagedDatabasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ManagedDatabaseWatchEvent], error) {
+func (c *managedDatabaseServiceClient) WatchManagedDatabases(ctx context.Context, in *WatchManagedDatabasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchManagedDatabasesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ManagedDatabaseService_ServiceDesc.Streams[0], ManagedDatabaseService_WatchManagedDatabases_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchManagedDatabasesRequest, ManagedDatabaseWatchEvent]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WatchManagedDatabasesRequest, WatchManagedDatabasesResponse]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -114,18 +114,18 @@ func (c *managedDatabaseServiceClient) WatchManagedDatabases(ctx context.Context
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ManagedDatabaseService_WatchManagedDatabasesClient = grpc.ServerStreamingClient[ManagedDatabaseWatchEvent]
+type ManagedDatabaseService_WatchManagedDatabasesClient = grpc.ServerStreamingClient[WatchManagedDatabasesResponse]
 
 // ManagedDatabaseServiceServer is the server API for ManagedDatabaseService service.
 // All implementations must embed UnimplementedManagedDatabaseServiceServer
 // for forward compatibility.
 type ManagedDatabaseServiceServer interface {
-	GetManagedDatabase(context.Context, *GetManagedDatabaseRequest) (*ManagedDatabase, error)
-	CreateManagedDatabase(context.Context, *CreateManagedDatabaseRequest) (*ManagedDatabase, error)
-	UpdateManagedDatabase(context.Context, *UpdateManagedDatabaseRequest) (*ManagedDatabase, error)
+	GetManagedDatabase(context.Context, *GetManagedDatabaseRequest) (*GetManagedDatabaseResponse, error)
+	CreateManagedDatabase(context.Context, *CreateManagedDatabaseRequest) (*CreateManagedDatabaseResponse, error)
+	UpdateManagedDatabase(context.Context, *UpdateManagedDatabaseRequest) (*UpdateManagedDatabaseResponse, error)
 	DeleteManagedDatabase(context.Context, *DeleteManagedDatabaseRequest) (*DeleteManagedDatabaseResponse, error)
 	ListManagedDatabases(context.Context, *ListManagedDatabasesRequest) (*ListManagedDatabasesResponse, error)
-	WatchManagedDatabases(*WatchManagedDatabasesRequest, grpc.ServerStreamingServer[ManagedDatabaseWatchEvent]) error
+	WatchManagedDatabases(*WatchManagedDatabasesRequest, grpc.ServerStreamingServer[WatchManagedDatabasesResponse]) error
 	mustEmbedUnimplementedManagedDatabaseServiceServer()
 }
 
@@ -136,13 +136,13 @@ type ManagedDatabaseServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedManagedDatabaseServiceServer struct{}
 
-func (UnimplementedManagedDatabaseServiceServer) GetManagedDatabase(context.Context, *GetManagedDatabaseRequest) (*ManagedDatabase, error) {
+func (UnimplementedManagedDatabaseServiceServer) GetManagedDatabase(context.Context, *GetManagedDatabaseRequest) (*GetManagedDatabaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetManagedDatabase not implemented")
 }
-func (UnimplementedManagedDatabaseServiceServer) CreateManagedDatabase(context.Context, *CreateManagedDatabaseRequest) (*ManagedDatabase, error) {
+func (UnimplementedManagedDatabaseServiceServer) CreateManagedDatabase(context.Context, *CreateManagedDatabaseRequest) (*CreateManagedDatabaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateManagedDatabase not implemented")
 }
-func (UnimplementedManagedDatabaseServiceServer) UpdateManagedDatabase(context.Context, *UpdateManagedDatabaseRequest) (*ManagedDatabase, error) {
+func (UnimplementedManagedDatabaseServiceServer) UpdateManagedDatabase(context.Context, *UpdateManagedDatabaseRequest) (*UpdateManagedDatabaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateManagedDatabase not implemented")
 }
 func (UnimplementedManagedDatabaseServiceServer) DeleteManagedDatabase(context.Context, *DeleteManagedDatabaseRequest) (*DeleteManagedDatabaseResponse, error) {
@@ -151,7 +151,7 @@ func (UnimplementedManagedDatabaseServiceServer) DeleteManagedDatabase(context.C
 func (UnimplementedManagedDatabaseServiceServer) ListManagedDatabases(context.Context, *ListManagedDatabasesRequest) (*ListManagedDatabasesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListManagedDatabases not implemented")
 }
-func (UnimplementedManagedDatabaseServiceServer) WatchManagedDatabases(*WatchManagedDatabasesRequest, grpc.ServerStreamingServer[ManagedDatabaseWatchEvent]) error {
+func (UnimplementedManagedDatabaseServiceServer) WatchManagedDatabases(*WatchManagedDatabasesRequest, grpc.ServerStreamingServer[WatchManagedDatabasesResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchManagedDatabases not implemented")
 }
 func (UnimplementedManagedDatabaseServiceServer) mustEmbedUnimplementedManagedDatabaseServiceServer() {
@@ -271,11 +271,11 @@ func _ManagedDatabaseService_WatchManagedDatabases_Handler(srv interface{}, stre
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(ManagedDatabaseServiceServer).WatchManagedDatabases(m, &grpc.GenericServerStream[WatchManagedDatabasesRequest, ManagedDatabaseWatchEvent]{ServerStream: stream})
+	return srv.(ManagedDatabaseServiceServer).WatchManagedDatabases(m, &grpc.GenericServerStream[WatchManagedDatabasesRequest, WatchManagedDatabasesResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ManagedDatabaseService_WatchManagedDatabasesServer = grpc.ServerStreamingServer[ManagedDatabaseWatchEvent]
+type ManagedDatabaseService_WatchManagedDatabasesServer = grpc.ServerStreamingServer[WatchManagedDatabasesResponse]
 
 // ManagedDatabaseService_ServiceDesc is the grpc.ServiceDesc for ManagedDatabaseService service.
 // It's only intended for direct use with grpc.RegisterService,

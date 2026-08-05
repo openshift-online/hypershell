@@ -31,12 +31,12 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type GatewayServiceClient interface {
-	GetGateway(ctx context.Context, in *GetGatewayRequest, opts ...grpc.CallOption) (*Gateway, error)
-	CreateGateway(ctx context.Context, in *CreateGatewayRequest, opts ...grpc.CallOption) (*Gateway, error)
-	UpdateGateway(ctx context.Context, in *UpdateGatewayRequest, opts ...grpc.CallOption) (*Gateway, error)
+	GetGateway(ctx context.Context, in *GetGatewayRequest, opts ...grpc.CallOption) (*GetGatewayResponse, error)
+	CreateGateway(ctx context.Context, in *CreateGatewayRequest, opts ...grpc.CallOption) (*CreateGatewayResponse, error)
+	UpdateGateway(ctx context.Context, in *UpdateGatewayRequest, opts ...grpc.CallOption) (*UpdateGatewayResponse, error)
 	DeleteGateway(ctx context.Context, in *DeleteGatewayRequest, opts ...grpc.CallOption) (*DeleteGatewayResponse, error)
 	ListGateways(ctx context.Context, in *ListGatewaysRequest, opts ...grpc.CallOption) (*ListGatewaysResponse, error)
-	WatchGateways(ctx context.Context, in *WatchGatewaysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GatewayWatchEvent], error)
+	WatchGateways(ctx context.Context, in *WatchGatewaysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchGatewaysResponse], error)
 }
 
 type gatewayServiceClient struct {
@@ -47,9 +47,9 @@ func NewGatewayServiceClient(cc grpc.ClientConnInterface) GatewayServiceClient {
 	return &gatewayServiceClient{cc}
 }
 
-func (c *gatewayServiceClient) GetGateway(ctx context.Context, in *GetGatewayRequest, opts ...grpc.CallOption) (*Gateway, error) {
+func (c *gatewayServiceClient) GetGateway(ctx context.Context, in *GetGatewayRequest, opts ...grpc.CallOption) (*GetGatewayResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Gateway)
+	out := new(GetGatewayResponse)
 	err := c.cc.Invoke(ctx, GatewayService_GetGateway_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -57,9 +57,9 @@ func (c *gatewayServiceClient) GetGateway(ctx context.Context, in *GetGatewayReq
 	return out, nil
 }
 
-func (c *gatewayServiceClient) CreateGateway(ctx context.Context, in *CreateGatewayRequest, opts ...grpc.CallOption) (*Gateway, error) {
+func (c *gatewayServiceClient) CreateGateway(ctx context.Context, in *CreateGatewayRequest, opts ...grpc.CallOption) (*CreateGatewayResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Gateway)
+	out := new(CreateGatewayResponse)
 	err := c.cc.Invoke(ctx, GatewayService_CreateGateway_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -67,9 +67,9 @@ func (c *gatewayServiceClient) CreateGateway(ctx context.Context, in *CreateGate
 	return out, nil
 }
 
-func (c *gatewayServiceClient) UpdateGateway(ctx context.Context, in *UpdateGatewayRequest, opts ...grpc.CallOption) (*Gateway, error) {
+func (c *gatewayServiceClient) UpdateGateway(ctx context.Context, in *UpdateGatewayRequest, opts ...grpc.CallOption) (*UpdateGatewayResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Gateway)
+	out := new(UpdateGatewayResponse)
 	err := c.cc.Invoke(ctx, GatewayService_UpdateGateway_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -97,13 +97,13 @@ func (c *gatewayServiceClient) ListGateways(ctx context.Context, in *ListGateway
 	return out, nil
 }
 
-func (c *gatewayServiceClient) WatchGateways(ctx context.Context, in *WatchGatewaysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GatewayWatchEvent], error) {
+func (c *gatewayServiceClient) WatchGateways(ctx context.Context, in *WatchGatewaysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchGatewaysResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &GatewayService_ServiceDesc.Streams[0], GatewayService_WatchGateways_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchGatewaysRequest, GatewayWatchEvent]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WatchGatewaysRequest, WatchGatewaysResponse]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -114,18 +114,18 @@ func (c *gatewayServiceClient) WatchGateways(ctx context.Context, in *WatchGatew
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type GatewayService_WatchGatewaysClient = grpc.ServerStreamingClient[GatewayWatchEvent]
+type GatewayService_WatchGatewaysClient = grpc.ServerStreamingClient[WatchGatewaysResponse]
 
 // GatewayServiceServer is the server API for GatewayService service.
 // All implementations must embed UnimplementedGatewayServiceServer
 // for forward compatibility.
 type GatewayServiceServer interface {
-	GetGateway(context.Context, *GetGatewayRequest) (*Gateway, error)
-	CreateGateway(context.Context, *CreateGatewayRequest) (*Gateway, error)
-	UpdateGateway(context.Context, *UpdateGatewayRequest) (*Gateway, error)
+	GetGateway(context.Context, *GetGatewayRequest) (*GetGatewayResponse, error)
+	CreateGateway(context.Context, *CreateGatewayRequest) (*CreateGatewayResponse, error)
+	UpdateGateway(context.Context, *UpdateGatewayRequest) (*UpdateGatewayResponse, error)
 	DeleteGateway(context.Context, *DeleteGatewayRequest) (*DeleteGatewayResponse, error)
 	ListGateways(context.Context, *ListGatewaysRequest) (*ListGatewaysResponse, error)
-	WatchGateways(*WatchGatewaysRequest, grpc.ServerStreamingServer[GatewayWatchEvent]) error
+	WatchGateways(*WatchGatewaysRequest, grpc.ServerStreamingServer[WatchGatewaysResponse]) error
 	mustEmbedUnimplementedGatewayServiceServer()
 }
 
@@ -136,13 +136,13 @@ type GatewayServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedGatewayServiceServer struct{}
 
-func (UnimplementedGatewayServiceServer) GetGateway(context.Context, *GetGatewayRequest) (*Gateway, error) {
+func (UnimplementedGatewayServiceServer) GetGateway(context.Context, *GetGatewayRequest) (*GetGatewayResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetGateway not implemented")
 }
-func (UnimplementedGatewayServiceServer) CreateGateway(context.Context, *CreateGatewayRequest) (*Gateway, error) {
+func (UnimplementedGatewayServiceServer) CreateGateway(context.Context, *CreateGatewayRequest) (*CreateGatewayResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateGateway not implemented")
 }
-func (UnimplementedGatewayServiceServer) UpdateGateway(context.Context, *UpdateGatewayRequest) (*Gateway, error) {
+func (UnimplementedGatewayServiceServer) UpdateGateway(context.Context, *UpdateGatewayRequest) (*UpdateGatewayResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateGateway not implemented")
 }
 func (UnimplementedGatewayServiceServer) DeleteGateway(context.Context, *DeleteGatewayRequest) (*DeleteGatewayResponse, error) {
@@ -151,7 +151,7 @@ func (UnimplementedGatewayServiceServer) DeleteGateway(context.Context, *DeleteG
 func (UnimplementedGatewayServiceServer) ListGateways(context.Context, *ListGatewaysRequest) (*ListGatewaysResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListGateways not implemented")
 }
-func (UnimplementedGatewayServiceServer) WatchGateways(*WatchGatewaysRequest, grpc.ServerStreamingServer[GatewayWatchEvent]) error {
+func (UnimplementedGatewayServiceServer) WatchGateways(*WatchGatewaysRequest, grpc.ServerStreamingServer[WatchGatewaysResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchGateways not implemented")
 }
 func (UnimplementedGatewayServiceServer) mustEmbedUnimplementedGatewayServiceServer() {}
@@ -270,11 +270,11 @@ func _GatewayService_WatchGateways_Handler(srv interface{}, stream grpc.ServerSt
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(GatewayServiceServer).WatchGateways(m, &grpc.GenericServerStream[WatchGatewaysRequest, GatewayWatchEvent]{ServerStream: stream})
+	return srv.(GatewayServiceServer).WatchGateways(m, &grpc.GenericServerStream[WatchGatewaysRequest, WatchGatewaysResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type GatewayService_WatchGatewaysServer = grpc.ServerStreamingServer[GatewayWatchEvent]
+type GatewayService_WatchGatewaysServer = grpc.ServerStreamingServer[WatchGatewaysResponse]
 
 // GatewayService_ServiceDesc is the grpc.ServiceDesc for GatewayService service.
 // It's only intended for direct use with grpc.RegisterService,

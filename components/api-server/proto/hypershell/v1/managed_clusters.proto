@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hypershell.v1;
 
-option go_package = "github.com/openshift-online/hypershell/pkg/api/grpc/hypershell/v1;hypershell_v1";
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
 
@@ -27,8 +27,16 @@ message CreateManagedClusterRequest {
   optional string api_server_url = 7;
 }
 
+message CreateManagedClusterResponse {
+  ManagedCluster managed_cluster = 1;
+}
+
 message GetManagedClusterRequest {
   string id = 1;
+}
+
+message GetManagedClusterResponse {
+  ManagedCluster managed_cluster = 1;
 }
 
 message UpdateManagedClusterRequest {
@@ -40,6 +48,10 @@ message UpdateManagedClusterRequest {
   optional string kubeconfig_secret = 6;
   optional string status = 7;
   optional string api_server_url = 8;
+}
+
+message UpdateManagedClusterResponse {
+  ManagedCluster managed_cluster = 1;
 }
 
 message DeleteManagedClusterRequest {
@@ -60,17 +72,17 @@ message DeleteManagedClusterResponse {}
 
 message WatchManagedClustersRequest {}
 
-message ManagedClusterWatchEvent {
+message WatchManagedClustersResponse {
   EventType type = 1;
-  ManagedCluster managedCluster = 2;
+  ManagedCluster managed_cluster = 2;
   string resource_id = 3;
 }
 
 service ManagedClusterService {
-  rpc GetManagedCluster(GetManagedClusterRequest) returns (ManagedCluster);
-  rpc CreateManagedCluster(CreateManagedClusterRequest) returns (ManagedCluster);
-  rpc UpdateManagedCluster(UpdateManagedClusterRequest) returns (ManagedCluster);
+  rpc GetManagedCluster(GetManagedClusterRequest) returns (GetManagedClusterResponse);
+  rpc CreateManagedCluster(CreateManagedClusterRequest) returns (CreateManagedClusterResponse);
+  rpc UpdateManagedCluster(UpdateManagedClusterRequest) returns (UpdateManagedClusterResponse);
   rpc DeleteManagedCluster(DeleteManagedClusterRequest) returns (DeleteManagedClusterResponse);
   rpc ListManagedClusters(ListManagedClustersRequest) returns (ListManagedClustersResponse);
-  rpc WatchManagedClusters(WatchManagedClustersRequest) returns (stream ManagedClusterWatchEvent);
+  rpc WatchManagedClusters(WatchManagedClustersRequest) returns (stream WatchManagedClustersResponse);
 }

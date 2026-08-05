@@ -1,18 +1,15 @@
 package api
 
+import (
+	"embed"
+	"io/fs"
+)
+
+//go:embed openapi/api/openapi.yaml
+var openapiFS embed.FS
+
+// GetOpenAPISpec returns the bundled OpenAPI document generated from the
+// canonical split specifications in ../../openapi.
 func GetOpenAPISpec() ([]byte, error) {
-	spec := `
-openapi: 3.0.0
-info:
-  title: HyperShell API
-  version: 1.0.0
-paths:
-  /health:
-    get:
-      summary: Health check
-      responses:
-        '200':
-          description: Service is healthy
-`
-	return []byte(spec), nil
+	return fs.ReadFile(openapiFS, "openapi/api/openapi.yaml")
 }

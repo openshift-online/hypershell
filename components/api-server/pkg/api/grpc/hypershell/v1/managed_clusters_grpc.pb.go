@@ -31,12 +31,12 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ManagedClusterServiceClient interface {
-	GetManagedCluster(ctx context.Context, in *GetManagedClusterRequest, opts ...grpc.CallOption) (*ManagedCluster, error)
-	CreateManagedCluster(ctx context.Context, in *CreateManagedClusterRequest, opts ...grpc.CallOption) (*ManagedCluster, error)
-	UpdateManagedCluster(ctx context.Context, in *UpdateManagedClusterRequest, opts ...grpc.CallOption) (*ManagedCluster, error)
+	GetManagedCluster(ctx context.Context, in *GetManagedClusterRequest, opts ...grpc.CallOption) (*GetManagedClusterResponse, error)
+	CreateManagedCluster(ctx context.Context, in *CreateManagedClusterRequest, opts ...grpc.CallOption) (*CreateManagedClusterResponse, error)
+	UpdateManagedCluster(ctx context.Context, in *UpdateManagedClusterRequest, opts ...grpc.CallOption) (*UpdateManagedClusterResponse, error)
 	DeleteManagedCluster(ctx context.Context, in *DeleteManagedClusterRequest, opts ...grpc.CallOption) (*DeleteManagedClusterResponse, error)
 	ListManagedClusters(ctx context.Context, in *ListManagedClustersRequest, opts ...grpc.CallOption) (*ListManagedClustersResponse, error)
-	WatchManagedClusters(ctx context.Context, in *WatchManagedClustersRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ManagedClusterWatchEvent], error)
+	WatchManagedClusters(ctx context.Context, in *WatchManagedClustersRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchManagedClustersResponse], error)
 }
 
 type managedClusterServiceClient struct {
@@ -47,9 +47,9 @@ func NewManagedClusterServiceClient(cc grpc.ClientConnInterface) ManagedClusterS
 	return &managedClusterServiceClient{cc}
 }
 
-func (c *managedClusterServiceClient) GetManagedCluster(ctx context.Context, in *GetManagedClusterRequest, opts ...grpc.CallOption) (*ManagedCluster, error) {
+func (c *managedClusterServiceClient) GetManagedCluster(ctx context.Context, in *GetManagedClusterRequest, opts ...grpc.CallOption) (*GetManagedClusterResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ManagedCluster)
+	out := new(GetManagedClusterResponse)
 	err := c.cc.Invoke(ctx, ManagedClusterService_GetManagedCluster_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -57,9 +57,9 @@ func (c *managedClusterServiceClient) GetManagedCluster(ctx context.Context, in 
 	return out, nil
 }
 
-func (c *managedClusterServiceClient) CreateManagedCluster(ctx context.Context, in *CreateManagedClusterRequest, opts ...grpc.CallOption) (*ManagedCluster, error) {
+func (c *managedClusterServiceClient) CreateManagedCluster(ctx context.Context, in *CreateManagedClusterRequest, opts ...grpc.CallOption) (*CreateManagedClusterResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ManagedCluster)
+	out := new(CreateManagedClusterResponse)
 	err := c.cc.Invoke(ctx, ManagedClusterService_CreateManagedCluster_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -67,9 +67,9 @@ func (c *managedClusterServiceClient) CreateManagedCluster(ctx context.Context, 
 	return out, nil
 }
 
-func (c *managedClusterServiceClient) UpdateManagedCluster(ctx context.Context, in *UpdateManagedClusterRequest, opts ...grpc.CallOption) (*ManagedCluster, error) {
+func (c *managedClusterServiceClient) UpdateManagedCluster(ctx context.Context, in *UpdateManagedClusterRequest, opts ...grpc.CallOption) (*UpdateManagedClusterResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ManagedCluster)
+	out := new(UpdateManagedClusterResponse)
 	err := c.cc.Invoke(ctx, ManagedClusterService_UpdateManagedCluster_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -97,13 +97,13 @@ func (c *managedClusterServiceClient) ListManagedClusters(ctx context.Context, i
 	return out, nil
 }
 
-func (c *managedClusterServiceClient) WatchManagedClusters(ctx context.Context, in *WatchManagedClustersRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ManagedClusterWatchEvent], error) {
+func (c *managedClusterServiceClient) WatchManagedClusters(ctx context.Context, in *WatchManagedClustersRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchManagedClustersResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ManagedClusterService_ServiceDesc.Streams[0], ManagedClusterService_WatchManagedClusters_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchManagedClustersRequest, ManagedClusterWatchEvent]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WatchManagedClustersRequest, WatchManagedClustersResponse]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -114,18 +114,18 @@ func (c *managedClusterServiceClient) WatchManagedClusters(ctx context.Context, 
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ManagedClusterService_WatchManagedClustersClient = grpc.ServerStreamingClient[ManagedClusterWatchEvent]
+type ManagedClusterService_WatchManagedClustersClient = grpc.ServerStreamingClient[WatchManagedClustersResponse]
 
 // ManagedClusterServiceServer is the server API for ManagedClusterService service.
 // All implementations must embed UnimplementedManagedClusterServiceServer
 // for forward compatibility.
 type ManagedClusterServiceServer interface {
-	GetManagedCluster(context.Context, *GetManagedClusterRequest) (*ManagedCluster, error)
-	CreateManagedCluster(context.Context, *CreateManagedClusterRequest) (*ManagedCluster, error)
-	UpdateManagedCluster(context.Context, *UpdateManagedClusterRequest) (*ManagedCluster, error)
+	GetManagedCluster(context.Context, *GetManagedClusterRequest) (*GetManagedClusterResponse, error)
+	CreateManagedCluster(context.Context, *CreateManagedClusterRequest) (*CreateManagedClusterResponse, error)
+	UpdateManagedCluster(context.Context, *UpdateManagedClusterRequest) (*UpdateManagedClusterResponse, error)
 	DeleteManagedCluster(context.Context, *DeleteManagedClusterRequest) (*DeleteManagedClusterResponse, error)
 	ListManagedClusters(context.Context, *ListManagedClustersRequest) (*ListManagedClustersResponse, error)
-	WatchManagedClusters(*WatchManagedClustersRequest, grpc.ServerStreamingServer[ManagedClusterWatchEvent]) error
+	WatchManagedClusters(*WatchManagedClustersRequest, grpc.ServerStreamingServer[WatchManagedClustersResponse]) error
 	mustEmbedUnimplementedManagedClusterServiceServer()
 }
 
@@ -136,13 +136,13 @@ type ManagedClusterServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedManagedClusterServiceServer struct{}
 
-func (UnimplementedManagedClusterServiceServer) GetManagedCluster(context.Context, *GetManagedClusterRequest) (*ManagedCluster, error) {
+func (UnimplementedManagedClusterServiceServer) GetManagedCluster(context.Context, *GetManagedClusterRequest) (*GetManagedClusterResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetManagedCluster not implemented")
 }
-func (UnimplementedManagedClusterServiceServer) CreateManagedCluster(context.Context, *CreateManagedClusterRequest) (*ManagedCluster, error) {
+func (UnimplementedManagedClusterServiceServer) CreateManagedCluster(context.Context, *CreateManagedClusterRequest) (*CreateManagedClusterResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateManagedCluster not implemented")
 }
-func (UnimplementedManagedClusterServiceServer) UpdateManagedCluster(context.Context, *UpdateManagedClusterRequest) (*ManagedCluster, error) {
+func (UnimplementedManagedClusterServiceServer) UpdateManagedCluster(context.Context, *UpdateManagedClusterRequest) (*UpdateManagedClusterResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateManagedCluster not implemented")
 }
 func (UnimplementedManagedClusterServiceServer) DeleteManagedCluster(context.Context, *DeleteManagedClusterRequest) (*DeleteManagedClusterResponse, error) {
@@ -151,7 +151,7 @@ func (UnimplementedManagedClusterServiceServer) DeleteManagedCluster(context.Con
 func (UnimplementedManagedClusterServiceServer) ListManagedClusters(context.Context, *ListManagedClustersRequest) (*ListManagedClustersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListManagedClusters not implemented")
 }
-func (UnimplementedManagedClusterServiceServer) WatchManagedClusters(*WatchManagedClustersRequest, grpc.ServerStreamingServer[ManagedClusterWatchEvent]) error {
+func (UnimplementedManagedClusterServiceServer) WatchManagedClusters(*WatchManagedClustersRequest, grpc.ServerStreamingServer[WatchManagedClustersResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchManagedClusters not implemented")
 }
 func (UnimplementedManagedClusterServiceServer) mustEmbedUnimplementedManagedClusterServiceServer() {}
@@ -270,11 +270,11 @@ func _ManagedClusterService_WatchManagedClusters_Handler(srv interface{}, stream
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(ManagedClusterServiceServer).WatchManagedClusters(m, &grpc.GenericServerStream[WatchManagedClustersRequest, ManagedClusterWatchEvent]{ServerStream: stream})
+	return srv.(ManagedClusterServiceServer).WatchManagedClusters(m, &grpc.GenericServerStream[WatchManagedClustersRequest, WatchManagedClustersResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ManagedClusterService_WatchManagedClustersServer = grpc.ServerStreamingServer[ManagedClusterWatchEvent]
+type ManagedClusterService_WatchManagedClustersServer = grpc.ServerStreamingServer[WatchManagedClustersResponse]
 
 // ManagedClusterService_ServiceDesc is the grpc.ServiceDesc for ManagedClusterService service.
 // It's only intended for direct use with grpc.RegisterService,

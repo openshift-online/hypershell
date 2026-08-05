@@ -1,0 +1,26 @@
+{
+  "name": "@openshift-online/hypershell-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Generated TypeScript client for the HyperShell API",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "check": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.30",
+    "typescript": "5.3.3"
+  }
+}

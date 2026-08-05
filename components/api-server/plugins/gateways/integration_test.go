@@ -19,17 +19,17 @@ func TestGatewayGet(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	_, _, err := client.DefaultAPI.ApiHypershellV1GatewaysIdGet(context.Background(), "foo").Execute()
+	_, _, err := client.DefaultAPI.GetGateway(context.Background(), "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 401 but got nil error")
 
-	_, resp, err := client.DefaultAPI.ApiHypershellV1GatewaysIdGet(ctx, "foo").Execute()
+	_, resp, err := client.DefaultAPI.GetGateway(ctx, "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 404")
 	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 
 	gatewayModel, err := newGateway(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	gatewayOutput, resp, err := client.DefaultAPI.ApiHypershellV1GatewaysIdGet(ctx, gatewayModel.ID).Execute()
+	gatewayOutput, resp, err := client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -60,7 +60,7 @@ func TestGatewayPost(t *testing.T) {
 		Phase:       openapi.PtrString("test-phase"),
 	}
 
-	gatewayOutput, resp, err := client.DefaultAPI.ApiHypershellV1GatewaysPost(ctx).Gateway(gatewayInput).Execute()
+	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).Gateway(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(*gatewayOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
@@ -87,7 +87,7 @@ func TestGatewayPatch(t *testing.T) {
 	gatewayModel, err := newGateway(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	gatewayOutput, resp, err := client.DefaultAPI.ApiHypershellV1GatewaysIdPatch(ctx, gatewayModel.ID).GatewayPatchRequest(openapi.GatewayPatchRequest{}).Execute()
+	gatewayOutput, resp, err := client.DefaultAPI.UpdateGateway(ctx, gatewayModel.ID).GatewayPatchRequest(openapi.GatewayPatchRequest{}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(*gatewayOutput.Id).To(Equal(gatewayModel.ID))
@@ -106,6 +106,24 @@ func TestGatewayPatch(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
+func TestGatewayDelete(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gatewayModel, err := newGateway(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	resp, err := client.DefaultAPI.DeleteGateway(ctx, gatewayModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	_, resp, err = client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
+	Expect(err).To(HaveOccurred(), "Expected deleted gateway to return 404")
+	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+}
+
 func TestGatewayPaging(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -115,19 +133,19 @@ func TestGatewayPaging(t *testing.T) {
 	_, err := newGatewayList("Bronto", 20)
 	Expect(err).NotTo(HaveOccurred())
 
-	list, _, err := client.DefaultAPI.ApiHypershellV1GatewaysGet(ctx).Execute()
+	list, _, err := client.DefaultAPI.ListGateways(ctx).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting gateway list: %v", err)
 	Expect(len(list.Items)).To(Equal(20))
-	Expect(list.Size).To(Equal(int32(20)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(1)))
+	Expect(list.GetSize()).To(Equal(int32(20)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(1)))
 
-	list, _, err = client.DefaultAPI.ApiHypershellV1GatewaysGet(ctx).Page(2).Size(5).Execute()
+	list, _, err = client.DefaultAPI.ListGateways(ctx).Page(2).Size(5).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting gateway list: %v", err)
 	Expect(len(list.Items)).To(Equal(5))
-	Expect(list.Size).To(Equal(int32(5)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(2)))
+	Expect(list.GetSize()).To(Equal(int32(5)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(2)))
 }
 
 func TestGatewayListSearch(t *testing.T) {
@@ -140,9 +158,9 @@ func TestGatewayListSearch(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	search := fmt.Sprintf("id in ('%s')", gateways[0].ID)
-	list, _, err := client.DefaultAPI.ApiHypershellV1GatewaysGet(ctx).Search(search).Execute()
+	list, _, err := client.DefaultAPI.ListGateways(ctx).Search(search).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting gateway list: %v", err)
 	Expect(len(list.Items)).To(Equal(1))
-	Expect(list.Total).To(Equal(int32(1)))
+	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(gateways[0].ID))
 }

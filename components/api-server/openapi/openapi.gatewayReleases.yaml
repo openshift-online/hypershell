@@ -3,6 +3,7 @@ paths:
   /api/hypershell/v1/gateway_releases:
   # NEW ENDPOINT END
     get:
+      operationId: listGatewayReleases
       summary: Returns a list of gatewayReleases
       security:
         - Bearer: []
@@ -38,6 +39,7 @@ paths:
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
     post:
+      operationId: createGatewayRelease
       summary: Create a new gatewayRelease
       security:
         - Bearer: []
@@ -89,6 +91,7 @@ paths:
   /api/hypershell/v1/gateway_releases/{id}:
   # NEW ENDPOINT END
     get:
+      operationId: getGatewayRelease
       summary: Get an gatewayRelease by id
       security:
         - Bearer: []
@@ -124,6 +127,7 @@ paths:
               schema:
                 $ref: 'openapi.yaml#/components/schemas/Error'
     patch:
+      operationId: updateGatewayRelease
       summary: Update an gatewayRelease
       security:
         - Bearer: []
@@ -173,6 +177,38 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
         '500':
           description: Unexpected error updating gatewayRelease
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+    delete:
+      operationId: deleteGatewayRelease
+      summary: Delete a gateway release
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: Gateway release deleted successfully
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '403':
+          description: Unauthorized to perform operation
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '404':
+          description: No gateway release with specified id exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error deleting gateway release
           content:
             application/json:
               schema:

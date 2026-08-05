@@ -111,6 +111,10 @@ func (s *sqlFleetService) Replace(ctx context.Context, fleet *Fleet) (*Fleet, *e
 }
 
 func (s *sqlFleetService) Delete(ctx context.Context, id string) *errors.ServiceError {
+	if _, svcErr := s.Get(ctx, id); svcErr != nil {
+		return svcErr
+	}
+
 	if err := s.fleetDao.Delete(ctx, id); err != nil {
 		return services.HandleDeleteError("Fleet", errors.GeneralError("Unable to delete fleet: %s", err))
 	}

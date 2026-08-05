@@ -19,17 +19,17 @@ func TestManagedDatabaseGet(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	_, _, err := client.DefaultAPI.ApiHypershellV1ManagedDatabasesIdGet(context.Background(), "foo").Execute()
+	_, _, err := client.DefaultAPI.GetManagedDatabase(context.Background(), "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 401 but got nil error")
 
-	_, resp, err := client.DefaultAPI.ApiHypershellV1ManagedDatabasesIdGet(ctx, "foo").Execute()
+	_, resp, err := client.DefaultAPI.GetManagedDatabase(ctx, "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 404")
 	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 
 	managedDatabaseModel, err := newManagedDatabase(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	managedDatabaseOutput, resp, err := client.DefaultAPI.ApiHypershellV1ManagedDatabasesIdGet(ctx, managedDatabaseModel.ID).Execute()
+	managedDatabaseOutput, resp, err := client.DefaultAPI.GetManagedDatabase(ctx, managedDatabaseModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -58,7 +58,7 @@ func TestManagedDatabasePost(t *testing.T) {
 		Status:           openapi.PtrString("test-status"),
 	}
 
-	managedDatabaseOutput, resp, err := client.DefaultAPI.ApiHypershellV1ManagedDatabasesPost(ctx).ManagedDatabase(managedDatabaseInput).Execute()
+	managedDatabaseOutput, resp, err := client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(managedDatabaseInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(*managedDatabaseOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
@@ -85,7 +85,7 @@ func TestManagedDatabasePatch(t *testing.T) {
 	managedDatabaseModel, err := newManagedDatabase(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	managedDatabaseOutput, resp, err := client.DefaultAPI.ApiHypershellV1ManagedDatabasesIdPatch(ctx, managedDatabaseModel.ID).ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{}).Execute()
+	managedDatabaseOutput, resp, err := client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(*managedDatabaseOutput.Id).To(Equal(managedDatabaseModel.ID))
@@ -104,6 +104,24 @@ func TestManagedDatabasePatch(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
+func TestManagedDatabaseDelete(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	managedDatabaseModel, err := newManagedDatabase(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	resp, err := client.DefaultAPI.DeleteManagedDatabase(ctx, managedDatabaseModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	_, resp, err = client.DefaultAPI.GetManagedDatabase(ctx, managedDatabaseModel.ID).Execute()
+	Expect(err).To(HaveOccurred(), "Expected deleted managed database to return 404")
+	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+}
+
 func TestManagedDatabasePaging(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -113,19 +131,19 @@ func TestManagedDatabasePaging(t *testing.T) {
 	_, err := newManagedDatabaseList("Bronto", 20)
 	Expect(err).NotTo(HaveOccurred())
 
-	list, _, err := client.DefaultAPI.ApiHypershellV1ManagedDatabasesGet(ctx).Execute()
+	list, _, err := client.DefaultAPI.ListManagedDatabases(ctx).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting managedDatabase list: %v", err)
 	Expect(len(list.Items)).To(Equal(20))
-	Expect(list.Size).To(Equal(int32(20)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(1)))
+	Expect(list.GetSize()).To(Equal(int32(20)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(1)))
 
-	list, _, err = client.DefaultAPI.ApiHypershellV1ManagedDatabasesGet(ctx).Page(2).Size(5).Execute()
+	list, _, err = client.DefaultAPI.ListManagedDatabases(ctx).Page(2).Size(5).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting managedDatabase list: %v", err)
 	Expect(len(list.Items)).To(Equal(5))
-	Expect(list.Size).To(Equal(int32(5)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(2)))
+	Expect(list.GetSize()).To(Equal(int32(5)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(2)))
 }
 
 func TestManagedDatabaseListSearch(t *testing.T) {
@@ -138,9 +156,9 @@ func TestManagedDatabaseListSearch(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	search := fmt.Sprintf("id in ('%s')", managedDatabases[0].ID)
-	list, _, err := client.DefaultAPI.ApiHypershellV1ManagedDatabasesGet(ctx).Search(search).Execute()
+	list, _, err := client.DefaultAPI.ListManagedDatabases(ctx).Search(search).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting managedDatabase list: %v", err)
 	Expect(len(list.Items)).To(Equal(1))
-	Expect(list.Total).To(Equal(int32(1)))
+	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(managedDatabases[0].ID))
 }

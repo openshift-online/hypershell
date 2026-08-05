@@ -149,6 +149,50 @@ func (x *CreateFleetRequest) GetStatus() string {
 	return ""
 }
 
+type CreateFleetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fleet         *Fleet                 `protobuf:"bytes,1,opt,name=fleet,proto3" json:"fleet,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateFleetResponse) Reset() {
+	*x = CreateFleetResponse{}
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateFleetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateFleetResponse) ProtoMessage() {}
+
+func (x *CreateFleetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateFleetResponse.ProtoReflect.Descriptor instead.
+func (*CreateFleetResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateFleetResponse) GetFleet() *Fleet {
+	if x != nil {
+		return x.Fleet
+	}
+	return nil
+}
+
 type GetFleetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -158,7 +202,7 @@ type GetFleetRequest struct {
 
 func (x *GetFleetRequest) Reset() {
 	*x = GetFleetRequest{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[2]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -170,7 +214,7 @@ func (x *GetFleetRequest) String() string {
 func (*GetFleetRequest) ProtoMessage() {}
 
 func (x *GetFleetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[2]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -183,7 +227,7 @@ func (x *GetFleetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFleetRequest.ProtoReflect.Descriptor instead.
 func (*GetFleetRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{2}
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetFleetRequest) GetId() string {
@@ -191,6 +235,50 @@ func (x *GetFleetRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+type GetFleetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fleet         *Fleet                 `protobuf:"bytes,1,opt,name=fleet,proto3" json:"fleet,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFleetResponse) Reset() {
+	*x = GetFleetResponse{}
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFleetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFleetResponse) ProtoMessage() {}
+
+func (x *GetFleetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFleetResponse.ProtoReflect.Descriptor instead.
+func (*GetFleetResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetFleetResponse) GetFleet() *Fleet {
+	if x != nil {
+		return x.Fleet
+	}
+	return nil
 }
 
 type UpdateFleetRequest struct {
@@ -205,7 +293,7 @@ type UpdateFleetRequest struct {
 
 func (x *UpdateFleetRequest) Reset() {
 	*x = UpdateFleetRequest{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[3]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -217,7 +305,7 @@ func (x *UpdateFleetRequest) String() string {
 func (*UpdateFleetRequest) ProtoMessage() {}
 
 func (x *UpdateFleetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[3]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -230,7 +318,7 @@ func (x *UpdateFleetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateFleetRequest.ProtoReflect.Descriptor instead.
 func (*UpdateFleetRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{3}
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UpdateFleetRequest) GetId() string {
@@ -261,6 +349,50 @@ func (x *UpdateFleetRequest) GetStatus() string {
 	return ""
 }
 
+type UpdateFleetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fleet         *Fleet                 `protobuf:"bytes,1,opt,name=fleet,proto3" json:"fleet,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateFleetResponse) Reset() {
+	*x = UpdateFleetResponse{}
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateFleetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateFleetResponse) ProtoMessage() {}
+
+func (x *UpdateFleetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateFleetResponse.ProtoReflect.Descriptor instead.
+func (*UpdateFleetResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UpdateFleetResponse) GetFleet() *Fleet {
+	if x != nil {
+		return x.Fleet
+	}
+	return nil
+}
+
 type DeleteFleetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -270,7 +402,7 @@ type DeleteFleetRequest struct {
 
 func (x *DeleteFleetRequest) Reset() {
 	*x = DeleteFleetRequest{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[4]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -282,7 +414,7 @@ func (x *DeleteFleetRequest) String() string {
 func (*DeleteFleetRequest) ProtoMessage() {}
 
 func (x *DeleteFleetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[4]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -295,7 +427,7 @@ func (x *DeleteFleetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFleetRequest.ProtoReflect.Descriptor instead.
 func (*DeleteFleetRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{4}
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeleteFleetRequest) GetId() string {
@@ -315,7 +447,7 @@ type ListFleetsRequest struct {
 
 func (x *ListFleetsRequest) Reset() {
 	*x = ListFleetsRequest{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[5]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -327,7 +459,7 @@ func (x *ListFleetsRequest) String() string {
 func (*ListFleetsRequest) ProtoMessage() {}
 
 func (x *ListFleetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[5]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -340,7 +472,7 @@ func (x *ListFleetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFleetsRequest.ProtoReflect.Descriptor instead.
 func (*ListFleetsRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{5}
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListFleetsRequest) GetPage() int32 {
@@ -367,7 +499,7 @@ type ListFleetsResponse struct {
 
 func (x *ListFleetsResponse) Reset() {
 	*x = ListFleetsResponse{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[6]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -379,7 +511,7 @@ func (x *ListFleetsResponse) String() string {
 func (*ListFleetsResponse) ProtoMessage() {}
 
 func (x *ListFleetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[6]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -392,7 +524,7 @@ func (x *ListFleetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFleetsResponse.ProtoReflect.Descriptor instead.
 func (*ListFleetsResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{6}
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListFleetsResponse) GetItems() []*Fleet {
@@ -417,7 +549,7 @@ type DeleteFleetResponse struct {
 
 func (x *DeleteFleetResponse) Reset() {
 	*x = DeleteFleetResponse{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[7]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -429,7 +561,7 @@ func (x *DeleteFleetResponse) String() string {
 func (*DeleteFleetResponse) ProtoMessage() {}
 
 func (x *DeleteFleetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[7]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -442,7 +574,7 @@ func (x *DeleteFleetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFleetResponse.ProtoReflect.Descriptor instead.
 func (*DeleteFleetResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{7}
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{10}
 }
 
 type WatchFleetsRequest struct {
@@ -453,7 +585,7 @@ type WatchFleetsRequest struct {
 
 func (x *WatchFleetsRequest) Reset() {
 	*x = WatchFleetsRequest{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[8]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -465,7 +597,7 @@ func (x *WatchFleetsRequest) String() string {
 func (*WatchFleetsRequest) ProtoMessage() {}
 
 func (x *WatchFleetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[8]
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -478,10 +610,10 @@ func (x *WatchFleetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchFleetsRequest.ProtoReflect.Descriptor instead.
 func (*WatchFleetsRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{8}
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{11}
 }
 
-type FleetWatchEvent struct {
+type WatchFleetsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          EventType              `protobuf:"varint,1,opt,name=type,proto3,enum=hypershell.v1.EventType" json:"type,omitempty"`
 	Fleet         *Fleet                 `protobuf:"bytes,2,opt,name=fleet,proto3" json:"fleet,omitempty"`
@@ -490,21 +622,21 @@ type FleetWatchEvent struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *FleetWatchEvent) Reset() {
-	*x = FleetWatchEvent{}
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[9]
+func (x *WatchFleetsResponse) Reset() {
+	*x = WatchFleetsResponse{}
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *FleetWatchEvent) String() string {
+func (x *WatchFleetsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*FleetWatchEvent) ProtoMessage() {}
+func (*WatchFleetsResponse) ProtoMessage() {}
 
-func (x *FleetWatchEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_fleets_proto_msgTypes[9]
+func (x *WatchFleetsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_fleets_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -515,26 +647,26 @@ func (x *FleetWatchEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use FleetWatchEvent.ProtoReflect.Descriptor instead.
-func (*FleetWatchEvent) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{9}
+// Deprecated: Use WatchFleetsResponse.ProtoReflect.Descriptor instead.
+func (*WatchFleetsResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_fleets_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *FleetWatchEvent) GetType() EventType {
+func (x *WatchFleetsResponse) GetType() EventType {
 	if x != nil {
 		return x.Type
 	}
 	return EventType_EVENT_TYPE_UNSPECIFIED
 }
 
-func (x *FleetWatchEvent) GetFleet() *Fleet {
+func (x *WatchFleetsResponse) GetFleet() *Fleet {
 	if x != nil {
 		return x.Fleet
 	}
 	return nil
 }
 
-func (x *FleetWatchEvent) GetResourceId() string {
+func (x *WatchFleetsResponse) GetResourceId() string {
 	if x != nil {
 		return x.ResourceId
 	}
@@ -558,9 +690,13 @@ const file_hypershell_v1_fleets_proto_rawDesc = "" +
 	"\vdescription\x18\x02 \x01(\tH\x00R\vdescription\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\x03 \x01(\tH\x01R\x06status\x88\x01\x01B\x0e\n" +
 	"\f_descriptionB\t\n" +
-	"\a_status\"!\n" +
+	"\a_status\"A\n" +
+	"\x13CreateFleetResponse\x12*\n" +
+	"\x05fleet\x18\x01 \x01(\v2\x14.hypershell.v1.FleetR\x05fleet\"!\n" +
 	"\x0fGetFleetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xa5\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\">\n" +
+	"\x10GetFleetResponse\x12*\n" +
+	"\x05fleet\x18\x01 \x01(\v2\x14.hypershell.v1.FleetR\x05fleet\"\xa5\x01\n" +
 	"\x12UpdateFleetRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
@@ -568,7 +704,9 @@ const file_hypershell_v1_fleets_proto_rawDesc = "" +
 	"\x06status\x18\x04 \x01(\tH\x02R\x06status\x88\x01\x01B\a\n" +
 	"\x05_nameB\x0e\n" +
 	"\f_descriptionB\t\n" +
-	"\a_status\"$\n" +
+	"\a_status\"A\n" +
+	"\x13UpdateFleetResponse\x12*\n" +
+	"\x05fleet\x18\x01 \x01(\v2\x14.hypershell.v1.FleetR\x05fleet\"$\n" +
 	"\x12DeleteFleetRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\";\n" +
 	"\x11ListFleetsRequest\x12\x12\n" +
@@ -578,20 +716,20 @@ const file_hypershell_v1_fleets_proto_rawDesc = "" +
 	"\x05items\x18\x01 \x03(\v2\x14.hypershell.v1.FleetR\x05items\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.hypershell.v1.ListMetaR\bmetadata\"\x15\n" +
 	"\x13DeleteFleetResponse\"\x14\n" +
-	"\x12WatchFleetsRequest\"\x8c\x01\n" +
-	"\x0fFleetWatchEvent\x12,\n" +
+	"\x12WatchFleetsRequest\"\x90\x01\n" +
+	"\x13WatchFleetsResponse\x12,\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12*\n" +
 	"\x05fleet\x18\x02 \x01(\v2\x14.hypershell.v1.FleetR\x05fleet\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId2\xdd\x03\n" +
-	"\fFleetService\x12@\n" +
-	"\bGetFleet\x12\x1e.hypershell.v1.GetFleetRequest\x1a\x14.hypershell.v1.Fleet\x12F\n" +
-	"\vCreateFleet\x12!.hypershell.v1.CreateFleetRequest\x1a\x14.hypershell.v1.Fleet\x12F\n" +
-	"\vUpdateFleet\x12!.hypershell.v1.UpdateFleetRequest\x1a\x14.hypershell.v1.Fleet\x12T\n" +
+	"resourceId2\x88\x04\n" +
+	"\fFleetService\x12K\n" +
+	"\bGetFleet\x12\x1e.hypershell.v1.GetFleetRequest\x1a\x1f.hypershell.v1.GetFleetResponse\x12T\n" +
+	"\vCreateFleet\x12!.hypershell.v1.CreateFleetRequest\x1a\".hypershell.v1.CreateFleetResponse\x12T\n" +
+	"\vUpdateFleet\x12!.hypershell.v1.UpdateFleetRequest\x1a\".hypershell.v1.UpdateFleetResponse\x12T\n" +
 	"\vDeleteFleet\x12!.hypershell.v1.DeleteFleetRequest\x1a\".hypershell.v1.DeleteFleetResponse\x12Q\n" +
 	"\n" +
-	"ListFleets\x12 .hypershell.v1.ListFleetsRequest\x1a!.hypershell.v1.ListFleetsResponse\x12R\n" +
-	"\vWatchFleets\x12!.hypershell.v1.WatchFleetsRequest\x1a\x1e.hypershell.v1.FleetWatchEvent0\x01BQZOgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
+	"ListFleets\x12 .hypershell.v1.ListFleetsRequest\x1a!.hypershell.v1.ListFleetsResponse\x12V\n" +
+	"\vWatchFleets\x12!.hypershell.v1.WatchFleetsRequest\x1a\".hypershell.v1.WatchFleetsResponse0\x01BgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
 
 var (
 	file_hypershell_v1_fleets_proto_rawDescOnce sync.Once
@@ -605,45 +743,51 @@ func file_hypershell_v1_fleets_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_fleets_proto_rawDescData
 }
 
-var file_hypershell_v1_fleets_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_hypershell_v1_fleets_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_hypershell_v1_fleets_proto_goTypes = []any{
 	(*Fleet)(nil),               // 0: hypershell.v1.Fleet
 	(*CreateFleetRequest)(nil),  // 1: hypershell.v1.CreateFleetRequest
-	(*GetFleetRequest)(nil),     // 2: hypershell.v1.GetFleetRequest
-	(*UpdateFleetRequest)(nil),  // 3: hypershell.v1.UpdateFleetRequest
-	(*DeleteFleetRequest)(nil),  // 4: hypershell.v1.DeleteFleetRequest
-	(*ListFleetsRequest)(nil),   // 5: hypershell.v1.ListFleetsRequest
-	(*ListFleetsResponse)(nil),  // 6: hypershell.v1.ListFleetsResponse
-	(*DeleteFleetResponse)(nil), // 7: hypershell.v1.DeleteFleetResponse
-	(*WatchFleetsRequest)(nil),  // 8: hypershell.v1.WatchFleetsRequest
-	(*FleetWatchEvent)(nil),     // 9: hypershell.v1.FleetWatchEvent
-	(*ObjectReference)(nil),     // 10: hypershell.v1.ObjectReference
-	(*ListMeta)(nil),            // 11: hypershell.v1.ListMeta
-	(EventType)(0),              // 12: hypershell.v1.EventType
+	(*CreateFleetResponse)(nil), // 2: hypershell.v1.CreateFleetResponse
+	(*GetFleetRequest)(nil),     // 3: hypershell.v1.GetFleetRequest
+	(*GetFleetResponse)(nil),    // 4: hypershell.v1.GetFleetResponse
+	(*UpdateFleetRequest)(nil),  // 5: hypershell.v1.UpdateFleetRequest
+	(*UpdateFleetResponse)(nil), // 6: hypershell.v1.UpdateFleetResponse
+	(*DeleteFleetRequest)(nil),  // 7: hypershell.v1.DeleteFleetRequest
+	(*ListFleetsRequest)(nil),   // 8: hypershell.v1.ListFleetsRequest
+	(*ListFleetsResponse)(nil),  // 9: hypershell.v1.ListFleetsResponse
+	(*DeleteFleetResponse)(nil), // 10: hypershell.v1.DeleteFleetResponse
+	(*WatchFleetsRequest)(nil),  // 11: hypershell.v1.WatchFleetsRequest
+	(*WatchFleetsResponse)(nil), // 12: hypershell.v1.WatchFleetsResponse
+	(*ObjectReference)(nil),     // 13: hypershell.v1.ObjectReference
+	(*ListMeta)(nil),            // 14: hypershell.v1.ListMeta
+	(EventType)(0),              // 15: hypershell.v1.EventType
 }
 var file_hypershell_v1_fleets_proto_depIdxs = []int32{
-	10, // 0: hypershell.v1.Fleet.metadata:type_name -> hypershell.v1.ObjectReference
-	0,  // 1: hypershell.v1.ListFleetsResponse.items:type_name -> hypershell.v1.Fleet
-	11, // 2: hypershell.v1.ListFleetsResponse.metadata:type_name -> hypershell.v1.ListMeta
-	12, // 3: hypershell.v1.FleetWatchEvent.type:type_name -> hypershell.v1.EventType
-	0,  // 4: hypershell.v1.FleetWatchEvent.fleet:type_name -> hypershell.v1.Fleet
-	2,  // 5: hypershell.v1.FleetService.GetFleet:input_type -> hypershell.v1.GetFleetRequest
-	1,  // 6: hypershell.v1.FleetService.CreateFleet:input_type -> hypershell.v1.CreateFleetRequest
-	3,  // 7: hypershell.v1.FleetService.UpdateFleet:input_type -> hypershell.v1.UpdateFleetRequest
-	4,  // 8: hypershell.v1.FleetService.DeleteFleet:input_type -> hypershell.v1.DeleteFleetRequest
-	5,  // 9: hypershell.v1.FleetService.ListFleets:input_type -> hypershell.v1.ListFleetsRequest
-	8,  // 10: hypershell.v1.FleetService.WatchFleets:input_type -> hypershell.v1.WatchFleetsRequest
-	0,  // 11: hypershell.v1.FleetService.GetFleet:output_type -> hypershell.v1.Fleet
-	0,  // 12: hypershell.v1.FleetService.CreateFleet:output_type -> hypershell.v1.Fleet
-	0,  // 13: hypershell.v1.FleetService.UpdateFleet:output_type -> hypershell.v1.Fleet
-	7,  // 14: hypershell.v1.FleetService.DeleteFleet:output_type -> hypershell.v1.DeleteFleetResponse
-	6,  // 15: hypershell.v1.FleetService.ListFleets:output_type -> hypershell.v1.ListFleetsResponse
-	9,  // 16: hypershell.v1.FleetService.WatchFleets:output_type -> hypershell.v1.FleetWatchEvent
-	11, // [11:17] is the sub-list for method output_type
-	5,  // [5:11] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 0: hypershell.v1.Fleet.metadata:type_name -> hypershell.v1.ObjectReference
+	0,  // 1: hypershell.v1.CreateFleetResponse.fleet:type_name -> hypershell.v1.Fleet
+	0,  // 2: hypershell.v1.GetFleetResponse.fleet:type_name -> hypershell.v1.Fleet
+	0,  // 3: hypershell.v1.UpdateFleetResponse.fleet:type_name -> hypershell.v1.Fleet
+	0,  // 4: hypershell.v1.ListFleetsResponse.items:type_name -> hypershell.v1.Fleet
+	14, // 5: hypershell.v1.ListFleetsResponse.metadata:type_name -> hypershell.v1.ListMeta
+	15, // 6: hypershell.v1.WatchFleetsResponse.type:type_name -> hypershell.v1.EventType
+	0,  // 7: hypershell.v1.WatchFleetsResponse.fleet:type_name -> hypershell.v1.Fleet
+	3,  // 8: hypershell.v1.FleetService.GetFleet:input_type -> hypershell.v1.GetFleetRequest
+	1,  // 9: hypershell.v1.FleetService.CreateFleet:input_type -> hypershell.v1.CreateFleetRequest
+	5,  // 10: hypershell.v1.FleetService.UpdateFleet:input_type -> hypershell.v1.UpdateFleetRequest
+	7,  // 11: hypershell.v1.FleetService.DeleteFleet:input_type -> hypershell.v1.DeleteFleetRequest
+	8,  // 12: hypershell.v1.FleetService.ListFleets:input_type -> hypershell.v1.ListFleetsRequest
+	11, // 13: hypershell.v1.FleetService.WatchFleets:input_type -> hypershell.v1.WatchFleetsRequest
+	4,  // 14: hypershell.v1.FleetService.GetFleet:output_type -> hypershell.v1.GetFleetResponse
+	2,  // 15: hypershell.v1.FleetService.CreateFleet:output_type -> hypershell.v1.CreateFleetResponse
+	6,  // 16: hypershell.v1.FleetService.UpdateFleet:output_type -> hypershell.v1.UpdateFleetResponse
+	10, // 17: hypershell.v1.FleetService.DeleteFleet:output_type -> hypershell.v1.DeleteFleetResponse
+	9,  // 18: hypershell.v1.FleetService.ListFleets:output_type -> hypershell.v1.ListFleetsResponse
+	12, // 19: hypershell.v1.FleetService.WatchFleets:output_type -> hypershell.v1.WatchFleetsResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_fleets_proto_init() }
@@ -654,14 +798,14 @@ func file_hypershell_v1_fleets_proto_init() {
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_fleets_proto_msgTypes[0].OneofWrappers = []any{}
 	file_hypershell_v1_fleets_proto_msgTypes[1].OneofWrappers = []any{}
-	file_hypershell_v1_fleets_proto_msgTypes[3].OneofWrappers = []any{}
+	file_hypershell_v1_fleets_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_fleets_proto_rawDesc), len(file_hypershell_v1_fleets_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

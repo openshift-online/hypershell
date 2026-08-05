@@ -26,7 +26,7 @@ func NewManagedDatabaseGRPCHandler(svc ManagedDatabaseService, generic services.
 	return &managedDatabaseGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
 }
 
-func (h *managedDatabaseGRPCHandler) GetManagedDatabase(ctx context.Context, req *pb.GetManagedDatabaseRequest) (*pb.ManagedDatabase, error) {
+func (h *managedDatabaseGRPCHandler) GetManagedDatabase(ctx context.Context, req *pb.GetManagedDatabaseRequest) (*pb.GetManagedDatabaseResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -35,10 +35,10 @@ func (h *managedDatabaseGRPCHandler) GetManagedDatabase(ctx context.Context, req
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return managedDatabaseToProto(managedDatabase), nil
+	return &pb.GetManagedDatabaseResponse{ManagedDatabase: managedDatabaseToProto(managedDatabase)}, nil
 }
 
-func (h *managedDatabaseGRPCHandler) CreateManagedDatabase(ctx context.Context, req *pb.CreateManagedDatabaseRequest) (*pb.ManagedDatabase, error) {
+func (h *managedDatabaseGRPCHandler) CreateManagedDatabase(ctx context.Context, req *pb.CreateManagedDatabaseRequest) (*pb.CreateManagedDatabaseResponse, error) {
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
@@ -64,10 +64,10 @@ func (h *managedDatabaseGRPCHandler) CreateManagedDatabase(ctx context.Context, 
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return managedDatabaseToProto(result), nil
+	return &pb.CreateManagedDatabaseResponse{ManagedDatabase: managedDatabaseToProto(result)}, nil
 }
 
-func (h *managedDatabaseGRPCHandler) UpdateManagedDatabase(ctx context.Context, req *pb.UpdateManagedDatabaseRequest) (*pb.ManagedDatabase, error) {
+func (h *managedDatabaseGRPCHandler) UpdateManagedDatabase(ctx context.Context, req *pb.UpdateManagedDatabaseRequest) (*pb.UpdateManagedDatabaseResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func (h *managedDatabaseGRPCHandler) UpdateManagedDatabase(ctx context.Context, 
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return managedDatabaseToProto(result), nil
+	return &pb.UpdateManagedDatabaseResponse{ManagedDatabase: managedDatabaseToProto(result)}, nil
 }
 
 func (h *managedDatabaseGRPCHandler) DeleteManagedDatabase(ctx context.Context, req *pb.DeleteManagedDatabaseRequest) (*pb.DeleteManagedDatabaseResponse, error) {
@@ -192,7 +192,7 @@ func (h *managedDatabaseGRPCHandler) ListManagedDatabases(ctx context.Context, r
 	}, nil
 }
 
-func (h *managedDatabaseGRPCHandler) WatchManagedDatabases(req *pb.WatchManagedDatabasesRequest, stream grpc.ServerStreamingServer[pb.ManagedDatabaseWatchEvent]) error {
+func (h *managedDatabaseGRPCHandler) WatchManagedDatabases(req *pb.WatchManagedDatabasesRequest, stream grpc.ServerStreamingServer[pb.WatchManagedDatabasesResponse]) error {
 	broker := h.brokerFunc()
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
@@ -219,7 +219,7 @@ func (h *managedDatabaseGRPCHandler) WatchManagedDatabases(req *pb.WatchManagedD
 				continue
 			}
 
-			watchEvent := &pb.ManagedDatabaseWatchEvent{
+			watchEvent := &pb.WatchManagedDatabasesResponse{
 				Type:       pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId: evt.SourceID,
 			}
