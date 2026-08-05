@@ -111,6 +111,10 @@ func (s *sqlManagedClusterService) Replace(ctx context.Context, managedCluster *
 }
 
 func (s *sqlManagedClusterService) Delete(ctx context.Context, id string) *errors.ServiceError {
+	if _, svcErr := s.Get(ctx, id); svcErr != nil {
+		return svcErr
+	}
+
 	if err := s.managedClusterDao.Delete(ctx, id); err != nil {
 		return services.HandleDeleteError("ManagedCluster", errors.GeneralError("Unable to delete managedCluster: %s", err))
 	}

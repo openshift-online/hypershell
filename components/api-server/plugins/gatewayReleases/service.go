@@ -111,6 +111,10 @@ func (s *sqlGatewayReleaseService) Replace(ctx context.Context, gatewayRelease *
 }
 
 func (s *sqlGatewayReleaseService) Delete(ctx context.Context, id string) *errors.ServiceError {
+	if _, svcErr := s.Get(ctx, id); svcErr != nil {
+		return svcErr
+	}
+
 	if err := s.gatewayReleaseDao.Delete(ctx, id); err != nil {
 		return services.HandleDeleteError("GatewayRelease", errors.GeneralError("Unable to delete gatewayRelease: %s", err))
 	}

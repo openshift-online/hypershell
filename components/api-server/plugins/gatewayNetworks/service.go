@@ -111,6 +111,10 @@ func (s *sqlGatewayNetworkService) Replace(ctx context.Context, gatewayNetwork *
 }
 
 func (s *sqlGatewayNetworkService) Delete(ctx context.Context, id string) *errors.ServiceError {
+	if _, svcErr := s.Get(ctx, id); svcErr != nil {
+		return svcErr
+	}
+
 	if err := s.gatewayNetworkDao.Delete(ctx, id); err != nil {
 		return services.HandleDeleteError("GatewayNetwork", errors.GeneralError("Unable to delete gatewayNetwork: %s", err))
 	}
