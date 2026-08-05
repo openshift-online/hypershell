@@ -25,6 +25,20 @@
       ".github/workflows/lint.yml"
     ]
   },
+  "sdk_typescript": {
+    "directory": "components/sdk-typescript",
+    "lint_job": "lint-sdk-typescript",
+    "paths": [
+      "components/sdk-typescript/**",
+      "components/api-server/openapi/**",
+      "components/api-server/Makefile",
+      "scripts/sdk-generator/**",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
+  },
   "web_console": {
     "directory": "components/web-console",
     "lint_job": "lint-web-console",

@@ -63,8 +63,13 @@ lint-control-plane:
 	cd components/control-plane && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
 	cd components/control-plane && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
+.PHONY: lint-sdk-typescript
+lint-sdk-typescript:
+	cd components/sdk-typescript && npm ci
+	cd components/sdk-typescript && npm run check
+
 .PHONY: lint
-lint: check lint-api-server lint-control-plane
+lint: check lint-api-server lint-control-plane lint-sdk-typescript
 
 .PHONY: test-all
 test-all:
