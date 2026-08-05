@@ -43,7 +43,7 @@ skills/
 ## Reconciliation State
 
 **Last analyzed**: 2026-08-05 (UI standards registered; platform coverage unchanged)
-**Spec corpus**: 12 specs across 2 domains
+**Spec corpus**: 13 specs across 2 domains
 **Codebase commit**: (initial)
 
 ### Coverage Summary
@@ -51,8 +51,8 @@ skills/
 | Domain | Specs | Requirements | Present | Partial | Missing | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|
 | Platform | 2 | 9 | 9 | 0 | 0 | 100% |
-| Standards | 10 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **12** | **9** | **9** | **0** | **0** | **100%** |
+| Standards | 11 | 0 | 0 | 0 | 0 | N/A |
+| **TOTAL** | **13** | **9** | **9** | **0** | **0** | **100%** |
 
 ### Spec Dependency Order
 
@@ -75,3 +75,4 @@ No gaps identified in initial analysis.
 |------|--------|--------|----------|-------|
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
 | 2026-08-05 | working tree | Registered UI standards | 100% platform | UI standards are evaluated by `/ui-standards`, not counted as feature reconciliation requirements |
+| 2026-08-05 | working tree | Added PatternFly standard | 100% platform | PatternFly 6, canonical reuse, and duplicate-component prevention apply to the web console |

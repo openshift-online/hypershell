@@ -114,6 +114,7 @@ Cross-cutting rules that apply across ALL components.
 - **Register every component in CI**: Use `/maintain-ci` when adding, renaming, moving, or removing a component
 - **Verify contracts and references**: Before building on an assumption, verify the contract
 - **Separate configuration from code**: Config changes must not require code changes
+- **PatternFly 6 for web UI**: Reuse PatternFly and canonical shared components; do not create duplicate UI components
 
 Component-specific conventions:
 - Control Plane: [conventions](specs/standards/control-plane/conventions.spec.md)
