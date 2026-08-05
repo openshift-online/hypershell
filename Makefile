@@ -89,6 +89,7 @@ lint-sdk-typescript: install-js
 
 .PHONY: lint-web-console
 lint-web-console: install-js
+	$(PNPM) --filter @openshift-online/hypershell-domain-probes check
 	$(PNPM) --filter @openshift-online/hypershell-web-console check
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check
 
@@ -98,6 +99,7 @@ lint: check install-js lint-api-server lint-control-plane lint-sdk-typescript li
 .PHONY: test-all
 test-all: install-js
 	cd components/api-server && $(MAKE) test
+	$(PNPM) --filter @openshift-online/hypershell-domain-probes test:run
 	$(PNPM) --filter @openshift-online/hypershell-web-console test:run
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff test:run
 

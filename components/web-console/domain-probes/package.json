@@ -1,0 +1,45 @@
+{
+  "name": "@openshift-online/hypershell-domain-probes",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed domain-probe contracts and fan-out delivery for HyperShell web runtimes",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./fan-out": {
+      "types": "./dist/fan-out.d.ts",
+      "import": "./dist/fan-out.js",
+      "default": "./dist/fan-out.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --project tsconfig.json",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:run",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings=0",
+    "test:run": "vitest run --coverage",
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.test.json --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "9.39.5",
+    "globals": "16.5.0",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=24.18.1 <25"
+  }
+}

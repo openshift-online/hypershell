@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "architecture:check": "node scripts/check-architecture-config.mjs",
     "build": "react-router build",
     "build:storybook": "STORYBOOK=true storybook build --output-dir storybook-static",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:run && pnpm run i18n:check && pnpm run build && pnpm run build:storybook",
+    "check": "pnpm run format:check && pnpm run architecture:check && pnpm run lint && pnpm run typecheck && pnpm run test:run && pnpm run i18n:check && pnpm run build && pnpm run build:storybook",
     "dev": "react-router dev",
     "format:check": "prettier --check .",
     "i18n:check": "formatjs extract 'app/**/*.{ts,tsx}' --out-file /tmp/hypershell-web-console-en.json && cmp locales/en.json /tmp/hypershell-web-console-en.json",

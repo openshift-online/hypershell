@@ -1,6 +1,7 @@
 .react-router
 build
 coverage
+domain-probes
 node_modules
 playwright-report
 storybook-static
