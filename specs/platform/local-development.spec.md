@@ -262,11 +262,9 @@ The system SHALL track which components have been swapped to local builds using 
 
 The system SHALL NOT provide a separate `make kind-rebuild` target. The `make kind-up` target SHALL absorb full rebuild-and-redeploy behavior. Per-component targets (`make kind-api-server-up`, `make kind-control-plane-up`) handle selective rebuilds from local source.
 
-### Requirement: Host Volume Mounts
+### Requirement: Hot Reload Support
 
-The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes. This enables Kubernetes `hostPath` volumes for use cases such as npm hot reloading of a frontend component, where source files on the host are mounted directly into a running container to enable live updates without rebuilding.
-
-The mount SHALL be opt-in: included in the Kind cluster config so the infrastructure is available, but not consumed by any deployment until a component (e.g. a frontend) is added that requires it. Live reload is independent of the per-component swap workflow — components that do not use live reload are still rebuilt and replaced via the normal `kind-<component>-up` flow.
+The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes, enabling `hostPath` volumes for live source mounting.
 
 | Setting | Value |
 |---------|-------|
@@ -274,16 +272,32 @@ The mount SHALL be opt-in: included in the Kind cluster config so the infrastruc
 | Container path | `/mnt/host` on each Kind node |
 | Read-only | `false` (writable, required for npm file watchers) |
 
-#### Scenario: Volume Mount Available
-- GIVEN `make kind-up` has completed
-- WHEN a deployment mounts a `hostPath` volume referencing `/mnt/host`
-- THEN the container SHALL see the contents of the host directory
-- AND file changes on the host SHALL be reflected inside the container
+When hot reload is enabled for a component, `kind-<component>-up` SHALL mount the host source directory into the container and run a dev server (e.g. `npm run dev`) instead of performing a full image rebuild. File changes on the host are reflected inside the container immediately. When hot reload is disabled (the default), `kind-<component>-up` SHALL rebuild the image from the working tree and replace the deployment as normal.
 
-#### Scenario: No Components Use Mount
-- GIVEN the Kind cluster is created with `extraMounts` configured
-- AND no deployment references the `/mnt/host` path
-- THEN the mount SHALL have no effect on cluster behavior
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `KIND_HOT_RELOAD` | (unset — disabled) | Set to `true` to enable hot reload mode for components that support it |
+
+#### Scenario: Hot Reload Enabled
+- GIVEN a Kind cluster is running
+- AND `KIND_HOT_RELOAD=true` is set
+- WHEN a developer runs `make kind-<component>-up` for a component that supports hot reload
+- THEN the component's source directory SHALL be mounted from the host into the container via a `hostPath` volume
+- AND a dev server process (e.g. `npm run dev`) SHALL be started inside the container
+- AND file changes on the host SHALL be reflected inside the container without rebuilding
+
+#### Scenario: Hot Reload Disabled
+- GIVEN a Kind cluster is running
+- AND `KIND_HOT_RELOAD` is not set
+- WHEN a developer runs `make kind-<component>-up`
+- THEN the component image SHALL be rebuilt from the working tree
+- AND the deployment SHALL be replaced with the newly built image
+
+#### Scenario: Component Does Not Support Hot Reload
+- GIVEN `KIND_HOT_RELOAD=true` is set
+- WHEN a developer runs `make kind-<component>-up` for a component that does not support hot reload (e.g. a Go service)
+- THEN the component SHALL fall back to the normal rebuild-and-replace flow
+- AND an info message SHALL indicate that hot reload is not supported for that component
 
 ### Requirement: Container Registry
 
@@ -318,7 +332,7 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | `kind create cluster \|\| true` for idempotency | Re-running after cluster exists is a no-op, not an error |
 | Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
-| Host volume mounts via `extraMounts` | Pre-configures Kind nodes with a host mount so `hostPath` volumes are available for future hot-reloading (e.g. npm file watchers); opt-in — no component uses the mount until one is added |
+| Hot reload via `KIND_HOT_RELOAD` flag | When enabled, swap targets mount host source and run a dev server instead of rebuilding; when disabled (default), swap targets rebuild and replace as normal. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`openshell-gateway-database.spec.md`), exercising the same path as production |
 | PostgreSQL 18 with RHEL hardened image | Red Hat hardened image (`registry.redhat.io/rhel9/postgresql-18`) avoids Docker Hub rate limits and matches production image policy |
