@@ -482,7 +482,7 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 
 ### Requirement: Red Hat Hardened Images
 
-All container images deployed into the Kind cluster SHALL use [Red Hat Hardened Images](https://images.redhat.com/) (HI) where available. HI images are distroless, CIS-hardened, and signed at build time. The standard RHEL-based image (`registry.redhat.io/rhel9/...`) SHALL be used as a fallback only when no HI variant exists for a given component.
+All container images deployed into the Kind cluster SHALL use [Red Hat Hardened Images](https://images.redhat.com/) (HI). HI images are distroless, CIS-hardened, and signed at build time.
 
 The database image specified in the Gateway resource SHALL default to `registry.access.redhat.com/hi/postgresql:18`. Developers SHALL configure a pull secret in the Kind cluster to authenticate against `registry.access.redhat.com`. The pull secret is expected to be present before running `make kind-up`; the Makefile SHALL NOT manage registry credentials.
 
@@ -494,37 +494,35 @@ The database image SHALL be overridable via the `KIND_DB_IMAGE` environment vari
 - THEN the database pod SHALL use the HI PostgreSQL image (`registry.access.redhat.com/hi/postgresql:18`)
 - AND the image SHALL be pulled using the pre-configured pull secret
 
-#### Scenario: Fallback to Standard Image
-- GIVEN an HI variant does not exist for a required component
-- WHEN the component is deployed
-- THEN the standard RHEL-based image from `registry.redhat.io` SHALL be used
-- AND a comment in the manifest SHALL note the fallback with a tracking reference
-
 ### Requirement: Multi-Instance Support
 
-The system SHALL support running multiple independent HyperShell instances concurrently on the same machine. Each instance runs in its own Kind cluster with isolated ports, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents).
+The system SHALL support running multiple independent HyperShell instances concurrently within a single Kind cluster. Each instance runs in its own Kubernetes namespace with isolated host ports, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents). This avoids the overhead of multiple Kind clusters while providing full workload isolation.
 
-Isolation is achieved through separate Kind clusters, not through namespacing within a single cluster. Each instance is identified by its `KIND_CLUSTER_NAME` and uses distinct host ports to avoid conflicts.
+Each instance is identified by a `KIND_INSTANCE` name. The default instance uses the `hypershell-system` namespace and default ports. Additional instances deploy into a namespace derived from the instance name (e.g. `hypershell-feature-2`) with distinct host ports to avoid conflicts. Each instance gets its own set of deployments, services, and NodePort mappings.
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `KIND_INSTANCE` | (unset — default instance) | Instance name; determines the target namespace and port offset |
 
 #### Scenario: Two Concurrent Instances
-- GIVEN a developer runs `make kind-up` with default settings (cluster `hypershell-dev`, default ports)
-- WHEN they open a second terminal and run `KIND_CLUSTER_NAME=hypershell-feature-2 KIND_API_PORT=23081 KIND_GRPC_PORT=29001 KIND_HEALTH_PORT=24435 KIND_CONSOLE_PORT=23001 make kind-up`
-- THEN a second Kind cluster named `hypershell-feature-2` SHALL be created
+- GIVEN a Kind cluster is running with the default instance in `hypershell-system`
+- WHEN a developer runs `KIND_INSTANCE=feature-2 KIND_API_PORT=23081 KIND_GRPC_PORT=29001 KIND_HEALTH_PORT=24435 KIND_CONSOLE_PORT=23001 make kind-up`
+- THEN a second set of HyperShell components SHALL be deployed into the `hypershell-feature-2` namespace
 - AND the second instance SHALL use ports 23081, 29001, 24435, 23001
 - AND both instances SHALL run independently without interference
-- AND `make kind-status` in each terminal SHALL report only its own cluster
+- AND `make kind-status` SHALL report both instances and their respective namespaces
 
 #### Scenario: Independent Teardown
-- GIVEN two Kind clusters are running (`hypershell-dev` and `hypershell-feature-2`)
-- WHEN a developer runs `KIND_CLUSTER_NAME=hypershell-feature-2 make kind-down`
-- THEN only the `hypershell-feature-2` cluster SHALL be deleted
-- AND the `hypershell-dev` cluster SHALL continue running
+- GIVEN two instances are running (`default` in `hypershell-system` and `feature-2` in `hypershell-feature-2`)
+- WHEN a developer runs `KIND_INSTANCE=feature-2 make kind-down`
+- THEN only the `hypershell-feature-2` namespace and its resources SHALL be deleted
+- AND the default instance in `hypershell-system` SHALL continue running
 
 #### Scenario: Per-Component Swap Scoped to Instance
-- GIVEN two Kind clusters are running
-- WHEN a developer runs `KIND_CLUSTER_NAME=hypershell-feature-2 make kind-api-server-up`
-- THEN the API server SHALL be swapped only in the `hypershell-feature-2` cluster
-- AND the `hypershell-dev` cluster SHALL remain unchanged
+- GIVEN two instances are running in the same Kind cluster
+- WHEN a developer runs `KIND_INSTANCE=feature-2 make kind-api-server-up`
+- THEN the API server SHALL be swapped only in the `hypershell-feature-2` namespace
+- AND the default instance SHALL remain unchanged
 
 ## Environment Variable Reference
 
@@ -545,6 +543,7 @@ Isolation is achieved through separate Kind clusters, not through namespacing wi
 | `CLOUD_PROVIDER_KIND_VERSION` | (pinned in Makefile) | cloud-provider-kind binary version |
 | `CERT_MANAGER_VERSION` | `v1.20.0` | cert-manager release version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
+| `KIND_INSTANCE` | (unset — default instance) | Instance name; determines target namespace and port offset for multi-instance support |
 
 ## Make Targets Summary
 
@@ -576,8 +575,8 @@ Isolation is achieved through separate Kind clusters, not through namespacing wi
 | Hot reload via `KIND_HOT_RELOAD` flag | When enabled, swap targets for supported components (web console) mount host source and run a dev server instead of rebuilding; when disabled (default), swap targets rebuild and replace as normal. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md` — planned, see [#2](https://github.com/openshift-online/hypershell/pull/2)), exercising the same path as production |
-| Red Hat Hardened Images by default | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. Used for all components where an HI variant is available. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
-| Multi-instance via separate Kind clusters | Each instance gets its own Kind cluster (`KIND_CLUSTER_NAME`) with distinct ports. Simpler than namespace-based isolation within a single cluster; well-suited for agent-driven parallel development where each feature branch gets its own environment |
+| Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images — HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
+| Multi-instance via namespace isolation | Each instance deploys into its own namespace within a single Kind cluster with distinct host ports. More performant than separate Kind clusters; leverages Kubernetes namespace isolation for workload separation while sharing cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind) |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
 | GRPCRoute, not HTTPRoute | OpenShell gateway speaks gRPC; GRPCRoute is the correct Gateway API resource type for gRPC backends |
