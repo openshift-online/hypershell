@@ -94,7 +94,6 @@ cd components/control-plane && go vet ./...    # Vet
 make build-all                                 # Build all container images
 make kind-up                                   # Start local Kind cluster
 make kind-down                                 # Destroy Kind cluster
-make kind-rebuild                              # Rebuild + redeploy
 make kind-status                               # Show cluster status
 make lint                                      # Lint all Go code
 ```

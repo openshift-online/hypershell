@@ -32,7 +32,7 @@ Developers selectively swap individual components with local builds using per-co
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.20.0`).
 
-Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker described in the [downstream Keycloak design](https://gist.github.com/jhjaggars/5042c84888fb0c24020377a21d98f9a1) — a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients).
+Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker — a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients).
 
 ### Gateway Resource
 
@@ -61,7 +61,7 @@ TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by c
 
 ### Keycloak Configuration
 
-The Kind cluster Keycloak instance serves as the local equivalent of the downstream Keycloak described in the [downstream Keycloak design](https://gist.github.com/jhjaggars/5042c84888fb0c24020377a21d98f9a1) (a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients). In production, the downstream Keycloak brokers authentication to Red Hat SSO (upstream) and manages per-gateway OIDC clients. The local instance mirrors this topology without the upstream broker, providing the same realm structure and client model.
+The Kind cluster Keycloak instance serves as the local equivalent of the downstream Keycloak — a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients. In production, the downstream Keycloak brokers authentication to Red Hat SSO (upstream) and manages per-gateway OIDC clients. The local instance mirrors this topology without the upstream broker, providing the same realm structure and client model.
 
 | Setting | Value |
 |---------|-------|
@@ -70,7 +70,7 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
 | Admin role | `hypershell-admins` |
 | User role | `hypershell-users` |
-| Users | `admin` (admin role), `developer` (user role) |
+| Users | `admin` / `admin` (admin role), `developer` / `developer` (user role) — password matches username (local dev only) |
 
 The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
 
@@ -316,7 +316,7 @@ The Kind cluster configuration SHALL include `extraMounts` that map a host direc
 
 | Setting | Value |
 |---------|-------|
-| Host path | `KIND_HOST_MOUNT_PATH` env var (default: repository root) |
+| Host path | `KIND_HOST_MOUNT_PATH` env var (default: repository root via `git rev-parse --show-toplevel`) |
 | Container path | `/mnt/host` on each Kind node |
 | Read-only | `false` (writable, required for npm file watchers) |
 
