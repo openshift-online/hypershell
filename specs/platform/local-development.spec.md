@@ -82,11 +82,11 @@ The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod
 
 ### Gateway API Routing
 
-The local cluster uses the Kubernetes Gateway API to route external traffic to gateway pods with TLS re-encryption. This mirrors the production topology where a networking Gateway terminates external TLS, then re-encrypts traffic to the backend pod using BackendTLSPolicy. Component ports (API, gRPC, Health, Console) use NodePort + `extraPortMappings` for deterministic host binding; Gateway API ingress uses cloud-provider-kind's LoadBalancer implementation, which handles its own port exposure independently.
+The local cluster uses the Kubernetes Gateway API to route all external traffic — both component services and gateway gRPC — through a single networking Gateway. This mirrors the production topology where a networking Gateway terminates external TLS. Component services (API, console, health) are exposed via HTTPRoute resources at `*.hypershell.localhost` hostnames; gateway gRPC traffic uses GRPCRoute at `*.gw.localhost`. `make kind-up` configures `/etc/hosts` entries for hostname resolution (prompts for `sudo` on first run). For environments where `/etc/hosts` cannot be modified (e.g. CI), `KIND_USE_NODEPORT=true` falls back to NodePort + `extraPortMappings` with port-based access.
 
 #### Networking Gateway (Cluster-Level)
 
-`make kind-up` SHALL create a networking `Gateway` resource that acts as the shared ingress point for all gateway GRPCRoutes. This is cluster-level infrastructure — not managed by the control plane reconciler.
+`make kind-up` SHALL create a networking `Gateway` resource that acts as the shared ingress point for all component HTTPRoutes and gateway GRPCRoutes. This is cluster-level infrastructure — not managed by the control plane reconciler.
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -97,6 +97,18 @@ metadata:
 spec:
   gatewayClassName: cloud-provider-kind
   listeners:
+  - name: https
+    hostname: "*.hypershell.localhost"
+    port: 443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: hypershell-https-tls
+        kind: Secret
+    allowedRoutes:
+      namespaces:
+        from: All
   - name: grpc
     hostname: "*.gw.localhost"
     port: 443
@@ -111,7 +123,72 @@ spec:
         from: All
 ```
 
-The `hypershell-gw-tls` Secret SHALL contain a wildcard certificate for `*.gw.localhost` issued by cert-manager (self-signed CA). The `allowedRoutes.namespaces.from: All` permits GRPCRoutes from any namespace.
+cert-manager SHALL issue two wildcard certificates (self-signed CA): `hypershell-https-tls` for `*.hypershell.localhost` (component services) and `hypershell-gw-tls` for `*.gw.localhost` (gateway gRPC). The `allowedRoutes.namespaces.from: All` permits routes from any namespace, supporting multi-namespace deployments.
+
+`make kind-up` SHALL add `/etc/hosts` entries mapping component hostnames to `127.0.0.1`. On first run, the developer is prompted for `sudo` access. Subsequent runs update entries idempotently.
+
+#### Component Service Routes (kind-up Managed)
+
+`make kind-up` SHALL create HTTPRoute resources for each component service:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-server
+  namespace: hypershell-system
+spec:
+  parentRefs:
+  - name: hypershell-gw
+    namespace: hypershell-system
+  hostnames:
+  - api.hypershell.localhost
+  rules:
+  - backendRefs:
+    - name: hypershell-api-server
+      port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web-console
+  namespace: hypershell-system
+spec:
+  parentRefs:
+  - name: hypershell-gw
+    namespace: hypershell-system
+  hostnames:
+  - console.hypershell.localhost
+  rules:
+  - backendRefs:
+    - name: hypershell-web-console
+      port: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: health
+  namespace: hypershell-system
+spec:
+  parentRefs:
+  - name: hypershell-gw
+    namespace: hypershell-system
+  hostnames:
+  - health.hypershell.localhost
+  rules:
+  - backendRefs:
+    - name: hypershell-api-server
+      port: 8434
+```
+
+| Service | Hostname | Purpose |
+|---------|----------|---------|
+| HTTP API | `api.hypershell.localhost` | REST API access |
+| Web Console | `console.hypershell.localhost` | Browser UI |
+| Health | `health.hypershell.localhost` | Health check endpoint |
+| gRPC | `<gateway-name>.gw.localhost` | gRPC streaming (control plane, CLI) |
+
+For multi-namespace deployments, component hostnames include the namespace: `api.<namespace>.hypershell.localhost` (e.g. `api.feature-add-auth.hypershell.localhost`). `make kind-deploy` creates namespace-scoped HTTPRoutes and adds the corresponding `/etc/hosts` entries.
 
 #### Per-Gateway Route Resources (Control Plane Reconciled)
 
@@ -192,8 +269,11 @@ Client                   Networking Gateway              Gateway Pod
 | External TLS cert | cert-manager self-signed CA | Public CA (e.g. Let's Encrypt, corporate PKI) |
 | Internal TLS cert | cert-manager self-signed CA | cert-manager with internal CA |
 | LoadBalancer | cloud-provider-kind port mapping | Cloud provider LB or MetalLB |
-| Base domain | `gw.localhost` | `gw.<cluster-domain>` (e.g. `gw.apps.cluster.example.com`) |
-| Hostname pattern | `<gateway-name>.gw.localhost` | `<gateway-name>-<namespace>.gw.<base-domain>` |
+| Service base domain | `hypershell.localhost` | `<cluster-domain>` (e.g. `apps.cluster.example.com`) |
+| Service hostname pattern | `<service>.hypershell.localhost` | Route-based (OpenShift Routes or Gateway API HTTPRoute) |
+| gRPC base domain | `gw.localhost` | `gw.<cluster-domain>` |
+| gRPC hostname pattern | `<gateway-name>.gw.localhost` | `<gateway-name>-<namespace>.gw.<base-domain>` |
+| DNS resolution | `/etc/hosts` managed by `kind-up` | Cluster DNS / external DNS |
 
 ## Requirements
 
@@ -241,8 +321,8 @@ The system SHALL provide per-component Make targets that build a single componen
 #### Scenario: Swap Web Console
 - GIVEN a Kind cluster is running
 - WHEN a developer runs `make kind-web-console-up`
-- THEN if `KIND_HOT_RELOAD=true`, the web console source SHALL be mounted from the host and a dev server (`npm run dev`) SHALL be started
-- OTHERWISE the web console image SHALL be built from the current working tree, loaded, and the deployment replaced
+- THEN by default (hot reload enabled), the web console source SHALL be mounted from the host and `npm run dev` SHALL be started in an interactive TTY
+- IF `KIND_HOT_RELOAD=false`, the web console image SHALL be built from the current working tree, loaded, and the deployment replaced
 - AND the system SHALL wait for the web console to become ready
 
 #### Scenario: Re-Swap Already Swapped Component
@@ -311,7 +391,7 @@ The system SHALL provide a `make kind-status` target that reports the current st
 - WHEN a developer runs `make kind-status`
 - THEN cluster connectivity information SHALL be displayed
 - AND pod status for all components SHALL be displayed
-- AND service endpoints with their host ports SHALL be displayed
+- AND service hostnames (or host ports in NodePort mode) SHALL be displayed
 - AND the output SHALL indicate which components have active local swaps versus baseline images
 
 #### Scenario: Status When No Cluster Exists
@@ -334,45 +414,55 @@ The system SHALL accept a `KIND_CLUSTER_NAME` environment variable to control th
 - WHEN a developer runs `make kind-up`
 - THEN a Kind cluster named `hypershell-dev` SHALL be created
 
-### Requirement: Deterministic Host Port Exposure
+### Requirement: Hostname-Based Service Access
 
-All services that developers need to access during development SHALL be exposed to the host using Kind `extraPortMappings` and Kubernetes `NodePort` services. The system SHALL NOT use `kubectl port-forward` for service access. Each exposed port SHALL have a corresponding environment variable for configuration.
+All services SHALL be accessible via `.localhost` hostnames routed through the networking Gateway (see Gateway API Routing). The system SHALL NOT use `kubectl port-forward` for service access.
 
-| Service | Env Var | Default Host Port | NodePort | Purpose |
-|---------|---------|-------------------|----------|---------|
-| HTTP API | `KIND_API_PORT` | `23080` | `30080` | REST API access |
-| gRPC | `KIND_GRPC_PORT` | `29000` | `30090` | gRPC streaming (control plane, CLI) |
-| Health | `KIND_HEALTH_PORT` | `24434` | `30434` | Health check endpoint |
-| Web Console | `KIND_CONSOLE_PORT` | `23000` | `30300` | Browser UI |
+| Service | Hostname | Purpose |
+|---------|----------|---------|
+| HTTP API | `https://api.hypershell.localhost` | REST API access |
+| Web Console | `https://console.hypershell.localhost` | Browser UI |
+| Health | `https://health.hypershell.localhost` | Health check endpoint |
+| gRPC | `https://<gateway-name>.gw.localhost` | gRPC streaming (control plane, CLI) |
 
-For multi-namespace deployments, the system SHALL auto-allocate ports using an offset from the base ports. The offset is determined by the number of existing namespace deployments. Developers MAY override the offset with `KIND_PORT_OFFSET=N`, which adds N to each base port (e.g. offset 1: 23081, 29001, 24435, 23001). Explicit port env vars take precedence over the offset mechanism. When the allocated port would conflict with an existing service or another namespace's ports, `make kind-deploy` SHALL warn the user and suggest an alternative offset.
+`make kind-up` SHALL configure `/etc/hosts` entries for all service hostnames, mapping them to `127.0.0.1`. The developer is prompted for `sudo` on first run. Subsequent runs update entries idempotently. The self-signed TLS certificate issued by cert-manager must be trusted by the developer's browser or CLI tool (e.g. `curl --cacert`).
 
-#### Scenario: Default Ports
-- GIVEN no port environment variables are set
+For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. `make kind-deploy` adds the corresponding `/etc/hosts` entries automatically. No port management is required — each namespace is differentiated by hostname, not port number.
+
+#### Scenario: Default Access
+- GIVEN no special configuration
 - WHEN `make kind-up` completes
-- THEN the HTTP API SHALL be accessible at `localhost:23080`
+- THEN the HTTP API SHALL be accessible at `https://api.hypershell.localhost`
+- AND the web console SHALL be accessible at `https://console.hypershell.localhost`
+- AND the health endpoint SHALL be accessible at `https://health.hypershell.localhost`
+- AND `/etc/hosts` SHALL contain entries for all service hostnames
+
+#### Scenario: Multi-Namespace Hostname Differentiation
+- GIVEN the default deployment is running in `hypershell-system`
+- AND a second deployment is running in `hypershell-feature-add-auth`
+- WHEN a developer accesses `https://api.feature-add-auth.hypershell.localhost`
+- THEN the request SHALL route to the API server in the `hypershell-feature-add-auth` namespace
+
+#### Scenario: NodePort Fallback
+- GIVEN `KIND_USE_NODEPORT=true` is set
+- WHEN `make kind-up` completes
+- THEN services SHALL be exposed via NodePort + `extraPortMappings` instead of hostname routing
+- AND the HTTP API SHALL be accessible at `localhost:23080`
 - AND the gRPC endpoint SHALL be accessible at `localhost:29000`
 - AND the health endpoint SHALL be accessible at `localhost:24434`
 - AND the web console SHALL be accessible at `localhost:23000`
+- AND `/etc/hosts` SHALL NOT be modified
 
-#### Scenario: Custom Ports
-- GIVEN `KIND_API_PORT` is set to `8080`
-- WHEN `make kind-up` completes
-- THEN the HTTP API SHALL be accessible at `localhost:8080`
-- AND all other services SHALL use their default ports
+When `KIND_USE_NODEPORT=true` is set, per-service ports are configurable via environment variables:
 
-#### Scenario: Auto-Allocated Ports for Additional Namespace
-- GIVEN the default deployment is running on base ports (23080, 29000, 24434, 23000)
-- WHEN a developer runs `make kind-deploy` without specifying port env vars
-- THEN the system SHALL auto-assign the next available offset
-- AND ports SHALL be base + offset (e.g. 23081, 29001, 24435, 23001)
-- AND `make kind-status` SHALL display the allocated ports for each namespace
+| Service | Env Var | Default Host Port | NodePort |
+|---------|---------|-------------------|----------|
+| HTTP API | `KIND_API_PORT` | `23080` | `30080` |
+| gRPC | `KIND_GRPC_PORT` | `29000` | `30090` |
+| Health | `KIND_HEALTH_PORT` | `24434` | `30434` |
+| Web Console | `KIND_CONSOLE_PORT` | `23000` | `30300` |
 
-#### Scenario: Port Range Exhaustion
-- GIVEN multiple namespace deployments have consumed offsets 1 through N
-- WHEN a developer runs `make kind-deploy` and the next offset would conflict with another service
-- THEN the system SHALL print a warning with the conflicting port
-- AND suggest a manual `KIND_PORT_OFFSET` value that avoids the conflict
+For multi-namespace deployments in NodePort mode, the system SHALL auto-allocate ports using `KIND_PORT_OFFSET` (adds N to each base port). When the allocated port would conflict, `make kind-deploy` SHALL warn the user.
 
 ### Requirement: Container Engine Support
 
@@ -448,11 +538,11 @@ The Kind cluster configuration SHALL include `extraMounts` that map a host direc
 | Container path | `/mnt/host` on each Kind node |
 | Read-only | `false` (writable, required for npm file watchers) |
 
-When hot reload is enabled, `kind-<component>-up` for a supported component SHALL mount the host source directory into the container and run a dev server (e.g. `npm run dev`) instead of performing a full image rebuild. File changes on the host are reflected inside the container immediately. When hot reload is disabled (the default), `kind-<component>-up` SHALL rebuild the image from the working tree and replace the deployment as normal.
+When hot reload is enabled (the default), `kind-<component>-up` for a supported component SHALL mount the host source directory into the container and run a dev server (e.g. `npm run dev`) in an interactive TTY attached to the developer's terminal, instead of performing a full image rebuild. File changes on the host are reflected inside the container immediately. When hot reload is disabled (`KIND_HOT_RELOAD=false`), `kind-<component>-up` SHALL rebuild the image from the working tree and replace the deployment as normal.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `KIND_HOT_RELOAD` | (unset — disabled) | Set to `true` to enable hot reload mode for components that support it |
+| `KIND_HOT_RELOAD` | `true` | Hot reload mode for components that support it; set to `false` to disable |
 
 | Component | Hot Reload Support |
 |-----------|-------------------|
@@ -460,23 +550,23 @@ When hot reload is enabled, `kind-<component>-up` for a supported component SHAL
 | API Server | No — Go service, rebuild-and-replace only |
 | Control Plane | No — Go service, rebuild-and-replace only |
 
-#### Scenario: Web Console Hot Reload
+#### Scenario: Web Console Hot Reload (Default)
 - GIVEN a Kind cluster is running
-- AND `KIND_HOT_RELOAD=true` is set
+- AND `KIND_HOT_RELOAD` is not set or is `true`
 - WHEN a developer runs `make kind-web-console-up`
 - THEN the `components/web-console/` source directory SHALL be mounted from the host into the container via a `hostPath` volume
-- AND `npm run dev` SHALL be started inside the container
+- AND `npm run dev` SHALL be started in an interactive TTY attached to the developer's terminal
 - AND file changes on the host SHALL be reflected inside the container without rebuilding
 
 #### Scenario: Web Console Without Hot Reload
 - GIVEN a Kind cluster is running
-- AND `KIND_HOT_RELOAD` is not set
+- AND `KIND_HOT_RELOAD=false` is set
 - WHEN a developer runs `make kind-web-console-up`
 - THEN the web console image SHALL be rebuilt from the working tree
 - AND the deployment SHALL be replaced with the newly built image
 
 #### Scenario: Hot Reload on Unsupported Component
-- GIVEN `KIND_HOT_RELOAD=true` is set
+- GIVEN hot reload is enabled (default)
 - WHEN a developer runs `make kind-api-server-up` or `make kind-control-plane-up`
 - THEN the component SHALL fall back to the normal rebuild-and-replace flow
 - AND an info message SHALL indicate that hot reload is not supported for that component
@@ -492,7 +582,7 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 
 ### Requirement: Offline Development (LOCAL_IMAGES)
 
-The system SHALL support offline development by building all baseline images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from the current `main` branch (or the checked-out state) and load them into the Kind cluster. Repeated `kind-up` invocations with `LOCAL_IMAGES=true` SHALL rebuild from `main`, picking up any new commits — analogous to a `git fetch` for images.
+The system SHALL support offline development by building all baseline images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from `origin/main` and load them into the Kind cluster. Repeated `kind-up` invocations with `LOCAL_IMAGES=true` SHALL rebuild from `origin/main`, picking up any new commits — analogous to a `git fetch` for images.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
@@ -511,7 +601,7 @@ The system SHALL support offline development by building all baseline images fro
 - GIVEN a Kind cluster is running with locally-built images
 - AND `LOCAL_IMAGES=true` is set
 - WHEN the developer runs `make kind-up` again
-- THEN all non-swapped component images SHALL be rebuilt from the current state of `main`
+- THEN all non-swapped component images SHALL be rebuilt from `origin/main`
 - AND updated images SHALL be loaded into the Kind cluster
 - AND swapped components SHALL be preserved
 
@@ -521,19 +611,19 @@ All container images deployed into the Kind cluster SHALL use [Red Hat Hardened 
 
 The database image specified in the Gateway resource SHALL default to `registry.access.redhat.com/hi/postgresql:18`. Developers SHALL configure a pull secret in the Kind cluster to authenticate against `registry.access.redhat.com`. The pull secret is expected to be present before running `make kind-up`; the Makefile SHALL NOT manage registry credentials.
 
-The database image SHALL be overridable via the `KIND_DB_IMAGE` environment variable (e.g. `KIND_DB_IMAGE=docker.io/library/postgres:17`). This enables OSS contributors who do not have access to the Red Hat registry to use an alternative PostgreSQL image. Overriding the image is not officially supported — compatibility issues with non-HI images are the contributor's responsibility.
+The database image SHALL be overridable via the `KIND_DB_IMAGE` environment variable (e.g. `KIND_DB_IMAGE=docker.io/library/postgres:18`). This enables OSS contributors who do not have access to the Red Hat registry to use an alternative PostgreSQL image. Overriding the image is not officially supported — compatibility issues with non-HI images are the contributor's responsibility.
 
 #### Scenario: HI Image Used for Database
 - GIVEN a Kind cluster is running
 - WHEN the control plane reconciler provisions a database for a Gateway
 - THEN the database pod SHALL use the HI PostgreSQL image (`registry.access.redhat.com/hi/postgresql:18`)
-- AND the image SHALL be pulled using the pre-configured pull secret
+- AND the image SHALL be pulled using a pre-configured pull secret set by the contributor
 
 ### Requirement: Multiple Namespace Deployments
 
-The system SHALL support deploying the platform into multiple namespaces within a single Kind cluster. Each namespace gets its own set of HyperShell components with isolated host ports, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents).
+The system SHALL support deploying the platform into multiple namespaces within a single Kind cluster. Each namespace gets its own set of HyperShell components with isolated hostnames, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents).
 
-The system SHALL provide a `make kind-deploy` target that deploys the platform into a new namespace. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). Host ports are auto-allocated via `KIND_PORT_OFFSET` (see Deterministic Host Port Exposure). The default deployment (`make kind-up`) uses the `hypershell-system` namespace and default ports; `kind-deploy` creates additional deployments alongside it.
+The system SHALL provide a `make kind-deploy` target that deploys the platform into a new namespace. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). Each namespace gets its own HTTPRoutes with namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`) and corresponding `/etc/hosts` entries. The default deployment (`make kind-up`) uses the `hypershell-system` namespace and base hostnames; `kind-deploy` creates additional deployments alongside it.
 
 Per-component swap and teardown targets operate on the specified namespace when `KIND_NAMESPACE` is set.
 
@@ -543,13 +633,14 @@ Per-component swap and teardown targets operate on the specified namespace when 
 - WHEN they run `make kind-deploy`
 - THEN a namespace `hypershell-feature-add-auth` SHALL be created (derived from the branch name)
 - AND a full set of HyperShell components SHALL be deployed into that namespace
-- AND host ports SHALL be auto-allocated via the next available offset from the base ports
+- AND namespace-scoped HTTPRoutes SHALL be created (e.g. `api.feature-add-auth.hypershell.localhost`)
+- AND `/etc/hosts` entries SHALL be added for the new hostnames
 - AND both deployments SHALL run independently without interference
 
 #### Scenario: Status Reports All Deployments
 - GIVEN the platform is deployed into multiple namespaces
 - WHEN a developer runs `make kind-status`
-- THEN the output SHALL list all namespaces with their ports and swap state
+- THEN the output SHALL list all namespaces with their hostnames and swap state
 
 #### Scenario: Teardown Namespace Deployment
 - GIVEN the platform is deployed in `hypershell-system` and `hypershell-feature-add-auth`
@@ -568,22 +659,23 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `KIND_CLUSTER_NAME` | `hypershell-dev` | Kind cluster name |
-| `KIND_API_PORT` | `23080` | Host port for HTTP API |
-| `KIND_GRPC_PORT` | `29000` | Host port for gRPC |
-| `KIND_HEALTH_PORT` | `24434` | Host port for health endpoint |
-| `KIND_CONSOLE_PORT` | `23000` | Host port for web console |
-| `KIND_HOT_RELOAD` | (unset — disabled) | Set to `true` to enable hot reload for supported components |
+| `KIND_USE_NODEPORT` | (unset — hostname routing) | Set to `true` to use NodePort + `extraPortMappings` instead of hostname-based routing |
+| `KIND_API_PORT` | `23080` | Host port for HTTP API (NodePort mode only) |
+| `KIND_GRPC_PORT` | `29000` | Host port for gRPC (NodePort mode only) |
+| `KIND_HEALTH_PORT` | `24434` | Host port for health endpoint (NodePort mode only) |
+| `KIND_CONSOLE_PORT` | `23000` | Host port for web console (NodePort mode only) |
+| `KIND_PORT_OFFSET` | (auto-assigned) | Port offset for multi-namespace deployments (NodePort mode only) |
+| `KIND_HOT_RELOAD` | `true` | Hot reload for supported components; set to `false` to disable |
 | `KIND_HOST_MOUNT_PATH` | Repository root (`git rev-parse --show-toplevel`) | Host directory mounted into Kind nodes for hot reload |
 | `KIND_KEYCLOAK_URL` | (unset — deploy local) | External Keycloak issuer URL; skips local deployment when set |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry path for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
-| `LOCAL_IMAGES` | (unset — pull from registry) | Set to `true` to build baseline images from local repository instead of pulling from registry |
+| `LOCAL_IMAGES` | (unset — pull from registry) | Set to `true` to build baseline images from `origin/main` instead of pulling from registry |
 | `CONTAINER_ENGINE` | Auto-detected (Podman preferred) | Container engine (`podman` or `docker`) |
 | `GATEWAY_API_VERSION` | (pinned in Makefile) | Gateway API CRD release version |
 | `CLOUD_PROVIDER_KIND_VERSION` | (pinned in Makefile) | cloud-provider-kind binary version |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
-| `KIND_PORT_OFFSET` | (auto-assigned) | Port offset from base ports for multi-namespace deployments; auto-assigned when not set |
 | `KIND_NAMESPACE` | `hypershell-system` | Target namespace for deployment; scopes swap/teardown targets to the specified namespace |
 
 ## Make Targets Summary
@@ -592,14 +684,14 @@ Per-component swap and teardown targets operate on the specified namespace when 
 |--------|----------|
 | `make kind-up` | Create cluster (if needed) + pull baseline images from registry + deploy + wait for readiness |
 | `make kind-down` | Delete the Kind cluster |
-| `make kind-status` | Show cluster info, pods, services, host ports, and active component swaps |
+| `make kind-status` | Show cluster info, pods, services, hostnames, and active component swaps |
 | `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
 | `make kind-api-server-down` | Revert api-server to baseline image + restart + wait |
 | `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
-| `make kind-web-console-up` | With `KIND_HOT_RELOAD`: mount source + run `npm run dev`; without: build + load + replace deployment + wait |
+| `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
-| `make kind-deploy` | Deploy platform into a new namespace (derived from current branch) + wait; requires explicit port env vars |
+| `make kind-deploy` | Deploy platform into a new namespace (derived from current branch) with namespace-scoped hostnames + configure `/etc/hosts` + wait |
 | `make kind-undeploy` | Delete a namespace deployment and its resources (`KIND_NAMESPACE` required) |
 
 ## Design Decisions
@@ -608,17 +700,17 @@ Per-component swap and teardown targets operate on the specified namespace when 
 |----------|-----------|
 | Registry pull for baseline images | Faster setup; no local build required for baseline; per-component swap handles local development |
 | Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` serves a separate purpose — offline baseline builds from `main` when registry access is unavailable |
-| NodePort + `extraPortMappings` for component services | Deterministic host ports; no background `kubectl port-forward` processes required. Hostname-based routing via the networking Gateway (e.g. `*.hypershell.localhost`) is a future option — requires `/etc/hosts` or a local DNS resolver, which limits portability across macOS/Linux/CI |
-| Per-service configurable ports with auto-offset | Avoids conflicts when running multiple namespace deployments; `KIND_PORT_OFFSET` auto-assigns the next available offset so `make kind-deploy` works without specifying four port env vars each time |
+| Hostname routing via networking Gateway as default | All component services route through the networking Gateway using HTTPRoute resources at `*.hypershell.localhost`. Developers access services by name (`api.hypershell.localhost`) instead of memorizing port numbers. Multi-namespace deployments get distinct hostnames instead of port offsets. Requires `/etc/hosts` entries (managed by `kind-up`). `KIND_USE_NODEPORT=true` provides a fallback for CI or environments where `/etc/hosts` cannot be modified |
+| NodePort fallback via `KIND_USE_NODEPORT` | When hostname routing is unavailable, services fall back to NodePort + `extraPortMappings` with configurable ports and auto-offset for multi-namespace |
 | Pre-check cluster existence for idempotency | Check `kind get clusters` for the target name before attempting creation; skip if already present. Avoids `\|\| true` which swallows real failures (Docker not running, resource exhaustion) |
 | Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
 | Web console as first-class component | Node.js frontend (`components/web-console/`) deployed alongside API server and control plane; supports hot reload via `KIND_HOT_RELOAD` for rapid UI iteration |
-| Hot reload via `KIND_HOT_RELOAD` flag | When enabled, swap targets for supported components (web console) mount host source and run a dev server instead of rebuilding; when disabled (default), swap targets rebuild and replace as normal. Keeps the same `kind-<component>-up` entrypoint for both workflows |
+| Hot reload on by default | Swap targets for supported components (web console) mount host source and run a dev server in an interactive TTY by default; `KIND_HOT_RELOAD=false` opts out to rebuild-and-replace. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md` — planned, see [#2](https://github.com/openshift-online/hypershell/pull/2)), exercising the same path as production |
 | Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images — HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
-| Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with auto-allocated host ports. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). Namespace derived from branch name via explicit `kind-deploy` target; ports auto-offset from base to avoid conflicts |
+| Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). Namespace derived from branch name via explicit `kind-deploy` target; each namespace gets namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`) |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
 | GRPCRoute, not HTTPRoute | OpenShell gateway speaks gRPC; GRPCRoute is the correct Gateway API resource type for gRPC backends |
