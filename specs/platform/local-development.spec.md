@@ -58,9 +58,9 @@ oidc:
   user_role: hypershell-users
 ```
 
-The gateway SHALL always use PostgreSQL (`database.type: postgres`). SQLite is not supported. The local environment SHALL NOT deploy PostgreSQL directly — the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `specs/platform/openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
+The gateway SHALL always use PostgreSQL (`database.type: postgres`). SQLite is not supported. The local environment SHALL NOT deploy PostgreSQL directly — the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `specs/platform/openshell-gateway-database.spec.md` — planned, see [#2](https://github.com/openshift-online/hypershell/pull/2)). This ensures the local environment exercises the same database provisioning path used in production.
 
-TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). Authentication SHALL use OIDC only — mTLS client authentication is not supported.
+TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer uses HTTP because the local Keycloak instance runs in dev mode without TLS; the TLS requirement applies to the gateway's own serving certificate, not to the OIDC issuer endpoint. Authentication SHALL use OIDC only — mTLS client authentication is not supported.
 
 ### Keycloak Configuration
 
@@ -83,7 +83,7 @@ The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod
 
 ### Gateway API Routing
 
-The local cluster uses the Kubernetes Gateway API to route external traffic to gateway pods with TLS re-encryption. This mirrors the production topology where a networking Gateway terminates external TLS, then re-encrypts traffic to the backend pod using BackendTLSPolicy.
+The local cluster uses the Kubernetes Gateway API to route external traffic to gateway pods with TLS re-encryption. This mirrors the production topology where a networking Gateway terminates external TLS, then re-encrypts traffic to the backend pod using BackendTLSPolicy. Component ports (API, gRPC, Health, Console) use NodePort + `extraPortMappings` for deterministic host binding; Gateway API ingress uses cloud-provider-kind's LoadBalancer implementation, which handles its own port exposure independently.
 
 #### Networking Gateway (Cluster-Level)
 
@@ -385,7 +385,7 @@ All containers in the Kind deployment manifests SHALL set restricted security co
 
 ### Requirement: Swap Tracking
 
-The system SHALL track which components have been swapped to local builds using a `.kind-swaps` file at the repository root. This file SHALL be listed in `.gitignore`. The file records the set of currently swapped components so that `make kind-status` can report this information. Running `make kind-up` SHALL preserve existing swap state — it pulls the latest baseline images from `main` and reapplies manifests, but does not rebuild from the working tree or clear swap tracking.
+The system SHALL track which components have been swapped to local builds using a `.kind-swaps` file at the repository root. This file SHALL be listed in `.gitignore`. The file records the set of currently swapped components so that `make kind-status` can report this information. Running `make kind-up` SHALL preserve existing swap state: for non-swapped components, it pulls the latest baseline images and reapplies manifests normally; for swapped components, it skips manifest reapplication to avoid overwriting the locally-built image. Swap tracking is not cleared by `kind-up`.
 
 #### Scenario: Swap Reported in Status
 - GIVEN a developer has run `make kind-api-server-up`
@@ -480,6 +480,25 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` |
 | `IMAGE_TAG` | `latest` |
 
+## Environment Variable Reference
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `KIND_CLUSTER_NAME` | `hypershell-dev` | Kind cluster name |
+| `KIND_API_PORT` | `23080` | Host port for HTTP API |
+| `KIND_GRPC_PORT` | `29000` | Host port for gRPC |
+| `KIND_HEALTH_PORT` | `24434` | Host port for health endpoint |
+| `KIND_CONSOLE_PORT` | `23000` | Host port for web console |
+| `KIND_HOT_RELOAD` | (unset — disabled) | Set to `true` to enable hot reload for supported components |
+| `KIND_HOST_MOUNT_PATH` | Repository root (`git rev-parse --show-toplevel`) | Host directory mounted into Kind nodes for hot reload |
+| `KIND_KEYCLOAK_URL` | (unset — deploy local) | External Keycloak issuer URL; skips local deployment when set |
+| `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry path for baseline images |
+| `IMAGE_TAG` | `latest` | Image tag for baseline images |
+| `CONTAINER_ENGINE` | Auto-detected (Podman preferred) | Container engine (`podman` or `docker`) |
+| `GATEWAY_API_VERSION` | (pinned in Makefile) | Gateway API CRD release version |
+| `CLOUD_PROVIDER_KIND_VERSION` | (pinned in Makefile) | cloud-provider-kind binary version |
+| `CERT_MANAGER_VERSION` | `v1.20.0` | cert-manager release version |
+
 ## Make Targets Summary
 
 | Target | Behavior |
@@ -509,7 +528,7 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | Web console as first-class component | Node.js frontend (`components/web-console/`) deployed alongside API server and control plane; supports hot reload via `KIND_HOT_RELOAD` for rapid UI iteration |
 | Hot reload via `KIND_HOT_RELOAD` flag | When enabled, swap targets for supported components (web console) mount host source and run a dev server instead of rebuilding; when disabled (default), swap targets rebuild and replace as normal. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
-| Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`), exercising the same path as production |
+| Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md` — planned, see [#2](https://github.com/openshift-online/hypershell/pull/2)), exercising the same path as production |
 | PostgreSQL 18 from Red Hat registry | Red Hat registry image (`registry.redhat.io/rhel9/postgresql-18`) avoids Docker Hub rate limits and matches production image policy; hardened image (HI) adoption is planned for a future iteration |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
