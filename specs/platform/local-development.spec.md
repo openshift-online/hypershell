@@ -498,30 +498,34 @@ The database image SHALL be overridable via the `KIND_DB_IMAGE` environment vari
 
 The system SHALL support running multiple independent HyperShell instances concurrently within a single Kind cluster. Each instance runs in its own Kubernetes namespace with isolated host ports, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents). This avoids the overhead of multiple Kind clusters while providing full workload isolation.
 
-Each instance is identified by a `KIND_INSTANCE` name. The default instance uses the `hypershell-system` namespace and default ports. Additional instances deploy into a namespace derived from the instance name (e.g. `hypershell-feature-2`) with distinct host ports to avoid conflicts. Each instance gets its own set of deployments, services, and NodePort mappings.
+The system SHALL provide a `make kind-instance-up` target that creates a new instance. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). The developer must specify host ports for the new instance to avoid conflicts with the default instance. The default instance (`make kind-up`) uses the `hypershell-system` namespace and default ports; `kind-instance-up` creates additional instances alongside it.
 
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `KIND_INSTANCE` | (unset — default instance) | Instance name; determines the target namespace and port offset |
+Per-component swap and teardown targets operate on the instance's namespace when `KIND_INSTANCE` is set.
 
-#### Scenario: Two Concurrent Instances
+#### Scenario: Create Instance from Branch
 - GIVEN a Kind cluster is running with the default instance in `hypershell-system`
-- WHEN a developer runs `KIND_INSTANCE=feature-2 KIND_API_PORT=23081 KIND_GRPC_PORT=29001 KIND_HEALTH_PORT=24435 KIND_CONSOLE_PORT=23001 make kind-up`
-- THEN a second set of HyperShell components SHALL be deployed into the `hypershell-feature-2` namespace
-- AND the second instance SHALL use ports 23081, 29001, 24435, 23001
+- AND the developer is on branch `feature/add-auth`
+- WHEN they run `make kind-instance-up KIND_API_PORT=23081 KIND_GRPC_PORT=29001 KIND_HEALTH_PORT=24435 KIND_CONSOLE_PORT=23001`
+- THEN a namespace `hypershell-feature-add-auth` SHALL be created (derived from the branch name)
+- AND a full set of HyperShell components SHALL be deployed into that namespace
+- AND the instance SHALL use ports 23081, 29001, 24435, 23001
 - AND both instances SHALL run independently without interference
-- AND `make kind-status` SHALL report both instances and their respective namespaces
 
-#### Scenario: Independent Teardown
-- GIVEN two instances are running (`default` in `hypershell-system` and `feature-2` in `hypershell-feature-2`)
-- WHEN a developer runs `KIND_INSTANCE=feature-2 make kind-down`
-- THEN only the `hypershell-feature-2` namespace and its resources SHALL be deleted
+#### Scenario: Status Reports All Instances
+- GIVEN multiple instances are running in the same cluster
+- WHEN a developer runs `make kind-status`
+- THEN the output SHALL list all instances with their namespaces, ports, and swap state
+
+#### Scenario: Teardown Instance
+- GIVEN two instances are running (`hypershell-system` and `hypershell-feature-add-auth`)
+- WHEN a developer runs `make kind-instance-down KIND_INSTANCE=feature-add-auth`
+- THEN only the `hypershell-feature-add-auth` namespace and its resources SHALL be deleted
 - AND the default instance in `hypershell-system` SHALL continue running
 
 #### Scenario: Per-Component Swap Scoped to Instance
 - GIVEN two instances are running in the same Kind cluster
-- WHEN a developer runs `KIND_INSTANCE=feature-2 make kind-api-server-up`
-- THEN the API server SHALL be swapped only in the `hypershell-feature-2` namespace
+- WHEN a developer runs `KIND_INSTANCE=feature-add-auth make kind-api-server-up`
+- THEN the API server SHALL be swapped only in the `hypershell-feature-add-auth` namespace
 - AND the default instance SHALL remain unchanged
 
 ## Environment Variable Reference
@@ -543,7 +547,7 @@ Each instance is identified by a `KIND_INSTANCE` name. The default instance uses
 | `CLOUD_PROVIDER_KIND_VERSION` | (pinned in Makefile) | cloud-provider-kind binary version |
 | `CERT_MANAGER_VERSION` | `v1.20.0` | cert-manager release version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
-| `KIND_INSTANCE` | (unset — default instance) | Instance name; determines target namespace and port offset for multi-instance support |
+| `KIND_INSTANCE` | (unset — default instance) | Instance name; scopes swap/teardown targets to the named instance's namespace |
 
 ## Make Targets Summary
 
@@ -558,6 +562,8 @@ Each instance is identified by a `KIND_INSTANCE` name. The default instance uses
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | With `KIND_HOT_RELOAD`: mount source + run `npm run dev`; without: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
+| `make kind-instance-up` | Create a new instance namespace (derived from current branch) + deploy components + wait; requires explicit port env vars |
+| `make kind-instance-down` | Delete an instance namespace and its resources (`KIND_INSTANCE` required) |
 
 ## Design Decisions
 
