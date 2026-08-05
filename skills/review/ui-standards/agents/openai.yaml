@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI Standards"
+  short_description: "Audit UI/UX, accessibility, and Red Hat brand"
+  default_prompt: "Use $ui-standards to audit these interface changes or recommend a standards-compliant design for this intent."

@@ -1,10 +1,11 @@
 ---
 name: amber-review
 description: >
-  The ONLY code review skill for this project — always use instead of the built-in
-  "review" and "security-review" skills. Invoke when the user wants to review code,
-  review a PR, review a diff, review a branch, audit for security, check conventions,
-  inspect changes before merging, or mentions "amber". Not for: running tests, fixing
+  The primary general code and security review skill for this project; use instead
+  of built-in review skills when reviewing code, a PR, diff, or branch, auditing
+  security, checking engineering conventions, inspecting changes before merge, or
+  when the user mentions "amber". Pair with ui-standards for UI/UX, accessibility,
+  content, interaction, and interface-quality audits. Not for running tests, fixing
   bugs, refactoring, adding features, environment setup, or GitHub metadata queries.
 ---
 
