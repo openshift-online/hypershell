@@ -96,14 +96,14 @@ The system SHALL provide a `make kind-up` target at the repository root that cre
 
 ### Requirement: Per-Component Local Swap
 
-The system SHALL provide per-component Make targets that build a single component from the current working tree, load it into the running cluster, and restart only that component's deployment.
+The system SHALL provide per-component Make targets that build a single component from the current working tree, load it into the running cluster, and replace that component's deployment. Each invocation SHALL rebuild the image and replace the running state, even if the component is already swapped. This ensures developers can iterate by running the same target repeatedly after making changes.
 
 #### Scenario: Swap API Server
 - GIVEN a Kind cluster is running
 - WHEN a developer runs `make kind-api-server-up`
 - THEN the API server image SHALL be built from the current working tree
 - AND the image SHALL be loaded into the Kind cluster
-- AND the API server deployment SHALL be restarted
+- AND the API server deployment SHALL be replaced with the newly built image
 - AND the system SHALL wait for the API server to become ready
 
 #### Scenario: Swap Control Plane
@@ -111,8 +111,15 @@ The system SHALL provide per-component Make targets that build a single componen
 - WHEN a developer runs `make kind-control-plane-up`
 - THEN the control plane image SHALL be built from the current working tree
 - AND the image SHALL be loaded into the Kind cluster
-- AND the control plane deployment SHALL be restarted
+- AND the control plane deployment SHALL be replaced with the newly built image
 - AND the system SHALL wait for the control plane to become ready
+
+#### Scenario: Re-Swap Already Swapped Component
+- GIVEN the API server is already running a local build
+- WHEN a developer runs `make kind-api-server-up` again
+- THEN the API server image SHALL be rebuilt from the current working tree
+- AND the new image SHALL replace the previously swapped image
+- AND the system SHALL wait for the API server to become ready
 
 #### Scenario: No Cluster Running
 - GIVEN no Kind cluster exists
@@ -255,6 +262,29 @@ The system SHALL track which components have been swapped to local builds using 
 
 The system SHALL NOT provide a separate `make kind-rebuild` target. The `make kind-up` target SHALL absorb full rebuild-and-redeploy behavior. Per-component targets (`make kind-api-server-up`, `make kind-control-plane-up`) handle selective rebuilds from local source.
 
+### Requirement: Host Volume Mounts
+
+The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes. This enables Kubernetes `hostPath` volumes for use cases such as npm hot reloading of a frontend component, where source files on the host are mounted directly into a running container to enable live updates without rebuilding.
+
+The mount SHALL be opt-in: included in the Kind cluster config so the infrastructure is available, but not consumed by any deployment until a component (e.g. a frontend) is added that requires it.
+
+| Setting | Value |
+|---------|-------|
+| Host path | `KIND_HOST_MOUNT_PATH` env var (default: repository root) |
+| Container path | `/mnt/host` on each Kind node |
+| Read-only | `false` (writable, required for npm file watchers) |
+
+#### Scenario: Volume Mount Available
+- GIVEN `make kind-up` has completed
+- WHEN a deployment mounts a `hostPath` volume referencing `/mnt/host`
+- THEN the container SHALL see the contents of the host directory
+- AND file changes on the host SHALL be reflected inside the container
+
+#### Scenario: No Components Use Mount
+- GIVEN the Kind cluster is created with `extraMounts` configured
+- AND no deployment references the `/mnt/host` path
+- THEN the mount SHALL have no effect on cluster behavior
+
 ### Requirement: Container Registry
 
 The system SHALL pull baseline images from the container registry at `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/`. The registry path and image tag SHALL be configurable via environment variables.
@@ -271,9 +301,9 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | `make kind-up` | Create cluster (if needed) + pull baseline images from registry + deploy + wait for readiness |
 | `make kind-down` | Delete the Kind cluster |
 | `make kind-status` | Show cluster info, pods, services, host ports, and active component swaps |
-| `make kind-api-server-up` | Build api-server from working tree + load + restart + wait (cluster must exist) |
+| `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
 | `make kind-api-server-down` | Revert api-server to baseline image + restart + wait |
-| `make kind-control-plane-up` | Build control-plane from working tree + load + restart + wait (cluster must exist) |
+| `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 
 ## Design Decisions
@@ -287,7 +317,8 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | Per-service configurable ports via env vars | Avoids conflicts when running multiple clusters or services on the same host |
 | `kind create cluster \|\| true` for idempotency | Re-running after cluster exists is a no-op, not an error |
 | Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
-| Deployment restart on swap | Forces pods to pick up newly loaded images even when the tag hasn't changed |
+| Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
+| Host volume mounts via `extraMounts` | Pre-configures Kind nodes with a host mount so `hostPath` volumes are available for future hot-reloading (e.g. npm file watchers); opt-in — no component uses the mount until one is added |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`openshell-gateway-database.spec.md`), exercising the same path as production |
 | PostgreSQL 18 with RHEL hardened image | Red Hat hardened image (`registry.redhat.io/rhel9/postgresql-18`) avoids Docker Hub rate limits and matches production image policy |
