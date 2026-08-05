@@ -494,39 +494,39 @@ The database image SHALL be overridable via the `KIND_DB_IMAGE` environment vari
 - THEN the database pod SHALL use the HI PostgreSQL image (`registry.access.redhat.com/hi/postgresql:18`)
 - AND the image SHALL be pulled using the pre-configured pull secret
 
-### Requirement: Multi-Instance Support
+### Requirement: Multiple Namespace Deployments
 
-The system SHALL support running multiple independent HyperShell instances concurrently within a single Kind cluster. Each instance runs in its own Kubernetes namespace with isolated host ports, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents). This avoids the overhead of multiple Kind clusters while providing full workload isolation.
+The system SHALL support deploying the platform into multiple namespaces within a single Kind cluster. Each namespace gets its own set of HyperShell components with isolated host ports, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents).
 
-The system SHALL provide a `make kind-instance-up` target that creates a new instance. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). The developer must specify host ports for the new instance to avoid conflicts with the default instance. The default instance (`make kind-up`) uses the `hypershell-system` namespace and default ports; `kind-instance-up` creates additional instances alongside it.
+The system SHALL provide a `make kind-deploy` target that deploys the platform into a new namespace. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). The developer must specify host ports to avoid conflicts with other deployments. The default deployment (`make kind-up`) uses the `hypershell-system` namespace and default ports; `kind-deploy` creates additional deployments alongside it.
 
-Per-component swap and teardown targets operate on the instance's namespace when `KIND_INSTANCE` is set.
+Per-component swap and teardown targets operate on the specified namespace when `KIND_NAMESPACE` is set.
 
-#### Scenario: Create Instance from Branch
-- GIVEN a Kind cluster is running with the default instance in `hypershell-system`
+#### Scenario: Deploy to Additional Namespace from Branch
+- GIVEN a Kind cluster is running with the default deployment in `hypershell-system`
 - AND the developer is on branch `feature/add-auth`
-- WHEN they run `make kind-instance-up KIND_API_PORT=23081 KIND_GRPC_PORT=29001 KIND_HEALTH_PORT=24435 KIND_CONSOLE_PORT=23001`
+- WHEN they run `make kind-deploy KIND_API_PORT=23081 KIND_GRPC_PORT=29001 KIND_HEALTH_PORT=24435 KIND_CONSOLE_PORT=23001`
 - THEN a namespace `hypershell-feature-add-auth` SHALL be created (derived from the branch name)
 - AND a full set of HyperShell components SHALL be deployed into that namespace
-- AND the instance SHALL use ports 23081, 29001, 24435, 23001
-- AND both instances SHALL run independently without interference
+- AND the deployment SHALL use ports 23081, 29001, 24435, 23001
+- AND both deployments SHALL run independently without interference
 
-#### Scenario: Status Reports All Instances
-- GIVEN multiple instances are running in the same cluster
+#### Scenario: Status Reports All Deployments
+- GIVEN the platform is deployed into multiple namespaces
 - WHEN a developer runs `make kind-status`
-- THEN the output SHALL list all instances with their namespaces, ports, and swap state
+- THEN the output SHALL list all namespaces with their ports and swap state
 
-#### Scenario: Teardown Instance
-- GIVEN two instances are running (`hypershell-system` and `hypershell-feature-add-auth`)
-- WHEN a developer runs `make kind-instance-down KIND_INSTANCE=feature-add-auth`
+#### Scenario: Teardown Namespace Deployment
+- GIVEN the platform is deployed in `hypershell-system` and `hypershell-feature-add-auth`
+- WHEN a developer runs `make kind-undeploy KIND_NAMESPACE=hypershell-feature-add-auth`
 - THEN only the `hypershell-feature-add-auth` namespace and its resources SHALL be deleted
-- AND the default instance in `hypershell-system` SHALL continue running
+- AND the default deployment in `hypershell-system` SHALL continue running
 
-#### Scenario: Per-Component Swap Scoped to Instance
-- GIVEN two instances are running in the same Kind cluster
-- WHEN a developer runs `KIND_INSTANCE=feature-add-auth make kind-api-server-up`
+#### Scenario: Per-Component Swap Scoped to Namespace
+- GIVEN the platform is deployed in multiple namespaces
+- WHEN a developer runs `KIND_NAMESPACE=hypershell-feature-add-auth make kind-api-server-up`
 - THEN the API server SHALL be swapped only in the `hypershell-feature-add-auth` namespace
-- AND the default instance SHALL remain unchanged
+- AND the default deployment SHALL remain unchanged
 
 ## Environment Variable Reference
 
@@ -547,7 +547,7 @@ Per-component swap and teardown targets operate on the instance's namespace when
 | `CLOUD_PROVIDER_KIND_VERSION` | (pinned in Makefile) | cloud-provider-kind binary version |
 | `CERT_MANAGER_VERSION` | `v1.20.0` | cert-manager release version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
-| `KIND_INSTANCE` | (unset — default instance) | Instance name; scopes swap/teardown targets to the named instance's namespace |
+| `KIND_NAMESPACE` | `hypershell-system` | Target namespace for deployment; scopes swap/teardown targets to the specified namespace |
 
 ## Make Targets Summary
 
@@ -562,8 +562,8 @@ Per-component swap and teardown targets operate on the instance's namespace when
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | With `KIND_HOT_RELOAD`: mount source + run `npm run dev`; without: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
-| `make kind-instance-up` | Create a new instance namespace (derived from current branch) + deploy components + wait; requires explicit port env vars |
-| `make kind-instance-down` | Delete an instance namespace and its resources (`KIND_INSTANCE` required) |
+| `make kind-deploy` | Deploy platform into a new namespace (derived from current branch) + wait; requires explicit port env vars |
+| `make kind-undeploy` | Delete a namespace deployment and its resources (`KIND_NAMESPACE` required) |
 
 ## Design Decisions
 
@@ -582,7 +582,7 @@ Per-component swap and teardown targets operate on the instance's namespace when
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md` — planned, see [#2](https://github.com/openshift-online/hypershell/pull/2)), exercising the same path as production |
 | Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images — HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
-| Multi-instance via namespace isolation | Each instance deploys into its own namespace within a single Kind cluster with distinct host ports. More performant than separate Kind clusters; leverages Kubernetes namespace isolation for workload separation while sharing cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind) |
+| Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct host ports. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). Namespace derived from branch name via explicit `kind-deploy` target |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
 | GRPCRoute, not HTTPRoute | OpenShell gateway speaks gRPC; GRPCRoute is the correct Gateway API resource type for gRPC backends |
