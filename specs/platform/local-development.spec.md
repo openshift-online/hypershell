@@ -24,11 +24,14 @@ Developers selectively swap individual components with local builds using per-co
 
 | Prerequisite | Purpose |
 |--------------|---------|
-| cloud-provider-kind | LoadBalancer and Gateway API support for Kind clusters; required for GRPCRoute and Gateway resources to receive external IPs |
+| Gateway API CRDs | Gateway, GRPCRoute, BackendTLSPolicy, and related CRDs; required before cloud-provider-kind can serve as a gateway controller |
+| cloud-provider-kind | LoadBalancer and Gateway API controller for Kind clusters; implements GatewayClass and serves as the data-plane proxy for GRPCRoute traffic |
 | cert-manager | TLS certificate lifecycle for gateway certificates (issuance, renewal, rotation) |
 | Keycloak | OIDC identity provider for local gateway authentication testing (skipped when `KIND_KEYCLOAK_URL` is set) |
 
-[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Kind cluster is created. It provides LoadBalancer service support and Gateway API conformance (HTTPRoute, GRPCRoute) that Kind does not natively offer. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL use port mapping to expose LoadBalancer services on `localhost`. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
+`make kind-up` SHALL install the Gateway API CRDs before starting cloud-provider-kind. The CRDs SHALL be applied from the upstream release bundle (`https://github.com/kubernetes-sigs/gateway-api/releases/download/<version>/experimental-install.yaml`) using the `experimental` channel, which includes BackendTLSPolicy. The version SHALL be pinned via a `GATEWAY_API_VERSION` variable. On OpenShift 4.19+ these CRDs ship by default; on Kind they must be installed explicitly.
+
+[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Gateway API CRDs are installed and the Kind cluster is created. It provides LoadBalancer service support and acts as a Gateway API controller, implementing the GatewayClass and proxying traffic for GRPCRoute resources. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL use port mapping to expose LoadBalancer services on `localhost`. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.20.0`).
 
@@ -77,6 +80,121 @@ The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `KIND_KEYCLOAK_URL` | (unset — deploy local) | External Keycloak issuer URL; skips local deployment when set |
+
+### Gateway API Routing
+
+The local cluster uses the Kubernetes Gateway API to route external traffic to gateway pods with TLS re-encryption. This mirrors the production topology where a networking Gateway terminates external TLS, then re-encrypts traffic to the backend pod using BackendTLSPolicy.
+
+#### Networking Gateway (Cluster-Level)
+
+`make kind-up` SHALL create a networking `Gateway` resource that acts as the shared ingress point for all gateway GRPCRoutes. This is cluster-level infrastructure — not managed by the control plane reconciler.
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: hypershell-gw
+  namespace: hypershell-system
+spec:
+  gatewayClassName: cloud-provider-kind
+  listeners:
+  - name: grpc
+    hostname: "*.gw.localhost"
+    port: 443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: hypershell-gw-tls
+        kind: Secret
+    allowedRoutes:
+      namespaces:
+        from: All
+```
+
+The `hypershell-gw-tls` Secret SHALL contain a wildcard certificate for `*.gw.localhost` issued by cert-manager (self-signed CA). The `allowedRoutes.namespaces.from: All` permits GRPCRoutes from any namespace.
+
+#### Per-Gateway Route Resources (Control Plane Reconciled)
+
+For each HyperShell Gateway resource, the control plane reconciler creates three Kubernetes resources:
+
+1. **GRPCRoute** — Routes gRPC traffic from the networking Gateway to the gateway pod's Service:
+   ```yaml
+   apiVersion: gateway.networking.k8s.io/v1
+   kind: GRPCRoute
+   metadata:
+     name: openshell-gateway
+     namespace: hypershell-system
+   spec:
+     parentRefs:
+     - name: hypershell-gw
+       namespace: hypershell-system
+     hostnames:
+     - openshell-gateway.gw.localhost
+     rules:
+     - backendRefs:
+       - name: openshell-gateway
+         port: 8080
+   ```
+
+2. **BackendTLSPolicy** — Instructs the networking Gateway to establish a TLS connection to the backend pod and verify its certificate against the CA ConfigMap (TLS re-encrypt):
+   ```yaml
+   apiVersion: gateway.networking.k8s.io/v1alpha3
+   kind: BackendTLSPolicy
+   metadata:
+     name: openshell-gateway
+     namespace: hypershell-system
+   spec:
+     targetRefs:
+     - group: ""
+       kind: Service
+       name: openshell-gateway
+     validation:
+       caCertificateRefs:
+       - group: ""
+         kind: ConfigMap
+         name: openshell-backend-ca
+       hostname: openshell-gateway.hypershell-system.svc.cluster.local
+   ```
+
+3. **CA ConfigMap** — Contains the gateway pod's CA certificate so the networking Gateway can verify the pod's TLS cert:
+   ```yaml
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: openshell-backend-ca
+     namespace: hypershell-system
+   data:
+     ca.crt: |
+       <contents of openshell-server-tls Secret ca.crt>
+   ```
+
+#### TLS Re-Encrypt Flow
+
+```
+Client                   Networking Gateway              Gateway Pod
+  |                            |                              |
+  |--- HTTPS (external) ------>|                              |
+  |    wildcard cert           |--- TLS (internal) ---------->|
+  |    *.gw.localhost          |    BackendTLSPolicy verifies  |
+  |                            |    pod cert via CA ConfigMap  |
+  |                            |                              |
+```
+
+1. **Client to networking Gateway:** The client connects via HTTPS. The networking Gateway terminates external TLS using the wildcard certificate (`*.gw.localhost`) issued by cert-manager. HTTP/2 is negotiated through ALPN during the TLS handshake.
+2. **Networking Gateway to pod:** BackendTLSPolicy instructs the networking Gateway to re-encrypt traffic to the backend pod. The Gateway verifies the pod's certificate against the CA in the `openshell-backend-ca` ConfigMap. The pod's cert is issued by cert-manager from the same self-signed CA.
+
+#### Kind vs Production Differences
+
+| Aspect | Kind (local) | Production (OpenShift) |
+|--------|-------------|----------------------|
+| GatewayClass | `cloud-provider-kind` | `openshift-default` (controller: `openshift.io/gateway-controller/v1`) |
+| Gateway controller | cloud-provider-kind process | OpenShift Service Mesh Operator (Istio/Envoy) |
+| External TLS cert | cert-manager self-signed CA | Public CA (e.g. Let's Encrypt, corporate PKI) |
+| Internal TLS cert | cert-manager self-signed CA | cert-manager with internal CA |
+| LoadBalancer | cloud-provider-kind port mapping | Cloud provider LB or MetalLB |
+| Base domain | `gw.localhost` | `gw.<cluster-domain>` (e.g. `gw.apps.cluster.example.com`) |
+| Hostname pattern | `<gateway-name>.gw.localhost` | `<gateway-name>-<namespace>.gw.<base-domain>` |
 
 ## Requirements
 
@@ -393,11 +511,15 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`), exercising the same path as production |
 | PostgreSQL 18 from Red Hat registry | Red Hat registry image (`registry.redhat.io/rhel9/postgresql-18`) avoids Docker Hub rate limits and matches production image policy; hardened image (HI) adoption is planned for a future iteration |
-| cloud-provider-kind for LoadBalancer and Gateway API | Kind has no built-in LoadBalancer support; cloud-provider-kind provides it plus Gateway API conformance (HTTPRoute, GRPCRoute), required for GRPCRoute-based gateway traffic routing |
+| Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
+| cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
+| GRPCRoute, not HTTPRoute | OpenShell gateway speaks gRPC; GRPCRoute is the correct Gateway API resource type for gRPC backends |
+| BackendTLSPolicy for TLS re-encrypt | Matches production topology — the networking Gateway verifies the pod's cert via CA ConfigMap rather than terminating TLS and sending plaintext to the pod. Exercises the same code path the control plane uses on OpenShift |
+| Networking Gateway installed by kind-up | Cluster-level infrastructure (GatewayClass + Gateway), not per-tenant; the control plane only manages per-gateway route resources (GRPCRoute, BackendTLSPolicy, CA ConfigMap) |
 | cert-manager as prerequisite | Automates TLS certificate lifecycle (issuance, renewal, rotation) for gateway certificates; eliminates manual re-runs of the certgen job |
 | Keycloak for local OIDC | Local instance mirrors the downstream Keycloak topology (realm `hypershell`, per-gateway clients, provisioner service account); `KIND_KEYCLOAK_URL` override allows testing against an external instance |
 | OIDC only, no mTLS | Team agreed to drop mTLS client auth; OIDC is the recommended auth mode for Kubernetes deployments per upstream docs |
-| TLS always enabled | BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod; the gateway must serve TLS even in local environments. cert-manager issues a self-signed CA and server certificate |
+| TLS always enabled | BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod (see Gateway API Routing section); the gateway must serve TLS even in local environments. cert-manager issues a self-signed CA for both the wildcard listener cert and the pod's server cert |
 | Postgres only, no SQLite | SQLite option dropped; postgres Deployment is the only supported workload mode, eliminating StatefulSet/PVC coupling |
 | Configurable `IMAGE_REGISTRY` and `IMAGE_TAG` | Allows teams to test against different builds or staging registries |
 | Single root Makefile | All targets live in the root Makefile — build, test, codegen, and cluster lifecycle. Component-level Makefiles (`components/api-server/Makefile`, etc.) are deprecated; a single entrypoint eliminates indirection and makes `make <tab>` discoverable |
