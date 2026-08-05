@@ -43,7 +43,7 @@ skills/
 ## Reconciliation State
 
 **Last analyzed**: 2026-08-05 (web-console bootstrap implemented on `feat/web-console-bootstrap`)
-**Spec corpus**: 14 specs across 3 domains
+**Spec corpus**: 16 specs across 3 domains
 **Codebase commit**: working tree on `feat/web-console-bootstrap`
 
 ### Coverage Summary
@@ -51,9 +51,9 @@ skills/
 | Domain | Specs | Requirements | Present | Partial | Missing | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|
 | Platform | 2 | 9 | 9 | 0 | 0 | 100% |
-| Standards | 11 | 0 | 0 | 0 | 0 | N/A |
+| Standards | 13 | 0 | 0 | 0 | 0 | N/A |
 | Web console | 1 | 28 | 10 | 9 | 9 | 52% |
-| **TOTAL** | **14** | **37** | **19** | **9** | **9** | **64%** |
+| **TOTAL** | **16** | **37** | **19** | **9** | **9** | **64%** |
 
 ### Spec Dependency Order
 
@@ -82,4 +82,5 @@ Layer 1:          control-plane, web-console architecture
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
 | 2026-08-05 | working tree | Registered UI standards | 100% platform | UI standards are evaluated by `/ui-standards`, not counted as feature reconciliation requirements |
 | 2026-08-05 | working tree | Added PatternFly standard | 100% platform | PatternFly 6, canonical reuse, and duplicate-component prevention apply to the web console |
+| 2026-08-05 | working tree | Added UI architecture and observability standards | 100% platform | Narrow ports/adapters boundaries and typed fan-out domain probes apply to browser and BFF workflows |
 | 2026-08-05 | working tree | Web-console bootstrap increments 1-3 | 64% overall | Root pnpm migration, browser-compatible SDK, React Router/PatternFly scaffold, secure static BFF, tests, and production container; authenticated product increments remain open |

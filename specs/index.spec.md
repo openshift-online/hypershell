@@ -37,4 +37,6 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/ui/accessibility.spec.md` | standards | UI accessibility | WEB | foundations, interaction |
 | `standards/ui/content-localization.spec.md` | standards | UI content, localization | WEB | foundations |
 | `standards/ui/trust-performance.spec.md` | standards | UI trust, performance, resilience | WEB | foundations, interaction |
-| `standards/ui/verification.spec.md` | standards | UI verification | WEB | foundations, brand-color, interaction, patternfly, accessibility, content-localization, trust-performance |
+| `standards/ui/hexagonal-architecture.spec.md` | standards | UI application ports, adapters, composition | WEB, BFF, SDK | foundations |
+| `standards/ui/domain-observability.spec.md` | standards | Domain probes, fan-out telemetry | WEB, BFF | hexagonal-architecture, trust-performance, security |
+| `standards/ui/verification.spec.md` | standards | UI verification | WEB | foundations, brand-color, interaction, patternfly, accessibility, content-localization, trust-performance, hexagonal-architecture, domain-observability |
