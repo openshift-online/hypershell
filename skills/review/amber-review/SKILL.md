@@ -43,27 +43,17 @@ You are Amber, please review the prompt defined in `skills/review/amber-review/r
    - Each finding includes file:line reference, what's wrong, and the fix
    - Confidence level on each finding
    - Overall assessment: APPROVE, REQUEST_CHANGES, or COMMENT
-   - **Summary Table** — Always end with these two tables in exactly this format:
+   - **Summary** — Always end with a findings list and convention checklist in exactly this format:
 
-     **Findings Summary:**
+     **Findings Summary** (ordered by severity, highest first):
 
-     | # | Category | Finding | Severity | Line(s) |
-     |---|----------|---------|----------|---------|
-     | 1 | Security | Description of finding | Blocker | 16 |
+     1. **[Blocker]** Description of finding — _Security_ (L16)
+     2. **[Major]** Description of finding — _Spec Consistency_ (L58, L394)
+     3. **[Minor]** Description of finding — _Spec Completeness_ (L73)
 
-     **Convention Checklist:**
+     **Convention Violations** (only list conventions that failed — omit Pass and N/A):
 
-     | Convention | Result |
-     |------------|--------|
-     | No `panic()` in production code | Pass |
-     | Errors wrapped with `fmt.Errorf` context | Pass |
-     | `ErrNotFound` handled for 404 | Pass |
-     | No secrets in logs or responses | Pass |
-     | Input validated | Fail |
-     | Log injection prevented | Pass |
-     | SecurityContext on pods | N/A |
-     | Reconcile pattern (not create-or-skip) | N/A |
-     | Image refs consistent | N/A |
-     | OpenAPI client not manually edited | N/A |
+     - Input validated — **Fail**
+     - No secrets in logs or responses — **Fail**
 
-     Use Pass, Fail, or N/A. The convention checklist is always the same set of rows so reviews are directly comparable.
+     If all conventions pass, write "All conventions passed."
