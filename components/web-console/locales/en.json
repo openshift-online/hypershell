@@ -1,4 +1,20 @@
 {
+  "app.breadcrumb.ariaLabel": {
+    "defaultMessage": "Breadcrumb",
+    "description": "Accessible label for the application breadcrumb navigation."
+  },
+  "app.breadcrumb.gatewayContext": {
+    "defaultMessage": "Gateway {gatewayId}",
+    "description": "Breadcrumb label identifying the selected gateway by its route identifier."
+  },
+  "app.breadcrumb.sectorContext": {
+    "defaultMessage": "Sector {sectorId}",
+    "description": "Breadcrumb label identifying the selected sector by its route identifier."
+  },
+  "app.environment.developmentPreview": {
+    "defaultMessage": "Development preview",
+    "description": "Label identifying that the current console is a development preview."
+  },
   "app.error.body": {
     "defaultMessage": "Refresh the page to try again.",
     "description": "Recovery guidance shown after an unexpected route failure."
@@ -15,6 +31,46 @@
     "defaultMessage": "Hello world",
     "description": "Main heading on the initial web-console landing page."
   },
+  "app.nav.clients": {
+    "defaultMessage": "Clients",
+    "description": "Page and breadcrumb label for gateway clients."
+  },
+  "app.nav.gateways": {
+    "defaultMessage": "Gateways",
+    "description": "Navigation and page label for gateways."
+  },
+  "app.nav.keys": {
+    "defaultMessage": "Keys",
+    "description": "Page and breadcrumb label for access keys."
+  },
+  "app.nav.overview": {
+    "defaultMessage": "Overview",
+    "description": "Navigation and page label for the console overview."
+  },
+  "app.nav.primary": {
+    "defaultMessage": "Primary navigation",
+    "description": "Accessible label for the primary sidebar navigation."
+  },
+  "app.nav.sectorOverview": {
+    "defaultMessage": "Sector overview",
+    "description": "Navigation and page label for the selected sector overview."
+  },
+  "app.nav.sectors": {
+    "defaultMessage": "Sectors",
+    "description": "Navigation and page label for the collection of sectors."
+  },
+  "app.nav.selectedSector": {
+    "defaultMessage": "Selected sector",
+    "description": "Navigation group and breadcrumb label used when a sector is selected."
+  },
+  "app.nav.settings": {
+    "defaultMessage": "Settings",
+    "description": "Navigation, breadcrumb, and page label for settings."
+  },
+  "app.nav.toggle": {
+    "defaultMessage": "Toggle primary navigation",
+    "description": "Accessible label for the button that opens and closes the sidebar."
+  },
   "app.notFound.body": {
     "defaultMessage": "Check the address and try again.",
     "description": "Recovery guidance shown when an application route does not exist."
@@ -23,9 +79,141 @@
     "defaultMessage": "Page not found",
     "description": "Heading shown when an application route does not exist."
   },
+  "app.page.clients.description": {
+    "defaultMessage": "Review clients associated with this sector.",
+    "description": "Supporting text on the clients scaffold page."
+  },
+  "app.page.clients.empty.body": {
+    "defaultMessage": "When client data is available, it will appear here.",
+    "description": "Body text shown when the clients scaffold has no data."
+  },
+  "app.page.clients.empty.title": {
+    "defaultMessage": "No clients to display",
+    "description": "Empty-state heading on the clients scaffold page."
+  },
+  "app.page.gateway.description": {
+    "defaultMessage": "Review gateway configuration, placement, and status.",
+    "description": "Supporting text on the gateway details scaffold page."
+  },
+  "app.page.gateway.empty.body": {
+    "defaultMessage": "Gateway configuration and operational status will appear here.",
+    "description": "Body text shown on the gateway details scaffold."
+  },
+  "app.page.gateway.empty.title": {
+    "defaultMessage": "Gateway details are not available",
+    "description": "Empty-state heading on the gateway details scaffold."
+  },
+  "app.page.gateway.title": {
+    "defaultMessage": "Gateway details",
+    "description": "Page and breadcrumb title for an individual gateway."
+  },
+  "app.page.gateways.description": {
+    "defaultMessage": "Review gateways within the selected sector.",
+    "description": "Supporting text on the gateways scaffold page."
+  },
+  "app.page.gateways.empty.body": {
+    "defaultMessage": "When gateways are available, they will appear here.",
+    "description": "Body text shown when the gateways scaffold has no data."
+  },
+  "app.page.gateways.empty.title": {
+    "defaultMessage": "No gateways to display",
+    "description": "Empty-state heading on the gateways scaffold page."
+  },
+  "app.page.keys.description": {
+    "defaultMessage": "Review keys associated with this sector.",
+    "description": "Supporting text on the keys scaffold page."
+  },
+  "app.page.keys.empty.body": {
+    "defaultMessage": "When key data is available, it will appear here.",
+    "description": "Body text shown when the keys scaffold has no data."
+  },
+  "app.page.keys.empty.title": {
+    "defaultMessage": "No keys to display",
+    "description": "Empty-state heading on the keys scaffold page."
+  },
+  "app.page.overview.connections.body": {
+    "defaultMessage": "Cluster, database, release, and network inventory stays within its sector context.",
+    "description": "Body text for the platform connections card on the overview page."
+  },
+  "app.page.overview.connections.title": {
+    "defaultMessage": "Platform connections",
+    "description": "Heading for the platform connections overview card."
+  },
+  "app.page.overview.description": {
+    "defaultMessage": "Manage gateway infrastructure and configuration from one place.",
+    "description": "Supporting text on the console overview page."
+  },
+  "app.page.overview.gateways.body": {
+    "defaultMessage": "Inspect gateway configuration after selecting a sector.",
+    "description": "Body text for the gateways card on the overview page."
+  },
+  "app.page.overview.sectors.action": {
+    "defaultMessage": "View sectors",
+    "description": "Link from the overview page to the sectors collection."
+  },
+  "app.page.overview.sectors.body": {
+    "defaultMessage": "Choose the operational boundary used to organize clusters and gateways.",
+    "description": "Body text for the sectors overview card."
+  },
+  "app.page.sector.description": {
+    "defaultMessage": "Review gateway and infrastructure activity for the selected sector.",
+    "description": "Supporting text on the sector overview scaffold."
+  },
+  "app.page.sector.empty.body": {
+    "defaultMessage": "Gateway and infrastructure summaries will appear here when they are available.",
+    "description": "Body text on the sector overview empty state."
+  },
+  "app.page.sector.empty.title": {
+    "defaultMessage": "No resource activity to display",
+    "description": "Empty-state heading on the sector overview."
+  },
+  "app.page.sectors.description": {
+    "defaultMessage": "Choose a sector to view its gateways and settings.",
+    "description": "Supporting text on the sectors scaffold page."
+  },
+  "app.page.sectors.empty.body": {
+    "defaultMessage": "When sectors are available, they will appear here.",
+    "description": "Body text shown when no sectors are available."
+  },
+  "app.page.sectors.empty.title": {
+    "defaultMessage": "No sectors to display",
+    "description": "Empty-state heading on the sectors scaffold page."
+  },
+  "app.page.settings.description": {
+    "defaultMessage": "Manage configuration for the selected sector.",
+    "description": "Supporting text on the settings scaffold page."
+  },
+  "app.page.settings.empty.body": {
+    "defaultMessage": "Editable sector configuration will appear here when it is available.",
+    "description": "Body text on the settings scaffold empty state."
+  },
+  "app.page.settings.empty.title": {
+    "defaultMessage": "No settings to display",
+    "description": "Empty-state heading on the settings scaffold page."
+  },
   "app.productName": {
     "defaultMessage": "HyperShell",
     "description": "HyperShell product name."
+  },
+  "app.sector.context.ariaLabel": {
+    "defaultMessage": "Sector context",
+    "description": "Accessible label for the toolbar used to change the selected sector."
+  },
+  "app.sector.selector.error": {
+    "defaultMessage": "Sectors could not be loaded",
+    "description": "Error shown in the sector selector when available sectors cannot be loaded."
+  },
+  "app.sector.selector.label": {
+    "defaultMessage": "Sector:",
+    "description": "Visible label placed before the sector selector."
+  },
+  "app.sector.selector.loading": {
+    "defaultMessage": "Loading sectors",
+    "description": "Loading state shown while the sector selector retrieves available sectors."
+  },
+  "app.sector.selector.toggle": {
+    "defaultMessage": "Select sector, currently {sectorName}",
+    "description": "Accessible label for the sector selector toggle, including its current value."
   },
   "app.skipToContent": {
     "defaultMessage": "Skip to content",
