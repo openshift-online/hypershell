@@ -69,7 +69,9 @@ export type RequestOptions = {
 
 export type SDKClientConfig = {
   baseUrl: string;
-  token: string;
+  token?: string;
+  getToken?: () => Promise<string>;
+  fetch?: typeof globalThis.fetch;
 };
 
 export async function sdkFetch<T>(
@@ -80,14 +82,17 @@ export async function sdkFetch<T>(
   requestOpts?: RequestOptions,
 ): Promise<T> {
   const url = `${config.baseUrl}/api/hypershell/v1${path}`;
-  const headers: Record<string, string> = {
-    'Authorization': `Bearer ${config.token}`,
-  };
+  const headers: Record<string, string> = {};
+  const token = config.getToken ? await config.getToken() : config.token;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const resp = await fetch(url, {
+  const fetchFn = config.fetch ?? globalThis.fetch;
+  const resp = await fetchFn(url, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,

@@ -17,8 +17,8 @@ export class SDKClient {
     if (!config.baseUrl) {
       throw new Error('baseUrl is required');
     }
-    if (!config.token) {
-      throw new Error('token is required');
+    if (config.token !== undefined && config.getToken !== undefined) {
+      throw new Error('token and getToken are mutually exclusive');
     }
 
     this.config = {
