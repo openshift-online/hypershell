@@ -44,10 +44,10 @@ serverDnsNames:
   - openshell-gateway.hypershell-system.svc.cluster.local
 oidc:
   issuer: http://keycloak-service:8080/realms/openshell
-  audience: openshell-cli
-  roles_claim: realm_access.roles
-  admin_role: openshell-admin
-  user_role: openshell-user
+  audience: hypershell-frontend
+  roles_claim: groups
+  admin_role: hypershell-admins
+  user_role: hypershell-users
 ```
 
 The local environment SHALL NOT deploy PostgreSQL directly. The control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
@@ -59,10 +59,10 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Setting | Value |
 |---------|-------|
 | Realm | `openshell` |
-| Client | `openshell-cli` (public, standard flow + direct access grants) |
+| Client | `hypershell-frontend` (public, standard flow + direct access grants) |
 | Provisioner client | `openshell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
-| Admin role | `openshell-admin` |
-| User role | `openshell-user` |
+| Admin role | `hypershell-admins` |
+| User role | `hypershell-users` |
 | Users | `admin` (admin role), `developer` (user role) |
 
 The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
@@ -266,7 +266,7 @@ The system SHALL NOT provide a separate `make kind-rebuild` target. The `make ki
 
 The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes. This enables Kubernetes `hostPath` volumes for use cases such as npm hot reloading of a frontend component, where source files on the host are mounted directly into a running container to enable live updates without rebuilding.
 
-The mount SHALL be opt-in: included in the Kind cluster config so the infrastructure is available, but not consumed by any deployment until a component (e.g. a frontend) is added that requires it.
+The mount SHALL be opt-in: included in the Kind cluster config so the infrastructure is available, but not consumed by any deployment until a component (e.g. a frontend) is added that requires it. Live reload is independent of the per-component swap workflow — components that do not use live reload are still rebuilt and replaced via the normal `kind-<component>-up` flow.
 
 | Setting | Value |
 |---------|-------|
