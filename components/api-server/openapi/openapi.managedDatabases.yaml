@@ -3,6 +3,7 @@ paths:
   /api/hypershell/v1/managed_databases:
   # NEW ENDPOINT END
     get:
+      operationId: listManagedDatabases
       summary: Returns a list of managedDatabases
       security:
         - Bearer: []
@@ -38,6 +39,7 @@ paths:
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
     post:
+      operationId: createManagedDatabase
       summary: Create a new managedDatabase
       security:
         - Bearer: []
@@ -89,6 +91,7 @@ paths:
   /api/hypershell/v1/managed_databases/{id}:
   # NEW ENDPOINT END
     get:
+      operationId: getManagedDatabase
       summary: Get an managedDatabase by id
       security:
         - Bearer: []
@@ -124,6 +127,7 @@ paths:
               schema:
                 $ref: 'openapi.yaml#/components/schemas/Error'
     patch:
+      operationId: updateManagedDatabase
       summary: Update an managedDatabase
       security:
         - Bearer: []
@@ -173,6 +177,38 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
         '500':
           description: Unexpected error updating managedDatabase
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+    delete:
+      operationId: deleteManagedDatabase
+      summary: Delete a managed database
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: Managed database deleted successfully
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '403':
+          description: Unauthorized to perform operation
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '404':
+          description: No managed database with specified id exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error deleting managed database
           content:
             application/json:
               schema:

@@ -3,6 +3,7 @@ paths:
   /api/hypershell/v1/fleets:
   # NEW ENDPOINT END
     get:
+      operationId: listFleets
       summary: Returns a list of fleets
       security:
         - Bearer: []
@@ -38,6 +39,7 @@ paths:
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
     post:
+      operationId: createFleet
       summary: Create a new fleet
       security:
         - Bearer: []
@@ -89,6 +91,7 @@ paths:
   /api/hypershell/v1/fleets/{id}:
   # NEW ENDPOINT END
     get:
+      operationId: getFleet
       summary: Get an fleet by id
       security:
         - Bearer: []
@@ -124,6 +127,7 @@ paths:
               schema:
                 $ref: 'openapi.yaml#/components/schemas/Error'
     patch:
+      operationId: updateFleet
       summary: Update an fleet
       security:
         - Bearer: []
@@ -173,6 +177,38 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
         '500':
           description: Unexpected error updating fleet
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+    delete:
+      operationId: deleteFleet
+      summary: Delete a fleet
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: Fleet deleted successfully
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '403':
+          description: Unauthorized to perform operation
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '404':
+          description: No fleet with specified id exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error deleting fleet
           content:
             application/json:
               schema:

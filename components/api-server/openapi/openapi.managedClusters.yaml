@@ -3,6 +3,7 @@ paths:
   /api/hypershell/v1/managed_clusters:
   # NEW ENDPOINT END
     get:
+      operationId: listManagedClusters
       summary: Returns a list of managedClusters
       security:
         - Bearer: []
@@ -38,6 +39,7 @@ paths:
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
     post:
+      operationId: createManagedCluster
       summary: Create a new managedCluster
       security:
         - Bearer: []
@@ -89,6 +91,7 @@ paths:
   /api/hypershell/v1/managed_clusters/{id}:
   # NEW ENDPOINT END
     get:
+      operationId: getManagedCluster
       summary: Get an managedCluster by id
       security:
         - Bearer: []
@@ -124,6 +127,7 @@ paths:
               schema:
                 $ref: 'openapi.yaml#/components/schemas/Error'
     patch:
+      operationId: updateManagedCluster
       summary: Update an managedCluster
       security:
         - Bearer: []
@@ -173,6 +177,38 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
         '500':
           description: Unexpected error updating managedCluster
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+    delete:
+      operationId: deleteManagedCluster
+      summary: Delete a managed cluster
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: Managed cluster deleted successfully
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '403':
+          description: Unauthorized to perform operation
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '404':
+          description: No managed cluster with specified id exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error deleting managed cluster
           content:
             application/json:
               schema:

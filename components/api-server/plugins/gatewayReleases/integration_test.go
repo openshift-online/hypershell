@@ -19,17 +19,17 @@ func TestGatewayReleaseGet(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	_, _, err := client.DefaultAPI.ApiHypershellV1GatewayReleasesIdGet(context.Background(), "foo").Execute()
+	_, _, err := client.DefaultAPI.GetGatewayRelease(context.Background(), "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 401 but got nil error")
 
-	_, resp, err := client.DefaultAPI.ApiHypershellV1GatewayReleasesIdGet(ctx, "foo").Execute()
+	_, resp, err := client.DefaultAPI.GetGatewayRelease(ctx, "foo").Execute()
 	Expect(err).To(HaveOccurred(), "Expected 404")
 	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 
 	gatewayReleaseModel, err := newGatewayRelease(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	gatewayReleaseOutput, resp, err := client.DefaultAPI.ApiHypershellV1GatewayReleasesIdGet(ctx, gatewayReleaseModel.ID).Execute()
+	gatewayReleaseOutput, resp, err := client.DefaultAPI.GetGatewayRelease(ctx, gatewayReleaseModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
@@ -56,7 +56,7 @@ func TestGatewayReleasePost(t *testing.T) {
 		Status:          openapi.PtrString("test-status"),
 	}
 
-	gatewayReleaseOutput, resp, err := client.DefaultAPI.ApiHypershellV1GatewayReleasesPost(ctx).GatewayRelease(gatewayReleaseInput).Execute()
+	gatewayReleaseOutput, resp, err := client.DefaultAPI.CreateGatewayRelease(ctx).GatewayRelease(gatewayReleaseInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(*gatewayReleaseOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
@@ -83,7 +83,7 @@ func TestGatewayReleasePatch(t *testing.T) {
 	gatewayReleaseModel, err := newGatewayRelease(h.NewID())
 	Expect(err).NotTo(HaveOccurred())
 
-	gatewayReleaseOutput, resp, err := client.DefaultAPI.ApiHypershellV1GatewayReleasesIdPatch(ctx, gatewayReleaseModel.ID).GatewayReleasePatchRequest(openapi.GatewayReleasePatchRequest{}).Execute()
+	gatewayReleaseOutput, resp, err := client.DefaultAPI.UpdateGatewayRelease(ctx, gatewayReleaseModel.ID).GatewayReleasePatchRequest(openapi.GatewayReleasePatchRequest{}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(*gatewayReleaseOutput.Id).To(Equal(gatewayReleaseModel.ID))
@@ -102,6 +102,24 @@ func TestGatewayReleasePatch(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
+func TestGatewayReleaseDelete(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gatewayReleaseModel, err := newGatewayRelease(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	resp, err := client.DefaultAPI.DeleteGatewayRelease(ctx, gatewayReleaseModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	_, resp, err = client.DefaultAPI.GetGatewayRelease(ctx, gatewayReleaseModel.ID).Execute()
+	Expect(err).To(HaveOccurred(), "Expected deleted gateway release to return 404")
+	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+}
+
 func TestGatewayReleasePaging(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -111,19 +129,19 @@ func TestGatewayReleasePaging(t *testing.T) {
 	_, err := newGatewayReleaseList("Bronto", 20)
 	Expect(err).NotTo(HaveOccurred())
 
-	list, _, err := client.DefaultAPI.ApiHypershellV1GatewayReleasesGet(ctx).Execute()
+	list, _, err := client.DefaultAPI.ListGatewayReleases(ctx).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting gatewayRelease list: %v", err)
 	Expect(len(list.Items)).To(Equal(20))
-	Expect(list.Size).To(Equal(int32(20)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(1)))
+	Expect(list.GetSize()).To(Equal(int32(20)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(1)))
 
-	list, _, err = client.DefaultAPI.ApiHypershellV1GatewayReleasesGet(ctx).Page(2).Size(5).Execute()
+	list, _, err = client.DefaultAPI.ListGatewayReleases(ctx).Page(2).Size(5).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting gatewayRelease list: %v", err)
 	Expect(len(list.Items)).To(Equal(5))
-	Expect(list.Size).To(Equal(int32(5)))
-	Expect(list.Total).To(Equal(int32(20)))
-	Expect(list.Page).To(Equal(int32(2)))
+	Expect(list.GetSize()).To(Equal(int32(5)))
+	Expect(list.GetTotal()).To(Equal(int32(20)))
+	Expect(list.GetPage()).To(Equal(int32(2)))
 }
 
 func TestGatewayReleaseListSearch(t *testing.T) {
@@ -136,9 +154,9 @@ func TestGatewayReleaseListSearch(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	search := fmt.Sprintf("id in ('%s')", gatewayReleases[0].ID)
-	list, _, err := client.DefaultAPI.ApiHypershellV1GatewayReleasesGet(ctx).Search(search).Execute()
+	list, _, err := client.DefaultAPI.ListGatewayReleases(ctx).Search(search).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error getting gatewayRelease list: %v", err)
 	Expect(len(list.Items)).To(Equal(1))
-	Expect(list.Total).To(Equal(int32(1)))
+	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(gatewayReleases[0].ID))
 }

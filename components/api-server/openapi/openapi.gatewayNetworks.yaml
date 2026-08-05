@@ -3,6 +3,7 @@ paths:
   /api/hypershell/v1/gateway_networks:
   # NEW ENDPOINT END
     get:
+      operationId: listGatewayNetworks
       summary: Returns a list of gatewayNetworks
       security:
         - Bearer: []
@@ -38,6 +39,7 @@ paths:
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
     post:
+      operationId: createGatewayNetwork
       summary: Create a new gatewayNetwork
       security:
         - Bearer: []
@@ -89,6 +91,7 @@ paths:
   /api/hypershell/v1/gateway_networks/{id}:
   # NEW ENDPOINT END
     get:
+      operationId: getGatewayNetwork
       summary: Get an gatewayNetwork by id
       security:
         - Bearer: []
@@ -124,6 +127,7 @@ paths:
               schema:
                 $ref: 'openapi.yaml#/components/schemas/Error'
     patch:
+      operationId: updateGatewayNetwork
       summary: Update an gatewayNetwork
       security:
         - Bearer: []
@@ -173,6 +177,38 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
         '500':
           description: Unexpected error updating gatewayNetwork
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+    delete:
+      operationId: deleteGatewayNetwork
+      summary: Delete a gateway network
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: Gateway network deleted successfully
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '403':
+          description: Unauthorized to perform operation
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '404':
+          description: No gateway network with specified id exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error deleting gateway network
           content:
             application/json:
               schema:

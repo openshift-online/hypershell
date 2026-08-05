@@ -30,6 +30,7 @@ paths:
       summary: Service metadata
   /api/hypershell/v1/fleets:
     get:
+      operationId: listFleets
       parameters:
       - description: Page number of record list when record list exceeds specified
           page size
@@ -105,6 +106,7 @@ paths:
       - Bearer: []
       summary: Returns a list of fleets
     post:
+      operationId: createFleet
       requestBody:
         content:
           application/json:
@@ -153,7 +155,49 @@ paths:
       - Bearer: []
       summary: Create a new fleet
   /api/hypershell/v1/fleets/{id}:
+    delete:
+      operationId: deleteFleet
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Fleet deleted successfully
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No fleet with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error deleting fleet
+      security:
+      - Bearer: []
+      summary: Delete a fleet
     get:
+      operationId: getFleet
       parameters:
       - description: The id of record
         explode: false
@@ -198,6 +242,7 @@ paths:
       - Bearer: []
       summary: Get an fleet by id
     patch:
+      operationId: updateFleet
       parameters:
       - description: The id of record
         explode: false
@@ -262,6 +307,7 @@ paths:
       summary: Update an fleet
   /api/hypershell/v1/managed_clusters:
     get:
+      operationId: listManagedClusters
       parameters:
       - description: Page number of record list when record list exceeds specified
           page size
@@ -337,6 +383,7 @@ paths:
       - Bearer: []
       summary: Returns a list of managedClusters
     post:
+      operationId: createManagedCluster
       requestBody:
         content:
           application/json:
@@ -385,7 +432,49 @@ paths:
       - Bearer: []
       summary: Create a new managedCluster
   /api/hypershell/v1/managed_clusters/{id}:
+    delete:
+      operationId: deleteManagedCluster
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Managed cluster deleted successfully
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No managed cluster with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error deleting managed cluster
+      security:
+      - Bearer: []
+      summary: Delete a managed cluster
     get:
+      operationId: getManagedCluster
       parameters:
       - description: The id of record
         explode: false
@@ -430,6 +519,7 @@ paths:
       - Bearer: []
       summary: Get an managedCluster by id
     patch:
+      operationId: updateManagedCluster
       parameters:
       - description: The id of record
         explode: false
@@ -494,6 +584,7 @@ paths:
       summary: Update an managedCluster
   /api/hypershell/v1/managed_databases:
     get:
+      operationId: listManagedDatabases
       parameters:
       - description: Page number of record list when record list exceeds specified
           page size
@@ -569,6 +660,7 @@ paths:
       - Bearer: []
       summary: Returns a list of managedDatabases
     post:
+      operationId: createManagedDatabase
       requestBody:
         content:
           application/json:
@@ -617,7 +709,49 @@ paths:
       - Bearer: []
       summary: Create a new managedDatabase
   /api/hypershell/v1/managed_databases/{id}:
+    delete:
+      operationId: deleteManagedDatabase
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Managed database deleted successfully
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No managed database with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error deleting managed database
+      security:
+      - Bearer: []
+      summary: Delete a managed database
     get:
+      operationId: getManagedDatabase
       parameters:
       - description: The id of record
         explode: false
@@ -662,6 +796,7 @@ paths:
       - Bearer: []
       summary: Get an managedDatabase by id
     patch:
+      operationId: updateManagedDatabase
       parameters:
       - description: The id of record
         explode: false
@@ -726,6 +861,7 @@ paths:
       summary: Update an managedDatabase
   /api/hypershell/v1/gateway_releases:
     get:
+      operationId: listGatewayReleases
       parameters:
       - description: Page number of record list when record list exceeds specified
           page size
@@ -801,6 +937,7 @@ paths:
       - Bearer: []
       summary: Returns a list of gatewayReleases
     post:
+      operationId: createGatewayRelease
       requestBody:
         content:
           application/json:
@@ -849,7 +986,49 @@ paths:
       - Bearer: []
       summary: Create a new gatewayRelease
   /api/hypershell/v1/gateway_releases/{id}:
+    delete:
+      operationId: deleteGatewayRelease
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Gateway release deleted successfully
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No gateway release with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error deleting gateway release
+      security:
+      - Bearer: []
+      summary: Delete a gateway release
     get:
+      operationId: getGatewayRelease
       parameters:
       - description: The id of record
         explode: false
@@ -894,6 +1073,7 @@ paths:
       - Bearer: []
       summary: Get an gatewayRelease by id
     patch:
+      operationId: updateGatewayRelease
       parameters:
       - description: The id of record
         explode: false
@@ -958,6 +1138,7 @@ paths:
       summary: Update an gatewayRelease
   /api/hypershell/v1/gateways:
     get:
+      operationId: listGateways
       parameters:
       - description: Page number of record list when record list exceeds specified
           page size
@@ -1033,6 +1214,7 @@ paths:
       - Bearer: []
       summary: Returns a list of gateways
     post:
+      operationId: createGateway
       requestBody:
         content:
           application/json:
@@ -1081,7 +1263,49 @@ paths:
       - Bearer: []
       summary: Create a new gateway
   /api/hypershell/v1/gateways/{id}:
+    delete:
+      operationId: deleteGateway
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Gateway deleted successfully
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No gateway with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error deleting gateway
+      security:
+      - Bearer: []
+      summary: Delete a gateway
     get:
+      operationId: getGateway
       parameters:
       - description: The id of record
         explode: false
@@ -1126,6 +1350,7 @@ paths:
       - Bearer: []
       summary: Get an gateway by id
     patch:
+      operationId: updateGateway
       parameters:
       - description: The id of record
         explode: false
@@ -1190,6 +1415,7 @@ paths:
       summary: Update an gateway
   /api/hypershell/v1/gateway_networks:
     get:
+      operationId: listGatewayNetworks
       parameters:
       - description: Page number of record list when record list exceeds specified
           page size
@@ -1265,6 +1491,7 @@ paths:
       - Bearer: []
       summary: Returns a list of gatewayNetworks
     post:
+      operationId: createGatewayNetwork
       requestBody:
         content:
           application/json:
@@ -1313,7 +1540,49 @@ paths:
       - Bearer: []
       summary: Create a new gatewayNetwork
   /api/hypershell/v1/gateway_networks/{id}:
+    delete:
+      operationId: deleteGatewayNetwork
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Gateway network deleted successfully
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No gateway network with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error deleting gateway network
+      security:
+      - Bearer: []
+      summary: Delete a gateway network
     get:
+      operationId: getGatewayNetwork
       parameters:
       - description: The id of record
         explode: false
@@ -1358,6 +1627,7 @@ paths:
       - Bearer: []
       summary: Get an gatewayNetwork by id
     patch:
+      operationId: updateGatewayNetwork
       parameters:
       - description: The id of record
         explode: false

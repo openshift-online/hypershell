@@ -78,31 +78,37 @@ All URIs are relative to *http://localhost:8000*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
-*DefaultAPI* | [**ApiHypershellV1FleetsGet**](docs/DefaultAPI.md#apihypershellv1fleetsget) | **Get** /api/hypershell/v1/fleets | Returns a list of fleets
-*DefaultAPI* | [**ApiHypershellV1FleetsIdGet**](docs/DefaultAPI.md#apihypershellv1fleetsidget) | **Get** /api/hypershell/v1/fleets/{id} | Get an fleet by id
-*DefaultAPI* | [**ApiHypershellV1FleetsIdPatch**](docs/DefaultAPI.md#apihypershellv1fleetsidpatch) | **Patch** /api/hypershell/v1/fleets/{id} | Update an fleet
-*DefaultAPI* | [**ApiHypershellV1FleetsPost**](docs/DefaultAPI.md#apihypershellv1fleetspost) | **Post** /api/hypershell/v1/fleets | Create a new fleet
-*DefaultAPI* | [**ApiHypershellV1GatewayNetworksGet**](docs/DefaultAPI.md#apihypershellv1gatewaynetworksget) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
-*DefaultAPI* | [**ApiHypershellV1GatewayNetworksIdGet**](docs/DefaultAPI.md#apihypershellv1gatewaynetworksidget) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
-*DefaultAPI* | [**ApiHypershellV1GatewayNetworksIdPatch**](docs/DefaultAPI.md#apihypershellv1gatewaynetworksidpatch) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
-*DefaultAPI* | [**ApiHypershellV1GatewayNetworksPost**](docs/DefaultAPI.md#apihypershellv1gatewaynetworkspost) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
-*DefaultAPI* | [**ApiHypershellV1GatewayReleasesGet**](docs/DefaultAPI.md#apihypershellv1gatewayreleasesget) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
-*DefaultAPI* | [**ApiHypershellV1GatewayReleasesIdGet**](docs/DefaultAPI.md#apihypershellv1gatewayreleasesidget) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
-*DefaultAPI* | [**ApiHypershellV1GatewayReleasesIdPatch**](docs/DefaultAPI.md#apihypershellv1gatewayreleasesidpatch) | **Patch** /api/hypershell/v1/gateway_releases/{id} | Update an gatewayRelease
-*DefaultAPI* | [**ApiHypershellV1GatewayReleasesPost**](docs/DefaultAPI.md#apihypershellv1gatewayreleasespost) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
-*DefaultAPI* | [**ApiHypershellV1GatewaysGet**](docs/DefaultAPI.md#apihypershellv1gatewaysget) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
-*DefaultAPI* | [**ApiHypershellV1GatewaysIdGet**](docs/DefaultAPI.md#apihypershellv1gatewaysidget) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
-*DefaultAPI* | [**ApiHypershellV1GatewaysIdPatch**](docs/DefaultAPI.md#apihypershellv1gatewaysidpatch) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
-*DefaultAPI* | [**ApiHypershellV1GatewaysPost**](docs/DefaultAPI.md#apihypershellv1gatewayspost) | **Post** /api/hypershell/v1/gateways | Create a new gateway
-*DefaultAPI* | [**ApiHypershellV1ManagedClustersGet**](docs/DefaultAPI.md#apihypershellv1managedclustersget) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
-*DefaultAPI* | [**ApiHypershellV1ManagedClustersIdGet**](docs/DefaultAPI.md#apihypershellv1managedclustersidget) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
-*DefaultAPI* | [**ApiHypershellV1ManagedClustersIdPatch**](docs/DefaultAPI.md#apihypershellv1managedclustersidpatch) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
-*DefaultAPI* | [**ApiHypershellV1ManagedClustersPost**](docs/DefaultAPI.md#apihypershellv1managedclusterspost) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
-*DefaultAPI* | [**ApiHypershellV1ManagedDatabasesGet**](docs/DefaultAPI.md#apihypershellv1manageddatabasesget) | **Get** /api/hypershell/v1/managed_databases | Returns a list of managedDatabases
-*DefaultAPI* | [**ApiHypershellV1ManagedDatabasesIdGet**](docs/DefaultAPI.md#apihypershellv1manageddatabasesidget) | **Get** /api/hypershell/v1/managed_databases/{id} | Get an managedDatabase by id
-*DefaultAPI* | [**ApiHypershellV1ManagedDatabasesIdPatch**](docs/DefaultAPI.md#apihypershellv1manageddatabasesidpatch) | **Patch** /api/hypershell/v1/managed_databases/{id} | Update an managedDatabase
-*DefaultAPI* | [**ApiHypershellV1ManagedDatabasesPost**](docs/DefaultAPI.md#apihypershellv1manageddatabasespost) | **Post** /api/hypershell/v1/managed_databases | Create a new managedDatabase
+*DefaultAPI* | [**CreateFleet**](docs/DefaultAPI.md#createfleet) | **Post** /api/hypershell/v1/fleets | Create a new fleet
+*DefaultAPI* | [**CreateGateway**](docs/DefaultAPI.md#creategateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
+*DefaultAPI* | [**CreateGatewayNetwork**](docs/DefaultAPI.md#creategatewaynetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
+*DefaultAPI* | [**CreateGatewayRelease**](docs/DefaultAPI.md#creategatewayrelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
+*DefaultAPI* | [**CreateManagedCluster**](docs/DefaultAPI.md#createmanagedcluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
+*DefaultAPI* | [**CreateManagedDatabase**](docs/DefaultAPI.md#createmanageddatabase) | **Post** /api/hypershell/v1/managed_databases | Create a new managedDatabase
+*DefaultAPI* | [**DeleteFleet**](docs/DefaultAPI.md#deletefleet) | **Delete** /api/hypershell/v1/fleets/{id} | Delete a fleet
+*DefaultAPI* | [**DeleteGateway**](docs/DefaultAPI.md#deletegateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
+*DefaultAPI* | [**DeleteGatewayNetwork**](docs/DefaultAPI.md#deletegatewaynetwork) | **Delete** /api/hypershell/v1/gateway_networks/{id} | Delete a gateway network
+*DefaultAPI* | [**DeleteGatewayRelease**](docs/DefaultAPI.md#deletegatewayrelease) | **Delete** /api/hypershell/v1/gateway_releases/{id} | Delete a gateway release
+*DefaultAPI* | [**DeleteManagedCluster**](docs/DefaultAPI.md#deletemanagedcluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
+*DefaultAPI* | [**DeleteManagedDatabase**](docs/DefaultAPI.md#deletemanageddatabase) | **Delete** /api/hypershell/v1/managed_databases/{id} | Delete a managed database
+*DefaultAPI* | [**GetFleet**](docs/DefaultAPI.md#getfleet) | **Get** /api/hypershell/v1/fleets/{id} | Get an fleet by id
+*DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
+*DefaultAPI* | [**GetGatewayNetwork**](docs/DefaultAPI.md#getgatewaynetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
+*DefaultAPI* | [**GetGatewayRelease**](docs/DefaultAPI.md#getgatewayrelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
+*DefaultAPI* | [**GetManagedCluster**](docs/DefaultAPI.md#getmanagedcluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
+*DefaultAPI* | [**GetManagedDatabase**](docs/DefaultAPI.md#getmanageddatabase) | **Get** /api/hypershell/v1/managed_databases/{id} | Get an managedDatabase by id
 *DefaultAPI* | [**GetMetadata**](docs/DefaultAPI.md#getmetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
+*DefaultAPI* | [**ListFleets**](docs/DefaultAPI.md#listfleets) | **Get** /api/hypershell/v1/fleets | Returns a list of fleets
+*DefaultAPI* | [**ListGatewayNetworks**](docs/DefaultAPI.md#listgatewaynetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
+*DefaultAPI* | [**ListGatewayReleases**](docs/DefaultAPI.md#listgatewayreleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
+*DefaultAPI* | [**ListGateways**](docs/DefaultAPI.md#listgateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
+*DefaultAPI* | [**ListManagedClusters**](docs/DefaultAPI.md#listmanagedclusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
+*DefaultAPI* | [**ListManagedDatabases**](docs/DefaultAPI.md#listmanageddatabases) | **Get** /api/hypershell/v1/managed_databases | Returns a list of managedDatabases
+*DefaultAPI* | [**UpdateFleet**](docs/DefaultAPI.md#updatefleet) | **Patch** /api/hypershell/v1/fleets/{id} | Update an fleet
+*DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
+*DefaultAPI* | [**UpdateGatewayNetwork**](docs/DefaultAPI.md#updategatewaynetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
+*DefaultAPI* | [**UpdateGatewayRelease**](docs/DefaultAPI.md#updategatewayrelease) | **Patch** /api/hypershell/v1/gateway_releases/{id} | Update an gatewayRelease
+*DefaultAPI* | [**UpdateManagedCluster**](docs/DefaultAPI.md#updatemanagedcluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
+*DefaultAPI* | [**UpdateManagedDatabase**](docs/DefaultAPI.md#updatemanageddatabase) | **Patch** /api/hypershell/v1/managed_databases/{id} | Update an managedDatabase
 
 
 ## Documentation For Models
