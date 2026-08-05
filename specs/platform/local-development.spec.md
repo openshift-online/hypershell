@@ -43,14 +43,16 @@ database:
 serverDnsNames:
   - openshell-gateway.hypershell-system.svc.cluster.local
 oidc:
-  issuer: http://keycloak-service:8080/realms/openshell
+  issuer: http://keycloak-service:8080/realms/hypershell
   audience: hypershell-frontend
   roles_claim: groups
   admin_role: hypershell-admins
   user_role: hypershell-users
 ```
 
-The local environment SHALL NOT deploy PostgreSQL directly. The control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
+The gateway SHALL always use PostgreSQL (`database.type: postgres`). SQLite is not supported. The local environment SHALL NOT deploy PostgreSQL directly — the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
+
+TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). Authentication SHALL use OIDC only — mTLS client authentication is not supported.
 
 ### Keycloak Configuration
 
@@ -58,9 +60,9 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 
 | Setting | Value |
 |---------|-------|
-| Realm | `openshell` |
+| Realm | `hypershell` |
 | Client | `hypershell-frontend` (public, standard flow + direct access grants) |
-| Provisioner client | `openshell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
+| Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
 | Admin role | `hypershell-admins` |
 | User role | `hypershell-users` |
 | Users | `admin` (admin role), `developer` (user role) |
@@ -337,5 +339,8 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`openshell-gateway-database.spec.md`), exercising the same path as production |
 | PostgreSQL 18 with RHEL hardened image | Red Hat hardened image (`registry.redhat.io/rhel9/postgresql-18`) avoids Docker Hub rate limits and matches production image policy |
 | cert-manager as prerequisite | Automates TLS certificate lifecycle (issuance, renewal, rotation) for gateway certificates; eliminates manual re-runs of the certgen job |
-| Keycloak for local OIDC | Local instance mirrors the downstream Keycloak topology (realm `openshell`, per-gateway clients, provisioner service account); `KIND_KEYCLOAK_URL` override allows testing against an external instance |
+| Keycloak for local OIDC | Local instance mirrors the downstream Keycloak topology (realm `hypershell`, per-gateway clients, provisioner service account); `KIND_KEYCLOAK_URL` override allows testing against an external instance |
+| OIDC only, no mTLS | Team agreed to drop mTLS client auth; OIDC is the recommended auth mode for Kubernetes deployments per upstream docs |
+| TLS always enabled | BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod; the gateway must serve TLS even in local environments. cert-manager issues a self-signed CA and server certificate |
+| Postgres only, no SQLite | SQLite option dropped; postgres Deployment is the only supported workload mode, eliminating StatefulSet/PVC coupling |
 | Configurable `IMAGE_REGISTRY` and `IMAGE_TAG` | Allows teams to test against different builds or staging registries |
