@@ -51,9 +51,13 @@ You are Amber, please review the prompt defined in `skills/review/amber-review/r
      2. **[Major]** Description of finding — _Spec Consistency_ (L58, L394)
      3. **[Minor]** Description of finding — _Spec Completeness_ (L73)
 
-     **Convention Violations** (only list conventions that failed — omit Pass and N/A):
+     **Convention Checklist** (omit conventions not applicable to the diff):
 
-     - Input validated — **Fail**
-     - No secrets in logs or responses — **Fail**
+     | Convention | Result |
+     |------------|--------|
+     | No `panic()` in production code | Pass |
+     | Errors wrapped with `fmt.Errorf` context | Pass |
+     | No secrets in logs or responses | **Fail** |
+     | Input validated | **Fail** |
 
-     If all conventions pass, write "All conventions passed."
+     Only include conventions that were evaluated — omit rows that are N/A for the change under review.

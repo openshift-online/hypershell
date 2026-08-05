@@ -12,7 +12,7 @@
         "References the HyperShell convention that forbids panic() in production code",
         "Suggests using errors.IsNotFound or equivalent for the 404 case",
         "Overall assessment is REQUEST_CHANGES, not APPROVE",
-        "Includes a Findings Summary numbered list and Convention Violations list"
+        "Includes a Findings Summary numbered list and Convention Checklist table (Pass/Fail, no N/A rows)"
       ]
     },
     {
@@ -28,7 +28,7 @@
         "References the HyperShell security standard about no secrets in logs",
         "Flags general best-practice issues beyond convention violations (e.g., structured logging, request correlation, input validation)",
         "Overall assessment is REQUEST_CHANGES, not APPROVE",
-        "Includes a Findings Summary numbered list and Convention Violations list"
+        "Includes a Findings Summary numbered list and Convention Checklist table (Pass/Fail, no N/A rows)"
       ]
     },
     {
@@ -42,7 +42,7 @@
         "Recognizes no panic() usage",
         "Recognizes no secrets in log output",
         "Overall assessment is APPROVE or COMMENT, not REQUEST_CHANGES",
-        "Includes a Findings Summary numbered list and Convention Violations list"
+        "Includes a Findings Summary numbered list and Convention Checklist table (Pass/Fail, no N/A rows)"
       ]
     }
   ]
