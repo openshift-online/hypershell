@@ -213,7 +213,7 @@ For each HyperShell Gateway resource, the control plane reconciler creates three
          port: 8080
    ```
 
-2. **BackendTLSPolicy** — Instructs the networking Gateway to establish a TLS connection to the backend pod and verify its certificate against the CA ConfigMap (TLS re-encrypt):
+2. **BackendTLSPolicy** — Instructs the networking Gateway to establish a TLS connection to the backend pod and verify its certificate against the CA ConfigMap (TLS re-encrypt). The `v1alpha3` API version ships in the Gateway API experimental channel and tracks `GATEWAY_API_VERSION`; the API shape may change before GA:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1alpha3
    kind: BackendTLSPolicy
@@ -459,10 +459,12 @@ When `KIND_USE_NODEPORT=true` is set, per-service ports are configurable via env
 |---------|---------|-------------------|----------|
 | HTTP API | `KIND_API_PORT` | `23080` | `30080` |
 | gRPC | `KIND_GRPC_PORT` | `29000` | `30090` |
-| Health | `KIND_HEALTH_PORT` | `24434` | `30434` |
-| Web Console | `KIND_CONSOLE_PORT` | `23000` | `30300` |
+| Health | `KIND_HEALTH_PORT` | `24434` | `30100` |
+| Web Console | `KIND_CONSOLE_PORT` | `23000` | `30110` |
 
-For multi-namespace deployments in NodePort mode, the system SHALL auto-allocate ports using `KIND_PORT_OFFSET` (adds N to each base port). When the allocated port would conflict, `make kind-deploy` SHALL warn the user.
+NodePorts use a sequential block starting at 30080 with 10-port spacing, keeping the mapping predictable regardless of the host port values.
+
+For multi-namespace deployments in NodePort mode, the system SHALL auto-allocate ports using `KIND_PORT_OFFSET`. The offset SHALL be assigned sequentially per namespace: the second namespace gets offset 1 (base + 1), the third gets offset 2 (base + 2), and so on. The offset is added to each host port and each NodePort (e.g. offset 1: host 23081/29001/24435/23001, NodePort 30081/30091/30101/30111). When the allocated port would conflict with an existing service, `make kind-deploy` SHALL warn the user and suggest the next available offset.
 
 ### Requirement: Container Engine Support
 
@@ -664,7 +666,7 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | `KIND_GRPC_PORT` | `29000` | Host port for gRPC (NodePort mode only) |
 | `KIND_HEALTH_PORT` | `24434` | Host port for health endpoint (NodePort mode only) |
 | `KIND_CONSOLE_PORT` | `23000` | Host port for web console (NodePort mode only) |
-| `KIND_PORT_OFFSET` | (auto-assigned) | Port offset for multi-namespace deployments (NodePort mode only) |
+| `KIND_PORT_OFFSET` | (auto-assigned sequentially: 1, 2, 3…) | Port offset for multi-namespace deployments (NodePort mode only) |
 | `KIND_HOT_RELOAD` | `true` | Hot reload for supported components; set to `false` to disable |
 | `KIND_HOST_MOUNT_PATH` | Repository root (`git rev-parse --show-toplevel`) | Host directory mounted into Kind nodes for hot reload |
 | `KIND_KEYCLOAK_URL` | (unset — deploy local) | External Keycloak issuer URL; skips local deployment when set |
