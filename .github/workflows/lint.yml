@@ -24,6 +24,7 @@ jobs:
     outputs:
       api_server: ${{ steps.detect.outputs.api_server }}
       control_plane: ${{ steps.detect.outputs.control_plane }}
+      web_console: ${{ steps.detect.outputs.web_console }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -110,6 +111,17 @@ jobs:
           working-directory: components/control-plane
           args: --timeout=5m
 
+  lint-web-console:
+    name: Validate web console placeholder
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web_console == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Check placeholder
+        run: test -f components/web-console/.gitkeep
+
   summary:
     name: Lint CI gate
     if: always()
@@ -117,6 +129,7 @@ jobs:
       - detect-changes
       - lint-api-server
       - lint-control-plane
+      - lint-web-console
     runs-on: ubuntu-24.04
     steps:
       - name: Check lint results
@@ -124,8 +137,9 @@ jobs:
           DETECTION_RESULT: ${{ needs.detect-changes.result }}
           API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
           CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
+          WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}"; do
+          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${WEB_CONSOLE_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more lint jobs failed or were cancelled."
               exit 1

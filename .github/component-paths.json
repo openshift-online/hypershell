@@ -24,5 +24,16 @@
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml"
     ]
+  },
+  "web_console": {
+    "directory": "components/web-console",
+    "lint_job": "lint-web-console",
+    "paths": [
+      "components/web-console/**",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
   }
 }
