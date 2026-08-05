@@ -11,5 +11,20 @@ __pycache__/
 venv/
 env/
 
+# JavaScript dependencies and generated artifacts
+node_modules/
+.pnpm-store/
+.cache/
+.local/
+.npm/
+.react-router/
+build/
+coverage/
+dist/
+playwright-report/
+storybook-static/
+test-results/
+*.tsbuildinfo
+
 # Agent Package Manager cache
 apm_modules/

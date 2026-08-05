@@ -3,12 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "description": "Generated TypeScript client for the HyperShell API",
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },
@@ -16,11 +17,13 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --project tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --project tsconfig.json",
     "check": "tsc --project tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/node": "20.11.30",
-    "typescript": "5.3.3"
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=24.18.1 <25"
   }
 }

@@ -6,6 +6,9 @@ on:
       - components/api-server/openapi/**
       - components/api-server/pkg/api/openapi/**
       - components/sdk-typescript/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - scripts/sdk-generator/**
       - components/api-server/Dockerfile.openapi
       - components/api-server/Makefile
@@ -17,6 +20,9 @@ on:
       - components/api-server/openapi/**
       - components/api-server/pkg/api/openapi/**
       - components/sdk-typescript/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - scripts/sdk-generator/**
       - components/api-server/Dockerfile.openapi
       - components/api-server/Makefile
@@ -42,6 +48,14 @@ jobs:
         with:
           go-version-file: scripts/sdk-generator/go.mod
           cache-dependency-path: scripts/sdk-generator/go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Regenerate OpenAPI SDK
         working-directory: components/api-server
         run: make generate generate-sdk

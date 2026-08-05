@@ -14,7 +14,8 @@ make generate-sdk
 Install dependencies and validate or build the generated SDK with:
 
 ```sh
-npm ci
-npm run check
-npm run build
+cd ../..
+pnpm install --frozen-lockfile
+pnpm --filter @openshift-online/hypershell-sdk check
+pnpm --filter @openshift-online/hypershell-sdk build
 ```

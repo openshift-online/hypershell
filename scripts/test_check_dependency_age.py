@@ -18,6 +18,75 @@ UTC = dt.timezone.utc
 
 
 class DependencyAgeTest(unittest.TestCase):
+    def test_pnpm_lock_versions_importers_and_exact_declarations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "components" / "web"
+            workspace.mkdir(parents=True)
+            (root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "private": True,
+                        "packageManager": "pnpm@11.15.1",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (workspace / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "web",
+                        "dependencies": {
+                            "@scope/example": "1.2.3",
+                            "local": "workspace:0.0.0",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            lockfile = root / "pnpm-lock.yaml"
+            lockfile.write_text(
+                "lockfileVersion: '9.0'\n\n"
+                "importers:\n\n"
+                "  .: {}\n\n"
+                "  components/web:\n"
+                "    dependencies:\n"
+                "      '@scope/example':\n"
+                "        specifier: 1.2.3\n"
+                "        version: 1.2.3\n"
+                "      local:\n"
+                "        specifier: workspace:0.0.0\n"
+                "        version: link:../local\n\n"
+                "packages:\n\n"
+                "  '@scope/example@1.2.3':\n"
+                "    resolution: {integrity: sha512-test}\n",
+                encoding="utf-8",
+            )
+
+            packages, importers = CHECKER.pnpm_lock_data(lockfile)
+            self.assertEqual(
+                packages,
+                {("@scope/example", "1.2.3", str(lockfile))},
+            )
+            self.assertEqual(
+                CHECKER.exact_pnpm_declaration_failures(
+                    lockfile, root, importers
+                ),
+                [],
+            )
+
+            package = json.loads((workspace / "package.json").read_text())
+            package["dependencies"]["local"] = "workspace:*"
+            (workspace / "package.json").write_text(
+                json.dumps(package), encoding="utf-8"
+            )
+            failures = CHECKER.exact_pnpm_declaration_failures(
+                lockfile, root, importers
+            )
+            self.assertTrue(
+                any("exact workspace version" in failure for failure in failures)
+            )
+
     def test_package_lock_versions_and_exact_root_declarations(self):
         with tempfile.TemporaryDirectory() as directory:
             lockfile = Path(directory) / "package-lock.json"

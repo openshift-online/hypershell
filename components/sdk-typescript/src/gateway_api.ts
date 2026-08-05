@@ -2,9 +2,9 @@
 // Source: components/api-server/openapi/openapi.yaml
 // Spec SHA256: 72699f542b3925de30a231f8bd80d1098cfb9a891065307d9c4649a7144337ce
 
-import type { SDKClientConfig, ListOptions, RequestOptions } from './base';
-import { sdkFetch, buildQueryString } from './base';
-import type { Gateway, GatewayList, GatewayCreateRequest, GatewayPatchRequest } from './gateway';
+import type { SDKClientConfig, ListOptions, RequestOptions } from './base.js';
+import { sdkFetch, buildQueryString } from './base.js';
+import type { Gateway, GatewayList, GatewayCreateRequest, GatewayPatchRequest } from './gateway.js';
 
 export class GatewayAPI {
   constructor(private readonly config: SDKClientConfig) {}

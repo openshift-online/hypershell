@@ -123,26 +123,36 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
-          node-version: 22.16.0
-          cache: npm
-          cache-dependency-path: components/sdk-typescript/package-lock.json
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
       - name: Install dependencies
-        working-directory: components/sdk-typescript
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Check generated SDK
-        working-directory: components/sdk-typescript
-        run: npm run check
+        run: pnpm --filter @openshift-online/hypershell-sdk check
 
   lint-web-console:
-    name: Validate web console placeholder
+    name: Web console quality gates
     needs: detect-changes
     if: needs.detect-changes.outputs.web_console == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Check placeholder
-        run: test -f components/web-console/.gitkeep
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run static, unit, Storybook, and production build gates
+        run: pnpm check:web
+      - name: Install Chromium
+        run: pnpm --filter @openshift-online/hypershell-web-console exec playwright install --with-deps chromium
+      - name: Run critical Chromium journey
+        run: pnpm test:e2e:chromium
 
   summary:
     name: Lint CI gate

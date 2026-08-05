@@ -3,7 +3,7 @@
 // Spec SHA256: {{.Header.SpecHash}}
 // Generated: {{.Header.Timestamp}}
 
-import type { ObjectReference, ListMeta } from './base';
+import type { ObjectReference, ListMeta } from './base.js';
 
 export type {{.Resource.Name}} = ObjectReference & {
 {{- range .Resource.Fields}}

@@ -1,0 +1,34 @@
+{
+  "app.error.body": {
+    "defaultMessage": "Refresh the page to try again.",
+    "description": "Recovery guidance shown after an unexpected route failure."
+  },
+  "app.error.title": {
+    "defaultMessage": "The page could not be loaded",
+    "description": "Title shown after an unexpected route failure."
+  },
+  "app.hello.description": {
+    "defaultMessage": "The HyperShell web console is ready for development.",
+    "description": "Supporting text on the initial web-console landing page."
+  },
+  "app.hello.title": {
+    "defaultMessage": "Hello world",
+    "description": "Main heading on the initial web-console landing page."
+  },
+  "app.notFound.body": {
+    "defaultMessage": "Check the address and try again.",
+    "description": "Recovery guidance shown when an application route does not exist."
+  },
+  "app.notFound.title": {
+    "defaultMessage": "Page not found",
+    "description": "Heading shown when an application route does not exist."
+  },
+  "app.productName": {
+    "defaultMessage": "HyperShell",
+    "description": "HyperShell product name."
+  },
+  "app.skipToContent": {
+    "defaultMessage": "Skip to content",
+    "description": "Accessibility link that moves focus to the main page content."
+  }
+}

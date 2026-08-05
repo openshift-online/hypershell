@@ -1,0 +1,42 @@
+{
+  "name": "@openshift-online/hypershell-web-console-bff",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    "public"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --project tsconfig.json",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:run",
+    "dev": "tsx watch src/index.ts",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings=0",
+    "start": "node dist/index.js",
+    "test:run": "vitest run",
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/compress": "9.1.0",
+    "@fastify/helmet": "13.1.0",
+    "@fastify/static": "10.1.2",
+    "fastify": "5.10.0",
+    "openid-client": "6.8.4",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "24.13.3",
+    "eslint": "9.39.5",
+    "globals": "16.5.0",
+    "prettier": "3.9.6",
+    "tsx": "4.23.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=24.18.1 <25"
+  }
+}
