@@ -68,9 +68,10 @@ export type RequestOptions = {
 };
 
 export type SDKClientConfig = {
-  baseUrl: string;
+  baseUrl?: string;
   token?: string;
   getToken?: () => Promise<string>;
+  credentials?: RequestCredentials;
   fetch?: typeof globalThis.fetch;
 };
 
@@ -81,7 +82,7 @@ export async function sdkFetch<T>(
   body?: unknown,
   requestOpts?: RequestOptions,
 ): Promise<T> {
-  const url = `${config.baseUrl}/api/hypershell/v1${path}`;
+  const url = `${config.baseUrl ?? ''}/api/hypershell/v1${path}`;
   const headers: Record<string, string> = {};
   const token = config.getToken ? await config.getToken() : config.token;
   if (token) {
@@ -95,6 +96,7 @@ export async function sdkFetch<T>(
   const resp = await fetchFn(url, {
     method,
     headers,
+    credentials: config.credentials,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal: requestOpts?.signal,
   });

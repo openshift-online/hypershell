@@ -30,6 +30,9 @@
     "lint_job": "lint-sdk-typescript",
     "paths": [
       "components/sdk-typescript/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
       "components/api-server/openapi/**",
       "components/api-server/Makefile",
       "scripts/sdk-generator/**",
@@ -44,6 +47,10 @@
     "lint_job": "lint-web-console",
     "paths": [
       "components/web-console/**",
+      "components/sdk-typescript/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",

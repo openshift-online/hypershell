@@ -2,13 +2,13 @@
 // Source: components/api-server/openapi/openapi.yaml
 // Spec SHA256: 72699f542b3925de30a231f8bd80d1098cfb9a891065307d9c4649a7144337ce
 
-import type { SDKClientConfig } from './base';
-import { FleetAPI } from './fleet_api';
-import { GatewayAPI } from './gateway_api';
-import { GatewayNetworkAPI } from './gateway_network_api';
-import { GatewayReleaseAPI } from './gateway_release_api';
-import { ManagedClusterAPI } from './managed_cluster_api';
-import { ManagedDatabaseAPI } from './managed_database_api';
+import type { SDKClientConfig } from './base.js';
+import { FleetAPI } from './fleet_api.js';
+import { GatewayAPI } from './gateway_api.js';
+import { GatewayNetworkAPI } from './gateway_network_api.js';
+import { GatewayReleaseAPI } from './gateway_release_api.js';
+import { ManagedClusterAPI } from './managed_cluster_api.js';
+import { ManagedDatabaseAPI } from './managed_database_api.js';
 
 
 export class SDKClient {
@@ -21,17 +21,14 @@ export class SDKClient {
   readonly managedClusters: ManagedClusterAPI;
   readonly managedDatabases: ManagedDatabaseAPI;
 
-  constructor(config: SDKClientConfig) {
-    if (!config.baseUrl) {
-      throw new Error('baseUrl is required');
-    }
+  constructor(config: SDKClientConfig = {}) {
     if (config.token !== undefined && config.getToken !== undefined) {
       throw new Error('token and getToken are mutually exclusive');
     }
 
     this.config = {
       ...config,
-      baseUrl: config.baseUrl.replace(/\/+$/, ''),
+      baseUrl: (config.baseUrl ?? '').replace(/\/+$/, ''),
     };
 
     this.fleets = new FleetAPI(this.config);
@@ -42,14 +39,4 @@ export class SDKClient {
     this.managedDatabases = new ManagedDatabaseAPI(this.config);
   }
 
-  static fromEnv(): SDKClient {
-    const baseUrl = process.env.API_URL || 'https://localhost:8000';
-    const token = process.env.API_TOKEN;
-
-    if (!token) {
-      throw new Error('API_TOKEN environment variable is required');
-    }
-
-    return new SDKClient({ baseUrl, token });
-  }
 }

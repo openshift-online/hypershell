@@ -2,7 +2,7 @@
 // Source: components/api-server/openapi/openapi.yaml
 // Spec SHA256: 72699f542b3925de30a231f8bd80d1098cfb9a891065307d9c4649a7144337ce
 
-import type { ObjectReference, ListMeta } from './base';
+import type { ObjectReference, ListMeta } from './base.js';
 
 export type ManagedCluster = ObjectReference & {
   api_server_url: string;

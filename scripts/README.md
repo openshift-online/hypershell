@@ -16,8 +16,11 @@ revisions. Dockerfiles use digest-pinned build stages instead of mutable OS
 package installation. Locally built `localhost/` images are allowed only with
 `imagePullPolicy: Never` because they are never fetched from a registry.
 
-The dependency-age check covers every resolved Go module, npm lockfile package,
-and tool listed in `dependency-age-tools.json`. Metadata lookup fails closed.
+The dependency-age check covers every resolved Go module, every package and
+workspace importer in the root pnpm lockfile, legacy npm lockfiles during
+migration, and every tool listed in `dependency-age-tools.json`. Metadata lookup
+fails closed. JavaScript packages use the root pnpm workspace and frozen
+`pnpm-lock.yaml`; nested lockfiles are prohibited.
 An unavoidable version-specific exception belongs in
 `dependency-age-allowlist.json` and requires `kind`, `name`, `version`, `reason`,
 and `compensatingVerification` fields.

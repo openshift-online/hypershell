@@ -1,0 +1,39 @@
+packages:
+  - components/sdk-typescript
+  - components/web-console
+  - components/web-console/bff
+
+registries:
+  default: https://registry.npmjs.org/
+
+sharedWorkspaceLockfile: true
+saveExact: true
+saveWorkspaceProtocol: true
+linkWorkspacePackages: false
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build
+strictPeerDependencies: true
+disallowWorkspaceCycles: true
+failIfNoMatch: true
+engineStrict: true
+
+minimumReleaseAge: 20160
+minimumReleaseAgeIgnoreMissingTime: false
+minimumReleaseAgeStrict: true
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  # @babel/core resolves this legacy semver line; 6.3.1 predates npm provenance
+  # adoption and is still protected by the committed lockfile integrity hash.
+  - semver@6.3.1
+trustLockfile: false
+blockExoticSubdeps: true
+
+verifyStoreIntegrity: true
+strictStorePkgContentCheck: true
+verifyDepsBeforeRun: error
+strictDepBuilds: true
+dangerouslyAllowAllBuilds: false
+allowBuilds:
+  esbuild@0.28.1: true
+  msw@2.15.0: false

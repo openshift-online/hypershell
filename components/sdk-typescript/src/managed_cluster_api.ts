@@ -2,9 +2,9 @@
 // Source: components/api-server/openapi/openapi.yaml
 // Spec SHA256: 72699f542b3925de30a231f8bd80d1098cfb9a891065307d9c4649a7144337ce
 
-import type { SDKClientConfig, ListOptions, RequestOptions } from './base';
-import { sdkFetch, buildQueryString } from './base';
-import type { ManagedCluster, ManagedClusterList, ManagedClusterCreateRequest, ManagedClusterPatchRequest } from './managed_cluster';
+import type { SDKClientConfig, ListOptions, RequestOptions } from './base.js';
+import { sdkFetch, buildQueryString } from './base.js';
+import type { ManagedCluster, ManagedClusterList, ManagedClusterCreateRequest, ManagedClusterPatchRequest } from './managed_cluster.js';
 
 export class ManagedClusterAPI {
   constructor(private readonly config: SDKClientConfig) {}

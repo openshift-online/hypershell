@@ -2,30 +2,30 @@
 // Source: components/api-server/openapi/openapi.yaml
 // Spec SHA256: 72699f542b3925de30a231f8bd80d1098cfb9a891065307d9c4649a7144337ce
 
-export { SDKClient } from './client';
-export type { SDKClientConfig, ListOptions, RequestOptions, ObjectReference, ListMeta, APIError } from './base';
-export { SDKAPIError, buildQueryString } from './base';
+export { SDKClient } from './client.js';
+export type { SDKClientConfig, ListOptions, RequestOptions, ObjectReference, ListMeta, APIError } from './base.js';
+export { SDKAPIError, buildQueryString } from './base.js';
 
-export type { Fleet, FleetList, FleetCreateRequest, FleetPatchRequest } from './fleet';
-export { FleetBuilder, FleetPatchBuilder } from './fleet';
-export { FleetAPI } from './fleet_api';
+export type { Fleet, FleetList, FleetCreateRequest, FleetPatchRequest } from './fleet.js';
+export { FleetBuilder, FleetPatchBuilder } from './fleet.js';
+export { FleetAPI } from './fleet_api.js';
 
-export type { Gateway, GatewayList, GatewayCreateRequest, GatewayPatchRequest } from './gateway';
-export { GatewayBuilder, GatewayPatchBuilder } from './gateway';
-export { GatewayAPI } from './gateway_api';
+export type { Gateway, GatewayList, GatewayCreateRequest, GatewayPatchRequest } from './gateway.js';
+export { GatewayBuilder, GatewayPatchBuilder } from './gateway.js';
+export { GatewayAPI } from './gateway_api.js';
 
-export type { GatewayNetwork, GatewayNetworkList, GatewayNetworkCreateRequest, GatewayNetworkPatchRequest } from './gateway_network';
-export { GatewayNetworkBuilder, GatewayNetworkPatchBuilder } from './gateway_network';
-export { GatewayNetworkAPI } from './gateway_network_api';
+export type { GatewayNetwork, GatewayNetworkList, GatewayNetworkCreateRequest, GatewayNetworkPatchRequest } from './gateway_network.js';
+export { GatewayNetworkBuilder, GatewayNetworkPatchBuilder } from './gateway_network.js';
+export { GatewayNetworkAPI } from './gateway_network_api.js';
 
-export type { GatewayRelease, GatewayReleaseList, GatewayReleaseCreateRequest, GatewayReleasePatchRequest } from './gateway_release';
-export { GatewayReleaseBuilder, GatewayReleasePatchBuilder } from './gateway_release';
-export { GatewayReleaseAPI } from './gateway_release_api';
+export type { GatewayRelease, GatewayReleaseList, GatewayReleaseCreateRequest, GatewayReleasePatchRequest } from './gateway_release.js';
+export { GatewayReleaseBuilder, GatewayReleasePatchBuilder } from './gateway_release.js';
+export { GatewayReleaseAPI } from './gateway_release_api.js';
 
-export type { ManagedCluster, ManagedClusterList, ManagedClusterCreateRequest, ManagedClusterPatchRequest } from './managed_cluster';
-export { ManagedClusterBuilder, ManagedClusterPatchBuilder } from './managed_cluster';
-export { ManagedClusterAPI } from './managed_cluster_api';
+export type { ManagedCluster, ManagedClusterList, ManagedClusterCreateRequest, ManagedClusterPatchRequest } from './managed_cluster.js';
+export { ManagedClusterBuilder, ManagedClusterPatchBuilder } from './managed_cluster.js';
+export { ManagedClusterAPI } from './managed_cluster_api.js';
 
-export type { ManagedDatabase, ManagedDatabaseList, ManagedDatabaseCreateRequest, ManagedDatabasePatchRequest } from './managed_database';
-export { ManagedDatabaseBuilder, ManagedDatabasePatchBuilder } from './managed_database';
-export { ManagedDatabaseAPI } from './managed_database_api';
+export type { ManagedDatabase, ManagedDatabaseList, ManagedDatabaseCreateRequest, ManagedDatabasePatchRequest } from './managed_database.js';
+export { ManagedDatabaseBuilder, ManagedDatabasePatchBuilder } from './managed_database.js';
+export { ManagedDatabaseAPI } from './managed_database_api.js';

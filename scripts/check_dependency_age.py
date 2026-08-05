@@ -127,6 +127,159 @@ def exact_npm_declaration_failures(lockfile):
     return failures
 
 
+def yaml_scalar(value):
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return json.loads(value)
+    return value.split(" #", 1)[0].strip()
+
+
+def pnpm_package_reference(key):
+    key = yaml_scalar(key)
+    name, separator, version = key.rpartition("@")
+    if not separator or not name or not EXACT_NPM_VERSION_RE.fullmatch(version):
+        raise RuntimeError(
+            f"pnpm package key {key!r} is not an exact registry package reference"
+        )
+    return name, version
+
+
+def pnpm_lock_data(lockfile):
+    lines = lockfile.read_text(encoding="utf-8").splitlines()
+    packages = set()
+    importers = {}
+    section = None
+    importer = None
+    dependency_group = None
+    dependency = None
+    dependency_groups = {
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+    }
+
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+
+        if indent == 0:
+            section = stripped[:-1] if stripped.endswith(":") else None
+            importer = None
+            dependency_group = None
+            dependency = None
+            continue
+
+        if section == "packages" and indent == 2 and stripped.endswith(":"):
+            name, version = pnpm_package_reference(stripped[:-1])
+            packages.add((name, version, str(lockfile)))
+            continue
+
+        if section != "importers":
+            continue
+        if indent == 2 and ":" in stripped:
+            importer = yaml_scalar(stripped.split(":", 1)[0])
+            importers.setdefault(importer, {})
+            dependency_group = None
+            dependency = None
+            continue
+        if importer is None:
+            continue
+        if indent == 4 and stripped.endswith(":"):
+            candidate = yaml_scalar(stripped[:-1])
+            dependency_group = candidate if candidate in dependency_groups else None
+            dependency = None
+            continue
+        if dependency_group and indent == 6 and stripped.endswith(":"):
+            dependency = yaml_scalar(stripped[:-1])
+            continue
+        if dependency and indent == 8 and stripped.startswith("specifier:"):
+            specifier = yaml_scalar(stripped.split(":", 1)[1])
+            importers[importer][dependency] = specifier
+
+    if not importers:
+        raise RuntimeError(f"{lockfile} does not contain a pnpm importer map")
+    if not packages:
+        raise RuntimeError(f"{lockfile} does not contain a pnpm package map")
+    return packages, importers
+
+
+def exact_pnpm_declaration_failures(lockfile, root, importers):
+    failures = []
+    package_manifests = repository_files(root, "**/package.json")
+    expected_importers = {
+        "." if manifest.parent == root else manifest.parent.relative_to(root).as_posix()
+        for manifest in package_manifests
+    }
+    actual_importers = set(importers)
+
+    for missing in sorted(expected_importers - actual_importers):
+        failures.append(f"pnpm workspace package {missing} is missing from {lockfile}")
+    for extra in sorted(actual_importers - expected_importers):
+        failures.append(f"pnpm importer {extra} in {lockfile} has no package.json")
+
+    for importer in sorted(expected_importers & actual_importers):
+        manifest = root / "package.json" if importer == "." else root / importer / "package.json"
+        try:
+            package = json.loads(manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            failures.append(f"{manifest} is not valid JSON: {exc}")
+            continue
+
+        declared = {}
+        for group in (
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies",
+        ):
+            dependencies = package.get(group, {})
+            if not isinstance(dependencies, dict):
+                failures.append(f"{manifest} {group} must be an object")
+                continue
+            declared.update((name, str(version)) for name, version in dependencies.items())
+
+        locked = importers[importer]
+        for name, specifier in sorted(declared.items()):
+            if specifier.startswith("workspace:"):
+                workspace_version = specifier.removeprefix("workspace:")
+                if not EXACT_NPM_VERSION_RE.fullmatch(workspace_version):
+                    failures.append(
+                        f"pnpm {name}@{specifier} from {manifest} must use an exact workspace version"
+                    )
+            elif not EXACT_NPM_VERSION_RE.fullmatch(specifier):
+                failures.append(
+                    f"npm {name}@{specifier} from {manifest} is not an exact semantic version"
+                )
+            if locked.get(name) != specifier:
+                failures.append(
+                    f"pnpm importer {importer} does not lock {name}@{specifier} exactly"
+                )
+        for name in sorted(set(locked) - set(declared)):
+            failures.append(
+                f"pnpm importer {importer} contains undeclared dependency {name}"
+            )
+
+    root_manifest = root / "package.json"
+    if root_manifest.exists():
+        try:
+            package_manager = json.loads(root_manifest.read_text(encoding="utf-8")).get(
+                "packageManager", ""
+            )
+        except json.JSONDecodeError:
+            package_manager = ""
+        manager, separator, version = str(package_manager).partition("@")
+        if manager != "pnpm" or not separator or not EXACT_NPM_VERSION_RE.fullmatch(version):
+            failures.append(
+                f"{root_manifest} packageManager must pin an exact pnpm semantic version"
+            )
+    return failures
+
+
 def npm_published_at(name, version):
     escaped_name = urllib.parse.quote(name, safe="")
     data = fetch_json(f"https://registry.npmjs.org/{escaped_name}")
@@ -407,10 +560,26 @@ def main(argv=None):
 
     if not args.skip_npm:
         npm_versions = set()
-        for lockfile in repository_files(root, "**/package-lock.json"):
+        package_locks = repository_files(root, "**/package-lock.json")
+        pnpm_locks = repository_files(root, "**/pnpm-lock.yaml")
+        if len(pnpm_locks) > 1 or (pnpm_locks and pnpm_locks[0] != root / "pnpm-lock.yaml"):
+            failures.append("pnpm must use one shared lockfile at the repository root")
+        if pnpm_locks and package_locks:
+            failures.append("package-lock.json is prohibited after the pnpm workspace migration")
+
+        for lockfile in package_locks:
             try:
                 npm_versions.update(npm_package_versions(lockfile))
                 failures.extend(exact_npm_declaration_failures(lockfile))
+            except (json.JSONDecodeError, RuntimeError) as exc:
+                failures.append(str(exc))
+        for lockfile in pnpm_locks:
+            try:
+                versions, importers = pnpm_lock_data(lockfile)
+                npm_versions.update(versions)
+                failures.extend(
+                    exact_pnpm_declaration_failures(lockfile, root, importers)
+                )
             except (json.JSONDecodeError, RuntimeError) as exc:
                 failures.append(str(exc))
         for kind, name, version, source in tools:

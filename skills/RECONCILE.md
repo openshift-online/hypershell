@@ -42,9 +42,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-05 (UI standards registered; platform coverage unchanged)
-**Spec corpus**: 13 specs across 2 domains
-**Codebase commit**: (initial)
+**Last analyzed**: 2026-08-05 (web-console bootstrap implemented on `feat/web-console-bootstrap`)
+**Spec corpus**: 14 specs across 3 domains
+**Codebase commit**: working tree on `feat/web-console-bootstrap`
 
 ### Coverage Summary
 
@@ -52,20 +52,26 @@ skills/
 |--------|-------|-------------|---------|---------|---------|----------|
 | Platform | 2 | 9 | 9 | 0 | 0 | 100% |
 | Standards | 11 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **13** | **9** | **9** | **0** | **0** | **100%** |
+| Web console | 1 | 28 | 10 | 9 | 9 | 52% |
+| **TOTAL** | **14** | **37** | **19** | **9** | **9** | **64%** |
 
 ### Spec Dependency Order
 
 ```
 Layer 0 (roots):  data-model, standards/*
-Layer 1:          control-plane
+Layer 1:          control-plane, web-console architecture
 ```
 
 ---
 
 ## Gap Table
 
-No gaps identified in initial analysis.
+| Priority | Requirement group | State | Next increment |
+|----------|-------------------|-------|----------------|
+| P0 | WEB-AUTH-01..03, WEB-BFF-01 | Missing/partial | Add the selected OIDC provider, server-side rotating sessions, CSRF defenses, and authenticated API proxy. |
+| P1 | WEB-DATA-01..04, WEB-API-01 | Missing | Deliver the authenticated fleet shell only after its fleet-scoped API, validation, concurrency, and recovery contracts exist. |
+| P1 | WEB-DEPLOY-01, WEB-QUAL-03 | Partial | Add the Kubernetes workload security context/resources/probes and the full main/release browser and manual evidence matrix. |
+| P2 | WEB-OBS-01..02 | Missing/partial | Add privacy-reviewed browser signals and correlated BFF metrics/traces before production availability. |
 
 ---
 
@@ -76,3 +82,4 @@ No gaps identified in initial analysis.
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
 | 2026-08-05 | working tree | Registered UI standards | 100% platform | UI standards are evaluated by `/ui-standards`, not counted as feature reconciliation requirements |
 | 2026-08-05 | working tree | Added PatternFly standard | 100% platform | PatternFly 6, canonical reuse, and duplicate-component prevention apply to the web console |
+| 2026-08-05 | working tree | Web-console bootstrap increments 1-3 | 64% overall | Root pnpm migration, browser-compatible SDK, React Router/PatternFly scaffold, secure static BFF, tests, and production container; authenticated product increments remain open |

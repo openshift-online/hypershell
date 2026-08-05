@@ -1,0 +1,18 @@
+{
+  "name": "hypershell",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "engines": {
+    "node": ">=24.18.1 <25",
+    "pnpm": "11.15.1"
+  },
+  "scripts": {
+    "build:web": "pnpm --filter @openshift-online/hypershell-sdk build && pnpm --filter @openshift-online/hypershell-web-console build && pnpm --filter @openshift-online/hypershell-web-console-bff build",
+    "check:web": "pnpm --filter @openshift-online/hypershell-sdk check && pnpm --filter @openshift-online/hypershell-sdk build && pnpm --filter @openshift-online/hypershell-web-console check && pnpm --filter @openshift-online/hypershell-web-console-bff check",
+    "dev": "pnpm --filter @openshift-online/hypershell-web-console dev",
+    "dev:bff": "pnpm --filter @openshift-online/hypershell-web-console-bff dev",
+    "test:e2e": "pnpm --filter @openshift-online/hypershell-web-console test:e2e",
+    "test:e2e:chromium": "pnpm --filter @openshift-online/hypershell-web-console test:e2e:chromium"
+  }
+}
