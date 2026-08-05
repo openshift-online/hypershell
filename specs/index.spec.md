@@ -8,6 +8,10 @@ Desired state of the system. Code is the actual state. Development work reconcil
 
 Data model, API, control plane, gateway lifecycle, fleet management.
 
+### [Web Console](web-console/)
+
+Web-console architecture, technology choices, browser/server boundaries, and delivery requirements.
+
 ### [Standards](standards/)
 
 Cross-cutting engineering constraints by component.
@@ -22,6 +26,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 |------|--------|-----------------|------------|------------|
 | `platform/data-model.spec.md` | platform | Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase | API, CP | - |
 | `platform/control-plane.spec.md` | platform | Watcher, Reconciler, gRPC streams | CP | data-model |
+| `web-console/architecture.spec.md` | web-console | Web console, BFF, browser session, UI routes | WEB, SDK, API | data-model, security, UI standards |
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
 | `standards/security/security.spec.md` | standards | - | ALL | - |

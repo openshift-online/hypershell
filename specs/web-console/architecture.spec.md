@@ -1,0 +1,431 @@
+# Web Console Architecture
+
+**Date:** 2026-08-05
+**Status:** Active
+**Applies to:** `components/web-console`, the browser-facing TypeScript SDK surface, and web-console build, test, deployment, and operations workflows
+
+## Purpose
+
+Define the technical architecture for HyperShell's authenticated fleet-management web console. This specification selects the implementation stack, establishes browser/server trust boundaries, and defines the evidence required for a secure, accessible, resilient, and maintainable console.
+
+The web console SHALL also satisfy every applicable requirement in `standards/security/` and `standards/ui/`. This specification narrows implementation choices; it does not replace those standards.
+
+## Architecture
+
+```text
+Browser
+  React single-page application
+  PatternFly 6 + React Router + TanStack Query
+         │
+         │ same-origin HTTPS, session cookie, CSRF protection
+         ▼
+Web Console BFF
+  Fastify static server + OIDC session + API proxy
+         │
+         │ server-side bearer token and trace context
+         ▼
+HyperShell REST API
+         │
+         ▼
+PostgreSQL / Control Plane / Managed Clusters
+```
+
+In deployed environments, the browser SHALL communicate with the Backend-for-Frontend (BFF) on the same origin. The BFF SHALL own the OAuth/OIDC tokens, session, browser-facing security controls, static application delivery, and authenticated REST proxy. Initial local development MAY use the same `/api` browser contract through a Vite development proxy while the API server runs in its no-auth development mode. The React application SHALL NOT communicate directly with an OAuth token endpoint or persist bearer tokens.
+
+## Selected Stack
+
+| Concern | Selection | Version line |
+|---|---|---|
+| Browser UI | React and React DOM | 19.2 |
+| Language | TypeScript, strict mode | 6.x |
+| Routing/application framework | React Router Framework Mode with SPA output | 8.x |
+| Development and build | Vite | 8.x |
+| Design system | PatternFly React | 6.x |
+| REST server state | TanStack Query | 5.x |
+| Forms | React Hook Form | 7.x |
+| Runtime validation | Zod | 4.x |
+| Localization | React Intl / FormatJS | 10.x |
+| Unit and integration tests | Vitest, Testing Library, `user-event`, MSW | compatible stable releases |
+| Component development | Storybook React with Vite | 10.x |
+| Browser automation | Playwright | 1.x |
+| BFF runtime | Node.js LTS | 24.x initially |
+| BFF framework | Fastify | 5.x |
+| OIDC client | `openid-client` | 6.x |
+| Package manager | pnpm | 11.x initially |
+| Formatting and static analysis | Prettier, ESLint flat config, typed `typescript-eslint` | compatible stable releases |
+
+Direct dependency declarations SHALL use exact versions selected when the implementation or upgrade is committed. The version lines above define compatibility boundaries, not permission to use ranges in `package.json`. Every selected version and its complete resolved graph SHALL pass repository age, provenance, vulnerability, license, compatibility, and test gates. A newer major requires a deliberate specification update or an approved compatibility decision before adoption.
+
+## Requirements
+
+### Requirement WEB-ARCH-01: Client-Rendered Application
+
+The web console SHALL use React Router Framework Mode configured with `ssr: false`. Routes SHALL use route modules, lazy code splitting, route error boundaries, loading behavior, and document metadata provided by the selected framework. Production delivery SHALL support direct navigation and refresh of every application route without returning a false 404.
+
+Server-side rendering, React Server Components, and a Next.js application SHALL NOT be introduced unless an accepted architecture decision identifies a concrete requirement that SPA mode cannot meet.
+
+**Verification:** Inspect the React Router configuration and production artifact. Open, refresh, and recover from an injected failure on representative nested routes. Confirm that the client bundle does not contain server-only code or secrets.
+
+#### Scenario: Deep Link
+
+- GIVEN an authenticated user opens `/fleets/{fleet_id}/gateways/{gateway_id}` directly
+- WHEN the BFF receives the browser request
+- THEN it SHALL return the SPA document
+- AND React Router SHALL render the gateway route after checking session and fleet access
+- AND API and asset paths SHALL NOT fall back to the SPA document
+
+### Requirement WEB-ARCH-02: Route and Fleet Boundaries
+
+Fleet-scoped product routes SHALL be rooted at `/fleets/:fleetId`. The `fleetId` SHALL be included in every fleet-scoped query key, mutation input, authorization request, breadcrumb, and relevant telemetry dimension. Route loaders SHALL reject or redirect an unavailable fleet before rendering protected descendants.
+
+The initial route model SHALL include:
+
+```text
+/login
+/fleets
+/fleets/:fleetId
+/fleets/:fleetId/gateways
+/fleets/:fleetId/gateways/:gatewayId
+/fleets/:fleetId/clients
+/fleets/:fleetId/keys
+/fleets/:fleetId/settings
+```
+
+Route presence and hidden controls SHALL NOT be treated as authorization enforcement. The API SHALL independently authorize every operation and apply fleet scoping required by `standards/security/security.spec.md`.
+
+**Verification:** Inspect route definitions and query keys. Attempt cross-fleet reads and mutations by changing route parameters and request bodies; the server rejects the operation without exposing the other fleet's data.
+
+### Requirement WEB-ARCH-03: Source and Runtime Boundaries
+
+Browser, BFF, shared, generated SDK, and test code SHALL have explicit module boundaries and TypeScript configurations. Browser modules SHALL NOT import Node.js APIs, server environment access, OIDC tokens, session implementation, or server-only dependencies. BFF modules SHALL NOT import browser component code.
+
+TypeScript SHALL use strict checking. Browser and server compilation SHALL use modern ESM. Tests SHALL have a separate configuration so test globals and Node types do not leak into production browser code.
+
+**Verification:** Run browser and server type checks independently, inspect build outputs, and use boundary lint rules or equivalent tests to reject prohibited imports.
+
+### Requirement WEB-PKG-01: pnpm Workspace
+
+HyperShell JavaScript packages SHALL use one repository-root pnpm workspace. The workspace SHALL initially include `components/sdk-typescript` and `components/web-console`, use one root `pnpm-lock.yaml`, and use the `workspace:` protocol for internal package dependencies. The root `package.json` SHALL be private and SHALL declare an exact pnpm version in `packageManager`.
+
+After migration, npm, Yarn, Bun, nested lockfiles, and per-package installation workflows SHALL NOT be used for repository JavaScript packages. `shamefullyHoist` SHALL NOT be enabled. Packages SHALL declare every dependency they import.
+
+**Verification:** Run a clean root install, enumerate workspace projects, and inspect manifests and tracked files. Confirm that the web console resolves the local SDK through `workspace:` and that no npm/Yarn/Bun lockfile remains.
+
+#### Scenario: Workspace SDK Consumption
+
+- GIVEN the console declares the generated SDK as a workspace dependency
+- WHEN a clean frozen install runs
+- THEN pnpm SHALL resolve the repository SDK rather than a registry package
+- AND a missing or incompatible local SDK version SHALL fail resolution
+
+### Requirement WEB-PKG-02: Reproducible and Defensive Resolution
+
+The repository SHALL pin pnpm and all direct npm dependencies exactly. CI and container builds SHALL install with the committed lockfile in frozen mode. The workspace configuration SHALL enforce:
+
+- one shared workspace lockfile;
+- exact saved versions;
+- strict peer dependency validation;
+- failure on workspace dependency cycles;
+- a minimum release age of 20,160 minutes (14 days), in strict mode;
+- failure when registry publish time is absent;
+- lockfile supply-chain verification rather than treating the lockfile as pre-trusted;
+- blocking exotic transitive dependency sources;
+- explicit allowlisting of dependency lifecycle/build scripts; and
+- no broad package-name or scope exception to the release-age policy.
+
+Any exception SHALL identify an exact package version and satisfy the repository exception policy. Integrity mismatches SHALL fail closed and SHALL NOT be bypassed without an independently verified, reviewable lockfile change.
+
+The build SHALL NOT depend on Node's bundled Corepack. Developer tooling MAY use Corepack or another bootstrap mechanism, but CI and container builds SHALL install or copy the exact declared pnpm artifact through an immutable, reviewable mechanism.
+
+**Verification:** Modify a manifest without updating the lockfile, introduce an undeclared import, request a too-new version, remove publish-time metadata in the policy test, and add an unapproved lifecycle script. Each case fails before build or merge.
+
+### Requirement WEB-PKG-03: Policy Migration Completeness
+
+Adopting pnpm SHALL NOT reduce existing dependency-policy coverage. The migration that creates `pnpm-lock.yaml` SHALL also:
+
+1. teach `scripts/check_dependency_age.py` and its tests to inspect every resolved pnpm package and every workspace importer;
+2. enforce exact direct declarations while allowing only explicit `workspace:` references for local packages;
+3. remove the SDK `package-lock.json`;
+4. convert Makefile and CI commands from per-package npm installs to root pnpm filters or recursive commands;
+5. update CI cache keys and dependency paths to use the root lockfile; and
+6. document the pinned pnpm bootstrap procedure.
+
+Until these changes land together, the existing npm SDK workflow remains the actual state, and the pnpm migration SHALL be considered incomplete.
+
+**Verification:** Run all dependency-policy unit tests and `make check` against a pnpm-only tree. Confirm that a deliberately too-new transitive dependency in `pnpm-lock.yaml` fails the independent repository check.
+
+### Requirement WEB-SDK-01: Browser-Compatible Generated SDK
+
+The generated TypeScript SDK SHALL publish a modern ESM import and type declaration surface suitable for Vite and Node.js. It SHALL expose an injectable Fetch-compatible transport, a relative base URL, optional credentials/authentication behavior, typed errors, and `AbortSignal` support. Browser-facing modules SHALL NOT read `process.env` or require a bearer token.
+
+The browser SHALL configure the SDK for same-origin `/api` requests with cookie credentials. The BFF SHALL add the server-held bearer token when proxying upstream. Generated source SHALL NOT be hand edited; generator templates or stable handwritten adapters SHALL own required behavior.
+
+**Verification:** Build and import the SDK from both browser and BFF TypeScript configurations. Inspect the browser bundle for `process.env`, embedded API origins, tokens, and CommonJS-only shims. Cancel an in-flight route request and verify upstream cancellation where supported.
+
+### Requirement WEB-AUTH-00: Initial No-Auth Development Mode
+
+The initial UI MAY operate against an API server started with JWT authentication and authorization disabled. This mode SHALL be restricted to an explicit local/development environment, and the API SHALL remain bound to a loopback or otherwise isolated development interface. Shared, review, staging, and production deployments SHALL fail startup or readiness when authentication is disabled.
+
+The browser SHALL retain the production-shaped relative `/api` contract. A Vite development proxy or a development-mode BFF SHALL forward requests to the configured local API origin and SHALL omit the bearer header. Authentication mode SHALL be selected and validated by trusted server or development-tool configuration; a browser-visible `VITE_*` flag SHALL NOT enable or disable authentication.
+
+When routes need identity or capability data before OIDC is implemented, the development server MAY return an unmistakably synthetic development session with full development capabilities. Product code SHALL consume the same session interface used by authenticated deployments and SHALL NOT scatter no-auth conditionals through routes, components, or SDK calls.
+
+No-auth execution SHALL NOT count as evidence for login, logout, session rotation or expiry, CSRF protection, role/capability enforcement, 401/403 recovery, or cross-fleet authorization. Those behaviors SHALL use contract-faithful mocks during initial development and SHALL pass against an authenticated environment before production availability.
+
+**Verification:** Start the documented local no-auth workflow and complete a representative fleet route without an authorization header. Attempt to start each non-development environment with authentication disabled and confirm that it fails closed. Search browser code and bundles for an authentication-bypass flag, and inspect test evidence so no-auth journeys are not labeled as authentication coverage.
+
+### Requirement WEB-AUTH-01: OIDC Backend-for-Frontend
+
+Production authentication SHALL use OAuth 2.0 / OpenID Connect authorization code flow with PKCE through the BFF. The BFF SHALL validate issuer, client configuration, redirect URI, state, nonce, PKCE verifier, token response, and identity claims. Access and refresh tokens SHALL remain server-side and SHALL NOT be returned to browser JavaScript.
+
+The concrete identity provider, issuer, client registration, scopes, claims mapping, logout behavior, and session lifetime SHALL be deployment configuration with validated startup requirements. The console SHALL fail startup or health readiness when required production authentication configuration is invalid.
+
+**Verification:** Threat-model login, callback, refresh, logout, fixation, replay, redirect, and provider-failure paths. Search source maps, browser storage, DOM, URLs, logs, and network responses for tokens.
+
+### Requirement WEB-AUTH-02: Session and CSRF Protection
+
+The browser session SHALL use an opaque, rotating identifier in a `Secure`, `HttpOnly`, host-only, `SameSite` cookie with the narrowest practical path and lifetime. A `__Host-` cookie name SHOULD be used where deployment constraints allow it. Session contents and OAuth tokens SHALL be stored server-side in a production-capable shared store when more than one BFF replica may serve traffic.
+
+Every state-changing request SHALL require CSRF protection appropriate to the deployment, including origin validation and a server-validated token or equivalent robust mechanism. CORS SHALL default to same-origin only. Login SHALL rotate the session identifier; logout and terminal authentication failure SHALL revoke server-side session state and clear the cookie.
+
+**Verification:** Attempt cross-site form, Fetch, replay, fixation, stale-session, and multi-replica requests. Inspect cookie attributes and confirm that JavaScript cannot read the session identifier.
+
+### Requirement WEB-AUTH-03: Browser Session Contract
+
+The BFF SHALL expose a minimal browser session resource containing only display identity, locale preferences, expiry/re-authentication state, and server-derived capabilities needed to render the console. It SHALL NOT expose provider tokens or use browser-supplied roles as authorization evidence.
+
+The React application SHALL distinguish unauthenticated, expired, forbidden, unavailable, and insufficient-fleet-access states. Session expiry during work SHALL preserve unsent form state where safe and present a clear re-authentication path.
+
+**Verification:** Exercise initial load and mid-task expiry for read, edit, create, and destructive flows. Confirm correct recovery without disclosing protected content from a previous session.
+
+### Requirement WEB-BFF-01: Same-Origin Static and API Service
+
+The BFF SHALL use Node.js LTS and Fastify to provide:
+
+- OIDC login, callback, logout, and session endpoints;
+- an authenticated `/api/*` reverse proxy to the HyperShell REST API;
+- the immutable built SPA assets and non-cacheable application document;
+- liveness and readiness endpoints independent of authenticated product routes;
+- security headers, request limits, structured logs, and trace propagation; and
+- explicit 404 behavior for unknown API, asset, and server routes.
+
+The proxy SHALL use an allowlisted upstream origin, remove untrusted hop-by-hop and identity headers, set the server-held authorization header, impose timeouts and body limits, preserve safe API status semantics, and cancel upstream work after client disconnect where supported.
+
+**Verification:** Test routing precedence, header sanitation, timeouts, cancellation, large bodies, upstream failures, and SPA fallback behavior. Confirm that an arbitrary URL cannot turn the BFF into an open proxy.
+
+### Requirement WEB-DATA-01: Server-State Ownership
+
+TanStack Query SHALL own REST response data, asynchronous request state, caching, invalidation, and mutations. Query keys SHALL be factories that include resource kind, `fleetId`, resource identifier, and normalized request parameters. Mutation success SHALL update or invalidate only affected keys.
+
+React Router loaders MAY verify session and route access and prefill the Query client. Loader data and React Context SHALL NOT become competing REST caches. Redux, Zustand, MobX, or another global state store SHALL NOT be added until a recorded design decision demonstrates cross-route client-only state that React, URL state, and TanStack Query cannot manage clearly.
+
+**Verification:** Inventory state ownership and query keys. Navigate between fleets using identical resource identifiers and confirm that cached data never crosses fleet boundaries.
+
+### Requirement WEB-DATA-02: URL and Local State
+
+Pagination, filtering, search, sorting, selected fleet, and other shareable view state SHALL be encoded in validated URL path or search parameters. Ephemeral interaction state SHALL remain local to the narrowest component. Context SHALL be limited to stable cross-cutting services such as session, locale, feature flags, and the Query client.
+
+Sensitive values, server response caches, bearer tokens, and unsanitized operational data SHALL NOT be persisted in `localStorage`, `sessionStorage`, URL parameters, or an initial service-worker cache.
+
+**Verification:** Copy and reopen representative list URLs, use browser back/forward navigation, switch users in one browser profile, and inspect browser storage and cache contents.
+
+### Requirement WEB-DATA-03: Retry, Refresh, and Cancellation
+
+Queries SHALL have explicit freshness and retry policies by data class. The client SHALL NOT retry authorization, validation, conflict, or other deterministic 4xx responses. Mutations SHALL NOT retry automatically unless the operation is proven idempotent. Network and eligible 5xx query retries SHALL be bounded, use backoff, and expose final recovery guidance.
+
+Resources in non-terminal lifecycle states MAY use bounded adaptive polling while the document is visible. Polling SHALL pause or slow when hidden, stop at terminal state, recover after reconnect, and avoid refetching unrelated resources. Global polling SHALL NOT be used. SSE or WebSocket dependencies SHALL wait for an authenticated API event contract.
+
+Route changes and component disposal SHALL cancel obsolete requests with `AbortSignal` where supported.
+
+**Verification:** Simulate offline, reconnect, tab hiding, 400, 401, 403, 409, 429, 500, timeout, and slow cancellation. Inspect request count and user-visible state.
+
+### Requirement WEB-DATA-04: Forms and Runtime Validation
+
+Nontrivial forms SHALL use React Hook Form with Zod schemas and PatternFly form components. Zod SHALL validate untrusted browser/runtime shapes where compile-time TypeScript types provide no runtime guarantee. The API remains authoritative for domain rules and authorization.
+
+Validation SHALL occur at submit and appropriate blur/interaction boundaries rather than producing disruptive errors for every keystroke. Forms SHALL preserve user input across recoverable failures, prevent accidental duplicate submission, focus or summarize errors accessibly, and map server field and global errors without exposing sensitive details.
+
+Destructive and conflicting changes SHALL follow the interaction and recovery requirements in `standards/ui/`.
+
+**Verification:** Exercise keyboard-only entry, server/client validation disagreement, duplicate submission, network failure, version conflict, session expiry, cancellation, and successful resubmission.
+
+### Requirement WEB-UI-01: PatternFly-First Presentation
+
+The implementation SHALL follow `standards/ui/patternfly.spec.md`. It SHALL use PatternFly 6 packages from a compatible release set and install optional PatternFly packages only when a feature consumes them. CSS Modules MAY fill product-specific layout or presentation gaps using PatternFly semantic tokens and logical properties.
+
+Tailwind, Bootstrap, Material UI, Chakra UI, another general-purpose component system, Sass, and a CSS-in-JS styling system SHALL NOT be introduced. Charts, terminals, editors, and other specialized widgets MAY be added only with a concrete feature, accessibility review, bundle assessment, and documented PatternFly integration.
+
+**Verification:** Inspect dependencies, imports, rendered class names, tokens, and CSS. Map every custom component to the admission evidence required by the PatternFly standard.
+
+### Requirement WEB-UI-02: Shared Component Evidence
+
+Canonical shared components SHALL have discoverable Storybook stories for applicable default, loading, empty, error, permission, overflow, localization, responsive, and interaction states. Storybook SHALL be a development and verification surface, not a separately deployed production dependency unless explicitly required.
+
+React components SHALL be implemented semantically and tested through user-observable behavior. Tests SHALL NOT depend primarily on implementation details, internal component state, or snapshots of large markup trees.
+
+**Verification:** Compare the shared component inventory with stories and interaction tests. Run component accessibility checks and manually verify representative keyboard, screen-reader, zoom, touch, reduced-motion, RTL, and long-content states.
+
+### Requirement WEB-I18N-01: Localization from First Implementation
+
+React Intl / FormatJS SHALL own user-facing application messages from the first implementation. Messages SHALL use complete ICU expressions; concatenated translatable fragments and ad hoc pluralization are prohibited. CI SHALL extract and validate message catalogs and reject missing or malformed messages for supported release locales.
+
+Dates, times, time zones, numbers, units, and plural rules SHALL use `Intl` through the localization layer. Moment.js, Day.js, or another general date library SHALL NOT be added without a requirement that native `Intl` and platform date primitives cannot meet.
+
+Pseudo-localization and an RTL locale SHALL be part of regular verification even before a second production locale ships.
+
+**Verification:** Extract messages, build with pseudo-localized and RTL catalogs, and test expansion, mixed direction, time-zone transitions, plural categories, and missing translations on critical routes.
+
+### Requirement WEB-QUAL-01: Static Analysis
+
+The web workspace SHALL run:
+
+- TypeScript strict checking for browser, server, and tests;
+- ESLint flat configuration with type-aware `typescript-eslint` rules;
+- React Hooks and React Compiler lint rules;
+- JSX accessibility rules;
+- TanStack Query rules;
+- FormatJS message rules; and
+- Prettier verification.
+
+Lint suppression SHALL be narrow and explain the violated rule's inapplicability. React Compiler MAY be piloted only after compatibility testing with React Router, PatternFly, Storybook, and the production build. It SHALL NOT be treated as a substitute for profiling, correct state ownership, or deliberate memoization.
+
+**Verification:** Run all checks from the workspace root and introduce representative type, hook, accessibility, query, and message violations to confirm enforcement.
+
+### Requirement WEB-QUAL-02: Test Layers
+
+The web console SHALL use:
+
+- Vitest for unit and route/component integration tests;
+- Testing Library and `user-event` for behavior through accessible user interactions;
+- MSW for reusable request/response behavior at the network boundary;
+- Storybook with interaction and accessibility checks for shared component states; and
+- Playwright for end-to-end journeys in Chromium, Firefox, and WebKit.
+
+Jest or Cypress SHALL NOT be added unless an accepted decision demonstrates a test requirement the selected tools do not meet.
+
+Mocks SHALL preserve the API's production status codes, latency, authorization, validation, pagination, and error envelope. A test SHALL NOT claim end-to-end coverage when the BFF or API boundary is mocked.
+
+**Verification:** Inspect the test inventory and run representative suites. Confirm that contract drift in an API fixture produces a failure rather than being hidden by permissive mocks.
+
+### Requirement WEB-QUAL-03: Change and Release Gates
+
+Every pull request affecting the web workspace SHALL pass frozen installation, dependency policy, formatting, lint, type checks, unit/integration tests, Storybook build and checks, a production build, and critical Chromium journeys. Main/release verification SHALL add Firefox, WebKit, visual regression for critical layouts, pseudo-locale/RTL coverage, and the broader accessibility matrix required by `standards/ui/verification.spec.md`.
+
+Automated accessibility checks SHALL use axe-compatible rules but SHALL NOT be reported as complete accessibility evidence. Manual keyboard, screen reader, zoom/reflow, touch, reduced-motion, and locale checks remain required at the risk-based cadence in the UI verification standard.
+
+**Verification:** Inspect component-aware CI, stable summary gates, test artifacts, browser versions, exclusions, and release evidence.
+
+### Requirement WEB-DEPLOY-01: Reproducible Container
+
+The web console SHALL build in a multi-stage container from digest-pinned images. The build stage SHALL use the pinned Node.js LTS and pnpm versions with a frozen lockfile. The runtime SHALL contain only the BFF production closure, built static assets, required metadata, and trusted certificates.
+
+The runtime container and Kubernetes workload SHALL run as non-root, disallow privilege escalation, drop all capabilities, use the default seccomp profile, and use a read-only root filesystem with explicitly mounted writable paths only when required. It SHALL expose port 8080, define resource requests/limits, and provide independent liveness and readiness probes.
+
+**Verification:** Rebuild from a clean checkout, inspect image contents and dependency closure, scan the image, start it with the production security context, and exercise probes and graceful shutdown.
+
+### Requirement WEB-DEPLOY-02: Assets and Runtime Configuration
+
+Content-hashed static assets SHALL use long-lived immutable caching and compression. The application HTML and deployment configuration SHALL not use long-lived caching. Source maps SHALL be uploaded privately to the selected error system or retained as protected build artifacts; they SHALL NOT be publicly served by default.
+
+`VITE_*` variables SHALL be treated as public compile-time constants and SHALL never contain credentials, tokens, private origins, or other secrets. Environment-specific server settings and sensitive configuration SHALL be read and validated by the BFF at runtime. Any browser-visible runtime configuration endpoint SHALL expose only an allowlisted, non-sensitive schema.
+
+No service worker or offline mutation queue SHALL ship initially. Either feature requires an explicit cache invalidation, privacy, session-transition, update, conflict, and recovery design.
+
+**Verification:** Inspect built JavaScript, source maps, cache headers, compressed responses, runtime configuration, and browser caches before and after logout and deployment replacement.
+
+### Requirement WEB-SEC-01: Browser Security Headers
+
+The BFF SHALL set a reviewed Content Security Policy, frame-ancestor restriction, MIME sniffing protection, referrer policy, permissions policy, and HSTS where TLS deployment permits it. CSP SHALL begin in report-only mode while third-party and framework behavior is inventoried, then become enforcing before production release. Unsafe script execution and unbounded third-party origins SHALL NOT be accepted as permanent defaults.
+
+User- or API-provided text SHALL render as text by default. Raw HTML rendering requires sanitization, a documented need, and adversarial tests. URLs, redirects, downloads, and external links SHALL use allowlisted schemes and destinations appropriate to their purpose.
+
+**Verification:** Run header and CSP tests, inject representative markup and URL payloads, and review CSP reports. Confirm that framing and cross-origin data access fail as designed.
+
+### Requirement WEB-OBS-01: User and Web Performance Signals
+
+The browser SHALL report Core Web Vitals using `web-vitals` and SHALL measure critical-task completion, failure, abandonment, client errors, and recovery outcomes required by `standards/ui/trust-performance.spec.md`. Metrics SHALL use stable route templates rather than raw identifiers and SHALL exclude query strings, secrets, user-entered values, tokens, and sensitive resource content.
+
+Performance budgets SHALL cover route JavaScript, CSS, initial data, long tasks, and task-specific latency on representative devices, networks, and data volumes. The Core Web Vitals thresholds and percentile rules in the UI performance standard are release requirements.
+
+**Verification:** Inspect emitted events and dimensions, simulate client errors and task failures, and compare field dashboards and lab diagnostics with declared budgets.
+
+### Requirement WEB-OBS-02: Server Telemetry and Correlation
+
+The BFF SHALL emit structured logs, metrics, and traces with request and trace correlation. It SHALL propagate W3C trace context to the API, record sanitized route templates and upstream outcome, and export telemetry through the repository's supported OpenTelemetry/OTLP path. Raw session identifiers, authorization headers, cookies, tokens, user input, and sensitive API bodies SHALL NOT be logged or attached to telemetry.
+
+Browser errors and metrics SHOULD be accepted through a same-origin BFF endpoint. Experimental browser OpenTelemetry auto-instrumentation SHALL NOT be a foundational dependency; adoption requires a privacy, stability, bundle, and value assessment.
+
+**Verification:** Follow a request from browser signal through BFF and API telemetry, trigger each failure class, and inspect exported data for correlation and prohibited values.
+
+### Requirement WEB-API-01: UI-Supporting API Contracts
+
+Before a feature relies on them, the HyperShell API SHALL define and test:
+
+- fleet-scoped list, search, pagination, sort, and filter semantics;
+- authorization behavior and browser-safe capability/permission metadata;
+- stable error envelopes with field errors and a support-safe operation identifier;
+- idempotency or duplicate-submission behavior for consequential creates;
+- optimistic concurrency through an ETag, version, or equivalent precondition contract; and
+- lifecycle phase and terminal-state semantics suitable for bounded refresh.
+
+The UI SHALL NOT infer authorization solely from object visibility, guess whether a write conflicted from timestamps, or invent terminal states not defined by the API. An authenticated event contract is required before replacing polling with SSE or WebSockets.
+
+**Verification:** Run API contract tests and exercise permissions, cross-fleet requests, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI.
+
+## Initial Delivery Sequence
+
+Implementation SHOULD proceed in these dependency-ordered increments:
+
+1. Migrate the SDK to the root pnpm workspace and update repository policy checks.
+2. Make the generated SDK ESM- and browser-compatible with an injectable transport.
+3. Scaffold React Router SPA mode, PatternFly, localization, test tooling, and one root route.
+4. Implement the BFF session and API proxy against the selected OIDC provider.
+5. Deliver the authenticated fleet shell and one read-only, fleet-scoped resource journey.
+6. Add mutations only after validation, permission, concurrency, CSRF, and recovery contracts are verified.
+7. Establish field telemetry, performance budgets, and the full release matrix before production availability.
+
+## Design Decisions
+
+| Decision | Rationale |
+|---|---|
+| React Router Framework Mode in SPA configuration | Typed routes, route splitting, data/error boundaries, and an upgrade path without requiring SSR |
+| Same-origin BFF | Keeps OAuth tokens out of browser JavaScript and centralizes sessions, CSRF, proxy controls, headers, and runtime configuration |
+| pnpm root workspace | Strict dependency visibility, reliable local SDK linking, one lockfile, efficient installs, and supply-chain controls that align with repository policy |
+| TanStack Query for REST state | Purpose-built asynchronous cache, invalidation, cancellation, retry, and refresh behavior without a general global store |
+| PatternFly 6 only | Matches HyperShell standards and prevents competing component/token systems |
+| Vite, Vitest, Storybook Vite, and Playwright | One compatible build/test model with fast component feedback and real multi-browser coverage |
+| React Intl from the start | Prevents English-only strings and layout assumptions from becoming an expensive later migration |
+| Native `Intl` before a date library | Covers display/localization needs without a broad dependency until a missing capability is demonstrated |
+| REST/OpenAPI SDK rather than GraphQL or Axios | Reuses the existing typed API contract and Fetch transport without adding another protocol or request stack |
+| Adaptive polling for initial lifecycle refresh | The current REST API has no authenticated browser event contract; bounded polling meets the immediate need |
+| No general client-state store initially | URL state, local React state, Context, and TanStack Query have clear non-overlapping ownership |
+| No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity |
+| TypeScript 6 before TypeScript 7 | Uses the stable tool API supported across lint, build, test, and generated-code tooling; upgrade follows ecosystem readiness |
+| React Compiler linting before compiler rollout | Finds incompatible patterns while allowing profiling and framework/design-system compatibility to establish value |
+
+## Primary Basis
+
+- [React: Build a React app from scratch](https://react.dev/learn/build-a-react-app-from-scratch)
+- [React versions](https://react.dev/versions)
+- [React Router modes](https://reactrouter.com/start/modes)
+- [React Router SPA mode](https://reactrouter.com/how-to/spa)
+- [Vite build guidance](https://vite.dev/guide/build)
+- [Vite environment variables and modes](https://vite.dev/guide/env-and-mode)
+- [PatternFly development guidance](https://www.patternfly.org/get-started/develop/)
+- [TanStack Query important defaults](https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults)
+- [TanStack Query router prefetching](https://tanstack.com/query/latest/docs/framework/react/guides/prefetching)
+- [pnpm workspaces](https://pnpm.io/workspaces)
+- [pnpm dependency-resolution security settings](https://pnpm.io/settings/dependency-resolution)
+- [pnpm frozen installation](https://pnpm.io/cli/install)
+- [Node.js Corepack lifecycle](https://nodejs.org/download/release/latest-v25.x/docs/api/corepack.html)
+- [OAuth 2.0 for browser-based applications](https://datatracker.ietf.org/doc/draft-ietf-oauth-browser-based-apps/)
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+- [OWASP Cross-Site Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
+- [React Intl](https://formatjs.github.io/docs/react-intl/)
+- [Testing Library guiding principles](https://testing-library.com/docs/guiding-principles/)
+- [Mock Service Worker](https://mswjs.io/)
+- [Playwright browsers and installation](https://playwright.dev/docs/intro)
+- [Playwright accessibility testing](https://playwright.dev/docs/accessibility-testing)
+- [Storybook accessibility testing](https://storybook.js.org/docs/writing-tests/accessibility-testing)
+- [Core Web Vitals](https://web.dev/articles/vitals)
+- [OpenTelemetry JavaScript status](https://opentelemetry.io/docs/languages/js/)
