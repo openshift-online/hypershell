@@ -29,13 +29,14 @@ Developers selectively swap individual components with local builds using per-co
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.20.0`).
 
-Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker described in the [downstream Keycloak design](https://gist.github.com/jhjaggars/5042c84888fb0c24020377a21d98f9a1)).
+Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker described in the [downstream Keycloak design](https://gist.github.com/jhjaggars/5042c84888fb0c24020377a21d98f9a1) — a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients).
 
 ### Gateway Resource
 
 `make kind-up` SHALL create a Gateway resource that the control plane reconciler uses to provision the full gateway stack. The Gateway resource SHALL include:
 
 ```yaml
+apiVersion: hypershell.redhat.com/v1alpha1
 kind: Gateway
 name: openshell-gateway
 database:
@@ -51,13 +52,13 @@ oidc:
   user_role: hypershell-users
 ```
 
-The gateway SHALL always use PostgreSQL (`database.type: postgres`). SQLite is not supported. The local environment SHALL NOT deploy PostgreSQL directly — the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
+The gateway SHALL always use PostgreSQL (`database.type: postgres`). SQLite is not supported. The local environment SHALL NOT deploy PostgreSQL directly — the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `specs/platform/openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production.
 
 TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). Authentication SHALL use OIDC only — mTLS client authentication is not supported.
 
 ### Keycloak Configuration
 
-The Kind cluster Keycloak instance serves as the local equivalent of the downstream Keycloak described in the [downstream Keycloak design](https://gist.github.com/jhjaggars/5042c84888fb0c24020377a21d98f9a1). In production, the downstream Keycloak brokers authentication to Red Hat SSO (upstream) and manages per-gateway OIDC clients. The local instance mirrors this topology without the upstream broker, providing the same realm structure and client model.
+The Kind cluster Keycloak instance serves as the local equivalent of the downstream Keycloak described in the [downstream Keycloak design](https://gist.github.com/jhjaggars/5042c84888fb0c24020377a21d98f9a1) (a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients). In production, the downstream Keycloak brokers authentication to Red Hat SSO (upstream) and manages per-gateway OIDC clients. The local instance mirrors this topology without the upstream broker, providing the same realm structure and client model.
 
 | Setting | Value |
 |---------|-------|
@@ -278,6 +279,30 @@ The system SHALL track which components have been swapped to local builds using 
 - AND the API server SHALL remain running the locally-built image
 - AND swap tracking SHALL be preserved
 
+### Requirement: Developer Documentation
+
+The repository SHALL include a `DEVELOPMENT.md` guide that documents the local development environment. The guide SHALL cover:
+
+- Prerequisites (Docker or Podman, Kind, kubectl)
+- `make kind-up` quickstart with expected output
+- Per-component swap workflow (`make kind-<component>-up` / `make kind-<component>-down`)
+- Hot reload setup for the web console (`KIND_HOT_RELOAD=true`)
+- Environment variable reference (all `KIND_*`, `IMAGE_*`, and `CONTAINER_ENGINE` variables)
+- Keycloak configuration and `KIND_KEYCLOAK_URL` for external OIDC
+- Troubleshooting common issues (port conflicts, container engine not running, image pull failures)
+
+The documentation SHALL be kept in sync with this spec. When a new Make target, environment variable, or component is added, the guide SHALL be updated in the same PR.
+
+#### Scenario: Documentation Exists
+- GIVEN a developer clones the repository
+- WHEN they look for local development instructions
+- THEN `DEVELOPMENT.md` SHALL exist and describe how to set up and use the Kind environment
+
+#### Scenario: Documentation Stays Current
+- GIVEN a PR adds or changes a `kind-*` Make target or environment variable
+- WHEN the PR is reviewed
+- THEN the reviewer SHALL verify that `DEVELOPMENT.md` is updated to reflect the change
+
 ### Requirement: No Separate Rebuild Target
 
 The system SHALL NOT provide a separate `make kind-rebuild` target. The `make kind-up` target SHALL absorb full rebuild-and-redeploy behavior. Per-component targets (`make kind-api-server-up`, `make kind-control-plane-up`, `make kind-web-console-up`) handle selective rebuilds from local source.
@@ -357,13 +382,13 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | No separate `kind-rebuild` | `kind-up` always converges; per-component targets handle selective rebuilds |
 | NodePort + `extraPortMappings` for all services | Deterministic host ports; no background `kubectl port-forward` processes required |
 | Per-service configurable ports via env vars | Avoids conflicts when running multiple clusters or services on the same host |
-| `kind create cluster \|\| true` for idempotency | Re-running after cluster exists is a no-op, not an error |
+| Pre-check cluster existence for idempotency | Check `kind get clusters` for the target name before attempting creation; skip if already present. Avoids `\|\| true` which swallows real failures (Docker not running, resource exhaustion) |
 | Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
 | Web console as first-class component | Node.js frontend (`components/web-console/`) deployed alongside API server and control plane; supports hot reload via `KIND_HOT_RELOAD` for rapid UI iteration |
 | Hot reload via `KIND_HOT_RELOAD` flag | When enabled, swap targets for supported components (web console) mount host source and run a dev server instead of rebuilding; when disabled (default), swap targets rebuild and replace as normal. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
-| Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`openshell-gateway-database.spec.md`), exercising the same path as production |
+| Database provisioned by control plane | Gateway configured with `database.type: postgres` and RHEL postgresql-18 image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`), exercising the same path as production |
 | PostgreSQL 18 with RHEL hardened image | Red Hat hardened image (`registry.redhat.io/rhel9/postgresql-18`) avoids Docker Hub rate limits and matches production image policy |
 | cert-manager as prerequisite | Automates TLS certificate lifecycle (issuance, renewal, rotation) for gateway certificates; eliminates manual re-runs of the certgen job |
 | Keycloak for local OIDC | Local instance mirrors the downstream Keycloak topology (realm `hypershell`, per-gateway clients, provisioner service account); `KIND_KEYCLOAK_URL` override allows testing against an external instance |
