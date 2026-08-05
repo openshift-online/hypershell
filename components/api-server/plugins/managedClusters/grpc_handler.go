@@ -26,7 +26,7 @@ func NewManagedClusterGRPCHandler(svc ManagedClusterService, generic services.Ge
 	return &managedClusterGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
 }
 
-func (h *managedClusterGRPCHandler) GetManagedCluster(ctx context.Context, req *pb.GetManagedClusterRequest) (*pb.ManagedCluster, error) {
+func (h *managedClusterGRPCHandler) GetManagedCluster(ctx context.Context, req *pb.GetManagedClusterRequest) (*pb.GetManagedClusterResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -35,10 +35,10 @@ func (h *managedClusterGRPCHandler) GetManagedCluster(ctx context.Context, req *
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return managedClusterToProto(managedCluster), nil
+	return &pb.GetManagedClusterResponse{ManagedCluster: managedClusterToProto(managedCluster)}, nil
 }
 
-func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, req *pb.CreateManagedClusterRequest) (*pb.ManagedCluster, error) {
+func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, req *pb.CreateManagedClusterRequest) (*pb.CreateManagedClusterResponse, error) {
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
@@ -65,10 +65,10 @@ func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, re
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return managedClusterToProto(result), nil
+	return &pb.CreateManagedClusterResponse{ManagedCluster: managedClusterToProto(result)}, nil
 }
 
-func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, req *pb.UpdateManagedClusterRequest) (*pb.ManagedCluster, error) {
+func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, req *pb.UpdateManagedClusterRequest) (*pb.UpdateManagedClusterResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, re
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return managedClusterToProto(result), nil
+	return &pb.UpdateManagedClusterResponse{ManagedCluster: managedClusterToProto(result)}, nil
 }
 
 func (h *managedClusterGRPCHandler) DeleteManagedCluster(ctx context.Context, req *pb.DeleteManagedClusterRequest) (*pb.DeleteManagedClusterResponse, error) {
@@ -177,7 +177,7 @@ func (h *managedClusterGRPCHandler) ListManagedClusters(ctx context.Context, req
 	}, nil
 }
 
-func (h *managedClusterGRPCHandler) WatchManagedClusters(req *pb.WatchManagedClustersRequest, stream grpc.ServerStreamingServer[pb.ManagedClusterWatchEvent]) error {
+func (h *managedClusterGRPCHandler) WatchManagedClusters(req *pb.WatchManagedClustersRequest, stream grpc.ServerStreamingServer[pb.WatchManagedClustersResponse]) error {
 	broker := h.brokerFunc()
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
@@ -204,7 +204,7 @@ func (h *managedClusterGRPCHandler) WatchManagedClusters(req *pb.WatchManagedClu
 				continue
 			}
 
-			watchEvent := &pb.ManagedClusterWatchEvent{
+			watchEvent := &pb.WatchManagedClustersResponse{
 				Type:       pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId: evt.SourceID,
 			}

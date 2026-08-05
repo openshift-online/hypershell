@@ -26,7 +26,7 @@ func NewFleetGRPCHandler(svc FleetService, generic services.GenericService, brok
 	return &fleetGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
 }
 
-func (h *fleetGRPCHandler) GetFleet(ctx context.Context, req *pb.GetFleetRequest) (*pb.Fleet, error) {
+func (h *fleetGRPCHandler) GetFleet(ctx context.Context, req *pb.GetFleetRequest) (*pb.GetFleetResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -35,10 +35,10 @@ func (h *fleetGRPCHandler) GetFleet(ctx context.Context, req *pb.GetFleetRequest
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return fleetToProto(fleet), nil
+	return &pb.GetFleetResponse{Fleet: fleetToProto(fleet)}, nil
 }
 
-func (h *fleetGRPCHandler) CreateFleet(ctx context.Context, req *pb.CreateFleetRequest) (*pb.Fleet, error) {
+func (h *fleetGRPCHandler) CreateFleet(ctx context.Context, req *pb.CreateFleetRequest) (*pb.CreateFleetResponse, error) {
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
@@ -52,10 +52,10 @@ func (h *fleetGRPCHandler) CreateFleet(ctx context.Context, req *pb.CreateFleetR
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return fleetToProto(result), nil
+	return &pb.CreateFleetResponse{Fleet: fleetToProto(result)}, nil
 }
 
-func (h *fleetGRPCHandler) UpdateFleet(ctx context.Context, req *pb.UpdateFleetRequest) (*pb.Fleet, error) {
+func (h *fleetGRPCHandler) UpdateFleet(ctx context.Context, req *pb.UpdateFleetRequest) (*pb.UpdateFleetResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (h *fleetGRPCHandler) UpdateFleet(ctx context.Context, req *pb.UpdateFleetR
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return fleetToProto(result), nil
+	return &pb.UpdateFleetResponse{Fleet: fleetToProto(result)}, nil
 }
 
 func (h *fleetGRPCHandler) DeleteFleet(ctx context.Context, req *pb.DeleteFleetRequest) (*pb.DeleteFleetResponse, error) {
@@ -132,7 +132,7 @@ func (h *fleetGRPCHandler) ListFleets(ctx context.Context, req *pb.ListFleetsReq
 	}, nil
 }
 
-func (h *fleetGRPCHandler) WatchFleets(req *pb.WatchFleetsRequest, stream grpc.ServerStreamingServer[pb.FleetWatchEvent]) error {
+func (h *fleetGRPCHandler) WatchFleets(req *pb.WatchFleetsRequest, stream grpc.ServerStreamingServer[pb.WatchFleetsResponse]) error {
 	broker := h.brokerFunc()
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
@@ -159,7 +159,7 @@ func (h *fleetGRPCHandler) WatchFleets(req *pb.WatchFleetsRequest, stream grpc.S
 				continue
 			}
 
-			watchEvent := &pb.FleetWatchEvent{
+			watchEvent := &pb.WatchFleetsResponse{
 				Type:       pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId: evt.SourceID,
 			}

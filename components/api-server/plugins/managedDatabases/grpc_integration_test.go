@@ -64,14 +64,14 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	}
 	created, err := grpcClient.CreateManagedDatabase(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(created.Metadata.Id).NotTo(BeEmpty())
+	Expect(created.ManagedDatabase.Metadata.Id).NotTo(BeEmpty())
 
-	managedDatabaseID := created.Metadata.Id
+	managedDatabaseID := created.ManagedDatabase.Metadata.Id
 
 	getReq := &pb.GetManagedDatabaseRequest{Id: managedDatabaseID}
 	retrieved, err := grpcClient.GetManagedDatabase(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(retrieved.Metadata.Id).To(Equal(managedDatabaseID))
+	Expect(retrieved.ManagedDatabase.Metadata.Id).To(Equal(managedDatabaseID))
 
 	updateReq := &pb.UpdateManagedDatabaseRequest{
 		Id:               managedDatabaseID,
@@ -87,7 +87,7 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	}
 	updated, err := grpcClient.UpdateManagedDatabase(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(updated.Metadata.Id).To(Equal(managedDatabaseID))
+	Expect(updated.ManagedDatabase.Metadata.Id).To(Equal(managedDatabaseID))
 
 	listReq := &pb.ListManagedDatabasesRequest{
 		Page: 1,
@@ -148,7 +148,7 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 			managedDatabaseInput := openapi.ManagedDatabase{
 				Name: name,
 			}
-			_, resp, postErr := client.DefaultAPI.ApiHypershellV1ManagedDatabasesPost(ctx).ManagedDatabase(managedDatabaseInput).Execute()
+			_, resp, postErr := client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(managedDatabaseInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)
 				return

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hypershell.v1;
 
-option go_package = "github.com/openshift-online/hypershell/pkg/api/grpc/hypershell/v1;hypershell_v1";
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
 
@@ -31,8 +31,16 @@ message CreateManagedDatabaseRequest {
   optional string status = 9;
 }
 
+message CreateManagedDatabaseResponse {
+  ManagedDatabase managed_database = 1;
+}
+
 message GetManagedDatabaseRequest {
   string id = 1;
+}
+
+message GetManagedDatabaseResponse {
+  ManagedDatabase managed_database = 1;
 }
 
 message UpdateManagedDatabaseRequest {
@@ -46,6 +54,10 @@ message UpdateManagedDatabaseRequest {
   optional string instance_class = 8;
   optional string connection_secret = 9;
   optional string status = 10;
+}
+
+message UpdateManagedDatabaseResponse {
+  ManagedDatabase managed_database = 1;
 }
 
 message DeleteManagedDatabaseRequest {
@@ -66,17 +78,17 @@ message DeleteManagedDatabaseResponse {}
 
 message WatchManagedDatabasesRequest {}
 
-message ManagedDatabaseWatchEvent {
+message WatchManagedDatabasesResponse {
   EventType type = 1;
-  ManagedDatabase managedDatabase = 2;
+  ManagedDatabase managed_database = 2;
   string resource_id = 3;
 }
 
 service ManagedDatabaseService {
-  rpc GetManagedDatabase(GetManagedDatabaseRequest) returns (ManagedDatabase);
-  rpc CreateManagedDatabase(CreateManagedDatabaseRequest) returns (ManagedDatabase);
-  rpc UpdateManagedDatabase(UpdateManagedDatabaseRequest) returns (ManagedDatabase);
+  rpc GetManagedDatabase(GetManagedDatabaseRequest) returns (GetManagedDatabaseResponse);
+  rpc CreateManagedDatabase(CreateManagedDatabaseRequest) returns (CreateManagedDatabaseResponse);
+  rpc UpdateManagedDatabase(UpdateManagedDatabaseRequest) returns (UpdateManagedDatabaseResponse);
   rpc DeleteManagedDatabase(DeleteManagedDatabaseRequest) returns (DeleteManagedDatabaseResponse);
   rpc ListManagedDatabases(ListManagedDatabasesRequest) returns (ListManagedDatabasesResponse);
-  rpc WatchManagedDatabases(WatchManagedDatabasesRequest) returns (stream ManagedDatabaseWatchEvent);
+  rpc WatchManagedDatabases(WatchManagedDatabasesRequest) returns (stream WatchManagedDatabasesResponse);
 }

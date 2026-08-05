@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hypershell.v1;
 
-option go_package = "github.com/openshift-online/hypershell/pkg/api/grpc/hypershell/v1;hypershell_v1";
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
 
@@ -35,8 +35,16 @@ message CreateGatewayRequest {
   optional string phase = 11;
 }
 
+message CreateGatewayResponse {
+  Gateway gateway = 1;
+}
+
 message GetGatewayRequest {
   string id = 1;
+}
+
+message GetGatewayResponse {
+  Gateway gateway = 1;
 }
 
 message UpdateGatewayRequest {
@@ -52,6 +60,10 @@ message UpdateGatewayRequest {
   optional string service_type = 10;
   optional string status = 11;
   optional string phase = 12;
+}
+
+message UpdateGatewayResponse {
+  Gateway gateway = 1;
 }
 
 message DeleteGatewayRequest {
@@ -72,17 +84,17 @@ message DeleteGatewayResponse {}
 
 message WatchGatewaysRequest {}
 
-message GatewayWatchEvent {
+message WatchGatewaysResponse {
   EventType type = 1;
   Gateway gateway = 2;
   string resource_id = 3;
 }
 
 service GatewayService {
-  rpc GetGateway(GetGatewayRequest) returns (Gateway);
-  rpc CreateGateway(CreateGatewayRequest) returns (Gateway);
-  rpc UpdateGateway(UpdateGatewayRequest) returns (Gateway);
+  rpc GetGateway(GetGatewayRequest) returns (GetGatewayResponse);
+  rpc CreateGateway(CreateGatewayRequest) returns (CreateGatewayResponse);
+  rpc UpdateGateway(UpdateGatewayRequest) returns (UpdateGatewayResponse);
   rpc DeleteGateway(DeleteGatewayRequest) returns (DeleteGatewayResponse);
   rpc ListGateways(ListGatewaysRequest) returns (ListGatewaysResponse);
-  rpc WatchGateways(WatchGatewaysRequest) returns (stream GatewayWatchEvent);
+  rpc WatchGateways(WatchGatewaysRequest) returns (stream WatchGatewaysResponse);
 }

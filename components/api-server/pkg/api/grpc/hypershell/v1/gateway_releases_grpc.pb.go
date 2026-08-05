@@ -31,12 +31,12 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type GatewayReleaseServiceClient interface {
-	GetGatewayRelease(ctx context.Context, in *GetGatewayReleaseRequest, opts ...grpc.CallOption) (*GatewayRelease, error)
-	CreateGatewayRelease(ctx context.Context, in *CreateGatewayReleaseRequest, opts ...grpc.CallOption) (*GatewayRelease, error)
-	UpdateGatewayRelease(ctx context.Context, in *UpdateGatewayReleaseRequest, opts ...grpc.CallOption) (*GatewayRelease, error)
+	GetGatewayRelease(ctx context.Context, in *GetGatewayReleaseRequest, opts ...grpc.CallOption) (*GetGatewayReleaseResponse, error)
+	CreateGatewayRelease(ctx context.Context, in *CreateGatewayReleaseRequest, opts ...grpc.CallOption) (*CreateGatewayReleaseResponse, error)
+	UpdateGatewayRelease(ctx context.Context, in *UpdateGatewayReleaseRequest, opts ...grpc.CallOption) (*UpdateGatewayReleaseResponse, error)
 	DeleteGatewayRelease(ctx context.Context, in *DeleteGatewayReleaseRequest, opts ...grpc.CallOption) (*DeleteGatewayReleaseResponse, error)
 	ListGatewayReleases(ctx context.Context, in *ListGatewayReleasesRequest, opts ...grpc.CallOption) (*ListGatewayReleasesResponse, error)
-	WatchGatewayReleases(ctx context.Context, in *WatchGatewayReleasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GatewayReleaseWatchEvent], error)
+	WatchGatewayReleases(ctx context.Context, in *WatchGatewayReleasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchGatewayReleasesResponse], error)
 }
 
 type gatewayReleaseServiceClient struct {
@@ -47,9 +47,9 @@ func NewGatewayReleaseServiceClient(cc grpc.ClientConnInterface) GatewayReleaseS
 	return &gatewayReleaseServiceClient{cc}
 }
 
-func (c *gatewayReleaseServiceClient) GetGatewayRelease(ctx context.Context, in *GetGatewayReleaseRequest, opts ...grpc.CallOption) (*GatewayRelease, error) {
+func (c *gatewayReleaseServiceClient) GetGatewayRelease(ctx context.Context, in *GetGatewayReleaseRequest, opts ...grpc.CallOption) (*GetGatewayReleaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GatewayRelease)
+	out := new(GetGatewayReleaseResponse)
 	err := c.cc.Invoke(ctx, GatewayReleaseService_GetGatewayRelease_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -57,9 +57,9 @@ func (c *gatewayReleaseServiceClient) GetGatewayRelease(ctx context.Context, in 
 	return out, nil
 }
 
-func (c *gatewayReleaseServiceClient) CreateGatewayRelease(ctx context.Context, in *CreateGatewayReleaseRequest, opts ...grpc.CallOption) (*GatewayRelease, error) {
+func (c *gatewayReleaseServiceClient) CreateGatewayRelease(ctx context.Context, in *CreateGatewayReleaseRequest, opts ...grpc.CallOption) (*CreateGatewayReleaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GatewayRelease)
+	out := new(CreateGatewayReleaseResponse)
 	err := c.cc.Invoke(ctx, GatewayReleaseService_CreateGatewayRelease_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -67,9 +67,9 @@ func (c *gatewayReleaseServiceClient) CreateGatewayRelease(ctx context.Context, 
 	return out, nil
 }
 
-func (c *gatewayReleaseServiceClient) UpdateGatewayRelease(ctx context.Context, in *UpdateGatewayReleaseRequest, opts ...grpc.CallOption) (*GatewayRelease, error) {
+func (c *gatewayReleaseServiceClient) UpdateGatewayRelease(ctx context.Context, in *UpdateGatewayReleaseRequest, opts ...grpc.CallOption) (*UpdateGatewayReleaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GatewayRelease)
+	out := new(UpdateGatewayReleaseResponse)
 	err := c.cc.Invoke(ctx, GatewayReleaseService_UpdateGatewayRelease_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -97,13 +97,13 @@ func (c *gatewayReleaseServiceClient) ListGatewayReleases(ctx context.Context, i
 	return out, nil
 }
 
-func (c *gatewayReleaseServiceClient) WatchGatewayReleases(ctx context.Context, in *WatchGatewayReleasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GatewayReleaseWatchEvent], error) {
+func (c *gatewayReleaseServiceClient) WatchGatewayReleases(ctx context.Context, in *WatchGatewayReleasesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchGatewayReleasesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &GatewayReleaseService_ServiceDesc.Streams[0], GatewayReleaseService_WatchGatewayReleases_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchGatewayReleasesRequest, GatewayReleaseWatchEvent]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WatchGatewayReleasesRequest, WatchGatewayReleasesResponse]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -114,18 +114,18 @@ func (c *gatewayReleaseServiceClient) WatchGatewayReleases(ctx context.Context, 
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type GatewayReleaseService_WatchGatewayReleasesClient = grpc.ServerStreamingClient[GatewayReleaseWatchEvent]
+type GatewayReleaseService_WatchGatewayReleasesClient = grpc.ServerStreamingClient[WatchGatewayReleasesResponse]
 
 // GatewayReleaseServiceServer is the server API for GatewayReleaseService service.
 // All implementations must embed UnimplementedGatewayReleaseServiceServer
 // for forward compatibility.
 type GatewayReleaseServiceServer interface {
-	GetGatewayRelease(context.Context, *GetGatewayReleaseRequest) (*GatewayRelease, error)
-	CreateGatewayRelease(context.Context, *CreateGatewayReleaseRequest) (*GatewayRelease, error)
-	UpdateGatewayRelease(context.Context, *UpdateGatewayReleaseRequest) (*GatewayRelease, error)
+	GetGatewayRelease(context.Context, *GetGatewayReleaseRequest) (*GetGatewayReleaseResponse, error)
+	CreateGatewayRelease(context.Context, *CreateGatewayReleaseRequest) (*CreateGatewayReleaseResponse, error)
+	UpdateGatewayRelease(context.Context, *UpdateGatewayReleaseRequest) (*UpdateGatewayReleaseResponse, error)
 	DeleteGatewayRelease(context.Context, *DeleteGatewayReleaseRequest) (*DeleteGatewayReleaseResponse, error)
 	ListGatewayReleases(context.Context, *ListGatewayReleasesRequest) (*ListGatewayReleasesResponse, error)
-	WatchGatewayReleases(*WatchGatewayReleasesRequest, grpc.ServerStreamingServer[GatewayReleaseWatchEvent]) error
+	WatchGatewayReleases(*WatchGatewayReleasesRequest, grpc.ServerStreamingServer[WatchGatewayReleasesResponse]) error
 	mustEmbedUnimplementedGatewayReleaseServiceServer()
 }
 
@@ -136,13 +136,13 @@ type GatewayReleaseServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedGatewayReleaseServiceServer struct{}
 
-func (UnimplementedGatewayReleaseServiceServer) GetGatewayRelease(context.Context, *GetGatewayReleaseRequest) (*GatewayRelease, error) {
+func (UnimplementedGatewayReleaseServiceServer) GetGatewayRelease(context.Context, *GetGatewayReleaseRequest) (*GetGatewayReleaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetGatewayRelease not implemented")
 }
-func (UnimplementedGatewayReleaseServiceServer) CreateGatewayRelease(context.Context, *CreateGatewayReleaseRequest) (*GatewayRelease, error) {
+func (UnimplementedGatewayReleaseServiceServer) CreateGatewayRelease(context.Context, *CreateGatewayReleaseRequest) (*CreateGatewayReleaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateGatewayRelease not implemented")
 }
-func (UnimplementedGatewayReleaseServiceServer) UpdateGatewayRelease(context.Context, *UpdateGatewayReleaseRequest) (*GatewayRelease, error) {
+func (UnimplementedGatewayReleaseServiceServer) UpdateGatewayRelease(context.Context, *UpdateGatewayReleaseRequest) (*UpdateGatewayReleaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateGatewayRelease not implemented")
 }
 func (UnimplementedGatewayReleaseServiceServer) DeleteGatewayRelease(context.Context, *DeleteGatewayReleaseRequest) (*DeleteGatewayReleaseResponse, error) {
@@ -151,7 +151,7 @@ func (UnimplementedGatewayReleaseServiceServer) DeleteGatewayRelease(context.Con
 func (UnimplementedGatewayReleaseServiceServer) ListGatewayReleases(context.Context, *ListGatewayReleasesRequest) (*ListGatewayReleasesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListGatewayReleases not implemented")
 }
-func (UnimplementedGatewayReleaseServiceServer) WatchGatewayReleases(*WatchGatewayReleasesRequest, grpc.ServerStreamingServer[GatewayReleaseWatchEvent]) error {
+func (UnimplementedGatewayReleaseServiceServer) WatchGatewayReleases(*WatchGatewayReleasesRequest, grpc.ServerStreamingServer[WatchGatewayReleasesResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchGatewayReleases not implemented")
 }
 func (UnimplementedGatewayReleaseServiceServer) mustEmbedUnimplementedGatewayReleaseServiceServer() {}
@@ -270,11 +270,11 @@ func _GatewayReleaseService_WatchGatewayReleases_Handler(srv interface{}, stream
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(GatewayReleaseServiceServer).WatchGatewayReleases(m, &grpc.GenericServerStream[WatchGatewayReleasesRequest, GatewayReleaseWatchEvent]{ServerStream: stream})
+	return srv.(GatewayReleaseServiceServer).WatchGatewayReleases(m, &grpc.GenericServerStream[WatchGatewayReleasesRequest, WatchGatewayReleasesResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type GatewayReleaseService_WatchGatewayReleasesServer = grpc.ServerStreamingServer[GatewayReleaseWatchEvent]
+type GatewayReleaseService_WatchGatewayReleasesServer = grpc.ServerStreamingServer[WatchGatewayReleasesResponse]
 
 // GatewayReleaseService_ServiceDesc is the grpc.ServiceDesc for GatewayReleaseService service.
 // It's only intended for direct use with grpc.RegisterService,

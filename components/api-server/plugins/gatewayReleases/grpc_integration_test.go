@@ -62,14 +62,14 @@ func TestGRPCGatewayReleaseCRUD(t *testing.T) {
 	}
 	created, err := grpcClient.CreateGatewayRelease(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(created.Metadata.Id).NotTo(BeEmpty())
+	Expect(created.GatewayRelease.Metadata.Id).NotTo(BeEmpty())
 
-	gatewayReleaseID := created.Metadata.Id
+	gatewayReleaseID := created.GatewayRelease.Metadata.Id
 
 	getReq := &pb.GetGatewayReleaseRequest{Id: gatewayReleaseID}
 	retrieved, err := grpcClient.GetGatewayRelease(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(retrieved.Metadata.Id).To(Equal(gatewayReleaseID))
+	Expect(retrieved.GatewayRelease.Metadata.Id).To(Equal(gatewayReleaseID))
 
 	updateReq := &pb.UpdateGatewayReleaseRequest{
 		Id:              gatewayReleaseID,
@@ -83,7 +83,7 @@ func TestGRPCGatewayReleaseCRUD(t *testing.T) {
 	}
 	updated, err := grpcClient.UpdateGatewayRelease(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(updated.Metadata.Id).To(Equal(gatewayReleaseID))
+	Expect(updated.GatewayRelease.Metadata.Id).To(Equal(gatewayReleaseID))
 
 	listReq := &pb.ListGatewayReleasesRequest{
 		Page: 1,
@@ -144,7 +144,7 @@ func TestGRPCWatchGatewayReleases(t *testing.T) {
 			gatewayReleaseInput := openapi.GatewayRelease{
 				Name: name,
 			}
-			_, resp, postErr := client.DefaultAPI.ApiHypershellV1GatewayReleasesPost(ctx).GatewayRelease(gatewayReleaseInput).Execute()
+			_, resp, postErr := client.DefaultAPI.CreateGatewayRelease(ctx).GatewayRelease(gatewayReleaseInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)
 				return

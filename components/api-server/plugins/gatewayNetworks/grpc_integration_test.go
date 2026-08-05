@@ -61,14 +61,14 @@ func TestGRPCGatewayNetworkCRUD(t *testing.T) {
 	}
 	created, err := grpcClient.CreateGatewayNetwork(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(created.Metadata.Id).NotTo(BeEmpty())
+	Expect(created.GatewayNetwork.Metadata.Id).NotTo(BeEmpty())
 
-	gatewayNetworkID := created.Metadata.Id
+	gatewayNetworkID := created.GatewayNetwork.Metadata.Id
 
 	getReq := &pb.GetGatewayNetworkRequest{Id: gatewayNetworkID}
 	retrieved, err := grpcClient.GetGatewayNetwork(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(retrieved.Metadata.Id).To(Equal(gatewayNetworkID))
+	Expect(retrieved.GatewayNetwork.Metadata.Id).To(Equal(gatewayNetworkID))
 
 	updateReq := &pb.UpdateGatewayNetworkRequest{
 		Id:           gatewayNetworkID,
@@ -81,7 +81,7 @@ func TestGRPCGatewayNetworkCRUD(t *testing.T) {
 	}
 	updated, err := grpcClient.UpdateGatewayNetwork(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(updated.Metadata.Id).To(Equal(gatewayNetworkID))
+	Expect(updated.GatewayNetwork.Metadata.Id).To(Equal(gatewayNetworkID))
 
 	listReq := &pb.ListGatewayNetworksRequest{
 		Page: 1,
@@ -142,7 +142,7 @@ func TestGRPCWatchGatewayNetworks(t *testing.T) {
 			gatewayNetworkInput := openapi.GatewayNetwork{
 				Name: name,
 			}
-			_, resp, postErr := client.DefaultAPI.ApiHypershellV1GatewayNetworksPost(ctx).GatewayNetwork(gatewayNetworkInput).Execute()
+			_, resp, postErr := client.DefaultAPI.CreateGatewayNetwork(ctx).GatewayNetwork(gatewayNetworkInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)
 				return

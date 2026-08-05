@@ -245,6 +245,50 @@ func (x *CreateManagedDatabaseRequest) GetStatus() string {
 	return ""
 }
 
+type CreateManagedDatabaseResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ManagedDatabase *ManagedDatabase       `protobuf:"bytes,1,opt,name=managed_database,json=managedDatabase,proto3" json:"managed_database,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreateManagedDatabaseResponse) Reset() {
+	*x = CreateManagedDatabaseResponse{}
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateManagedDatabaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateManagedDatabaseResponse) ProtoMessage() {}
+
+func (x *CreateManagedDatabaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateManagedDatabaseResponse.ProtoReflect.Descriptor instead.
+func (*CreateManagedDatabaseResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateManagedDatabaseResponse) GetManagedDatabase() *ManagedDatabase {
+	if x != nil {
+		return x.ManagedDatabase
+	}
+	return nil
+}
+
 type GetManagedDatabaseRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -254,7 +298,7 @@ type GetManagedDatabaseRequest struct {
 
 func (x *GetManagedDatabaseRequest) Reset() {
 	*x = GetManagedDatabaseRequest{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[2]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +310,7 @@ func (x *GetManagedDatabaseRequest) String() string {
 func (*GetManagedDatabaseRequest) ProtoMessage() {}
 
 func (x *GetManagedDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[2]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +323,7 @@ func (x *GetManagedDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetManagedDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*GetManagedDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{2}
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetManagedDatabaseRequest) GetId() string {
@@ -287,6 +331,50 @@ func (x *GetManagedDatabaseRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+type GetManagedDatabaseResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ManagedDatabase *ManagedDatabase       `protobuf:"bytes,1,opt,name=managed_database,json=managedDatabase,proto3" json:"managed_database,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetManagedDatabaseResponse) Reset() {
+	*x = GetManagedDatabaseResponse{}
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetManagedDatabaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetManagedDatabaseResponse) ProtoMessage() {}
+
+func (x *GetManagedDatabaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetManagedDatabaseResponse.ProtoReflect.Descriptor instead.
+func (*GetManagedDatabaseResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetManagedDatabaseResponse) GetManagedDatabase() *ManagedDatabase {
+	if x != nil {
+		return x.ManagedDatabase
+	}
+	return nil
 }
 
 type UpdateManagedDatabaseRequest struct {
@@ -307,7 +395,7 @@ type UpdateManagedDatabaseRequest struct {
 
 func (x *UpdateManagedDatabaseRequest) Reset() {
 	*x = UpdateManagedDatabaseRequest{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[3]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -319,7 +407,7 @@ func (x *UpdateManagedDatabaseRequest) String() string {
 func (*UpdateManagedDatabaseRequest) ProtoMessage() {}
 
 func (x *UpdateManagedDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[3]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -332,7 +420,7 @@ func (x *UpdateManagedDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateManagedDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*UpdateManagedDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{3}
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UpdateManagedDatabaseRequest) GetId() string {
@@ -405,6 +493,50 @@ func (x *UpdateManagedDatabaseRequest) GetStatus() string {
 	return ""
 }
 
+type UpdateManagedDatabaseResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ManagedDatabase *ManagedDatabase       `protobuf:"bytes,1,opt,name=managed_database,json=managedDatabase,proto3" json:"managed_database,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateManagedDatabaseResponse) Reset() {
+	*x = UpdateManagedDatabaseResponse{}
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateManagedDatabaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateManagedDatabaseResponse) ProtoMessage() {}
+
+func (x *UpdateManagedDatabaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateManagedDatabaseResponse.ProtoReflect.Descriptor instead.
+func (*UpdateManagedDatabaseResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UpdateManagedDatabaseResponse) GetManagedDatabase() *ManagedDatabase {
+	if x != nil {
+		return x.ManagedDatabase
+	}
+	return nil
+}
+
 type DeleteManagedDatabaseRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -414,7 +546,7 @@ type DeleteManagedDatabaseRequest struct {
 
 func (x *DeleteManagedDatabaseRequest) Reset() {
 	*x = DeleteManagedDatabaseRequest{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[4]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -426,7 +558,7 @@ func (x *DeleteManagedDatabaseRequest) String() string {
 func (*DeleteManagedDatabaseRequest) ProtoMessage() {}
 
 func (x *DeleteManagedDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[4]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -439,7 +571,7 @@ func (x *DeleteManagedDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteManagedDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*DeleteManagedDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{4}
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeleteManagedDatabaseRequest) GetId() string {
@@ -459,7 +591,7 @@ type ListManagedDatabasesRequest struct {
 
 func (x *ListManagedDatabasesRequest) Reset() {
 	*x = ListManagedDatabasesRequest{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[5]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -471,7 +603,7 @@ func (x *ListManagedDatabasesRequest) String() string {
 func (*ListManagedDatabasesRequest) ProtoMessage() {}
 
 func (x *ListManagedDatabasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[5]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -484,7 +616,7 @@ func (x *ListManagedDatabasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListManagedDatabasesRequest.ProtoReflect.Descriptor instead.
 func (*ListManagedDatabasesRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{5}
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListManagedDatabasesRequest) GetPage() int32 {
@@ -511,7 +643,7 @@ type ListManagedDatabasesResponse struct {
 
 func (x *ListManagedDatabasesResponse) Reset() {
 	*x = ListManagedDatabasesResponse{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[6]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -523,7 +655,7 @@ func (x *ListManagedDatabasesResponse) String() string {
 func (*ListManagedDatabasesResponse) ProtoMessage() {}
 
 func (x *ListManagedDatabasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[6]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -536,7 +668,7 @@ func (x *ListManagedDatabasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListManagedDatabasesResponse.ProtoReflect.Descriptor instead.
 func (*ListManagedDatabasesResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{6}
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListManagedDatabasesResponse) GetItems() []*ManagedDatabase {
@@ -561,7 +693,7 @@ type DeleteManagedDatabaseResponse struct {
 
 func (x *DeleteManagedDatabaseResponse) Reset() {
 	*x = DeleteManagedDatabaseResponse{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[7]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -573,7 +705,7 @@ func (x *DeleteManagedDatabaseResponse) String() string {
 func (*DeleteManagedDatabaseResponse) ProtoMessage() {}
 
 func (x *DeleteManagedDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[7]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -586,7 +718,7 @@ func (x *DeleteManagedDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteManagedDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*DeleteManagedDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{7}
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{10}
 }
 
 type WatchManagedDatabasesRequest struct {
@@ -597,7 +729,7 @@ type WatchManagedDatabasesRequest struct {
 
 func (x *WatchManagedDatabasesRequest) Reset() {
 	*x = WatchManagedDatabasesRequest{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[8]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -609,7 +741,7 @@ func (x *WatchManagedDatabasesRequest) String() string {
 func (*WatchManagedDatabasesRequest) ProtoMessage() {}
 
 func (x *WatchManagedDatabasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[8]
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -622,33 +754,33 @@ func (x *WatchManagedDatabasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchManagedDatabasesRequest.ProtoReflect.Descriptor instead.
 func (*WatchManagedDatabasesRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{8}
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{11}
 }
 
-type ManagedDatabaseWatchEvent struct {
+type WatchManagedDatabasesResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Type            EventType              `protobuf:"varint,1,opt,name=type,proto3,enum=hypershell.v1.EventType" json:"type,omitempty"`
-	ManagedDatabase *ManagedDatabase       `protobuf:"bytes,2,opt,name=managedDatabase,proto3" json:"managedDatabase,omitempty"`
+	ManagedDatabase *ManagedDatabase       `protobuf:"bytes,2,opt,name=managed_database,json=managedDatabase,proto3" json:"managed_database,omitempty"`
 	ResourceId      string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *ManagedDatabaseWatchEvent) Reset() {
-	*x = ManagedDatabaseWatchEvent{}
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[9]
+func (x *WatchManagedDatabasesResponse) Reset() {
+	*x = WatchManagedDatabasesResponse{}
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ManagedDatabaseWatchEvent) String() string {
+func (x *WatchManagedDatabasesResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ManagedDatabaseWatchEvent) ProtoMessage() {}
+func (*WatchManagedDatabasesResponse) ProtoMessage() {}
 
-func (x *ManagedDatabaseWatchEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[9]
+func (x *WatchManagedDatabasesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_managed_databases_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -659,26 +791,26 @@ func (x *ManagedDatabaseWatchEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ManagedDatabaseWatchEvent.ProtoReflect.Descriptor instead.
-func (*ManagedDatabaseWatchEvent) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{9}
+// Deprecated: Use WatchManagedDatabasesResponse.ProtoReflect.Descriptor instead.
+func (*WatchManagedDatabasesResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_managed_databases_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *ManagedDatabaseWatchEvent) GetType() EventType {
+func (x *WatchManagedDatabasesResponse) GetType() EventType {
 	if x != nil {
 		return x.Type
 	}
 	return EventType_EVENT_TYPE_UNSPECIFIED
 }
 
-func (x *ManagedDatabaseWatchEvent) GetManagedDatabase() *ManagedDatabase {
+func (x *WatchManagedDatabasesResponse) GetManagedDatabase() *ManagedDatabase {
 	if x != nil {
 		return x.ManagedDatabase
 	}
 	return nil
 }
 
-func (x *ManagedDatabaseWatchEvent) GetResourceId() string {
+func (x *WatchManagedDatabasesResponse) GetResourceId() string {
 	if x != nil {
 		return x.ResourceId
 	}
@@ -723,9 +855,13 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0f_engine_versionB\x11\n" +
 	"\x0f_instance_classB\x14\n" +
 	"\x12_connection_secretB\t\n" +
-	"\a_status\"+\n" +
+	"\a_status\"j\n" +
+	"\x1dCreateManagedDatabaseResponse\x12I\n" +
+	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"+\n" +
 	"\x19GetManagedDatabaseRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xe9\x03\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"g\n" +
+	"\x1aGetManagedDatabaseResponse\x12I\n" +
+	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"\xe9\x03\n" +
 	"\x1cUpdateManagedDatabaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
@@ -746,7 +882,9 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0f_engine_versionB\x11\n" +
 	"\x0f_instance_classB\x14\n" +
 	"\x12_connection_secretB\t\n" +
-	"\a_status\".\n" +
+	"\a_status\"j\n" +
+	"\x1dUpdateManagedDatabaseResponse\x12I\n" +
+	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\".\n" +
 	"\x1cDeleteManagedDatabaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"E\n" +
 	"\x1bListManagedDatabasesRequest\x12\x12\n" +
@@ -756,19 +894,19 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x05items\x18\x01 \x03(\v2\x1e.hypershell.v1.ManagedDatabaseR\x05items\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.hypershell.v1.ListMetaR\bmetadata\"\x1f\n" +
 	"\x1dDeleteManagedDatabaseResponse\"\x1e\n" +
-	"\x1cWatchManagedDatabasesRequest\"\xb4\x01\n" +
-	"\x19ManagedDatabaseWatchEvent\x12,\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12H\n" +
-	"\x0fmanagedDatabase\x18\x02 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\x12\x1f\n" +
+	"\x1cWatchManagedDatabasesRequest\"\xb9\x01\n" +
+	"\x1dWatchManagedDatabasesResponse\x12,\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12I\n" +
+	"\x10managed_database\x18\x02 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId2\x9b\x05\n" +
-	"\x16ManagedDatabaseService\x12^\n" +
-	"\x12GetManagedDatabase\x12(.hypershell.v1.GetManagedDatabaseRequest\x1a\x1e.hypershell.v1.ManagedDatabase\x12d\n" +
-	"\x15CreateManagedDatabase\x12+.hypershell.v1.CreateManagedDatabaseRequest\x1a\x1e.hypershell.v1.ManagedDatabase\x12d\n" +
-	"\x15UpdateManagedDatabase\x12+.hypershell.v1.UpdateManagedDatabaseRequest\x1a\x1e.hypershell.v1.ManagedDatabase\x12r\n" +
+	"resourceId2\xc6\x05\n" +
+	"\x16ManagedDatabaseService\x12i\n" +
+	"\x12GetManagedDatabase\x12(.hypershell.v1.GetManagedDatabaseRequest\x1a).hypershell.v1.GetManagedDatabaseResponse\x12r\n" +
+	"\x15CreateManagedDatabase\x12+.hypershell.v1.CreateManagedDatabaseRequest\x1a,.hypershell.v1.CreateManagedDatabaseResponse\x12r\n" +
+	"\x15UpdateManagedDatabase\x12+.hypershell.v1.UpdateManagedDatabaseRequest\x1a,.hypershell.v1.UpdateManagedDatabaseResponse\x12r\n" +
 	"\x15DeleteManagedDatabase\x12+.hypershell.v1.DeleteManagedDatabaseRequest\x1a,.hypershell.v1.DeleteManagedDatabaseResponse\x12o\n" +
-	"\x14ListManagedDatabases\x12*.hypershell.v1.ListManagedDatabasesRequest\x1a+.hypershell.v1.ListManagedDatabasesResponse\x12p\n" +
-	"\x15WatchManagedDatabases\x12+.hypershell.v1.WatchManagedDatabasesRequest\x1a(.hypershell.v1.ManagedDatabaseWatchEvent0\x01BQZOgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
+	"\x14ListManagedDatabases\x12*.hypershell.v1.ListManagedDatabasesRequest\x1a+.hypershell.v1.ListManagedDatabasesResponse\x12t\n" +
+	"\x15WatchManagedDatabases\x12+.hypershell.v1.WatchManagedDatabasesRequest\x1a,.hypershell.v1.WatchManagedDatabasesResponse0\x01BgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
 
 var (
 	file_hypershell_v1_managed_databases_proto_rawDescOnce sync.Once
@@ -782,45 +920,51 @@ func file_hypershell_v1_managed_databases_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_managed_databases_proto_rawDescData
 }
 
-var file_hypershell_v1_managed_databases_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_hypershell_v1_managed_databases_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_hypershell_v1_managed_databases_proto_goTypes = []any{
 	(*ManagedDatabase)(nil),               // 0: hypershell.v1.ManagedDatabase
 	(*CreateManagedDatabaseRequest)(nil),  // 1: hypershell.v1.CreateManagedDatabaseRequest
-	(*GetManagedDatabaseRequest)(nil),     // 2: hypershell.v1.GetManagedDatabaseRequest
-	(*UpdateManagedDatabaseRequest)(nil),  // 3: hypershell.v1.UpdateManagedDatabaseRequest
-	(*DeleteManagedDatabaseRequest)(nil),  // 4: hypershell.v1.DeleteManagedDatabaseRequest
-	(*ListManagedDatabasesRequest)(nil),   // 5: hypershell.v1.ListManagedDatabasesRequest
-	(*ListManagedDatabasesResponse)(nil),  // 6: hypershell.v1.ListManagedDatabasesResponse
-	(*DeleteManagedDatabaseResponse)(nil), // 7: hypershell.v1.DeleteManagedDatabaseResponse
-	(*WatchManagedDatabasesRequest)(nil),  // 8: hypershell.v1.WatchManagedDatabasesRequest
-	(*ManagedDatabaseWatchEvent)(nil),     // 9: hypershell.v1.ManagedDatabaseWatchEvent
-	(*ObjectReference)(nil),               // 10: hypershell.v1.ObjectReference
-	(*ListMeta)(nil),                      // 11: hypershell.v1.ListMeta
-	(EventType)(0),                        // 12: hypershell.v1.EventType
+	(*CreateManagedDatabaseResponse)(nil), // 2: hypershell.v1.CreateManagedDatabaseResponse
+	(*GetManagedDatabaseRequest)(nil),     // 3: hypershell.v1.GetManagedDatabaseRequest
+	(*GetManagedDatabaseResponse)(nil),    // 4: hypershell.v1.GetManagedDatabaseResponse
+	(*UpdateManagedDatabaseRequest)(nil),  // 5: hypershell.v1.UpdateManagedDatabaseRequest
+	(*UpdateManagedDatabaseResponse)(nil), // 6: hypershell.v1.UpdateManagedDatabaseResponse
+	(*DeleteManagedDatabaseRequest)(nil),  // 7: hypershell.v1.DeleteManagedDatabaseRequest
+	(*ListManagedDatabasesRequest)(nil),   // 8: hypershell.v1.ListManagedDatabasesRequest
+	(*ListManagedDatabasesResponse)(nil),  // 9: hypershell.v1.ListManagedDatabasesResponse
+	(*DeleteManagedDatabaseResponse)(nil), // 10: hypershell.v1.DeleteManagedDatabaseResponse
+	(*WatchManagedDatabasesRequest)(nil),  // 11: hypershell.v1.WatchManagedDatabasesRequest
+	(*WatchManagedDatabasesResponse)(nil), // 12: hypershell.v1.WatchManagedDatabasesResponse
+	(*ObjectReference)(nil),               // 13: hypershell.v1.ObjectReference
+	(*ListMeta)(nil),                      // 14: hypershell.v1.ListMeta
+	(EventType)(0),                        // 15: hypershell.v1.EventType
 }
 var file_hypershell_v1_managed_databases_proto_depIdxs = []int32{
-	10, // 0: hypershell.v1.ManagedDatabase.metadata:type_name -> hypershell.v1.ObjectReference
-	0,  // 1: hypershell.v1.ListManagedDatabasesResponse.items:type_name -> hypershell.v1.ManagedDatabase
-	11, // 2: hypershell.v1.ListManagedDatabasesResponse.metadata:type_name -> hypershell.v1.ListMeta
-	12, // 3: hypershell.v1.ManagedDatabaseWatchEvent.type:type_name -> hypershell.v1.EventType
-	0,  // 4: hypershell.v1.ManagedDatabaseWatchEvent.managedDatabase:type_name -> hypershell.v1.ManagedDatabase
-	2,  // 5: hypershell.v1.ManagedDatabaseService.GetManagedDatabase:input_type -> hypershell.v1.GetManagedDatabaseRequest
-	1,  // 6: hypershell.v1.ManagedDatabaseService.CreateManagedDatabase:input_type -> hypershell.v1.CreateManagedDatabaseRequest
-	3,  // 7: hypershell.v1.ManagedDatabaseService.UpdateManagedDatabase:input_type -> hypershell.v1.UpdateManagedDatabaseRequest
-	4,  // 8: hypershell.v1.ManagedDatabaseService.DeleteManagedDatabase:input_type -> hypershell.v1.DeleteManagedDatabaseRequest
-	5,  // 9: hypershell.v1.ManagedDatabaseService.ListManagedDatabases:input_type -> hypershell.v1.ListManagedDatabasesRequest
-	8,  // 10: hypershell.v1.ManagedDatabaseService.WatchManagedDatabases:input_type -> hypershell.v1.WatchManagedDatabasesRequest
-	0,  // 11: hypershell.v1.ManagedDatabaseService.GetManagedDatabase:output_type -> hypershell.v1.ManagedDatabase
-	0,  // 12: hypershell.v1.ManagedDatabaseService.CreateManagedDatabase:output_type -> hypershell.v1.ManagedDatabase
-	0,  // 13: hypershell.v1.ManagedDatabaseService.UpdateManagedDatabase:output_type -> hypershell.v1.ManagedDatabase
-	7,  // 14: hypershell.v1.ManagedDatabaseService.DeleteManagedDatabase:output_type -> hypershell.v1.DeleteManagedDatabaseResponse
-	6,  // 15: hypershell.v1.ManagedDatabaseService.ListManagedDatabases:output_type -> hypershell.v1.ListManagedDatabasesResponse
-	9,  // 16: hypershell.v1.ManagedDatabaseService.WatchManagedDatabases:output_type -> hypershell.v1.ManagedDatabaseWatchEvent
-	11, // [11:17] is the sub-list for method output_type
-	5,  // [5:11] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 0: hypershell.v1.ManagedDatabase.metadata:type_name -> hypershell.v1.ObjectReference
+	0,  // 1: hypershell.v1.CreateManagedDatabaseResponse.managed_database:type_name -> hypershell.v1.ManagedDatabase
+	0,  // 2: hypershell.v1.GetManagedDatabaseResponse.managed_database:type_name -> hypershell.v1.ManagedDatabase
+	0,  // 3: hypershell.v1.UpdateManagedDatabaseResponse.managed_database:type_name -> hypershell.v1.ManagedDatabase
+	0,  // 4: hypershell.v1.ListManagedDatabasesResponse.items:type_name -> hypershell.v1.ManagedDatabase
+	14, // 5: hypershell.v1.ListManagedDatabasesResponse.metadata:type_name -> hypershell.v1.ListMeta
+	15, // 6: hypershell.v1.WatchManagedDatabasesResponse.type:type_name -> hypershell.v1.EventType
+	0,  // 7: hypershell.v1.WatchManagedDatabasesResponse.managed_database:type_name -> hypershell.v1.ManagedDatabase
+	3,  // 8: hypershell.v1.ManagedDatabaseService.GetManagedDatabase:input_type -> hypershell.v1.GetManagedDatabaseRequest
+	1,  // 9: hypershell.v1.ManagedDatabaseService.CreateManagedDatabase:input_type -> hypershell.v1.CreateManagedDatabaseRequest
+	5,  // 10: hypershell.v1.ManagedDatabaseService.UpdateManagedDatabase:input_type -> hypershell.v1.UpdateManagedDatabaseRequest
+	7,  // 11: hypershell.v1.ManagedDatabaseService.DeleteManagedDatabase:input_type -> hypershell.v1.DeleteManagedDatabaseRequest
+	8,  // 12: hypershell.v1.ManagedDatabaseService.ListManagedDatabases:input_type -> hypershell.v1.ListManagedDatabasesRequest
+	11, // 13: hypershell.v1.ManagedDatabaseService.WatchManagedDatabases:input_type -> hypershell.v1.WatchManagedDatabasesRequest
+	4,  // 14: hypershell.v1.ManagedDatabaseService.GetManagedDatabase:output_type -> hypershell.v1.GetManagedDatabaseResponse
+	2,  // 15: hypershell.v1.ManagedDatabaseService.CreateManagedDatabase:output_type -> hypershell.v1.CreateManagedDatabaseResponse
+	6,  // 16: hypershell.v1.ManagedDatabaseService.UpdateManagedDatabase:output_type -> hypershell.v1.UpdateManagedDatabaseResponse
+	10, // 17: hypershell.v1.ManagedDatabaseService.DeleteManagedDatabase:output_type -> hypershell.v1.DeleteManagedDatabaseResponse
+	9,  // 18: hypershell.v1.ManagedDatabaseService.ListManagedDatabases:output_type -> hypershell.v1.ListManagedDatabasesResponse
+	12, // 19: hypershell.v1.ManagedDatabaseService.WatchManagedDatabases:output_type -> hypershell.v1.WatchManagedDatabasesResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_managed_databases_proto_init() }
@@ -831,14 +975,14 @@ func file_hypershell_v1_managed_databases_proto_init() {
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_managed_databases_proto_msgTypes[0].OneofWrappers = []any{}
 	file_hypershell_v1_managed_databases_proto_msgTypes[1].OneofWrappers = []any{}
-	file_hypershell_v1_managed_databases_proto_msgTypes[3].OneofWrappers = []any{}
+	file_hypershell_v1_managed_databases_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_managed_databases_proto_rawDesc), len(file_hypershell_v1_managed_databases_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

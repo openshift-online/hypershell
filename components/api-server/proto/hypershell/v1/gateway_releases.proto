@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hypershell.v1;
 
-option go_package = "github.com/openshift-online/hypershell/pkg/api/grpc/hypershell/v1;hypershell_v1";
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
 
@@ -27,8 +27,16 @@ message CreateGatewayReleaseRequest {
   optional string status = 7;
 }
 
+message CreateGatewayReleaseResponse {
+  GatewayRelease gateway_release = 1;
+}
+
 message GetGatewayReleaseRequest {
   string id = 1;
+}
+
+message GetGatewayReleaseResponse {
+  GatewayRelease gateway_release = 1;
 }
 
 message UpdateGatewayReleaseRequest {
@@ -40,6 +48,10 @@ message UpdateGatewayReleaseRequest {
   optional int32 canary_percent = 6;
   optional string canary_duration = 7;
   optional string status = 8;
+}
+
+message UpdateGatewayReleaseResponse {
+  GatewayRelease gateway_release = 1;
 }
 
 message DeleteGatewayReleaseRequest {
@@ -60,17 +72,17 @@ message DeleteGatewayReleaseResponse {}
 
 message WatchGatewayReleasesRequest {}
 
-message GatewayReleaseWatchEvent {
+message WatchGatewayReleasesResponse {
   EventType type = 1;
-  GatewayRelease gatewayRelease = 2;
+  GatewayRelease gateway_release = 2;
   string resource_id = 3;
 }
 
 service GatewayReleaseService {
-  rpc GetGatewayRelease(GetGatewayReleaseRequest) returns (GatewayRelease);
-  rpc CreateGatewayRelease(CreateGatewayReleaseRequest) returns (GatewayRelease);
-  rpc UpdateGatewayRelease(UpdateGatewayReleaseRequest) returns (GatewayRelease);
+  rpc GetGatewayRelease(GetGatewayReleaseRequest) returns (GetGatewayReleaseResponse);
+  rpc CreateGatewayRelease(CreateGatewayReleaseRequest) returns (CreateGatewayReleaseResponse);
+  rpc UpdateGatewayRelease(UpdateGatewayReleaseRequest) returns (UpdateGatewayReleaseResponse);
   rpc DeleteGatewayRelease(DeleteGatewayReleaseRequest) returns (DeleteGatewayReleaseResponse);
   rpc ListGatewayReleases(ListGatewayReleasesRequest) returns (ListGatewayReleasesResponse);
-  rpc WatchGatewayReleases(WatchGatewayReleasesRequest) returns (stream GatewayReleaseWatchEvent);
+  rpc WatchGatewayReleases(WatchGatewayReleasesRequest) returns (stream WatchGatewayReleasesResponse);
 }

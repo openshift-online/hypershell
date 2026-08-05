@@ -197,6 +197,50 @@ func (x *CreateGatewayNetworkRequest) GetStatus() string {
 	return ""
 }
 
+type CreateGatewayNetworkResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GatewayNetwork *GatewayNetwork        `protobuf:"bytes,1,opt,name=gateway_network,json=gatewayNetwork,proto3" json:"gateway_network,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CreateGatewayNetworkResponse) Reset() {
+	*x = CreateGatewayNetworkResponse{}
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGatewayNetworkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGatewayNetworkResponse) ProtoMessage() {}
+
+func (x *CreateGatewayNetworkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGatewayNetworkResponse.ProtoReflect.Descriptor instead.
+func (*CreateGatewayNetworkResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateGatewayNetworkResponse) GetGatewayNetwork() *GatewayNetwork {
+	if x != nil {
+		return x.GatewayNetwork
+	}
+	return nil
+}
+
 type GetGatewayNetworkRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -206,7 +250,7 @@ type GetGatewayNetworkRequest struct {
 
 func (x *GetGatewayNetworkRequest) Reset() {
 	*x = GetGatewayNetworkRequest{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[2]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -218,7 +262,7 @@ func (x *GetGatewayNetworkRequest) String() string {
 func (*GetGatewayNetworkRequest) ProtoMessage() {}
 
 func (x *GetGatewayNetworkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[2]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -231,7 +275,7 @@ func (x *GetGatewayNetworkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGatewayNetworkRequest.ProtoReflect.Descriptor instead.
 func (*GetGatewayNetworkRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{2}
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetGatewayNetworkRequest) GetId() string {
@@ -239,6 +283,50 @@ func (x *GetGatewayNetworkRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+type GetGatewayNetworkResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GatewayNetwork *GatewayNetwork        `protobuf:"bytes,1,opt,name=gateway_network,json=gatewayNetwork,proto3" json:"gateway_network,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GetGatewayNetworkResponse) Reset() {
+	*x = GetGatewayNetworkResponse{}
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGatewayNetworkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGatewayNetworkResponse) ProtoMessage() {}
+
+func (x *GetGatewayNetworkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGatewayNetworkResponse.ProtoReflect.Descriptor instead.
+func (*GetGatewayNetworkResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetGatewayNetworkResponse) GetGatewayNetwork() *GatewayNetwork {
+	if x != nil {
+		return x.GatewayNetwork
+	}
+	return nil
 }
 
 type UpdateGatewayNetworkRequest struct {
@@ -256,7 +344,7 @@ type UpdateGatewayNetworkRequest struct {
 
 func (x *UpdateGatewayNetworkRequest) Reset() {
 	*x = UpdateGatewayNetworkRequest{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[3]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -268,7 +356,7 @@ func (x *UpdateGatewayNetworkRequest) String() string {
 func (*UpdateGatewayNetworkRequest) ProtoMessage() {}
 
 func (x *UpdateGatewayNetworkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[3]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -281,7 +369,7 @@ func (x *UpdateGatewayNetworkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGatewayNetworkRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGatewayNetworkRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{3}
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UpdateGatewayNetworkRequest) GetId() string {
@@ -333,6 +421,50 @@ func (x *UpdateGatewayNetworkRequest) GetStatus() string {
 	return ""
 }
 
+type UpdateGatewayNetworkResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GatewayNetwork *GatewayNetwork        `protobuf:"bytes,1,opt,name=gateway_network,json=gatewayNetwork,proto3" json:"gateway_network,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *UpdateGatewayNetworkResponse) Reset() {
+	*x = UpdateGatewayNetworkResponse{}
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGatewayNetworkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGatewayNetworkResponse) ProtoMessage() {}
+
+func (x *UpdateGatewayNetworkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGatewayNetworkResponse.ProtoReflect.Descriptor instead.
+func (*UpdateGatewayNetworkResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UpdateGatewayNetworkResponse) GetGatewayNetwork() *GatewayNetwork {
+	if x != nil {
+		return x.GatewayNetwork
+	}
+	return nil
+}
+
 type DeleteGatewayNetworkRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -342,7 +474,7 @@ type DeleteGatewayNetworkRequest struct {
 
 func (x *DeleteGatewayNetworkRequest) Reset() {
 	*x = DeleteGatewayNetworkRequest{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[4]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -354,7 +486,7 @@ func (x *DeleteGatewayNetworkRequest) String() string {
 func (*DeleteGatewayNetworkRequest) ProtoMessage() {}
 
 func (x *DeleteGatewayNetworkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[4]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -367,7 +499,7 @@ func (x *DeleteGatewayNetworkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayNetworkRequest.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayNetworkRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{4}
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeleteGatewayNetworkRequest) GetId() string {
@@ -387,7 +519,7 @@ type ListGatewayNetworksRequest struct {
 
 func (x *ListGatewayNetworksRequest) Reset() {
 	*x = ListGatewayNetworksRequest{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[5]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -399,7 +531,7 @@ func (x *ListGatewayNetworksRequest) String() string {
 func (*ListGatewayNetworksRequest) ProtoMessage() {}
 
 func (x *ListGatewayNetworksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[5]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -412,7 +544,7 @@ func (x *ListGatewayNetworksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewayNetworksRequest.ProtoReflect.Descriptor instead.
 func (*ListGatewayNetworksRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{5}
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListGatewayNetworksRequest) GetPage() int32 {
@@ -439,7 +571,7 @@ type ListGatewayNetworksResponse struct {
 
 func (x *ListGatewayNetworksResponse) Reset() {
 	*x = ListGatewayNetworksResponse{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[6]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -451,7 +583,7 @@ func (x *ListGatewayNetworksResponse) String() string {
 func (*ListGatewayNetworksResponse) ProtoMessage() {}
 
 func (x *ListGatewayNetworksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[6]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -464,7 +596,7 @@ func (x *ListGatewayNetworksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewayNetworksResponse.ProtoReflect.Descriptor instead.
 func (*ListGatewayNetworksResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{6}
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListGatewayNetworksResponse) GetItems() []*GatewayNetwork {
@@ -489,7 +621,7 @@ type DeleteGatewayNetworkResponse struct {
 
 func (x *DeleteGatewayNetworkResponse) Reset() {
 	*x = DeleteGatewayNetworkResponse{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +633,7 @@ func (x *DeleteGatewayNetworkResponse) String() string {
 func (*DeleteGatewayNetworkResponse) ProtoMessage() {}
 
 func (x *DeleteGatewayNetworkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,7 +646,7 @@ func (x *DeleteGatewayNetworkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayNetworkResponse.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayNetworkResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{7}
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{10}
 }
 
 type WatchGatewayNetworksRequest struct {
@@ -525,7 +657,7 @@ type WatchGatewayNetworksRequest struct {
 
 func (x *WatchGatewayNetworksRequest) Reset() {
 	*x = WatchGatewayNetworksRequest{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +669,7 @@ func (x *WatchGatewayNetworksRequest) String() string {
 func (*WatchGatewayNetworksRequest) ProtoMessage() {}
 
 func (x *WatchGatewayNetworksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,33 +682,33 @@ func (x *WatchGatewayNetworksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchGatewayNetworksRequest.ProtoReflect.Descriptor instead.
 func (*WatchGatewayNetworksRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{8}
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{11}
 }
 
-type GatewayNetworkWatchEvent struct {
+type WatchGatewayNetworksResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Type           EventType              `protobuf:"varint,1,opt,name=type,proto3,enum=hypershell.v1.EventType" json:"type,omitempty"`
-	GatewayNetwork *GatewayNetwork        `protobuf:"bytes,2,opt,name=gatewayNetwork,proto3" json:"gatewayNetwork,omitempty"`
+	GatewayNetwork *GatewayNetwork        `protobuf:"bytes,2,opt,name=gateway_network,json=gatewayNetwork,proto3" json:"gateway_network,omitempty"`
 	ResourceId     string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *GatewayNetworkWatchEvent) Reset() {
-	*x = GatewayNetworkWatchEvent{}
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[9]
+func (x *WatchGatewayNetworksResponse) Reset() {
+	*x = WatchGatewayNetworksResponse{}
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GatewayNetworkWatchEvent) String() string {
+func (x *WatchGatewayNetworksResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GatewayNetworkWatchEvent) ProtoMessage() {}
+func (*WatchGatewayNetworksResponse) ProtoMessage() {}
 
-func (x *GatewayNetworkWatchEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[9]
+func (x *WatchGatewayNetworksResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_networks_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -587,26 +719,26 @@ func (x *GatewayNetworkWatchEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GatewayNetworkWatchEvent.ProtoReflect.Descriptor instead.
-func (*GatewayNetworkWatchEvent) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{9}
+// Deprecated: Use WatchGatewayNetworksResponse.ProtoReflect.Descriptor instead.
+func (*WatchGatewayNetworksResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_networks_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *GatewayNetworkWatchEvent) GetType() EventType {
+func (x *WatchGatewayNetworksResponse) GetType() EventType {
 	if x != nil {
 		return x.Type
 	}
 	return EventType_EVENT_TYPE_UNSPECIFIED
 }
 
-func (x *GatewayNetworkWatchEvent) GetGatewayNetwork() *GatewayNetwork {
+func (x *WatchGatewayNetworksResponse) GetGatewayNetwork() *GatewayNetwork {
 	if x != nil {
 		return x.GatewayNetwork
 	}
 	return nil
 }
 
-func (x *GatewayNetworkWatchEvent) GetResourceId() string {
+func (x *WatchGatewayNetworksResponse) GetResourceId() string {
 	if x != nil {
 		return x.ResourceId
 	}
@@ -642,9 +774,13 @@ const file_hypershell_v1_gateway_networks_proto_rawDesc = "" +
 	"\t_topologyB\x0e\n" +
 	"\f_tunnel_modeB\x11\n" +
 	"\x0f_hub_gateway_idB\t\n" +
-	"\a_status\"*\n" +
+	"\a_status\"f\n" +
+	"\x1cCreateGatewayNetworkResponse\x12F\n" +
+	"\x0fgateway_network\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\"*\n" +
 	"\x18GetGatewayNetworkRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xc6\x02\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +
+	"\x19GetGatewayNetworkResponse\x12F\n" +
+	"\x0fgateway_network\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\"\xc6\x02\n" +
 	"\x1bUpdateGatewayNetworkRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
@@ -659,7 +795,9 @@ const file_hypershell_v1_gateway_networks_proto_rawDesc = "" +
 	"\t_topologyB\x0e\n" +
 	"\f_tunnel_modeB\x11\n" +
 	"\x0f_hub_gateway_idB\t\n" +
-	"\a_status\"-\n" +
+	"\a_status\"f\n" +
+	"\x1cUpdateGatewayNetworkResponse\x12F\n" +
+	"\x0fgateway_network\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\"-\n" +
 	"\x1bDeleteGatewayNetworkRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"D\n" +
 	"\x1aListGatewayNetworksRequest\x12\x12\n" +
@@ -669,19 +807,19 @@ const file_hypershell_v1_gateway_networks_proto_rawDesc = "" +
 	"\x05items\x18\x01 \x03(\v2\x1d.hypershell.v1.GatewayNetworkR\x05items\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.hypershell.v1.ListMetaR\bmetadata\"\x1e\n" +
 	"\x1cDeleteGatewayNetworkResponse\"\x1d\n" +
-	"\x1bWatchGatewayNetworksRequest\"\xb0\x01\n" +
-	"\x18GatewayNetworkWatchEvent\x12,\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12E\n" +
-	"\x0egatewayNetwork\x18\x02 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\x12\x1f\n" +
+	"\x1bWatchGatewayNetworksRequest\"\xb5\x01\n" +
+	"\x1cWatchGatewayNetworksResponse\x12,\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12F\n" +
+	"\x0fgateway_network\x18\x02 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId2\x88\x05\n" +
-	"\x15GatewayNetworkService\x12[\n" +
-	"\x11GetGatewayNetwork\x12'.hypershell.v1.GetGatewayNetworkRequest\x1a\x1d.hypershell.v1.GatewayNetwork\x12a\n" +
-	"\x14CreateGatewayNetwork\x12*.hypershell.v1.CreateGatewayNetworkRequest\x1a\x1d.hypershell.v1.GatewayNetwork\x12a\n" +
-	"\x14UpdateGatewayNetwork\x12*.hypershell.v1.UpdateGatewayNetworkRequest\x1a\x1d.hypershell.v1.GatewayNetwork\x12o\n" +
+	"resourceId2\xb3\x05\n" +
+	"\x15GatewayNetworkService\x12f\n" +
+	"\x11GetGatewayNetwork\x12'.hypershell.v1.GetGatewayNetworkRequest\x1a(.hypershell.v1.GetGatewayNetworkResponse\x12o\n" +
+	"\x14CreateGatewayNetwork\x12*.hypershell.v1.CreateGatewayNetworkRequest\x1a+.hypershell.v1.CreateGatewayNetworkResponse\x12o\n" +
+	"\x14UpdateGatewayNetwork\x12*.hypershell.v1.UpdateGatewayNetworkRequest\x1a+.hypershell.v1.UpdateGatewayNetworkResponse\x12o\n" +
 	"\x14DeleteGatewayNetwork\x12*.hypershell.v1.DeleteGatewayNetworkRequest\x1a+.hypershell.v1.DeleteGatewayNetworkResponse\x12l\n" +
-	"\x13ListGatewayNetworks\x12).hypershell.v1.ListGatewayNetworksRequest\x1a*.hypershell.v1.ListGatewayNetworksResponse\x12m\n" +
-	"\x14WatchGatewayNetworks\x12*.hypershell.v1.WatchGatewayNetworksRequest\x1a'.hypershell.v1.GatewayNetworkWatchEvent0\x01BQZOgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
+	"\x13ListGatewayNetworks\x12).hypershell.v1.ListGatewayNetworksRequest\x1a*.hypershell.v1.ListGatewayNetworksResponse\x12q\n" +
+	"\x14WatchGatewayNetworks\x12*.hypershell.v1.WatchGatewayNetworksRequest\x1a+.hypershell.v1.WatchGatewayNetworksResponse0\x01BgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
 
 var (
 	file_hypershell_v1_gateway_networks_proto_rawDescOnce sync.Once
@@ -695,45 +833,51 @@ func file_hypershell_v1_gateway_networks_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_gateway_networks_proto_rawDescData
 }
 
-var file_hypershell_v1_gateway_networks_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_hypershell_v1_gateway_networks_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_hypershell_v1_gateway_networks_proto_goTypes = []any{
 	(*GatewayNetwork)(nil),               // 0: hypershell.v1.GatewayNetwork
 	(*CreateGatewayNetworkRequest)(nil),  // 1: hypershell.v1.CreateGatewayNetworkRequest
-	(*GetGatewayNetworkRequest)(nil),     // 2: hypershell.v1.GetGatewayNetworkRequest
-	(*UpdateGatewayNetworkRequest)(nil),  // 3: hypershell.v1.UpdateGatewayNetworkRequest
-	(*DeleteGatewayNetworkRequest)(nil),  // 4: hypershell.v1.DeleteGatewayNetworkRequest
-	(*ListGatewayNetworksRequest)(nil),   // 5: hypershell.v1.ListGatewayNetworksRequest
-	(*ListGatewayNetworksResponse)(nil),  // 6: hypershell.v1.ListGatewayNetworksResponse
-	(*DeleteGatewayNetworkResponse)(nil), // 7: hypershell.v1.DeleteGatewayNetworkResponse
-	(*WatchGatewayNetworksRequest)(nil),  // 8: hypershell.v1.WatchGatewayNetworksRequest
-	(*GatewayNetworkWatchEvent)(nil),     // 9: hypershell.v1.GatewayNetworkWatchEvent
-	(*ObjectReference)(nil),              // 10: hypershell.v1.ObjectReference
-	(*ListMeta)(nil),                     // 11: hypershell.v1.ListMeta
-	(EventType)(0),                       // 12: hypershell.v1.EventType
+	(*CreateGatewayNetworkResponse)(nil), // 2: hypershell.v1.CreateGatewayNetworkResponse
+	(*GetGatewayNetworkRequest)(nil),     // 3: hypershell.v1.GetGatewayNetworkRequest
+	(*GetGatewayNetworkResponse)(nil),    // 4: hypershell.v1.GetGatewayNetworkResponse
+	(*UpdateGatewayNetworkRequest)(nil),  // 5: hypershell.v1.UpdateGatewayNetworkRequest
+	(*UpdateGatewayNetworkResponse)(nil), // 6: hypershell.v1.UpdateGatewayNetworkResponse
+	(*DeleteGatewayNetworkRequest)(nil),  // 7: hypershell.v1.DeleteGatewayNetworkRequest
+	(*ListGatewayNetworksRequest)(nil),   // 8: hypershell.v1.ListGatewayNetworksRequest
+	(*ListGatewayNetworksResponse)(nil),  // 9: hypershell.v1.ListGatewayNetworksResponse
+	(*DeleteGatewayNetworkResponse)(nil), // 10: hypershell.v1.DeleteGatewayNetworkResponse
+	(*WatchGatewayNetworksRequest)(nil),  // 11: hypershell.v1.WatchGatewayNetworksRequest
+	(*WatchGatewayNetworksResponse)(nil), // 12: hypershell.v1.WatchGatewayNetworksResponse
+	(*ObjectReference)(nil),              // 13: hypershell.v1.ObjectReference
+	(*ListMeta)(nil),                     // 14: hypershell.v1.ListMeta
+	(EventType)(0),                       // 15: hypershell.v1.EventType
 }
 var file_hypershell_v1_gateway_networks_proto_depIdxs = []int32{
-	10, // 0: hypershell.v1.GatewayNetwork.metadata:type_name -> hypershell.v1.ObjectReference
-	0,  // 1: hypershell.v1.ListGatewayNetworksResponse.items:type_name -> hypershell.v1.GatewayNetwork
-	11, // 2: hypershell.v1.ListGatewayNetworksResponse.metadata:type_name -> hypershell.v1.ListMeta
-	12, // 3: hypershell.v1.GatewayNetworkWatchEvent.type:type_name -> hypershell.v1.EventType
-	0,  // 4: hypershell.v1.GatewayNetworkWatchEvent.gatewayNetwork:type_name -> hypershell.v1.GatewayNetwork
-	2,  // 5: hypershell.v1.GatewayNetworkService.GetGatewayNetwork:input_type -> hypershell.v1.GetGatewayNetworkRequest
-	1,  // 6: hypershell.v1.GatewayNetworkService.CreateGatewayNetwork:input_type -> hypershell.v1.CreateGatewayNetworkRequest
-	3,  // 7: hypershell.v1.GatewayNetworkService.UpdateGatewayNetwork:input_type -> hypershell.v1.UpdateGatewayNetworkRequest
-	4,  // 8: hypershell.v1.GatewayNetworkService.DeleteGatewayNetwork:input_type -> hypershell.v1.DeleteGatewayNetworkRequest
-	5,  // 9: hypershell.v1.GatewayNetworkService.ListGatewayNetworks:input_type -> hypershell.v1.ListGatewayNetworksRequest
-	8,  // 10: hypershell.v1.GatewayNetworkService.WatchGatewayNetworks:input_type -> hypershell.v1.WatchGatewayNetworksRequest
-	0,  // 11: hypershell.v1.GatewayNetworkService.GetGatewayNetwork:output_type -> hypershell.v1.GatewayNetwork
-	0,  // 12: hypershell.v1.GatewayNetworkService.CreateGatewayNetwork:output_type -> hypershell.v1.GatewayNetwork
-	0,  // 13: hypershell.v1.GatewayNetworkService.UpdateGatewayNetwork:output_type -> hypershell.v1.GatewayNetwork
-	7,  // 14: hypershell.v1.GatewayNetworkService.DeleteGatewayNetwork:output_type -> hypershell.v1.DeleteGatewayNetworkResponse
-	6,  // 15: hypershell.v1.GatewayNetworkService.ListGatewayNetworks:output_type -> hypershell.v1.ListGatewayNetworksResponse
-	9,  // 16: hypershell.v1.GatewayNetworkService.WatchGatewayNetworks:output_type -> hypershell.v1.GatewayNetworkWatchEvent
-	11, // [11:17] is the sub-list for method output_type
-	5,  // [5:11] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 0: hypershell.v1.GatewayNetwork.metadata:type_name -> hypershell.v1.ObjectReference
+	0,  // 1: hypershell.v1.CreateGatewayNetworkResponse.gateway_network:type_name -> hypershell.v1.GatewayNetwork
+	0,  // 2: hypershell.v1.GetGatewayNetworkResponse.gateway_network:type_name -> hypershell.v1.GatewayNetwork
+	0,  // 3: hypershell.v1.UpdateGatewayNetworkResponse.gateway_network:type_name -> hypershell.v1.GatewayNetwork
+	0,  // 4: hypershell.v1.ListGatewayNetworksResponse.items:type_name -> hypershell.v1.GatewayNetwork
+	14, // 5: hypershell.v1.ListGatewayNetworksResponse.metadata:type_name -> hypershell.v1.ListMeta
+	15, // 6: hypershell.v1.WatchGatewayNetworksResponse.type:type_name -> hypershell.v1.EventType
+	0,  // 7: hypershell.v1.WatchGatewayNetworksResponse.gateway_network:type_name -> hypershell.v1.GatewayNetwork
+	3,  // 8: hypershell.v1.GatewayNetworkService.GetGatewayNetwork:input_type -> hypershell.v1.GetGatewayNetworkRequest
+	1,  // 9: hypershell.v1.GatewayNetworkService.CreateGatewayNetwork:input_type -> hypershell.v1.CreateGatewayNetworkRequest
+	5,  // 10: hypershell.v1.GatewayNetworkService.UpdateGatewayNetwork:input_type -> hypershell.v1.UpdateGatewayNetworkRequest
+	7,  // 11: hypershell.v1.GatewayNetworkService.DeleteGatewayNetwork:input_type -> hypershell.v1.DeleteGatewayNetworkRequest
+	8,  // 12: hypershell.v1.GatewayNetworkService.ListGatewayNetworks:input_type -> hypershell.v1.ListGatewayNetworksRequest
+	11, // 13: hypershell.v1.GatewayNetworkService.WatchGatewayNetworks:input_type -> hypershell.v1.WatchGatewayNetworksRequest
+	4,  // 14: hypershell.v1.GatewayNetworkService.GetGatewayNetwork:output_type -> hypershell.v1.GetGatewayNetworkResponse
+	2,  // 15: hypershell.v1.GatewayNetworkService.CreateGatewayNetwork:output_type -> hypershell.v1.CreateGatewayNetworkResponse
+	6,  // 16: hypershell.v1.GatewayNetworkService.UpdateGatewayNetwork:output_type -> hypershell.v1.UpdateGatewayNetworkResponse
+	10, // 17: hypershell.v1.GatewayNetworkService.DeleteGatewayNetwork:output_type -> hypershell.v1.DeleteGatewayNetworkResponse
+	9,  // 18: hypershell.v1.GatewayNetworkService.ListGatewayNetworks:output_type -> hypershell.v1.ListGatewayNetworksResponse
+	12, // 19: hypershell.v1.GatewayNetworkService.WatchGatewayNetworks:output_type -> hypershell.v1.WatchGatewayNetworksResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_gateway_networks_proto_init() }
@@ -744,14 +888,14 @@ func file_hypershell_v1_gateway_networks_proto_init() {
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_gateway_networks_proto_msgTypes[0].OneofWrappers = []any{}
 	file_hypershell_v1_gateway_networks_proto_msgTypes[1].OneofWrappers = []any{}
-	file_hypershell_v1_gateway_networks_proto_msgTypes[3].OneofWrappers = []any{}
+	file_hypershell_v1_gateway_networks_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_gateway_networks_proto_rawDesc), len(file_hypershell_v1_gateway_networks_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

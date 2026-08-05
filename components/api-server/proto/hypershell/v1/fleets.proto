@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hypershell.v1;
 
-option go_package = "github.com/openshift-online/hypershell/pkg/api/grpc/hypershell/v1;hypershell_v1";
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
 
 import "hypershell/v1/common.proto";
 
@@ -19,8 +19,16 @@ message CreateFleetRequest {
   optional string status = 3;
 }
 
+message CreateFleetResponse {
+  Fleet fleet = 1;
+}
+
 message GetFleetRequest {
   string id = 1;
+}
+
+message GetFleetResponse {
+  Fleet fleet = 1;
 }
 
 message UpdateFleetRequest {
@@ -28,6 +36,10 @@ message UpdateFleetRequest {
   optional string name = 2;
   optional string description = 3;
   optional string status = 4;
+}
+
+message UpdateFleetResponse {
+  Fleet fleet = 1;
 }
 
 message DeleteFleetRequest {
@@ -48,17 +60,17 @@ message DeleteFleetResponse {}
 
 message WatchFleetsRequest {}
 
-message FleetWatchEvent {
+message WatchFleetsResponse {
   EventType type = 1;
   Fleet fleet = 2;
   string resource_id = 3;
 }
 
 service FleetService {
-  rpc GetFleet(GetFleetRequest) returns (Fleet);
-  rpc CreateFleet(CreateFleetRequest) returns (Fleet);
-  rpc UpdateFleet(UpdateFleetRequest) returns (Fleet);
+  rpc GetFleet(GetFleetRequest) returns (GetFleetResponse);
+  rpc CreateFleet(CreateFleetRequest) returns (CreateFleetResponse);
+  rpc UpdateFleet(UpdateFleetRequest) returns (UpdateFleetResponse);
   rpc DeleteFleet(DeleteFleetRequest) returns (DeleteFleetResponse);
   rpc ListFleets(ListFleetsRequest) returns (ListFleetsResponse);
-  rpc WatchFleets(WatchFleetsRequest) returns (stream FleetWatchEvent);
+  rpc WatchFleets(WatchFleetsRequest) returns (stream WatchFleetsResponse);
 }

@@ -26,7 +26,7 @@ func NewGatewayNetworkGRPCHandler(svc GatewayNetworkService, generic services.Ge
 	return &gatewayNetworkGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
 }
 
-func (h *gatewayNetworkGRPCHandler) GetGatewayNetwork(ctx context.Context, req *pb.GetGatewayNetworkRequest) (*pb.GatewayNetwork, error) {
+func (h *gatewayNetworkGRPCHandler) GetGatewayNetwork(ctx context.Context, req *pb.GetGatewayNetworkRequest) (*pb.GetGatewayNetworkResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -35,10 +35,10 @@ func (h *gatewayNetworkGRPCHandler) GetGatewayNetwork(ctx context.Context, req *
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return gatewayNetworkToProto(gatewayNetwork), nil
+	return &pb.GetGatewayNetworkResponse{GatewayNetwork: gatewayNetworkToProto(gatewayNetwork)}, nil
 }
 
-func (h *gatewayNetworkGRPCHandler) CreateGatewayNetwork(ctx context.Context, req *pb.CreateGatewayNetworkRequest) (*pb.GatewayNetwork, error) {
+func (h *gatewayNetworkGRPCHandler) CreateGatewayNetwork(ctx context.Context, req *pb.CreateGatewayNetworkRequest) (*pb.CreateGatewayNetworkResponse, error) {
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
@@ -58,10 +58,10 @@ func (h *gatewayNetworkGRPCHandler) CreateGatewayNetwork(ctx context.Context, re
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return gatewayNetworkToProto(result), nil
+	return &pb.CreateGatewayNetworkResponse{GatewayNetwork: gatewayNetworkToProto(result)}, nil
 }
 
-func (h *gatewayNetworkGRPCHandler) UpdateGatewayNetwork(ctx context.Context, req *pb.UpdateGatewayNetworkRequest) (*pb.GatewayNetwork, error) {
+func (h *gatewayNetworkGRPCHandler) UpdateGatewayNetwork(ctx context.Context, req *pb.UpdateGatewayNetworkRequest) (*pb.UpdateGatewayNetworkResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (h *gatewayNetworkGRPCHandler) UpdateGatewayNetwork(ctx context.Context, re
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return gatewayNetworkToProto(result), nil
+	return &pb.UpdateGatewayNetworkResponse{GatewayNetwork: gatewayNetworkToProto(result)}, nil
 }
 
 func (h *gatewayNetworkGRPCHandler) DeleteGatewayNetwork(ctx context.Context, req *pb.DeleteGatewayNetworkRequest) (*pb.DeleteGatewayNetworkResponse, error) {
@@ -162,7 +162,7 @@ func (h *gatewayNetworkGRPCHandler) ListGatewayNetworks(ctx context.Context, req
 	}, nil
 }
 
-func (h *gatewayNetworkGRPCHandler) WatchGatewayNetworks(req *pb.WatchGatewayNetworksRequest, stream grpc.ServerStreamingServer[pb.GatewayNetworkWatchEvent]) error {
+func (h *gatewayNetworkGRPCHandler) WatchGatewayNetworks(req *pb.WatchGatewayNetworksRequest, stream grpc.ServerStreamingServer[pb.WatchGatewayNetworksResponse]) error {
 	broker := h.brokerFunc()
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
@@ -189,7 +189,7 @@ func (h *gatewayNetworkGRPCHandler) WatchGatewayNetworks(req *pb.WatchGatewayNet
 				continue
 			}
 
-			watchEvent := &pb.GatewayNetworkWatchEvent{
+			watchEvent := &pb.WatchGatewayNetworksResponse{
 				Type:       pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId: evt.SourceID,
 			}

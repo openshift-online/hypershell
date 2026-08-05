@@ -213,6 +213,50 @@ func (x *CreateGatewayReleaseRequest) GetStatus() string {
 	return ""
 }
 
+type CreateGatewayReleaseResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GatewayRelease *GatewayRelease        `protobuf:"bytes,1,opt,name=gateway_release,json=gatewayRelease,proto3" json:"gateway_release,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CreateGatewayReleaseResponse) Reset() {
+	*x = CreateGatewayReleaseResponse{}
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGatewayReleaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGatewayReleaseResponse) ProtoMessage() {}
+
+func (x *CreateGatewayReleaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGatewayReleaseResponse.ProtoReflect.Descriptor instead.
+func (*CreateGatewayReleaseResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateGatewayReleaseResponse) GetGatewayRelease() *GatewayRelease {
+	if x != nil {
+		return x.GatewayRelease
+	}
+	return nil
+}
+
 type GetGatewayReleaseRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -222,7 +266,7 @@ type GetGatewayReleaseRequest struct {
 
 func (x *GetGatewayReleaseRequest) Reset() {
 	*x = GetGatewayReleaseRequest{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[2]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -234,7 +278,7 @@ func (x *GetGatewayReleaseRequest) String() string {
 func (*GetGatewayReleaseRequest) ProtoMessage() {}
 
 func (x *GetGatewayReleaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[2]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -247,7 +291,7 @@ func (x *GetGatewayReleaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGatewayReleaseRequest.ProtoReflect.Descriptor instead.
 func (*GetGatewayReleaseRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{2}
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetGatewayReleaseRequest) GetId() string {
@@ -255,6 +299,50 @@ func (x *GetGatewayReleaseRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+type GetGatewayReleaseResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GatewayRelease *GatewayRelease        `protobuf:"bytes,1,opt,name=gateway_release,json=gatewayRelease,proto3" json:"gateway_release,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GetGatewayReleaseResponse) Reset() {
+	*x = GetGatewayReleaseResponse{}
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGatewayReleaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGatewayReleaseResponse) ProtoMessage() {}
+
+func (x *GetGatewayReleaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGatewayReleaseResponse.ProtoReflect.Descriptor instead.
+func (*GetGatewayReleaseResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetGatewayReleaseResponse) GetGatewayRelease() *GatewayRelease {
+	if x != nil {
+		return x.GatewayRelease
+	}
+	return nil
 }
 
 type UpdateGatewayReleaseRequest struct {
@@ -273,7 +361,7 @@ type UpdateGatewayReleaseRequest struct {
 
 func (x *UpdateGatewayReleaseRequest) Reset() {
 	*x = UpdateGatewayReleaseRequest{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[3]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -285,7 +373,7 @@ func (x *UpdateGatewayReleaseRequest) String() string {
 func (*UpdateGatewayReleaseRequest) ProtoMessage() {}
 
 func (x *UpdateGatewayReleaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[3]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -298,7 +386,7 @@ func (x *UpdateGatewayReleaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGatewayReleaseRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGatewayReleaseRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{3}
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UpdateGatewayReleaseRequest) GetId() string {
@@ -357,6 +445,50 @@ func (x *UpdateGatewayReleaseRequest) GetStatus() string {
 	return ""
 }
 
+type UpdateGatewayReleaseResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GatewayRelease *GatewayRelease        `protobuf:"bytes,1,opt,name=gateway_release,json=gatewayRelease,proto3" json:"gateway_release,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *UpdateGatewayReleaseResponse) Reset() {
+	*x = UpdateGatewayReleaseResponse{}
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGatewayReleaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGatewayReleaseResponse) ProtoMessage() {}
+
+func (x *UpdateGatewayReleaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGatewayReleaseResponse.ProtoReflect.Descriptor instead.
+func (*UpdateGatewayReleaseResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UpdateGatewayReleaseResponse) GetGatewayRelease() *GatewayRelease {
+	if x != nil {
+		return x.GatewayRelease
+	}
+	return nil
+}
+
 type DeleteGatewayReleaseRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -366,7 +498,7 @@ type DeleteGatewayReleaseRequest struct {
 
 func (x *DeleteGatewayReleaseRequest) Reset() {
 	*x = DeleteGatewayReleaseRequest{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[4]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -378,7 +510,7 @@ func (x *DeleteGatewayReleaseRequest) String() string {
 func (*DeleteGatewayReleaseRequest) ProtoMessage() {}
 
 func (x *DeleteGatewayReleaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[4]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -391,7 +523,7 @@ func (x *DeleteGatewayReleaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayReleaseRequest.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayReleaseRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{4}
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeleteGatewayReleaseRequest) GetId() string {
@@ -411,7 +543,7 @@ type ListGatewayReleasesRequest struct {
 
 func (x *ListGatewayReleasesRequest) Reset() {
 	*x = ListGatewayReleasesRequest{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[5]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -423,7 +555,7 @@ func (x *ListGatewayReleasesRequest) String() string {
 func (*ListGatewayReleasesRequest) ProtoMessage() {}
 
 func (x *ListGatewayReleasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[5]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -436,7 +568,7 @@ func (x *ListGatewayReleasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewayReleasesRequest.ProtoReflect.Descriptor instead.
 func (*ListGatewayReleasesRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{5}
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListGatewayReleasesRequest) GetPage() int32 {
@@ -463,7 +595,7 @@ type ListGatewayReleasesResponse struct {
 
 func (x *ListGatewayReleasesResponse) Reset() {
 	*x = ListGatewayReleasesResponse{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[6]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -475,7 +607,7 @@ func (x *ListGatewayReleasesResponse) String() string {
 func (*ListGatewayReleasesResponse) ProtoMessage() {}
 
 func (x *ListGatewayReleasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[6]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -488,7 +620,7 @@ func (x *ListGatewayReleasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewayReleasesResponse.ProtoReflect.Descriptor instead.
 func (*ListGatewayReleasesResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{6}
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListGatewayReleasesResponse) GetItems() []*GatewayRelease {
@@ -513,7 +645,7 @@ type DeleteGatewayReleaseResponse struct {
 
 func (x *DeleteGatewayReleaseResponse) Reset() {
 	*x = DeleteGatewayReleaseResponse{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -525,7 +657,7 @@ func (x *DeleteGatewayReleaseResponse) String() string {
 func (*DeleteGatewayReleaseResponse) ProtoMessage() {}
 
 func (x *DeleteGatewayReleaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -538,7 +670,7 @@ func (x *DeleteGatewayReleaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayReleaseResponse.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayReleaseResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{7}
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{10}
 }
 
 type WatchGatewayReleasesRequest struct {
@@ -549,7 +681,7 @@ type WatchGatewayReleasesRequest struct {
 
 func (x *WatchGatewayReleasesRequest) Reset() {
 	*x = WatchGatewayReleasesRequest{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -561,7 +693,7 @@ func (x *WatchGatewayReleasesRequest) String() string {
 func (*WatchGatewayReleasesRequest) ProtoMessage() {}
 
 func (x *WatchGatewayReleasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -574,33 +706,33 @@ func (x *WatchGatewayReleasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchGatewayReleasesRequest.ProtoReflect.Descriptor instead.
 func (*WatchGatewayReleasesRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{8}
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{11}
 }
 
-type GatewayReleaseWatchEvent struct {
+type WatchGatewayReleasesResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Type           EventType              `protobuf:"varint,1,opt,name=type,proto3,enum=hypershell.v1.EventType" json:"type,omitempty"`
-	GatewayRelease *GatewayRelease        `protobuf:"bytes,2,opt,name=gatewayRelease,proto3" json:"gatewayRelease,omitempty"`
+	GatewayRelease *GatewayRelease        `protobuf:"bytes,2,opt,name=gateway_release,json=gatewayRelease,proto3" json:"gateway_release,omitempty"`
 	ResourceId     string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *GatewayReleaseWatchEvent) Reset() {
-	*x = GatewayReleaseWatchEvent{}
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[9]
+func (x *WatchGatewayReleasesResponse) Reset() {
+	*x = WatchGatewayReleasesResponse{}
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GatewayReleaseWatchEvent) String() string {
+func (x *WatchGatewayReleasesResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GatewayReleaseWatchEvent) ProtoMessage() {}
+func (*WatchGatewayReleasesResponse) ProtoMessage() {}
 
-func (x *GatewayReleaseWatchEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[9]
+func (x *WatchGatewayReleasesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateway_releases_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -611,26 +743,26 @@ func (x *GatewayReleaseWatchEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GatewayReleaseWatchEvent.ProtoReflect.Descriptor instead.
-func (*GatewayReleaseWatchEvent) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{9}
+// Deprecated: Use WatchGatewayReleasesResponse.ProtoReflect.Descriptor instead.
+func (*WatchGatewayReleasesResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateway_releases_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *GatewayReleaseWatchEvent) GetType() EventType {
+func (x *WatchGatewayReleasesResponse) GetType() EventType {
 	if x != nil {
 		return x.Type
 	}
 	return EventType_EVENT_TYPE_UNSPECIFIED
 }
 
-func (x *GatewayReleaseWatchEvent) GetGatewayRelease() *GatewayRelease {
+func (x *WatchGatewayReleasesResponse) GetGatewayRelease() *GatewayRelease {
 	if x != nil {
 		return x.GatewayRelease
 	}
 	return nil
 }
 
-func (x *GatewayReleaseWatchEvent) GetResourceId() string {
+func (x *WatchGatewayReleasesResponse) GetResourceId() string {
 	if x != nil {
 		return x.ResourceId
 	}
@@ -666,9 +798,13 @@ const file_hypershell_v1_gateway_releases_proto_rawDesc = "" +
 	"\x11_rollout_strategyB\x11\n" +
 	"\x0f_canary_percentB\x12\n" +
 	"\x10_canary_durationB\t\n" +
-	"\a_status\"*\n" +
+	"\a_status\"f\n" +
+	"\x1cCreateGatewayReleaseResponse\x12F\n" +
+	"\x0fgateway_release\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\"*\n" +
 	"\x18GetGatewayReleaseRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x8f\x03\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +
+	"\x19GetGatewayReleaseResponse\x12F\n" +
+	"\x0fgateway_release\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\"\x8f\x03\n" +
 	"\x1bUpdateGatewayReleaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
@@ -684,7 +820,9 @@ const file_hypershell_v1_gateway_releases_proto_rawDesc = "" +
 	"\x11_rollout_strategyB\x11\n" +
 	"\x0f_canary_percentB\x12\n" +
 	"\x10_canary_durationB\t\n" +
-	"\a_status\"-\n" +
+	"\a_status\"f\n" +
+	"\x1cUpdateGatewayReleaseResponse\x12F\n" +
+	"\x0fgateway_release\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\"-\n" +
 	"\x1bDeleteGatewayReleaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"D\n" +
 	"\x1aListGatewayReleasesRequest\x12\x12\n" +
@@ -694,19 +832,19 @@ const file_hypershell_v1_gateway_releases_proto_rawDesc = "" +
 	"\x05items\x18\x01 \x03(\v2\x1d.hypershell.v1.GatewayReleaseR\x05items\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.hypershell.v1.ListMetaR\bmetadata\"\x1e\n" +
 	"\x1cDeleteGatewayReleaseResponse\"\x1d\n" +
-	"\x1bWatchGatewayReleasesRequest\"\xb0\x01\n" +
-	"\x18GatewayReleaseWatchEvent\x12,\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12E\n" +
-	"\x0egatewayRelease\x18\x02 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\x12\x1f\n" +
+	"\x1bWatchGatewayReleasesRequest\"\xb5\x01\n" +
+	"\x1cWatchGatewayReleasesResponse\x12,\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12F\n" +
+	"\x0fgateway_release\x18\x02 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId2\x88\x05\n" +
-	"\x15GatewayReleaseService\x12[\n" +
-	"\x11GetGatewayRelease\x12'.hypershell.v1.GetGatewayReleaseRequest\x1a\x1d.hypershell.v1.GatewayRelease\x12a\n" +
-	"\x14CreateGatewayRelease\x12*.hypershell.v1.CreateGatewayReleaseRequest\x1a\x1d.hypershell.v1.GatewayRelease\x12a\n" +
-	"\x14UpdateGatewayRelease\x12*.hypershell.v1.UpdateGatewayReleaseRequest\x1a\x1d.hypershell.v1.GatewayRelease\x12o\n" +
+	"resourceId2\xb3\x05\n" +
+	"\x15GatewayReleaseService\x12f\n" +
+	"\x11GetGatewayRelease\x12'.hypershell.v1.GetGatewayReleaseRequest\x1a(.hypershell.v1.GetGatewayReleaseResponse\x12o\n" +
+	"\x14CreateGatewayRelease\x12*.hypershell.v1.CreateGatewayReleaseRequest\x1a+.hypershell.v1.CreateGatewayReleaseResponse\x12o\n" +
+	"\x14UpdateGatewayRelease\x12*.hypershell.v1.UpdateGatewayReleaseRequest\x1a+.hypershell.v1.UpdateGatewayReleaseResponse\x12o\n" +
 	"\x14DeleteGatewayRelease\x12*.hypershell.v1.DeleteGatewayReleaseRequest\x1a+.hypershell.v1.DeleteGatewayReleaseResponse\x12l\n" +
-	"\x13ListGatewayReleases\x12).hypershell.v1.ListGatewayReleasesRequest\x1a*.hypershell.v1.ListGatewayReleasesResponse\x12m\n" +
-	"\x14WatchGatewayReleases\x12*.hypershell.v1.WatchGatewayReleasesRequest\x1a'.hypershell.v1.GatewayReleaseWatchEvent0\x01BQZOgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
+	"\x13ListGatewayReleases\x12).hypershell.v1.ListGatewayReleasesRequest\x1a*.hypershell.v1.ListGatewayReleasesResponse\x12q\n" +
+	"\x14WatchGatewayReleases\x12*.hypershell.v1.WatchGatewayReleasesRequest\x1a+.hypershell.v1.WatchGatewayReleasesResponse0\x01BgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
 
 var (
 	file_hypershell_v1_gateway_releases_proto_rawDescOnce sync.Once
@@ -720,45 +858,51 @@ func file_hypershell_v1_gateway_releases_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_gateway_releases_proto_rawDescData
 }
 
-var file_hypershell_v1_gateway_releases_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_hypershell_v1_gateway_releases_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_hypershell_v1_gateway_releases_proto_goTypes = []any{
 	(*GatewayRelease)(nil),               // 0: hypershell.v1.GatewayRelease
 	(*CreateGatewayReleaseRequest)(nil),  // 1: hypershell.v1.CreateGatewayReleaseRequest
-	(*GetGatewayReleaseRequest)(nil),     // 2: hypershell.v1.GetGatewayReleaseRequest
-	(*UpdateGatewayReleaseRequest)(nil),  // 3: hypershell.v1.UpdateGatewayReleaseRequest
-	(*DeleteGatewayReleaseRequest)(nil),  // 4: hypershell.v1.DeleteGatewayReleaseRequest
-	(*ListGatewayReleasesRequest)(nil),   // 5: hypershell.v1.ListGatewayReleasesRequest
-	(*ListGatewayReleasesResponse)(nil),  // 6: hypershell.v1.ListGatewayReleasesResponse
-	(*DeleteGatewayReleaseResponse)(nil), // 7: hypershell.v1.DeleteGatewayReleaseResponse
-	(*WatchGatewayReleasesRequest)(nil),  // 8: hypershell.v1.WatchGatewayReleasesRequest
-	(*GatewayReleaseWatchEvent)(nil),     // 9: hypershell.v1.GatewayReleaseWatchEvent
-	(*ObjectReference)(nil),              // 10: hypershell.v1.ObjectReference
-	(*ListMeta)(nil),                     // 11: hypershell.v1.ListMeta
-	(EventType)(0),                       // 12: hypershell.v1.EventType
+	(*CreateGatewayReleaseResponse)(nil), // 2: hypershell.v1.CreateGatewayReleaseResponse
+	(*GetGatewayReleaseRequest)(nil),     // 3: hypershell.v1.GetGatewayReleaseRequest
+	(*GetGatewayReleaseResponse)(nil),    // 4: hypershell.v1.GetGatewayReleaseResponse
+	(*UpdateGatewayReleaseRequest)(nil),  // 5: hypershell.v1.UpdateGatewayReleaseRequest
+	(*UpdateGatewayReleaseResponse)(nil), // 6: hypershell.v1.UpdateGatewayReleaseResponse
+	(*DeleteGatewayReleaseRequest)(nil),  // 7: hypershell.v1.DeleteGatewayReleaseRequest
+	(*ListGatewayReleasesRequest)(nil),   // 8: hypershell.v1.ListGatewayReleasesRequest
+	(*ListGatewayReleasesResponse)(nil),  // 9: hypershell.v1.ListGatewayReleasesResponse
+	(*DeleteGatewayReleaseResponse)(nil), // 10: hypershell.v1.DeleteGatewayReleaseResponse
+	(*WatchGatewayReleasesRequest)(nil),  // 11: hypershell.v1.WatchGatewayReleasesRequest
+	(*WatchGatewayReleasesResponse)(nil), // 12: hypershell.v1.WatchGatewayReleasesResponse
+	(*ObjectReference)(nil),              // 13: hypershell.v1.ObjectReference
+	(*ListMeta)(nil),                     // 14: hypershell.v1.ListMeta
+	(EventType)(0),                       // 15: hypershell.v1.EventType
 }
 var file_hypershell_v1_gateway_releases_proto_depIdxs = []int32{
-	10, // 0: hypershell.v1.GatewayRelease.metadata:type_name -> hypershell.v1.ObjectReference
-	0,  // 1: hypershell.v1.ListGatewayReleasesResponse.items:type_name -> hypershell.v1.GatewayRelease
-	11, // 2: hypershell.v1.ListGatewayReleasesResponse.metadata:type_name -> hypershell.v1.ListMeta
-	12, // 3: hypershell.v1.GatewayReleaseWatchEvent.type:type_name -> hypershell.v1.EventType
-	0,  // 4: hypershell.v1.GatewayReleaseWatchEvent.gatewayRelease:type_name -> hypershell.v1.GatewayRelease
-	2,  // 5: hypershell.v1.GatewayReleaseService.GetGatewayRelease:input_type -> hypershell.v1.GetGatewayReleaseRequest
-	1,  // 6: hypershell.v1.GatewayReleaseService.CreateGatewayRelease:input_type -> hypershell.v1.CreateGatewayReleaseRequest
-	3,  // 7: hypershell.v1.GatewayReleaseService.UpdateGatewayRelease:input_type -> hypershell.v1.UpdateGatewayReleaseRequest
-	4,  // 8: hypershell.v1.GatewayReleaseService.DeleteGatewayRelease:input_type -> hypershell.v1.DeleteGatewayReleaseRequest
-	5,  // 9: hypershell.v1.GatewayReleaseService.ListGatewayReleases:input_type -> hypershell.v1.ListGatewayReleasesRequest
-	8,  // 10: hypershell.v1.GatewayReleaseService.WatchGatewayReleases:input_type -> hypershell.v1.WatchGatewayReleasesRequest
-	0,  // 11: hypershell.v1.GatewayReleaseService.GetGatewayRelease:output_type -> hypershell.v1.GatewayRelease
-	0,  // 12: hypershell.v1.GatewayReleaseService.CreateGatewayRelease:output_type -> hypershell.v1.GatewayRelease
-	0,  // 13: hypershell.v1.GatewayReleaseService.UpdateGatewayRelease:output_type -> hypershell.v1.GatewayRelease
-	7,  // 14: hypershell.v1.GatewayReleaseService.DeleteGatewayRelease:output_type -> hypershell.v1.DeleteGatewayReleaseResponse
-	6,  // 15: hypershell.v1.GatewayReleaseService.ListGatewayReleases:output_type -> hypershell.v1.ListGatewayReleasesResponse
-	9,  // 16: hypershell.v1.GatewayReleaseService.WatchGatewayReleases:output_type -> hypershell.v1.GatewayReleaseWatchEvent
-	11, // [11:17] is the sub-list for method output_type
-	5,  // [5:11] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 0: hypershell.v1.GatewayRelease.metadata:type_name -> hypershell.v1.ObjectReference
+	0,  // 1: hypershell.v1.CreateGatewayReleaseResponse.gateway_release:type_name -> hypershell.v1.GatewayRelease
+	0,  // 2: hypershell.v1.GetGatewayReleaseResponse.gateway_release:type_name -> hypershell.v1.GatewayRelease
+	0,  // 3: hypershell.v1.UpdateGatewayReleaseResponse.gateway_release:type_name -> hypershell.v1.GatewayRelease
+	0,  // 4: hypershell.v1.ListGatewayReleasesResponse.items:type_name -> hypershell.v1.GatewayRelease
+	14, // 5: hypershell.v1.ListGatewayReleasesResponse.metadata:type_name -> hypershell.v1.ListMeta
+	15, // 6: hypershell.v1.WatchGatewayReleasesResponse.type:type_name -> hypershell.v1.EventType
+	0,  // 7: hypershell.v1.WatchGatewayReleasesResponse.gateway_release:type_name -> hypershell.v1.GatewayRelease
+	3,  // 8: hypershell.v1.GatewayReleaseService.GetGatewayRelease:input_type -> hypershell.v1.GetGatewayReleaseRequest
+	1,  // 9: hypershell.v1.GatewayReleaseService.CreateGatewayRelease:input_type -> hypershell.v1.CreateGatewayReleaseRequest
+	5,  // 10: hypershell.v1.GatewayReleaseService.UpdateGatewayRelease:input_type -> hypershell.v1.UpdateGatewayReleaseRequest
+	7,  // 11: hypershell.v1.GatewayReleaseService.DeleteGatewayRelease:input_type -> hypershell.v1.DeleteGatewayReleaseRequest
+	8,  // 12: hypershell.v1.GatewayReleaseService.ListGatewayReleases:input_type -> hypershell.v1.ListGatewayReleasesRequest
+	11, // 13: hypershell.v1.GatewayReleaseService.WatchGatewayReleases:input_type -> hypershell.v1.WatchGatewayReleasesRequest
+	4,  // 14: hypershell.v1.GatewayReleaseService.GetGatewayRelease:output_type -> hypershell.v1.GetGatewayReleaseResponse
+	2,  // 15: hypershell.v1.GatewayReleaseService.CreateGatewayRelease:output_type -> hypershell.v1.CreateGatewayReleaseResponse
+	6,  // 16: hypershell.v1.GatewayReleaseService.UpdateGatewayRelease:output_type -> hypershell.v1.UpdateGatewayReleaseResponse
+	10, // 17: hypershell.v1.GatewayReleaseService.DeleteGatewayRelease:output_type -> hypershell.v1.DeleteGatewayReleaseResponse
+	9,  // 18: hypershell.v1.GatewayReleaseService.ListGatewayReleases:output_type -> hypershell.v1.ListGatewayReleasesResponse
+	12, // 19: hypershell.v1.GatewayReleaseService.WatchGatewayReleases:output_type -> hypershell.v1.WatchGatewayReleasesResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_gateway_releases_proto_init() }
@@ -769,14 +913,14 @@ func file_hypershell_v1_gateway_releases_proto_init() {
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_gateway_releases_proto_msgTypes[0].OneofWrappers = []any{}
 	file_hypershell_v1_gateway_releases_proto_msgTypes[1].OneofWrappers = []any{}
-	file_hypershell_v1_gateway_releases_proto_msgTypes[3].OneofWrappers = []any{}
+	file_hypershell_v1_gateway_releases_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_gateway_releases_proto_rawDesc), len(file_hypershell_v1_gateway_releases_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
