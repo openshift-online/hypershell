@@ -19,7 +19,7 @@ checks manually with `make check`.
 - `components/api-server/` - Go REST + gRPC API microservice (rh-trex-ai framework), PostgreSQL-backed
 - `components/control-plane/` - Go service, watches API server via gRPC and reconciles gateway resources into K8s
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
-- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [tooling](skills/tooling/)
+- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
 
 ## Key Files
@@ -68,6 +68,7 @@ Idempotent: safe to run repeatedly.
 Support skills available at any point:
 - `/review-guidance` -- PR review checklist
 - `/amber-review` -- Amber agent comprehensive code review
+- `/ui-standards` -- UI/UX audit or intent-driven design guidance
 - `/align` -- convention health check
 - `/maintain-ci` -- CI workflow and component registration maintenance
 - `/memory` -- project memory management
@@ -117,3 +118,4 @@ Cross-cutting rules that apply across ALL components.
 Component-specific conventions:
 - Control Plane: [conventions](specs/standards/control-plane/conventions.spec.md)
 - Security: [security standards](specs/standards/security/security.spec.md)
+- Web UI: [UI standards](specs/standards/ui/)
