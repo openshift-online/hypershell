@@ -186,6 +186,7 @@ The control plane ClusterRole SHALL include permissions for TLS-related resource
 | `DecryptError` in gateway logs | Stale client cert from sandbox after cert rotation | Recreate affected sandboxes |
 | Cert deletion loop (every 30s) | ConfigMap SANs don't match API SANs | Ensure exact match; manual certgen if needed |
 | `invalid peer certificate: UnknownIssuer` | Self-signed CA — CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
+| `CertificateRequired` with `auth_mode: mtls` | openshell CLI (v0.0.55–0.0.98) does not load `mtls/` certs into rustls for remote gateways. `Client auth requested but no cert/sigscheme available` in debug logs | Remove `client_ca_path` from gateway.toml (disables mTLS) or configure OIDC (enables optional mTLS, CLI uses OIDC tokens) |
 | OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap |
 
 ---

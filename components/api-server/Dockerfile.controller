@@ -21,6 +21,9 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8@sha256:48fa5d8cda7fc00d270d
 WORKDIR /
 
 COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
+COPY control-plane/manifests/ /manifests/
+
+USER 1001
 
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 
