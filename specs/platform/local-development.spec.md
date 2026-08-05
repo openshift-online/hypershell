@@ -26,7 +26,7 @@ Developers selectively swap individual components with local builds using per-co
 | cert-manager | TLS certificate lifecycle for gateway certificates (issuance, renewal, rotation) |
 | Keycloak | OIDC identity provider for local gateway authentication testing (skipped when `KIND_KEYCLOAK_URL` is set) |
 
-cert-manager SHALL be installed via `kubectl apply -f` from the cert-manager release manifests (with CRDs enabled) and the setup SHALL wait for the cert-manager controller deployment to reach ready state before proceeding.
+cert-manager SHALL be installed using the same pattern as agent-control-plane: apply the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skip if the `cert-manager` namespace already exists (idempotent), and wait for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.17.1`).
 
 Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker described in the [downstream Keycloak design](https://gist.github.com/jhjaggars/5042c84888fb0c24020377a21d98f9a1)).
 
@@ -236,7 +236,7 @@ All containers in the Kind deployment manifests SHALL set restricted security co
 
 ### Requirement: Swap Tracking
 
-The system SHALL track which components have been swapped to local builds using a `.kind-swaps` file at the repository root. This file SHALL be listed in `.gitignore`. The file records the set of currently swapped components so that `make kind-status` can report this information. Running `make kind-up` SHALL reset all swaps by clearing the file (since it rebuilds everything from scratch).
+The system SHALL track which components have been swapped to local builds using a `.kind-swaps` file at the repository root. This file SHALL be listed in `.gitignore`. The file records the set of currently swapped components so that `make kind-status` can report this information. Running `make kind-up` SHALL preserve existing swap state — it pulls the latest baseline images from `main` and reapplies manifests, but does not rebuild from the working tree or clear swap tracking.
 
 #### Scenario: Swap Reported in Status
 - GIVEN a developer has run `make kind-api-server-up`
@@ -244,11 +244,12 @@ The system SHALL track which components have been swapped to local builds using 
 - THEN the output SHALL indicate the API server is running a local build
 - AND the control plane is running the baseline image
 
-#### Scenario: Kind-Up Resets Swaps
+#### Scenario: Kind-Up Preserves Swaps
 - GIVEN a developer has swapped the API server to a local build
 - WHEN they run `make kind-up`
-- THEN all components SHALL be redeployed from registry images
-- AND swap tracking SHALL be reset
+- THEN non-swapped components SHALL be redeployed from registry images
+- AND the API server SHALL remain running the locally-built image
+- AND swap tracking SHALL be preserved
 
 ### Requirement: No Separate Rebuild Target
 
