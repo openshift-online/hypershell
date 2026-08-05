@@ -424,10 +424,6 @@ The documentation SHALL be kept in sync with this spec. When a new Make target, 
 - WHEN the PR is reviewed
 - THEN the reviewer SHALL verify that `DEVELOPMENT.md` is updated to reflect the change
 
-### Requirement: No Separate Rebuild Target
-
-The system SHALL NOT provide a separate `make kind-rebuild` target. The `make kind-up` target SHALL absorb full rebuild-and-redeploy behavior. Per-component targets (`make kind-api-server-up`, `make kind-control-plane-up`, `make kind-web-console-up`) handle selective rebuilds from local source.
-
 ### Requirement: Hot Reload Support
 
 The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes, enabling `hostPath` volumes for live source mounting. The web console is the first component to support hot reload.
@@ -571,7 +567,6 @@ Per-component swap and teardown targets operate on the specified namespace when 
 |----------|-----------|
 | Registry pull for baseline images | Faster setup; no local build required for baseline; per-component swap handles local development |
 | Per-component swap instead of `LOCAL_IMAGES` env var | More ergonomic; discoverable via tab-completion; avoids env var memorization |
-| No separate `kind-rebuild` | `kind-up` always converges; per-component targets handle selective rebuilds |
 | NodePort + `extraPortMappings` for all services | Deterministic host ports; no background `kubectl port-forward` processes required |
 | Per-service configurable ports via env vars | Avoids conflicts when running multiple clusters or services on the same host |
 | Pre-check cluster existence for idempotency | Check `kind get clusters` for the target name before attempting creation; skip if already present. Avoids `\|\| true` which swallows real failures (Docker not running, resource exhaustion) |
