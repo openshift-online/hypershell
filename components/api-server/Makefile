@@ -99,7 +99,7 @@ KIND_API_PORT?=23080
 IMAGE_NAME=hypershell
 CONTROLLER_IMAGE_NAME=hypershell-controller
 IMAGE_TAG=dev
-COMPONENTS_DIR=$(shell dirname $(shell pwd))
+REPO_ROOT=$(shell cd ../.. && pwd)
 
 .PHONY: image
 image:
@@ -112,8 +112,8 @@ image:
 .PHONY: image-controller
 image-controller:
 	$(CONTAINER_ENGINE) build -t $(CONTROLLER_IMAGE_NAME):$(IMAGE_TAG) \
-		-f Dockerfile.controller \
-		$(COMPONENTS_DIR)
+		-f $(REPO_ROOT)/components/control-plane/Dockerfile \
+		$(REPO_ROOT)
 
 .PHONY: images
 images: image image-controller

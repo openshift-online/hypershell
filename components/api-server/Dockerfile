@@ -14,7 +14,7 @@ COPY openapi/ openapi/
 
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
-RUN go build -ldflags="-s -w \
+RUN go build -mod=mod -ldflags="-s -w \
   -X github.com/openshift-online/hypershell/components/api-server/pkg/api.Version=${GIT_VERSION} \
   -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${BUILD_TIME}'" \
   -o hypershell ./cmd/hypershell
@@ -25,6 +25,7 @@ WORKDIR /
 
 COPY --from=builder /workspace/hypershell /usr/local/bin/
 
+USER 1001
 EXPOSE 8000
 EXPOSE 9000
 
