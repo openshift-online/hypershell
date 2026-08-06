@@ -1,6 +1,6 @@
 # Data Model
 
-**Date:** 2026-08-03
+**Date:** 2026-08-06
 **Status:** Active
 
 ## Overview
@@ -9,7 +9,7 @@ The HyperShell API server provides a control plane for deploying and managing di
 
 - **Sector** — top-level organizational unit. Groups clusters, databases, releases, gateways, and networks. All resources belong to exactly one sector via `sector_id`.
 - **ManagedCluster** — a Kubernetes cluster registered into a sector. Tracks provider, region, API server URL, and a kubeconfig secret reference.
-- **ManagedDatabase** — a database instance provisioned for a sector. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
+- **ManagedDatabase** — a database instance provisioned for a sector. Tracks provider, region, engine type/version, instance class, target namespace, and a Kubernetes Secret name holding connection credentials.
 - **GatewayRelease** — a versioned container image for gateway deployments within a sector. Supports rollout strategies with canary percent/duration controls.
 - **Gateway** — an API gateway instance deployed onto a specific cluster, using a specific release and database, within a namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **GatewayNetwork** — defines network connectivity topology between gateways in a sector. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
@@ -48,11 +48,13 @@ erDiagram
         string name
         string sector_id FK
         string provider
+        string namespace
         string region
         string engine
         string engine_version
         string instance_class
-        string connection_secret
+        string storage_size
+        string secret_name
         string status
         time created_at
         time updated_at
@@ -195,3 +197,4 @@ All routes under `/api/hypershell/v1/`:
 | Separate Release from Gateway | Decouples versioning from deployment; enables canary and rollback |
 | GatewayNetwork as explicit entity | Makes network topology declarative and auditable |
 | Secret references (not inline secrets) | Keeps secrets in K8s Secrets, not in the database |
+| ManagedDatabase as standalone Kind | Decouples database lifecycle from Gateway; enables shared databases, independent provisioning, and future external providers (RDS) |
