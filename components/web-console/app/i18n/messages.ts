@@ -63,11 +63,10 @@ export const messages = defineMessages({
     defaultMessage: "Cluster",
     description: "Heading for the gateway placement cluster column.",
   },
-  connectWithCli: {
-    id: "app.gateway.connectWithCli",
-    defaultMessage: "Connect with the CLI",
-    description:
-      "Action and heading for a gateway's OpenShell CLI connection command.",
+  cliConnection: {
+    id: "app.gateway.cliConnection",
+    defaultMessage: "CLI connection",
+    description: "Label for a gateway's OpenShell CLI connection command.",
   },
   copied: {
     id: "app.clipboard.copied",
@@ -187,6 +186,22 @@ export const messages = defineMessages({
     defaultMessage: "Check the values and try again.",
     description: "Recovery guidance when gateway provisioning fails.",
   },
+  gatewayRenameError: {
+    id: "app.gateway.rename.error.title",
+    defaultMessage: "Gateway could not be renamed",
+    description: "Title shown when gateway renaming fails.",
+  },
+  gatewayRenameErrorBody: {
+    id: "app.gateway.rename.error.body",
+    defaultMessage:
+      "No changes were made. Choose a different name or try again.",
+    description: "Recovery guidance when gateway renaming fails.",
+  },
+  gatewayRenamed: {
+    id: "app.gateway.renamed",
+    defaultMessage: "Gateway renamed to {gatewayName}",
+    description: "Success notification after renaming a gateway.",
+  },
   gatewayRowActions: {
     id: "app.gateway.rowActions",
     defaultMessage: "Actions for {gatewayName}",
@@ -293,6 +308,21 @@ export const messages = defineMessages({
     id: "app.gateways.refresh",
     defaultMessage: "Refresh gateways",
     description: "Accessible label for refreshing the gateway list.",
+  },
+  renameGateway: {
+    id: "app.gateway.rename",
+    defaultMessage: "Rename gateway",
+    description: "Action that changes a gateway's name.",
+  },
+  renameGatewayTitle: {
+    id: "app.gateway.rename.title",
+    defaultMessage: "Rename {gatewayName}",
+    description: "Title for the gateway rename dialog.",
+  },
+  renamingGateway: {
+    id: "app.gateway.rename.pending",
+    defaultMessage: "Renaming gateway",
+    description: "Accessible progress text while a gateway is being renamed.",
   },
   results: {
     id: "app.table.results",

@@ -17,17 +17,21 @@ import {
   type GatewayConnection,
 } from "./gateway-connections";
 import { GatewayDeleteDialog } from "./gateway-delete-dialog";
+import { GatewayRenameDialog } from "./gateway-rename-dialog";
 
 export function GatewayRowActions({
   gateway,
   onDeleted,
+  onRenamed,
 }: {
   gateway: GatewayConnection;
   onDeleted: () => void;
+  onRenamed: (gatewayName: string) => void;
 }) {
   const intl = useIntl();
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [copyResult, setCopyResult] = useState<"error" | "success">();
 
   const copyConnectionCommand = async () => {
@@ -77,6 +81,13 @@ export function GatewayRowActions({
             <FormattedMessage {...messages.copyCliConnectionCommand} />
           </DropdownItem>
           <DropdownItem
+            onClick={() => {
+              setIsRenameOpen(true);
+            }}
+          >
+            <FormattedMessage {...messages.renameGateway} />
+          </DropdownItem>
+          <DropdownItem
             isDanger
             onClick={() => {
               setIsDeleteOpen(true);
@@ -86,6 +97,19 @@ export function GatewayRowActions({
           </DropdownItem>
         </DropdownList>
       </Dropdown>
+      {isRenameOpen ? (
+        <GatewayRenameDialog
+          gatewayId={gateway.id}
+          gatewayName={gateway.name}
+          onClose={() => {
+            setIsRenameOpen(false);
+          }}
+          onRenamed={(gatewayName) => {
+            setIsRenameOpen(false);
+            onRenamed(gatewayName);
+          }}
+        />
+      ) : null}
       <GatewayDeleteDialog
         gatewayId={gateway.id}
         gatewayName={gateway.name}

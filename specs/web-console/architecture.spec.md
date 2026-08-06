@@ -273,7 +273,9 @@ React components SHALL be implemented semantically and tested through user-obser
 
 ### Requirement WEB-UI-03: Gateway Connection Experience
 
-The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. The same console, CLI connection, and delete actions SHALL remain available on the gateway detail page; the CLI action SHALL reveal the full copyable command in a popover.
+The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The full CLI command SHALL appear as a read-only PatternFly Clipboard Copy value in the resource description list rather than as a page-header action. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows.
+
+Gateway renaming SHALL use the existing `PATCH /gateways/{id}` contract and send only the trimmed `name` field. Both rename entry points SHALL use the same required-field validation, prevent unchanged or duplicate submission, preserve user input with recovery guidance on failure, update gateway detail and breadcrumb cache state, invalidate the collection, and provide visible success feedback.
 
 Gateway deletion SHALL use the existing `DELETE /gateways/{id}` contract. Both delete entry points SHALL present the same explicit confirmation before commitment, prevent duplicate submission while deletion is pending, preserve the confirmation with recovery guidance on failure, and provide an accurate success notification after deletion. Successful deletion from a detail page SHALL return the user to the gateway collection and invalidate both collection and deleted-detail query state.
 
@@ -382,7 +384,7 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 - a gateway connection list containing a stable identifier, display name, readiness, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
 - gateway list, search, pagination, sort, and filter semantics;
 - managed-cluster configuration and lifecycle contracts when remote placement is introduced;
-- gateway provisioning and deletion contracts;
+- gateway provisioning, renaming, and deletion contracts;
 - authorization behavior and browser-safe capability/permission metadata;
 - stable error envelopes with field errors and a support-safe operation identifier;
 - idempotency or duplicate-submission behavior for consequential creates;
@@ -395,7 +397,7 @@ During the initial single-tenant increment, every gateway returned by the API SH
 
 For the initial single-cluster deployment, the gateway table SHALL identify an empty `cluster_id` as `Local cluster` in a sortable Cluster column. The provisioning form SHALL NOT collect `fleet_id`, `cluster_id`, `release_id`, or `database_id`. It SHALL send all four fields as empty strings because the initial reconciler owns the local-cluster, gateway-image, and SQLite database defaults and does not resolve those resource identifiers. The existing API contract and data model SHALL remain unchanged by this UI increment. A future workflow MAY expose these choices after they drive reconciliation. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, provisioning, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that the initial provisioning form does not expose fleet, cluster, release, or database identifier fields and sends all four identifiers as empty strings while the API schema remains unchanged.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name, and that the initial provisioning form does not expose fleet, cluster, release, or database identifier fields and sends all four identifiers as empty strings while the API schema remains unchanged.
 
 ## Initial Delivery Sequence
 

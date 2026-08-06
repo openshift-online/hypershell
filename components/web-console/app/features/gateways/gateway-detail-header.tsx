@@ -4,12 +4,14 @@ import {
   Button,
   ClipboardCopy,
   Content,
+  Divider,
+  Dropdown,
+  DropdownItem,
+  DropdownList,
   Flex,
   FlexItem,
   Label,
-  Popover,
-  Stack,
-  StackItem,
+  MenuToggle,
   Title,
 } from "@patternfly/react-core";
 import { ExternalLinkAltIcon } from "@patternfly/react-icons";
@@ -23,6 +25,7 @@ import {
   type GatewayConnection,
 } from "./gateway-connections";
 import { GatewayDeleteDialog } from "./gateway-delete-dialog";
+import { GatewayRenameDialog } from "./gateway-rename-dialog";
 
 export function GatewayCliCopy({ gateway }: { gateway: GatewayConnection }) {
   const intl = useIntl();
@@ -67,53 +70,20 @@ export function GatewayEndpointCopy({
 function GatewayDetailActions({
   gateway,
   onDeleted,
+  onRenamed,
 }: {
   gateway: GatewayConnection;
   onDeleted: () => void;
+  onRenamed: (gatewayName: string) => void;
 }) {
   const intl = useIntl();
+  const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
 
   return (
     <>
       <ActionList>
-        <ActionListItem>
-          <Button
-            onClick={() => {
-              setIsDeleteOpen(true);
-            }}
-            variant="danger"
-          >
-            <FormattedMessage {...messages.deleteGateway} />
-          </Button>
-        </ActionListItem>
-        <ActionListItem>
-          <Popover
-            aria-label={intl.formatMessage(messages.connectWithCli)}
-            bodyContent={
-              <Stack hasGutter>
-                <StackItem>
-                  <Title headingLevel="h2" size="md">
-                    <FormattedMessage {...messages.connectWithCli} />
-                  </Title>
-                </StackItem>
-                <StackItem>
-                  <GatewayCliCopy gateway={gateway} />
-                </StackItem>
-              </Stack>
-            }
-            closeBtnAriaLabel={intl.formatMessage(messages.close)}
-            maxWidth="40rem"
-            minWidth="20rem"
-            position="bottom-end"
-            showClose
-            withFocusTrap
-          >
-            <Button variant="secondary">
-              <FormattedMessage {...messages.connectWithCli} />
-            </Button>
-          </Popover>
-        </ActionListItem>
         <ActionListItem>
           <Button
             aria-label={intl.formatMessage(messages.openGatewayConsoleFor, {
@@ -130,7 +100,61 @@ function GatewayDetailActions({
             <FormattedMessage {...messages.openGatewayConsole} />
           </Button>
         </ActionListItem>
+        <ActionListItem>
+          <Dropdown
+            isOpen={isActionsOpen}
+            onOpenChange={setIsActionsOpen}
+            onSelect={() => {
+              setIsActionsOpen(false);
+            }}
+            shouldFocusToggleOnSelect
+            toggle={(toggleRef) => (
+              <MenuToggle
+                isExpanded={isActionsOpen}
+                onClick={() => {
+                  setIsActionsOpen((open) => !open);
+                }}
+                ref={toggleRef}
+                variant="secondary"
+              >
+                <FormattedMessage {...messages.actions} />
+              </MenuToggle>
+            )}
+          >
+            <DropdownList>
+              <DropdownItem
+                onClick={() => {
+                  setIsRenameOpen(true);
+                }}
+              >
+                <FormattedMessage {...messages.renameGateway} />
+              </DropdownItem>
+              <Divider component="li" />
+              <DropdownItem
+                isDanger
+                onClick={() => {
+                  setIsDeleteOpen(true);
+                }}
+              >
+                <FormattedMessage {...messages.deleteGateway} />
+              </DropdownItem>
+            </DropdownList>
+          </Dropdown>
+        </ActionListItem>
       </ActionList>
+      {isRenameOpen ? (
+        <GatewayRenameDialog
+          gatewayId={gateway.id}
+          gatewayName={gateway.name}
+          onClose={() => {
+            setIsRenameOpen(false);
+          }}
+          onRenamed={(gatewayName) => {
+            setIsRenameOpen(false);
+            onRenamed(gatewayName);
+          }}
+        />
+      ) : null}
       <GatewayDeleteDialog
         gatewayId={gateway.id}
         gatewayName={gateway.name}
@@ -151,10 +175,12 @@ export function GatewayDetailHeader({
   description,
   gateway,
   onDeleted,
+  onRenamed,
 }: {
   description: ReactNode;
   gateway: GatewayConnection;
   onDeleted: () => void;
+  onRenamed: (gatewayName: string) => void;
 }) {
   return (
     <Flex
@@ -180,7 +206,11 @@ export function GatewayDetailHeader({
         </Content>
       </FlexItem>
       <FlexItem>
-        <GatewayDetailActions gateway={gateway} onDeleted={onDeleted} />
+        <GatewayDetailActions
+          gateway={gateway}
+          onDeleted={onDeleted}
+          onRenamed={onRenamed}
+        />
       </FlexItem>
     </Flex>
   );

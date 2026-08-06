@@ -10,16 +10,40 @@ import { previewGateways } from "../gateways/gateway-connections";
 import type * as GatewayData from "../gateways/gateway-data";
 import { GatewayPage, GatewaysPage } from "./shell-pages";
 
-const { deleteGatewayMock, listGatewayConnectionsMock } = vi.hoisted(() => ({
-  deleteGatewayMock: vi.fn(),
-  listGatewayConnectionsMock: vi.fn(),
-}));
+const { deleteGatewayMock, listGatewayConnectionsMock, renameGatewayMock } =
+  vi.hoisted(() => ({
+    deleteGatewayMock: vi.fn(),
+    listGatewayConnectionsMock: vi.fn(),
+    renameGatewayMock: vi.fn(),
+  }));
 
 vi.mock("../gateways/gateway-data", async (importOriginal) => ({
   ...(await importOriginal<typeof GatewayData>()),
   deleteGateway: deleteGatewayMock,
   listGatewayConnections: listGatewayConnectionsMock,
+  renameGateway: renameGatewayMock,
 }));
+
+function gatewayResponse(id: string, name: string) {
+  return {
+    cluster_id: "",
+    created_at: null,
+    database_id: "database-1",
+    external_dns: "gateway.example.com",
+    fleet_id: "",
+    href: `/api/hypershell/v1/gateways/${id}`,
+    id,
+    kind: "Gateway" as const,
+    name,
+    namespace: "openshell",
+    phase: "",
+    release_id: "release-1",
+    service_type: "",
+    status: "Ready",
+    tls_mode: "",
+    updated_at: null,
+  };
+}
 
 function renderPage(
   Page: () => React.ReactNode,
@@ -88,18 +112,45 @@ describe("gateway shell pages", () => {
         name: "Open console for Team gateway in a new tab",
       }),
     ).toBeTruthy();
-    expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
-
-    await user.click(
-      screen.getByRole("button", { name: "Connect with the CLI" }),
+    expect(screen.queryByRole("button", { name: "Connect with the CLI" })).toBe(
+      null,
     );
+    expect(screen.getByText("CLI connection", { exact: true })).toBeTruthy();
     expect(
-      await screen.findByDisplayValue(
-        /openshell gateway add --name 'Team gateway'/u,
-      ),
+      screen.getByDisplayValue(/openshell gateway add --name 'Team gateway'/u),
     ).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Delete gateway" }));
+    renameGatewayMock.mockResolvedValue(
+      gatewayResponse("gateway-1", "Renamed team gateway"),
+    );
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename gateway" }));
+    const renameDialog = screen.getByRole("dialog", {
+      name: "Rename Team gateway",
+    });
+    const nameInput = within(renameDialog).getByRole("textbox", {
+      name: "Gateway name",
+    });
+    await user.clear(nameInput);
+    await user.type(nameInput, " Renamed team gateway ");
+    await user.click(
+      within(renameDialog).getByRole("button", { name: "Rename gateway" }),
+    );
+    await waitFor(() => {
+      expect(renameGatewayMock).toHaveBeenCalledWith(
+        "gateway-1",
+        "Renamed team gateway",
+      );
+    });
+    expect(
+      await screen.findByText("Gateway renamed to Renamed team gateway"),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("dialog", { name: "Rename Team gateway" }),
+    ).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
     let dialog = screen.getByRole("dialog", {
       name: "Delete Team gateway?",
     });
@@ -111,7 +162,8 @@ describe("gateway shell pages", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(deleteGatewayMock).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Delete gateway" }));
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
     dialog = screen.getByRole("dialog", { name: "Delete Team gateway?" });
     await user.click(
       within(dialog).getByRole("button", { name: "Delete gateway" }),
@@ -294,6 +346,36 @@ describe("gateway shell pages", () => {
       ),
     ).toBeTruthy();
 
+    renameGatewayMock.mockResolvedValue(
+      gatewayResponse("openshell-gateway-test", "Renamed gateway"),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for openshell-gateway-test",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Rename gateway" }));
+    const renameDialog = screen.getByRole("dialog", {
+      name: "Rename openshell-gateway-test",
+    });
+    const nameInput = within(renameDialog).getByRole("textbox", {
+      name: "Gateway name",
+    });
+    await user.clear(nameInput);
+    await user.type(nameInput, "Renamed gateway");
+    await user.click(
+      within(renameDialog).getByRole("button", { name: "Rename gateway" }),
+    );
+    await waitFor(() => {
+      expect(renameGatewayMock).toHaveBeenCalledWith(
+        "openshell-gateway-test",
+        "Renamed gateway",
+      );
+    });
+    expect(
+      await screen.findByText("Gateway renamed to Renamed gateway"),
+    ).toBeTruthy();
+
     await user.click(
       screen.getByRole("button", {
         name: "Actions for openshell-gateway-test",
@@ -347,6 +429,52 @@ describe("gateway shell pages", () => {
       screen.queryByRole("dialog", {
         name: "Delete openshell-gateway-test?",
       }),
+    ).toBeNull();
+  });
+
+  it("validates and recovers from a failed gateway rename", async () => {
+    const user = userEvent.setup();
+    renameGatewayMock.mockRejectedValue(new Error("conflict"));
+    renderPage(() => <GatewaysPage gateways={previewGateways} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for openshell-gateway-test",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Rename gateway" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Rename openshell-gateway-test",
+    });
+    const nameInput = within(dialog).getByRole("textbox", {
+      name: "Gateway name",
+    });
+    await user.clear(nameInput);
+    await user.click(
+      within(dialog).getByRole("button", { name: "Rename gateway" }),
+    );
+    expect(
+      await within(dialog).findByText("This field is required."),
+    ).toBeTruthy();
+    expect(renameGatewayMock).not.toHaveBeenCalled();
+
+    await user.type(nameInput, "Existing gateway");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Rename gateway" }),
+    );
+    expect(
+      await within(dialog).findByText("Gateway could not be renamed"),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "No changes were made. Choose a different name or try again.",
+      ),
+    ).toBeTruthy();
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "Another gateway");
+    expect(
+      within(dialog).queryByText("Gateway could not be renamed"),
     ).toBeNull();
   });
 

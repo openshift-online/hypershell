@@ -5,16 +5,21 @@ import {
   deleteGateway,
   getGateway,
   listGateways,
+  renameGateway,
   toGatewayConnection,
 } from "./gateway-data";
 
-const { deleteGatewayMock, getGatewayMock, listGatewaysMock } = vi.hoisted(
-  () => ({
-    deleteGatewayMock: vi.fn(),
-    getGatewayMock: vi.fn(),
-    listGatewaysMock: vi.fn(),
-  }),
-);
+const {
+  deleteGatewayMock,
+  getGatewayMock,
+  listGatewaysMock,
+  updateGatewayMock,
+} = vi.hoisted(() => ({
+  deleteGatewayMock: vi.fn(),
+  getGatewayMock: vi.fn(),
+  listGatewaysMock: vi.fn(),
+  updateGatewayMock: vi.fn(),
+}));
 
 vi.mock("../../lib/api.client", () => ({
   apiClient: {
@@ -22,6 +27,7 @@ vi.mock("../../lib/api.client", () => ({
       delete: deleteGatewayMock,
       get: getGatewayMock,
       list: listGatewaysMock,
+      update: updateGatewayMock,
     },
   },
 }));
@@ -129,5 +135,16 @@ describe("gateway API data", () => {
 
     await expect(deleteGateway("gateway-1")).resolves.toBeUndefined();
     expect(deleteGatewayMock).toHaveBeenCalledWith("gateway-1");
+  });
+
+  it("renames a gateway by ID", async () => {
+    updateGatewayMock.mockResolvedValue(gateway({ name: "Renamed gateway" }));
+
+    await expect(
+      renameGateway("gateway-1", "Renamed gateway"),
+    ).resolves.toMatchObject({ name: "Renamed gateway" });
+    expect(updateGatewayMock).toHaveBeenCalledWith("gateway-1", {
+      name: "Renamed gateway",
+    });
   });
 });

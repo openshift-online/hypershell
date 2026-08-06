@@ -89,3 +89,10 @@ export async function getGateway(
 export async function deleteGateway(gatewayId: string): Promise<void> {
   await apiClient.gateways.delete(gatewayId);
 }
+
+export async function renameGateway(
+  gatewayId: string,
+  name: string,
+): Promise<Gateway> {
+  return apiClient.gateways.update(gatewayId, { name });
+}

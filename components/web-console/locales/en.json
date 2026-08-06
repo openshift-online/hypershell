@@ -31,6 +31,10 @@
     "defaultMessage": "This field is required.",
     "description": "Validation message for an empty required form field."
   },
+  "app.gateway.cliConnection": {
+    "defaultMessage": "CLI connection",
+    "description": "Label for a gateway's OpenShell CLI connection command."
+  },
   "app.gateway.cliConnectionCommandCopied": {
     "defaultMessage": "CLI connection command for {gatewayName} copied",
     "description": "Success notification after copying a gateway CLI command."
@@ -42,10 +46,6 @@
   "app.gateway.cluster": {
     "defaultMessage": "Cluster",
     "description": "Heading for the gateway placement cluster column."
-  },
-  "app.gateway.connectWithCli": {
-    "defaultMessage": "Connect with the CLI",
-    "description": "Action and heading for a gateway's OpenShell CLI connection command."
   },
   "app.gateway.copyCliConnectionCommand": {
     "defaultMessage": "Copy CLI connection command",
@@ -126,6 +126,30 @@
   "app.gateway.releaseId": {
     "defaultMessage": "Gateway release ID",
     "description": "Label for a gateway's release identifier."
+  },
+  "app.gateway.rename": {
+    "defaultMessage": "Rename gateway",
+    "description": "Action that changes a gateway's name."
+  },
+  "app.gateway.rename.error.body": {
+    "defaultMessage": "No changes were made. Choose a different name or try again.",
+    "description": "Recovery guidance when gateway renaming fails."
+  },
+  "app.gateway.rename.error.title": {
+    "defaultMessage": "Gateway could not be renamed",
+    "description": "Title shown when gateway renaming fails."
+  },
+  "app.gateway.rename.pending": {
+    "defaultMessage": "Renaming gateway",
+    "description": "Accessible progress text while a gateway is being renamed."
+  },
+  "app.gateway.rename.title": {
+    "defaultMessage": "Rename {gatewayName}",
+    "description": "Title for the gateway rename dialog."
+  },
+  "app.gateway.renamed": {
+    "defaultMessage": "Gateway renamed to {gatewayName}",
+    "description": "Success notification after renaming a gateway."
   },
   "app.gateway.rowActions": {
     "defaultMessage": "Actions for {gatewayName}",

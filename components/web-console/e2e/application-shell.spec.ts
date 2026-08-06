@@ -26,6 +26,7 @@ const gateway = {
 
 test.beforeEach(async ({ browserName, page }) => {
   let gatewayDeleted = false;
+  let gatewayName = gateway.name;
   if (browserName !== "chromium") {
     await page.addInitScript(() => {
       let clipboardText = "";
@@ -49,6 +50,18 @@ test.beforeEach(async ({ browserName, page }) => {
       await route.fulfill({ status: 204 });
       return;
     }
+    if (request.method() === "PATCH") {
+      const patch = request.postDataJSON() as { name?: unknown };
+      if (typeof patch.name === "string") {
+        gatewayName = patch.name;
+      }
+      await route.fulfill({
+        body: JSON.stringify({ ...gateway, name: gatewayName }),
+        contentType: "application/json",
+        status: 200,
+      });
+      return;
+    }
     if (request.method() !== "GET") {
       await route.continue();
       return;
@@ -58,13 +71,13 @@ test.beforeEach(async ({ browserName, page }) => {
     const body =
       gatewayId === "gateways"
         ? {
-            items: gatewayDeleted ? [] : [gateway],
+            items: gatewayDeleted ? [] : [{ ...gateway, name: gatewayName }],
             kind: "GatewayList",
             page: 1,
             size: 100,
-            total: 1,
+            total: gatewayDeleted ? 0 : 1,
           }
-        : gateway;
+        : { ...gateway, name: gatewayName };
     await route.fulfill({
       body: JSON.stringify(body),
       contentType: "application/json",
@@ -156,7 +169,7 @@ test("operates gateway rows and opens provisioning", async ({
   await expect(page.getByLabel("Cluster", { exact: true })).toHaveCount(0);
 });
 
-test("keeps connection actions on gateway details", async ({
+test("keeps connection methods on gateway details", async ({
   browserName,
   context,
   page,
@@ -179,12 +192,16 @@ test("keeps connection actions on gateway details", async ({
       name: "Open console for openshell-gateway-test in a new tab",
     }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Actions", exact: true }),
+  ).toBeVisible();
 
   const copyFields = page.getByRole("textbox");
-  await expect(copyFields).toHaveCount(1);
+  await expect(copyFields).toHaveCount(2);
   await expect(copyFields.nth(0)).toHaveValue(
     "https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
   );
+  await expect(copyFields.nth(1)).toHaveValue(connectionCommand);
   await page
     .getByRole("button", {
       name: "Copy gateway endpoint for openshell-gateway-test",
@@ -196,9 +213,6 @@ test("keeps connection actions on gateway details", async ({
       "https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
     );
 
-  await page.getByRole("button", { name: "Connect with the CLI" }).click();
-  await expect(copyFields).toHaveCount(2);
-  await expect(copyFields.nth(1)).toHaveValue(connectionCommand);
   await expect(
     page
       .getByRole("navigation", { name: "Breadcrumb" })
@@ -207,6 +221,52 @@ test("keeps connection actions on gateway details", async ({
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
+});
+
+test("renames a gateway from its row", async ({ page }) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Actions for openshell-gateway-test" })
+    .click();
+  await page.getByRole("menuitem", { name: "Rename gateway" }).click();
+
+  const dialog = page.getByRole("dialog", {
+    name: "Rename openshell-gateway-test",
+  });
+  const nameInput = dialog.getByRole("textbox", { name: "Gateway name" });
+  await expect(nameInput).toHaveValue("openshell-gateway-test");
+  await nameInput.fill("team-gateway");
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+  await dialog.getByRole("button", { name: "Rename gateway" }).click();
+
+  await expect(
+    page.getByRole("link", { name: "team-gateway", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Gateway renamed to team-gateway")).toBeVisible();
+});
+
+test("renames a gateway from its details", async ({ page }) => {
+  await page.goto("/gateways/openshell-gateway-test");
+  await page.getByRole("button", { name: "Actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Rename gateway" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Rename openshell-gateway-test",
+  });
+  await dialog
+    .getByRole("textbox", { name: "Gateway name" })
+    .fill("team-gateway");
+  await dialog.getByRole("button", { name: "Rename gateway" }).click();
+
+  await expect(
+    page.getByRole("heading", { level: 1, name: "team-gateway" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByText("team-gateway"),
+  ).toBeVisible();
+  await expect(page.getByText("Gateway renamed to team-gateway")).toBeVisible();
 });
 
 test("deletes a gateway from its row after confirmation", async ({ page }) => {
@@ -248,7 +308,8 @@ test("deletes a gateway from its details and returns to the list", async ({
   page,
 }) => {
   await page.goto("/gateways/openshell-gateway-test");
-  await page.getByRole("button", { name: "Delete gateway" }).click();
+  await page.getByRole("button", { name: "Actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete gateway" }).click();
   const dialog = page.getByRole("dialog", {
     name: "Delete openshell-gateway-test?",
   });
@@ -330,9 +391,8 @@ test("provisions a gateway without exposing placement fields", async ({
       .getByRole("navigation", { name: "Breadcrumb" })
       .getByText("team-gateway"),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Connect with the CLI" }),
-  ).toBeVisible();
+  await expect(page.getByText("CLI connection", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox")).toHaveCount(2);
   expect(requestBody).toEqual({
     cluster_id: "",
     database_id: "",

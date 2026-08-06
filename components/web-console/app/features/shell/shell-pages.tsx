@@ -24,6 +24,7 @@ import {
   type GatewayConnection,
 } from "../gateways/gateway-connections";
 import {
+  GatewayCliCopy,
   GatewayDetailHeader,
   GatewayEndpointCopy,
 } from "../gateways/gateway-detail-header";
@@ -53,6 +54,69 @@ interface GatewaysPageProps {
   onRefresh?: () => unknown;
 }
 
+function GatewaySuccessAlerts({
+  deletedGatewayName,
+  onDismissDeleted,
+  onDismissRenamed,
+  renamedGatewayName,
+}: {
+  deletedGatewayName?: string;
+  onDismissDeleted?: () => void;
+  onDismissRenamed: () => void;
+  renamedGatewayName?: string;
+}) {
+  const intl = useIntl();
+
+  if (!deletedGatewayName && !renamedGatewayName) {
+    return null;
+  }
+
+  return (
+    <AlertGroup
+      aria-label={intl.formatMessage(messages.notifications)}
+      isLiveRegion
+      isToast
+    >
+      {renamedGatewayName ? (
+        <Alert
+          actionClose={
+            <AlertActionCloseButton
+              aria-label={intl.formatMessage(messages.close)}
+              onClose={onDismissRenamed}
+            />
+          }
+          onTimeout={onDismissRenamed}
+          timeout={8000}
+          title={intl.formatMessage(messages.gatewayRenamed, {
+            gatewayName: renamedGatewayName,
+          })}
+          variant="success"
+        />
+      ) : null}
+      {deletedGatewayName ? (
+        <Alert
+          actionClose={
+            <AlertActionCloseButton
+              aria-label={intl.formatMessage(messages.close)}
+              onClose={() => {
+                onDismissDeleted?.();
+              }}
+            />
+          }
+          onTimeout={() => {
+            onDismissDeleted?.();
+          }}
+          timeout={8000}
+          title={intl.formatMessage(messages.gatewayDeleted, {
+            gatewayName: deletedGatewayName,
+          })}
+          variant="success"
+        />
+      ) : null}
+    </AlertGroup>
+  );
+}
+
 export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
   const intl = useIntl();
   const location = useLocation();
@@ -65,6 +129,7 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
   const [deletedGatewayName, setDeletedGatewayName] = useState(
     routedDeletedGatewayName,
   );
+  const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   useEffect(() => {
     if (!routedDeletedGatewayName) {
       return;
@@ -126,32 +191,16 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
 
   return (
     <>
-      {deletedGatewayName ? (
-        <AlertGroup
-          aria-label={intl.formatMessage(messages.notifications)}
-          isLiveRegion
-          isToast
-        >
-          <Alert
-            actionClose={
-              <AlertActionCloseButton
-                aria-label={intl.formatMessage(messages.close)}
-                onClose={() => {
-                  setDeletedGatewayName(undefined);
-                }}
-              />
-            }
-            onTimeout={() => {
-              setDeletedGatewayName(undefined);
-            }}
-            timeout={8000}
-            title={intl.formatMessage(messages.gatewayDeleted, {
-              gatewayName: deletedGatewayName,
-            })}
-            variant="success"
-          />
-        </AlertGroup>
-      ) : null}
+      <GatewaySuccessAlerts
+        deletedGatewayName={deletedGatewayName}
+        onDismissDeleted={() => {
+          setDeletedGatewayName(undefined);
+        }}
+        onDismissRenamed={() => {
+          setRenamedGatewayName(undefined);
+        }}
+        renamedGatewayName={renamedGatewayName}
+      />
       <PageSection hasBodyWrapper={false}>
         <Flex
           alignItems={{ default: "alignItemsFlexStart" }}
@@ -206,6 +255,7 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
               onDeleted={() => {
                 setDeletedGatewayName(gateway.name);
               }}
+              onRenamed={setRenamedGatewayName}
             />
           )}
           rows={visibleGateways ?? []}
@@ -222,6 +272,7 @@ interface GatewayPageProps {
 export function GatewayPage({ gateway }: GatewayPageProps = {}) {
   const { gatewayId = "" } = useParams();
   const navigate = useNavigate();
+  const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const gatewayQuery = useQuery({
     enabled: gateway === undefined && gatewayId.length > 0,
     queryFn: ({ signal }) => getGateway(gatewayId, signal),
@@ -243,6 +294,12 @@ export function GatewayPage({ gateway }: GatewayPageProps = {}) {
 
   return (
     <>
+      <GatewaySuccessAlerts
+        onDismissRenamed={() => {
+          setRenamedGatewayName(undefined);
+        }}
+        renamedGatewayName={renamedGatewayName}
+      />
       <PageSection hasBodyWrapper={false}>
         <GatewayDetailHeader
           description={<FormattedMessage {...messages.gatewayDescription} />}
@@ -252,6 +309,7 @@ export function GatewayPage({ gateway }: GatewayPageProps = {}) {
               state: { deletedGatewayName: connection.name },
             });
           }}
+          onRenamed={setRenamedGatewayName}
         />
       </PageSection>
       <PageSection hasBodyWrapper={false} isFilled variant="secondary">
@@ -270,6 +328,14 @@ export function GatewayPage({ gateway }: GatewayPageProps = {}) {
             </DescriptionListTerm>
             <DescriptionListDescription>
               <GatewayEndpointCopy gateway={connection} />
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              <FormattedMessage {...messages.cliConnection} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <GatewayCliCopy gateway={connection} />
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
