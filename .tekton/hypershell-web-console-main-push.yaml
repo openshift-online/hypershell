@@ -25,9 +25,9 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-web-console-main:{{revision}}
   - name: dockerfile
-    value: Dockerfile
+    value: components/web-console/Dockerfile
   - name: path-context
-    value: components/web-console
+    value: .
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.
