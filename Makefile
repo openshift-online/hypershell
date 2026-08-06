@@ -30,31 +30,25 @@ web_console_local=hypershell-web-console:dev
 # --- Kind cluster configuration ---
 KIND_CLUSTER_NAME?=hypershell-dev
 KIND_NAMESPACE?=hypershell-system
-KIND_USE_NODEPORT?=
 KIND_HOT_RELOAD?=true
 KIND_HOST_MOUNT_PATH?=$(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 KIND_KEYCLOAK_URL?=
 LOCAL_IMAGES?=
 KIND_PULL_SECRET?=
 
-# NodePort configuration (used when KIND_USE_NODEPORT=true)
-KIND_API_PORT?=23080
-KIND_GRPC_PORT?=29000
-KIND_HEALTH_PORT?=24434
-KIND_CONSOLE_PORT?=23000
-
 # Prerequisite versions
 GATEWAY_API_VERSION?=v1.2.1
 CLOUD_PROVIDER_KIND_VERSION?=v0.6.0
 CERT_MANAGER_VERSION?=v1.21.1
 
-# Kind config selection
-KIND_CONFIG=$(if $(KIND_USE_NODEPORT),deploy/kind/kind-config-nodeport.yaml,deploy/kind/kind-config.yaml)
+# Kind config
+KIND_CONFIG=deploy/kind/kind-config.yaml
 
-# Service hostnames
+# Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
+KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
 
 # ============================================================================
 # Build targets
@@ -184,15 +178,15 @@ test-all: install-js
 # Kind cluster lifecycle — shell logic lives in scripts/kind/
 # ============================================================================
 
-export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE KIND_USE_NODEPORT
+export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
 export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
-export KIND_PULL_SECRET KIND_API_PORT KIND_GRPC_PORT KIND_HEALTH_PORT KIND_CONSOLE_PORT
+export KIND_PULL_SECRET
 export GATEWAY_API_VERSION CLOUD_PROVIDER_KIND_VERSION CERT_MANAGER_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export api_server_local control_plane_local web_console_local
 export build_version build_time
-export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME
+export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME
 
 .PHONY: kind-up
 kind-up:

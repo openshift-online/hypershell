@@ -145,15 +145,28 @@ header "TLS & Networking"
 info "Setting up TLS certificates..."
 kubectl apply -f deploy/kind/prerequisites/certificates.yaml
 
-if [[ -z "${KIND_USE_NODEPORT:-}" ]]; then
-  info "Setting up Gateway API networking..."
-  kubectl apply -f deploy/kind/prerequisites/networking-gateway.yaml
-  kubectl apply -f deploy/kind/prerequisites/httproutes.yaml
+info "Setting up Gateway API networking..."
+kubectl apply -f deploy/kind/prerequisites/networking-gateway.yaml
+kubectl apply -f deploy/kind/prerequisites/httproutes.yaml
+
+info "Waiting for networking Gateway to get an address..."
+for i in $(seq 1 30); do
+  GW_ADDR=$(kubectl get gateway hypershell-gw -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+  if [[ -n "${GW_ADDR}" ]]; then break; fi
+  if (( i % 5 == 0 )); then
+    info "Gateway not ready yet (${i}/30)... is cloud-provider-kind running?"
+  fi
+  sleep 2
+done
+
+if [[ -n "${GW_ADDR}" ]]; then
+  success "Networking Gateway address: ${GW_ADDR}"
 else
-  info "Setting up NodePort services..."
-  kubectl apply -f deploy/kind/prerequisites/nodeport-services.yaml
+  warn "Gateway has no address after 60s — cloud-provider-kind may not be running"
+  warn "Install: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
+  warn "Start:   nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &"
 fi
-success "Networking configured"
 echo ""
 
 # --- Wait for readiness ---
@@ -280,36 +293,31 @@ fi
 kill "${PF_PID}" 2>/dev/null || true
 echo ""
 
-# --- Configure /etc/hosts (hostname mode only) ---
-if [[ -z "${KIND_USE_NODEPORT:-}" ]]; then
-  header "/etc/hosts"
-  for h in "${API_HOSTNAME}" "${CONSOLE_HOSTNAME}" "${HEALTH_HOSTNAME}"; do
-    if ! grep -q "${h}" /etc/hosts 2>/dev/null; then
-      info "Adding ${h} to /etc/hosts (requires sudo)"
-      sudo sh -c "echo '127.0.0.1 ${h}' >> /etc/hosts"
-    fi
-  done
-  success "Host entries configured"
-  echo ""
+# --- Configure /etc/hosts ---
+header "/etc/hosts"
+HOSTNAMES=("${API_HOSTNAME}" "${CONSOLE_HOSTNAME}" "${HEALTH_HOSTNAME}")
+if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+  HOSTNAMES+=("${KEYCLOAK_HOSTNAME}")
 fi
+for h in "${HOSTNAMES[@]}"; do
+  if ! grep -q "${h}" /etc/hosts 2>/dev/null; then
+    info "Adding ${h} to /etc/hosts (requires sudo)"
+    sudo sh -c "echo '127.0.0.1 ${h}' >> /etc/hosts"
+  fi
+done
+success "Host entries configured"
+echo ""
 
 # --- Summary banner ---
 header "HyperShell is running!"
 echo ""
-if [[ -z "${KIND_USE_NODEPORT:-}" ]]; then
-  info "HTTP API:     https://${API_HOSTNAME}"
-  info "Web Console:  https://${CONSOLE_HOSTNAME}"
-  info "Health:       https://${HEALTH_HOSTNAME}"
-  info "gRPC:         https://openshell-gateway.gw.localhost"
-else
-  info "HTTP API:     http://localhost:${KIND_API_PORT}"
-  info "gRPC:         localhost:${KIND_GRPC_PORT}"
-  info "Health:       http://localhost:${KIND_HEALTH_PORT}"
-  info "Web Console:  http://localhost:${KIND_CONSOLE_PORT}"
-fi
+info "HTTP API:     https://${API_HOSTNAME}"
+info "Web Console:  https://${CONSOLE_HOSTNAME}"
+info "Health:       https://${HEALTH_HOSTNAME}"
+info "gRPC:         https://openshell-gateway.gw.localhost"
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
-  info "Keycloak:     http://localhost:8080 (admin/admin)"
+  info "Keycloak:     https://${KEYCLOAK_HOSTNAME} (admin/admin)"
   info "OIDC Issuer:  http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
 else
   info "Keycloak:     ${KIND_KEYCLOAK_URL}"

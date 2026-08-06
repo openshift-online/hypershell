@@ -45,7 +45,7 @@ This creates a Kind cluster and deploys:
   Web Console:  https://console.hypershell.localhost
   Health:       https://health.hypershell.localhost
   gRPC:         https://openshell-gateway.gw.localhost
-  Keycloak:     http://localhost:8080 (admin/admin)
+  Keycloak:     https://keycloak.hypershell.localhost (admin/admin)
 ```
 
 Services are accessed via `.localhost` hostnames routed through the networking
@@ -162,25 +162,6 @@ Per-component swap targets respect `KIND_NAMESPACE`:
 KIND_NAMESPACE=hypershell-feature-add-auth make kind-api-server-up
 ```
 
-## NodePort Fallback
-
-For environments where `/etc/hosts` cannot be modified (e.g. CI), use NodePort
-mode:
-
-```bash
-KIND_USE_NODEPORT=true make kind-up
-```
-
-| Service | Default Port | NodePort |
-|---------|-------------|----------|
-| HTTP API | `23080` | `30080` |
-| gRPC | `29000` | `30090` |
-| Health | `24434` | `30100` |
-| Web Console | `23000` | `30110` |
-
-Override ports with `KIND_API_PORT`, `KIND_GRPC_PORT`, `KIND_HEALTH_PORT`,
-`KIND_CONSOLE_PORT`.
-
 ## Private Registry Pull Secret
 
 If your baseline images live in a private registry, provide a pull secret:
@@ -222,14 +203,9 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 |----------|---------|-------------|
 | `KIND_CLUSTER_NAME` | `hypershell-dev` | Kind cluster name |
 | `KIND_NAMESPACE` | `hypershell-system` | Target namespace for swap/teardown |
-| `KIND_USE_NODEPORT` | (unset) | Set to `true` for NodePort mode |
 | `KIND_HOT_RELOAD` | `true` | Hot reload for web console |
 | `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
 | `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
-| `KIND_API_PORT` | `23080` | Host port for HTTP API (NodePort mode) |
-| `KIND_GRPC_PORT` | `29000` | Host port for gRPC (NodePort mode) |
-| `KIND_HEALTH_PORT` | `24434` | Host port for health endpoint (NodePort mode) |
-| `KIND_CONSOLE_PORT` | `23000` | Host port for web console (NodePort mode) |
 | `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
@@ -271,13 +247,6 @@ open -a Docker
 podman machine start
 ```
 
-### Port conflicts
-
-If NodePort ports are already in use, override them:
-```bash
-KIND_API_PORT=28080 KIND_GRPC_PORT=28000 make kind-up
-```
-
 ### Image pull failures
 
 If the container registry is unreachable, use offline mode:
@@ -295,10 +264,10 @@ go install sigs.k8s.io/cloud-provider-kind@latest
 
 ### /etc/hosts permission denied
 
-`make kind-up` prompts for `sudo` to update `/etc/hosts`. If running in CI or
-an environment where `sudo` is unavailable, use NodePort mode:
+`make kind-up` prompts for `sudo` to update `/etc/hosts`. Ensure your user
+has `sudo` access, or pre-add the entries manually:
 ```bash
-KIND_USE_NODEPORT=true make kind-up
+echo '127.0.0.1 api.hypershell.localhost console.hypershell.localhost health.hypershell.localhost keycloak.hypershell.localhost' | sudo tee -a /etc/hosts
 ```
 
 ### Pods stuck in ImagePullBackOff

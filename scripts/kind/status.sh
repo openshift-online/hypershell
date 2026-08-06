@@ -40,13 +40,7 @@ fi
 echo ""
 
 header "Access"
-if [[ -z "${KIND_USE_NODEPORT:-}" ]]; then
-  info "HTTP API:     https://${API_HOSTNAME}"
-  info "Web Console:  https://${CONSOLE_HOSTNAME}"
-  info "Health:       https://${HEALTH_HOSTNAME}"
-else
-  info "HTTP API:     http://localhost:${KIND_API_PORT}"
-  info "gRPC:         localhost:${KIND_GRPC_PORT}"
-  info "Health:       http://localhost:${KIND_HEALTH_PORT}"
-  info "Web Console:  http://localhost:${KIND_CONSOLE_PORT}"
-fi
+info "HTTP API:     https://${API_HOSTNAME}"
+info "Web Console:  https://${CONSOLE_HOSTNAME}"
+info "Health:       https://${HEALTH_HOSTNAME}"
+info "Keycloak:     https://${KEYCLOAK_HOSTNAME}"
