@@ -99,7 +99,7 @@ KIND_API_PORT?=23080
 IMAGE_NAME=hypershell
 CONTROLLER_IMAGE_NAME=hypershell-controller
 IMAGE_TAG=dev
-REPO_ROOT=$(shell cd ../.. && pwd)
+REPO_ROOT=$(shell git rev-parse --show-toplevel)
 
 .PHONY: image
 image:
