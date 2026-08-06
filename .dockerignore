@@ -8,6 +8,10 @@ images/**
 !images/brand/logo.png
 !components/
 components/**
+!components/api-server/
+!components/api-server/**
+!components/control-plane/
+!components/control-plane/**
 !components/sdk-typescript/
 !components/sdk-typescript/**
 !components/gateway-ui/

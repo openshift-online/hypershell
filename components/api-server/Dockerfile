@@ -25,6 +25,7 @@ WORKDIR /
 
 COPY --from=builder /workspace/hypershell /usr/local/bin/
 
+USER 1001
 EXPOSE 8000
 EXPOSE 9000
 
