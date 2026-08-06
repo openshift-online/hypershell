@@ -9,7 +9,7 @@ header "Tearing down Kind cluster '${KIND_CLUSTER_NAME}'"
 
 if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
   info "Stopping cloud-provider-kind..."
-  pkill -f "cloud-provider-kind" || true
+  sudo pkill -f "cloud-provider-kind" 2>/dev/null || pkill -f "cloud-provider-kind" || true
   success "cloud-provider-kind stopped"
 fi
 

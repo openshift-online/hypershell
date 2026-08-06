@@ -47,7 +47,7 @@ echo ""
 # --- Install Gateway API CRDs ---
 header "Gateway API CRDs"
 info "Installing Gateway API CRDs (${GATEWAY_API_VERSION}, experimental channel)..."
-kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
+kubectl apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
 success "Gateway API CRDs installed"
 echo ""
 
@@ -61,9 +61,15 @@ if ! command -v cloud-provider-kind >/dev/null 2>&1; then
 fi
 
 if ! pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-  info "Starting cloud-provider-kind..."
-  nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &
-  success "cloud-provider-kind started (PID: $!)"
+  info "Starting cloud-provider-kind (requires sudo for Docker proxy on macOS)..."
+  sudo -E nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &
+  sleep 2
+  if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+    success "cloud-provider-kind started"
+  else
+    error "cloud-provider-kind failed to start — check /tmp/cloud-provider-kind.log"
+    exit 1
+  fi
 else
   warn "cloud-provider-kind already running"
 fi

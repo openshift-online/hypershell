@@ -211,7 +211,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
 | `LOCAL_IMAGES` | (unset) | Set to `true` for offline baseline builds |
 | `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
-| `GATEWAY_API_VERSION` | `v1.2.1` | Gateway API CRD version |
+| `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
 | `CLOUD_PROVIDER_KIND_VERSION` | `v0.6.0` | cloud-provider-kind version |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
 
