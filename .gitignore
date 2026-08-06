@@ -28,3 +28,6 @@ test-results/
 
 # Agent Package Manager cache
 apm_modules/
+
+# Kind swap tracking
+.kind-swaps

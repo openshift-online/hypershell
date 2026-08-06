@@ -1,6 +1,4 @@
-import type { Gateway } from "@openshift-online/hypershell-sdk";
-
-import { apiClient } from "../../lib/api.client";
+import { apiClient } from "../../adapters/api/api.client";
 import { previewGateway, type GatewayConnection } from "./gateway-connections";
 
 const gatewayPageSize = 100;
@@ -9,13 +7,32 @@ export function gatewayQueryKey(gatewayId: string) {
   return ["gateways", "detail", gatewayId] as const;
 }
 
+export interface GatewayRecord {
+  cluster_id: string;
+  created_at: string | null;
+  database_id: string;
+  external_dns: string;
+  fleet_id: string;
+  href: string;
+  id: string;
+  kind: string;
+  name: string;
+  namespace: string;
+  phase: string;
+  release_id: string;
+  service_type: string;
+  status: string;
+  tls_mode: string;
+  updated_at: string | null;
+}
+
 type GatewayApiPayload = Omit<
-  Gateway,
+  GatewayRecord,
   "external_dns" | "phase" | "service_type" | "status" | "tls_mode"
 > &
   Partial<
     Pick<
-      Gateway,
+      GatewayRecord,
       "external_dns" | "phase" | "service_type" | "status" | "tls_mode"
     >
   >;
@@ -52,8 +69,10 @@ export function toGatewayConnection(
   };
 }
 
-export async function listGateways(signal?: AbortSignal): Promise<Gateway[]> {
-  const gateways: Gateway[] = [];
+export async function listGateways(
+  signal?: AbortSignal,
+): Promise<GatewayRecord[]> {
+  const gateways: GatewayRecord[] = [];
   let page = 1;
   let total = 0;
 
@@ -82,7 +101,7 @@ export async function listGatewayConnections(
 export async function getGateway(
   gatewayId: string,
   signal?: AbortSignal,
-): Promise<Gateway> {
+): Promise<GatewayRecord> {
   return apiClient.gateways.get(gatewayId, { signal });
 }
 
@@ -93,6 +112,6 @@ export async function deleteGateway(gatewayId: string): Promise<void> {
 export async function renameGateway(
   gatewayId: string,
   name: string,
-): Promise<Gateway> {
+): Promise<GatewayRecord> {
   return apiClient.gateways.update(gatewayId, { name });
 }

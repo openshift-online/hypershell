@@ -2,6 +2,14 @@ import eslint from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
+import {
+  rawDiagnosticRules,
+  sdkImportRule,
+  serverApplicationRules,
+  serverSdkAndTelemetryImportRule,
+  serverTelemetryImportRule,
+} from "../eslint.architecture.mjs";
+
 export default tseslint.config(
   { ignores: ["dist/**", "node_modules/**", "public/**"] },
   eslint.configs.recommended,
@@ -23,7 +31,38 @@ export default tseslint.config(
       },
     },
     rules: {
+      ...rawDiagnosticRules,
       "@typescript-eslint/consistent-type-imports": "error",
     },
+  },
+  {
+    files: ["src/**/*.ts"],
+    ignores: ["src/adapters/api/**", "src/composition/**"],
+    rules: { "no-restricted-imports": sdkImportRule },
+  },
+  {
+    files: ["src/**/*.ts"],
+    ignores: [
+      "src/adapters/observability/**",
+      "src/composition/**",
+      "src/index.ts",
+    ],
+    rules: { "no-restricted-imports": serverSdkAndTelemetryImportRule },
+  },
+  {
+    files: ["src/adapters/api/**/*.ts"],
+    rules: { "no-restricted-imports": serverTelemetryImportRule },
+  },
+  {
+    files: ["src/adapters/observability/**/*.ts"],
+    rules: { "no-restricted-imports": sdkImportRule },
+  },
+  {
+    files: ["src/composition/**/*.ts"],
+    rules: { "no-restricted-imports": "off" },
+  },
+  {
+    files: ["src/application/**/*.ts", "src/domain/**/*.ts"],
+    rules: serverApplicationRules,
   },
 );

@@ -13,7 +13,6 @@ import {
   PageSection,
   Title,
 } from "@patternfly/react-core";
-import type { Gateway } from "@openshift-online/hypershell-sdk";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
@@ -33,6 +32,7 @@ import {
   getGateway,
   listGatewayConnections,
   toGatewayConnection,
+  type GatewayRecord,
 } from "../gateways/gateway-data";
 import { GatewayLoadState } from "../gateways/gateway-load-state";
 import { GatewayRowActions } from "../gateways/gateway-row-actions";
@@ -266,7 +266,7 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
 }
 
 interface GatewayPageProps {
-  gateway?: Gateway;
+  gateway?: GatewayRecord;
 }
 
 export function GatewayPage({ gateway }: GatewayPageProps = {}) {

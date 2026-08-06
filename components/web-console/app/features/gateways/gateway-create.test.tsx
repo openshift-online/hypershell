@@ -12,7 +12,7 @@ const { createGatewayMock } = vi.hoisted(() => ({
   createGatewayMock: vi.fn(),
 }));
 
-vi.mock("../../lib/api.client", () => ({
+vi.mock("../../adapters/api/api.client", () => ({
   apiClient: {
     gateways: {
       create: createGatewayMock,

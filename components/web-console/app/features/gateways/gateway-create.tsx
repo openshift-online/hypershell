@@ -1,4 +1,3 @@
-import type { GatewayCreateRequest } from "@openshift-online/hypershell-sdk";
 import {
   ActionGroup,
   Alert,
@@ -21,7 +20,7 @@ import { Link, useNavigate } from "react-router";
 import { z } from "zod";
 
 import { messages } from "../../i18n/messages";
-import { apiClient } from "../../lib/api.client";
+import { apiClient } from "../../adapters/api/api.client";
 import { gatewayQueryKey } from "./gateway-data";
 interface GatewayFormValues {
   name: string;
@@ -106,7 +105,7 @@ export function GatewayCreatePage() {
 
   const createGateway = useMutation({
     mutationFn: (values: GatewayFormValues) => {
-      const request: GatewayCreateRequest = {
+      const request = {
         ...values,
         cluster_id: "",
         database_id: "",

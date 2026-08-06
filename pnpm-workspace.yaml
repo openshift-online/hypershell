@@ -2,6 +2,7 @@ packages:
   - components/sdk-typescript
   - components/web-console
   - components/web-console/bff
+  - components/web-console/domain-probes
 
 registries:
   default: https://registry.npmjs.org/

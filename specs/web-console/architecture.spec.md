@@ -225,6 +225,8 @@ TanStack Query SHALL own REST response data, asynchronous request state, caching
 
 React Router loaders MAY verify session and route access and prefill the Query client. Loader data and React Context SHALL NOT become competing REST caches. Redux, Zustand, MobX, or another global state store SHALL NOT be added until a recorded design decision demonstrates cross-route client-only state that React, URL state, and TanStack Query cannot manage clearly.
 
+Query and mutation functions SHALL call application use cases through the narrow boundary in `standards/ui/hexagonal-architecture.spec.md`; they SHALL NOT call the generated SDK directly. TanStack Query remains the presentation-side owner of server-state policy and SHALL NOT be hidden behind a generic query port.
+
 **Verification:** Inventory state ownership and query keys. Navigate between gateways and list views with different request parameters and confirm that cached data never crosses resource boundaries.
 
 ### Requirement WEB-DATA-02: URL and Local State
@@ -242,6 +244,8 @@ Queries SHALL have explicit freshness and retry policies by data class. The clie
 Resources in non-terminal lifecycle states MAY use bounded adaptive polling while the document is visible. Polling SHALL pause or slow when hidden, stop at terminal state, recover after reconnect, and avoid refetching unrelated resources. Global polling SHALL NOT be used. SSE or WebSocket dependencies SHALL wait for an authenticated API event contract.
 
 Route changes and component disposal SHALL cancel obsolete requests with `AbortSignal` where supported.
+
+Each request path SHALL have one explicit retry owner. A TanStack Query `AbortSignal` SHALL propagate through the application use case and API port to the generated SDK.
 
 **Verification:** Simulate offline, reconnect, tab hiding, 400, 401, 403, 409, 429, 500, timeout, and slow cancellation. Inspect request count and user-visible state.
 
@@ -365,6 +369,8 @@ User- or API-provided text SHALL render as text by default. Raw HTML rendering r
 
 The browser SHALL report Core Web Vitals using `web-vitals` and SHALL measure critical-task completion, failure, abandonment, client errors, and recovery outcomes required by `standards/ui/trust-performance.spec.md`. Metrics SHALL use stable route templates rather than raw identifiers and SHALL exclude query strings, secrets, user-entered values, tokens, and sensitive resource content.
 
+Domain and critical-task facts SHALL enter through the typed, fan-out probe publisher required by `standards/ui/domain-observability.spec.md`. Browser application code SHALL NOT bypass it with raw console, logging, analytics, metrics, or tracing calls.
+
 Performance budgets SHALL cover route JavaScript, CSS, initial data, long tasks, and task-specific latency on representative devices, networks, and data volumes. The Core Web Vitals thresholds and percentile rules in the UI performance standard are release requirements.
 
 **Verification:** Inspect emitted events and dimensions, simulate client errors and task failures, and compare field dashboards and lab diagnostics with declared budgets.
@@ -372,6 +378,8 @@ Performance budgets SHALL cover route JavaScript, CSS, initial data, long tasks,
 ### Requirement WEB-OBS-02: Server Telemetry and Correlation
 
 The BFF SHALL emit structured logs, metrics, and traces with request and trace correlation. It SHALL propagate W3C trace context to the API, record sanitized route templates and upstream outcome, and export telemetry through the repository's supported OpenTelemetry/OTLP path. Raw session identifiers, authorization headers, cookies, tokens, user input, and sensitive API bodies SHALL NOT be logged or attached to telemetry.
+
+BFF domain facts SHALL use the same probe contract and fan-out boundary. Framework-managed technical access instrumentation MAY remain an infrastructure concern, but it SHALL NOT substitute for use-case and domain-outcome probes.
 
 Browser errors and metrics SHOULD be accepted through a same-origin BFF endpoint. Experimental browser OpenTelemetry auto-instrumentation SHALL NOT be a foundational dependency; adoption requires a privacy, stability, bundle, and value assessment.
 

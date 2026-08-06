@@ -95,7 +95,6 @@ cd components/control-plane && go vet ./...    # Vet
 make build-all                                 # Build all container images
 make kind-up                                   # Start local Kind cluster
 make kind-down                                 # Destroy Kind cluster
-make kind-rebuild                              # Rebuild + redeploy
 make kind-status                               # Show cluster status
 make lint                                      # Lint all Go code
 ```
@@ -115,6 +114,8 @@ Cross-cutting rules that apply across ALL components.
 - **Verify contracts and references**: Before building on an assumption, verify the contract
 - **Separate configuration from code**: Config changes must not require code changes
 - **PatternFly 6 for web UI**: Reuse PatternFly and canonical shared components; do not create duplicate UI components
+- **Narrow hexagonal UI boundary**: Put application workflows and external effects behind application-owned ports; keep React, TanStack Query, Fastify, generated SDKs, and infrastructure outside
+- **Domain probes for UI observability**: Publish typed workflow and dependency facts through a fan-out port; no raw console or direct telemetry calls in production browser/BFF code
 
 Component-specific conventions:
 - Control Plane: [conventions](specs/standards/control-plane/conventions.spec.md)

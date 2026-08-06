@@ -2,6 +2,14 @@
 
 The web console is a React 19 single-page application built with React Router Framework Mode, Vite, PatternFly 6, TanStack Query, React Intl, and the generated HyperShell SDK. A separate Fastify package serves the production assets and browser-facing security controls.
 
+## Application boundaries
+
+React, React Router, and TanStack Query are driving adapters. A real product workflow enters a framework-independent application use case, which owns the purposeful ports needed for API, session, storage, time, and domain-probe effects. SDK and other infrastructure imports belong only in concrete adapters and the explicit runtime composition root. Pure helpers and presentational components remain direct code and do not receive ceremonial interfaces.
+
+API-backed workflows enter application use cases through capability-shaped ports. Generated SDK access is isolated in adapters, while TanStack Query owns presentation-side cache and synchronization policy.
+
+`domain-probes/` is the shared browser/BFF probe contract and fan-out implementation. Each real workflow must own a closed probe union and checked catalog, then compose at least two production sinks. ESLint enforces the inward dependency rule, SDK and telemetry adapter boundaries, external-effect restrictions, and the production `console.*` ban.
+
 ## Prerequisites
 
 - Node.js 24.18.1 or newer in the 24.x line (see the repository `.node-version`)

@@ -15,6 +15,7 @@ COPY --chown=65532:65532 package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=65532:65532 components/sdk-typescript/package.json components/sdk-typescript/package.json
 COPY --chown=65532:65532 components/web-console/package.json components/web-console/package.json
 COPY --chown=65532:65532 components/web-console/bff/package.json components/web-console/bff/package.json
+COPY --chown=65532:65532 components/web-console/domain-probes/package.json components/web-console/domain-probes/package.json
 
 RUN pnpm fetch --frozen-lockfile
 

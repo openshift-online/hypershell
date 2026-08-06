@@ -1,4 +1,3 @@
-import type { Gateway, GatewayList } from "@openshift-online/hypershell-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,6 +6,7 @@ import {
   listGateways,
   renameGateway,
   toGatewayConnection,
+  type GatewayRecord,
 } from "./gateway-data";
 
 const {
@@ -21,7 +21,7 @@ const {
   updateGatewayMock: vi.fn(),
 }));
 
-vi.mock("../../lib/api.client", () => ({
+vi.mock("../../adapters/api/api.client", () => ({
   apiClient: {
     gateways: {
       delete: deleteGatewayMock,
@@ -32,7 +32,7 @@ vi.mock("../../lib/api.client", () => ({
   },
 }));
 
-function gateway(overrides: Partial<Gateway> = {}): Gateway {
+function gateway(overrides: Partial<GatewayRecord> = {}): GatewayRecord {
   return {
     cluster_id: "",
     created_at: null,
@@ -54,7 +54,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
   };
 }
 
-function gatewayList(items: Gateway[], total = items.length): GatewayList {
+function gatewayList(items: GatewayRecord[], total = items.length) {
   return {
     items,
     kind: "GatewayList",

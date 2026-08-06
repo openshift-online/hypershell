@@ -7,6 +7,14 @@ import globals from "globals";
 import query from "@tanstack/eslint-plugin-query";
 import tseslint from "typescript-eslint";
 
+import {
+  browserApplicationRules,
+  browserSdkAndTelemetryImportRule,
+  browserTelemetryImportRule,
+  rawDiagnosticRules,
+  sdkImportRule,
+} from "./eslint.architecture.mjs";
+
 export default tseslint.config(
   {
     ignores: [
@@ -14,6 +22,7 @@ export default tseslint.config(
       "bff/**",
       "build/**",
       "coverage/**",
+      "domain-probes/**",
       "node_modules/**",
       "playwright-report/**",
       "storybook-static/**",
@@ -56,5 +65,35 @@ export default tseslint.config(
       "formatjs/enforce-default-message": "error",
       "formatjs/enforce-id": "error",
     },
+  },
+  {
+    files: ["app/**/*.{ts,tsx}"],
+    rules: rawDiagnosticRules,
+  },
+  {
+    files: ["app/**/*.{ts,tsx}"],
+    ignores: ["app/adapters/api/**", "app/composition/**"],
+    rules: { "no-restricted-imports": sdkImportRule },
+  },
+  {
+    files: ["app/**/*.{ts,tsx}"],
+    ignores: ["app/adapters/observability/**", "app/composition/**"],
+    rules: { "no-restricted-imports": browserSdkAndTelemetryImportRule },
+  },
+  {
+    files: ["app/adapters/api/**/*.{ts,tsx}"],
+    rules: { "no-restricted-imports": browserTelemetryImportRule },
+  },
+  {
+    files: ["app/adapters/observability/**/*.{ts,tsx}"],
+    rules: { "no-restricted-imports": sdkImportRule },
+  },
+  {
+    files: ["app/composition/**/*.{ts,tsx}"],
+    rules: { "no-restricted-imports": "off" },
+  },
+  {
+    files: ["app/application/**/*.{ts,tsx}", "app/domain/**/*.{ts,tsx}"],
+    rules: browserApplicationRules,
   },
 );

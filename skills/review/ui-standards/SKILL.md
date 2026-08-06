@@ -4,8 +4,10 @@ description: >
   Audit or design web user interfaces against HyperShell's UI/UX standards.
   Use when reviewing UI changes, diffs, branches, or PRs; auditing accessibility,
   usability, PatternFly 6 usage, component reuse or duplication, Red Hat brand/color,
-  content, forms, navigation, responsive behavior, trust, performance, or localization;
-  or turning a product intent into UI/UX recommendations, flows, acceptance criteria,
+  content, forms, navigation, responsive behavior, trust, performance, localization,
+  narrow hexagonal boundaries, TanStack Query integration, domain probes, observability
+  fan-out, or raw console usage; or when turning a product intent into UI/UX
+  recommendations, flows, acceptance criteria,
   and test plans. Not for general backend or security review.
 ---
 
@@ -37,6 +39,7 @@ Before either mode:
 3. State assumptions that materially affect the result. Ask only when an unanswered choice would produce a substantially different design or audit scope.
 4. Cover default, loading, empty, partial, success, validation, error, permission, offline, timeout, destructive, cancellation, and recovery states where applicable.
 5. Inventory the relevant HyperShell shared components and PatternFly 6 components before accepting or proposing a new component.
+6. Inventory application workflows, external effects, composition roots, direct SDK or telemetry imports, query/mutation paths, and domain-probe consumers.
 
 ## Audit Mode
 
@@ -45,6 +48,10 @@ Before either mode:
 - Prefer an explicitly supplied diff, PR, file list, route, or flow.
 - Otherwise inspect committed branch changes against the merge base plus staged, unstaged, and relevant untracked files.
 - Trace changed components into the composed page and complete journey. Inspect enough unchanged code to evaluate state, semantics, responsive behavior, and downstream effects.
+- Trace each changed workflow through presentation or BFF driving adapter, application use case, application-owned ports, infrastructure adapters, and composition root. Keep pure and presentational code outside this boundary.
+- Trace every TanStack query or mutation to its use case and SDK adapter, including `AbortSignal`, cache ownership, invalidation, and the single retry owner.
+- Enumerate required workflow, transition, dependency, failure, and recovery probes. Inspect typed schemas, fan-out sinks, privacy/cardinality mappings, correlation, delivery failure, and duplicate emissions.
+- Search production browser/BFF code for raw console/standard-stream calls and direct logging, metrics, tracing, analytics, or generated-SDK imports outside approved adapters.
 - For every new or substantially duplicated component, search the repository and PatternFly 6 catalog by purpose, semantics, behavior, rendered result, and styles—not filename alone.
 - Record what cannot be evaluated from source alone, such as rendered contrast, focus behavior, assistive-technology output, field performance, or user comprehension.
 
@@ -61,6 +68,8 @@ Before either mode:
 - Cite `file:line`, route/state, rendered artifact, DOM/accessibility-tree result, command/test output, or research evidence for each conclusion.
 - Run safe, relevant existing checks when available: type/lint/unit/component/E2E tests, accessibility rules, keyboard tests, responsive/zoom checks, and performance tools.
 - Trace each new component through the `UI-PF-05` reuse order. Verify generic components live in the shared component surface, consumers import the canonical implementation, and copied or near-duplicate implementations do not remain.
+- Enforce the `UI-HEX-*` dependency rule with an import graph, isolated use-case tests, and adapter contracts; do not reward ports that only rename a framework or generated SDK.
+- Use a recording probe publisher to prove `UI-OBS-*` coverage. Test at least two fan-out sinks plus one failing sink, and distinguish one logical outcome from dependency retry attempts.
 - Preserve tool name/version and distinguish machine-detectable results from manual judgment.
 - Do not invent user evidence. Mark outcome and comprehension requirements `NOT_TESTED` when no valid study or field evidence exists.
 
@@ -103,7 +112,9 @@ Describe:
 - responsive, keyboard, screen-reader, zoom, touch, reduced-motion, and locale behavior;
 - Red Hat palette, semantic color, contrast, and visual hierarchy;
 - privacy, permissions, commitment, cancellation, and data handling;
-- loading, latency, offline, partial-failure, and monitoring behavior.
+- loading, latency, offline, partial-failure, and monitoring behavior;
+- a narrow boundary map naming use cases, purposeful ports, concrete adapters, composition roots, lifetimes, and the TanStack Query integration;
+- a probe catalog naming workflow outcomes and dependency facts, common context, privacy classification, fan-out consumers, and delivery guarantees.
 
 Prefer established repository components and web conventions. Introduce a new pattern only for a documented unmet need.
 
@@ -115,13 +126,15 @@ End with:
 
 1. a flow/state outline;
 2. a component reuse map distinguishing reused, composed, and justified-new components;
-3. a standards trace mapping decisions to requirement IDs;
-4. deterministic acceptance checks, including duplicate-component search;
-5. representative-user tasks and predeclared outcome measures;
-6. open decisions and risks.
+3. an architecture map distinguishing presentation, application/domain, ports, adapters, and composition;
+4. a domain-probe and fan-out map;
+5. a standards trace mapping decisions to requirement IDs;
+6. deterministic acceptance checks, including duplicate-component, forbidden-import, raw-console, probe-coverage, fan-out, and cancellation/retry checks;
+7. representative-user tasks and predeclared outcome measures;
+8. open decisions and risks.
 
 Do not present a heuristic, five-user study, automated score, visual mockup, or component-library claim as proof that the proposed experience works.
 
 ## Boundary with General Code Review
 
-Keep this review focused on user outcomes, accessibility, PatternFly 6 and component reuse, Red Hat brand/color, interaction, content, trust, localization, resilience, and UI evidence. For a mixed change, apply `ui-standards` to the interface and the repository's `amber-review` skill to general code, architecture, and security concerns without duplicating findings.
+Keep this review focused on user outcomes, accessibility, PatternFly 6 and component reuse, Red Hat brand/color, interaction, content, trust, localization, resilience, narrow web-console/BFF application boundaries, domain observability, and UI evidence. For a mixed change, apply `ui-standards` to these UI standards and the repository's `amber-review` skill to other code, architecture, and security concerns without duplicating findings.

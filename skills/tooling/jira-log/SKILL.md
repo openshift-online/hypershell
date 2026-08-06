@@ -1,17 +1,17 @@
 ---
 name: jira-log
 description: >
-  Log Jira issues to the ENGPROD project with hypershell component and
-  team:hypershell label pre-filled. Makes issues agent-actionable from cold
-  start. Supports single tickets and batch creation from bullet lists.
-  Use whenever the user wants to create, log, file, track, or open Jira
-  issues — stories, bugs, tasks, spikes, epics, cards, or tickets. Also
-  triggers on batch creation requests and bullet lists of work items.
+  Log Jira issues to the HYPERSHELL project with team:hypershell label
+  pre-filled. Makes issues agent-actionable from cold start. Supports
+  single tickets and batch creation from bullet lists. Use whenever the
+  user wants to create, log, file, track, or open Jira issues — stories,
+  bugs, tasks, spikes, epics, cards, or tickets. Also triggers on batch
+  creation requests and bullet lists of work items.
 ---
 
 # Jira Issue Logger
 
-Create well-structured Jira issues in the ENGPROD project with the `hypershell` (HyperShell) component and `team:hypershell` label pre-filled. Every issue is built to be agent-actionable from a cold start — meaning another agent (or human) can pick it up and start working immediately without asking clarifying questions.
+Create well-structured Jira issues in the HYPERSHELL project with the `team:hypershell` label pre-filled. Every issue is built to be agent-actionable from a cold start — meaning another agent (or human) can pick it up and start working immediately without asking clarifying questions.
 
 ## What Makes a Jira Agent-Actionable
 
@@ -126,7 +126,7 @@ As a [type of user], I want [goal], so that [benefit].
 
 ## Related Links
 - Spec: [link to relevant spec in specs/]
-- Related Issues: [ENGPROD-XXXX]
+- Related Issues: [HYPERSHELL-XXXX]
 
 ## Constraints
 - [What NOT to do]
@@ -156,12 +156,11 @@ As a [type of user], I want [goal], so that [benefit].
 **Single ticket:**
 
 ```
-About to create ENGPROD Jira:
+About to create HYPERSHELL Jira:
 
 **Summary**: [extracted summary]
 **Type**: [Story/Bug/Task/Spike/Epic]
 **Priority**: [inferred or user-selected priority]
-**Component**: hypershell (or "skipped — not yet created" if absent)
 **Activity Type**: [inferred activity type]
 
 **Description Preview**:
@@ -173,7 +172,7 @@ Shall I create this issue? (yes/no/edit)
 **Batch mode** — show a summary table:
 
 ```
-About to create N ENGPROD tickets:
+About to create N HYPERSHELL tickets:
 
 | # | Type  | Priority | Summary                        | Activity Type                     | Epic          |
 |---|-------|----------|--------------------------------|-----------------------------------|---------------|
@@ -189,25 +188,17 @@ Create all? (yes/no/edit)
 
 ### Step 5 — Create
 
-Before your first create call, check whether the `hypershell` component exists in the ENGPROD project by calling `mcp__jira__jira_get_project_components` with `project_key: "ENGPROD"` and scanning the result for a component named `hypershell`. Cache this result for the rest of the batch — don't re-check per ticket.
-
-- **Component exists** → include `"components": "hypershell"` in the create call.
-- **Component does not exist** → omit the `components` field entirely. The `team:hypershell` label is still applied so tickets remain identifiable.
-
 Use `mcp__jira__jira_create_issue` with:
 
 ```json
 {
-  "project_key": "ENGPROD",
+  "project_key": "HYPERSHELL",
   "summary": "[summary]",
   "issue_type": "[Story|Bug|Task|Spike|Epic]",
   "description": "[structured description from step 3]",
-  "components": "hypershell",
   "additional_fields": "{\"priority\": {\"name\": \"[priority]\"}, \"labels\": [\"team:hypershell\"], \"customfield_10464\": {\"value\": \"[inferred activity type]\"}}"
 }
 ```
-
-If the component check showed `hypershell` does not exist, drop the `"components"` line from the call above.
 
 **Batch execution order** (the order matters because later steps depend on earlier ones):
 1. Create Epics first — their keys are needed for linking
@@ -228,7 +219,6 @@ Created: [ISSUE_KEY]
 Link: https://redhat.atlassian.net/browse/[ISSUE_KEY]
 
 Summary: [summary]
-Component: hypershell (or "none — component not yet created" if absent)
 Type: [issue type]
 Priority: [priority]
 Activity Type: [inferred activity type]
@@ -241,13 +231,13 @@ Created N tickets:
 
 | Key            | Type  | Priority | Summary                        | Activity Type                     | Epic          |
 |----------------|-------|----------|--------------------------------|-----------------------------------|---------------|
-| ENGPROD-XXXXX  | Epic  | Normal   | Feature X                      | Product / Portfolio Work          | —             |
-| ENGPROD-XXXXX  | Story | Major    | Implement Y                    | Product / Portfolio Work          | Feature X     |
-| ENGPROD-XXXXX  | Bug   | Major    | Fix Z                          | Quality / Stability / Reliability | —             |
+| HYPERSHELL-XXXXX  | Epic  | Normal   | Feature X                      | Product / Portfolio Work          | —             |
+| HYPERSHELL-XXXXX  | Story | Major    | Implement Y                    | Product / Portfolio Work          | Feature X     |
+| HYPERSHELL-XXXXX  | Bug   | Major    | Fix Z                          | Quality / Stability / Reliability | —             |
 
 Links created:
-- ENGPROD-XXXXX blocks ENGPROD-XXXXX
-- ENGPROD-XXXXX → Epic ENGPROD-XXXXX
+- HYPERSHELL-XXXXX blocks HYPERSHELL-XXXXX
+- HYPERSHELL-XXXXX → Epic HYPERSHELL-XXXXX
 ```
 
 ## Examples
@@ -329,9 +319,8 @@ Creates 1 epic + 1 story + 1 task + 1 spike, links all to the epic, creates bloc
 
 | Field | Value |
 |-------|-------|
-| Project | ENGPROD |
-| Component | `hypershell` (lowercase) |
+| Project | HYPERSHELL |
 | Label | `team:hypershell` |
 | Activity Type field | `customfield_10464` |
 | Browse URL | `https://redhat.atlassian.net/browse/` |
-| Board | 348 (ENGPROD kanban, no sprints) |
+| Board | 13804 (Hypershell Kanban Board) |
