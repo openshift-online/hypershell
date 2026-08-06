@@ -13,6 +13,7 @@ COPY api-server/proto/ api-server/proto/
 COPY control-plane/ control-plane/
 
 WORKDIR /workspace/control-plane
+RUN GOPRIVATE=github.com/openshift-online/rh-trex-ai go mod download
 RUN go build -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8@sha256:48fa5d8cda7fc00d270d8747c3eaa54ae196f0820d8540074a9c8c61d5e3056f
@@ -20,6 +21,9 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8@sha256:48fa5d8cda7fc00d270d
 WORKDIR /
 
 COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
+COPY control-plane/manifests/ /manifests/
+
+USER 1001
 
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 

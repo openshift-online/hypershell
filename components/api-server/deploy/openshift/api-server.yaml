@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hypershell-api-server
+  namespace: hypershell-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-api-server
+  namespace: hypershell-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hypershell-api-server
+  template:
+    metadata:
+      labels:
+        app: hypershell-api-server
+    spec:
+      serviceAccountName: hypershell-api-server
+      securityContext:
+        runAsNonRoot: true
+      initContainers:
+        - name: migrate
+          image: image-registry.openshift-image-registry.svc:5000/hypershell-api/hypershell:dev
+          imagePullPolicy: Always
+          command:
+            - /usr/local/bin/hypershell
+            - migrate
+            - --db-host-file=/secrets/db.host
+            - --db-port-file=/secrets/db.port
+            - --db-name-file=/secrets/db.name
+            - --db-user-file=/secrets/db.user
+            - --db-password-file=/secrets/db.password
+            - --db-sslmode=disable
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: db-secrets
+              mountPath: /secrets
+              readOnly: true
+      containers:
+        - name: api-server
+          image: image-registry.openshift-image-registry.svc:5000/hypershell-api/hypershell:dev
+          imagePullPolicy: Always
+          command:
+            - /usr/local/bin/hypershell
+            - serve
+            - --api-server-bindaddress=0.0.0.0:8000
+            - --grpc-server-bindaddress=0.0.0.0:9000
+            - --health-check-server-bindaddress=0.0.0.0:4434
+            - --enable-authz=false
+            - --enable-jwt=false
+            - --db-host-file=/secrets/db.host
+            - --db-port-file=/secrets/db.port
+            - --db-name-file=/secrets/db.name
+            - --db-user-file=/secrets/db.user
+            - --db-password-file=/secrets/db.password
+            - --db-sslmode=disable
+          ports:
+            - containerPort: 8000
+              name: http
+            - containerPort: 9000
+              name: grpc
+            - containerPort: 4434
+              name: health
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 4434
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 4434
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: db-secrets
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        - name: db-secrets
+          secret:
+            secretName: hypershell-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypershell-api-server
+  namespace: hypershell-api
+spec:
+  selector:
+    app: hypershell-api-server
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+    - name: grpc
+      port: 9000
+      targetPort: 9000

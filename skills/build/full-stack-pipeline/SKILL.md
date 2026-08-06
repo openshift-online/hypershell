@@ -86,8 +86,8 @@ Gateway.phase   BE          missing     no phase field in model
 - Acceptance: `go build ./...`, `go vet ./...` clean
 
 **Wave 6 -- Integration**
-- End-to-end smoke test in Kind cluster
-- `make kind-rebuild` and verify
+- End-to-end smoke test in Kind cluster (`make kind-rebuild`) or OpenShift (`/deploy-cluster`)
+- Verify CRUD on all affected Kinds via the API route
 
 ### Step 4 -- Verify Each Wave
 
@@ -109,6 +109,35 @@ go run ./scripts/generator.go \
   --repo github.com/openshift-online/hypershell/components/api-server \
   --library github.com/openshift-online/rh-trex-ai
 ```
+
+## Build and Deploy
+
+### Image Builds
+
+`rh-trex-ai` is a Go module dependency (not a local sibling). Dockerfiles use
+`GOPRIVATE=github.com/openshift-online/rh-trex-ai` during `go mod download`.
+
+```bash
+cd components/api-server
+make image            # API server (build context: .)
+make image-controller # Controller (build context: components/)
+```
+
+### Proto Regeneration
+
+Proto `go_package` must use the full module path:
+`github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1`
+
+Ensure `protoc-gen-go` version matches `google.golang.org/protobuf` in `go.mod`:
+```bash
+go install google.golang.org/protobuf/cmd/protoc-gen-go@$(go list -m -f '{{.Version}}' google.golang.org/protobuf)
+cd proto && buf generate
+```
+
+### Deploy Targets
+
+- **Kind**: `make kind-up` / `make kind-rebuild` (see `/kind` skill)
+- **OpenShift**: Build, push to internal registry, `oc kustomize deploy/openshift/` (see `/deploy-cluster` skill)
 
 ## Constraints
 

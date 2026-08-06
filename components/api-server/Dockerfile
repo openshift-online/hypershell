@@ -5,7 +5,7 @@ USER root
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN GOPRIVATE=github.com/openshift-online/rh-trex-ai go mod download
 
 COPY cmd/ cmd/
 COPY pkg/ pkg/

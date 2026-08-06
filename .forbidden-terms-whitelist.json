@@ -1,5 +1,10 @@
 [
   {
+    "filename": "components/pr-test/e2e-openshell.sh",
+    "line": 93,
+    "rationale": "Required to preserve the externally assigned ROSA cluster domain used as the end-to-end test fallback."
+  },
+  {
     "filename": "pnpm-lock.yaml",
     "line": 1417,
     "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
@@ -13,5 +18,10 @@
     "filename": "pnpm-lock.yaml",
     "line": 3091,
     "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
+  },
+  {
+    "filename": "specs/platform/openshell-gateway-routing.spec.md",
+    "line": 131,
+    "rationale": "Required to document the externally assigned ROSA environment where the routing behavior was verified."
   }
 ]
