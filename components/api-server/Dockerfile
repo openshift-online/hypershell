@@ -4,15 +4,13 @@ USER root
 
 WORKDIR /workspace
 
-COPY rh-trex-ai/ /rh-trex-ai/
-
-COPY hypershell/components/api-server/go.mod hypershell/components/api-server/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
 
-COPY hypershell/components/api-server/cmd/ cmd/
-COPY hypershell/components/api-server/pkg/ pkg/
-COPY hypershell/components/api-server/plugins/ plugins/
-COPY hypershell/components/api-server/openapi/ openapi/
+COPY cmd/ cmd/
+COPY pkg/ pkg/
+COPY plugins/ plugins/
+COPY openapi/ openapi/
 
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown

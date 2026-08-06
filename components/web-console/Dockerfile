@@ -20,6 +20,7 @@ RUN pnpm fetch --frozen-lockfile
 
 COPY --chown=65532:65532 components/sdk-typescript components/sdk-typescript
 COPY --chown=65532:65532 components/web-console components/web-console
+COPY --chown=65532:65532 images/brand/logo.png images/brand/logo.png
 
 RUN pnpm install --frozen-lockfile --offline \
     && pnpm run build:web \

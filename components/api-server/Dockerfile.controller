@@ -4,17 +4,15 @@ USER root
 
 WORKDIR /workspace
 
-COPY rh-trex-ai/ /rh-trex-ai/
+COPY api-server/go.mod api-server/go.sum api-server/
+COPY api-server/cmd/ api-server/cmd/
+COPY api-server/pkg/ api-server/pkg/
+COPY api-server/plugins/ api-server/plugins/
+COPY api-server/openapi/ api-server/openapi/
+COPY api-server/proto/ api-server/proto/
+COPY control-plane/ control-plane/
 
-COPY hypershell/components/api-server/go.mod hypershell/components/api-server/go.sum ./
-COPY hypershell/components/api-server/cmd/ cmd/
-COPY hypershell/components/api-server/pkg/ pkg/
-COPY hypershell/components/api-server/plugins/ plugins/
-COPY hypershell/components/api-server/openapi/ openapi/
-COPY hypershell/components/api-server/proto/ proto/
-COPY hypershell/components/control-plane/ components/control-plane/
-
-WORKDIR /workspace/components/control-plane
+WORKDIR /workspace/control-plane
 RUN go build -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8@sha256:48fa5d8cda7fc00d270d8747c3eaa54ae196f0820d8540074a9c8c61d5e3056f
