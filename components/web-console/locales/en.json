@@ -3,17 +3,13 @@
     "defaultMessage": "Cancel",
     "description": "Action that leaves a form without submitting it."
   },
-  "app.adminProductName": {
-    "defaultMessage": "HyperShell Administration",
-    "description": "Product name shown in the administrative shell."
+  "app.action.close": {
+    "defaultMessage": "Close",
+    "description": "Accessible label for closing an overlay."
   },
   "app.breadcrumb.ariaLabel": {
     "defaultMessage": "Breadcrumb",
     "description": "Accessible label for the application breadcrumb navigation."
-  },
-  "app.breadcrumb.gatewayContext": {
-    "defaultMessage": "Gateway {gatewayId}",
-    "description": "Breadcrumb label identifying an administrative gateway by its route identifier."
   },
   "app.clipboard.copied": {
     "defaultMessage": "Copied",
@@ -35,25 +31,65 @@
     "defaultMessage": "This field is required.",
     "description": "Validation message for an empty required form field."
   },
+  "app.gateway.cliConnectionCommandCopied": {
+    "defaultMessage": "CLI connection command for {gatewayName} copied",
+    "description": "Success notification after copying a gateway CLI command."
+  },
+  "app.gateway.cliConnectionCommandCopyFailed": {
+    "defaultMessage": "CLI connection command for {gatewayName} could not be copied",
+    "description": "Error notification when copying a gateway CLI command fails."
+  },
   "app.gateway.cluster": {
     "defaultMessage": "Cluster",
     "description": "Heading for the gateway placement cluster column."
   },
   "app.gateway.connectWithCli": {
     "defaultMessage": "Connect with the CLI",
-    "description": "Heading above a gateway's OpenShell CLI connection command."
+    "description": "Action and heading for a gateway's OpenShell CLI connection command."
+  },
+  "app.gateway.copyCliConnectionCommand": {
+    "defaultMessage": "Copy CLI connection command",
+    "description": "Menu action that copies a gateway's CLI connection command."
   },
   "app.gateway.copyConnectionCommand": {
     "defaultMessage": "Copy connection command for {gatewayName}",
     "description": "Accessible label for copying a specific gateway's CLI connection command."
   },
+  "app.gateway.copyEndpoint": {
+    "defaultMessage": "Copy gateway endpoint for {gatewayName}",
+    "description": "Accessible label for copying a specific gateway's network endpoint."
+  },
+  "app.gateway.delete": {
+    "defaultMessage": "Delete gateway",
+    "description": "Action that permanently deletes a gateway."
+  },
+  "app.gateway.delete.confirmation": {
+    "defaultMessage": "Deleting {gatewayName} will permanently remove the gateway. This action cannot be undone.",
+    "description": "Warning shown before permanently deleting a gateway."
+  },
+  "app.gateway.delete.error.body": {
+    "defaultMessage": "No changes were made. Try again.",
+    "description": "Recovery guidance when gateway deletion fails."
+  },
+  "app.gateway.delete.error.title": {
+    "defaultMessage": "Gateway could not be deleted",
+    "description": "Title shown when gateway deletion fails."
+  },
+  "app.gateway.delete.pending": {
+    "defaultMessage": "Deleting gateway",
+    "description": "Accessible progress text while a gateway is being deleted."
+  },
+  "app.gateway.delete.title": {
+    "defaultMessage": "Delete {gatewayName}?",
+    "description": "Title for the gateway deletion confirmation dialog."
+  },
+  "app.gateway.deleted": {
+    "defaultMessage": "Gateway {gatewayName} deleted",
+    "description": "Success notification after deleting a gateway."
+  },
   "app.gateway.endpoint": {
     "defaultMessage": "Gateway endpoint",
     "description": "Label for an OpenShell gateway network endpoint."
-  },
-  "app.gateway.getStarted": {
-    "defaultMessage": "Get started",
-    "description": "Heading for gateway connection methods."
   },
   "app.gateway.load.error.body": {
     "defaultMessage": "Refresh the page to try again.",
@@ -91,9 +127,13 @@
     "defaultMessage": "Gateway release ID",
     "description": "Label for a gateway's release identifier."
   },
-  "app.gateway.viewDetails": {
-    "defaultMessage": "View details",
-    "description": "Link to a user-facing gateway detail page."
+  "app.gateway.rowActions": {
+    "defaultMessage": "Actions for {gatewayName}",
+    "description": "Accessible label for a gateway row actions menu."
+  },
+  "app.gateway.singular": {
+    "defaultMessage": "Gateway",
+    "description": "Fallback breadcrumb label while a gateway is loading."
   },
   "app.gateways.refresh": {
     "defaultMessage": "Refresh gateways",
@@ -107,21 +147,9 @@
     "defaultMessage": "Hello world",
     "description": "Main heading on the initial web-console landing page."
   },
-  "app.nav.administration": {
-    "defaultMessage": "Administration",
-    "description": "Navigation and page label for HyperShell administration."
-  },
-  "app.nav.gatewayDirectory": {
-    "defaultMessage": "Gateway directory",
-    "description": "Prominent navigation from administration to the user-facing gateway directory."
-  },
   "app.nav.gateways": {
-    "defaultMessage": "Gateways",
-    "description": "Navigation and page label for gateways."
-  },
-  "app.nav.openAdministration": {
-    "defaultMessage": "Administration",
-    "description": "Subtle navigation from OpenShell to administration."
+    "defaultMessage": "OpenShell Gateways",
+    "description": "Page and resource collection label for OpenShell gateways."
   },
   "app.notFound.body": {
     "defaultMessage": "Check the address and try again.",
@@ -131,61 +159,17 @@
     "defaultMessage": "Page not found",
     "description": "Heading shown when an application route does not exist."
   },
-  "app.page.adminGateway.description": {
+  "app.notifications": {
+    "defaultMessage": "Notifications",
+    "description": "Accessible label for transient application notifications."
+  },
+  "app.page.gateway.description": {
     "defaultMessage": "Review this gateway's configuration and operational status.",
-    "description": "Supporting text on the administrative gateway detail page."
-  },
-  "app.page.adminGateway.title": {
-    "defaultMessage": "Gateway administration",
-    "description": "Title for the administrative gateway detail page."
-  },
-  "app.page.adminGateways.description": {
-    "defaultMessage": "Provision and manage OpenShell gateways.",
-    "description": "Supporting text on the administrative gateways page."
-  },
-  "app.page.adminGateways.empty.body": {
-    "defaultMessage": "Provisioned gateways will appear here.",
-    "description": "Body text when the administrative gateway list is empty."
-  },
-  "app.page.adminGateways.empty.title": {
-    "defaultMessage": "No gateways to administer",
-    "description": "Heading when the administrative gateway list is empty."
-  },
-  "app.page.adminGateways.filter": {
-    "defaultMessage": "Filter by name, cluster, status, or endpoint",
-    "description": "Placeholder and accessible label for gateway search."
-  },
-  "app.page.adminGateways.noResults.body": {
-    "defaultMessage": "Adjust or clear the filter to see gateways.",
-    "description": "Guidance when no gateways match the current filter."
-  },
-  "app.page.adminGateways.noResults.title": {
-    "defaultMessage": "No matching gateways",
-    "description": "Heading when no gateways match the current filter."
-  },
-  "app.page.gatewayDetails.description": {
-    "defaultMessage": "Open the gateway console or add this gateway to the OpenShell CLI.",
-    "description": "Supporting text on the user-facing gateway details page."
+    "description": "Supporting text on the gateway detail page."
   },
   "app.page.gatewayDetails.title": {
     "defaultMessage": "Gateway details",
     "description": "Metadata title for a user-facing gateway details page."
-  },
-  "app.page.gatewayDirectory.description": {
-    "defaultMessage": "Choose a gateway to open its console or connect with the OpenShell CLI.",
-    "description": "Supporting text on the user-facing gateway directory."
-  },
-  "app.page.gatewayDirectory.empty.body": {
-    "defaultMessage": "Ask your OpenShell administrator for access to a gateway.",
-    "description": "Guidance when a user cannot see any OpenShell gateways."
-  },
-  "app.page.gatewayDirectory.empty.title": {
-    "defaultMessage": "No gateways available",
-    "description": "Heading when a user cannot see any OpenShell gateways."
-  },
-  "app.page.gatewayDirectory.title": {
-    "defaultMessage": "OpenShell gateways",
-    "description": "Main heading on the user-facing gateway directory."
   },
   "app.page.gatewayProvision.description": {
     "defaultMessage": "Configure a new OpenShell gateway.",
@@ -206,6 +190,30 @@
   "app.page.gatewayProvision.title": {
     "defaultMessage": "Provision gateway",
     "description": "Page title and action for provisioning a gateway."
+  },
+  "app.page.gateways.description": {
+    "defaultMessage": "HyperShell gateways.",
+    "description": "Browser metadata description for the gateways page."
+  },
+  "app.page.gateways.empty.body": {
+    "defaultMessage": "Provisioned gateways will appear here.",
+    "description": "Body text when the gateway list is empty."
+  },
+  "app.page.gateways.empty.title": {
+    "defaultMessage": "No gateways",
+    "description": "Heading when the gateway list is empty."
+  },
+  "app.page.gateways.filter": {
+    "defaultMessage": "Filter by name, cluster, status, or endpoint",
+    "description": "Placeholder and accessible label for gateway search."
+  },
+  "app.page.gateways.noResults.body": {
+    "defaultMessage": "Adjust or clear the filter to see gateways.",
+    "description": "Guidance when no gateways match the current filter."
+  },
+  "app.page.gateways.noResults.title": {
+    "defaultMessage": "No matching gateways",
+    "description": "Heading when no gateways match the current filter."
   },
   "app.productName": {
     "defaultMessage": "HyperShell",

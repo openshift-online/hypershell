@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { vi } from "vitest";
 
 import { englishMessages } from "../../i18n/catalog";
-import { AdminGatewayCreatePage } from "./admin-gateway-create";
+import { GatewayCreatePage } from "./gateway-create";
 
 const { createGatewayMock } = vi.hoisted(() => ({
   createGatewayMock: vi.fn(),
@@ -39,7 +39,7 @@ const createdGateway = {
   updated_at: null,
 };
 
-function renderPage(initialEntry = "/admin/gateways/new") {
+function renderPage(initialEntry = "/gateways/new") {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -49,13 +49,10 @@ function renderPage(initialEntry = "/admin/gateways/new") {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[initialEntry]}>
           <Routes>
-            <Route
-              element={<AdminGatewayCreatePage />}
-              path="/admin/gateways/new"
-            />
+            <Route element={<GatewayCreatePage />} path="/gateways/new" />
             <Route
               element={<div data-testid="created-gateway" />}
-              path="/admin/gateways/:gatewayId"
+              path="/gateways/:gatewayId"
             />
           </Routes>
         </MemoryRouter>
@@ -64,7 +61,7 @@ function renderPage(initialEntry = "/admin/gateways/new") {
   );
 }
 
-describe("AdminGatewayCreatePage", () => {
+describe("GatewayCreatePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

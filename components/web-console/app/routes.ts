@@ -7,14 +7,10 @@ import {
 
 export default [
   route("login", "./routes/login.tsx"),
-  layout("./routes/user-application.tsx", [
+  layout("./routes/application.tsx", [
     index("./routes/home.tsx"),
+    route("gateways/new", "./routes/gateway-new.tsx"),
     route("gateways/:gatewayId", "./routes/gateway.tsx"),
-  ]),
-  layout("./routes/admin-application.tsx", [
-    route("admin", "./routes/admin-home.tsx"),
-    route("admin/gateways/new", "./routes/admin-gateway-new.tsx"),
-    route("admin/gateways/:gatewayId", "./routes/admin-gateway.tsx"),
   ]),
   route("*", "./routes/not-found.tsx"),
 ] satisfies RouteConfig;

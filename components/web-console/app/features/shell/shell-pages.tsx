@@ -1,6 +1,8 @@
 import {
+  Alert,
+  AlertActionCloseButton,
+  AlertGroup,
   Button,
-  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -13,19 +15,26 @@ import {
 } from "@patternfly/react-core";
 import type { Gateway } from "@openshift-online/hypershell-sdk";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import {
   gatewayStatusColor,
   type GatewayConnection,
 } from "../gateways/gateway-connections";
 import {
+  GatewayDetailHeader,
+  GatewayEndpointCopy,
+} from "../gateways/gateway-detail-header";
+import {
+  gatewayQueryKey,
   getGateway,
   listGatewayConnections,
   toGatewayConnection,
 } from "../gateways/gateway-data";
 import { GatewayLoadState } from "../gateways/gateway-load-state";
+import { GatewayRowActions } from "../gateways/gateway-row-actions";
 import {
   ResourceTable,
   type ResourceTableColumn,
@@ -39,16 +48,29 @@ const primaryLinkStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 
-interface AdminGatewaysPageProps {
+interface GatewaysPageProps {
   gateways?: readonly GatewayConnection[];
   onRefresh?: () => unknown;
 }
 
-export function AdminGatewaysPage({
-  gateways,
-  onRefresh,
-}: AdminGatewaysPageProps = {}) {
+export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
   const intl = useIntl();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routedDeletedGatewayName =
+    typeof (location.state as { deletedGatewayName?: unknown } | null)
+      ?.deletedGatewayName === "string"
+      ? (location.state as { deletedGatewayName: string }).deletedGatewayName
+      : undefined;
+  const [deletedGatewayName, setDeletedGatewayName] = useState(
+    routedDeletedGatewayName,
+  );
+  useEffect(() => {
+    if (!routedDeletedGatewayName) {
+      return;
+    }
+    void navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, navigate, routedDeletedGatewayName]);
   const gatewayQuery = useQuery({
     enabled: gateways === undefined,
     queryFn: ({ signal }) => listGatewayConnections(signal),
@@ -61,7 +83,7 @@ export function AdminGatewaysPage({
       id: "name",
       label: intl.formatMessage(messages.gatewayName),
       render: (gateway) => (
-        <Link to={`/admin/gateways/${encodeURIComponent(gateway.id)}`}>
+        <Link to={`/gateways/${encodeURIComponent(gateway.id)}`}>
           {gateway.name}
         </Link>
       ),
@@ -104,20 +126,41 @@ export function AdminGatewaysPage({
 
   return (
     <>
+      {deletedGatewayName ? (
+        <AlertGroup
+          aria-label={intl.formatMessage(messages.notifications)}
+          isLiveRegion
+          isToast
+        >
+          <Alert
+            actionClose={
+              <AlertActionCloseButton
+                aria-label={intl.formatMessage(messages.close)}
+                onClose={() => {
+                  setDeletedGatewayName(undefined);
+                }}
+              />
+            }
+            onTimeout={() => {
+              setDeletedGatewayName(undefined);
+            }}
+            timeout={8000}
+            title={intl.formatMessage(messages.gatewayDeleted, {
+              gatewayName: deletedGatewayName,
+            })}
+            variant="success"
+          />
+        </AlertGroup>
+      ) : null}
       <PageSection hasBodyWrapper={false}>
         <Flex
           alignItems={{ default: "alignItemsFlexStart" }}
           justifyContent={{ default: "justifyContentSpaceBetween" }}
         >
           <FlexItem>
-            <Content>
-              <Title headingLevel="h1" size="2xl">
-                <FormattedMessage {...messages.gateways} />
-              </Title>
-              <p>
-                <FormattedMessage {...messages.adminGatewaysDescription} />
-              </p>
-            </Content>
+            <Title headingLevel="h1" size="2xl">
+              <FormattedMessage {...messages.gateways} />
+            </Title>
           </FlexItem>
           {gateways === undefined || onRefresh ? (
             <FlexItem>
@@ -139,8 +182,8 @@ export function AdminGatewaysPage({
           labels={{
             actions: intl.formatMessage(messages.actions),
             clearFilters: intl.formatMessage(messages.clearFilters),
-            emptyBody: intl.formatMessage(messages.adminGatewaysEmptyBody),
-            emptyTitle: intl.formatMessage(messages.adminGatewaysEmptyTitle),
+            emptyBody: intl.formatMessage(messages.gatewaysEmptyBody),
+            emptyTitle: intl.formatMessage(messages.gatewaysEmptyTitle),
             noResultsBody: intl.formatMessage(messages.noMatchingGatewaysBody),
             noResultsTitle: intl.formatMessage(messages.noMatchingGateways),
             resultsCountContext: intl.formatMessage(messages.results),
@@ -152,21 +195,18 @@ export function AdminGatewaysPage({
               component={Link}
               style={primaryLinkStyle}
               variant="primary"
-              {...{ to: "/admin/gateways/new" }}
+              {...{ to: "/gateways/new" }}
             >
               <FormattedMessage {...messages.provisionGateway} />
             </Button>
           }
           renderRowAction={(gateway) => (
-            <Button
-              component={Link}
-              variant="secondary"
-              {...{
-                to: `/admin/gateways/${encodeURIComponent(gateway.id)}`,
+            <GatewayRowActions
+              gateway={gateway}
+              onDeleted={() => {
+                setDeletedGatewayName(gateway.name);
               }}
-            >
-              <FormattedMessage {...messages.viewGatewayDetails} />
-            </Button>
+            />
           )}
           rows={visibleGateways ?? []}
         />
@@ -175,16 +215,17 @@ export function AdminGatewaysPage({
   );
 }
 
-interface AdminGatewayPageProps {
+interface GatewayPageProps {
   gateway?: Gateway;
 }
 
-export function AdminGatewayPage({ gateway }: AdminGatewayPageProps = {}) {
+export function GatewayPage({ gateway }: GatewayPageProps = {}) {
   const { gatewayId = "" } = useParams();
+  const navigate = useNavigate();
   const gatewayQuery = useQuery({
     enabled: gateway === undefined && gatewayId.length > 0,
     queryFn: ({ signal }) => getGateway(gatewayId, signal),
-    queryKey: ["gateways", gatewayId],
+    queryKey: gatewayQueryKey(gatewayId),
   });
   const visibleGateway = gateway ?? gatewayQuery.data;
 
@@ -203,14 +244,15 @@ export function AdminGatewayPage({ gateway }: AdminGatewayPageProps = {}) {
   return (
     <>
       <PageSection hasBodyWrapper={false}>
-        <Content>
-          <Title headingLevel="h1" size="2xl">
-            {visibleGateway.name}
-          </Title>
-          <p>
-            <FormattedMessage {...messages.adminGatewayDescription} />
-          </p>
-        </Content>
+        <GatewayDetailHeader
+          description={<FormattedMessage {...messages.gatewayDescription} />}
+          gateway={connection}
+          onDeleted={() => {
+            void navigate("/", {
+              state: { deletedGatewayName: connection.name },
+            });
+          }}
+        />
       </PageSection>
       <PageSection hasBodyWrapper={false} isFilled variant="secondary">
         <DescriptionList isHorizontal>
@@ -227,7 +269,7 @@ export function AdminGatewayPage({ gateway }: AdminGatewayPageProps = {}) {
               <FormattedMessage {...messages.gatewayEndpoint} />
             </DescriptionListTerm>
             <DescriptionListDescription>
-              {connection.endpoint}
+              <GatewayEndpointCopy gateway={connection} />
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>

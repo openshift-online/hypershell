@@ -4,8 +4,8 @@ import { MemoryRouter, Route, Routes } from "react-router";
 
 import { englishMessages } from "../../i18n/catalog";
 import { previewGateways } from "../gateways/gateway-connections";
-import { AdminShell } from "./application-shell";
-import { AdminGatewayPage, AdminGatewaysPage } from "./shell-pages";
+import { ApplicationShell } from "./application-shell";
+import { GatewayPage, GatewaysPage } from "./shell-pages";
 
 const pseudoMessages = Object.fromEntries(
   Object.entries(englishMessages).map(([id, message]) => [
@@ -14,19 +14,16 @@ const pseudoMessages = Object.fromEntries(
   ]),
 );
 
-function ShellPreview({ initialPath = "/admin" }: { initialPath?: string }) {
+function ShellPreview({ initialPath = "/" }: { initialPath?: string }) {
   return (
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route element={<AdminShell />}>
+        <Route element={<ApplicationShell />}>
           <Route
-            path="admin"
-            element={<AdminGatewaysPage gateways={previewGateways} />}
+            path="/"
+            element={<GatewaysPage gateways={previewGateways} />}
           />
-          <Route
-            path="admin/gateways/:gatewayId"
-            element={<AdminGatewayPage />}
-          />
+          <Route path="gateways/:gatewayId" element={<GatewayPage />} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -34,13 +31,13 @@ function ShellPreview({ initialPath = "/admin" }: { initialPath?: string }) {
 }
 
 const meta = {
-  title: "Administration/Shell",
-  component: AdminShell,
+  title: "HyperShell/Shell",
+  component: ApplicationShell,
   parameters: {
     layout: "fullscreen",
   },
   render: () => <ShellPreview />,
-} satisfies Meta<typeof AdminShell>;
+} satisfies Meta<typeof ApplicationShell>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -48,7 +45,7 @@ type Story = StoryObj<typeof meta>;
 export const Gateways: Story = {};
 
 export const GatewayDetails: Story = {
-  render: () => <ShellPreview initialPath="/admin/gateways/gateway-b" />,
+  render: () => <ShellPreview initialPath="/gateways/gateway-b" />,
 };
 
 export const PseudoLocalized: Story = {

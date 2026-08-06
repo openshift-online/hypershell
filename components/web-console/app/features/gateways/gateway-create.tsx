@@ -22,6 +22,7 @@ import { z } from "zod";
 
 import { messages } from "../../i18n/messages";
 import { apiClient } from "../../lib/api.client";
+import { gatewayQueryKey } from "./gateway-data";
 interface GatewayFormValues {
   name: string;
   namespace: string;
@@ -83,7 +84,7 @@ function GatewayTextField({
   );
 }
 
-export function AdminGatewayCreatePage() {
+export function GatewayCreatePage() {
   const intl = useIntl();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -115,8 +116,12 @@ export function AdminGatewayCreatePage() {
       return apiClient.gateways.create(request);
     },
     onSuccess: async (gateway) => {
-      await queryClient.invalidateQueries({ queryKey: ["gateways"] });
-      await navigate(`/admin/gateways/${gateway.id}`);
+      queryClient.setQueryData(gatewayQueryKey(gateway.id), gateway);
+      await queryClient.invalidateQueries({
+        exact: true,
+        queryKey: ["gateways"],
+      });
+      await navigate(`/gateways/${gateway.id}`);
     },
   });
 
@@ -199,7 +204,7 @@ export function AdminGatewayCreatePage() {
               component={Link}
               isDisabled={createGateway.isPending}
               variant="link"
-              {...{ to: "/admin" }}
+              {...{ to: "/" }}
             >
               <FormattedMessage {...messages.cancel} />
             </Button>

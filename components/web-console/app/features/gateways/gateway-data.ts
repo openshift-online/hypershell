@@ -5,6 +5,10 @@ import { previewGateway, type GatewayConnection } from "./gateway-connections";
 
 const gatewayPageSize = 100;
 
+export function gatewayQueryKey(gatewayId: string) {
+  return ["gateways", "detail", gatewayId] as const;
+}
+
 type GatewayApiPayload = Omit<
   Gateway,
   "external_dns" | "phase" | "service_type" | "status" | "tls_mode"
@@ -75,18 +79,13 @@ export async function listGatewayConnections(
   return (await listGateways(signal)).map(toGatewayConnection);
 }
 
-export async function getGatewayConnection(
-  gatewayId: string,
-  signal?: AbortSignal,
-): Promise<GatewayConnection> {
-  return toGatewayConnection(
-    await apiClient.gateways.get(gatewayId, { signal }),
-  );
-}
-
 export async function getGateway(
   gatewayId: string,
   signal?: AbortSignal,
 ): Promise<Gateway> {
   return apiClient.gateways.get(gatewayId, { signal });
+}
+
+export async function deleteGateway(gatewayId: string): Promise<void> {
+  await apiClient.gateways.delete(gatewayId);
 }

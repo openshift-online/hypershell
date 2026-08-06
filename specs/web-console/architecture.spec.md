@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Define the technical architecture for two authenticated experiences: a low-friction OpenShell gateway directory for users and a separate HyperShell administration area for the small operator audience. This specification selects the implementation stack, establishes browser/server trust boundaries, and defines the evidence required for a secure, accessible, resilient, and maintainable console.
+Define the technical architecture for a focused HyperShell console that lists, provisions, and connects to OpenShell gateways. This specification selects the implementation stack, establishes browser/server trust boundaries, and defines the evidence required for a secure, accessible, resilient, and maintainable console.
 
 The web console SHALL also satisfy every applicable requirement in `standards/security/` and `standards/ui/`. This specification narrows implementation choices; it does not replace those standards.
 
@@ -74,17 +74,15 @@ Server-side rendering, React Server Components, and a Next.js application SHALL 
 - AND React Router SHALL render the gateway route after checking session and resource access
 - AND API and asset paths SHALL NOT fall back to the SPA document
 
-### Requirement WEB-ARCH-02: User and Administration Boundaries
+### Requirement WEB-ARCH-02: Gateway Management Experience
 
-The default experience SHALL be an OpenShell gateway directory for the much larger user audience. Its landing page SHALL list every gateway visible to the authenticated user, and its gateway detail pages SHALL focus on connection methods. It SHALL NOT expose provisioning controls or fleet, sector, cluster, database, release, or other infrastructure-placement concepts.
+HyperShell SHALL provide one focused application experience. Its landing page SHALL list every gateway visible to the authenticated user and provide gateway provisioning without a separate directory, administration shell, overview, or cluster collection. Gateway details SHALL combine operational configuration with direct OpenShell console and CLI connection actions.
 
-HyperShell infrastructure and gateway provisioning SHALL live under the separate `/admin` route hierarchy. In the initial single-cluster experience, `/admin` SHALL directly present the gateway collection and its provisioning action; it SHALL NOT add an overview or a separate cluster collection merely to represent the local cluster. Access to the administrative routes and every administrative API operation SHALL require explicit server-derived capabilities. Merely knowing an admin URL SHALL NOT grant access.
+The console SHALL initially assume that authenticated users can view and provision gateways. The API SHALL remain the authorization boundary for every read and mutation; route presence and visible controls SHALL NOT grant access. Capability-based UI controls MAY be introduced when the API exposes an authorization contract, without adding a separate `/admin` route hierarchy.
 
-The two experiences SHALL provide deliberate cross-navigation. Administration SHALL expose a prominent return to the OpenShell gateway directory. The user shell MAY expose a subtle administration link when the session has the required capability; that link SHALL NOT compete visually with the gateway connection workflow.
+The masthead and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application.
 
-Both mastheads and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application.
-
-Administrative resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it.
+Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it.
 
 Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 
@@ -93,17 +91,15 @@ The initial route model SHALL include:
 ```text
 /login
 /
+/gateways/new
 /gateways/:gatewayId
-/admin
-/admin/gateways/new
-/admin/gateways/:gatewayId
 ```
 
-The removed `/admin/clusters` and `/admin/gateways` collection paths SHALL NOT be retained as aliases or redirects. They SHALL use the standard not-found experience so the supported route model remains unambiguous.
+Removed `/admin` paths and the former directory experience SHALL NOT be retained as aliases or redirects. Unsupported paths SHALL use the standard not-found experience so the route model remains unambiguous.
 
 The `gatewayId` SHALL be included in gateway-detail query keys, mutations, authorization requests, breadcrumbs, and relevant telemetry dimensions. Route presence, separate shells, and hidden controls SHALL NOT be treated as authorization enforcement. The API SHALL independently authorize every operation and enforce the relationships and scope required by `standards/security/security.spec.md`.
 
-**Verification:** Inspect route definitions and query keys. Confirm that the `/` experience has no administrative resource navigation, provisioning actions, or placement terminology, and that cross-navigation has the intended visual priority in both shells. Refresh each resource collection and verify that its query reruns without resetting table state. Attempt unauthorized gateway reads and administrative mutations by changing route parameters and request bodies; the server rejects the operation without exposing protected data.
+**Verification:** Inspect route definitions and query keys. Confirm that `/` is the only gateway collection, provides provisioning, and does not expose a separate directory, administration shell, or cluster collection. Refresh each resource collection and verify that its query reruns without resetting table state. Attempt unauthorized gateway reads and mutations by changing route parameters and request bodies; the server rejects the operation without exposing protected data.
 
 ### Requirement WEB-ARCH-03: Source and Runtime Boundaries
 
@@ -277,7 +273,9 @@ React components SHALL be implemented semantically and tested through user-obser
 
 ### Requirement WEB-UI-03: Gateway Connection Experience
 
-The user landing page SHALL make the shortest useful OpenShell workflow available without entering an administrative view. Every visible gateway SHALL provide its name, readiness, endpoint, a gateway-console link, a link to user-facing gateway details, and a copyable `openshell gateway add` command. The same console and CLI connection methods SHALL remain available on the gateway detail page.
+The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. The same console, CLI connection, and delete actions SHALL remain available on the gateway detail page; the CLI action SHALL reveal the full copyable command in a popover.
+
+Gateway deletion SHALL use the existing `DELETE /gateways/{id}` contract. Both delete entry points SHALL present the same explicit confirmation before commitment, prevent duplicate submission while deletion is pending, preserve the confirmation with recovery guidance on failure, and provide an accurate success notification after deletion. Successful deletion from a detail page SHALL return the user to the gateway collection and invalidate both collection and deleted-detail query state.
 
 The generated command SHALL include the gateway name, OIDC issuer, OIDC client ID, OIDC audience, and endpoint. Values SHALL be encoded as safe shell arguments before being presented for copying. Copy controls SHALL have an accessible name and visible success feedback, and the full command SHALL remain available at narrow widths without causing page-level horizontal overflow.
 
@@ -382,9 +380,9 @@ Browser errors and metrics SHOULD be accepted through a same-origin BFF endpoint
 Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
-- gateway list, search, pagination, sort, and filter semantics for administration;
-- managed-cluster configuration and lifecycle contracts for administrators;
-- an administrator-only gateway provisioning contract;
+- gateway list, search, pagination, sort, and filter semantics;
+- managed-cluster configuration and lifecycle contracts when remote placement is introduced;
+- gateway provisioning and deletion contracts;
 - authorization behavior and browser-safe capability/permission metadata;
 - stable error envelopes with field errors and a support-safe operation identifier;
 - idempotency or duplicate-submission behavior for consequential creates;
@@ -393,11 +391,11 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 
 The UI SHALL NOT infer authorization solely from object visibility, guess whether a write conflicted from timestamps, or invent terminal states not defined by the API. An authenticated event contract is required before replacing polling with SSE or WebSockets.
 
-The user-facing API surface SHALL be read-only. During the initial single-tenant increment, every gateway returned by the API SHALL be treated as visible to every user. Gateway provisioning SHALL be available only through the administration surface. Authorization-filtered gateway visibility SHALL be defined before a multi-tenant deployment.
+During the initial single-tenant increment, every gateway returned by the API SHALL be treated as visible to every authenticated user, and the provisioning action SHALL be available in the primary gateway experience. Authorization-filtered gateway visibility and mutation capabilities SHALL be defined before a multi-tenant deployment.
 
-For the initial single-cluster deployment, the administrative gateway table SHALL identify an empty `cluster_id` as `Local cluster` in a sortable Cluster column. The provisioning form SHALL NOT collect `fleet_id`, `cluster_id`, `release_id`, or `database_id`. It SHALL send all four fields as empty strings because the initial reconciler owns the local-cluster, gateway-image, and SQLite database defaults and does not resolve those resource identifiers. The existing API contract and data model SHALL remain unchanged by this UI increment. A future workflow MAY expose these choices after they drive reconciliation, but it SHALL NOT expose infrastructure placement on the user-facing gateway directory. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
+For the initial single-cluster deployment, the gateway table SHALL identify an empty `cluster_id` as `Local cluster` in a sortable Cluster column. The provisioning form SHALL NOT collect `fleet_id`, `cluster_id`, `release_id`, or `database_id`. It SHALL send all four fields as empty strings because the initial reconciler owns the local-cluster, gateway-image, and SQLite database defaults and does not resolve those resource identifiers. The existing API contract and data model SHALL remain unchanged by this UI increment. A future workflow MAY expose these choices after they drive reconciliation. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise user and administrator permissions, the initial globally visible gateway list, rejected user-facing creates, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that the initial admin form does not expose fleet, cluster, release, or database identifier fields and sends all four identifiers as empty strings while the API schema remains unchanged.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, provisioning, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that the initial provisioning form does not expose fleet, cluster, release, or database identifier fields and sends all four identifiers as empty strings while the API schema remains unchanged.
 
 ## Initial Delivery Sequence
 
@@ -407,31 +405,30 @@ Implementation SHOULD proceed in these dependency-ordered increments:
 2. Make the generated SDK ESM- and browser-compatible with an injectable transport.
 3. Scaffold React Router SPA mode, PatternFly, localization, test tooling, and one root route.
 4. Implement the BFF session and API proxy against the selected OIDC provider.
-5. Deliver the authenticated OpenShell gateway directory and connection detail journey.
-6. Deliver the capability-protected HyperShell administration shell and read-only gateway administration.
-7. Add admin-only provisioning after the local-cluster, validation, permission, concurrency, CSRF, and recovery contracts are verified.
-8. Establish field telemetry, performance budgets, and the full release matrix before production availability.
+5. Deliver the authenticated HyperShell gateway list and connection detail journey.
+6. Add gateway provisioning after the local-cluster, validation, permission, concurrency, CSRF, and recovery contracts are verified.
+7. Establish field telemetry, performance budgets, and the full release matrix before production availability.
 
 ## Design Decisions
 
-| Decision                                                         | Rationale                                                                                                                                                                                    |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| React Router Framework Mode in SPA configuration                 | Typed routes, route splitting, data/error boundaries, and an upgrade path without requiring SSR                                                                                              |
-| Same-origin BFF                                                  | Keeps OAuth tokens out of browser JavaScript and centralizes sessions, CSRF, proxy controls, headers, and runtime configuration                                                              |
-| pnpm root workspace                                              | Strict dependency visibility, reliable local SDK linking, one lockfile, efficient installs, and supply-chain controls that align with repository policy                                      |
-| TanStack Query for REST state                                    | Purpose-built asynchronous cache, invalidation, cancellation, retry, and refresh behavior without a general global store                                                                     |
-| PatternFly 6 only                                                | Matches HyperShell standards and prevents competing component/token systems                                                                                                                  |
-| Vite, Vitest, Storybook Vite, and Playwright                     | One compatible build/test model with fast component feedback and real multi-browser coverage                                                                                                 |
-| React Intl from the start                                        | Prevents English-only strings and layout assumptions from becoming an expensive later migration                                                                                              |
-| Native `Intl` before a date library                              | Covers display/localization needs without a broad dependency until a missing capability is demonstrated                                                                                      |
-| REST/OpenAPI SDK rather than GraphQL or Axios                    | Reuses the existing typed API contract and Fetch transport without adding another protocol or request stack                                                                                  |
-| Adaptive polling for initial lifecycle refresh                   | The current REST API has no authenticated browser event contract; bounded polling meets the immediate need                                                                                   |
-| Separate user and admin experiences                              | Most visitors only need OpenShell connection methods; infrastructure configuration and provisioning belong to a small, explicitly authorized operator audience                               |
-| Local-cluster placement first                                    | The initial admin form presents local placement and omits fleet and cluster values from its request without changing the API contract; remote placement can be added to administration later |
-| No general client-state store initially                          | URL state, local React state, Context, and TanStack Query have clear non-overlapping ownership                                                                                               |
-| No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity                                                                    |
-| TypeScript 6 before TypeScript 7                                 | Uses the stable tool API supported across lint, build, test, and generated-code tooling; upgrade follows ecosystem readiness                                                                 |
-| React Compiler linting before compiler rollout                   | Finds incompatible patterns while allowing profiling and framework/design-system compatibility to establish value                                                                            |
+| Decision                                                         | Rationale                                                                                                                                                            |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| React Router Framework Mode in SPA configuration                 | Typed routes, route splitting, data/error boundaries, and an upgrade path without requiring SSR                                                                      |
+| Same-origin BFF                                                  | Keeps OAuth tokens out of browser JavaScript and centralizes sessions, CSRF, proxy controls, headers, and runtime configuration                                      |
+| pnpm root workspace                                              | Strict dependency visibility, reliable local SDK linking, one lockfile, efficient installs, and supply-chain controls that align with repository policy              |
+| TanStack Query for REST state                                    | Purpose-built asynchronous cache, invalidation, cancellation, retry, and refresh behavior without a general global store                                             |
+| PatternFly 6 only                                                | Matches HyperShell standards and prevents competing component/token systems                                                                                          |
+| Vite, Vitest, Storybook Vite, and Playwright                     | One compatible build/test model with fast component feedback and real multi-browser coverage                                                                         |
+| React Intl from the start                                        | Prevents English-only strings and layout assumptions from becoming an expensive later migration                                                                      |
+| Native `Intl` before a date library                              | Covers display/localization needs without a broad dependency until a missing capability is demonstrated                                                              |
+| REST/OpenAPI SDK rather than GraphQL or Axios                    | Reuses the existing typed API contract and Fetch transport without adding another protocol or request stack                                                          |
+| Adaptive polling for initial lifecycle refresh                   | The current REST API has no authenticated browser event contract; bounded polling meets the immediate need                                                           |
+| One gateway management experience                                | A single gateway list makes connection and provisioning workflows easy to find without introducing premature audience or navigation boundaries                       |
+| Local-cluster placement first                                    | The initial form presents local placement and omits fleet and cluster values from its request without changing the API contract; remote placement can be added later |
+| No general client-state store initially                          | URL state, local React state, Context, and TanStack Query have clear non-overlapping ownership                                                                       |
+| No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity                                            |
+| TypeScript 6 before TypeScript 7                                 | Uses the stable tool API supported across lint, build, test, and generated-code tooling; upgrade follows ecosystem readiness                                         |
+| React Compiler linting before compiler rollout                   | Finds incompatible patterns while allowing profiling and framework/design-system compatibility to establish value                                                    |
 
 ## Primary Basis
 

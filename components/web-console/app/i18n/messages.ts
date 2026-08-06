@@ -6,41 +6,26 @@ export const messages = defineMessages({
     defaultMessage: "Actions",
     description: "Accessible heading for table row actions.",
   },
-  administration: {
-    id: "app.nav.administration",
-    defaultMessage: "Administration",
-    description: "Navigation and page label for HyperShell administration.",
-  },
-  adminGatewayDescription: {
-    id: "app.page.adminGateway.description",
+  gatewayDescription: {
+    id: "app.page.gateway.description",
     defaultMessage:
       "Review this gateway's configuration and operational status.",
-    description: "Supporting text on the administrative gateway detail page.",
+    description: "Supporting text on the gateway detail page.",
   },
-  adminGatewayDetails: {
-    id: "app.page.adminGateway.title",
-    defaultMessage: "Gateway administration",
-    description: "Title for the administrative gateway detail page.",
+  gatewaysDescription: {
+    id: "app.page.gateways.description",
+    defaultMessage: "HyperShell gateways.",
+    description: "Browser metadata description for the gateways page.",
   },
-  adminGatewaysDescription: {
-    id: "app.page.adminGateways.description",
-    defaultMessage: "Provision and manage OpenShell gateways.",
-    description: "Supporting text on the administrative gateways page.",
-  },
-  adminGatewaysEmptyBody: {
-    id: "app.page.adminGateways.empty.body",
+  gatewaysEmptyBody: {
+    id: "app.page.gateways.empty.body",
     defaultMessage: "Provisioned gateways will appear here.",
-    description: "Body text when the administrative gateway list is empty.",
+    description: "Body text when the gateway list is empty.",
   },
-  adminGatewaysEmptyTitle: {
-    id: "app.page.adminGateways.empty.title",
-    defaultMessage: "No gateways to administer",
-    description: "Heading when the administrative gateway list is empty.",
-  },
-  adminProductName: {
-    id: "app.adminProductName",
-    defaultMessage: "HyperShell Administration",
-    description: "Product name shown in the administrative shell.",
+  gatewaysEmptyTitle: {
+    id: "app.page.gateways.empty.title",
+    defaultMessage: "No gateways",
+    description: "Heading when the gateway list is empty.",
   },
   breadcrumbLabel: {
     id: "app.breadcrumb.ariaLabel",
@@ -57,6 +42,22 @@ export const messages = defineMessages({
     defaultMessage: "Clear filters",
     description: "Action that clears collection filters.",
   },
+  close: {
+    id: "app.action.close",
+    defaultMessage: "Close",
+    description: "Accessible label for closing an overlay.",
+  },
+  cliConnectionCommandCopied: {
+    id: "app.gateway.cliConnectionCommandCopied",
+    defaultMessage: "CLI connection command for {gatewayName} copied",
+    description: "Success notification after copying a gateway CLI command.",
+  },
+  cliConnectionCommandCopyFailed: {
+    id: "app.gateway.cliConnectionCommandCopyFailed",
+    defaultMessage:
+      "CLI connection command for {gatewayName} could not be copied",
+    description: "Error notification when copying a gateway CLI command fails.",
+  },
   cluster: {
     id: "app.gateway.cluster",
     defaultMessage: "Cluster",
@@ -65,7 +66,8 @@ export const messages = defineMessages({
   connectWithCli: {
     id: "app.gateway.connectWithCli",
     defaultMessage: "Connect with the CLI",
-    description: "Heading above a gateway's OpenShell CLI connection command.",
+    description:
+      "Action and heading for a gateway's OpenShell CLI connection command.",
   },
   copied: {
     id: "app.clipboard.copied",
@@ -83,6 +85,38 @@ export const messages = defineMessages({
     description:
       "Accessible label for copying a specific gateway's CLI connection command.",
   },
+  copyCliConnectionCommand: {
+    id: "app.gateway.copyCliConnectionCommand",
+    defaultMessage: "Copy CLI connection command",
+    description: "Menu action that copies a gateway's CLI connection command.",
+  },
+  copyGatewayEndpoint: {
+    id: "app.gateway.copyEndpoint",
+    defaultMessage: "Copy gateway endpoint for {gatewayName}",
+    description:
+      "Accessible label for copying a specific gateway's network endpoint.",
+  },
+  deleteGateway: {
+    id: "app.gateway.delete",
+    defaultMessage: "Delete gateway",
+    description: "Action that permanently deletes a gateway.",
+  },
+  deleteGatewayConfirmation: {
+    id: "app.gateway.delete.confirmation",
+    defaultMessage:
+      "Deleting {gatewayName} will permanently remove the gateway. This action cannot be undone.",
+    description: "Warning shown before permanently deleting a gateway.",
+  },
+  deleteGatewayTitle: {
+    id: "app.gateway.delete.title",
+    defaultMessage: "Delete {gatewayName}?",
+    description: "Title for the gateway deletion confirmation dialog.",
+  },
+  deletingGateway: {
+    id: "app.gateway.delete.pending",
+    defaultMessage: "Deleting gateway",
+    description: "Accessible progress text while a gateway is being deleted.",
+  },
   errorBody: {
     id: "app.error.body",
     defaultMessage: "Refresh the page to try again.",
@@ -94,43 +128,39 @@ export const messages = defineMessages({
     description: "Title shown after an unexpected route failure.",
   },
   filterGateways: {
-    id: "app.page.adminGateways.filter",
+    id: "app.page.gateways.filter",
     defaultMessage: "Filter by name, cluster, status, or endpoint",
     description: "Placeholder and accessible label for gateway search.",
   },
-  gatewayContext: {
-    id: "app.breadcrumb.gatewayContext",
-    defaultMessage: "Gateway {gatewayId}",
-    description:
-      "Breadcrumb label identifying an administrative gateway by its route identifier.",
-  },
-  gatewayDetailsDescription: {
-    id: "app.page.gatewayDetails.description",
-    defaultMessage:
-      "Open the gateway console or add this gateway to the OpenShell CLI.",
-    description: "Supporting text on the user-facing gateway details page.",
+  gateway: {
+    id: "app.gateway.singular",
+    defaultMessage: "Gateway",
+    description: "Fallback breadcrumb label while a gateway is loading.",
   },
   gatewayDetailsTitle: {
     id: "app.page.gatewayDetails.title",
     defaultMessage: "Gateway details",
     description: "Metadata title for a user-facing gateway details page.",
   },
-  gatewayDirectory: {
-    id: "app.nav.gatewayDirectory",
-    defaultMessage: "Gateway directory",
-    description:
-      "Prominent navigation from administration to the user-facing gateway directory.",
-  },
-  gatewayDirectoryDescription: {
-    id: "app.page.gatewayDirectory.description",
-    defaultMessage:
-      "Choose a gateway to open its console or connect with the OpenShell CLI.",
-    description: "Supporting text on the user-facing gateway directory.",
-  },
   gatewayEndpoint: {
     id: "app.gateway.endpoint",
     defaultMessage: "Gateway endpoint",
     description: "Label for an OpenShell gateway network endpoint.",
+  },
+  gatewayDeleteError: {
+    id: "app.gateway.delete.error.title",
+    defaultMessage: "Gateway could not be deleted",
+    description: "Title shown when gateway deletion fails.",
+  },
+  gatewayDeleteErrorBody: {
+    id: "app.gateway.delete.error.body",
+    defaultMessage: "No changes were made. Try again.",
+    description: "Recovery guidance when gateway deletion fails.",
+  },
+  gatewayDeleted: {
+    id: "app.gateway.deleted",
+    defaultMessage: "Gateway {gatewayName} deleted",
+    description: "Success notification after deleting a gateway.",
   },
   gatewayName: {
     id: "app.gateway.name",
@@ -157,6 +187,11 @@ export const messages = defineMessages({
     defaultMessage: "Check the values and try again.",
     description: "Recovery guidance when gateway provisioning fails.",
   },
+  gatewayRowActions: {
+    id: "app.gateway.rowActions",
+    defaultMessage: "Actions for {gatewayName}",
+    description: "Accessible label for a gateway row actions menu.",
+  },
   gatewayReleaseId: {
     id: "app.gateway.releaseId",
     defaultMessage: "Gateway release ID",
@@ -164,13 +199,8 @@ export const messages = defineMessages({
   },
   gateways: {
     id: "app.nav.gateways",
-    defaultMessage: "Gateways",
-    description: "Navigation and page label for gateways.",
-  },
-  getStarted: {
-    id: "app.gateway.getStarted",
-    defaultMessage: "Get started",
-    description: "Heading for gateway connection methods.",
+    defaultMessage: "OpenShell Gateways",
+    description: "Page and resource collection label for OpenShell gateways.",
   },
   helloDescription: {
     id: "app.hello.description",
@@ -197,23 +227,18 @@ export const messages = defineMessages({
     defaultMessage: "Namespace",
     description: "Label for a gateway namespace form field.",
   },
-  noGatewaysAvailable: {
-    id: "app.page.gatewayDirectory.empty.title",
-    defaultMessage: "No gateways available",
-    description: "Heading when a user cannot see any OpenShell gateways.",
-  },
-  noGatewaysAvailableBody: {
-    id: "app.page.gatewayDirectory.empty.body",
-    defaultMessage: "Ask your OpenShell administrator for access to a gateway.",
-    description: "Guidance when a user cannot see any OpenShell gateways.",
+  notifications: {
+    id: "app.notifications",
+    defaultMessage: "Notifications",
+    description: "Accessible label for transient application notifications.",
   },
   noMatchingGateways: {
-    id: "app.page.adminGateways.noResults.title",
+    id: "app.page.gateways.noResults.title",
     defaultMessage: "No matching gateways",
     description: "Heading when no gateways match the current filter.",
   },
   noMatchingGatewaysBody: {
-    id: "app.page.adminGateways.noResults.body",
+    id: "app.page.gateways.noResults.body",
     defaultMessage: "Adjust or clear the filter to see gateways.",
     description: "Guidance when no gateways match the current filter.",
   },
@@ -238,16 +263,6 @@ export const messages = defineMessages({
     defaultMessage: "Open console for {gatewayName} in a new tab",
     description:
       "Accessible label for opening a specific gateway console in a new tab.",
-  },
-  openAdministration: {
-    id: "app.nav.openAdministration",
-    defaultMessage: "Administration",
-    description: "Subtle navigation from OpenShell to administration.",
-  },
-  openShellGateways: {
-    id: "app.page.gatewayDirectory.title",
-    defaultMessage: "OpenShell gateways",
-    description: "Main heading on the user-facing gateway directory.",
   },
   provisionGateway: {
     id: "app.page.gatewayProvision.title",
@@ -294,10 +309,5 @@ export const messages = defineMessages({
     id: "app.table.column.status",
     defaultMessage: "Status",
     description: "Heading for a resource status column.",
-  },
-  viewGatewayDetails: {
-    id: "app.gateway.viewDetails",
-    defaultMessage: "View details",
-    description: "Link to a user-facing gateway detail page.",
   },
 });

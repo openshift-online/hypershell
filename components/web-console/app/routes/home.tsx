@@ -1,9 +1,9 @@
-import { GatewayDirectoryPage } from "../features/gateways/gateway-directory";
+import { GatewaysPage } from "../features/shell/shell-pages";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(
-  "app.page.gatewayDirectory.title",
-  "app.page.gatewayDirectory.description",
+  "app.nav.gateways",
+  "app.page.gateways.description",
 );
 
-export default GatewayDirectoryPage;
+export default GatewaysPage;

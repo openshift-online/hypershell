@@ -2,19 +2,24 @@ import type { Gateway, GatewayList } from "@openshift-online/hypershell-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  getGatewayConnection,
+  deleteGateway,
+  getGateway,
   listGateways,
   toGatewayConnection,
 } from "./gateway-data";
 
-const { getGatewayMock, listGatewaysMock } = vi.hoisted(() => ({
-  getGatewayMock: vi.fn(),
-  listGatewaysMock: vi.fn(),
-}));
+const { deleteGatewayMock, getGatewayMock, listGatewaysMock } = vi.hoisted(
+  () => ({
+    deleteGatewayMock: vi.fn(),
+    getGatewayMock: vi.fn(),
+    listGatewaysMock: vi.fn(),
+  }),
+);
 
 vi.mock("../../lib/api.client", () => ({
   apiClient: {
     gateways: {
+      delete: deleteGatewayMock,
       get: getGatewayMock,
       list: listGatewaysMock,
     },
@@ -110,12 +115,19 @@ describe("gateway API data", () => {
   it("loads a gateway detail by ID", async () => {
     getGatewayMock.mockResolvedValue(gateway());
 
-    await expect(getGatewayConnection("gateway-1")).resolves.toMatchObject({
+    await expect(getGateway("gateway-1")).resolves.toMatchObject({
       id: "gateway-1",
       name: "Team gateway",
     });
     expect(getGatewayMock).toHaveBeenCalledWith("gateway-1", {
       signal: undefined,
     });
+  });
+
+  it("deletes a gateway by ID", async () => {
+    deleteGatewayMock.mockResolvedValue(undefined);
+
+    await expect(deleteGateway("gateway-1")).resolves.toBeUndefined();
+    expect(deleteGatewayMock).toHaveBeenCalledWith("gateway-1");
   });
 });

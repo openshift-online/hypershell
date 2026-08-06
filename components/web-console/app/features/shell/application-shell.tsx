@@ -1,36 +1,36 @@
 import {
   Breadcrumb,
   BreadcrumbItem,
-  Button,
   Masthead,
   MastheadBrand,
-  MastheadContent,
   MastheadLogo,
   MastheadMain,
   Page,
   SkipToContent,
-  Toolbar,
-  ToolbarContent,
-  ToolbarGroup,
-  ToolbarItem,
 } from "@patternfly/react-core";
+import { useQuery } from "@tanstack/react-query";
 import { FormattedMessage, useIntl } from "react-intl";
 import { Link, Outlet, useLocation } from "react-router";
 
 import { messages } from "../../i18n/messages";
+import { gatewayQueryKey, getGateway } from "../gateways/gateway-data";
 import productLogo from "../../../../../images/brand/logo.png";
 import { useRouteHeadingFocus } from "./route-focus";
 import styles from "./application-shell.module.css";
 
-export function AdminShell() {
+export function ApplicationShell() {
   const intl = useIntl();
   const { pathname } = useLocation();
   useRouteHeadingFocus(pathname);
   const segments = pathname.split("/").filter(Boolean);
-  const section = segments[0] === "admin" ? segments[1] : undefined;
-  const gatewaySegment = section === "gateways" ? segments[2] : undefined;
+  const gatewaySegment = segments[0] === "gateways" ? segments[1] : undefined;
   const isNewGateway = gatewaySegment === "new";
   const gatewayId = isNewGateway ? undefined : gatewaySegment;
+  const gatewayQuery = useQuery({
+    enabled: gatewayId !== undefined,
+    queryFn: ({ signal }) => getGateway(gatewayId ?? "", signal),
+    queryKey: gatewayQueryKey(gatewayId ?? ""),
+  });
 
   const skipToContent = (
     <SkipToContent href="#main-content">
@@ -45,7 +45,7 @@ export function AdminShell() {
           <MastheadLogo
             className={styles.brand}
             component={Link}
-            {...{ to: "/admin" }}
+            {...{ to: "/" }}
           >
             <img
               alt=""
@@ -53,39 +53,23 @@ export function AdminShell() {
               className={styles.brandLogo}
               src={productLogo}
             />
-            <FormattedMessage {...messages.adminProductName} />
+            <FormattedMessage {...messages.productName} />
           </MastheadLogo>
         </MastheadBrand>
       </MastheadMain>
-      <MastheadContent>
-        <Toolbar hasNoPadding isFullHeight isStatic>
-          <ToolbarContent>
-            <ToolbarGroup align={{ default: "alignEnd" }}>
-              <ToolbarItem>
-                <Button component={Link} variant="secondary" {...{ to: "/" }}>
-                  <FormattedMessage {...messages.gatewayDirectory} />
-                </Button>
-              </ToolbarItem>
-            </ToolbarGroup>
-          </ToolbarContent>
-        </Toolbar>
-      </MastheadContent>
     </Masthead>
   );
 
   let breadcrumb: React.ReactNode;
-  if (section === "gateways" && (gatewayId || isNewGateway)) {
+  if (gatewayId || isNewGateway) {
     breadcrumb = (
       <Breadcrumb aria-label={intl.formatMessage(messages.breadcrumbLabel)}>
-        <BreadcrumbItem to="/admin">
-          <FormattedMessage {...messages.administration} />
+        <BreadcrumbItem to="/">
+          <FormattedMessage {...messages.gateways} />
         </BreadcrumbItem>
         {gatewayId ? (
           <BreadcrumbItem isActive>
-            <FormattedMessage
-              {...messages.gatewayContext}
-              values={{ gatewayId }}
-            />
+            {gatewayQuery.data?.name ?? intl.formatMessage(messages.gateway)}
           </BreadcrumbItem>
         ) : null}
         {isNewGateway ? (

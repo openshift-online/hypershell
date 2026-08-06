@@ -24,9 +24,31 @@ const gateway = {
   updated_at: null,
 };
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ browserName, page }) => {
+  let gatewayDeleted = false;
+  if (browserName !== "chromium") {
+    await page.addInitScript(() => {
+      let clipboardText = "";
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          readText: () => Promise.resolve(clipboardText),
+          writeText: (text: string) => {
+            clipboardText = text;
+            return Promise.resolve();
+          },
+        },
+      });
+    });
+  }
+
   await page.route("**/api/hypershell/v1/gateways**", async (route) => {
     const request = route.request();
+    if (request.method() === "DELETE") {
+      gatewayDeleted = true;
+      await route.fulfill({ status: 204 });
+      return;
+    }
     if (request.method() !== "GET") {
       await route.continue();
       return;
@@ -36,7 +58,7 @@ test.beforeEach(async ({ page }) => {
     const body =
       gatewayId === "gateways"
         ? {
-            items: [gateway],
+            items: gatewayDeleted ? [] : [gateway],
             kind: "GatewayList",
             page: 1,
             size: 100,
@@ -51,138 +73,68 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("makes OpenShell connection methods the user-facing landing experience", async ({
+test("makes gateway management the primary HyperShell experience", async ({
   page,
 }) => {
   await page.goto("/");
 
-  await expect(
-    page.getByRole("heading", { level: 1, name: "OpenShell gateways" }),
-  ).toBeVisible();
-  await expect(page).toHaveTitle("HyperShell — OpenShell gateways");
+  await expect(page).toHaveTitle("HyperShell — OpenShell Gateways");
   await expect(
     page.getByRole("link", { name: "HyperShell", exact: true }),
   ).toBeVisible();
+  await expect(page.getByText("Administration")).toHaveCount(0);
   await expect(
-    page.getByRole("navigation", { name: "Primary navigation" }),
+    page.getByText("Provision and manage OpenShell gateways."),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("link", { name: "Administration" }),
-  ).toHaveAttribute("href", "/admin");
-  await expect(
-    page.getByRole("link", {
-      name: "Open console for openshell-gateway-test in a new tab",
-    }),
-  ).toHaveAttribute(
-    "href",
-    "https://openshell-dashboard-openshell.apps.rosa.gkrumbac.9bpp.p3.openshiftapps.com",
-  );
-  await expect(
-    page.getByRole("button", {
-      name: "Copy connection command for openshell-gateway-test",
-    }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Refresh gateways" }).click();
-  await expect(
-    page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
-  ).toBeVisible();
-
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations).toEqual([]);
-});
-
-test("copies the complete CLI connection command", async ({
-  context,
-  page,
-}) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/");
-
-  await page
-    .getByRole("button", {
-      name: "Copy connection command for openshell-gateway-test",
-    })
-    .click();
-
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(connectionCommand);
-});
-
-test("cross-navigates between the gateway directory and administration", async ({
-  page,
-}) => {
-  await page.goto("/");
-
-  await page.getByRole("link", { name: "Administration" }).click();
-  await expect(page).toHaveURL(/\/admin$/);
-
-  await page.getByRole("link", { name: "Gateway directory" }).click();
-  await expect(page).toHaveURL(/\/$/);
-});
-
-test("keeps connection methods available on gateway details", async ({
-  page,
-}) => {
-  await page.goto("/");
-
-  await page
-    .getByRole("link", { name: "openshell-gateway-test", exact: true })
-    .click();
-
-  await expect(page).toHaveURL(/\/gateways\/openshell-gateway-test$/);
-  await expect(page).toHaveTitle("HyperShell — Gateway details");
-  await expect(
-    page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
-  ).toBeFocused();
-  await expect(page.getByRole("textbox")).toHaveValue(connectionCommand);
-  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
-  await expect(
-    breadcrumb.getByRole("link", { name: "Gateways" }),
-  ).toBeVisible();
-
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations).toEqual([]);
-});
-
-test("makes the gateway collection the administration landing page", async ({
-  page,
-}) => {
-  await page.goto("/admin");
-
-  await expect(page).toHaveTitle("HyperShell Administration — Gateways");
-  await expect(
-    page.getByRole("link", { name: "HyperShell Administration" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Gateway directory" }),
-  ).toHaveAttribute("href", "/");
-  await expect(
-    page.getByRole("navigation", { name: "Primary navigation" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Gateways" }),
+    page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
   ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Provision gateway" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("grid", { name: "Gateways" }).getByText("Local cluster"),
+    page
+      .getByRole("grid", { name: "OpenShell Gateways" })
+      .getByText("Local cluster"),
   ).toBeVisible();
-  await expect(page.getByText("Connect with the CLI")).toHaveCount(0);
+  await expect(
+    page.getByRole("navigation", { name: "Primary navigation" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Refresh gateways" }).click();
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
 
-test("searches, sorts, refreshes, and provisions from administration", async ({
+test("operates gateway rows and opens provisioning", async ({
+  browserName,
+  context,
   page,
 }) => {
-  await page.goto("/admin");
+  if (browserName === "chromium") {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  }
+  await page.goto("/");
 
+  await page
+    .getByRole("button", { name: "Actions for openshell-gateway-test" })
+    .click();
   await expect(
-    page.getByRole("grid", { name: "Gateways" }).getByText("Local cluster"),
+    page.getByRole("menuitem", { name: "Open gateway console" }),
+  ).toHaveAttribute(
+    "href",
+    "https://openshell-dashboard-openshell.apps.rosa.gkrumbac.9bpp.p3.openshiftapps.com",
+  );
+  await page
+    .getByRole("menuitem", { name: "Copy CLI connection command" })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(connectionCommand);
+  await expect(
+    page.getByText("CLI connection command for openshell-gateway-test copied"),
   ).toBeVisible();
+
   await expect(
     page.getByRole("columnheader", { name: "Gateway name" }),
   ).toHaveAttribute("aria-sort", "ascending");
@@ -198,21 +150,126 @@ test("searches, sorts, refreshes, and provisions from administration", async ({
   await expect(
     page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Refresh gateways" }).click();
-  await expect(page).toHaveURL(/\/admin$/);
-
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations).toEqual([]);
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
-  await expect(page).toHaveURL(/\/admin\/gateways\/new$/);
+  await expect(page).toHaveURL(/\/gateways\/new$/);
   await expect(page.getByLabel("Cluster", { exact: true })).toHaveCount(0);
 });
 
-test("does not preserve removed administration routes as redirects", async ({
+test("keeps connection actions on gateway details", async ({
+  browserName,
+  context,
   page,
 }) => {
-  for (const oldPath of ["/admin/clusters", "/admin/gateways"]) {
+  if (browserName === "chromium") {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  }
+  await page.goto("/");
+  await page
+    .getByRole("link", { name: "openshell-gateway-test", exact: true })
+    .click();
+
+  await expect(page).toHaveURL(/\/gateways\/openshell-gateway-test$/);
+  await expect(page).toHaveTitle("HyperShell — Gateway details");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole("link", {
+      name: "Open console for openshell-gateway-test in a new tab",
+    }),
+  ).toBeVisible();
+
+  const copyFields = page.getByRole("textbox");
+  await expect(copyFields).toHaveCount(1);
+  await expect(copyFields.nth(0)).toHaveValue(
+    "https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
+  );
+  await page
+    .getByRole("button", {
+      name: "Copy gateway endpoint for openshell-gateway-test",
+    })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(
+      "https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
+    );
+
+  await page.getByRole("button", { name: "Connect with the CLI" }).click();
+  await expect(copyFields).toHaveCount(2);
+  await expect(copyFields.nth(1)).toHaveValue(connectionCommand);
+  await expect(
+    page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByText("openshell-gateway-test"),
+  ).toBeVisible();
+
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});
+
+test("deletes a gateway from its row after confirmation", async ({ page }) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Actions for openshell-gateway-test" })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete gateway" }).click();
+
+  let dialog = page.getByRole("dialog", {
+    name: "Delete openshell-gateway-test?",
+  });
+  await expect(dialog).toBeVisible();
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(
+    page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
+  ).toBeVisible();
+
+  await page
+    .getByRole("button", { name: "Actions for openshell-gateway-test" })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete gateway" }).click();
+  dialog = page.getByRole("dialog", {
+    name: "Delete openshell-gateway-test?",
+  });
+  await dialog.getByRole("button", { name: "Delete gateway" }).click();
+
+  await expect(
+    page.getByText("Gateway openshell-gateway-test deleted"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "No gateways" }),
+  ).toBeVisible();
+});
+
+test("deletes a gateway from its details and returns to the list", async ({
+  page,
+}) => {
+  await page.goto("/gateways/openshell-gateway-test");
+  await page.getByRole("button", { name: "Delete gateway" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Delete openshell-gateway-test?",
+  });
+  await dialog.getByRole("button", { name: "Delete gateway" }).click();
+
+  await expect(page).toHaveURL(/\/$/u);
+  await expect(
+    page.getByText("Gateway openshell-gateway-test deleted"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "No gateways" }),
+  ).toBeVisible();
+});
+
+test("does not preserve removed administration routes", async ({ page }) => {
+  for (const oldPath of [
+    "/admin",
+    "/admin/clusters",
+    "/admin/gateways",
+    "/admin/gateways/new",
+  ]) {
     await page.goto(oldPath);
     await expect(page).toHaveURL(new RegExp(`${oldPath}$`));
     await expect(
@@ -256,37 +313,26 @@ test("provisions a gateway without exposing placement fields", async ({
     });
   });
 
-  await page.goto("/admin");
-  await expect(
-    page.getByRole("button", { name: "Refresh gateways" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("textbox", {
-      name: "Filter by name, cluster, status, or endpoint",
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("columnheader", { name: "Gateway name" }),
-  ).toHaveAttribute("aria-sort", "ascending");
-  await expect(page.getByRole("link", { name: "Provision gateway" })).toHaveCSS(
-    "color",
-    "rgb(255, 255, 255)",
-  );
+  await page.goto("/");
   await page.getByRole("link", { name: "Provision gateway" }).click();
-
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
   await expect(page.getByLabel("Cluster", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Gateway release")).toHaveCount(0);
   await expect(page.getByLabel("Managed database")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Provision gateway" }),
-  ).not.toHaveClass(/pf-m-progress/);
   await page.getByLabel("Gateway name").fill("team-gateway");
   await page.getByRole("button", { name: "Provision gateway" }).click();
 
-  await expect(page).toHaveURL(/\/admin\/gateways\/gateway-1$/);
+  await expect(page).toHaveURL(/\/gateways\/gateway-1$/);
+  await expect(
+    page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByText("team-gateway"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Connect with the CLI" }),
+  ).toBeVisible();
   expect(requestBody).toEqual({
     cluster_id: "",
     database_id: "",
@@ -297,14 +343,14 @@ test("provisions a gateway without exposing placement fields", async ({
   });
 });
 
-test("reflows the gateway directory without horizontal page overflow", async ({
+test("reflows the gateway table without horizontal page overflow", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { level: 1, name: "OpenShell gateways" }),
+    page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
   ).toBeVisible();
   const hasOverflow = await page.evaluate(
     () =>
