@@ -461,7 +461,7 @@ For each Gateway resource, the GatewayReconciler SHALL deploy the following Kube
 All gateway resources SHALL use fixed names (one gateway per namespace):
 - Deployment: `openshell-gateway`
 - Service: `openshell-gateway` (ClusterIP, ports: `grpc:8080` with `appProtocol: grpc`, `metrics:9090`)
-- ServiceAccounts: `openshell-gateway`, `openshell-gateway-sandbox`
+- ServiceAccounts: `openshell-gateway`, `openshell-gateway-sandbox`, `openshell-gateway-certgen`
 - ConfigMap: `openshell-gateway-config` (contains `gateway.toml`)
 - Roles, RoleBindings, ClusterRole, ClusterRoleBinding (see RBAC section below)
 - NetworkPolicies (see NetworkPolicy section below)
@@ -621,7 +621,7 @@ Sandbox pods need to connect back to the gateway for gRPC communication:
 
 #### Router Ingress NetworkPolicy
 
-See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) for the `openshell-gateway-allow-router` NetworkPolicy that allows ingress from the OpenShift router namespace.
+See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) for the `openshell-gateway-allow-router` NetworkPolicy that allows ingress from Gateway-labeled Envoy proxy pods.
 
 #### Database NetworkPolicy
 

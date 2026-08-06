@@ -40,7 +40,7 @@ Requires:
 
 ### Requirement: NetworkPolicy for Gateway API Proxy Ingress
 
-The GatewayReconciler creates `openshell-gateway-allow-sandbox` which allows ingress only from pods in the same namespace. The Gateway API controller spawns Envoy proxy pods that may run in the tenant namespace or in `openshift-ingress`. A separate NetworkPolicy SHALL be required for external route connectivity.
+The GatewayReconciler creates `openshell-gateway-allow-sandbox-v2` which allows ingress only from pods in the same namespace. The Gateway API controller spawns Envoy proxy pods in the tenant namespace (co-located with the gateway). A separate NetworkPolicy SHALL be required for external route connectivity.
 
 #### Scenario: Proxy NetworkPolicy required for GRPCRoute
 
@@ -65,9 +65,6 @@ spec:
       app.kubernetes.io/name: openshell
   ingress:
   - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: openshift-ingress
     - podSelector:
         matchLabels:
           gateway.networking.k8s.io/gateway-name: openshell-gateway
@@ -78,7 +75,7 @@ spec:
       protocol: TCP
 ```
 
-> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule allows traffic from both the `openshift-ingress` namespace (where some controllers place proxy pods) and from Gateway-labeled proxy pods in the tenant namespace itself.
+> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule allows traffic from Gateway-labeled Envoy proxy pods (which run in the tenant namespace alongside the gateway).
 
 ---
 
@@ -223,7 +220,7 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
 
 - apiGroups: ["networking.k8s.io"]
   resources: ["networkpolicies"]
-  verbs: ["create", "get", "update", "patch", "delete"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
 ```
 
 ---
@@ -239,7 +236,7 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
 | Symptom | Root Cause | Fix |
 |---|---|---|
 | TLS handshake: 0 bytes read, immediate EOF | NetworkPolicy blocking Gateway API proxy → gateway | Create `openshell-gateway-allow-router` |
-| grpcurl hangs but openssl s_client works | grpcurl blocked by NetworkPolicy | Check source namespace |
+| grpcurl hangs but openssl s_client works | grpcurl blocked by NetworkPolicy | Check pod labels match `gateway.networking.k8s.io/gateway-name` selector |
 | `hsctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` to the Gateway resource |
 
 ---
