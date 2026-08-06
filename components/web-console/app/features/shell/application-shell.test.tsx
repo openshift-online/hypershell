@@ -1,24 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { beforeEach, vi } from "vitest";
 
 import { englishMessages } from "../../i18n/catalog";
-import { ApplicationShell } from "./application-shell";
-
-const { listSectors } = vi.hoisted(() => ({
-  listSectors: vi.fn(),
-}));
-
-vi.mock("../../lib/api.client", () => ({
-  apiClient: {
-    fleets: {
-      list: listSectors,
-    },
-  },
-}));
+import { AdminShell } from "./application-shell";
 
 function RouteContent() {
   const { pathname } = useLocation();
@@ -26,23 +12,16 @@ function RouteContent() {
   return <h1>{pathname}</h1>;
 }
 
-function renderShell(initialPath = "/") {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-
+function renderShell(initialPath = "/admin") {
   return render(
     <IntlProvider locale="en" messages={englishMessages}>
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[initialPath]}>
-          <Routes>
-            <Route element={<ApplicationShell />}>
-              <Route index element={<RouteContent />} />
-              <Route path="*" element={<RouteContent />} />
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<AdminShell />}>
+            <Route path="*" element={<RouteContent />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
     </IntlProvider>,
   );
 }
@@ -59,56 +38,65 @@ async function openNavigation() {
   return screen.getByRole("navigation", { name: "Primary navigation" });
 }
 
-describe("ApplicationShell", () => {
-  beforeEach(() => {
-    listSectors.mockReset();
-    listSectors.mockResolvedValue({
-      items: [
-        { id: "sector-a", name: "Alpha sector" },
-        { id: "sector-b", name: "Beta sector" },
-      ],
-      kind: "FleetList",
-      page: 1,
-      size: 100,
-      total: 2,
-    });
-  });
-
-  it("provides stable global navigation and a bypass link", async () => {
-    renderShell();
+describe("AdminShell", () => {
+  it("provides infrastructure navigation only in the admin area", async () => {
+    const { container } = renderShell();
 
     expect(
       screen
         .getByRole("link", { name: "Skip to content" })
         .getAttribute("href"),
     ).toBe("#main-content");
-    expect(screen.getByRole("link", { name: "HyperShell" })).toBeTruthy();
-    expect(screen.getByText("Development preview")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "HyperShell Administration" }),
+    ).toBeTruthy();
+    expect(container.querySelector('img[src*="logo.png"]')).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Gateway directory" })
+        .getAttribute("href"),
+    ).toBe("/");
 
     const navigation = await openNavigation();
+    expect(within(navigation).getByText("Administration")).toBeTruthy();
     expect(
       within(navigation)
         .getByRole("link", { name: "Overview" })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(
-      within(navigation).getByRole("link", { name: "Sectors" }),
+      within(navigation).getByRole("link", { name: "Clusters" }),
     ).toBeTruthy();
-    expect(screen.queryByText("Selected sector")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Select sector/ })).toBeNull();
+    expect(
+      within(navigation).getByRole("link", { name: "Gateways" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Connect with the CLI")).toBeNull();
   });
 
-  it("keeps the sectors collection global", () => {
-    renderShell("/fleets");
+  it("collapses and expands the Administration group with the keyboard", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const navigation = await openNavigation();
+    const groupToggle = within(navigation).getByRole("button", {
+      name: "Administration",
+    });
 
-    expect(screen.queryByRole("button", { name: /Select sector/ })).toBeNull();
+    groupToggle.focus();
+    await user.keyboard("{Enter}");
+
+    expect(groupToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      within(navigation).queryByRole("link", { name: "Clusters" }),
+    ).toBeNull();
+
+    await user.keyboard("{Enter}");
+    expect(groupToggle.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("identifies the selected sector and gateway on a deep link", async () => {
-    renderShell("/fleets/sector-a/gateways/gateway-b");
+  it("identifies an administrative gateway deep link", async () => {
+    renderShell("/admin/gateways/gateway-b");
 
     const navigation = await openNavigation();
-    expect(within(navigation).getByText("Selected sector")).toBeTruthy();
     expect(
       within(navigation)
         .getByRole("link", { name: "Gateways" })
@@ -116,55 +104,37 @@ describe("ApplicationShell", () => {
     ).toBe("page");
 
     const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(breadcrumb).getByText("Sector sector-a")).toBeTruthy();
+    expect(within(breadcrumb).getByText("Administration")).toBeTruthy();
     expect(within(breadcrumb).getByText("Gateway gateway-b")).toBeTruthy();
+  });
+
+  it("marks the cluster destination and breadcrumb", async () => {
+    renderShell("/admin/clusters");
+
+    const navigation = await openNavigation();
     expect(
-      await screen.findByRole("button", {
-        name: "Select sector, currently Alpha sector",
-      }),
+      within(navigation)
+        .getByRole("link", { name: "Clusters" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText(
+        "Clusters",
+      ),
     ).toBeTruthy();
   });
 
-  it("switches sector context and leaves a gateway detail safely", async () => {
-    const user = userEvent.setup();
-    renderShell("/fleets/sector-a/gateways/gateway-b");
-
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Select sector, currently Alpha sector",
-      }),
-    );
-    await user.click(screen.getByRole("option", { name: "Beta sector" }));
-
-    expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: "/fleets/sector-b/gateways",
-      }),
-    ).toBeTruthy();
-  });
-
-  it.each([
-    ["/fleets/sector-a", "Sector sector-a"],
-    ["/fleets/sector-a/settings", "Settings"],
-    ["/fleets/sector-a/clients", "Clients"],
-    ["/fleets/sector-a/keys", "Keys"],
-  ])("renders contextual breadcrumbs for %s", (path, label) => {
-    renderShell(path);
-
-    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(breadcrumb).getByText(label)).toBeTruthy();
-  });
-
-  it("moves focus to the new page heading after client-side navigation", async () => {
+  it("moves focus after administrative navigation", async () => {
     const user = userEvent.setup();
     renderShell();
     const navigation = await openNavigation();
 
-    await user.click(within(navigation).getByRole("link", { name: "Sectors" }));
+    await user.click(
+      within(navigation).getByRole("link", { name: "Clusters" }),
+    );
 
     expect(document.activeElement).toBe(
-      screen.getByRole("heading", { level: 1, name: "/fleets" }),
+      screen.getByRole("heading", { level: 1, name: "/admin/clusters" }),
     );
   });
 });

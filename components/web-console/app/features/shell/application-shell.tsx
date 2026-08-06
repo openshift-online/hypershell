@@ -1,7 +1,7 @@
 import {
   Breadcrumb,
   BreadcrumbItem,
-  Label,
+  Button,
   Masthead,
   MastheadBrand,
   MastheadContent,
@@ -9,7 +9,7 @@ import {
   MastheadMain,
   MastheadToggle,
   Nav,
-  NavGroup,
+  NavExpandable,
   NavItem,
   NavList,
   Page,
@@ -27,8 +27,8 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { Link, Outlet, useLocation } from "react-router";
 
 import { messages } from "../../i18n/messages";
+import productLogo from "../../../../../images/brand/logo.png";
 import styles from "./application-shell.module.css";
-import { SectorContextBar } from "./sector-selector";
 
 interface NavigationItemProps {
   isActive: boolean;
@@ -44,17 +44,15 @@ function NavigationItem({ isActive, label, to }: NavigationItemProps) {
   );
 }
 
-export function ApplicationShell() {
+export function AdminShell() {
   const intl = useIntl();
   const { pathname } = useLocation();
   const previousPath = useRef(pathname);
   const segments = pathname.split("/").filter(Boolean);
-  // Fleet URLs remain the transport contract until the Sector API and SDK land.
-  const isSectorRoute = segments[0] === "fleets";
-  const sectorId = isSectorRoute ? segments[1] : undefined;
-  const sectorBase = sectorId ? `/fleets/${sectorId}` : undefined;
-  const section = sectorId ? segments[2] : undefined;
-  const gatewayId = sectorId ? segments[3] : undefined;
+  const section = segments[0] === "admin" ? segments[1] : undefined;
+  const gatewaySegment = section === "gateways" ? segments[2] : undefined;
+  const isNewGateway = gatewaySegment === "new";
+  const gatewayId = isNewGateway ? undefined : gatewaySegment;
 
   useEffect(() => {
     if (previousPath.current === pathname) {
@@ -90,10 +88,15 @@ export function ApplicationShell() {
           <MastheadLogo
             className={styles.brand}
             component={Link}
-            {...{ to: "/" }}
+            {...{ to: "/admin" }}
           >
-            <span aria-hidden="true" className={styles.brandMark} />
-            <FormattedMessage {...messages.productName} />
+            <img
+              alt=""
+              aria-hidden="true"
+              className={styles.brandLogo}
+              src={productLogo}
+            />
+            <FormattedMessage {...messages.adminProductName} />
           </MastheadLogo>
         </MastheadBrand>
       </MastheadMain>
@@ -102,9 +105,9 @@ export function ApplicationShell() {
           <ToolbarContent>
             <ToolbarGroup align={{ default: "alignEnd" }}>
               <ToolbarItem>
-                <Label color="red" isCompact>
-                  <FormattedMessage {...messages.developmentPreview} />
-                </Label>
+                <Button component={Link} variant="secondary" {...{ to: "/" }}>
+                  <FormattedMessage {...messages.gatewayDirectory} />
+                </Button>
               </ToolbarItem>
             </ToolbarGroup>
           </ToolbarContent>
@@ -118,58 +121,50 @@ export function ApplicationShell() {
       <PageSidebarBody>
         <Nav aria-label={intl.formatMessage(messages.primaryNavigation)}>
           <NavList>
-            <NavigationItem
-              isActive={pathname === "/"}
-              label={<FormattedMessage {...messages.overview} />}
-              to="/"
-            />
-            <NavigationItem
-              isActive={pathname === "/fleets"}
-              label={<FormattedMessage {...messages.sectors} />}
-              to="/fleets"
-            />
-          </NavList>
-          {sectorBase ? (
-            <NavGroup title={intl.formatMessage(messages.selectedSector)}>
+            <NavExpandable
+              groupId="administration"
+              isExpanded
+              title={intl.formatMessage(messages.administration)}
+            >
               <NavigationItem
-                isActive={pathname === sectorBase}
-                label={<FormattedMessage {...messages.sectorOverview} />}
-                to={sectorBase}
+                isActive={pathname === "/admin"}
+                label={<FormattedMessage {...messages.overview} />}
+                to="/admin"
+              />
+              <NavigationItem
+                isActive={section === "clusters"}
+                label={<FormattedMessage {...messages.clusters} />}
+                to="/admin/clusters"
               />
               <NavigationItem
                 isActive={section === "gateways"}
                 label={<FormattedMessage {...messages.gateways} />}
-                to={`${sectorBase}/gateways`}
+                to="/admin/gateways"
               />
-              <NavigationItem
-                isActive={section === "settings"}
-                label={<FormattedMessage {...messages.settings} />}
-                to={`${sectorBase}/settings`}
-              />
-            </NavGroup>
-          ) : null}
+            </NavExpandable>
+          </NavList>
         </Nav>
       </PageSidebarBody>
     </PageSidebar>
   );
 
   let breadcrumb: React.ReactNode;
-  if (isSectorRoute) {
+  if (section) {
     breadcrumb = (
       <Breadcrumb aria-label={intl.formatMessage(messages.breadcrumbLabel)}>
-        <BreadcrumbItem isActive={!sectorId} to="/fleets">
-          <FormattedMessage {...messages.sectors} />
+        <BreadcrumbItem to="/admin">
+          <FormattedMessage {...messages.administration} />
         </BreadcrumbItem>
-        {sectorBase ? (
-          <BreadcrumbItem isActive={!section} to={sectorBase}>
-            <FormattedMessage
-              {...messages.sectorContext}
-              values={{ sectorId }}
-            />
+        {section === "clusters" ? (
+          <BreadcrumbItem isActive>
+            <FormattedMessage {...messages.clusters} />
           </BreadcrumbItem>
         ) : null}
-        {section === "gateways" && sectorBase ? (
-          <BreadcrumbItem isActive={!gatewayId} to={`${sectorBase}/gateways`}>
+        {section === "gateways" ? (
+          <BreadcrumbItem
+            isActive={!gatewayId && !isNewGateway}
+            to="/admin/gateways"
+          >
             <FormattedMessage {...messages.gateways} />
           </BreadcrumbItem>
         ) : null}
@@ -181,19 +176,9 @@ export function ApplicationShell() {
             />
           </BreadcrumbItem>
         ) : null}
-        {section === "settings" ? (
+        {isNewGateway ? (
           <BreadcrumbItem isActive>
-            <FormattedMessage {...messages.settings} />
-          </BreadcrumbItem>
-        ) : null}
-        {section === "clients" ? (
-          <BreadcrumbItem isActive>
-            <FormattedMessage {...messages.clients} />
-          </BreadcrumbItem>
-        ) : null}
-        {section === "keys" ? (
-          <BreadcrumbItem isActive>
-            <FormattedMessage {...messages.keys} />
+            <FormattedMessage {...messages.provisionGateway} />
           </BreadcrumbItem>
         ) : null}
       </Breadcrumb>
@@ -202,11 +187,6 @@ export function ApplicationShell() {
 
   return (
     <Page
-      banner={
-        sectorId ? (
-          <SectorContextBar pathname={pathname} selectedSectorId={sectorId} />
-        ) : undefined
-      }
       breadcrumb={breadcrumb}
       defaultManagedSidebarIsOpen
       isContentFilled

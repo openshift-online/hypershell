@@ -7,15 +7,16 @@ import {
 
 export default [
   route("login", "./routes/login.tsx"),
-  layout("./routes/application.tsx", [
+  layout("./routes/user-application.tsx", [
     index("./routes/home.tsx"),
-    route("fleets", "./routes/fleets.tsx"),
-    route("fleets/:fleetId", "./routes/fleet.tsx"),
-    route("fleets/:fleetId/gateways", "./routes/fleet-gateways.tsx"),
-    route("fleets/:fleetId/gateways/:gatewayId", "./routes/gateway.tsx"),
-    route("fleets/:fleetId/clients", "./routes/fleet-clients.tsx"),
-    route("fleets/:fleetId/keys", "./routes/fleet-keys.tsx"),
-    route("fleets/:fleetId/settings", "./routes/fleet-settings.tsx"),
-    route("*", "./routes/not-found.tsx"),
+    route("gateways/:gatewayId", "./routes/gateway.tsx"),
   ]),
+  layout("./routes/admin-application.tsx", [
+    route("admin", "./routes/admin-home.tsx"),
+    route("admin/clusters", "./routes/admin-clusters.tsx"),
+    route("admin/gateways", "./routes/admin-gateways.tsx"),
+    route("admin/gateways/new", "./routes/admin-gateway-new.tsx"),
+    route("admin/gateways/:gatewayId", "./routes/admin-gateway.tsx"),
+  ]),
+  route("*", "./routes/not-found.tsx"),
 ] satisfies RouteConfig;

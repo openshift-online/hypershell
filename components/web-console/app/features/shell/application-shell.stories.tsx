@@ -3,8 +3,8 @@ import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
 
 import { englishMessages } from "../../i18n/catalog";
-import { ApplicationShell } from "./application-shell";
-import { GatewayPage, OverviewPage } from "./shell-pages";
+import { AdminShell } from "./application-shell";
+import { AdminGatewayPage, AdminOverviewPage } from "./shell-pages";
 
 const pseudoMessages = Object.fromEntries(
   Object.entries(englishMessages).map(([id, message]) => [
@@ -13,15 +13,15 @@ const pseudoMessages = Object.fromEntries(
   ]),
 );
 
-function ShellPreview({ initialPath = "/" }: { initialPath?: string }) {
+function ShellPreview({ initialPath = "/admin" }: { initialPath?: string }) {
   return (
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route element={<ApplicationShell />}>
-          <Route index element={<OverviewPage />} />
+        <Route element={<AdminShell />}>
+          <Route path="admin" element={<AdminOverviewPage />} />
           <Route
-            path="fleets/:fleetId/gateways/:gatewayId"
-            element={<GatewayPage />}
+            path="admin/gateways/:gatewayId"
+            element={<AdminGatewayPage />}
           />
         </Route>
       </Routes>
@@ -30,23 +30,21 @@ function ShellPreview({ initialPath = "/" }: { initialPath?: string }) {
 }
 
 const meta = {
-  title: "Application/Shell",
-  component: ApplicationShell,
+  title: "Administration/Shell",
+  component: AdminShell,
   parameters: {
     layout: "fullscreen",
   },
   render: () => <ShellPreview />,
-} satisfies Meta<typeof ApplicationShell>;
+} satisfies Meta<typeof AdminShell>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Overview: Story = {};
 
-export const SelectedSector: Story = {
-  render: () => (
-    <ShellPreview initialPath="/fleets/sector-a/gateways/gateway-b" />
-  ),
+export const GatewayDetails: Story = {
+  render: () => <ShellPreview initialPath="/admin/gateways/gateway-b" />,
 };
 
 export const PseudoLocalized: Story = {

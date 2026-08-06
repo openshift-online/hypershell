@@ -10,14 +10,34 @@ import {
   EmptyStateVariant,
   Grid,
   GridItem,
+  Label,
   PageSection,
   Title,
 } from "@patternfly/react-core";
 import type { MessageDescriptor } from "react-intl";
-import { FormattedMessage } from "react-intl";
+import { FormattedMessage, useIntl } from "react-intl";
 import { Link } from "react-router";
 
+import {
+  availableClusterOptions,
+  getGatewayProvisionPath,
+  type ClusterOption,
+} from "../clusters/cluster-options";
+import {
+  previewGateways,
+  type GatewayConnection,
+} from "../gateways/gateway-connections";
+import {
+  ResourceTable,
+  type ResourceTableColumn,
+} from "../shared/resource-table";
 import { messages } from "../../i18n/messages";
+import styles from "./shell-pages.module.css";
+
+const primaryLinkStyle: React.CSSProperties = {
+  color: "var(--pf-v6-c-button--m-primary--Color)",
+  textDecoration: "none",
+};
 
 interface ScaffoldPageProps {
   description: MessageDescriptor;
@@ -64,16 +84,16 @@ function ScaffoldPage({
   );
 }
 
-export function OverviewPage() {
+export function AdminOverviewPage() {
   return (
     <>
       <PageSection hasBodyWrapper={false}>
         <Content>
           <Title headingLevel="h1" size="2xl">
-            <FormattedMessage {...messages.overview} />
+            <FormattedMessage {...messages.administration} />
           </Title>
           <p>
-            <FormattedMessage {...messages.overviewDescription} />
+            <FormattedMessage {...messages.adminOverviewDescription} />
           </p>
         </Content>
       </PageSection>
@@ -83,20 +103,20 @@ export function OverviewPage() {
             <Card isFullHeight>
               <CardTitle>
                 <Title headingLevel="h2" size="lg">
-                  <FormattedMessage {...messages.sectors} />
+                  <FormattedMessage {...messages.clusters} />
                 </Title>
               </CardTitle>
               <CardBody>
-                <FormattedMessage {...messages.sectorsCardBody} />
+                <FormattedMessage {...messages.clustersCardBody} />
               </CardBody>
               <CardFooter>
                 <Button
                   component={Link}
                   isInline
                   variant="link"
-                  {...{ to: "/fleets" }}
+                  {...{ to: "/admin/clusters" }}
                 >
-                  <FormattedMessage {...messages.viewSectors} />
+                  <FormattedMessage {...messages.viewClusters} />
                 </Button>
               </CardFooter>
             </Card>
@@ -109,20 +129,18 @@ export function OverviewPage() {
                 </Title>
               </CardTitle>
               <CardBody>
-                <FormattedMessage {...messages.gatewaysCardBody} />
+                <FormattedMessage {...messages.adminGatewaysCardBody} />
               </CardBody>
-            </Card>
-          </GridItem>
-          <GridItem md={6} span={12} xl={4}>
-            <Card isFullHeight>
-              <CardTitle>
-                <Title headingLevel="h2" size="lg">
-                  <FormattedMessage {...messages.platformConnections} />
-                </Title>
-              </CardTitle>
-              <CardBody>
-                <FormattedMessage {...messages.platformConnectionsCardBody} />
-              </CardBody>
+              <CardFooter>
+                <Button
+                  component={Link}
+                  isInline
+                  variant="link"
+                  {...{ to: "/admin/gateways" }}
+                >
+                  <FormattedMessage {...messages.viewAdminGateways} />
+                </Button>
+              </CardFooter>
             </Card>
           </GridItem>
         </Grid>
@@ -131,79 +149,181 @@ export function OverviewPage() {
   );
 }
 
-export function SectorsPage() {
+interface AdminGatewaysPageProps {
+  gateways?: readonly GatewayConnection[];
+}
+
+export function AdminGatewaysPage({
+  gateways = previewGateways,
+}: AdminGatewaysPageProps = {}) {
+  const intl = useIntl();
+  const columns: readonly ResourceTableColumn<GatewayConnection>[] = [
+    {
+      getSortValue: ({ name }) => name,
+      id: "name",
+      label: intl.formatMessage(messages.gatewayName),
+      render: (gateway) => (
+        <Link to={`/admin/gateways/${encodeURIComponent(gateway.id)}`}>
+          {gateway.name}
+        </Link>
+      ),
+      width: 25,
+    },
+    {
+      getSortValue: ({ status }) => status,
+      id: "status",
+      label: intl.formatMessage(messages.status),
+      render: ({ status }) => (
+        <Label color="green" isCompact>
+          {status}
+        </Label>
+      ),
+      width: 15,
+    },
+    {
+      getSortValue: ({ endpoint }) => endpoint,
+      id: "endpoint",
+      label: intl.formatMessage(messages.gatewayEndpoint),
+      render: ({ endpoint }) => (
+        <span className={styles.endpoint}>{endpoint}</span>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <PageSection hasBodyWrapper={false}>
+        <Content>
+          <Title headingLevel="h1" size="2xl">
+            <FormattedMessage {...messages.gateways} />
+          </Title>
+          <p>
+            <FormattedMessage {...messages.adminGatewaysDescription} />
+          </p>
+        </Content>
+      </PageSection>
+      <PageSection hasBodyWrapper={false} isFilled>
+        <ResourceTable
+          ariaLabel={intl.formatMessage(messages.gateways)}
+          columns={columns}
+          getRowKey={({ id }) => id}
+          id="gateways"
+          labels={{
+            actions: intl.formatMessage(messages.actions),
+            clearFilters: intl.formatMessage(messages.clearFilters),
+            emptyBody: intl.formatMessage(messages.adminGatewaysEmptyBody),
+            emptyTitle: intl.formatMessage(messages.adminGatewaysEmptyTitle),
+            noResultsBody: intl.formatMessage(messages.noMatchingGatewaysBody),
+            noResultsTitle: intl.formatMessage(messages.noMatchingGateways),
+            resultsCountContext: intl.formatMessage(messages.results),
+            searchAriaLabel: intl.formatMessage(messages.filterGateways),
+            searchPlaceholder: intl.formatMessage(messages.filterGateways),
+          }}
+          primaryAction={
+            <Button
+              component={Link}
+              style={primaryLinkStyle}
+              variant="primary"
+              {...{ to: "/admin/gateways/new" }}
+            >
+              <FormattedMessage {...messages.provisionGateway} />
+            </Button>
+          }
+          renderRowAction={(gateway) => (
+            <Button
+              component={Link}
+              variant="secondary"
+              {...{
+                to: `/admin/gateways/${encodeURIComponent(gateway.id)}`,
+              }}
+            >
+              <FormattedMessage {...messages.viewGatewayDetails} />
+            </Button>
+          )}
+          rows={gateways}
+        />
+      </PageSection>
+    </>
+  );
+}
+
+export function AdminGatewayPage() {
   return (
     <ScaffoldPage
-      description={messages.sectorsDescription}
-      emptyBody={messages.sectorsEmptyBody}
-      emptyTitle={messages.sectorsEmptyTitle}
-      title={messages.sectors}
+      description={messages.adminGatewayDescription}
+      emptyBody={messages.adminGatewayEmptyBody}
+      emptyTitle={messages.adminGatewayEmptyTitle}
+      title={messages.adminGatewayDetails}
     />
   );
 }
 
-export function SectorPage() {
-  return (
-    <ScaffoldPage
-      description={messages.sectorDescription}
-      emptyBody={messages.sectorEmptyBody}
-      emptyTitle={messages.sectorEmptyTitle}
-      title={messages.sectorOverview}
-    />
-  );
+interface AdminClustersPageProps {
+  clusters?: readonly ClusterOption[];
 }
 
-export function GatewaysPage() {
-  return (
-    <ScaffoldPage
-      description={messages.gatewaysDescription}
-      emptyBody={messages.gatewaysEmptyBody}
-      emptyTitle={messages.gatewaysEmptyTitle}
-      title={messages.gateways}
-    />
-  );
-}
+export function AdminClustersPage({
+  clusters = availableClusterOptions,
+}: AdminClustersPageProps = {}) {
+  const intl = useIntl();
+  const columns: readonly ResourceTableColumn<ClusterOption>[] = [
+    {
+      getSortValue: ({ name }) => name,
+      id: "name",
+      label: intl.formatMessage(messages.clusterNameColumn),
+      render: ({ name }) => <strong>{name}</strong>,
+      width: 30,
+    },
+    {
+      getSortValue: ({ description }) => description,
+      id: "description",
+      label: intl.formatMessage(messages.clusterDescriptionColumn),
+      render: ({ description }) => description,
+    },
+  ];
 
-export function GatewayPage() {
   return (
-    <ScaffoldPage
-      description={messages.gatewayDescription}
-      emptyBody={messages.gatewayEmptyBody}
-      emptyTitle={messages.gatewayEmptyTitle}
-      title={messages.gatewayDetails}
-    />
-  );
-}
-
-export function SettingsPage() {
-  return (
-    <ScaffoldPage
-      description={messages.settingsDescription}
-      emptyBody={messages.settingsEmptyBody}
-      emptyTitle={messages.settingsEmptyTitle}
-      title={messages.settings}
-    />
-  );
-}
-
-export function ClientsPage() {
-  return (
-    <ScaffoldPage
-      description={messages.clientsDescription}
-      emptyBody={messages.clientsEmptyBody}
-      emptyTitle={messages.clientsEmptyTitle}
-      title={messages.clients}
-    />
-  );
-}
-
-export function KeysPage() {
-  return (
-    <ScaffoldPage
-      description={messages.keysDescription}
-      emptyBody={messages.keysEmptyBody}
-      emptyTitle={messages.keysEmptyTitle}
-      title={messages.keys}
-    />
+    <>
+      <PageSection hasBodyWrapper={false}>
+        <Content>
+          <Title headingLevel="h1" size="2xl">
+            <FormattedMessage {...messages.clusters} />
+          </Title>
+          <p>
+            <FormattedMessage {...messages.clustersDescription} />
+          </p>
+        </Content>
+      </PageSection>
+      <PageSection hasBodyWrapper={false} isFilled>
+        <ResourceTable
+          ariaLabel={intl.formatMessage(messages.clusters)}
+          columns={columns}
+          getRowKey={({ id }) => id}
+          id="clusters"
+          labels={{
+            actions: intl.formatMessage(messages.clusterActionsColumn),
+            clearFilters: intl.formatMessage(messages.clearFilters),
+            emptyBody: intl.formatMessage(messages.noClustersAvailableBody),
+            emptyTitle: intl.formatMessage(messages.noClustersAvailable),
+            noResultsBody: intl.formatMessage(messages.noMatchingClustersBody),
+            noResultsTitle: intl.formatMessage(messages.noMatchingClusters),
+            resultsCountContext: intl.formatMessage(messages.results),
+            searchAriaLabel: intl.formatMessage(messages.filterClusters),
+            searchPlaceholder: intl.formatMessage(messages.filterClusters),
+          }}
+          renderRowAction={(cluster) => (
+            <Button
+              component={Link}
+              style={primaryLinkStyle}
+              variant="primary"
+              {...{ to: getGatewayProvisionPath(cluster.id) }}
+            >
+              <FormattedMessage {...messages.provisionGateway} />
+            </Button>
+          )}
+          rows={clusters}
+        />
+      </PageSection>
+    </>
   );
 }
