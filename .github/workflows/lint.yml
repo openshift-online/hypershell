@@ -178,7 +178,7 @@ jobs:
 
   summary:
     name: Lint CI gate
-    if: always()
+    if: ${{ always() && !cancelled() }}
     needs:
       - detect-changes
       - lint-api-server
