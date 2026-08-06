@@ -1,0 +1,168 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          args:
+            - start-dev
+            - --import-realm
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: admin
+            - name: KC_HTTP_PORT
+              value: "8080"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9000
+              name: management
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: realm-config
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm-config
+          configMap:
+            name: keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-service
+  namespace: keycloak
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  namespace: keycloak
+data:
+  hypershell-realm.json: |
+    {
+      "realm": "hypershell",
+      "enabled": true,
+      "registrationAllowed": false,
+      "clients": [
+        {
+          "clientId": "hypershell-frontend",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": true,
+          "fullScopeAllowed": true,
+          "redirectUris": ["*"],
+          "webOrigins": ["*"],
+          "defaultClientScopes": ["openid", "email", "profile"],
+          "protocolMappers": [
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "hypershell-frontend",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            },
+            {
+              "name": "sub",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-sub-mapper",
+              "consentRequired": false,
+              "config": {
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            },
+            {
+              "name": "realm-roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "multivalued": "true",
+                "claim.name": "groups",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "hypershell-provisioner",
+          "enabled": true,
+          "publicClient": false,
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "secret": "provisioner-secret"
+        }
+      ],
+      "roles": {
+        "realm": [
+          { "name": "hypershell-admins", "description": "HyperShell administrators" },
+          { "name": "hypershell-users", "description": "HyperShell users" }
+        ]
+      },
+      "users": [
+        {
+          "username": "admin",
+          "enabled": true,
+          "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
+          "realmRoles": ["hypershell-admins", "hypershell-users"]
+        },
+        {
+          "username": "developer",
+          "enabled": true,
+          "credentials": [{ "type": "password", "value": "developer", "temporary": false }],
+          "realmRoles": ["hypershell-users"]
+        }
+      ],
+      "clientScopeMappings": {
+        "hypershell-provisioner": [
+          { "client": "realm-management", "roles": ["manage-clients", "manage-users"] }
+        ]
+      }
+    }

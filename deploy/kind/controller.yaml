@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hypershell-controller
+  template:
+    metadata:
+      labels:
+        app: hypershell-controller
+    spec:
+      serviceAccountName: hypershell-controller
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: controller
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HYPERSHELL_GRPC_SERVER_ADDR
+              value: "hypershell-api-server:9000"
+            - name: HYPERSHELL_API_SERVER_URL
+              value: "http://hypershell-api-server:8000"
+            - name: HYPERSHELL_NAMESPACE
+              value: "hypershell-system"
+            - name: HYPERSHELL_LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

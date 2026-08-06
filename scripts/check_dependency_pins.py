@@ -376,6 +376,7 @@ def _is_manifest(relative_path: str) -> bool:
     name = path.name.lower()
     return (
         "/deploy/" in f"/{relative_path}"
+        and "/deploy/kind/" not in f"/{relative_path}"
         and path.suffix.lower() in {".yaml", ".yml"}
     ) or name in {
         "compose.yaml",

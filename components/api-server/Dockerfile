@@ -5,7 +5,7 @@ USER root
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
-RUN GOPRIVATE=github.com/openshift-online/rh-trex-ai go mod download
+RUN go mod edit -dropreplace github.com/openshift-online/rh-trex-ai && go mod download
 
 COPY cmd/ cmd/
 COPY pkg/ pkg/
@@ -14,7 +14,7 @@ COPY openapi/ openapi/
 
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
-RUN go build -ldflags="-s -w \
+RUN go build -mod=mod -ldflags="-s -w \
   -X github.com/openshift-online/hypershell/components/api-server/pkg/api.Version=${GIT_VERSION} \
   -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${BUILD_TIME}'" \
   -o hypershell ./cmd/hypershell

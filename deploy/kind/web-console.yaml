@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hypershell-web-console
+  namespace: hypershell-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-web-console
+  namespace: hypershell-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hypershell-web-console
+  template:
+    metadata:
+      labels:
+        app: hypershell-web-console
+    spec:
+      serviceAccountName: hypershell-web-console
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: web-console
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-web-console-main:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: PORT
+              value: "8080"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: NODE_ENV
+              value: "production"
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypershell-web-console
+  namespace: hypershell-system
+spec:
+  selector:
+    app: hypershell-web-console
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 8080

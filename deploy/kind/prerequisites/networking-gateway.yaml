@@ -1,0 +1,32 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: hypershell-gw
+  namespace: hypershell-system
+spec:
+  gatewayClassName: cloud-provider-kind
+  listeners:
+    - name: https
+      hostname: "*.hypershell.localhost"
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: hypershell-https-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: grpc
+      hostname: "*.gw.localhost"
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: hypershell-gw-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: All

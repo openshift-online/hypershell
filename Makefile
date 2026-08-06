@@ -6,13 +6,63 @@ GOLANGCI_LINT_PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(G
 DEPENDENCY_MIN_AGE_DAYS=14
 PNPM_VERSION=11.15.1
 PNPM?=pnpm
-WEB_CONSOLE_IMAGE?=localhost/hypershell-web-console:dev
+
+# --- Image registry and tags ---
+IMAGE_REGISTRY?=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+IMAGE_TAG?=latest
+
+# Build version (embedded in api-server binary via ldflags)
+git_sha:=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+git_dirty:=$(shell git diff --quiet 2>/dev/null || echo -modified)
+build_version:=$(git_sha)$(git_dirty)
+build_time:=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+# Computed baseline references (registry images used in Kind manifests)
+api_server_ref=$(IMAGE_REGISTRY)/hypershell-api-server-main:$(IMAGE_TAG)
+control_plane_ref=$(IMAGE_REGISTRY)/hypershell-control-plane-main:$(IMAGE_TAG)
+web_console_ref=$(IMAGE_REGISTRY)/hypershell-web-console-main:$(IMAGE_TAG)
+
+# Local dev image names
+api_server_local=hypershell:dev
+control_plane_local=hypershell-controller:dev
+web_console_local=hypershell-web-console:dev
+
+# --- Kind cluster configuration ---
+KIND_CLUSTER_NAME?=hypershell-dev
+KIND_NAMESPACE?=hypershell-system
+KIND_USE_NODEPORT?=
+KIND_HOT_RELOAD?=true
+KIND_HOST_MOUNT_PATH?=$(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
+KIND_KEYCLOAK_URL?=
+LOCAL_IMAGES?=
+KIND_PULL_SECRET?=
+
+# NodePort configuration (used when KIND_USE_NODEPORT=true)
+KIND_API_PORT?=23080
+KIND_GRPC_PORT?=29000
+KIND_HEALTH_PORT?=24434
+KIND_CONSOLE_PORT?=23000
+
+# Prerequisite versions
+GATEWAY_API_VERSION?=v1.2.1
+CLOUD_PROVIDER_KIND_VERSION?=v0.6.0
+CERT_MANAGER_VERSION?=v1.21.1
+
+# Kind config selection
+KIND_CONFIG=$(if $(KIND_USE_NODEPORT),deploy/kind/kind-config-nodeport.yaml,deploy/kind/kind-config.yaml)
+
+# Service hostnames
+API_HOSTNAME=api.hypershell.localhost
+CONSOLE_HOSTNAME=console.hypershell.localhost
+HEALTH_HOSTNAME=health.hypershell.localhost
+
+# ============================================================================
+# Build targets
+# ============================================================================
 
 .PHONY: build-all
 build-all:
-	cd components/api-server && $(MAKE) image
-	cd components/api-server && $(MAKE) image-controller
-	$(CONTAINER_ENGINE) build -t $(WEB_CONSOLE_IMAGE) -f components/web-console/Dockerfile .
+	@scripts/kind/build-images.sh
 
 .PHONY: verify-pnpm
 verify-pnpm:
@@ -28,7 +78,12 @@ web-console-dev: install-js
 
 .PHONY: web-console-image
 web-console-image:
-	$(CONTAINER_ENGINE) build -t $(WEB_CONSOLE_IMAGE) -f components/web-console/Dockerfile .
+	$(CONTAINER_ENGINE) build -t $(web_console_local) \
+		-f components/web-console/Dockerfile .
+
+# ============================================================================
+# Policy checks
+# ============================================================================
 
 .PHONY: check-forbidden-terms
 check-forbidden-terms:
@@ -57,6 +112,10 @@ check-dependency-age: test-dependency-age-policy
 .PHONY: check
 check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
 
+# ============================================================================
+# Git hooks
+# ============================================================================
+
 .PHONY: hooks-install
 hooks-install:
 	$(LEFTHOOK_CMD) install
@@ -64,6 +123,10 @@ hooks-install:
 .PHONY: hooks-run
 hooks-run:
 	$(LEFTHOOK_CMD) run check
+
+# ============================================================================
+# Lint targets
+# ============================================================================
 
 .PHONY: lint-api-server
 lint-api-server:
@@ -105,6 +168,10 @@ lint-web-console: install-js
 .PHONY: lint
 lint: check install-js lint-api-server lint-control-plane lint-sdk-typescript lint-gateway-ui lint-web-console
 
+# ============================================================================
+# Test targets
+# ============================================================================
+
 .PHONY: test-all
 test-all: install-js
 	cd components/api-server && $(MAKE) test
@@ -113,18 +180,60 @@ test-all: install-js
 	$(PNPM) --filter @openshift-online/hypershell-web-console test:run
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff test:run
 
+# ============================================================================
+# Kind cluster lifecycle — shell logic lives in scripts/kind/
+# ============================================================================
+
+export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE KIND_USE_NODEPORT
+export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
+export KIND_PULL_SECRET KIND_API_PORT KIND_GRPC_PORT KIND_HEALTH_PORT KIND_CONSOLE_PORT
+export GATEWAY_API_VERSION CLOUD_PROVIDER_KIND_VERSION CERT_MANAGER_VERSION
+export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
+export api_server_ref control_plane_ref web_console_ref
+export api_server_local control_plane_local web_console_local
+export build_version build_time
+export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME
+
 .PHONY: kind-up
-kind-up: build-all
-	cd components/api-server && $(MAKE) kind-up
+kind-up:
+	@scripts/kind/up.sh
 
 .PHONY: kind-down
 kind-down:
-	cd components/api-server && $(MAKE) kind-down
-
-.PHONY: kind-rebuild
-kind-rebuild:
-	cd components/api-server && $(MAKE) kind-rebuild
+	@scripts/kind/down.sh
 
 .PHONY: kind-status
 kind-status:
-	cd components/api-server && $(MAKE) kind-status
+	@scripts/kind/status.sh
+
+.PHONY: kind-api-server-up
+kind-api-server-up:
+	@scripts/kind/swap-component.sh up api-server
+
+.PHONY: kind-api-server-down
+kind-api-server-down:
+	@scripts/kind/swap-component.sh down api-server
+
+.PHONY: kind-control-plane-up
+kind-control-plane-up:
+	@scripts/kind/swap-component.sh up control-plane
+
+.PHONY: kind-control-plane-down
+kind-control-plane-down:
+	@scripts/kind/swap-component.sh down control-plane
+
+.PHONY: kind-web-console-up
+kind-web-console-up:
+	@scripts/kind/swap-component.sh up web-console
+
+.PHONY: kind-web-console-down
+kind-web-console-down:
+	@scripts/kind/swap-component.sh down web-console
+
+.PHONY: kind-deploy
+kind-deploy:
+	@scripts/kind/deploy-namespace.sh
+
+.PHONY: kind-undeploy
+kind-undeploy:
+	@scripts/kind/deploy-namespace.sh undeploy

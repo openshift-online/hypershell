@@ -69,7 +69,7 @@ skills/
 
 ```
 Layer 0 (roots):  data-model, standards/*
-Layer 1:          control-plane
+Layer 1:          control-plane, local-development, web-console architecture
 Layer 2:          openshell-gateway (core)
 Layer 3:          openshell-gateway-database, openshell-gateway-tls
 Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
@@ -269,6 +269,28 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 |---|------|--------|-----|------|------|
 | E1 | StatefulSet → Deployment | Aligned | e2e now checks `deployment` | 196-216 | W1 ✅ |
 
+### local-development.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Priority |
+|---|-------------|--------|-----|---------------|----------|
+| L1 | Single-Command Setup (`kind-up`) | Present | Root Makefile + `scripts/kind/up.sh` | `Makefile`, `scripts/kind/up.sh` | P0 |
+| L2 | Per-Component Swap | Missing | Swap targets not yet implemented | — | P1 |
+| L3 | Cluster Teardown (`kind-down`) | Present | Root Makefile + `scripts/kind/down.sh` | `Makefile`, `scripts/kind/down.sh` | P0 |
+| L4 | Cluster Status (`kind-status`) | Present | Root Makefile + `scripts/kind/status.sh` | `Makefile`, `scripts/kind/status.sh` | P0 |
+| L5 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` in lib.sh | `scripts/kind/lib.sh` | — |
+| L6 | Hostname Routing (Gateway API) | Partial | HTTPRoutes + `/etc/hosts` wired; multi-namespace routing missing | `deploy/kind/prerequisites/` | P1 |
+| L7 | NodePort Fallback | Partial | Config variables defined; nodeport-services.yaml exists | `scripts/kind/lib.sh` | P2 |
+| L8 | Gateway via REST API | Present | Fleet + Gateway seeded via curl in up.sh | `scripts/kind/up.sh` | P0 |
+| L9 | Controller RBAC | Present | ClusterRole + ClusterRoleBinding | `deploy/kind/controller-rbac.yaml` | P0 |
+| L10 | API Server Database | Present | postgres.yaml (Secret + Deployment + Service) | `deploy/kind/postgres.yaml` | P0 |
+| L11 | Hot Reload | Missing | Not yet implemented | — | P2 |
+| L12 | Multi-Namespace Deployments | Missing | Not yet implemented | — | P2 |
+| L13 | Swap Tracking | Missing | `.kind-swaps` file not implemented | — | P2 |
+| L14 | Developer Documentation | Present | `DEVELOPMENT.md` created | `DEVELOPMENT.md` | P0 |
+| L15 | Container Engine Support | Present | Auto-detection (Podman preferred) | `scripts/kind/lib.sh` | — |
+| L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` + up.sh integration | `scripts/kind/build-images.sh` | — |
+| L17 | Red Hat HI Images | Partial | Spec requires HI; `KIND_DB_IMAGE` override exists but default still standard RHEL | — | P1 |
+
 ---
 
 ## Wave Plan
@@ -359,6 +381,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | 2026-08-05 | working tree | Web-console bootstrap increments 1-3 | 64% overall | Root pnpm migration, browser-compatible SDK, React Router/PatternFly scaffold, secure static BFF, tests, and production container; authenticated product increments remain open |
 | 2026-08-06 | 0585632 | Gap analysis after gateway spec update | 44% | 5 gateway sub-specs added; 19 missing, 7 partial, 15 present |
 | 2026-08-06 | 0585632+W1-W4 | Executed waves 1-4 | 85% | 4 waves: Deployment+PG, cert-manager, OIDC+CA, GatewayAPI |
+| 2026-08-06 | working tree | Local-dev reconciliation | 73% | Kind cluster scripts, deploy manifests, REST API seeding, controller RBAC, DEVELOPMENT.md |
+| 2026-08-06 | f27730f | Rebased on main (PR #14 gateway reconciler merged) | 73% | Gateway reconciler in codebase; updated Dockerfiles with dropreplace + -mod=mod; control-plane Dockerfile with manifests COPY |
 | 2026-08-07 | b83c635 | Full re-analysis after spec expansion | 62% | 22 specs (was 9); 165 requirements; local-dev and web-console specs added; gateway core spec detailed with 18 requirements; routing gaps surfaced |
 | 2026-08-07 | working tree | Executed Wave 5: Gateway Proto Schema + API Fields | 60% | 6 provisioning fields added to proto/OpenAPI/model/migration; CP reconciler populates GatewayConfig from proto; ExternalSecretRef added to DatabaseConfig |
 | 2026-08-07 | working tree | Executed Wave 6: Gateway Deletion + Cleanup + Route Removal | 60% | DeleteGatewayResources() with label-based cleanup; namespace cache for DELETED events; per-tenant ClusterRoleBinding; deleteGatewayAPIResources() for route disable; ownerReferences deferred |

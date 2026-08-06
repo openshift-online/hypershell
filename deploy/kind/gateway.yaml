@@ -1,0 +1,16 @@
+apiVersion: hypershell.redhat.com/v1alpha1
+kind: Gateway
+metadata:
+  name: openshell-gateway
+  namespace: hypershell-system
+spec:
+  database:
+    image: registry.access.redhat.com/hi/postgresql:18
+  serverDnsNames:
+    - openshell-gateway.hypershell-system.svc.cluster.local
+  oidc:
+    issuer: http://keycloak-service:8080/realms/hypershell
+    audience: hypershell-frontend
+    roles_claim: groups
+    admin_role: hypershell-admins
+    user_role: hypershell-users
