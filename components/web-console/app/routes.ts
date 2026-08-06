@@ -13,8 +13,6 @@ export default [
   ]),
   layout("./routes/admin-application.tsx", [
     route("admin", "./routes/admin-home.tsx"),
-    route("admin/clusters", "./routes/admin-clusters.tsx"),
-    route("admin/gateways", "./routes/admin-gateways.tsx"),
     route("admin/gateways/new", "./routes/admin-gateway-new.tsx"),
     route("admin/gateways/:gatewayId", "./routes/admin-gateway.tsx"),
   ]),

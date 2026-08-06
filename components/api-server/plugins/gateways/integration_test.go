@@ -78,6 +78,29 @@ func TestGatewayPost(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
+func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	gatewayInput := openapi.Gateway{
+		Name:       "local-gateway",
+		FleetId:    "",
+		ClusterId:  "",
+		ReleaseId:  "",
+		DatabaseId: "",
+		Namespace:  "test-namespace",
+	}
+
+	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).Gateway(gatewayInput).Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with local placement: %v", err)
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(gatewayOutput.FleetId).To(BeEmpty())
+	Expect(gatewayOutput.ClusterId).To(BeEmpty())
+	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
+	Expect(gatewayOutput.DatabaseId).To(BeEmpty())
+}
+
 func TestGatewayPatch(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 

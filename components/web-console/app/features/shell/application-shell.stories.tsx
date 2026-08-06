@@ -3,8 +3,9 @@ import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
 
 import { englishMessages } from "../../i18n/catalog";
+import { previewGateways } from "../gateways/gateway-connections";
 import { AdminShell } from "./application-shell";
-import { AdminGatewayPage, AdminOverviewPage } from "./shell-pages";
+import { AdminGatewayPage, AdminGatewaysPage } from "./shell-pages";
 
 const pseudoMessages = Object.fromEntries(
   Object.entries(englishMessages).map(([id, message]) => [
@@ -18,7 +19,10 @@ function ShellPreview({ initialPath = "/admin" }: { initialPath?: string }) {
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route element={<AdminShell />}>
-          <Route path="admin" element={<AdminOverviewPage />} />
+          <Route
+            path="admin"
+            element={<AdminGatewaysPage gateways={previewGateways} />}
+          />
           <Route
             path="admin/gateways/:gatewayId"
             element={<AdminGatewayPage />}
@@ -41,7 +45,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Overview: Story = {};
+export const Gateways: Story = {};
 
 export const GatewayDetails: Story = {
   render: () => <ShellPreview initialPath="/admin/gateways/gateway-b" />,

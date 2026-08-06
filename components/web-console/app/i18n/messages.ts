@@ -14,7 +14,7 @@ export const messages = defineMessages({
   adminGatewayDescription: {
     id: "app.page.adminGateway.description",
     defaultMessage:
-      "Review this gateway's placement, configuration, and operational status.",
+      "Review this gateway's configuration and operational status.",
     description: "Supporting text on the administrative gateway detail page.",
   },
   adminGatewayDetails: {
@@ -22,26 +22,9 @@ export const messages = defineMessages({
     defaultMessage: "Gateway administration",
     description: "Title for the administrative gateway detail page.",
   },
-  adminGatewayEmptyBody: {
-    id: "app.page.adminGateway.empty.body",
-    defaultMessage:
-      "Gateway placement and configuration will appear here when the API is connected.",
-    description: "Body text on the administrative gateway detail empty state.",
-  },
-  adminGatewayEmptyTitle: {
-    id: "app.page.adminGateway.empty.title",
-    defaultMessage: "Gateway configuration is not available",
-    description: "Heading on the administrative gateway detail empty state.",
-  },
-  adminGatewaysCardBody: {
-    id: "app.page.adminOverview.gateways.body",
-    defaultMessage: "Provision and manage gateways on available clusters.",
-    description: "Body text for the gateways card on the admin overview.",
-  },
   adminGatewaysDescription: {
     id: "app.page.adminGateways.description",
-    defaultMessage:
-      "Provision gateways and manage their infrastructure placement.",
+    defaultMessage: "Provision and manage OpenShell gateways.",
     description: "Supporting text on the administrative gateways page.",
   },
   adminGatewaysEmptyBody: {
@@ -53,12 +36,6 @@ export const messages = defineMessages({
     id: "app.page.adminGateways.empty.title",
     defaultMessage: "No gateways to administer",
     description: "Heading when the administrative gateway list is empty.",
-  },
-  adminOverviewDescription: {
-    id: "app.page.adminOverview.description",
-    defaultMessage:
-      "Configure the infrastructure used to provision OpenShell gateways.",
-    description: "Supporting text on the HyperShell administration overview.",
   },
   adminProductName: {
     id: "app.adminProductName",
@@ -80,41 +57,10 @@ export const messages = defineMessages({
     defaultMessage: "Clear filters",
     description: "Action that clears collection filters.",
   },
-  clusters: {
-    id: "app.nav.clusters",
-    defaultMessage: "Clusters",
-    description: "Navigation and page label for managed clusters.",
-  },
   cluster: {
     id: "app.gateway.cluster",
     defaultMessage: "Cluster",
-    description: "Label for the selected gateway placement cluster.",
-  },
-  clusterActionsColumn: {
-    id: "app.page.clusters.column.actions",
-    defaultMessage: "Actions",
-    description: "Accessible heading for cluster row actions.",
-  },
-  clusterDescriptionColumn: {
-    id: "app.page.clusters.column.description",
-    defaultMessage: "Description",
-    description: "Heading for the cluster description column.",
-  },
-  clusterNameColumn: {
-    id: "app.page.clusters.column.name",
-    defaultMessage: "Name",
-    description: "Heading for the cluster name column.",
-  },
-  clustersCardBody: {
-    id: "app.page.adminOverview.clusters.body",
-    defaultMessage: "Configure clusters available for gateway placement.",
-    description: "Body text for the clusters card on the admin overview.",
-  },
-  clustersDescription: {
-    id: "app.page.clusters.description",
-    defaultMessage:
-      "View the cluster currently available for gateway placement.",
-    description: "Supporting text on the administrative clusters page.",
+    description: "Heading for the gateway placement cluster column.",
   },
   connectWithCli: {
     id: "app.gateway.connectWithCli",
@@ -147,14 +93,9 @@ export const messages = defineMessages({
     defaultMessage: "The page could not be loaded",
     description: "Title shown after an unexpected route failure.",
   },
-  filterClusters: {
-    id: "app.page.clusters.filter",
-    defaultMessage: "Filter by name or description",
-    description: "Placeholder and accessible label for cluster search.",
-  },
   filterGateways: {
     id: "app.page.adminGateways.filter",
-    defaultMessage: "Filter by name, status, or endpoint",
+    defaultMessage: "Filter by name, cluster, status, or endpoint",
     description: "Placeholder and accessible label for gateway search.",
   },
   gatewayContext: {
@@ -196,6 +137,16 @@ export const messages = defineMessages({
     defaultMessage: "Gateway name",
     description: "Label for a gateway name form field.",
   },
+  gatewayLoadError: {
+    id: "app.gateway.load.error.title",
+    defaultMessage: "Gateways could not be loaded",
+    description: "Title shown when gateway data cannot be loaded from the API.",
+  },
+  gatewayLoadErrorBody: {
+    id: "app.gateway.load.error.body",
+    defaultMessage: "Refresh the page to try again.",
+    description: "Recovery guidance when gateway data cannot be loaded.",
+  },
   gatewayProvisionError: {
     id: "app.page.gatewayProvision.error.title",
     defaultMessage: "Gateway could not be provisioned",
@@ -209,7 +160,7 @@ export const messages = defineMessages({
   gatewayReleaseId: {
     id: "app.gateway.releaseId",
     defaultMessage: "Gateway release ID",
-    description: "Label for the gateway release identifier form field.",
+    description: "Label for a gateway's release identifier.",
   },
   gateways: {
     id: "app.nav.gateways",
@@ -234,13 +185,12 @@ export const messages = defineMessages({
   managedDatabaseId: {
     id: "app.gateway.managedDatabaseId",
     defaultMessage: "Managed database ID",
-    description: "Label for the managed database identifier form field.",
+    description: "Label for a gateway's managed database identifier.",
   },
-  navigationToggle: {
-    id: "app.nav.toggle",
-    defaultMessage: "Toggle primary navigation",
-    description:
-      "Accessible label for the button that opens and closes the sidebar.",
+  loadingGateways: {
+    id: "app.gateway.loading",
+    defaultMessage: "Loading gateways",
+    description: "Accessible label shown while gateway data is loading.",
   },
   namespace: {
     id: "app.gateway.namespace",
@@ -256,27 +206,6 @@ export const messages = defineMessages({
     id: "app.page.gatewayDirectory.empty.body",
     defaultMessage: "Ask your OpenShell administrator for access to a gateway.",
     description: "Guidance when a user cannot see any OpenShell gateways.",
-  },
-  noClustersAvailable: {
-    id: "app.page.clusters.empty.title",
-    defaultMessage: "No clusters available",
-    description: "Heading when no clusters are available for placement.",
-  },
-  noClustersAvailableBody: {
-    id: "app.page.clusters.empty.body",
-    defaultMessage:
-      "Clusters available for gateway placement will appear here.",
-    description: "Guidance when no clusters are available for placement.",
-  },
-  noMatchingClusters: {
-    id: "app.page.clusters.noResults.title",
-    defaultMessage: "No matching clusters",
-    description: "Heading when no clusters match the current filter.",
-  },
-  noMatchingClustersBody: {
-    id: "app.page.clusters.noResults.body",
-    defaultMessage: "Adjust or clear the filter to see clusters.",
-    description: "Guidance when no clusters match the current filter.",
   },
   noMatchingGateways: {
     id: "app.page.adminGateways.noResults.title",
@@ -320,16 +249,6 @@ export const messages = defineMessages({
     defaultMessage: "OpenShell gateways",
     description: "Main heading on the user-facing gateway directory.",
   },
-  overview: {
-    id: "app.nav.overview",
-    defaultMessage: "Overview",
-    description: "Navigation label for the administration overview.",
-  },
-  primaryNavigation: {
-    id: "app.nav.primary",
-    defaultMessage: "Primary navigation",
-    description: "Accessible label for the administrative sidebar navigation.",
-  },
   provisionGateway: {
     id: "app.page.gatewayProvision.title",
     defaultMessage: "Provision gateway",
@@ -355,6 +274,11 @@ export const messages = defineMessages({
     defaultMessage: "This field is required.",
     description: "Validation message for an empty required form field.",
   },
+  refreshGateways: {
+    id: "app.gateways.refresh",
+    defaultMessage: "Refresh gateways",
+    description: "Accessible label for refreshing the gateway list.",
+  },
   results: {
     id: "app.table.results",
     defaultMessage: "results",
@@ -370,16 +294,6 @@ export const messages = defineMessages({
     id: "app.table.column.status",
     defaultMessage: "Status",
     description: "Heading for a resource status column.",
-  },
-  viewAdminGateways: {
-    id: "app.page.adminOverview.gateways.action",
-    defaultMessage: "View gateways",
-    description: "Link from the admin overview to gateway administration.",
-  },
-  viewClusters: {
-    id: "app.page.adminOverview.clusters.action",
-    defaultMessage: "View clusters",
-    description: "Link from the admin overview to cluster administration.",
   },
   viewGatewayDetails: {
     id: "app.gateway.viewDetails",

@@ -1,10 +1,10 @@
-import { AdminOverviewPage } from "../features/shell/shell-pages";
+import { AdminGatewaysPage } from "../features/shell/shell-pages";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(
-  "app.nav.administration",
-  "app.page.adminOverview.description",
+  "app.nav.gateways",
+  "app.page.adminGateways.description",
   "app.adminProductName",
 );
 
-export default AdminOverviewPage;
+export default AdminGatewaysPage;

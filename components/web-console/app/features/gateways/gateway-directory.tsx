@@ -9,21 +9,26 @@ import {
   EmptyState,
   EmptyStateBody,
   EmptyStateVariant,
+  Flex,
+  FlexItem,
   Gallery,
   Label,
   PageSection,
   Title,
 } from "@patternfly/react-core";
+import { useQuery } from "@tanstack/react-query";
 import { FormattedMessage, useIntl } from "react-intl";
 import { Link, useParams } from "react-router";
 
 import { messages } from "../../i18n/messages";
+import { ResourceRefreshButton } from "../shared/resource-refresh-button";
 import {
   buildGatewayAddCommand,
-  getPreviewGateway,
-  previewGateways,
+  gatewayStatusColor,
   type GatewayConnection,
 } from "./gateway-connections";
+import { getGatewayConnection, listGatewayConnections } from "./gateway-data";
+import { GatewayLoadState } from "./gateway-load-state";
 import styles from "./gateway-directory.module.css";
 
 function ConnectionCommand({ gateway }: { gateway: GatewayConnection }) {
@@ -61,7 +66,7 @@ function GatewayCard({ gateway }: { gateway: GatewayConnection }) {
               {gateway.name}
             </Link>
           </Title>
-          <Label color="green" isCompact>
+          <Label color={gatewayStatusColor(gateway.status)} isCompact>
             {gateway.status}
           </Label>
         </div>
@@ -105,21 +110,43 @@ function GatewayCard({ gateway }: { gateway: GatewayConnection }) {
 
 export function GatewayDirectory({
   gateways,
+  isRefreshing = false,
+  onRefresh,
 }: {
   gateways: readonly GatewayConnection[];
+  isRefreshing?: boolean;
+  onRefresh?: () => unknown;
 }) {
+  const intl = useIntl();
+
   return (
     <>
       <PageSection hasBodyWrapper={false}>
         <div className={styles.content}>
-          <Content>
-            <Title headingLevel="h1" size="2xl">
-              <FormattedMessage {...messages.openShellGateways} />
-            </Title>
-            <p>
-              <FormattedMessage {...messages.gatewayDirectoryDescription} />
-            </p>
-          </Content>
+          <Flex
+            alignItems={{ default: "alignItemsFlexStart" }}
+            justifyContent={{ default: "justifyContentSpaceBetween" }}
+          >
+            <FlexItem>
+              <Content>
+                <Title headingLevel="h1" size="2xl">
+                  <FormattedMessage {...messages.openShellGateways} />
+                </Title>
+                <p>
+                  <FormattedMessage {...messages.gatewayDirectoryDescription} />
+                </p>
+              </Content>
+            </FlexItem>
+            {onRefresh ? (
+              <FlexItem>
+                <ResourceRefreshButton
+                  ariaLabel={intl.formatMessage(messages.refreshGateways)}
+                  isRefreshing={isRefreshing}
+                  onRefresh={onRefresh}
+                />
+              </FlexItem>
+            ) : null}
+          </Flex>
         </div>
       </PageSection>
       <PageSection hasBodyWrapper={false} isFilled variant="secondary">
@@ -148,7 +175,25 @@ export function GatewayDirectory({
 }
 
 export function GatewayDirectoryPage() {
-  return <GatewayDirectory gateways={previewGateways} />;
+  const gateways = useQuery({
+    queryFn: ({ signal }) => listGatewayConnections(signal),
+    queryKey: ["gateways"],
+  });
+
+  if (gateways.isPending) {
+    return <GatewayLoadState />;
+  }
+  if (gateways.isError) {
+    return <GatewayLoadState isError />;
+  }
+
+  return (
+    <GatewayDirectory
+      gateways={gateways.data}
+      isRefreshing={gateways.isFetching}
+      onRefresh={() => gateways.refetch()}
+    />
+  );
 }
 
 export function GatewayDetails({ gateway }: { gateway: GatewayConnection }) {
@@ -167,7 +212,9 @@ export function GatewayDetails({ gateway }: { gateway: GatewayConnection }) {
                 <FormattedMessage {...messages.gatewayDetailsDescription} />
               </p>
             </Content>
-            <Label color="green">{gateway.status}</Label>
+            <Label color={gatewayStatusColor(gateway.status)}>
+              {gateway.status}
+            </Label>
           </div>
         </div>
       </PageSection>
@@ -210,7 +257,19 @@ export function GatewayDetails({ gateway }: { gateway: GatewayConnection }) {
 }
 
 export function GatewayDetailsPage() {
-  const { gatewayId = "gateway" } = useParams();
+  const { gatewayId = "" } = useParams();
+  const gateway = useQuery({
+    enabled: gatewayId.length > 0,
+    queryFn: ({ signal }) => getGatewayConnection(gatewayId, signal),
+    queryKey: ["gateways", gatewayId],
+  });
 
-  return <GatewayDetails gateway={getPreviewGateway(gatewayId)} />;
+  if (gateway.isPending) {
+    return <GatewayLoadState />;
+  }
+  if (gateway.isError) {
+    return <GatewayLoadState isError />;
+  }
+
+  return <GatewayDetails gateway={gateway.data} />;
 }

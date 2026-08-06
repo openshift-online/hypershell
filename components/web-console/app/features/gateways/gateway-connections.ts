@@ -1,4 +1,5 @@
 export interface GatewayConnection {
+  clusterName: string;
   consoleUrl: string;
   endpoint: string;
   id: string;
@@ -30,11 +31,16 @@ export function buildGatewayAddCommand(gateway: GatewayConnection) {
   ].join(" ");
 }
 
+export function gatewayStatusColor(status: string): "green" | "grey" {
+  return status.trim().toLocaleLowerCase() === "unknown" ? "grey" : "green";
+}
+
 /**
  * Preview data for the connection-oriented UI. The current Gateway API does
  * not yet return the OIDC or console fields required by this view model.
  */
 export const previewGateway: GatewayConnection = {
+  clusterName: "Local cluster",
   consoleUrl:
     "https://openshell-dashboard-openshell.apps.rosa.gkrumbac.9bpp.p3.openshiftapps.com",
   endpoint:

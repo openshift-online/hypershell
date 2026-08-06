@@ -1,57 +1,77 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter } from "react-router";
+import { beforeEach, vi } from "vitest";
 
 import { englishMessages } from "../../i18n/catalog";
-import {
-  AdminClustersPage,
-  AdminGatewayPage,
-  AdminGatewaysPage,
-  AdminOverviewPage,
-} from "./shell-pages";
+import { previewGateways } from "../gateways/gateway-connections";
+import type * as GatewayData from "../gateways/gateway-data";
+import { AdminGatewayPage, AdminGatewaysPage } from "./shell-pages";
+
+const { listGatewayConnectionsMock } = vi.hoisted(() => ({
+  listGatewayConnectionsMock: vi.fn(),
+}));
+
+vi.mock("../gateways/gateway-data", async (importOriginal) => ({
+  ...(await importOriginal<typeof GatewayData>()),
+  listGatewayConnections: listGatewayConnectionsMock,
+}));
 
 function renderPage(Page: () => React.ReactNode) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
   return render(
     <IntlProvider locale="en" messages={englishMessages}>
-      <MemoryRouter>
-        <Page />
-      </MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <Page />
+        </MemoryRouter>
+      </QueryClientProvider>
     </IntlProvider>,
   );
 }
 
 describe("admin shell pages", () => {
-  it("presents infrastructure entry points on the admin overview", () => {
-    renderPage(AdminOverviewPage);
-
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Administration" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: "View gateways" }).getAttribute("href"),
-    ).toBe("/admin/gateways");
-    expect(
-      screen.getByRole("link", { name: "View clusters" }).getAttribute("href"),
-    ).toBe("/admin/clusters");
-    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it("renders the gateway detail route purpose and empty state", () => {
-    renderPage(AdminGatewayPage);
+  it("renders gateway details returned by the API", () => {
+    renderPage(() => (
+      <AdminGatewayPage
+        gateway={{
+          cluster_id: "",
+          created_at: null,
+          database_id: "database-1",
+          external_dns: "gateway.example.com",
+          fleet_id: "",
+          href: "/api/hypershell/v1/gateways/gateway-1",
+          id: "gateway-1",
+          kind: "Gateway",
+          name: "Team gateway",
+          namespace: "openshell",
+          phase: "",
+          release_id: "release-1",
+          service_type: "",
+          status: "Ready",
+          tls_mode: "",
+          updated_at: null,
+        }}
+      />
+    ));
 
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Gateway administration",
+        name: "Team gateway",
       }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: "Gateway configuration is not available",
-      }),
-    ).toBeTruthy();
+    expect(screen.getByText("https://gateway.example.com:443")).toBeTruthy();
+    expect(screen.getByText("release-1")).toBeTruthy();
   });
 
   it("shows an empty state when there are no gateways to administer", () => {
@@ -65,80 +85,43 @@ describe("admin shell pages", () => {
     ).toBeTruthy();
   });
 
-  it("shows the local cluster with a contextual provisioning action", () => {
-    renderPage(AdminClustersPage);
+  it("loads the administrative gateway list from the API", async () => {
+    listGatewayConnectionsMock.mockResolvedValue(previewGateways);
 
+    renderPage(AdminGatewaysPage);
+
+    expect(screen.getByLabelText("Loading gateways")).toBeTruthy();
     expect(
-      screen.getByRole("heading", { level: 1, name: "Clusters" }),
+      await screen.findByRole("link", { name: "openshell-gateway-test" }),
     ).toBeTruthy();
-    const clusterTable = screen.getByRole("grid", { name: "Clusters" });
-    expect(within(clusterTable).getByText("Local cluster")).toBeTruthy();
-    expect(screen.getByText("The cluster running HyperShell.")).toBeTruthy();
-    expect(screen.queryByText("Registered")).toBeNull();
-    expect(screen.queryByText(/only supported gateway placement/i)).toBeNull();
-    expect(
-      screen
-        .getByRole("link", { name: "Provision gateway" })
-        .getAttribute("href"),
-    ).toBe("/admin/gateways/new?cluster=local");
-    expect(screen.queryByText("No clusters registered")).toBeNull();
   });
 
-  it("renders provisioning actions from cluster data", () => {
-    renderPage(() => (
-      <AdminClustersPage
-        clusters={[
-          {
-            description: "A future remote placement.",
-            id: "cluster-east",
-            name: "East cluster",
-          },
-        ]}
-      />
-    ));
-
-    expect(
-      screen
-        .getByRole("link", { name: "Provision gateway" })
-        .getAttribute("href"),
-    ).toBe("/admin/gateways/new?cluster=cluster-east");
-  });
-
-  it("filters clusters and clears a no-results state", async () => {
+  it("refreshes the administrative gateway list", async () => {
     const user = userEvent.setup();
-    renderPage(AdminClustersPage);
+    listGatewayConnectionsMock.mockResolvedValue(previewGateways);
+    renderPage(AdminGatewaysPage);
 
-    await user.type(
-      screen.getByRole("textbox", { name: "Filter by name or description" }),
-      "remote",
-    );
+    await screen.findByRole("link", { name: "openshell-gateway-test" });
+    const filter = screen.getByRole("textbox", {
+      name: "Filter by name, cluster, status, or endpoint",
+    });
+    await user.type(filter, "openshell");
+    await user.click(screen.getByRole("button", { name: "Refresh gateways" }));
+
+    await waitFor(() => {
+      expect(listGatewayConnectionsMock).toHaveBeenCalledTimes(2);
+    });
+    expect(filter.getAttribute("value")).toBe("openshell");
+  });
+
+  it("shows administrative gateway API failures", async () => {
+    listGatewayConnectionsMock.mockRejectedValue(new Error("unavailable"));
+
+    renderPage(AdminGatewaysPage);
 
     expect(
-      screen.getByRole("heading", { level: 2, name: "No matching clusters" }),
+      await screen.findByText("Gateways could not be loaded"),
     ).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Clear filters" }));
-    expect(screen.getByText("Local cluster")).toBeTruthy();
-  });
-
-  it("paginates cluster collections", async () => {
-    const user = userEvent.setup();
-    renderPage(() => (
-      <AdminClustersPage
-        clusters={Array.from({ length: 21 }, (_value, index) => {
-          const ordinal = String(index + 1);
-
-          return {
-            description: `Placement ${ordinal}`,
-            id: `cluster-${ordinal}`,
-            name: `Cluster ${ordinal}`,
-          };
-        })}
-      />
-    ));
-
-    expect(screen.queryByText("Cluster 21")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Go to next page" }));
-    expect(screen.getByText("Cluster 21")).toBeTruthy();
   });
 
   it("sorts and filters the administrative gateway list", async () => {
@@ -147,6 +130,7 @@ describe("admin shell pages", () => {
       <AdminGatewaysPage
         gateways={[
           {
+            clusterName: "West cluster",
             consoleUrl: "https://console.example/zulu",
             endpoint: "https://zulu.example:443",
             id: "zulu",
@@ -157,6 +141,7 @@ describe("admin shell pages", () => {
             status: "Ready",
           },
           {
+            clusterName: "East cluster",
             consoleUrl: "https://console.example/alpha",
             endpoint: "https://alpha.example:443",
             id: "alpha",
@@ -185,17 +170,19 @@ describe("admin shell pages", () => {
 
     await user.type(
       screen.getByRole("textbox", {
-        name: "Filter by name, status, or endpoint",
+        name: "Filter by name, cluster, status, or endpoint",
       }),
-      "Pending",
+      "East cluster",
     );
     expect(screen.getByText("Alpha gateway")).toBeTruthy();
     expect(screen.queryByText("Zulu gateway")).toBeNull();
   });
 
   it("links gateway administration to provisioning", () => {
-    renderPage(AdminGatewaysPage);
+    renderPage(() => <AdminGatewaysPage gateways={previewGateways} />);
 
+    expect(screen.getByRole("columnheader", { name: "Cluster" })).toBeTruthy();
+    expect(screen.getByText("Local cluster")).toBeTruthy();
     expect(
       screen
         .getByRole("link", { name: "Provision gateway" })

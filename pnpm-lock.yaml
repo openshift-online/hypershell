@@ -23,6 +23,9 @@ importers:
       '@patternfly/react-core':
         specifier: 6.6.0
         version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@patternfly/react-icons':
+        specifier: 6.6.0
+        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-table':
         specifier: 6.6.0
         version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

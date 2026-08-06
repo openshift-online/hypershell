@@ -37,7 +37,7 @@
   },
   "app.gateway.cluster": {
     "defaultMessage": "Cluster",
-    "description": "Label for the selected gateway placement cluster."
+    "description": "Heading for the gateway placement cluster column."
   },
   "app.gateway.connectWithCli": {
     "defaultMessage": "Connect with the CLI",
@@ -55,9 +55,21 @@
     "defaultMessage": "Get started",
     "description": "Heading for gateway connection methods."
   },
+  "app.gateway.load.error.body": {
+    "defaultMessage": "Refresh the page to try again.",
+    "description": "Recovery guidance when gateway data cannot be loaded."
+  },
+  "app.gateway.load.error.title": {
+    "defaultMessage": "Gateways could not be loaded",
+    "description": "Title shown when gateway data cannot be loaded from the API."
+  },
+  "app.gateway.loading": {
+    "defaultMessage": "Loading gateways",
+    "description": "Accessible label shown while gateway data is loading."
+  },
   "app.gateway.managedDatabaseId": {
     "defaultMessage": "Managed database ID",
-    "description": "Label for the managed database identifier form field."
+    "description": "Label for a gateway's managed database identifier."
   },
   "app.gateway.name": {
     "defaultMessage": "Gateway name",
@@ -77,11 +89,15 @@
   },
   "app.gateway.releaseId": {
     "defaultMessage": "Gateway release ID",
-    "description": "Label for the gateway release identifier form field."
+    "description": "Label for a gateway's release identifier."
   },
   "app.gateway.viewDetails": {
     "defaultMessage": "View details",
     "description": "Link to a user-facing gateway detail page."
+  },
+  "app.gateways.refresh": {
+    "defaultMessage": "Refresh gateways",
+    "description": "Accessible label for refreshing the gateway list."
   },
   "app.hello.description": {
     "defaultMessage": "The HyperShell web console is ready for development.",
@@ -95,10 +111,6 @@
     "defaultMessage": "Administration",
     "description": "Navigation and page label for HyperShell administration."
   },
-  "app.nav.clusters": {
-    "defaultMessage": "Clusters",
-    "description": "Navigation and page label for managed clusters."
-  },
   "app.nav.gatewayDirectory": {
     "defaultMessage": "Gateway directory",
     "description": "Prominent navigation from administration to the user-facing gateway directory."
@@ -111,18 +123,6 @@
     "defaultMessage": "Administration",
     "description": "Subtle navigation from OpenShell to administration."
   },
-  "app.nav.overview": {
-    "defaultMessage": "Overview",
-    "description": "Navigation label for the administration overview."
-  },
-  "app.nav.primary": {
-    "defaultMessage": "Primary navigation",
-    "description": "Accessible label for the administrative sidebar navigation."
-  },
-  "app.nav.toggle": {
-    "defaultMessage": "Toggle primary navigation",
-    "description": "Accessible label for the button that opens and closes the sidebar."
-  },
   "app.notFound.body": {
     "defaultMessage": "Check the address and try again.",
     "description": "Recovery guidance shown when an application route does not exist."
@@ -132,23 +132,15 @@
     "description": "Heading shown when an application route does not exist."
   },
   "app.page.adminGateway.description": {
-    "defaultMessage": "Review this gateway's placement, configuration, and operational status.",
+    "defaultMessage": "Review this gateway's configuration and operational status.",
     "description": "Supporting text on the administrative gateway detail page."
-  },
-  "app.page.adminGateway.empty.body": {
-    "defaultMessage": "Gateway placement and configuration will appear here when the API is connected.",
-    "description": "Body text on the administrative gateway detail empty state."
-  },
-  "app.page.adminGateway.empty.title": {
-    "defaultMessage": "Gateway configuration is not available",
-    "description": "Heading on the administrative gateway detail empty state."
   },
   "app.page.adminGateway.title": {
     "defaultMessage": "Gateway administration",
     "description": "Title for the administrative gateway detail page."
   },
   "app.page.adminGateways.description": {
-    "defaultMessage": "Provision gateways and manage their infrastructure placement.",
+    "defaultMessage": "Provision and manage OpenShell gateways.",
     "description": "Supporting text on the administrative gateways page."
   },
   "app.page.adminGateways.empty.body": {
@@ -160,7 +152,7 @@
     "description": "Heading when the administrative gateway list is empty."
   },
   "app.page.adminGateways.filter": {
-    "defaultMessage": "Filter by name, status, or endpoint",
+    "defaultMessage": "Filter by name, cluster, status, or endpoint",
     "description": "Placeholder and accessible label for gateway search."
   },
   "app.page.adminGateways.noResults.body": {
@@ -170,62 +162,6 @@
   "app.page.adminGateways.noResults.title": {
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
-  },
-  "app.page.adminOverview.clusters.action": {
-    "defaultMessage": "View clusters",
-    "description": "Link from the admin overview to cluster administration."
-  },
-  "app.page.adminOverview.clusters.body": {
-    "defaultMessage": "Configure clusters available for gateway placement.",
-    "description": "Body text for the clusters card on the admin overview."
-  },
-  "app.page.adminOverview.description": {
-    "defaultMessage": "Configure the infrastructure used to provision OpenShell gateways.",
-    "description": "Supporting text on the HyperShell administration overview."
-  },
-  "app.page.adminOverview.gateways.action": {
-    "defaultMessage": "View gateways",
-    "description": "Link from the admin overview to gateway administration."
-  },
-  "app.page.adminOverview.gateways.body": {
-    "defaultMessage": "Provision and manage gateways on available clusters.",
-    "description": "Body text for the gateways card on the admin overview."
-  },
-  "app.page.clusters.column.actions": {
-    "defaultMessage": "Actions",
-    "description": "Accessible heading for cluster row actions."
-  },
-  "app.page.clusters.column.description": {
-    "defaultMessage": "Description",
-    "description": "Heading for the cluster description column."
-  },
-  "app.page.clusters.column.name": {
-    "defaultMessage": "Name",
-    "description": "Heading for the cluster name column."
-  },
-  "app.page.clusters.description": {
-    "defaultMessage": "View the cluster currently available for gateway placement.",
-    "description": "Supporting text on the administrative clusters page."
-  },
-  "app.page.clusters.empty.body": {
-    "defaultMessage": "Clusters available for gateway placement will appear here.",
-    "description": "Guidance when no clusters are available for placement."
-  },
-  "app.page.clusters.empty.title": {
-    "defaultMessage": "No clusters available",
-    "description": "Heading when no clusters are available for placement."
-  },
-  "app.page.clusters.filter": {
-    "defaultMessage": "Filter by name or description",
-    "description": "Placeholder and accessible label for cluster search."
-  },
-  "app.page.clusters.noResults.body": {
-    "defaultMessage": "Adjust or clear the filter to see clusters.",
-    "description": "Guidance when no clusters match the current filter."
-  },
-  "app.page.clusters.noResults.title": {
-    "defaultMessage": "No matching clusters",
-    "description": "Heading when no clusters match the current filter."
   },
   "app.page.gatewayDetails.description": {
     "defaultMessage": "Open the gateway console or add this gateway to the OpenShell CLI.",

@@ -78,13 +78,15 @@ Server-side rendering, React Server Components, and a Next.js application SHALL 
 
 The default experience SHALL be an OpenShell gateway directory for the much larger user audience. Its landing page SHALL list every gateway visible to the authenticated user, and its gateway detail pages SHALL focus on connection methods. It SHALL NOT expose provisioning controls or fleet, sector, cluster, database, release, or other infrastructure-placement concepts.
 
-HyperShell infrastructure and gateway provisioning SHALL live under the separate `/admin` route hierarchy. Administrative navigation MAY expose clusters and gateway lifecycle controls, but access to those routes and every administrative API operation SHALL require explicit server-derived capabilities. Merely knowing an admin URL SHALL NOT grant access.
+HyperShell infrastructure and gateway provisioning SHALL live under the separate `/admin` route hierarchy. In the initial single-cluster experience, `/admin` SHALL directly present the gateway collection and its provisioning action; it SHALL NOT add an overview or a separate cluster collection merely to represent the local cluster. Access to the administrative routes and every administrative API operation SHALL require explicit server-derived capabilities. Merely knowing an admin URL SHALL NOT grant access.
 
 The two experiences SHALL provide deliberate cross-navigation. Administration SHALL expose a prominent return to the OpenShell gateway directory. The user shell MAY expose a subtle administration link when the session has the required capability; that link SHALL NOT compete visually with the gateway connection workflow.
 
 Both mastheads and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application.
 
 Administrative resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it.
+
+Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 
 The initial route model SHALL include:
 
@@ -93,15 +95,15 @@ The initial route model SHALL include:
 /
 /gateways/:gatewayId
 /admin
-/admin/clusters
-/admin/gateways
 /admin/gateways/new
 /admin/gateways/:gatewayId
 ```
 
+The removed `/admin/clusters` and `/admin/gateways` collection paths SHALL NOT be retained as aliases or redirects. They SHALL use the standard not-found experience so the supported route model remains unambiguous.
+
 The `gatewayId` SHALL be included in gateway-detail query keys, mutations, authorization requests, breadcrumbs, and relevant telemetry dimensions. Route presence, separate shells, and hidden controls SHALL NOT be treated as authorization enforcement. The API SHALL independently authorize every operation and enforce the relationships and scope required by `standards/security/security.spec.md`.
 
-**Verification:** Inspect route definitions and query keys. Confirm that the `/` experience has no administrative resource navigation, provisioning actions, or placement terminology, and that cross-navigation has the intended visual priority in both shells. Attempt unauthorized gateway reads and administrative mutations by changing route parameters and request bodies; the server rejects the operation without exposing protected data.
+**Verification:** Inspect route definitions and query keys. Confirm that the `/` experience has no administrative resource navigation, provisioning actions, or placement terminology, and that cross-navigation has the intended visual priority in both shells. Refresh each resource collection and verify that its query reruns without resetting table state. Attempt unauthorized gateway reads and administrative mutations by changing route parameters and request bodies; the server rejects the operation without exposing protected data.
 
 ### Requirement WEB-ARCH-03: Source and Runtime Boundaries
 
@@ -379,7 +381,7 @@ Browser errors and metrics SHOULD be accepted through a same-origin BFF endpoint
 
 Before a feature relies on them, the HyperShell API SHALL define and test:
 
-- an authorization-filtered gateway connection list containing a stable identifier, display name, readiness, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
+- a gateway connection list containing a stable identifier, display name, readiness, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
 - gateway list, search, pagination, sort, and filter semantics for administration;
 - managed-cluster configuration and lifecycle contracts for administrators;
 - an administrator-only gateway provisioning contract;
@@ -391,13 +393,11 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 
 The UI SHALL NOT infer authorization solely from object visibility, guess whether a write conflicted from timestamps, or invent terminal states not defined by the API. An authenticated event contract is required before replacing polling with SSE or WebSockets.
 
-The user-facing API surface SHALL be read-only and SHALL return only gateways visible to the authenticated user. Gateway provisioning SHALL be available only through the administration surface.
+The user-facing API surface SHALL be read-only. During the initial single-tenant increment, every gateway returned by the API SHALL be treated as visible to every user. Gateway provisioning SHALL be available only through the administration surface. Authorization-filtered gateway visibility SHALL be defined before a multi-tenant deployment.
 
-For the initial single-cluster deployment, the administrative UI SHALL identify placement as the cluster running HyperShell and SHALL NOT collect or send `fleet_id` or `cluster_id`. The existing API contract and data model SHALL remain unchanged by this UI increment. A future remote-placement workflow MAY add an explicit cluster choice to the administrative UI, but it SHALL NOT expose fleet or cluster placement on the user-facing gateway directory. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
+For the initial single-cluster deployment, the administrative gateway table SHALL identify an empty `cluster_id` as `Local cluster` in a sortable Cluster column. The provisioning form SHALL NOT collect `fleet_id`, `cluster_id`, `release_id`, or `database_id`. It SHALL send all four fields as empty strings because the initial reconciler owns the local-cluster, gateway-image, and SQLite database defaults and does not resolve those resource identifiers. The existing API contract and data model SHALL remain unchanged by this UI increment. A future workflow MAY expose these choices after they drive reconciliation, but it SHALL NOT expose infrastructure placement on the user-facing gateway directory. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-During this initial deployment, `/admin/clusters` SHALL represent the cluster running HyperShell as `Local cluster` rather than presenting an empty state. Cluster cards SHALL be rendered from a collection with stable identifiers and SHALL offer a contextual gateway-provisioning action. That action SHALL preserve the selected cluster in validated URL state and display it on the provisioning form, while the initial API request continues to omit cluster placement.
-
-**Verification:** Run API contract tests and exercise user and administrator permissions, authorization-filtered gateway lists, unauthorized gateway requests, rejected user-facing creates, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that the initial admin form sends neither `fleet_id` nor `cluster_id`, while the API schema remains unchanged.
+**Verification:** Run API contract tests and exercise user and administrator permissions, the initial globally visible gateway list, rejected user-facing creates, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that the initial admin form does not expose fleet, cluster, release, or database identifier fields and sends all four identifiers as empty strings while the API schema remains unchanged.
 
 ## Initial Delivery Sequence
 
@@ -408,7 +408,7 @@ Implementation SHOULD proceed in these dependency-ordered increments:
 3. Scaffold React Router SPA mode, PatternFly, localization, test tooling, and one root route.
 4. Implement the BFF session and API proxy against the selected OIDC provider.
 5. Deliver the authenticated OpenShell gateway directory and connection detail journey.
-6. Deliver the capability-protected HyperShell administration shell, cluster configuration, and read-only gateway administration.
+6. Deliver the capability-protected HyperShell administration shell and read-only gateway administration.
 7. Add admin-only provisioning after the local-cluster, validation, permission, concurrency, CSRF, and recovery contracts are verified.
 8. Establish field telemetry, performance budgets, and the full release matrix before production availability.
 

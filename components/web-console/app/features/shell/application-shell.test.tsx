@@ -26,20 +26,8 @@ function renderShell(initialPath = "/admin") {
   );
 }
 
-async function openNavigation() {
-  const user = userEvent.setup();
-  const toggle = screen.getByRole("button", {
-    name: "Toggle primary navigation",
-  });
-  if (toggle.getAttribute("aria-expanded") === "false") {
-    await user.click(toggle);
-  }
-
-  return screen.getByRole("navigation", { name: "Primary navigation" });
-}
-
 describe("AdminShell", () => {
-  it("provides infrastructure navigation only in the admin area", async () => {
+  it("provides a focused gateway administration shell", () => {
     const { container } = renderShell();
 
     expect(
@@ -57,84 +45,42 @@ describe("AdminShell", () => {
         .getAttribute("href"),
     ).toBe("/");
 
-    const navigation = await openNavigation();
-    expect(within(navigation).getByText("Administration")).toBeTruthy();
     expect(
-      within(navigation)
-        .getByRole("link", { name: "Overview" })
-        .getAttribute("aria-current"),
-    ).toBe("page");
-    expect(
-      within(navigation).getByRole("link", { name: "Clusters" }),
-    ).toBeTruthy();
-    expect(
-      within(navigation).getByRole("link", { name: "Gateways" }),
-    ).toBeTruthy();
+      screen.queryByRole("navigation", { name: "Primary navigation" }),
+    ).toBeNull();
     expect(screen.queryByText("Connect with the CLI")).toBeNull();
   });
 
-  it("collapses and expands the Administration group with the keyboard", async () => {
-    const user = userEvent.setup();
-    renderShell();
-    const navigation = await openNavigation();
-    const groupToggle = within(navigation).getByRole("button", {
-      name: "Administration",
-    });
-
-    groupToggle.focus();
-    await user.keyboard("{Enter}");
-
-    expect(groupToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(
-      within(navigation).queryByRole("link", { name: "Clusters" }),
-    ).toBeNull();
-
-    await user.keyboard("{Enter}");
-    expect(groupToggle.getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("identifies an administrative gateway deep link", async () => {
+  it("identifies an administrative gateway deep link", () => {
     renderShell("/admin/gateways/gateway-b");
 
-    const navigation = await openNavigation();
-    expect(
-      within(navigation)
-        .getByRole("link", { name: "Gateways" })
-        .getAttribute("aria-current"),
-    ).toBe("page");
-
     const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(breadcrumb).getByText("Administration")).toBeTruthy();
+    expect(
+      within(breadcrumb)
+        .getByRole("link", { name: "Administration" })
+        .getAttribute("href"),
+    ).toBe("/admin");
     expect(within(breadcrumb).getByText("Gateway gateway-b")).toBeTruthy();
   });
 
-  it("marks the cluster destination and breadcrumb", async () => {
-    renderShell("/admin/clusters");
+  it("identifies the gateway provisioning route", () => {
+    renderShell("/admin/gateways/new");
 
-    const navigation = await openNavigation();
-    expect(
-      within(navigation)
-        .getByRole("link", { name: "Clusters" })
-        .getAttribute("aria-current"),
-    ).toBe("page");
-    expect(
-      within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText(
-        "Clusters",
-      ),
-    ).toBeTruthy();
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(breadcrumb).getByText("Administration")).toBeTruthy();
+    expect(within(breadcrumb).getByText("Provision gateway")).toBeTruthy();
   });
 
   it("moves focus after administrative navigation", async () => {
     const user = userEvent.setup();
-    renderShell();
-    const navigation = await openNavigation();
+    renderShell("/admin/gateways/gateway-b");
 
     await user.click(
-      within(navigation).getByRole("link", { name: "Clusters" }),
+      screen.getByRole("link", { name: "HyperShell Administration" }),
     );
 
     expect(document.activeElement).toBe(
-      screen.getByRole("heading", { level: 1, name: "/admin/clusters" }),
+      screen.getByRole("heading", { level: 1, name: "/admin" }),
     );
   });
 });

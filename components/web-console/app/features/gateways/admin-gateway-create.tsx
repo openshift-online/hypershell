@@ -17,29 +17,19 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Controller, useForm, type Control } from "react-hook-form";
 import { FormattedMessage, useIntl } from "react-intl";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { z } from "zod";
 
 import { messages } from "../../i18n/messages";
 import { apiClient } from "../../lib/api.client";
-import {
-  availableClusterOptions,
-  getSelectedCluster,
-  type ClusterOption,
-} from "../clusters/cluster-options";
-
 interface GatewayFormValues {
-  database_id: string;
   name: string;
   namespace: string;
-  release_id: string;
 }
 
 const fieldNames = [
   "name",
   "namespace",
-  "release_id",
-  "database_id",
 ] as const satisfies readonly (keyof GatewayFormValues)[];
 
 interface GatewayTextFieldProps {
@@ -93,46 +83,35 @@ function GatewayTextField({
   );
 }
 
-interface AdminGatewayCreatePageProps {
-  clusters?: readonly ClusterOption[];
-}
-
-export function AdminGatewayCreatePage({
-  clusters = availableClusterOptions,
-}: AdminGatewayCreatePageProps = {}) {
+export function AdminGatewayCreatePage() {
   const intl = useIntl();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const selectedCluster = getSelectedCluster(
-    clusters,
-    searchParams.get("cluster"),
-  );
   const requiredMessage = intl.formatMessage(messages.requiredField);
   const schema = useMemo(() => {
     const requiredString = z.string().trim().min(1, requiredMessage);
 
     return z.object({
-      database_id: requiredString,
       name: requiredString,
       namespace: requiredString,
-      release_id: requiredString,
     });
   }, [requiredMessage]);
   const { control, handleSubmit, setError } = useForm<GatewayFormValues>({
     defaultValues: {
-      database_id: "",
       name: "",
       namespace: "openshell",
-      release_id: "",
     },
   });
 
   const createGateway = useMutation({
     mutationFn: (values: GatewayFormValues) => {
-      // Placement is UI context only in this increment and is intentionally
-      // absent from the request. The API contract remains unchanged.
-      const request = values as GatewayCreateRequest;
+      const request: GatewayCreateRequest = {
+        ...values,
+        cluster_id: "",
+        database_id: "",
+        fleet_id: "",
+        release_id: "",
+      };
       return apiClient.gateways.create(request);
     },
     onSuccess: async (gateway) => {
@@ -186,16 +165,6 @@ export function AdminGatewayCreatePage({
               <FormattedMessage {...messages.gatewayProvisionErrorBody} />
             </Alert>
           ) : null}
-          <FormGroup
-            fieldId="gateway-cluster"
-            label={intl.formatMessage(messages.cluster)}
-          >
-            <TextInput
-              id="gateway-cluster"
-              readOnlyVariant="default"
-              value={selectedCluster.name}
-            />
-          </FormGroup>
           <GatewayTextField
             control={control}
             fieldId="gateway-name"
@@ -209,20 +178,6 @@ export function AdminGatewayCreatePage({
             isDisabled={createGateway.isPending}
             label={intl.formatMessage(messages.namespace)}
             name="namespace"
-          />
-          <GatewayTextField
-            control={control}
-            fieldId="gateway-release-id"
-            isDisabled={createGateway.isPending}
-            label={intl.formatMessage(messages.gatewayReleaseId)}
-            name="release_id"
-          />
-          <GatewayTextField
-            control={control}
-            fieldId="gateway-database-id"
-            isDisabled={createGateway.isPending}
-            label={intl.formatMessage(messages.managedDatabaseId)}
-            name="database_id"
           />
           <ActionGroup>
             <Button
@@ -244,7 +199,7 @@ export function AdminGatewayCreatePage({
               component={Link}
               isDisabled={createGateway.isPending}
               variant="link"
-              {...{ to: "/admin/gateways" }}
+              {...{ to: "/admin" }}
             >
               <FormattedMessage {...messages.cancel} />
             </Button>

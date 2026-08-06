@@ -4,6 +4,53 @@ import { expect, test } from "@playwright/test";
 const connectionCommand =
   "openshell gateway add --name openshell-gateway-test --oidc-issuer https://keycloak-openshell-keycloak.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com/realms/openshell --oidc-client-id openshell-cli --oidc-audience openshell-cli https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443";
 
+const gateway = {
+  cluster_id: "",
+  created_at: null,
+  database_id: "database-1",
+  external_dns:
+    "openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com",
+  fleet_id: "",
+  href: "/api/hypershell/v1/gateways/openshell-gateway-test",
+  id: "openshell-gateway-test",
+  kind: "Gateway",
+  name: "openshell-gateway-test",
+  namespace: "openshell",
+  phase: "",
+  release_id: "release-1",
+  service_type: "",
+  status: "Ready",
+  tls_mode: "",
+  updated_at: null,
+};
+
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/hypershell/v1/gateways**", async (route) => {
+    const request = route.request();
+    if (request.method() !== "GET") {
+      await route.continue();
+      return;
+    }
+
+    const gatewayId = new URL(request.url()).pathname.split("/").at(-1);
+    const body =
+      gatewayId === "gateways"
+        ? {
+            items: [gateway],
+            kind: "GatewayList",
+            page: 1,
+            size: 100,
+            total: 1,
+          }
+        : gateway;
+    await route.fulfill({
+      body: JSON.stringify(body),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+});
+
 test("makes OpenShell connection methods the user-facing landing experience", async ({
   page,
 }) => {
@@ -34,6 +81,10 @@ test("makes OpenShell connection methods the user-facing landing experience", as
     page.getByRole("button", {
       name: "Copy connection command for openshell-gateway-test",
     }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Refresh gateways" }).click();
+  await expect(
+    page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
 
   const results = await new AxeBuilder({ page }).analyze();
@@ -94,26 +145,29 @@ test("keeps connection methods available on gateway details", async ({
   expect(results.violations).toEqual([]);
 });
 
-test("keeps infrastructure and provisioning concepts in the admin shell", async ({
+test("makes the gateway collection the administration landing page", async ({
   page,
 }) => {
   await page.goto("/admin");
 
-  await expect(page).toHaveTitle("HyperShell Administration — Administration");
+  await expect(page).toHaveTitle("HyperShell Administration — Gateways");
   await expect(
     page.getByRole("link", { name: "HyperShell Administration" }),
   ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Gateway directory" }),
   ).toHaveAttribute("href", "/");
-  const navigation = page.getByRole("navigation", {
-    name: "Primary navigation",
-  });
   await expect(
-    navigation.getByRole("link", { name: "Clusters" }),
+    page.getByRole("navigation", { name: "Primary navigation" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Gateways" }),
   ).toBeVisible();
   await expect(
-    navigation.getByRole("link", { name: "Gateways" }),
+    page.getByRole("link", { name: "Provision gateway" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("grid", { name: "Gateways" }).getByText("Local cluster"),
   ).toBeVisible();
   await expect(page.getByText("Connect with the CLI")).toHaveCount(0);
 
@@ -121,44 +175,50 @@ test("keeps infrastructure and provisioning concepts in the admin shell", async 
   expect(results.violations).toEqual([]);
 });
 
-test("navigates within administration and focuses the new page", async ({
+test("searches, sorts, refreshes, and provisions from administration", async ({
   page,
 }) => {
   await page.goto("/admin");
 
-  await page.getByRole("link", { name: "Clusters", exact: true }).click();
-
-  await expect(page).toHaveURL(/\/admin\/clusters$/);
   await expect(
-    page.getByRole("heading", { level: 1, name: "Clusters" }),
-  ).toBeFocused();
-  await expect(
-    page.getByRole("grid", { name: "Clusters" }).getByText("Local cluster"),
+    page.getByRole("grid", { name: "Gateways" }).getByText("Local cluster"),
   ).toBeVisible();
   await expect(
-    page.getByRole("columnheader", { name: "Name" }),
+    page.getByRole("columnheader", { name: "Gateway name" }),
   ).toHaveAttribute("aria-sort", "ascending");
-  await page.getByRole("button", { name: "Description" }).click();
+  await page.getByRole("button", { name: "Cluster" }).click();
   await expect(
-    page.getByRole("columnheader", { name: "Description" }),
+    page.getByRole("columnheader", { name: "Cluster" }),
   ).toHaveAttribute("aria-sort", "ascending");
   await page
-    .getByRole("textbox", { name: "Filter by name or description" })
-    .fill("not-a-cluster");
+    .getByRole("textbox", {
+      name: "Filter by name, cluster, status, or endpoint",
+    })
+    .fill("Local cluster");
   await expect(
-    page.getByRole("heading", { level: 2, name: "No matching clusters" }),
+    page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Clear filters" }).click();
-  await expect(page.getByText("Registered", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Refresh gateways" }).click();
+  await expect(page).toHaveURL(/\/admin$/);
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
-  await expect(page).toHaveURL(/\/admin\/gateways\/new\?cluster=local$/);
-  await expect(page.getByLabel("Cluster", { exact: true })).toHaveValue(
-    "Local cluster",
-  );
+  await expect(page).toHaveURL(/\/admin\/gateways\/new$/);
+  await expect(page.getByLabel("Cluster", { exact: true })).toHaveCount(0);
+});
+
+test("does not preserve removed administration routes as redirects", async ({
+  page,
+}) => {
+  for (const oldPath of ["/admin/clusters", "/admin/gateways"]) {
+    await page.goto(oldPath);
+    await expect(page).toHaveURL(new RegExp(`${oldPath}$`));
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Page not found" }),
+    ).toBeVisible();
+  }
 });
 
 test("provisions a gateway without exposing placement fields", async ({
@@ -178,7 +238,7 @@ test("provisions a gateway without exposing placement fields", async ({
       body: JSON.stringify({
         cluster_id: "",
         created_at: null,
-        database_id: "database-1",
+        database_id: "",
         external_dns: "",
         fleet_id: "",
         href: "/api/hypershell/v1/gateways/gateway-1",
@@ -187,7 +247,7 @@ test("provisions a gateway without exposing placement fields", async ({
         name: "team-gateway",
         namespace: "openshell",
         phase: "",
-        release_id: "release-1",
+        release_id: "",
         service_type: "",
         status: "",
         tls_mode: "",
@@ -196,10 +256,13 @@ test("provisions a gateway without exposing placement fields", async ({
     });
   });
 
-  await page.goto("/admin/gateways");
+  await page.goto("/admin");
+  await expect(
+    page.getByRole("button", { name: "Refresh gateways" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("textbox", {
-      name: "Filter by name, status, or endpoint",
+      name: "Filter by name, cluster, status, or endpoint",
     }),
   ).toBeVisible();
   await expect(
@@ -214,23 +277,23 @@ test("provisions a gateway without exposing placement fields", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
-  await expect(page.getByLabel("Cluster", { exact: true })).toHaveValue(
-    "Local cluster",
-  );
+  await expect(page.getByLabel("Cluster", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Gateway release")).toHaveCount(0);
+  await expect(page.getByLabel("Managed database")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Provision gateway" }),
   ).not.toHaveClass(/pf-m-progress/);
   await page.getByLabel("Gateway name").fill("team-gateway");
-  await page.getByLabel("Gateway release ID").fill("release-1");
-  await page.getByLabel("Managed database ID").fill("database-1");
   await page.getByRole("button", { name: "Provision gateway" }).click();
 
   await expect(page).toHaveURL(/\/admin\/gateways\/gateway-1$/);
   expect(requestBody).toEqual({
-    database_id: "database-1",
+    cluster_id: "",
+    database_id: "",
+    fleet_id: "",
     name: "team-gateway",
     namespace: "openshell",
-    release_id: "release-1",
+    release_id: "",
   });
 });
 

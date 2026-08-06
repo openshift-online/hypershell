@@ -6,7 +6,6 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { vi } from "vitest";
 
 import { englishMessages } from "../../i18n/catalog";
-import type { ClusterOption } from "../clusters/cluster-options";
 import { AdminGatewayCreatePage } from "./admin-gateway-create";
 
 const { createGatewayMock } = vi.hoisted(() => ({
@@ -24,7 +23,7 @@ vi.mock("../../lib/api.client", () => ({
 const createdGateway = {
   cluster_id: "",
   created_at: null,
-  database_id: "database-1",
+  database_id: "",
   external_dns: "",
   fleet_id: "",
   href: "/api/hypershell/v1/gateways/gateway-1",
@@ -33,17 +32,14 @@ const createdGateway = {
   name: "team-gateway",
   namespace: "openshell",
   phase: "",
-  release_id: "release-1",
+  release_id: "",
   service_type: "",
   status: "",
   tls_mode: "",
   updated_at: null,
 };
 
-function renderPage(
-  initialEntry = "/admin/gateways/new",
-  clusters?: readonly ClusterOption[],
-) {
+function renderPage(initialEntry = "/admin/gateways/new") {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -54,7 +50,7 @@ function renderPage(
         <MemoryRouter initialEntries={[initialEntry]}>
           <Routes>
             <Route
-              element={<AdminGatewayCreatePage clusters={clusters} />}
+              element={<AdminGatewayCreatePage />}
               path="/admin/gateways/new"
             />
             <Route
@@ -73,52 +69,32 @@ describe("AdminGatewayCreatePage", () => {
     vi.clearAllMocks();
   });
 
-  it("provisions through the API without placement fields", async () => {
+  it("provisions through the API with empty reconciler-owned IDs", async () => {
     const user = userEvent.setup();
     createGatewayMock.mockResolvedValue(createdGateway);
     renderPage();
 
-    expect(
-      screen.getByRole("textbox", { name: "Cluster" }).getAttribute("value"),
-    ).toBe("Local cluster");
+    expect(screen.queryByLabelText("Cluster")).toBeNull();
+    expect(screen.queryByLabelText("Gateway release")).toBeNull();
+    expect(screen.queryByLabelText("Managed database")).toBeNull();
 
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
     );
-    await user.type(
-      screen.getByRole("textbox", { name: "Gateway release ID" }),
-      "release-1",
-    );
-    await user.type(
-      screen.getByRole("textbox", { name: "Managed database ID" }),
-      "database-1",
-    );
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 
     await waitFor(() => {
       expect(createGatewayMock).toHaveBeenCalledWith({
-        database_id: "database-1",
+        cluster_id: "",
+        database_id: "",
+        fleet_id: "",
         name: "team-gateway",
         namespace: "openshell",
-        release_id: "release-1",
+        release_id: "",
       });
     });
     expect(screen.getByTestId("created-gateway")).toBeTruthy();
-  });
-
-  it("shows cluster context selected through the URL", () => {
-    renderPage("/admin/gateways/new?cluster=cluster-east", [
-      {
-        description: "A future remote placement.",
-        id: "cluster-east",
-        name: "East cluster",
-      },
-    ]);
-
-    expect(
-      screen.getByRole("textbox", { name: "Cluster" }).getAttribute("value"),
-    ).toBe("East cluster");
   });
 
   it("validates required values before sending a request", async () => {
@@ -128,7 +104,7 @@ describe("AdminGatewayCreatePage", () => {
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 
     expect(await screen.findAllByText("This field is required.")).toHaveLength(
-      3,
+      1,
     );
     expect(createGatewayMock).not.toHaveBeenCalled();
   });
@@ -147,14 +123,6 @@ describe("AdminGatewayCreatePage", () => {
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
-    );
-    await user.type(
-      screen.getByRole("textbox", { name: "Gateway release ID" }),
-      "release-1",
-    );
-    await user.type(
-      screen.getByRole("textbox", { name: "Managed database ID" }),
-      "database-1",
     );
     const submitButton = screen.getByRole("button", {
       name: "Provision gateway",

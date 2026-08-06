@@ -14,33 +14,20 @@ import {
   ToolbarGroup,
   ToolbarItem,
 } from "@patternfly/react-core";
-import { useEffect, useRef } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 import { Link, Outlet, useLocation } from "react-router";
 
 import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
+import { useRouteHeadingFocus } from "./route-focus";
 import styles from "./user-shell.module.css";
 
 export function UserShell() {
   const intl = useIntl();
   const { pathname } = useLocation();
-  const previousPath = useRef(pathname);
+  useRouteHeadingFocus(pathname);
   const segments = pathname.split("/").filter(Boolean);
   const gatewayId = segments[0] === "gateways" ? segments[1] : undefined;
-
-  useEffect(() => {
-    if (previousPath.current === pathname) {
-      return;
-    }
-
-    previousPath.current = pathname;
-    const pageHeading = document.querySelector<HTMLElement>("#main-content h1");
-    if (pageHeading) {
-      pageHeading.tabIndex = -1;
-      pageHeading.focus();
-    }
-  }, [pathname]);
 
   const skipToContent = (
     <SkipToContent href="#main-content">
