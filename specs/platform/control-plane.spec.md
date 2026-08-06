@@ -30,9 +30,25 @@ The Watcher establishes gRPC streaming connections to the API server for each re
 The Reconciler receives resource events from the Watcher and converges the Kubernetes state on managed clusters to match. Key responsibilities:
 
 - Deploy/update Gateway workloads on target clusters
+- Provision PostgreSQL databases for gateways
+- Configure TLS certificates via cert-manager
+- Create GRPCRoute and BackendTLSPolicy for external gateway exposure
+- Inject OIDC authentication configuration into gateway deployments
 - Configure network meshes between gateways
 - Manage release rollouts (including canary strategies)
 - Update resource status back to the API server
+
+#### Gateway Provisioning Specifications
+
+Gateway reconciliation is defined in detail across dedicated sub-specs:
+
+| Sub-Spec | Scope |
+|---|---|
+| [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) | Core provisioning: GatewayReconciler, manifest templating, deployment resources, RBAC, OpenShift adjustments |
+| [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | PostgreSQL provisioning, credential security, manual rotation, deletion protection |
+| [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation |
+| [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
+| [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 
 ### Config
 
@@ -52,12 +68,18 @@ The control plane SHALL connect to the API server via gRPC watch streams for eac
 
 ### Requirement: Gateway Reconciliation
 
-The control plane SHALL reconcile Gateway resources into Kubernetes Deployments/StatefulSets, Services, and ConfigMaps on the target managed cluster.
+The control plane SHALL reconcile Gateway resources into Kubernetes Deployments, Services, ConfigMaps, and supporting resources on the target managed cluster. Full provisioning details are defined in the [gateway sub-specs](./openshell-gateway.spec.md).
 
 #### Scenario: New Gateway Created
 - GIVEN a new Gateway resource appears via the watch stream
 - WHEN the reconciler processes it
-- THEN it SHALL create the corresponding K8s resources on the cluster identified by `cluster_id`
+- THEN it SHALL create the corresponding K8s resources on the cluster identified by `cluster_id`:
+  - PostgreSQL database resources (Secret, PVC, Deployment, Service, NetworkPolicy) — see [database spec](./openshell-gateway-database.spec.md)
+  - cert-manager Issuer and Certificate resources for TLS — see [TLS spec](./openshell-gateway-tls.spec.md)
+  - JWT key generation Job (`openshell-gateway-certgen`)
+  - Gateway Deployment, Service, ServiceAccounts, Roles, RoleBindings, ConfigMap, NetworkPolicies
+  - GRPCRoute and BackendTLSPolicy (when `route` field is set) — see [routing spec](./openshell-gateway-routing.spec.md)
+  - OIDC configuration in gateway.toml (when `oidc.issuer` is set) — see [OIDC spec](./openshell-gateway-oidc.spec.md)
 - AND update the Gateway's `phase` to reflect provisioning status
 
 ### Requirement: Resource Cleanup
