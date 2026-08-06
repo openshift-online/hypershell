@@ -47,6 +47,7 @@
     "lint_job": "lint-gateway-ui",
     "paths": [
       "components/gateway-ui/**",
+      "components/web-console/domain-probes/**",
       "package.json",
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",

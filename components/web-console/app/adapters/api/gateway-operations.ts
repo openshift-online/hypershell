@@ -1,16 +1,47 @@
 import type {
-  GatewayOperations,
+  GatewayControlPlane,
+  GatewayFailureKind,
+  GatewayInvocationContext,
+  GatewayListRequest,
   GatewayRecord,
 } from "@openshift-online/hypershell-gateway-ui";
-import type { Gateway, SDKClient } from "@openshift-online/hypershell-sdk";
+import { GatewayOperationError } from "@openshift-online/hypershell-gateway-ui";
+import {
+  SDKAPIError,
+  type Gateway,
+  type SDKClient,
+} from "@openshift-online/hypershell-sdk";
 
-import { apiClient } from "./api.client";
-
-const gatewayPageSize = 100;
 type GatewayApi = Pick<
   SDKClient["gateways"],
   "create" | "delete" | "get" | "list" | "update"
 >;
+type GatewayApiFactory = (correlationId: string) => GatewayApi;
+
+const gatewaySortFields = {
+  cluster: "cluster_id",
+  endpoint: "external_dns",
+  name: "name",
+  status: "status",
+} as const satisfies Record<GatewayListRequest["sortField"], string>;
+
+function gatewaySearch(value: string): string | undefined {
+  const query = value.trim();
+  if (!query) {
+    return undefined;
+  }
+  const literal = query.replaceAll("'", "''");
+  return ["name", "cluster_id", "status", "external_dns"]
+    .map((field) => `${field} ilike '%${literal}%'`)
+    .join(" or ");
+}
+
+function gatewayApi(
+  factory: GatewayApiFactory,
+  context: GatewayInvocationContext,
+): GatewayApi {
+  return factory(context.correlationId);
+}
 
 function toGatewayRecord(gateway: Gateway): GatewayRecord {
   return {
@@ -26,51 +57,114 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   };
 }
 
-export function createGatewayOperations(client: {
-  gateways: GatewayApi;
-}): GatewayOperations {
+function gatewayFailureKind(statusCode: number): GatewayFailureKind {
+  if (statusCode === 401 || statusCode === 403) {
+    return "denied";
+  }
+  if (statusCode === 404) {
+    return "not-found";
+  }
+  if (statusCode === 409) {
+    return "conflict";
+  }
+  if (statusCode === 408 || statusCode === 429 || statusCode >= 500) {
+    return "unavailable";
+  }
+  return "unknown";
+}
+
+async function mapFailure<T>(task: () => Promise<T>): Promise<T> {
+  try {
+    return await task();
+  } catch (error) {
+    if (error instanceof SDKAPIError) {
+      throw new GatewayOperationError(gatewayFailureKind(error.statusCode), {
+        cause: error,
+        operationId: error.operationId || undefined,
+      });
+    }
+    throw error;
+  }
+}
+
+export function createGatewayControlPlaneAdapter(
+  apiFactory: GatewayApiFactory,
+): GatewayControlPlane {
   return {
-    async getGateway(gatewayId, signal) {
-      return toGatewayRecord(await client.gateways.get(gatewayId, { signal }));
+    async getGateway(gatewayId, context) {
+      return mapFailure(async () =>
+        toGatewayRecord(
+          await gatewayApi(apiFactory, context).get(gatewayId, {
+            signal: context.signal,
+          }),
+        ),
+      );
     },
-    async listGateways(signal) {
-      const gateways: GatewayRecord[] = [];
-      let page = 1;
-      let total = 0;
-
-      do {
-        const result = await client.gateways.list(
-          { page, size: gatewayPageSize },
-          { signal },
+    async listGateways(request, context) {
+      return mapFailure(async () => {
+        const search = gatewaySearch(request.search);
+        const result = await gatewayApi(apiFactory, context).list(
+          {
+            orderBy: `${gatewaySortFields[request.sortField]} ${request.sortDirection}`,
+            page: request.page,
+            ...(search === undefined ? {} : { search }),
+            size: request.size,
+          },
+          { signal: context.signal },
         );
-        gateways.push(...result.items.map(toGatewayRecord));
-        total = result.total;
-        if (result.items.length === 0) {
-          break;
+        const pageOffset = (request.page - 1) * request.size;
+        const expectedItemCount = Math.max(
+          0,
+          Math.min(request.size, result.total - pageOffset),
+        );
+        if (
+          result.page !== request.page ||
+          result.total < 0 ||
+          result.items.length !== expectedItemCount
+        ) {
+          throw new GatewayOperationError("unavailable");
         }
-        page += 1;
-      } while (gateways.length < total);
-
-      return gateways;
+        return {
+          items: result.items.map(toGatewayRecord),
+          page: result.page,
+          size: request.size,
+          total: result.total,
+        };
+      });
     },
-    async provisionGateway(input) {
-      return toGatewayRecord(
-        await client.gateways.create({
-          ...input,
-          cluster_id: "",
-          database_id: "",
-          fleet_id: "",
-          release_id: "",
+    async provisionGateway(input, context) {
+      return mapFailure(async () =>
+        toGatewayRecord(
+          await gatewayApi(apiFactory, context).create(
+            {
+              ...input,
+              cluster_id: "",
+              database_id: "",
+              fleet_id: "",
+              release_id: "",
+            },
+            { signal: context.signal },
+          ),
+        ),
+      );
+    },
+    async removeGateway(gatewayId, context) {
+      await mapFailure(() =>
+        gatewayApi(apiFactory, context).delete(gatewayId, {
+          signal: context.signal,
         }),
       );
     },
-    async removeGateway(gatewayId) {
-      await client.gateways.delete(gatewayId);
-    },
-    async renameGateway(gatewayId, name) {
-      return toGatewayRecord(await client.gateways.update(gatewayId, { name }));
+    async renameGateway(gatewayId, name, context) {
+      return mapFailure(async () =>
+        toGatewayRecord(
+          await gatewayApi(apiFactory, context).update(
+            gatewayId,
+            { name },
+            { signal: context.signal },
+          ),
+        ),
+      );
     },
   };
 }
-
-export const gatewayOperations = createGatewayOperations(apiClient);

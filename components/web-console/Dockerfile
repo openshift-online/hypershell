@@ -37,6 +37,8 @@ LABEL org.opencontainers.image.title="HyperShell web console" \
       org.opencontainers.image.source="https://github.com/openshift-online/hypershell"
 
 ENV HOST=0.0.0.0 \
+    HYPERSHELL_API_ORIGIN=http://127.0.0.1:8000 \
+    HYPERSHELL_API_TIMEOUT_MS=30000 \
     NODE_ENV=production \
     PORT=8080 \
     STATIC_ROOT=/app/public

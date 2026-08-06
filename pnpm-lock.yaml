@@ -10,6 +10,10 @@ importers:
   .: {}
 
   components/gateway-ui:
+    dependencies:
+      '@openshift-online/hypershell-domain-probes':
+        specifier: workspace:0.0.0
+        version: link:../web-console/domain-probes
     devDependencies:
       '@eslint/js':
         specifier: 9.39.5
@@ -104,6 +108,9 @@ importers:
 
   components/web-console:
     dependencies:
+      '@openshift-online/hypershell-domain-probes':
+        specifier: workspace:0.0.0
+        version: link:domain-probes
       '@openshift-online/hypershell-gateway-ui':
         specifier: workspace:0.0.0
         version: link:../gateway-ui

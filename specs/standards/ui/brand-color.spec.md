@@ -39,7 +39,11 @@ Information colors SHALL retain these meanings across UI, charts, diagrams, and 
 
 Color SHALL NOT be the only carrier of any state or data category.
 
-**Verification:** Compare semantic tokens and visible labels/icons/patterns across all states. Test monochrome and color-vision-deficiency simulations, and confirm screen-reader/state semantics agree with the visual meaning.
+Status-to-color mappings SHALL be explicit and bounded. Unknown, absent, and
+unrecognized status values SHALL use the neutral gray family; implementations
+SHALL NOT infer success from the absence of a recognized failure value.
+
+**Verification:** Compare semantic tokens and visible labels/icons/patterns across all states. Exercise every documented status plus an unknown value and representative future/unrecognized values. Test monochrome and color-vision-deficiency simulations, and confirm screen-reader/state semantics agree with the visual meaning.
 
 ### Requirement UI-BRAND-04: Restraint, Balance, and Gradients
 

@@ -55,7 +55,9 @@ Probe schemas SHALL minimize data and classify every field before release. Token
 
 Probe context SHALL preserve W3C trace context and a stable correlation or operation identifier across browser, BFF, SDK, API, asynchronous operation polling, and recovery paths where available. Dependency-attempt probes SHALL identify their parent logical invocation and retry attempt without producing duplicate logical terminal outcomes. Propagated baggage SHALL be treated as untrusted input and SHALL contain no sensitive data.
 
-**Verification:** Execute a representative browser-to-API workflow with retry and polling, then join its domain, dependency, log, metric-exemplar, and trace outputs using approved context. Confirm cancellation and errors retain causality, retry attempts are distinguishable, and no sensitive baggage crosses a trust boundary.
+The application invocation context SHALL travel through every application entry port and external-dependency port used by that invocation. Infrastructure adapters SHALL propagate an approved, validated correlation header or W3C trace context on the outbound request. When an API failure supplies an operation identifier, the matching dependency and workflow terminal probes SHALL retain it so support can join the user-visible failure to server evidence.
+
+**Verification:** Execute a representative browser-to-API workflow with retry and polling, then join its domain, dependency, BFF access record, outbound API request, log, metric-exemplar, and trace outputs using approved context. Assert the exact correlation value on the infrastructure adapter's outbound request and the API operation identifier on failure probes. Confirm cancellation and errors retain causality, retry attempts are distinguishable, malformed inbound context is replaced rather than forwarded, and no sensitive baggage crosses a trust boundary.
 
 ### Requirement UI-OBS-09: Consumer-Derived Signals
 

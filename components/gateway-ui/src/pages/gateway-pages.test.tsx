@@ -1,12 +1,31 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { IntlProvider } from "react-intl";
 import { beforeEach, vi } from "vitest";
 
 import { GatewayUiProvider } from "../gateway-ui-provider";
-import { previewGateways } from "../gateways/gateway-connections";
+import type { GatewayConnection } from "../gateways/gateway-connections";
 import { GatewayPage, GatewaysPage } from "./gateway-pages";
+
+const previewGateway: GatewayConnection = {
+  clusterName: "Local cluster",
+  consoleUrl: "https://console.example.test",
+  endpoint: "https://gateway.example.test:443",
+  id: "openshell-gateway-test",
+  name: "openshell-gateway-test",
+  oidcAudience: "openshell-cli",
+  oidcClientId: "openshell-cli",
+  oidcIssuer: "https://issuer.example.test/realms/openshell",
+  status: "Ready",
+};
+const previewGateways = [previewGateway] as const;
 
 const { deleteGatewayMock, listGatewaysMock, navigateMock, renameGatewayMock } =
   vi.hoisted(() => ({
@@ -75,11 +94,15 @@ describe("gateway shell pages", () => {
         gatewayId="gateway-1"
         gateway={{
           clusterId: "",
+          consoleUrl: "https://console.example.test",
           databaseId: "database-1",
           externalDns: "gateway.example.com",
           id: "gateway-1",
           name: "Team gateway",
           namespace: "openshell",
+          oidcAudience: "openshell-cli",
+          oidcClientId: "openshell-cli",
+          oidcIssuer: "https://issuer.example.test/realms/openshell",
           phase: "",
           releaseId: "release-1",
           status: "Ready",
@@ -166,6 +189,26 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
+  it("renders absent connection configuration as unavailable", () => {
+    renderPage(() => (
+      <GatewayPage
+        gateway={gatewayResponse("gateway-1", "Team gateway")}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(screen.getByText("Not available")).toBeTruthy();
+    expect(
+      screen.getByDisplayValue("https://gateway.example.com:443"),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("link", {
+        name: "Open console for Team gateway in a new tab",
+      }),
+    ).toBeNull();
+    expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
+  });
+
   it("shows an empty state when there are no gateways", () => {
     renderPage(() => <GatewaysPage gateways={[]} />);
 
@@ -191,9 +234,14 @@ describe("gateway shell pages", () => {
   });
 
   it("loads the gateway list from the API", async () => {
-    listGatewaysMock.mockResolvedValue([
-      gatewayResponse("openshell-gateway-test", "openshell-gateway-test"),
-    ]);
+    listGatewaysMock.mockResolvedValue({
+      items: [
+        gatewayResponse("openshell-gateway-test", "openshell-gateway-test"),
+      ],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
 
     renderPage(GatewaysPage);
 
@@ -203,22 +251,89 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
   });
 
+  it("normalizes search before invoking the gateway entry port", async () => {
+    listGatewaysMock.mockResolvedValue({
+      items: [gatewayResponse("gateway-1", "Team gateway")],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+
+    renderPage(() => (
+      <GatewaysPage
+        collectionState={{
+          page: 1,
+          search: "  Team gateway  ",
+          size: 20,
+          sortDirection: "asc",
+          sortField: "name",
+        }}
+      />
+    ));
+
+    await screen.findByRole("link", { name: "Team gateway" });
+    expect(listGatewaysMock).toHaveBeenCalledWith(
+      {
+        page: 1,
+        search: "Team gateway",
+        size: 20,
+        sortDirection: "asc",
+        sortField: "name",
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("requests one new page when pagination changes", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock.mockImplementation(
+      (request: { page: number; size: number }) =>
+        Promise.resolve({
+          items: [
+            gatewayResponse(
+              `gateway-${String(request.page)}`,
+              `Gateway page ${String(request.page)}`,
+            ),
+          ],
+          page: request.page,
+          size: request.size,
+          total: 21,
+        }),
+    );
+    renderPage(GatewaysPage);
+
+    await screen.findByRole("link", { name: "Gateway page 1" });
+    await user.click(screen.getByRole("button", { name: "Go to next page" }));
+    await screen.findByRole("link", { name: "Gateway page 2" });
+
+    expect(listGatewaysMock).toHaveBeenCalledTimes(2);
+    expect(listGatewaysMock.mock.calls[1]?.[0]).toMatchObject({ page: 2 });
+  });
+
   it("refreshes the gateway list", async () => {
     const user = userEvent.setup();
-    listGatewaysMock.mockResolvedValue([
-      gatewayResponse("openshell-gateway-test", "openshell-gateway-test"),
-    ]);
+    listGatewaysMock.mockResolvedValue({
+      items: [
+        gatewayResponse("openshell-gateway-test", "openshell-gateway-test"),
+      ],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
     renderPage(GatewaysPage);
 
     await screen.findByRole("link", { name: "openshell-gateway-test" });
     const filter = screen.getByRole("textbox", {
       name: "Filter by name, cluster, status, or endpoint",
     });
-    await user.type(filter, "openshell");
+    fireEvent.change(filter, { target: { value: "openshell" } });
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenCalledTimes(2);
+    });
     await user.click(screen.getByRole("button", { name: "Refresh gateways" }));
 
     await waitFor(() => {
-      expect(listGatewaysMock).toHaveBeenCalledTimes(2);
+      expect(listGatewaysMock).toHaveBeenCalledTimes(3);
     });
     expect(filter.getAttribute("value")).toBe("openshell");
   });
@@ -233,58 +348,77 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
   });
 
-  it("sorts and filters the gateway list", async () => {
+  it("delegates authoritative sort and filter state to its host", async () => {
     const user = userEvent.setup();
+    const onCollectionStateChange = vi.fn();
     renderPage(() => (
       <GatewaysPage
+        collectionState={{
+          page: 1,
+          search: "",
+          size: 20,
+          sortDirection: "asc",
+          sortField: "name",
+        }}
         gateways={[
           {
             clusterName: "West cluster",
-            consoleUrl: "https://console.example/zulu",
-            endpoint: "https://zulu.example:443",
+            consoleUrl: "https://console.example.test/zulu",
+            endpoint: "https://zulu.example.test:443",
             id: "zulu",
             name: "Zulu gateway",
             oidcAudience: "openshell-cli",
             oidcClientId: "openshell-cli",
-            oidcIssuer: "https://issuer.example",
+            oidcIssuer: "https://issuer.example.test",
             status: "Ready",
           },
           {
             clusterName: "East cluster",
-            consoleUrl: "https://console.example/alpha",
-            endpoint: "https://alpha.example:443",
+            consoleUrl: "https://console.example.test/alpha",
+            endpoint: "https://alpha.example.test:443",
             id: "alpha",
             name: "Alpha gateway",
             oidcAudience: "openshell-cli",
             oidcClientId: "openshell-cli",
-            oidcIssuer: "https://issuer.example",
+            oidcIssuer: "https://issuer.example.test",
             status: "Pending",
           },
         ]}
+        onCollectionStateChange={onCollectionStateChange}
       />
     ));
 
-    let table = screen.getByRole("grid", { name: "OpenShell Gateways" });
-    expect(within(table).getAllByRole("row")[1]?.textContent).toContain(
-      "Alpha gateway",
-    );
-
+    const table = screen.getByRole("grid", { name: "OpenShell Gateways" });
     await user.click(
       within(table).getByRole("button", { name: "Gateway name" }),
     );
-    table = screen.getByRole("grid", { name: "OpenShell Gateways" });
-    expect(within(table).getAllByRole("row")[1]?.textContent).toContain(
-      "Zulu gateway",
+    expect(onCollectionStateChange).toHaveBeenCalledWith(
+      {
+        page: 1,
+        search: "",
+        size: 20,
+        sortDirection: "desc",
+        sortField: "name",
+      },
+      "sort",
     );
 
-    await user.type(
+    fireEvent.change(
       screen.getByRole("textbox", {
         name: "Filter by name, cluster, status, or endpoint",
       }),
-      "East cluster",
+      { target: { value: "East cluster" } },
     );
-    expect(screen.getByText("Alpha gateway")).toBeTruthy();
-    expect(screen.queryByText("Zulu gateway")).toBeNull();
+    expect(onCollectionStateChange).toHaveBeenLastCalledWith(
+      {
+        page: 1,
+        search: "East cluster",
+        size: 20,
+        sortDirection: "asc",
+        sortField: "name",
+      },
+      "filter",
+    );
   });
 
   it("links the gateway list to provisioning", () => {
@@ -319,7 +453,7 @@ describe("gateway shell pages", () => {
       screen
         .getByRole("menuitem", { name: "Open gateway console" })
         .getAttribute("href"),
-    ).toBe(previewGateways[0]?.consoleUrl);
+    ).toBe(previewGateway.consoleUrl);
     await user.click(
       screen.getByRole("menuitem", {
         name: "Copy CLI connection command",

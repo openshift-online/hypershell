@@ -1,15 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-const connectionCommand =
-  "openshell gateway add --name openshell-gateway-test --oidc-issuer https://keycloak-openshell-keycloak.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com/realms/openshell --oidc-client-id openshell-cli --oidc-audience openshell-cli https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443";
-
 const gateway = {
   cluster_id: "",
   created_at: null,
   database_id: "database-1",
-  external_dns:
-    "openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com",
+  external_dns: "gateway.example.test",
   fleet_id: "",
   href: "/api/hypershell/v1/gateways/openshell-gateway-test",
   id: "openshell-gateway-test",
@@ -119,14 +115,7 @@ test("makes gateway management the primary HyperShell experience", async ({
   expect(results.violations).toEqual([]);
 });
 
-test("operates gateway rows and opens provisioning", async ({
-  browserName,
-  context,
-  page,
-}) => {
-  if (browserName === "chromium") {
-    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  }
+test("operates gateway rows and opens provisioning", async ({ page }) => {
   await page.goto("/");
 
   await page
@@ -134,19 +123,10 @@ test("operates gateway rows and opens provisioning", async ({
     .click();
   await expect(
     page.getByRole("menuitem", { name: "Open gateway console" }),
-  ).toHaveAttribute(
-    "href",
-    "https://openshell-dashboard-openshell.apps.rosa.gkrumbac.9bpp.p3.openshiftapps.com",
-  );
-  await page
-    .getByRole("menuitem", { name: "Copy CLI connection command" })
-    .click();
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(connectionCommand);
+  ).toHaveCount(0);
   await expect(
-    page.getByText("CLI connection command for openshell-gateway-test copied"),
-  ).toBeVisible();
+    page.getByRole("menuitem", { name: "Copy CLI connection command" }),
+  ).toHaveCount(0);
 
   await expect(
     page.getByRole("columnheader", { name: "Gateway name" }),
@@ -163,6 +143,12 @@ test("operates gateway rows and opens provisioning", async ({
   await expect(
     page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
+  await expect(page).toHaveURL(/\?q=Local\+cluster&sort=cluster$/u);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/u);
+  await expect(
+    page.getByRole("columnheader", { name: "Gateway name" }),
+  ).toHaveAttribute("aria-sort", "ascending");
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);
@@ -191,17 +177,17 @@ test("keeps connection methods on gateway details", async ({
     page.getByRole("link", {
       name: "Open console for openshell-gateway-test in a new tab",
     }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Actions", exact: true }),
   ).toBeVisible();
 
   const copyFields = page.getByRole("textbox");
-  await expect(copyFields).toHaveCount(2);
+  await expect(copyFields).toHaveCount(1);
   await expect(copyFields.nth(0)).toHaveValue(
-    "https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
+    "https://gateway.example.test:443",
   );
-  await expect(copyFields.nth(1)).toHaveValue(connectionCommand);
+  await expect(page.getByText("Not available")).toBeVisible();
   await page
     .getByRole("button", {
       name: "Copy gateway endpoint for openshell-gateway-test",
@@ -209,9 +195,7 @@ test("keeps connection methods on gateway details", async ({
     .click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(
-      "https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
-    );
+    .toBe("https://gateway.example.test:443");
 
   await expect(
     page
@@ -392,7 +376,8 @@ test("provisions a gateway without exposing placement fields", async ({
       .getByText("team-gateway"),
   ).toBeVisible();
   await expect(page.getByText("CLI connection", { exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox")).toHaveCount(2);
+  await expect(page.getByText("Not available")).toHaveCount(2);
+  await expect(page.getByRole("textbox")).toHaveCount(0);
   expect(requestBody).toEqual({
     cluster_id: "",
     database_id: "",

@@ -1,5 +1,10 @@
 import { GatewaysPage } from "@openshift-online/hypershell-gateway-ui";
-import { useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
+
+import {
+  parseGatewayListState,
+  serializeGatewayListState,
+} from "../features/gateways/gateway-list-state";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(
@@ -10,6 +15,8 @@ export const meta = createPageMeta(
 export default function HomeRoute() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParameters, setSearchParameters] = useSearchParams();
+  const collectionState = parseGatewayListState(searchParameters);
   const deletedGatewayName =
     typeof (location.state as { deletedGatewayName?: unknown } | null)
       ?.deletedGatewayName === "string"
@@ -18,9 +25,18 @@ export default function HomeRoute() {
 
   return (
     <GatewaysPage
+      collectionState={collectionState}
       deletedGatewayName={deletedGatewayName}
       onDismissDeletedGateway={() => {
-        void navigate(location.pathname, { replace: true, state: null });
+        void navigate(`${location.pathname}${location.search}`, {
+          replace: true,
+          state: null,
+        });
+      }}
+      onCollectionStateChange={(state, reason) => {
+        setSearchParameters(serializeGatewayListState(state), {
+          replace: reason === "filter",
+        });
       }}
     />
   );

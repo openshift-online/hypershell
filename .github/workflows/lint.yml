@@ -148,6 +148,8 @@ jobs:
         run: bash scripts/bootstrap_pnpm.sh
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build domain-probe contracts
+        run: pnpm --filter @openshift-online/hypershell-domain-probes build
       - name: Run Gateway UI quality gates
         run: pnpm --filter @openshift-online/hypershell-gateway-ui check
 

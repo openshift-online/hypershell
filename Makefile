@@ -89,6 +89,7 @@ lint-sdk-typescript: install-js
 
 .PHONY: lint-gateway-ui
 lint-gateway-ui: install-js
+	$(PNPM) --filter @openshift-online/hypershell-domain-probes build
 	$(PNPM) --filter @openshift-online/hypershell-gateway-ui check
 
 .PHONY: lint-web-console

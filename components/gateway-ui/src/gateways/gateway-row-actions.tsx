@@ -33,10 +33,14 @@ export function GatewayRowActions({
   const [isOpen, setIsOpen] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [copyResult, setCopyResult] = useState<"error" | "success">();
+  const connectionCommand = buildGatewayAddCommand(gateway);
 
   const copyConnectionCommand = async () => {
+    if (!connectionCommand) {
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(buildGatewayAddCommand(gateway));
+      await navigator.clipboard.writeText(connectionCommand);
       setCopyResult("success");
     } catch {
       setCopyResult("error");
@@ -70,16 +74,24 @@ export function GatewayRowActions({
         )}
       >
         <DropdownList>
-          <DropdownItem isExternalLink rel="noreferrer" to={gateway.consoleUrl}>
-            <FormattedMessage {...messages.openGatewayConsole} />
-          </DropdownItem>
-          <DropdownItem
-            onClick={() => {
-              void copyConnectionCommand();
-            }}
-          >
-            <FormattedMessage {...messages.copyCliConnectionCommand} />
-          </DropdownItem>
+          {gateway.consoleUrl ? (
+            <DropdownItem
+              isExternalLink
+              rel="noreferrer"
+              to={gateway.consoleUrl}
+            >
+              <FormattedMessage {...messages.openGatewayConsole} />
+            </DropdownItem>
+          ) : null}
+          {connectionCommand ? (
+            <DropdownItem
+              onClick={() => {
+                void copyConnectionCommand();
+              }}
+            >
+              <FormattedMessage {...messages.copyCliConnectionCommand} />
+            </DropdownItem>
+          ) : null}
           <DropdownItem
             onClick={() => {
               setIsRenameOpen(true);

@@ -21,6 +21,7 @@
     "typecheck": "react-router typegen && tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@openshift-online/hypershell-domain-probes": "workspace:0.0.0",
     "@openshift-online/hypershell-gateway-ui": "workspace:0.0.0",
     "@openshift-online/hypershell-sdk": "workspace:0.0.0",
     "@patternfly/react-core": "6.6.0",

@@ -20,7 +20,7 @@ import { z } from "zod";
 
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
-import { gatewayQueryKey } from "./gateway-data";
+import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
 
 export interface GatewayCreatePageProps {
   onCreated?: (gatewayId: string) => Promise<void> | void;
@@ -114,8 +114,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     onSuccess: async (gateway) => {
       queryClient.setQueryData(gatewayQueryKey(gateway.id), gateway);
       await queryClient.invalidateQueries({
-        exact: true,
-        queryKey: ["gateways"],
+        queryKey: gatewayListQueryRoot,
       });
       if (onCreated) {
         await onCreated(gateway.id);

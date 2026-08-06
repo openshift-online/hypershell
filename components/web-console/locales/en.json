@@ -262,5 +262,9 @@
   "app.table.results": {
     "defaultMessage": "results",
     "description": "Context announced after a filtered collection result count."
+  },
+  "app.value.notAvailable": {
+    "defaultMessage": "Not available",
+    "description": "Shown when the API does not provide a value."
   }
 }

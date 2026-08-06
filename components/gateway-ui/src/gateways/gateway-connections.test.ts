@@ -3,30 +3,54 @@ import { describe, expect, it } from "vitest";
 import {
   buildGatewayAddCommand,
   gatewayStatusColor,
-  previewGateway,
   type GatewayConnection,
 } from "./gateway-connections";
 
+const gateway: GatewayConnection = {
+  clusterName: "Local cluster",
+  consoleUrl: "https://console.example.test",
+  endpoint: "https://gateway.example.test:443",
+  id: "gateway-1",
+  name: "gateway-1",
+  oidcAudience: "openshell-cli",
+  oidcClientId: "openshell-cli",
+  oidcIssuer: "https://issuer.example.test/realms/openshell",
+  status: "Ready",
+};
+
 describe("gateway connections", () => {
   it("builds the documented OpenShell connection command", () => {
-    expect(buildGatewayAddCommand(previewGateway)).toBe(
-      "openshell gateway add --name openshell-gateway-test --oidc-issuer https://keycloak-openshell-keycloak.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com/realms/openshell --oidc-client-id openshell-cli --oidc-audience openshell-cli https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
+    expect(buildGatewayAddCommand(gateway)).toBe(
+      "openshell gateway add --name gateway-1 --oidc-issuer https://issuer.example.test/realms/openshell --oidc-client-id openshell-cli --oidc-audience openshell-cli https://gateway.example.test:443",
     );
   });
 
   it("quotes values that could be interpreted by a shell", () => {
-    const gateway: GatewayConnection = {
-      ...previewGateway,
+    const unsafeGateway: GatewayConnection = {
+      ...gateway,
       name: "gateway $(unsafe)",
     };
 
-    expect(buildGatewayAddCommand(gateway)).toContain(
+    expect(buildGatewayAddCommand(unsafeGateway)).toContain(
       "--name 'gateway $(unsafe)'",
     );
   });
 
-  it("uses a neutral color for an unknown status", () => {
-    expect(gatewayStatusColor("Unknown")).toBe("grey");
-    expect(gatewayStatusColor("Ready")).toBe("green");
+  it("does not construct a command from incomplete API data", () => {
+    expect(
+      buildGatewayAddCommand({ ...gateway, oidcIssuer: undefined }),
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["Ready", "green"],
+    ["Failed", "orange"],
+    ["Degraded", "yellow"],
+    ["Provisioning", "blue"],
+    ["Unknown", "grey"],
+    ["Unexpected provider state", "grey"],
+    ["", "grey"],
+  ] as const)("maps %s to the bounded %s status color", (status, color) => {
+    expect(gatewayStatusColor(status)).toBe(color);
   });
 });

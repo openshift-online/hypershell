@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { GatewayRecord } from "../application/gateway-types";
 import { toGatewayConnection } from "./gateway-data";
-import type { GatewayRecord } from "./gateway-types";
 
 function gateway(overrides: Partial<GatewayRecord> = {}): GatewayRecord {
   return {
@@ -35,14 +35,14 @@ describe("gateway presentation data", () => {
     ).toBe("cluster-east");
   });
 
-  it("uses the development endpoint when optional DNS is absent", () => {
+  it("keeps API-owned connection values unavailable when they are absent", () => {
     const connection = toGatewayConnection(
       gateway({ externalDns: undefined, status: undefined }),
     );
 
-    expect(connection.endpoint).toBe(
-      "https://openshell-gw-openshell-gateway-test.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com:443",
-    );
+    expect(connection.endpoint).toBeUndefined();
+    expect(connection.consoleUrl).toBeUndefined();
+    expect(connection.oidcIssuer).toBeUndefined();
     expect(connection.status).toBe("Unknown");
   });
 });

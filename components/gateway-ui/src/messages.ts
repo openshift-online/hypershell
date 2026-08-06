@@ -217,6 +217,11 @@ export const messages = defineMessages({
     defaultMessage: "Namespace",
     description: "Label for a gateway namespace form field.",
   },
+  notAvailable: {
+    id: "app.value.notAvailable",
+    defaultMessage: "Not available",
+    description: "Shown when the API does not provide a value.",
+  },
   noMatchingGateways: {
     id: "app.page.gateways.noResults.title",
     defaultMessage: "No matching gateways",

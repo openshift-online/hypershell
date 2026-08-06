@@ -15,6 +15,9 @@
     "test:run": "vitest run --coverage",
     "typecheck": "tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit"
   },
+  "dependencies": {
+    "@openshift-online/hypershell-domain-probes": "workspace:0.0.0"
+  },
   "peerDependencies": {
     "@patternfly/react-core": "6.6.0",
     "@patternfly/react-icons": "6.6.0",

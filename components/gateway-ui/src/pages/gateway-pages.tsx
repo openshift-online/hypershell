@@ -13,12 +13,19 @@ import {
   PageSection,
   Title,
 } from "@patternfly/react-core";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
+import {
+  defaultGatewayListRequest,
+  type GatewayListRequest,
+  type GatewayRecord,
+  type GatewaySortField,
+} from "../application/gateway-types";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import {
+  buildGatewayAddCommand,
   gatewayStatusColor,
   type GatewayConnection,
 } from "../gateways/gateway-connections";
@@ -27,13 +34,18 @@ import {
   GatewayDetailHeader,
   GatewayEndpointCopy,
 } from "../gateways/gateway-detail-header";
-import { gatewayQueryKey, toGatewayConnection } from "../gateways/gateway-data";
-import type { GatewayRecord } from "../gateways/gateway-types";
+import {
+  gatewayListQueryKey,
+  gatewayQueryKey,
+  toGatewayConnection,
+} from "../gateways/gateway-data";
 import { GatewayLoadState } from "../gateways/gateway-load-state";
 import { GatewayRowActions } from "../gateways/gateway-row-actions";
 import {
   ResourceTable,
   type ResourceTableColumn,
+  type ResourceTableState,
+  type ResourceTableStateChangeReason,
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
 import { messages } from "../messages";
@@ -45,10 +57,19 @@ const primaryLinkStyle: React.CSSProperties = {
 };
 
 export interface GatewaysPageProps {
+  collectionState?: GatewayListRequest;
   deletedGatewayName?: string;
   gateways?: readonly GatewayConnection[];
+  onCollectionStateChange?: (
+    state: GatewayListRequest,
+    reason: ResourceTableStateChangeReason,
+  ) => void;
   onDismissDeletedGateway?: () => void;
   onRefresh?: () => unknown;
+}
+
+function isGatewaySortField(value: string): value is GatewaySortField {
+  return ["cluster", "endpoint", "name", "status"].includes(value);
 }
 
 function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
@@ -122,8 +143,10 @@ function GatewaySuccessAlerts({
 }
 
 export function GatewaysPage({
+  collectionState,
   deletedGatewayName: initialDeletedGatewayName,
   gateways,
+  onCollectionStateChange,
   onDismissDeletedGateway,
   onRefresh,
 }: GatewaysPageProps = {}) {
@@ -134,30 +157,72 @@ export function GatewaysPage({
   const [isInitialDeletionDismissed, setIsInitialDeletionDismissed] =
     useState(false);
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
+  const [localCollectionState, setLocalCollectionState] =
+    useState<GatewayListRequest>({ ...defaultGatewayListRequest });
+  const currentCollectionState = collectionState ?? localCollectionState;
+  const gatewayRequest: GatewayListRequest = {
+    ...currentCollectionState,
+    search: currentCollectionState.search.trim(),
+  };
   const gatewayQuery = useQuery({
     enabled: gateways === undefined,
-    queryFn: async ({ signal }) =>
-      (await gatewayOperations.listGateways(signal)).map(toGatewayConnection),
-    queryKey: ["gateways"],
+    placeholderData: keepPreviousData,
+    queryFn: async ({ signal }) => {
+      const result = await gatewayOperations.listGateways(
+        gatewayRequest,
+        signal,
+      );
+      return { ...result, items: result.items.map(toGatewayConnection) };
+    },
+    queryKey: gatewayListQueryKey(gatewayRequest),
   });
-  const visibleGateways = gateways ?? gatewayQuery.data;
+  const visiblePage = gateways
+    ? {
+        items: gateways,
+        page: currentCollectionState.page,
+        size: currentCollectionState.size,
+        total: gateways.length,
+      }
+    : gatewayQuery.data;
+  const tableState: ResourceTableState = {
+    page: currentCollectionState.page,
+    query: currentCollectionState.search,
+    sortColumnId: currentCollectionState.sortField,
+    sortDirection: currentCollectionState.sortDirection,
+  };
+  const changeTableState = (
+    nextState: ResourceTableState,
+    reason: ResourceTableStateChangeReason,
+  ) => {
+    const nextCollectionState: GatewayListRequest = {
+      page: nextState.page,
+      search: nextState.query,
+      size: currentCollectionState.size,
+      sortDirection: nextState.sortDirection,
+      sortField: isGatewaySortField(nextState.sortColumnId)
+        ? nextState.sortColumnId
+        : "name",
+    };
+    if (onCollectionStateChange) {
+      onCollectionStateChange(nextCollectionState, reason);
+    } else {
+      setLocalCollectionState(nextCollectionState);
+    }
+  };
   const columns: readonly ResourceTableColumn<GatewayConnection>[] = [
     {
-      getSortValue: ({ name }) => name,
       id: "name",
       label: intl.formatMessage(messages.gatewayName),
       render: (gateway) => <GatewayDetailLink gateway={gateway} />,
       width: 25,
     },
     {
-      getSortValue: ({ clusterName }) => clusterName,
       id: "cluster",
       label: intl.formatMessage(messages.cluster),
       render: ({ clusterName }) => clusterName,
       width: 20,
     },
     {
-      getSortValue: ({ status }) => status,
       id: "status",
       label: intl.formatMessage(messages.status),
       render: ({ status }) => (
@@ -168,19 +233,20 @@ export function GatewaysPage({
       width: 15,
     },
     {
-      getSortValue: ({ endpoint }) => endpoint,
       id: "endpoint",
       label: intl.formatMessage(messages.gatewayEndpoint),
       render: ({ endpoint }) => (
-        <span className={styles.endpoint}>{endpoint}</span>
+        <span className={styles.endpoint}>
+          {endpoint ?? intl.formatMessage(messages.notAvailable)}
+        </span>
       ),
     },
   ];
 
-  if (!visibleGateways && gatewayQuery.isPending) {
+  if (!visiblePage && gatewayQuery.isPending) {
     return <GatewayLoadState />;
   }
-  if (!visibleGateways && gatewayQuery.isError) {
+  if (!visiblePage && gatewayQuery.isError) {
     return <GatewayLoadState isError />;
   }
 
@@ -228,6 +294,7 @@ export function GatewaysPage({
           columns={columns}
           getRowKey={({ id }) => id}
           id="gateways"
+          itemCount={visiblePage?.total ?? 0}
           labels={{
             actions: intl.formatMessage(messages.actions),
             clearFilters: intl.formatMessage(messages.clearFilters),
@@ -249,6 +316,8 @@ export function GatewaysPage({
               <FormattedMessage {...messages.provisionGateway} />
             </Button>
           }
+          onStateChange={changeTableState}
+          pageSize={currentCollectionState.size}
           renderRowAction={(gateway) => (
             <GatewayRowActions
               gateway={gateway}
@@ -258,7 +327,8 @@ export function GatewaysPage({
               onRenamed={setRenamedGatewayName}
             />
           )}
-          rows={visibleGateways ?? []}
+          rows={visiblePage?.items ?? []}
+          state={tableState}
         />
       </PageSection>
     </>
@@ -336,7 +406,11 @@ export function GatewayPage({
               <FormattedMessage {...messages.gatewayEndpoint} />
             </DescriptionListTerm>
             <DescriptionListDescription>
-              <GatewayEndpointCopy gateway={connection} />
+              {connection.endpoint ? (
+                <GatewayEndpointCopy gateway={connection} />
+              ) : (
+                <FormattedMessage {...messages.notAvailable} />
+              )}
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
@@ -344,7 +418,11 @@ export function GatewayPage({
               <FormattedMessage {...messages.cliConnection} />
             </DescriptionListTerm>
             <DescriptionListDescription>
-              <GatewayCliCopy gateway={connection} />
+              {buildGatewayAddCommand(connection) ? (
+                <GatewayCliCopy gateway={connection} />
+              ) : (
+                <FormattedMessage {...messages.notAvailable} />
+              )}
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>

@@ -5,7 +5,7 @@ import {
   useContext,
 } from "react";
 
-import type { GatewayOperations } from "./gateways/gateway-types";
+import type { GatewayOperations } from "./application/gateway-types";
 
 export interface GatewayNavigationOptions {
   replace?: boolean;

@@ -14,7 +14,7 @@ const { getGatewayMock } = vi.hoisted(() => ({
 }));
 const navigateToGatewayLabel = "Navigate to gateway";
 
-vi.mock("../../adapters/api/gateway-operations", () => ({
+vi.mock("../../composition/gateway-composition", () => ({
   gatewayOperations: {
     getGateway: getGatewayMock,
     listGateways: vi.fn(),

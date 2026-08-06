@@ -21,7 +21,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
-import { gatewayQueryKey } from "./gateway-data";
+import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
 
 interface GatewayRenameDialogProps {
   gatewayId: string;
@@ -51,8 +51,7 @@ export function GatewayRenameDialog({
       queryClient.setQueryData(gatewayQueryKey(gatewayId), gateway);
       onRenamed(gateway.name);
       await queryClient.invalidateQueries({
-        exact: true,
-        queryKey: ["gateways"],
+        queryKey: gatewayListQueryRoot,
       });
     },
   });

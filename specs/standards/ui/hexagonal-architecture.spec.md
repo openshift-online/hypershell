@@ -53,7 +53,9 @@ Ports SHALL describe a cohesive capability or purposeful domain conversation in 
 
 Only the API infrastructure adapter and its composition root MAY import or construct the generated HyperShell SDK. The adapter SHALL preserve cancellation, pagination, concurrency controls, operation identifiers, authentication context, and typed failure semantics. It SHALL translate transport details into application errors or values when their meanings differ, without duplicating generated DTOs solely for layering.
 
-**Verification:** Search all SDK imports and constructions and confirm they are confined to the adapter/composition surface. Contract-test success, typed errors, abort, pagination, conditional requests, operation polling, and credential propagation against the generated client.
+Collection ports SHALL accept the normalized page, page size, search, filter, and sort values required by their consumers and return items with authoritative page metadata. An adapter SHALL NOT exhaust every upstream page merely to recreate pagination in the presentation layer, and an incomplete upstream page sequence SHALL NOT be returned as a successful complete collection.
+
+**Verification:** Search all SDK imports and constructions and confirm they are confined to the adapter/composition surface. Contract-test success, typed errors, abort, one-page collection mapping, search and sort propagation, authoritative page metadata, inconsistent or partial page responses, conditional requests, operation polling, credential propagation, and correlation propagation against the generated client. Fail a list adapter that requests a second page without an explicit application invocation for that page.
 
 ### Requirement UI-HEX-06: TanStack Query Boundary
 
@@ -71,7 +73,9 @@ Each runtime SHALL have an explicit composition root that wires ports to adapter
 
 Fastify routes and hooks SHALL act as driving or infrastructure adapters: they MAY perform protocol parsing, HTTP response mapping, framework lifecycle work, and technical access handling, but domain decisions and multi-step product workflows SHALL enter application use cases. Upstream APIs, authentication/session persistence, and domain observability used by those workflows SHALL remain behind driven ports.
 
-**Verification:** Trace representative BFF routes from request to response. Flag domain branching in handlers, direct upstream clients or persistence in application code, framework request/reply types crossing entry ports, and abstractions around incidental Fastify helpers that do not protect application behavior.
+A production BFF that hosts a same-origin browser API SHALL exercise that proxy in its production-shaped test path; a development-server proxy is not equivalent evidence. SPA document routing SHALL be derived from, or contract-tested against, the browser route manifest so adding, changing, or removing a browser route cannot leave a stale hand-maintained server allowlist. API, asset, and health namespaces SHALL remain excluded from SPA fallback behavior.
+
+**Verification:** Trace representative BFF routes from request to response. Start the production BFF with a recording upstream, exercise a representative API read and mutation, and verify method, path, query, bounded body, safe status, approved headers, correlation, timeout, and cancellation behavior. Request every declared static browser route plus representative parameterized routes directly from the BFF and verify the application document, while unknown API, asset, health, and server routes retain explicit non-SPA behavior. Flag domain branching in handlers, direct upstream clients or persistence in application code, framework request/reply types crossing entry ports, and abstractions around incidental Fastify helpers that do not protect application behavior.
 
 ### Requirement UI-HEX-09: Boundary Proof
 

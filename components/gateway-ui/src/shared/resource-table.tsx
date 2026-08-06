@@ -18,19 +18,23 @@ import {
   Tr,
   type ThProps,
 } from "@patternfly/react-table";
-import { useState } from "react";
-
-const rowsPerPage = 20;
 
 export interface ResourceTableColumn<Row> {
-  getSortValue: (row: Row) => string;
   id: string;
   label: string;
   render: (row: Row) => React.ReactNode;
-  searchable?: boolean;
   sortable?: boolean;
   width?: ThProps["width"];
 }
+
+export interface ResourceTableState {
+  page: number;
+  query: string;
+  sortColumnId: string;
+  sortDirection: "asc" | "desc";
+}
+
+export type ResourceTableStateChangeReason = "filter" | "page" | "sort";
 
 interface ResourceTableLabels {
   actions: string;
@@ -47,80 +51,65 @@ interface ResourceTableLabels {
 interface ResourceTableProps<Row> {
   ariaLabel: string;
   columns: readonly ResourceTableColumn<Row>[];
-  defaultSortColumn?: number;
   getRowKey: (row: Row) => React.Key;
   id: string;
+  itemCount: number;
   labels: ResourceTableLabels;
+  onStateChange: (
+    state: ResourceTableState,
+    reason: ResourceTableStateChangeReason,
+  ) => void;
+  pageSize: number;
   primaryAction?: React.ReactNode;
   renderRowAction?: (row: Row) => React.ReactNode;
   rows: readonly Row[];
+  state: ResourceTableState;
 }
 
 export function ResourceTable<Row>({
   ariaLabel,
   columns,
-  defaultSortColumn = 0,
   getRowKey,
   id,
+  itemCount,
   labels,
+  onStateChange,
+  pageSize,
   primaryAction,
   renderRowAction,
   rows,
+  state,
 }: ResourceTableProps<Row>) {
-  const [query, setQuery] = useState("");
-  const [activeSortIndex, setActiveSortIndex] =
-    useState<number>(defaultSortColumn);
-  const [activeSortDirection, setActiveSortDirection] = useState<
-    "asc" | "desc"
-  >("asc");
-  const [page, setPage] = useState(1);
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const filteredRows = rows.filter((row) =>
-    columns
-      .filter(({ searchable = true }) => searchable)
-      .some(({ getSortValue }) =>
-        getSortValue(row).toLocaleLowerCase().includes(normalizedQuery),
-      ),
+  const activeSortIndex = Math.max(
+    0,
+    columns.findIndex(({ id: columnId }) => columnId === state.sortColumnId),
   );
-  const sortedRows = [...filteredRows].sort((left, right) => {
-    const activeColumn = columns[activeSortIndex] ?? columns[0];
-    if (!activeColumn) {
-      return 0;
-    }
-
-    const leftValue = activeColumn.getSortValue(left);
-    const rightValue = activeColumn.getSortValue(right);
-    const comparison = leftValue.localeCompare(rightValue, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-
-    return activeSortDirection === "asc" ? comparison : -comparison;
-  });
-  const pageCount = Math.max(1, Math.ceil(sortedRows.length / rowsPerPage));
-  const currentPage = Math.min(page, pageCount);
-  const visibleRows = sortedRows.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage,
-  );
-  const hasFilter = normalizedQuery.length > 0;
+  const hasFilter = state.query.trim().length > 0;
 
   const getSortParams = (columnIndex: number): ThProps["sort"] => ({
     columnIndex,
     onSort: (_event, index, direction) => {
-      setActiveSortIndex(index);
-      setActiveSortDirection(direction);
-      setPage(1);
+      const column = columns[index];
+      if (column) {
+        onStateChange(
+          {
+            ...state,
+            page: 1,
+            sortColumnId: column.id,
+            sortDirection: direction,
+          },
+          "sort",
+        );
+      }
     },
     sortBy: {
-      direction: activeSortDirection,
+      direction: state.sortDirection,
       index: activeSortIndex,
     },
   });
 
   const clearFilter = () => {
-    setQuery("");
-    setPage(1);
+    onStateChange({ ...state, page: 1, query: "" }, "filter");
   };
 
   return (
@@ -131,14 +120,13 @@ export function ResourceTable<Row>({
             <SearchInput
               aria-label={labels.searchAriaLabel}
               onChange={(_event, value) => {
-                setQuery(value);
-                setPage(1);
+                onStateChange({ ...state, page: 1, query: value }, "filter");
               }}
               onClear={clearFilter}
               placeholder={labels.searchPlaceholder}
-              resultsCount={hasFilter ? filteredRows.length : undefined}
+              resultsCount={hasFilter ? itemCount : undefined}
               resultsCountContext={labels.resultsCountContext}
-              value={query}
+              value={state.query}
             />
           </ToolbarItem>
           {primaryAction ? <ToolbarItem>{primaryAction}</ToolbarItem> : null}
@@ -148,19 +136,19 @@ export function ResourceTable<Row>({
           >
             <Pagination
               isCompact
-              itemCount={filteredRows.length}
+              itemCount={itemCount}
               onSetPage={(_event, nextPage) => {
-                setPage(nextPage);
+                onStateChange({ ...state, page: nextPage }, "page");
               }}
-              page={currentPage}
-              perPage={rowsPerPage}
+              page={state.page}
+              perPage={pageSize}
               widgetId={`${id}-pagination`}
             />
           </ToolbarItem>
         </ToolbarContent>
       </Toolbar>
 
-      {visibleRows.length > 0 ? (
+      {rows.length > 0 ? (
         <Table aria-label={ariaLabel} variant="compact">
           <Thead>
             <Tr>
@@ -183,7 +171,7 @@ export function ResourceTable<Row>({
             </Tr>
           </Thead>
           <Tbody>
-            {visibleRows.map((row) => (
+            {rows.map((row) => (
               <Tr key={getRowKey(row)}>
                 {columns.map((column) => (
                   <Td dataLabel={column.label} key={column.id}>

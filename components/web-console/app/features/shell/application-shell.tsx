@@ -19,7 +19,7 @@ import { useMemo } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
-import { gatewayOperations } from "../../adapters/api/gateway-operations";
+import { gatewayOperations } from "../../composition/gateway-composition";
 import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
 import { useRouteHeadingFocus } from "./route-focus";

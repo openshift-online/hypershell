@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -9,17 +9,49 @@ import Fastify, { type FastifyInstance, LogController } from "fastify";
 
 import type { ServerConfig } from "./config.js";
 
-const applicationRoutes = [
-  "/",
-  "/login",
-  "/fleets",
-  "/fleets/:fleetId",
-  "/fleets/:fleetId/gateways",
-  "/fleets/:fleetId/gateways/:gatewayId",
-  "/fleets/:fleetId/clients",
-  "/fleets/:fleetId/keys",
-  "/fleets/:fleetId/settings",
+const correlationHeader = "x-hypershell-correlation-id";
+const validCorrelationId =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const forwardedRequestHeaders = [
+  "accept",
+  "content-type",
+  "if-match",
+  "if-none-match",
 ] as const;
+const forwardedResponseHeaders = [
+  "content-type",
+  "etag",
+  "location",
+  "retry-after",
+] as const;
+
+declare module "fastify" {
+  interface FastifyRequest {
+    correlationId: string;
+  }
+}
+
+function isApplicationRoute(pathname: string): boolean {
+  return (
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/gateways/new" ||
+    /^\/gateways\/[^/]+\/?$/u.test(pathname)
+  );
+}
+
+function proxyBody(
+  method: string,
+  body: unknown,
+): string | Uint8Array | undefined {
+  if (["GET", "HEAD"].includes(method) || body === undefined) {
+    return undefined;
+  }
+  if (typeof body === "string" || body instanceof Uint8Array) {
+    return body;
+  }
+  return JSON.stringify(body);
+}
 
 function inlineScriptHashes(document: string): string[] {
   const hashes = new Set<string>();
@@ -62,6 +94,17 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
     trustProxy: false,
   });
 
+  app.decorateRequest("correlationId", "");
+
+  app.addHook("onRequest", async (request, reply) => {
+    const supplied = request.headers[correlationHeader];
+    request.correlationId =
+      typeof supplied === "string" && validCorrelationId.test(supplied)
+        ? supplied
+        : randomUUID();
+    reply.header(correlationHeader, request.correlationId);
+  });
+
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: {
@@ -97,6 +140,7 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
     request.log.info(
       {
         method: request.method,
+        correlationId: request.correlationId,
         requestId: request.id,
         route: request.routeOptions.url,
         statusCode: reply.statusCode,
@@ -141,16 +185,73 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
     return reply.type("text/html; charset=utf-8").send(indexDocument);
   };
 
-  for (const applicationRoute of applicationRoutes) {
-    app.get(applicationRoute, sendApplication);
-  }
+  app.all("/api/*", async (request, reply) => {
+    const incoming = new URL(request.url, "http://bff.invalid");
+    const target = new URL(
+      `${incoming.pathname}${incoming.search}`,
+      config.apiOrigin,
+    );
+    const headers = new Headers();
+    for (const header of forwardedRequestHeaders) {
+      const value = request.headers[header];
+      if (typeof value === "string") {
+        headers.set(header, value);
+      }
+    }
+    headers.set(correlationHeader, request.correlationId);
 
-  app.all("/api/*", async (_request, reply) => {
-    reply.code(404);
-    return { error: "Not Found", statusCode: 404 };
+    const controller = new AbortController();
+    const timeoutReason = new Error("Upstream API request timed out");
+    const timeout = setTimeout(() => {
+      controller.abort(timeoutReason);
+    }, config.apiTimeoutMs);
+    const abortDownstream = () => {
+      controller.abort();
+    };
+    request.raw.once("aborted", abortDownstream);
+
+    try {
+      const upstream = await fetch(target, {
+        body: proxyBody(request.method, request.body),
+        headers,
+        method: request.method,
+        redirect: "manual",
+        signal: controller.signal,
+      });
+
+      for (const header of forwardedResponseHeaders) {
+        const value = upstream.headers.get(header);
+        if (value !== null) {
+          reply.header(header, value);
+        }
+      }
+      reply.code(upstream.status);
+      if (request.method === "HEAD" || upstream.status === 204) {
+        return await reply.send();
+      }
+      return await reply.send(Buffer.from(await upstream.arrayBuffer()));
+    } catch (error) {
+      if (error === timeoutReason) {
+        reply.code(504);
+        return {
+          error: "Gateway Timeout",
+          statusCode: 504,
+        };
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      request.raw.off("aborted", abortDownstream);
+    }
   });
 
-  app.setNotFoundHandler(async (_request, reply) => {
+  app.setNotFoundHandler(async (request, reply) => {
+    if (
+      request.method === "GET" &&
+      isApplicationRoute(new URL(request.url, "http://localhost").pathname)
+    ) {
+      return sendApplication(request, reply);
+    }
     reply.code(404);
     return { error: "Not Found", statusCode: 404 };
   });

@@ -144,6 +144,7 @@ The canonical gateway management interface SHALL live in the private `components
 
 The Gateway UI package SHALL own:
 
+- gateway application use cases, their entry-port contract, stable application values, driven gateway-port contract, and typed gateway-probe schemas and catalog;
 - gateway query keys, server-state queries, mutations, and cache invalidation behavior;
 - gateway list, detail, provisioning, rename, delete, connection, loading, empty, validation, error, success, and recovery presentation;
 - canonical gateway-domain components and feature-scoped shared resource components; and
@@ -152,15 +153,15 @@ The Gateway UI package SHALL own:
 The host SHALL own:
 
 - application route declarations, route-parameter parsing, URL/history integration, and the product application shell;
-- authentication, session, authorization bootstrap, BFF, API origin, and SDK client construction;
+- authentication, session, authorization bootstrap, BFF, API origin, SDK client construction, and the API, workflow-runtime, and domain-probe infrastructure adapters;
 - the shared TanStack Query client and React Intl provider instances; and
 - product-wide notifications, telemetry, feature flags, and runtime configuration unless an explicit package integration contract delegates a narrow behavior.
 
-The package SHALL receive a purpose-shaped gateway application entry port and navigation behavior through typed props or a typed provider contract. The gateway entry port SHALL express gateway tasks and stable application values rather than mirror SDK resources, transport DTOs, pagination, or a broad generated client. The host adapter SHALL translate between that port and the generated SDK, including any reconciler-owned request defaults. The package SHALL NOT import or construct the generated SDK, configure integrations through mutable module globals, assume a particular deployment origin, construct a second Query client, construct a second localization provider, or require a particular host router. Shared runtime libraries including React, React DOM, PatternFly, TanStack Query, and React Intl SHALL resolve to host-compatible singleton versions through peer dependency contracts or an equivalent workspace-enforced mechanism.
+The package SHALL receive a purpose-shaped gateway application entry port and navigation behavior through typed props or a typed provider contract. Its application use-case factory SHALL receive an application-owned gateway control-plane port, a workflow-runtime port for time and invocation identity, and a typed domain-probe publisher. The gateway entry and driven ports SHALL express gateway tasks and stable application values rather than mirror SDK resources, transport DTOs, pagination, or a broad generated client. The host API adapter SHALL translate between the driven port and the generated SDK, including any reconciler-owned request defaults, and the host composition root SHALL wire the adapters into the package use cases. Every gateway use-case invocation and API dependency attempt SHALL publish the typed started and terminal facts required by `standards/ui/domain-observability.spec.md`. The package SHALL NOT import or construct the generated SDK, configure integrations through mutable module globals, assume a particular deployment origin, construct a second Query client, construct a second localization provider, or require a particular host router. Shared runtime libraries including React, React DOM, PatternFly, TanStack Query, and React Intl SHALL resolve to host-compatible singleton versions through peer dependency contracts or an equivalent workspace-enforced mechanism.
 
 The internal package MAY expose TypeScript source to workspace consumers while it remains private and has one repository consumer. Publishing it to a registry or supporting external consumers SHALL require compiled JavaScript and declarations, explicit package exports, a versioning and deprecation policy, asset and CSS delivery contracts, compatibility testing against every supported host, and removal of consumer-specific source aliases or transpilation exceptions.
 
-**Verification:** Build and test the Gateway UI package independently, inspect its public exports and dependency graph, and search both packages for duplicate gateway implementations and generated-SDK imports. Render its collection, detail, and provisioning pages in the standalone console through the public package API. Substitute a test gateway entry port and navigation adapter without React Router or a live BFF, and verify that gateway queries and mutations use the injected services and the host's Query client and localization context. Test the host SDK adapter independently to verify DTO mapping, pagination, cancellation, and reconciler-owned request defaults.
+**Verification:** Build and test the Gateway UI package independently, inspect its public exports and dependency graph, and search both packages for duplicate gateway implementations and generated-SDK imports. Render its collection, detail, and provisioning pages in the standalone console through the public package API. Substitute a test gateway entry port and navigation adapter without React Router or a live BFF, and verify that gateway queries and mutations use the injected services and the host's Query client and localization context. Run every gateway application use case in isolation with a fake control-plane port, deterministic workflow runtime, and recording probe publisher; verify one workflow terminal fact and one dependency terminal fact for success, failure, and cancellation. Contract-test the host SDK adapter for DTO mapping, typed failures, pagination, cancellation, and reconciler-owned request defaults, and test the production probe publisher with two sinks plus a failing sink.
 
 #### Scenario: Standalone Console Hosts the Gateway UI
 
@@ -269,17 +270,21 @@ The BFF SHALL use Node.js LTS and Fastify to provide:
 
 The proxy SHALL use an allowlisted upstream origin, remove untrusted hop-by-hop and identity headers, set the server-held authorization header, impose timeouts and body limits, preserve safe API status semantics, and cancel upstream work after client disconnect where supported.
 
-**Verification:** Test routing precedence, header sanitation, timeouts, cancellation, large bodies, upstream failures, and SPA fallback behavior. Confirm that an arbitrary URL cannot turn the BFF into an open proxy.
+The production BFF SHALL forward the Gateway UI's `/api/hypershell/v1/*` requests to the configured HyperShell API; a Vite development proxy SHALL NOT be the only working API path. The BFF SHALL validate or replace the browser correlation identifier, include it in structured request context, and propagate it upstream. Browser application routes SHALL share one route contract with the production BFF or have an automated parity test; a removed route SHALL NOT remain in a server allowlist and a newly declared route SHALL NOT return a server 404 on direct navigation or refresh.
+
+**Verification:** Test routing precedence, header sanitation, correlation validation and propagation, timeouts, cancellation, large bodies, upstream failures, and SPA fallback behavior. Start the built production BFF against a recording API and complete a representative gateway list request through `/api/hypershell/v1/gateways`. Request `/`, `/gateways/new`, and a representative `/gateways/{id}` directly from the BFF and verify application HTML; verify unknown API, asset, health, and server paths do not receive the SPA document. Confirm that an arbitrary URL cannot turn the BFF into an open proxy.
 
 ### Requirement WEB-DATA-01: Server-State Ownership
 
 TanStack Query SHALL own REST response data, asynchronous request state, caching, invalidation, and mutations. Query keys SHALL be factories that include resource kind, resource identifier, and normalized request parameters. Mutation success SHALL update or invalidate only affected keys.
 
+Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded.
+
 React Router loaders MAY verify session and route access and prefill the Query client. Loader data and React Context SHALL NOT become competing REST caches. Redux, Zustand, MobX, or another global state store SHALL NOT be added until a recorded design decision demonstrates cross-route client-only state that React, URL state, and TanStack Query cannot manage clearly.
 
 Query and mutation functions SHALL call application use cases through the narrow boundary in `standards/ui/hexagonal-architecture.spec.md`; they SHALL NOT call the generated SDK directly. TanStack Query remains the presentation-side owner of server-state policy and SHALL NOT be hidden behind a generic query port.
 
-**Verification:** Inventory state ownership and query keys. Navigate between gateways and list views with different request parameters and confirm that cached data never crosses resource boundaries.
+**Verification:** Inventory state ownership and query keys. Navigate between gateways and list views with different request parameters and confirm that cached data never crosses resource boundaries. With an API total larger than one page, verify initial render issues one list request, page/search/sort changes issue one request for the normalized state, Back/Forward restores that state, and an inconsistent response is surfaced rather than presented as a complete collection.
 
 ### Requirement WEB-DATA-02: URL and Local State
 
@@ -337,9 +342,11 @@ Gateway deletion SHALL use the existing `DELETE /gateways/{id}` contract. Both d
 
 The generated command SHALL include the gateway name, OIDC issuer, OIDC client ID, OIDC audience, and endpoint. Values SHALL be encoded as safe shell arguments before being presented for copying. Copy controls SHALL have an accessible name and visible success feedback, and the full command SHALL remain available at narrow widths without causing page-level horizontal overflow.
 
-Preview placeholders MAY be used while the API contract is under development, but they SHALL be isolated from production data access and clearly removable. Production connection values SHALL come from an authorized server response and SHALL NOT be inferred from unrelated deployment fields or embedded as build-time environment constants.
+Preview placeholders MAY be used while the API contract is under development, but they SHALL be isolated to explicit Storybook, test, or development fixtures and clearly removable. Production data mappers SHALL preserve missing connection values as unavailable and SHALL NOT replace them with a preview gateway's endpoint, console URL, issuer, client ID, or audience. Production connection values SHALL come from an authorized server response and SHALL NOT be inferred from unrelated deployment fields or embedded as build-time environment constants. Console and CLI controls SHALL be absent or disabled with truthful explanation until all values required by that action are available.
 
-**Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior.
+Gateway status presentation SHALL use an explicit bounded mapping. Ready/success states MAY use success green; known failure states SHALL use their defined error or warning semantics; pending or transitional states SHALL use neutral or informational semantics; and unknown, absent, or unrecognized values SHALL use gray. Status text SHALL remain visible so color is never the only carrier.
+
+**Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic labels. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior.
 
 ### Requirement WEB-I18N-01: Localization from First Implementation
 
@@ -381,11 +388,13 @@ Jest or Cypress SHALL NOT be added unless an accepted decision demonstrates a te
 
 Mocks SHALL preserve the API's production status codes, latency, authorization, validation, pagination, and error envelope. A test SHALL NOT claim end-to-end coverage when the BFF or API boundary is mocked.
 
+At least one production-shaped integration test SHALL start the BFF with a recording upstream and exercise the same-origin API path used by the built browser. Browser route coverage SHALL include direct BFF navigation and refresh for every route shape, not only client-side navigation from `/`.
+
 **Verification:** Inspect the test inventory and run representative suites. Confirm that contract drift in an API fixture produces a failure rather than being hidden by permissive mocks.
 
 ### Requirement WEB-QUAL-03: Change and Release Gates
 
-Every pull request affecting the web workspace SHALL pass frozen installation, dependency policy, formatting, lint, type checks, unit/integration tests, Storybook build and checks, a production build, and critical Chromium journeys. Main/release verification SHALL add Firefox, WebKit, visual regression for critical layouts, pseudo-locale/RTL coverage, and the broader accessibility matrix required by `standards/ui/verification.spec.md`.
+Every pull request affecting the web workspace SHALL pass frozen installation, dependency policy, formatting, lint, type checks, unit/integration tests, Storybook build and checks, a production build, a production-BFF API and direct-route smoke test, and critical Chromium journeys. The production smoke test SHALL fail when the browser's API namespace is not proxied, when a declared browser route returns a server 404, or when production gateway mapping supplies preview connection constants. Main/release verification SHALL add Firefox, WebKit, visual regression for critical layouts, pseudo-locale/RTL coverage, and the broader accessibility matrix required by `standards/ui/verification.spec.md`.
 
 Automated accessibility checks SHALL use axe-compatible rules but SHALL NOT be reported as complete accessibility evidence. Manual keyboard, screen reader, zoom/reflow, touch, reduced-motion, and locale checks remain required at the risk-based cadence in the UI verification standard.
 

@@ -5,15 +5,44 @@ export {
   type GatewayUiNavigation,
 } from "./gateway-ui-provider";
 export type {
+  GatewayControlPlane,
+  GatewayFailureKind,
+  GatewayInvocationContext,
+  GatewayListRequest,
   GatewayOperations,
+  GatewayPage as GatewayPageResult,
   GatewayProvisionInput,
   GatewayRecord,
-} from "./gateways/gateway-types";
+  GatewaySortDirection,
+  GatewaySortField,
+  GatewayWorkflowRuntime,
+} from "./application/gateway-types";
+export {
+  defaultGatewayListRequest,
+  GatewayOperationError,
+} from "./application/gateway-types";
+export {
+  gatewayProbeCatalog,
+  type GatewayAction,
+  type GatewayProbe,
+  type GatewayProbeName,
+  type GatewayProbeOutcome,
+  type GatewayProbePublisher,
+} from "./application/gateway-probes";
+export {
+  createGatewayOperations,
+  type GatewayOperationDependencies,
+} from "./application/gateway-operations";
 export {
   GatewayCreatePage,
   type GatewayCreatePageProps,
 } from "./gateways/gateway-create";
-export { gatewayQueryKey, toGatewayConnection } from "./gateways/gateway-data";
+export {
+  gatewayListQueryKey,
+  gatewayListQueryRoot,
+  gatewayQueryKey,
+  toGatewayConnection,
+} from "./gateways/gateway-data";
 export type { GatewayConnection } from "./gateways/gateway-connections";
 export {
   GatewayPage,

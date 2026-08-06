@@ -49,7 +49,9 @@ At the 75th percentile of representative field visits, separately for mobile and
 
 Critical tasks SHALL have product-specific response and completion budgets for representative devices, networks, and data volumes. Tail performance and failure SHALL be visible; averages alone SHALL NOT establish a pass.
 
-**Verification:** Benchmark cold, warm, throttled, degraded, and high-volume conditions against thresholds declared before final evaluation.
+Paginated collection views SHALL request only the page needed for the current view unless an explicit bounded bulk workflow requires more. Search, filtering, and sorting that affect the collection SHALL execute at the authoritative data source for high-volume views, and their normalized state SHALL participate in request identity and reproducible navigation.
+
+**Verification:** Benchmark cold, warm, throttled, degraded, and high-volume conditions against thresholds declared before final evaluation. Record upstream request count and transferred rows for initial load, page change, search, filter, and sort; fail an ordinary paginated view that exhausts the collection before first render.
 
 ### Requirement UI-PERF-03: Stable and Accurate Progress
 

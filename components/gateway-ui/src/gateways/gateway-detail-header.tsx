@@ -29,6 +29,11 @@ import { GatewayRenameDialog } from "./gateway-rename-dialog";
 
 export function GatewayCliCopy({ gateway }: { gateway: GatewayConnection }) {
   const intl = useIntl();
+  const connectionCommand = buildGatewayAddCommand(gateway);
+
+  if (!connectionCommand) {
+    return null;
+  }
 
   return (
     <ClipboardCopy
@@ -40,7 +45,7 @@ export function GatewayCliCopy({ gateway }: { gateway: GatewayConnection }) {
       isCode
       isReadOnly
     >
-      {buildGatewayAddCommand(gateway)}
+      {connectionCommand}
     </ClipboardCopy>
   );
 }
@@ -51,6 +56,10 @@ export function GatewayEndpointCopy({
   gateway: GatewayConnection;
 }) {
   const intl = useIntl();
+
+  if (!gateway.endpoint) {
+    return null;
+  }
 
   return (
     <ClipboardCopy
@@ -84,22 +93,24 @@ function GatewayDetailActions({
   return (
     <>
       <ActionList>
-        <ActionListItem>
-          <Button
-            aria-label={intl.formatMessage(messages.openGatewayConsoleFor, {
-              gatewayName: gateway.name,
-            })}
-            component="a"
-            href={gateway.consoleUrl}
-            icon={<ExternalLinkAltIcon />}
-            iconPosition="end"
-            rel="noreferrer"
-            target="_blank"
-            variant="primary"
-          >
-            <FormattedMessage {...messages.openGatewayConsole} />
-          </Button>
-        </ActionListItem>
+        {gateway.consoleUrl ? (
+          <ActionListItem>
+            <Button
+              aria-label={intl.formatMessage(messages.openGatewayConsoleFor, {
+                gatewayName: gateway.name,
+              })}
+              component="a"
+              href={gateway.consoleUrl}
+              icon={<ExternalLinkAltIcon />}
+              iconPosition="end"
+              rel="noreferrer"
+              target="_blank"
+              variant="primary"
+            >
+              <FormattedMessage {...messages.openGatewayConsole} />
+            </Button>
+          </ActionListItem>
+        ) : null}
         <ActionListItem>
           <Dropdown
             isOpen={isActionsOpen}

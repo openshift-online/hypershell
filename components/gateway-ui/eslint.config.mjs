@@ -48,4 +48,103 @@ export default tseslint.config(
       "formatjs/enforce-id": "error",
     },
   },
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-console": "error",
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@openshift-online/hypershell-sdk",
+              message: "Use the application-owned GatewayControlPlane port.",
+            },
+            {
+              name: "@openshift-online/hypershell-domain-probes/fan-out",
+              message: "Keep concrete probe fan-out in the host adapter.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["@opentelemetry/*"],
+              message: "Publish typed gateway facts through the probe port.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/application/**/*.ts"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        ...[
+          "document",
+          "navigator",
+          "window",
+          "localStorage",
+          "sessionStorage",
+          "fetch",
+        ].map((name) => ({
+          name,
+          message: "Keep external capabilities behind application-owned ports.",
+        })),
+      ],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            ...[
+              "@patternfly/react-core",
+              "@tanstack/react-query",
+              "react",
+              "react-dom",
+              "react-router",
+            ].map((name) => ({
+              name,
+              message: "Keep UI frameworks in presentation adapters.",
+            })),
+            {
+              name: "@openshift-online/hypershell-sdk",
+              message: "Use the application-owned GatewayControlPlane port.",
+            },
+            {
+              name: "@openshift-online/hypershell-domain-probes/fan-out",
+              message: "Keep concrete probe fan-out in the host adapter.",
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                "@opentelemetry/*",
+                "@patternfly/*",
+                "@tanstack/*",
+                "**/adapters/**",
+              ],
+              message: "Application dependencies must point inward.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "NewExpression[callee.name='Date']",
+          message: "Read time through GatewayWorkflowRuntime.",
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='Date'][callee.property.name='now']",
+          message: "Read time through GatewayWorkflowRuntime.",
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='Math'][callee.property.name='random']",
+          message: "Read randomness through GatewayWorkflowRuntime.",
+        },
+      ],
+    },
+  },
 );
