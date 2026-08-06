@@ -179,30 +179,102 @@ kubectl port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 
 PF_PID=$!
 sleep 2
 
-info "Creating default Fleet..."
-FLEET_RESP=$(curl -sf -X POST "${API_URL}/api/hypershell/v1/fleets" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"default","description":"Local development fleet"}' 2>/dev/null || true)
-FLEET_ID=$(echo "${FLEET_RESP}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+# Helper: POST a JSON resource; prints the response body on success or failure.
+# Uses -sS (silent but show errors) instead of -sf (which hides the response body on HTTP errors).
+api_post() {
+  local url="$1" data="$2"
+  curl -sS -w "\n%{http_code}" -X POST "${url}" \
+    -H "Content-Type: application/json" \
+    -d "${data}" 2>&1 || true
+}
 
-if [[ -n "${FLEET_ID}" ]]; then
+# Extract ID from a JSON response
+extract_id() {
+  echo "$1" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4
+}
+
+seed_failed=""
+
+info "Creating default Fleet..."
+FLEET_RAW=$(api_post "${API_URL}/api/hypershell/v1/fleets" \
+  '{"name":"default","description":"Local development fleet"}')
+FLEET_HTTP=$(echo "${FLEET_RAW}" | tail -1)
+FLEET_RESP=$(echo "${FLEET_RAW}" | sed '$d')
+FLEET_ID=$(extract_id "${FLEET_RESP}")
+
+if [[ -z "${FLEET_ID}" ]]; then
+  warn "Fleet creation failed (HTTP ${FLEET_HTTP}): ${FLEET_RESP:-no response}"
+  seed_failed=true
+fi
+
+if [[ -z "${seed_failed}" ]]; then
   success "Fleet created: ${FLEET_ID}"
 
+  info "Creating ManagedCluster..."
+  MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
+    "{\"name\":\"local-kind\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
+  MC_HTTP=$(echo "${MC_RAW}" | tail -1)
+  MC_RESP=$(echo "${MC_RAW}" | sed '$d')
+  CLUSTER_ID=$(extract_id "${MC_RESP}")
+
+  if [[ -z "${CLUSTER_ID}" ]]; then
+    warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
+    seed_failed=true
+  else
+    success "ManagedCluster created: ${CLUSTER_ID}"
+  fi
+fi
+
+if [[ -z "${seed_failed}" ]]; then
+  info "Creating GatewayRelease..."
+  GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
+    "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")
+  GR_HTTP=$(echo "${GR_RAW}" | tail -1)
+  GR_RESP=$(echo "${GR_RAW}" | sed '$d')
+  RELEASE_ID=$(extract_id "${GR_RESP}")
+
+  if [[ -z "${RELEASE_ID}" ]]; then
+    warn "GatewayRelease creation failed (HTTP ${GR_HTTP}): ${GR_RESP:-no response}"
+    seed_failed=true
+  else
+    success "GatewayRelease created: ${RELEASE_ID}"
+  fi
+fi
+
+if [[ -z "${seed_failed}" ]]; then
+  info "Creating ManagedDatabase..."
+  MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
+    "{\"name\":\"local-postgres\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"local\"}")
+  MD_HTTP=$(echo "${MD_RAW}" | tail -1)
+  MD_RESP=$(echo "${MD_RAW}" | sed '$d')
+  DATABASE_ID=$(extract_id "${MD_RESP}")
+
+  if [[ -z "${DATABASE_ID}" ]]; then
+    warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
+    seed_failed=true
+  else
+    success "ManagedDatabase created: ${DATABASE_ID}"
+  fi
+fi
+
+if [[ -z "${seed_failed}" ]]; then
   info "Creating Gateway (controller will provision database)..."
-  GW_RESP=$(curl -sf -X POST "${API_URL}/api/hypershell/v1/gateways" \
-    -H "Content-Type: application/json" \
-    -d "{\"name\":\"openshell-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"namespace\":\"${KIND_NAMESPACE}\"}" 2>/dev/null || true)
-  GW_ID=$(echo "${GW_RESP}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+  GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
+    "{\"name\":\"openshell-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"namespace\":\"${KIND_NAMESPACE}\"}")
+  GW_HTTP=$(echo "${GW_RAW}" | tail -1)
+  GW_RESP=$(echo "${GW_RAW}" | sed '$d')
+  GW_ID=$(extract_id "${GW_RESP}")
 
   if [[ -n "${GW_ID}" ]]; then
     success "Gateway created: ${GW_ID} — controller will reconcile"
   else
-    warn "Gateway creation returned: ${GW_RESP:-no response}"
-    warn "Create manually: curl -X POST ${API_URL}/api/hypershell/v1/gateways -H 'Content-Type: application/json' -d '{\"name\":\"openshell-gateway\",\"fleet_id\":\"<fleet-id>\",\"namespace\":\"${KIND_NAMESPACE}\"}'"
+    warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
+    seed_failed=true
   fi
-else
-  warn "Fleet creation returned: ${FLEET_RESP:-no response}"
-  warn "Create manually after API server is ready"
+fi
+
+if [[ -n "${seed_failed}" ]]; then
+  warn "Automatic seeding incomplete — create resources manually after API server is ready"
 fi
 
 kill "${PF_PID}" 2>/dev/null || true
