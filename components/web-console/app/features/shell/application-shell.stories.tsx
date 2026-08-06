@@ -1,11 +1,39 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import {
+  GatewayPage,
+  GatewaysPage,
+  type GatewayConnection,
+  type GatewayRecord,
+} from "@openshift-online/hypershell-gateway-ui";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
 
 import { englishMessages } from "../../i18n/catalog";
-import { previewGateways } from "../gateways/gateway-connections";
 import { ApplicationShell } from "./application-shell";
-import { GatewayPage, GatewaysPage } from "./shell-pages";
+
+const previewGateway: GatewayConnection = {
+  clusterName: "Local cluster",
+  consoleUrl: "https://console.example.test",
+  endpoint: "https://gateway.example.test:443",
+  id: "gateway-b",
+  name: "OpenShell gateway",
+  oidcAudience: "openshell-cli",
+  oidcClientId: "openshell-cli",
+  oidcIssuer: "https://issuer.example.test",
+  status: "Ready",
+};
+
+const previewGatewayResource: GatewayRecord = {
+  clusterId: "",
+  databaseId: "database-1",
+  externalDns: "gateway.example.test",
+  id: "gateway-b",
+  name: "OpenShell gateway",
+  namespace: "openshell",
+  phase: "",
+  releaseId: "release-1",
+  status: "Ready",
+};
 
 const pseudoMessages = Object.fromEntries(
   Object.entries(englishMessages).map(([id, message]) => [
@@ -21,9 +49,17 @@ function ShellPreview({ initialPath = "/" }: { initialPath?: string }) {
         <Route element={<ApplicationShell />}>
           <Route
             path="/"
-            element={<GatewaysPage gateways={previewGateways} />}
+            element={<GatewaysPage gateways={[previewGateway]} />}
           />
-          <Route path="gateways/:gatewayId" element={<GatewayPage />} />
+          <Route
+            path="gateways/:gatewayId"
+            element={
+              <GatewayPage
+                gateway={previewGatewayResource}
+                gatewayId="gateway-b"
+              />
+            }
+          />
         </Route>
       </Routes>
     </MemoryRouter>

@@ -42,11 +42,26 @@
       ".github/workflows/lint.yml"
     ]
   },
+  "gateway_ui": {
+    "directory": "components/gateway-ui",
+    "lint_job": "lint-gateway-ui",
+    "paths": [
+      "components/gateway-ui/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
+  },
   "web_console": {
     "directory": "components/web-console",
     "lint_job": "lint-web-console",
     "paths": [
       "components/web-console/**",
+      "components/gateway-ui/**",
       "components/sdk-typescript/**",
       "package.json",
       "pnpm-lock.yaml",

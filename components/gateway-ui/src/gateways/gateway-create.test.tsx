@@ -2,60 +2,54 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
-import { MemoryRouter, Route, Routes } from "react-router";
 import { vi } from "vitest";
 
-import { englishMessages } from "../../i18n/catalog";
+import { GatewayUiProvider } from "../gateway-ui-provider";
 import { GatewayCreatePage } from "./gateway-create";
 
-const { createGatewayMock } = vi.hoisted(() => ({
+const { createGatewayMock, navigateMock } = vi.hoisted(() => ({
   createGatewayMock: vi.fn(),
+  navigateMock: vi.fn(),
 }));
 
-vi.mock("../../adapters/api/api.client", () => ({
-  apiClient: {
-    gateways: {
-      create: createGatewayMock,
-    },
-  },
-}));
+const gatewayOperations = {
+  getGateway: vi.fn(),
+  listGateways: vi.fn(),
+  provisionGateway: createGatewayMock,
+  removeGateway: vi.fn(),
+  renameGateway: vi.fn(),
+};
+
+const navigation = {
+  collectionHref: "/",
+  createHref: "/gateways/new",
+  detailHref: (gatewayId: string) => `/gateways/${gatewayId}`,
+  navigate: navigateMock,
+};
 
 const createdGateway = {
-  cluster_id: "",
-  created_at: null,
-  database_id: "",
-  external_dns: "",
-  fleet_id: "",
-  href: "/api/hypershell/v1/gateways/gateway-1",
+  clusterId: "",
+  databaseId: "",
+  externalDns: "",
   id: "gateway-1",
-  kind: "Gateway",
   name: "team-gateway",
   namespace: "openshell",
   phase: "",
-  release_id: "",
-  service_type: "",
+  releaseId: "",
   status: "",
-  tls_mode: "",
-  updated_at: null,
 };
 
-function renderPage(initialEntry = "/gateways/new") {
+function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
 
   return render(
-    <IntlProvider locale="en" messages={englishMessages}>
+    <IntlProvider locale="en">
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <Routes>
-            <Route element={<GatewayCreatePage />} path="/gateways/new" />
-            <Route
-              element={<div data-testid="created-gateway" />}
-              path="/gateways/:gatewayId"
-            />
-          </Routes>
-        </MemoryRouter>
+        <GatewayUiProvider gateways={gatewayOperations} navigation={navigation}>
+          <GatewayCreatePage />
+        </GatewayUiProvider>
       </QueryClientProvider>
     </IntlProvider>,
   );
@@ -64,6 +58,7 @@ function renderPage(initialEntry = "/gateways/new") {
 describe("GatewayCreatePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigateMock.mockResolvedValue(undefined);
   });
 
   it("provisions through the API with empty reconciler-owned IDs", async () => {
@@ -83,15 +78,13 @@ describe("GatewayCreatePage", () => {
 
     await waitFor(() => {
       expect(createGatewayMock).toHaveBeenCalledWith({
-        cluster_id: "",
-        database_id: "",
-        fleet_id: "",
         name: "team-gateway",
         namespace: "openshell",
-        release_id: "",
       });
     });
-    expect(screen.getByTestId("created-gateway")).toBeTruthy();
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith("/gateways/gateway-1");
+    });
   });
 
   it("validates required values before sending a request", async () => {
@@ -132,6 +125,8 @@ describe("GatewayCreatePage", () => {
       expect(submitButton.classList.contains("pf-m-progress")).toBe(true);
     });
     resolveRequest?.(createdGateway);
-    expect(await screen.findByTestId("created-gateway")).toBeTruthy();
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith("/gateways/gateway-1");
+    });
   });
 });

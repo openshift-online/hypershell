@@ -14,10 +14,10 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
-import { Link, useLocation, useNavigate, useParams } from "react-router";
 
+import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import {
   gatewayStatusColor,
   type GatewayConnection,
@@ -27,13 +27,8 @@ import {
   GatewayDetailHeader,
   GatewayEndpointCopy,
 } from "../gateways/gateway-detail-header";
-import {
-  gatewayQueryKey,
-  getGateway,
-  listGatewayConnections,
-  toGatewayConnection,
-  type GatewayRecord,
-} from "../gateways/gateway-data";
+import { gatewayQueryKey, toGatewayConnection } from "../gateways/gateway-data";
+import type { GatewayRecord } from "../gateways/gateway-types";
 import { GatewayLoadState } from "../gateways/gateway-load-state";
 import { GatewayRowActions } from "../gateways/gateway-row-actions";
 import {
@@ -41,17 +36,26 @@ import {
   type ResourceTableColumn,
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
-import { messages } from "../../i18n/messages";
-import styles from "./shell-pages.module.css";
+import { messages } from "../messages";
+import styles from "./gateway-pages.module.css";
 
 const primaryLinkStyle: React.CSSProperties = {
   color: "var(--pf-v6-c-button--m-primary--Color)",
   textDecoration: "none",
 };
 
-interface GatewaysPageProps {
+export interface GatewaysPageProps {
+  deletedGatewayName?: string;
   gateways?: readonly GatewayConnection[];
+  onDismissDeletedGateway?: () => void;
   onRefresh?: () => unknown;
+}
+
+function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
+  const { navigation } = useGatewayUi();
+  const link = useGatewayLink(navigation.detailHref(gateway.id));
+
+  return <a {...link}>{gateway.name}</a>;
 }
 
 function GatewaySuccessAlerts({
@@ -117,28 +121,23 @@ function GatewaySuccessAlerts({
   );
 }
 
-export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
+export function GatewaysPage({
+  deletedGatewayName: initialDeletedGatewayName,
+  gateways,
+  onDismissDeletedGateway,
+  onRefresh,
+}: GatewaysPageProps = {}) {
   const intl = useIntl();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const routedDeletedGatewayName =
-    typeof (location.state as { deletedGatewayName?: unknown } | null)
-      ?.deletedGatewayName === "string"
-      ? (location.state as { deletedGatewayName: string }).deletedGatewayName
-      : undefined;
-  const [deletedGatewayName, setDeletedGatewayName] = useState(
-    routedDeletedGatewayName,
-  );
+  const { gateways: gatewayOperations, navigation } = useGatewayUi();
+  const createLink = useGatewayLink(navigation.createHref);
+  const [deletedGatewayName, setDeletedGatewayName] = useState<string>();
+  const [isInitialDeletionDismissed, setIsInitialDeletionDismissed] =
+    useState(false);
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
-  useEffect(() => {
-    if (!routedDeletedGatewayName) {
-      return;
-    }
-    void navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, navigate, routedDeletedGatewayName]);
   const gatewayQuery = useQuery({
     enabled: gateways === undefined,
-    queryFn: ({ signal }) => listGatewayConnections(signal),
+    queryFn: async ({ signal }) =>
+      (await gatewayOperations.listGateways(signal)).map(toGatewayConnection),
     queryKey: ["gateways"],
   });
   const visibleGateways = gateways ?? gatewayQuery.data;
@@ -147,11 +146,7 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
       getSortValue: ({ name }) => name,
       id: "name",
       label: intl.formatMessage(messages.gatewayName),
-      render: (gateway) => (
-        <Link to={`/gateways/${encodeURIComponent(gateway.id)}`}>
-          {gateway.name}
-        </Link>
-      ),
+      render: (gateway) => <GatewayDetailLink gateway={gateway} />,
       width: 25,
     },
     {
@@ -192,9 +187,14 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
   return (
     <>
       <GatewaySuccessAlerts
-        deletedGatewayName={deletedGatewayName}
+        deletedGatewayName={
+          deletedGatewayName ??
+          (isInitialDeletionDismissed ? undefined : initialDeletedGatewayName)
+        }
         onDismissDeleted={() => {
           setDeletedGatewayName(undefined);
+          setIsInitialDeletionDismissed(true);
+          onDismissDeletedGateway?.();
         }}
         onDismissRenamed={() => {
           setRenamedGatewayName(undefined);
@@ -241,10 +241,10 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
           }}
           primaryAction={
             <Button
-              component={Link}
+              component="a"
               style={primaryLinkStyle}
               variant="primary"
-              {...{ to: "/gateways/new" }}
+              {...createLink}
             >
               <FormattedMessage {...messages.provisionGateway} />
             </Button>
@@ -265,17 +265,22 @@ export function GatewaysPage({ gateways, onRefresh }: GatewaysPageProps = {}) {
   );
 }
 
-interface GatewayPageProps {
+export interface GatewayPageProps {
   gateway?: GatewayRecord;
+  gatewayId: string;
+  onDeleted?: (gatewayName: string) => Promise<void> | void;
 }
 
-export function GatewayPage({ gateway }: GatewayPageProps = {}) {
-  const { gatewayId = "" } = useParams();
-  const navigate = useNavigate();
+export function GatewayPage({
+  gateway,
+  gatewayId,
+  onDeleted,
+}: GatewayPageProps) {
+  const { gateways, navigation } = useGatewayUi();
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const gatewayQuery = useQuery({
     enabled: gateway === undefined && gatewayId.length > 0,
-    queryFn: ({ signal }) => getGateway(gatewayId, signal),
+    queryFn: ({ signal }) => gateways.getGateway(gatewayId, signal),
     queryKey: gatewayQueryKey(gatewayId),
   });
   const visibleGateway = gateway ?? gatewayQuery.data;
@@ -305,9 +310,13 @@ export function GatewayPage({ gateway }: GatewayPageProps = {}) {
           description={<FormattedMessage {...messages.gatewayDescription} />}
           gateway={connection}
           onDeleted={() => {
-            void navigate("/", {
-              state: { deletedGatewayName: connection.name },
-            });
+            if (onDeleted) {
+              void onDeleted(connection.name);
+            } else {
+              void navigation.navigate(navigation.collectionHref, {
+                state: { deletedGatewayName: connection.name },
+              });
+            }
           }}
           onRenamed={setRenamedGatewayName}
         />
@@ -351,7 +360,7 @@ export function GatewayPage({ gateway }: GatewayPageProps = {}) {
               <FormattedMessage {...messages.gatewayReleaseId} />
             </DescriptionListTerm>
             <DescriptionListDescription>
-              {visibleGateway.release_id}
+              {visibleGateway.releaseId}
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
@@ -359,7 +368,7 @@ export function GatewayPage({ gateway }: GatewayPageProps = {}) {
               <FormattedMessage {...messages.managedDatabaseId} />
             </DescriptionListTerm>
             <DescriptionListDescription>
-              {visibleGateway.database_id}
+              {visibleGateway.databaseId}
             </DescriptionListDescription>
           </DescriptionListGroup>
         </DescriptionList>

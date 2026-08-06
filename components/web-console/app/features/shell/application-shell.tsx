@@ -8,12 +8,19 @@ import {
   Page,
   SkipToContent,
 } from "@patternfly/react-core";
+import {
+  gatewayMessages,
+  gatewayQueryKey,
+  GatewayUiProvider,
+  type GatewayUiNavigation,
+} from "@openshift-online/hypershell-gateway-ui";
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
+import { gatewayOperations } from "../../adapters/api/gateway-operations";
 import { messages } from "../../i18n/messages";
-import { gatewayQueryKey, getGateway } from "../gateways/gateway-data";
 import productLogo from "../../../../../images/brand/logo.png";
 import { useRouteHeadingFocus } from "./route-focus";
 import styles from "./application-shell.module.css";
@@ -21,6 +28,16 @@ import styles from "./application-shell.module.css";
 export function ApplicationShell() {
   const intl = useIntl();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const gatewayNavigation = useMemo<GatewayUiNavigation>(
+    () => ({
+      collectionHref: "/",
+      createHref: "/gateways/new",
+      detailHref: (gatewayId) => `/gateways/${encodeURIComponent(gatewayId)}`,
+      navigate: (href, options) => navigate(href, options),
+    }),
+    [navigate],
+  );
   useRouteHeadingFocus(pathname);
   const segments = pathname.split("/").filter(Boolean);
   const gatewaySegment = segments[0] === "gateways" ? segments[1] : undefined;
@@ -28,7 +45,8 @@ export function ApplicationShell() {
   const gatewayId = isNewGateway ? undefined : gatewaySegment;
   const gatewayQuery = useQuery({
     enabled: gatewayId !== undefined,
-    queryFn: ({ signal }) => getGateway(gatewayId ?? "", signal),
+    queryFn: ({ signal }) =>
+      gatewayOperations.getGateway(gatewayId ?? "", signal),
     queryKey: gatewayQueryKey(gatewayId ?? ""),
   });
 
@@ -65,16 +83,17 @@ export function ApplicationShell() {
     breadcrumb = (
       <Breadcrumb aria-label={intl.formatMessage(messages.breadcrumbLabel)}>
         <BreadcrumbItem to="/">
-          <FormattedMessage {...messages.gateways} />
+          <FormattedMessage {...gatewayMessages.gateways} />
         </BreadcrumbItem>
         {gatewayId ? (
           <BreadcrumbItem isActive>
-            {gatewayQuery.data?.name ?? intl.formatMessage(messages.gateway)}
+            {gatewayQuery.data?.name ??
+              intl.formatMessage(gatewayMessages.gateway)}
           </BreadcrumbItem>
         ) : null}
         {isNewGateway ? (
           <BreadcrumbItem isActive>
-            <FormattedMessage {...messages.provisionGateway} />
+            <FormattedMessage {...gatewayMessages.provisionGateway} />
           </BreadcrumbItem>
         ) : null}
       </Breadcrumb>
@@ -82,14 +101,19 @@ export function ApplicationShell() {
   }
 
   return (
-    <Page
-      breadcrumb={breadcrumb}
-      isContentFilled
-      mainContainerId="main-content"
-      masthead={masthead}
-      skipToContent={skipToContent}
+    <GatewayUiProvider
+      gateways={gatewayOperations}
+      navigation={gatewayNavigation}
     >
-      <Outlet />
-    </Page>
+      <Page
+        breadcrumb={breadcrumb}
+        isContentFilled
+        mainContainerId="main-content"
+        masthead={masthead}
+        skipToContent={skipToContent}
+      >
+        <Outlet />
+      </Page>
+    </GatewayUiProvider>
   );
 }

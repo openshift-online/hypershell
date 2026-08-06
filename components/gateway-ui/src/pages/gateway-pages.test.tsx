@@ -2,65 +2,60 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { IntlProvider } from "react-intl";
-import { MemoryRouter } from "react-router";
 import { beforeEach, vi } from "vitest";
 
-import { englishMessages } from "../../i18n/catalog";
+import { GatewayUiProvider } from "../gateway-ui-provider";
 import { previewGateways } from "../gateways/gateway-connections";
-import type * as GatewayData from "../gateways/gateway-data";
-import { GatewayPage, GatewaysPage } from "./shell-pages";
+import { GatewayPage, GatewaysPage } from "./gateway-pages";
 
-const { deleteGatewayMock, listGatewayConnectionsMock, renameGatewayMock } =
+const { deleteGatewayMock, listGatewaysMock, navigateMock, renameGatewayMock } =
   vi.hoisted(() => ({
     deleteGatewayMock: vi.fn(),
-    listGatewayConnectionsMock: vi.fn(),
+    listGatewaysMock: vi.fn(),
+    navigateMock: vi.fn(),
     renameGatewayMock: vi.fn(),
   }));
 
-vi.mock("../gateways/gateway-data", async (importOriginal) => ({
-  ...(await importOriginal<typeof GatewayData>()),
-  deleteGateway: deleteGatewayMock,
-  listGatewayConnections: listGatewayConnectionsMock,
+const gatewayOperations = {
+  getGateway: vi.fn(),
+  listGateways: listGatewaysMock,
+  provisionGateway: vi.fn(),
+  removeGateway: deleteGatewayMock,
   renameGateway: renameGatewayMock,
-}));
+};
+
+const navigation = {
+  collectionHref: "/",
+  createHref: "/gateways/new",
+  detailHref: (gatewayId: string) => `/gateways/${gatewayId}`,
+  navigate: navigateMock,
+};
 
 function gatewayResponse(id: string, name: string) {
   return {
-    cluster_id: "",
-    created_at: null,
-    database_id: "database-1",
-    external_dns: "gateway.example.com",
-    fleet_id: "",
-    href: `/api/hypershell/v1/gateways/${id}`,
+    clusterId: "",
+    databaseId: "database-1",
+    externalDns: "gateway.example.com",
     id,
-    kind: "Gateway" as const,
     name,
     namespace: "openshell",
     phase: "",
-    release_id: "release-1",
-    service_type: "",
+    releaseId: "release-1",
     status: "Ready",
-    tls_mode: "",
-    updated_at: null,
   };
 }
 
-function renderPage(
-  Page: () => React.ReactNode,
-  initialEntries: React.ComponentProps<
-    typeof MemoryRouter
-  >["initialEntries"] = ["/"],
-) {
+function renderPage(Page: () => React.ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
 
   return render(
-    <IntlProvider locale="en" messages={englishMessages}>
+    <IntlProvider locale="en">
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={initialEntries}>
+        <GatewayUiProvider gateways={gatewayOperations} navigation={navigation}>
           <Page />
-        </MemoryRouter>
+        </GatewayUiProvider>
       </QueryClientProvider>
     </IntlProvider>,
   );
@@ -70,29 +65,24 @@ describe("gateway shell pages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     deleteGatewayMock.mockResolvedValue(undefined);
+    navigateMock.mockResolvedValue(undefined);
   });
 
   it("renders gateway details with the shared connection actions", async () => {
     const user = userEvent.setup();
     renderPage(() => (
       <GatewayPage
+        gatewayId="gateway-1"
         gateway={{
-          cluster_id: "",
-          created_at: null,
-          database_id: "database-1",
-          external_dns: "gateway.example.com",
-          fleet_id: "",
-          href: "/api/hypershell/v1/gateways/gateway-1",
+          clusterId: "",
+          databaseId: "database-1",
+          externalDns: "gateway.example.com",
           id: "gateway-1",
-          kind: "Gateway",
           name: "Team gateway",
           namespace: "openshell",
           phase: "",
-          release_id: "release-1",
-          service_type: "",
+          releaseId: "release-1",
           status: "Ready",
-          tls_mode: "",
-          updated_at: null,
         }}
       />
     ));
@@ -189,15 +179,9 @@ describe("gateway shell pages", () => {
 
   it("shows and dismisses a deletion receipt after detail navigation", async () => {
     const user = userEvent.setup();
-    renderPage(
-      () => <GatewaysPage gateways={[]} />,
-      [
-        {
-          pathname: "/",
-          state: { deletedGatewayName: "Team gateway" },
-        },
-      ],
-    );
+    renderPage(() => (
+      <GatewaysPage deletedGatewayName="Team gateway" gateways={[]} />
+    ));
 
     expect(
       await screen.findByText("Gateway Team gateway deleted"),
@@ -207,7 +191,9 @@ describe("gateway shell pages", () => {
   });
 
   it("loads the gateway list from the API", async () => {
-    listGatewayConnectionsMock.mockResolvedValue(previewGateways);
+    listGatewaysMock.mockResolvedValue([
+      gatewayResponse("openshell-gateway-test", "openshell-gateway-test"),
+    ]);
 
     renderPage(GatewaysPage);
 
@@ -219,7 +205,9 @@ describe("gateway shell pages", () => {
 
   it("refreshes the gateway list", async () => {
     const user = userEvent.setup();
-    listGatewayConnectionsMock.mockResolvedValue(previewGateways);
+    listGatewaysMock.mockResolvedValue([
+      gatewayResponse("openshell-gateway-test", "openshell-gateway-test"),
+    ]);
     renderPage(GatewaysPage);
 
     await screen.findByRole("link", { name: "openshell-gateway-test" });
@@ -230,13 +218,13 @@ describe("gateway shell pages", () => {
     await user.click(screen.getByRole("button", { name: "Refresh gateways" }));
 
     await waitFor(() => {
-      expect(listGatewayConnectionsMock).toHaveBeenCalledTimes(2);
+      expect(listGatewaysMock).toHaveBeenCalledTimes(2);
     });
     expect(filter.getAttribute("value")).toBe("openshell");
   });
 
   it("shows gateway API failures", async () => {
-    listGatewayConnectionsMock.mockRejectedValue(new Error("unavailable"));
+    listGatewaysMock.mockRejectedValue(new Error("unavailable"));
 
     renderPage(GatewaysPage);
 

@@ -24,6 +24,7 @@ jobs:
     outputs:
       api_server: ${{ steps.detect.outputs.api_server }}
       control_plane: ${{ steps.detect.outputs.control_plane }}
+      gateway_ui: ${{ steps.detect.outputs.gateway_ui }}
       sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
       web_console: ${{ steps.detect.outputs.web_console }}
     steps:
@@ -131,6 +132,25 @@ jobs:
       - name: Check generated SDK
         run: pnpm --filter @openshift-online/hypershell-sdk check
 
+  lint-gateway-ui:
+    name: Gateway UI quality gates
+    needs: detect-changes
+    if: needs.detect-changes.outputs.gateway_ui == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run Gateway UI quality gates
+        run: pnpm --filter @openshift-online/hypershell-gateway-ui check
+
   lint-web-console:
     name: Web console quality gates
     needs: detect-changes
@@ -161,6 +181,7 @@ jobs:
       - detect-changes
       - lint-api-server
       - lint-control-plane
+      - lint-gateway-ui
       - lint-sdk-typescript
       - lint-web-console
     runs-on: ubuntu-24.04
@@ -170,10 +191,11 @@ jobs:
           DETECTION_RESULT: ${{ needs.detect-changes.result }}
           API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
           CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
+          GATEWAY_UI_RESULT: ${{ needs.lint-gateway-ui.result }}
           SDK_TYPESCRIPT_RESULT: ${{ needs.lint-sdk-typescript.result }}
           WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
+          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_UI_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more lint jobs failed or were cancelled."
               exit 1

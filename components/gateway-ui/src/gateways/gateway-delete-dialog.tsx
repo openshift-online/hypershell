@@ -13,8 +13,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
-import { messages } from "../../i18n/messages";
-import { deleteGateway, gatewayQueryKey } from "./gateway-data";
+import { useGatewayUi } from "../gateway-ui-provider";
+import { messages } from "../messages";
+import { gatewayQueryKey } from "./gateway-data";
 
 interface GatewayDeleteDialogProps {
   gatewayId: string;
@@ -32,11 +33,12 @@ export function GatewayDeleteDialog({
   onDeleted,
 }: GatewayDeleteDialogProps) {
   const intl = useIntl();
+  const { gateways } = useGatewayUi();
   const queryClient = useQueryClient();
   const descriptionId = useId();
   const titleId = useId();
   const deletion = useMutation({
-    mutationFn: () => deleteGateway(gatewayId),
+    mutationFn: () => gateways.removeGateway(gatewayId),
     onSuccess: async () => {
       queryClient.removeQueries({
         exact: true,

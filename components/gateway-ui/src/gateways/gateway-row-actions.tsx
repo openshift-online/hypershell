@@ -11,7 +11,7 @@ import { EllipsisVIcon } from "@patternfly/react-icons";
 import { useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
-import { messages } from "../../i18n/messages";
+import { messages } from "../messages";
 import {
   buildGatewayAddCommand,
   type GatewayConnection,

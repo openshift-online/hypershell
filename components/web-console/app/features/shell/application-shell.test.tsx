@@ -1,27 +1,46 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useGatewayUi } from "@openshift-online/hypershell-gateway-ui";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, vi } from "vitest";
 
 import { englishMessages } from "../../i18n/catalog";
-import type * as GatewayData from "../gateways/gateway-data";
 import { ApplicationShell } from "./application-shell";
 
 const { getGatewayMock } = vi.hoisted(() => ({
   getGatewayMock: vi.fn(),
 }));
+const navigateToGatewayLabel = "Navigate to gateway";
 
-vi.mock("../gateways/gateway-data", async (importOriginal) => ({
-  ...(await importOriginal<typeof GatewayData>()),
-  getGateway: getGatewayMock,
+vi.mock("../../adapters/api/gateway-operations", () => ({
+  gatewayOperations: {
+    getGateway: getGatewayMock,
+    listGateways: vi.fn(),
+    provisionGateway: vi.fn(),
+    removeGateway: vi.fn(),
+    renameGateway: vi.fn(),
+  },
 }));
 
 function RouteContent() {
   const { pathname } = useLocation();
+  const { navigation } = useGatewayUi();
 
-  return <h1>{pathname}</h1>;
+  return (
+    <>
+      <h1>{pathname}</h1>
+      <button
+        onClick={() => {
+          void navigation.navigate(navigation.detailHref("gateway-b"));
+        }}
+        type="button"
+      >
+        {navigateToGatewayLabel}
+      </button>
+    </>
+  );
 }
 
 function renderShell(initialPath = "/") {
@@ -92,6 +111,22 @@ describe("ApplicationShell", () => {
     const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
     expect(within(breadcrumb).getByText("OpenShell Gateways")).toBeTruthy();
     expect(within(breadcrumb).getByText("Provision gateway")).toBeTruthy();
+  });
+
+  it("provides host navigation to the gateway package", async () => {
+    const user = userEvent.setup();
+    renderShell();
+
+    await user.click(
+      screen.getByRole("button", { name: "Navigate to gateway" }),
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "/gateways/gateway-b",
+      }),
+    ).toBeTruthy();
   });
 
   it("moves focus after shell navigation", async () => {

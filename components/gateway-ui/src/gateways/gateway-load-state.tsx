@@ -1,7 +1,7 @@
 import { Alert, Bullseye, PageSection, Spinner } from "@patternfly/react-core";
 import { FormattedMessage, useIntl } from "react-intl";
 
-import { messages } from "../../i18n/messages";
+import { messages } from "../messages";
 
 export function GatewayLoadState({ isError = false }: { isError?: boolean }) {
   const intl = useIntl();

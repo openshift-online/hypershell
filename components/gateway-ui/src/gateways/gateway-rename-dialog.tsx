@@ -19,8 +19,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
-import { messages } from "../../i18n/messages";
-import { gatewayQueryKey, renameGateway } from "./gateway-data";
+import { useGatewayUi } from "../gateway-ui-provider";
+import { messages } from "../messages";
+import { gatewayQueryKey } from "./gateway-data";
 
 interface GatewayRenameDialogProps {
   gatewayId: string;
@@ -36,6 +37,7 @@ export function GatewayRenameDialog({
   onRenamed,
 }: GatewayRenameDialogProps) {
   const intl = useIntl();
+  const { gateways } = useGatewayUi();
   const queryClient = useQueryClient();
   const fieldId = "gateway-rename-name";
   const formId = useId();
@@ -44,7 +46,7 @@ export function GatewayRenameDialog({
   const [showRequired, setShowRequired] = useState(false);
   const trimmedName = name.trim();
   const rename = useMutation({
-    mutationFn: () => renameGateway(gatewayId, trimmedName),
+    mutationFn: () => gateways.renameGateway(gatewayId, trimmedName),
     onSuccess: async (gateway) => {
       queryClient.setQueryData(gatewayQueryKey(gatewayId), gateway);
       onRenamed(gateway.name);

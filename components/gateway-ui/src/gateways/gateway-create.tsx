@@ -16,12 +16,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Controller, useForm, type Control } from "react-hook-form";
 import { FormattedMessage, useIntl } from "react-intl";
-import { Link, useNavigate } from "react-router";
 import { z } from "zod";
 
-import { messages } from "../../i18n/messages";
-import { apiClient } from "../../adapters/api/api.client";
+import { useGatewayUi } from "../gateway-ui-provider";
+import { messages } from "../messages";
 import { gatewayQueryKey } from "./gateway-data";
+
+export interface GatewayCreatePageProps {
+  onCreated?: (gatewayId: string) => Promise<void> | void;
+}
+
 interface GatewayFormValues {
   name: string;
   namespace: string;
@@ -83,9 +87,9 @@ function GatewayTextField({
   );
 }
 
-export function GatewayCreatePage() {
+export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
   const intl = useIntl();
-  const navigate = useNavigate();
+  const { gateways, navigation } = useGatewayUi();
   const queryClient = useQueryClient();
   const requiredMessage = intl.formatMessage(messages.requiredField);
   const schema = useMemo(() => {
@@ -105,14 +109,7 @@ export function GatewayCreatePage() {
 
   const createGateway = useMutation({
     mutationFn: (values: GatewayFormValues) => {
-      const request = {
-        ...values,
-        cluster_id: "",
-        database_id: "",
-        fleet_id: "",
-        release_id: "",
-      };
-      return apiClient.gateways.create(request);
+      return gateways.provisionGateway(values);
     },
     onSuccess: async (gateway) => {
       queryClient.setQueryData(gatewayQueryKey(gateway.id), gateway);
@@ -120,7 +117,11 @@ export function GatewayCreatePage() {
         exact: true,
         queryKey: ["gateways"],
       });
-      await navigate(`/gateways/${gateway.id}`);
+      if (onCreated) {
+        await onCreated(gateway.id);
+      } else {
+        await navigation.navigate(navigation.detailHref(gateway.id));
+      }
     },
   });
 
@@ -200,10 +201,12 @@ export function GatewayCreatePage() {
               <FormattedMessage {...messages.provisionGateway} />
             </Button>
             <Button
-              component={Link}
               isDisabled={createGateway.isPending}
+              onClick={() => {
+                void navigation.navigate(navigation.collectionHref);
+              }}
+              type="button"
               variant="link"
-              {...{ to: "/" }}
             >
               <FormattedMessage {...messages.cancel} />
             </Button>

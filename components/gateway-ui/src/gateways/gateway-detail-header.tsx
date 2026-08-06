@@ -18,7 +18,7 @@ import { ExternalLinkAltIcon } from "@patternfly/react-icons";
 import { type ReactNode, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
-import { messages } from "../../i18n/messages";
+import { messages } from "../messages";
 import {
   buildGatewayAddCommand,
   gatewayStatusColor,

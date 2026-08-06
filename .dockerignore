@@ -10,6 +10,8 @@ images/**
 components/**
 !components/sdk-typescript/
 !components/sdk-typescript/**
+!components/gateway-ui/
+!components/gateway-ui/**
 !components/web-console/
 !components/web-console/**
 **/node_modules
