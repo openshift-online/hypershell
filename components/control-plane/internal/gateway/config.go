@@ -35,8 +35,8 @@ type DatabaseConfig struct {
 }
 
 type ReconcileOpts struct {
-	IsOpenShift            bool
-	HasCertManager         bool
-	HasGatewayAPI          bool
-	ControlPlaneNamespace  string
+	IsOpenShift           bool
+	HasCertManager        bool
+	HasGatewayAPI         bool
+	ControlPlaneNamespace string
 }

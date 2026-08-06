@@ -9,10 +9,10 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
+	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"google.golang.org/grpc"
 )
 
 type FleetReconciler struct {
@@ -155,10 +155,10 @@ func NewGatewayReconciler(
 	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v", len(manifests), isOpenShift, hasCertManager, hasGatewayAPI)
 
 	return &GatewayReconciler{
-		active:        make(map[string]struct{}),
-		dynamicClient: dynamicClient,
-		clientset:     clientset,
-		grpcConn:      grpcConn,
+		active:                make(map[string]struct{}),
+		dynamicClient:         dynamicClient,
+		clientset:             clientset,
+		grpcConn:              grpcConn,
 		manifests:             manifests,
 		isOpenShift:           isOpenShift,
 		hasCertManager:        hasCertManager,

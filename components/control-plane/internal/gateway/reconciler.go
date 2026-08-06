@@ -93,7 +93,7 @@ func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, names
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by":    "hypershell-control-plane",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
 				"hypershell.redhat.io/managed": "true",
 			},
 		},
@@ -224,17 +224,17 @@ func reconcileResource(ctx context.Context, dynamicClient dynamic.Interface, obj
 
 func kindToResource(kind string) string {
 	mapping := map[string]string{
-		"ServiceAccount":      "serviceaccounts",
-		"ConfigMap":           "configmaps",
-		"Service":             "services",
-		"StatefulSet":         "statefulsets",
-		"Deployment":          "deployments",
-		"Job":                 "jobs",
-		"Role":                "roles",
-		"RoleBinding":         "rolebindings",
-		"ClusterRole":         "clusterroles",
-		"ClusterRoleBinding":  "clusterrolebindings",
-		"NetworkPolicy":       "networkpolicies",
+		"ServiceAccount":        "serviceaccounts",
+		"ConfigMap":             "configmaps",
+		"Service":               "services",
+		"StatefulSet":           "statefulsets",
+		"Deployment":            "deployments",
+		"Job":                   "jobs",
+		"Role":                  "roles",
+		"RoleBinding":           "rolebindings",
+		"ClusterRole":           "clusterroles",
+		"ClusterRoleBinding":    "clusterrolebindings",
+		"NetworkPolicy":         "networkpolicies",
 		"Secret":                "secrets",
 		"Route":                 "routes",
 		"PersistentVolumeClaim": "persistentvolumeclaims",

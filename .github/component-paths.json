@@ -57,6 +57,16 @@
       ".github/workflows/lint.yml"
     ]
   },
+  "pr_test": {
+    "directory": "components/pr-test",
+    "lint_job": "lint-pr-test",
+    "paths": [
+      "components/pr-test/**",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
+  },
   "web_console": {
     "directory": "components/web-console",
     "lint_job": "lint-web-console",

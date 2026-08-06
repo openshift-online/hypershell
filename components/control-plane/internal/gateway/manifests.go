@@ -46,7 +46,7 @@ func LoadGatewayManifests(manifestsDir string) (map[string][]*unstructured.Unstr
 				return nil, fmt.Errorf("decode manifest %s: %w", entry.Name(), err)
 			}
 
-			if obj.Object == nil || len(obj.Object) == 0 {
+			if len(obj.Object) == 0 {
 				continue
 			}
 
