@@ -56,5 +56,21 @@ func ValidateGatewayConfig(config GatewayConfig) error {
 		}
 	}
 
+	if err := ValidateOIDCConfig(config.OIDC); err != nil {
+		return fmt.Errorf("invalid OIDC config: %w", err)
+	}
+
+	return nil
+}
+
+func ValidateOIDCConfig(oidc OIDCConfig) error {
+	if oidc.Issuer == "" {
+		return nil
+	}
+
+	if (oidc.AdminRole != "") != (oidc.UserRole != "") {
+		return fmt.Errorf("both admin_role and user_role must be set, or both must be empty")
+	}
+
 	return nil
 }

@@ -124,14 +124,17 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 }
 
 type GatewayReconciler struct {
-	mu            sync.Mutex
-	active        map[string]struct{}
-	dynamicClient dynamic.Interface
-	clientset     *kubernetes.Clientset
-	grpcConn      *grpc.ClientConn
-	manifests     map[string][]*unstructured.Unstructured
-	isOpenShift   bool
-	manifestsDir  string
+	mu                    sync.Mutex
+	active                map[string]struct{}
+	dynamicClient         dynamic.Interface
+	clientset             *kubernetes.Clientset
+	grpcConn              *grpc.ClientConn
+	manifests             map[string][]*unstructured.Unstructured
+	isOpenShift           bool
+	hasCertManager        bool
+	hasGatewayAPI         bool
+	manifestsDir          string
+	controlPlaneNamespace string
 }
 
 func NewGatewayReconciler(
@@ -139,6 +142,7 @@ func NewGatewayReconciler(
 	clientset *kubernetes.Clientset,
 	grpcConn *grpc.ClientConn,
 	manifestsDir string,
+	controlPlaneNamespace string,
 ) (*GatewayReconciler, error) {
 	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
 	if err != nil {
@@ -146,16 +150,21 @@ func NewGatewayReconciler(
 	}
 
 	isOpenShift := gateway.DetectOpenShift(clientset)
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v", len(manifests), isOpenShift)
+	hasCertManager := gateway.DetectCertManager(clientset)
+	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
+	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v", len(manifests), isOpenShift, hasCertManager, hasGatewayAPI)
 
 	return &GatewayReconciler{
 		active:        make(map[string]struct{}),
 		dynamicClient: dynamicClient,
 		clientset:     clientset,
 		grpcConn:      grpcConn,
-		manifests:     manifests,
-		isOpenShift:   isOpenShift,
-		manifestsDir:  manifestsDir,
+		manifests:             manifests,
+		isOpenShift:           isOpenShift,
+		hasCertManager:        hasCertManager,
+		hasGatewayAPI:         hasGatewayAPI,
+		manifestsDir:          manifestsDir,
+		controlPlaneNamespace: controlPlaneNamespace,
 	}, nil
 }
 
@@ -218,7 +227,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	opts := gateway.ReconcileOpts{
-		IsOpenShift: r.isOpenShift,
+		IsOpenShift:           r.isOpenShift,
+		HasCertManager:        r.hasCertManager,
+		HasGatewayAPI:         r.hasGatewayAPI,
+		ControlPlaneNamespace: r.controlPlaneNamespace,
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")

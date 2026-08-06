@@ -1,0 +1,154 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openshell-gateway-db-data
+  namespace: NAMESPACE_PLACEHOLDER
+  labels:
+    app.kubernetes.io/name: openshell
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: DB_STORAGE_PLACEHOLDER
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openshell-gateway-db
+  namespace: NAMESPACE_PLACEHOLDER
+  labels:
+    app.kubernetes.io/name: openshell
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openshell
+      app.kubernetes.io/instance: openshell-gateway-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openshell
+        app.kubernetes.io/instance: openshell-gateway-db
+        app.kubernetes.io/component: database
+        app.kubernetes.io/managed-by: hypershell-control-plane
+        hypershell.redhat.io/managed: "true"
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: postgresql
+          image: DB_IMAGE_PLACEHOLDER
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+              - ALL
+            runAsNonRoot: true
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: openshell-gateway-db-credentials
+                  key: POSTGRESQL_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openshell-gateway-db-credentials
+                  key: POSTGRESQL_PASSWORD
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: openshell-gateway-db-credentials
+                  key: POSTGRESQL_DATABASE
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          volumeMounts:
+            - name: db-data
+              mountPath: /var/lib/pgsql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: db-data
+          persistentVolumeClaim:
+            claimName: openshell-gateway-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openshell-gateway-db
+  namespace: NAMESPACE_PLACEHOLDER
+  labels:
+    app.kubernetes.io/name: openshell
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgresql
+      protocol: TCP
+      name: postgresql
+  selector:
+    app.kubernetes.io/name: openshell
+    app.kubernetes.io/instance: openshell-gateway-db
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openshell-gateway-db
+  namespace: NAMESPACE_PLACEHOLDER
+  labels:
+    app.kubernetes.io/name: openshell
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: openshell-gateway-db
+      app.kubernetes.io/name: openshell
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openshell
+              app.kubernetes.io/instance: openshell-gateway
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -20,7 +20,7 @@ func LoadGatewayManifests(manifestsDir string) (map[string][]*unstructured.Unstr
 		return nil, fmt.Errorf("read manifests directory: %w", err)
 	}
 
-	requiredFiles := []string{"serviceaccount.yaml", "configmap.yaml", "service.yaml", "rbac.yaml"}
+	requiredFiles := []string{"serviceaccount.yaml", "configmap.yaml", "service.yaml", "rbac.yaml", "deployment.yaml", "database.yaml"}
 	foundFiles := make(map[string]bool)
 
 	for _, entry := range entries {
@@ -100,6 +100,34 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	return result, nil
 }
 
+func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseConfig) error {
+	jsonBytes, err := obj.MarshalJSON()
+	if err != nil {
+		return nil
+	}
+	manifestJSON := string(jsonBytes)
+
+	storageSize := dbConfig.StorageSize
+	if storageSize == "" {
+		storageSize = "5Gi"
+	}
+	dbImage := dbConfig.Image
+	if dbImage == "" {
+		dbImage = "registry.redhat.io/rhel9/postgresql-16:latest"
+	}
+
+	if strings.Contains(manifestJSON, "DB_STORAGE_PLACEHOLDER") || strings.Contains(manifestJSON, "DB_IMAGE_PLACEHOLDER") {
+		manifestJSON = strings.ReplaceAll(manifestJSON, "DB_STORAGE_PLACEHOLDER", storageSize)
+		manifestJSON = strings.ReplaceAll(manifestJSON, "DB_IMAGE_PLACEHOLDER", dbImage)
+
+		if err := obj.UnmarshalJSON([]byte(manifestJSON)); err != nil {
+			return fmt.Errorf("unmarshal after database overrides: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) error {
 	kind := obj.GetKind()
 
@@ -130,6 +158,41 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) 
 				break
 			}
 		}
+
+		if config.OIDC.Issuer != "" {
+			for i, line := range lines {
+				if strings.Contains(line, "allow_unauthenticated_users") {
+					lines[i] = "    allow_unauthenticated_users = false"
+					break
+				}
+			}
+
+			oidcSection := "\n    [openshell.gateway.oidc]\n"
+			oidcSection += fmt.Sprintf("    issuer      = \"%s\"\n", config.OIDC.Issuer)
+			audience := config.OIDC.Audience
+			if audience == "" {
+				audience = "openshell-cli"
+			}
+			oidcSection += fmt.Sprintf("    audience    = \"%s\"\n", audience)
+			if config.OIDC.JwksTTL > 0 {
+				oidcSection += fmt.Sprintf("    jwks_ttl    = %d\n", config.OIDC.JwksTTL)
+			}
+			if config.OIDC.RolesClaim != "" {
+				oidcSection += fmt.Sprintf("    roles_claim = \"%s\"\n", config.OIDC.RolesClaim)
+			}
+			if config.OIDC.AdminRole != "" {
+				oidcSection += fmt.Sprintf("    admin_role  = \"%s\"\n", config.OIDC.AdminRole)
+			}
+			if config.OIDC.UserRole != "" {
+				oidcSection += fmt.Sprintf("    user_role   = \"%s\"\n", config.OIDC.UserRole)
+			}
+			if config.OIDC.ScopesClaim != "" {
+				oidcSection += fmt.Sprintf("    scopes_claim = \"%s\"\n", config.OIDC.ScopesClaim)
+			}
+
+			lines = append(lines, oidcSection)
+		}
+
 		data["gateway.toml"] = strings.Join(lines, "\n")
 
 		if err := unstructured.SetNestedMap(obj.Object, data, "data"); err != nil {

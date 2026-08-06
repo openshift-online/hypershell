@@ -81,7 +81,7 @@ func main() {
 	var gatewayReconciler watcher.Handler[*pb.Gateway]
 
 	if clientset != nil && dynamicClient != nil {
-		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir)
+		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir, cfg.Namespace)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
 			gatewayReconciler = reconciler.NewStubGatewayReconciler()

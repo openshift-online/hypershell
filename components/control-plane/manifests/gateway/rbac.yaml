@@ -6,7 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 rules:
   - apiGroups:
       - authentication.k8s.io
@@ -30,7 +31,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -48,7 +50,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 rules:
   - apiGroups:
       - agents.x-k8s.io
@@ -86,7 +89,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

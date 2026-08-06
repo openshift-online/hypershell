@@ -193,26 +193,26 @@ echo ""
 bold "2. Gateway Infrastructure"
 echo ""
 
-show_cmd "$CLI get statefulset openshell-gateway -n $GW_NAMESPACE"
-if $CLI get statefulset openshell-gateway -n "$GW_NAMESPACE" &>/dev/null; then
+show_cmd "$CLI get deployment openshell-gateway -n $GW_NAMESPACE"
+if $CLI get deployment openshell-gateway -n "$GW_NAMESPACE" &>/dev/null; then
   dim "  Waiting for gateway pod to be ready (up to 90s)..."
   GW_READY=0
   GW_READY_DEADLINE=$(($(date +%s) + 90))
   while [[ $(date +%s) -lt $GW_READY_DEADLINE ]]; do
-    GW_READY=$($CLI get statefulset openshell-gateway -n "$GW_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+    GW_READY=$($CLI get deployment openshell-gateway -n "$GW_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
     if [[ "${GW_READY:-0}" -ge 1 ]]; then
       break
     fi
     sleep 5
   done
-  GW_IMAGE=$($CLI get statefulset openshell-gateway -n "$GW_NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo unknown)
+  GW_IMAGE=$($CLI get deployment openshell-gateway -n "$GW_NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo unknown)
   if [[ "${GW_READY:-0}" -ge 1 ]]; then
     pass "Gateway pod ready ($GW_IMAGE)"
   else
     fail_test "Gateway pod not ready after 90s (${GW_READY:-0} replicas)"
   fi
 else
-  fail_test "Gateway StatefulSet not found in $GW_NAMESPACE"
+  fail_test "Gateway Deployment not found in $GW_NAMESPACE"
 fi
 
 show_cmd "$CLI get service openshell-gateway -n $GW_NAMESPACE"

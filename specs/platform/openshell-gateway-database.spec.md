@@ -1,15 +1,14 @@
 # OpenShell Gateway Database Specification
 
-**Date:** 2026-08-04
+**Date:** 2026-08-05
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md` — core gateway provisioning
-**Context:** Adapted from Agent Control Plane for HyperShell gateway fleet management
 
 ---
 
 ## Purpose
 
-This specification defines optional PostgreSQL database provisioning alongside OpenShell gateways. When `database.type: postgres` is set, the reconciler deploys a PostgreSQL instance in the tenant namespace and switches the gateway workload from StatefulSet (sqlite) to Deployment (postgres). This eliminates StatefulSet PVC coupling and enables horizontal scaling.
+This specification defines PostgreSQL database provisioning for OpenShell gateways. The GatewayReconciler deploys a PostgreSQL instance in the tenant namespace and uses a Deployment for the gateway workload. PostgreSQL is the only supported database backend for HyperShell gateways.
 
 ---
 
@@ -17,22 +16,21 @@ This specification defines optional PostgreSQL database provisioning alongside O
 
 ### Requirement: Gateway Database Configuration Field
 
-The Gateway API resource SHALL accept an optional `database` object.
+The Gateway API resource SHALL include a `database` object. PostgreSQL is the sole supported backend.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `database.type` | string | Yes (when `database` set) | `sqlite` | `sqlite`, `postgres`, or future `rds` |
 | `database.storageSize` | string | No | `5Gi` | PVC size for PostgreSQL data |
-| `database.image` | string | No | `registry.redhat.io/rhel9/postgresql-16:latest` | Red Hat hardened PostgreSQL container image |
+| `database.image` | string | No | `registry.redhat.io/rhel9/postgresql-16:latest` | PostgreSQL container image (Red Hat hardened) |
 | `database.externalSecretRef` | string | No | — | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
 
-> **Implementation note:** The default database image uses Red Hat hardened PostgreSQL `registry.redhat.io/rhel9/postgresql-16:latest` for security and enterprise support. Docker Hub images have rate limits and lack security hardening. PostgreSQL 16 provides stable, production-ready features while PostgreSQL 18 adoption will be evaluated for future updates.
+> **Image policy:** HyperShell uses Red Hat hardened PostgreSQL images from `registry.redhat.io`. Docker Hub images are rate-limited on ROSA/OpenShift. The RHEL image is pre-authenticated via the cluster's pull secret and matches the API server's database deployment pattern. PostgreSQL 16 is the current stable choice; PostgreSQL 18 will be evaluated as the ecosystem matures.
 
 ---
 
 ### Requirement: PostgreSQL Resource Provisioning
 
-When `database.type: postgres`, the GatewayReconciler SHALL provision:
+The GatewayReconciler SHALL provision:
 
 1. **Secret** (`openshell-gateway-db-credentials`)
    - `POSTGRESQL_USER` = `openshell`
@@ -60,10 +58,6 @@ When `database.type: postgres`, the GatewayReconciler SHALL provision:
 
 All database resources SHALL carry ownerReferences to the gateway workload for cascading deletion.
 
-#### RHEL Image Detection
-
-When the database image contains `rhel`, the reconciler SHALL use `POSTGRESQL_*` env var names. When using the standard Docker Hub `postgres:*` image, it SHALL use `POSTGRES_*` env var names (without the `QL` suffix).
-
 ---
 
 ### Requirement: Database Credential Security
@@ -73,36 +67,34 @@ When the database image contains `rhel`, the reconciler SHALL use `POSTGRESQL_*`
 - The database Secret SHALL be created with create-or-skip semantics (do NOT update password on re-reconciliation)
 - The `url` key in the Secret provides the full connection string for the gateway's `--db-url` argument
 
-#### Manual Credential Rotation
+---
 
-For security incident response, database credentials can be rotated manually:
-1. Add annotation `hypershell.io/rotate-db-credentials: "<timestamp>"` to the Gateway resource
-2. The reconciler will detect the annotation, generate new credentials, and restart the gateway
-3. This process incurs brief downtime during gateway restart (~30-60 seconds)
-4. Automatic credential rotation is not implemented in this initial version
+### Requirement: Manual Credential Rotation
+
+The GatewayReconciler SHALL support manual database credential rotation for security incidents (e.g., accidental credential exposure).
+
+- To trigger rotation, an operator adds the annotation `hypershell.redhat.io/rotate-db-credentials: "<timestamp>"` to the Gateway resource
+- When the reconciler detects a new value for this annotation (different from the last-observed value stored in the ConfigMap), it SHALL:
+  1. Generate a new password using `crypto/rand`
+  2. Update the database Secret with the new credentials
+  3. Execute `ALTER USER` on the PostgreSQL instance to apply the new password
+  4. Restart the gateway Deployment to pick up new credentials
+- Expected downtime: ~30-60 seconds during gateway restart (acceptable for incident response)
+- Automatic rotation is not supported initially; it can be added based on operational requirements
 
 ---
 
-### Requirement: Gateway Workload Switching
+### Requirement: Gateway Workload Type
 
-| `database.type` | Workload | Storage | `--db-url` argument |
-|---|---|---|---|
-| `sqlite` (default) | StatefulSet | VolumeClaimTemplate (`openshell-data`) | `sqlite:/var/openshell/openshell.db` |
-| `postgres` | Deployment | No VCT (DB has its own PVC) | From `openshell-gateway-db-credentials` Secret |
+The gateway workload SHALL always be deployed as a Deployment (not a StatefulSet). The database has its own PVC; the gateway workload does not require persistent local storage.
 
-#### Scenario: Postgres gateway uses Deployment
+#### Scenario: Gateway uses Deployment
 
-- GIVEN a Gateway with `database.type: postgres`
+- GIVEN a Gateway resource
 - WHEN the GatewayReconciler reconciles
 - THEN it SHALL create a Deployment (not StatefulSet) for the gateway
 - AND the gateway container's `--db-url` argument SHALL reference the credentials Secret via env var
 - AND an init container SHALL run `pg_isready` to wait for the database before starting the gateway
-
-#### Scenario: SQLite gateway uses StatefulSet
-
-- GIVEN a Gateway with no `database` field (or `database.type: sqlite`)
-- WHEN the GatewayReconciler reconciles
-- THEN it SHALL create a StatefulSet with a VolumeClaimTemplate for persistent SQLite storage
 
 ---
 
@@ -112,32 +104,34 @@ Database resources (Secret, PVC, Deployment, Service, NetworkPolicy) SHALL be ap
 
 ---
 
-### Requirement: Database Type Transition
+### Requirement: Database Field Immutability
 
-#### Scenario: SQLite to Postgres
+The `database` configuration on a Gateway resource SHALL be immutable after initial provisioning. Once a gateway is created with a database configuration, the database fields SHALL NOT be changed.
 
-- GIVEN an existing gateway running as StatefulSet with SQLite
-- WHEN the Gateway is patched to add `database.type: postgres`
-- THEN the reconciler SHALL provision database resources (Secret, PVC, Deployment, Service)
-- AND it SHALL delete the existing StatefulSet
-- AND it SHALL create a Deployment for the gateway
-- AND existing SQLite data SHALL NOT be migrated (fresh database)
-- **WARNING**: This transition will result in complete data loss. All gateway configuration, sandbox state, and user data will be lost.
+#### Scenario: Attempt to change database configuration
 
-#### Scenario: Postgres to SQLite
-
-- GIVEN an existing gateway running as Deployment with Postgres
-- WHEN the Gateway is patched to remove the `database` field
-- THEN the reconciler SHALL delete the Deployment
-- AND it SHALL create a StatefulSet for the gateway
-- AND database resources (DB Deployment, PVC, Service, Secret) SHALL be cleaned up
-- **WARNING**: This transition will result in complete data loss. All gateway configuration and database contents will be permanently deleted.
+- GIVEN an existing gateway with a provisioned database
+- WHEN a user attempts to modify the `database` field
+- THEN the API server SHALL reject the update with a validation error: "database configuration is immutable after provisioning"
 
 ---
 
-### Requirement: Gateway Deletion with Database
+### Requirement: Gateway Deletion Protection
 
-When a Gateway with `database.type: postgres` is deleted, all database resources SHALL be cleaned up via ownerReferences (cascading deletion). The database PVC SHALL be deleted with the rest of the resources.
+A Gateway SHALL NOT be deleted if active sandboxes exist. This prevents orphaned sandbox resources (CRs, pods, PVCs).
+
+#### Scenario: Attempt to delete gateway with active sandboxes
+
+- GIVEN a Gateway with one or more active sandboxes
+- WHEN a user attempts to delete the Gateway
+- THEN the API server SHALL reject the deletion with an error: "gateway cannot be deleted while sandboxes exist; delete all sandboxes first"
+
+#### Scenario: Delete gateway with no sandboxes
+
+- GIVEN a Gateway with no active sandboxes
+- WHEN a user deletes the Gateway
+- THEN all database resources SHALL be cleaned up via ownerReferences (cascading deletion)
+- AND the database PVC SHALL be deleted with the rest of the resources
 
 ---
 
@@ -153,12 +147,11 @@ image: ghcr.io/nvidia/openshell/gateway:0.0.88
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 database:
-  type: postgres
   storageSize: 10Gi
   image: registry.redhat.io/rhel9/postgresql-16:latest
 ```
 
-### Gateway with SQLite (default)
+### Gateway with default database settings
 
 ```yaml
 kind: Gateway
@@ -175,9 +168,9 @@ serverDnsNames:
 
 | Symptom | Root Cause | Fix |
 |---|---|---|
-| `acpctl apply` silently reverts to sqlite | `kustomize.Resource` missing `Database` field | Ensure SDK `Resource` struct includes `Database map[string]any` |
+| `hsctl apply` missing database resources | `kustomize.Resource` missing `Database` field | Ensure SDK `Resource` struct includes `Database map[string]any` |
 | Docker Hub `toomanyrequests` for postgres | Default image was `postgres:16` | Use `registry.redhat.io/rhel9/postgresql-16:latest` |
-| Gateway pod CrashLoopBackOff after DB transition | init container `pg_isready` fails | Check DB Deployment is Running, Service exists |
+| Gateway pod CrashLoopBackOff after provisioning | init container `pg_isready` fails | Check DB Deployment is Running, Service exists |
 | Database password changes on re-reconciliation | Secret uses update instead of create-or-skip | Fix to create-or-skip semantics |
 
 ---
@@ -186,4 +179,3 @@ serverDnsNames:
 
 - [OpenShell Helm Chart — `server.externalDbSecret`](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell)
 - [OpenShell Kubernetes Setup — External DB](https://docs.nvidia.com/openshell/latest/kubernetes/setup)
-- [ACP API Server DB Pattern](../../components/manifests/base/platform/ambient-api-server-db.yml)

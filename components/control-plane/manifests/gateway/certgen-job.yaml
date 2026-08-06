@@ -7,7 +7,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -17,7 +18,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -31,7 +33,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -49,7 +52,8 @@ metadata:
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/managed-by: hypershell
+    app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/managed: "true"
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 120
