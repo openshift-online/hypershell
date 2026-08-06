@@ -34,8 +34,12 @@ web-console-image:
 check-forbidden-terms:
 	python3 scripts/check_forbidden_terms.py
 
+.PHONY: test-dependency-pin-policy
+test-dependency-pin-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_dependency_pins.py
+
 .PHONY: check-dependency-pins
-check-dependency-pins:
+check-dependency-pins: test-dependency-pin-policy
 	python3 scripts/check_dependency_pins.py
 
 .PHONY: check-ci-components

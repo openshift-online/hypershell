@@ -15,6 +15,9 @@ images require sha256 digests, and Buf plugins require exact versions and
 revisions. Dockerfiles use digest-pinned build stages instead of mutable OS
 package installation. Locally built `localhost/` images are allowed only with
 `imagePullPolicy: Never` because they are never fetched from a registry.
+Images built and pushed by the OpenShift deployment workflow may use the `:dev`
+tag only under `image-registry.openshift-image-registry.svc:5000/`; this narrow
+exception does not apply to other tags or registries.
 
 The dependency-age check covers every resolved Go module, every package and
 workspace importer in the root pnpm lockfile, legacy npm lockfiles during

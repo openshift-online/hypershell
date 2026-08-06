@@ -13,6 +13,7 @@ from typing import Iterable
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+OPENSHIFT_INTERNAL_REGISTRY = "image-registry.openshift-image-registry.svc:5000/"
 
 _DIGEST_PIN = re.compile(r"@sha256:[0-9a-f]{64}$", re.IGNORECASE)
 _COMMIT_PIN = re.compile(r"[0-9a-f]{40}$", re.IGNORECASE)
@@ -117,6 +118,12 @@ def _is_local_image(reference: str) -> bool:
     return reference.startswith("localhost/") or reference.startswith("localhost:")
 
 
+def _is_openshift_internal_dev_image(reference: str) -> bool:
+    return reference.startswith(OPENSHIFT_INTERNAL_REGISTRY) and reference.endswith(
+        ":dev"
+    )
+
+
 def _workflow_violations(
     relative_path: str, lines: list[str]
 ) -> list[tuple[str, int, str]]:
@@ -200,6 +207,8 @@ def _manifest_violations(
         if not match:
             continue
         reference = _unquote(match.group(2))
+        if _is_openshift_internal_dev_image(reference):
+            continue
         if _is_local_image(reference):
             if not _has_never_pull_policy(lines, line_index):
                 violations.append(
