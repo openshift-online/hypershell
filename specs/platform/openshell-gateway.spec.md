@@ -80,7 +80,7 @@ openshell-gateway Pod
 
 The following resources must exist on the cluster before the GatewayReconciler can operate. They are configuration prerequisites — the control plane does not create them.
 
-1. **GatewayClass** — `openshift-default` with controller `openshift.io/gateway-controller/v1`. Built-in on OpenShift 4.22+; no installation required. Referenced by per-tenant Gateway resources.
+1. **GatewayClass** — `openshift-default` with controller `openshift.io/gateway-controller/v1`. Must be created by an administrator. Referenced by per-tenant Gateway resources.
 2. **Wildcard TLS Secret (`grpc-gateway-certs`)** — The cluster's wildcard certificate for `*.<base-domain>`, stored as a Secret named `grpc-gateway-certs` in the HyperShell control plane namespace. The GatewayReconciler copies it into each tenant namespace for per-tenant Gateway TLS termination (see "Gateway Ingress TLS Certificate" below). An administrator must provision this Secret before any gateway can be exposed externally.
 3. **cert-manager** — Required for TLS certificate lifecycle management. See [TLS spec](./openshell-gateway-tls.spec.md) and the "TLS Certificate Management via cert-manager" requirement below.
 
