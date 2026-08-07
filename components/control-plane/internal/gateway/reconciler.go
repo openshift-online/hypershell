@@ -694,7 +694,7 @@ func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			"key-encryption-key": kekBytes,
+			"key-encryption-key": []byte(hex.EncodeToString(kekBytes)),
 		},
 	}
 
