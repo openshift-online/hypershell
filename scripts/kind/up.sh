@@ -63,6 +63,11 @@ if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
   kube apply -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}"
   SECRET_NAME=$(kube get -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
   if [[ -n "${SECRET_NAME}" ]]; then
+    info "Waiting for default ServiceAccount in ${KIND_NAMESPACE}..."
+    for i in $(seq 1 30); do
+      if kube get serviceaccount default -n "${KIND_NAMESPACE}" >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
     info "Patching default ServiceAccount with imagePullSecrets..."
     kube patch serviceaccount default -n "${KIND_NAMESPACE}" \
       -p "{\"imagePullSecrets\":[{\"name\":\"${SECRET_NAME}\"}]}"

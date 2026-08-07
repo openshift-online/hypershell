@@ -72,7 +72,7 @@ help:
 	@echo "    kind-api-server-down     Revert API server to baseline image"
 	@echo "    kind-control-plane-up    Build + swap control plane from working tree"
 	@echo "    kind-control-plane-down  Revert control plane to baseline image"
-	@echo "    kind-web-console-up      Hot reload (default) or build + swap web console"
+	@echo "    kind-web-console-up      Hot reload (default) or build + swap web console (KIND_HOT_RELOAD=false)"
 	@echo "    kind-web-console-down    Revert web console to baseline image"
 	@echo ""
 	@echo "  Build"

@@ -145,25 +145,6 @@ KIND_KEYCLOAK_URL=https://keycloak.example.com/realms/hypershell make kind-up
 This skips the local Keycloak deployment and points the gateway OIDC issuer at
 the external URL.
 
-## Multiple Namespace Deployments
-
-Deploy the platform into additional namespaces within the same Kind cluster.
-Each namespace gets its own set of components with isolated hostnames.
-
-```bash
-# Deploy into a custom namespace
-KIND_NAMESPACE=hypershell-feature-add-auth make kind-up
-
-# Remove that namespace (cluster stays running)
-KIND_NAMESPACE=hypershell-feature-add-auth make kind-down
-```
-
-Per-component swap targets respect `KIND_NAMESPACE`:
-
-```bash
-KIND_NAMESPACE=hypershell-feature-add-auth make kind-api-server-up
-```
-
 ## Private Registry Pull Secret
 
 If your baseline images live in a private registry, provide a pull secret:

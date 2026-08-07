@@ -94,7 +94,7 @@ start_dns() {
     -p "127.0.0.1:${KIND_DNS_PORT}:53/udp" \
     -p "127.0.0.1:${KIND_DNS_PORT}:53/tcp" \
     -v "${REPO_ROOT}/deploy/kind/coredns/Corefile:/Corefile:ro" \
-    docker.io/coredns/coredns:latest >/dev/null
+    docker.io/coredns/coredns:1.12.0 >/dev/null
   sleep 1
   if dns_container_running; then
     success "CoreDNS started"
