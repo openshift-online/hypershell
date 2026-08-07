@@ -40,6 +40,8 @@ spec:
               value: "0.0.0.0"
             - name: NODE_ENV
               value: "production"
+            - name: HYPERSHELL_API_ORIGIN
+              value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
           startupProbe:
             httpGet:
               path: /health/ready

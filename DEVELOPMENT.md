@@ -49,7 +49,9 @@ This creates a Kind cluster and deploys:
 ```
 
 Services are accessed via `.localhost` hostnames routed through the networking
-Gateway. `make kind-up` manages `/etc/hosts` entries automatically (prompts for
+Gateway. cloud-provider-kind's `--enable-lb-port-mapping` flag maps Gateway
+listener ports directly to the host, so services are reachable on standard HTTPS
+port 443. `make kind-up` manages `/etc/hosts` entries automatically (prompts for
 `sudo` on first run). The TLS certificate is self-signed -- trust it in your
 browser or use `curl --cacert`.
 

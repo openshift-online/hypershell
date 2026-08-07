@@ -171,7 +171,7 @@ if [[ -n "${GW_ADDR}" ]]; then
 else
   warn "Gateway has no address after 60s — cloud-provider-kind may not be running"
   warn "Install: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
-  warn "Start:   nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &"
+  warn "Start:   sudo nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &"
 fi
 echo ""
 
@@ -318,6 +318,7 @@ echo ""
 # --- Summary banner ---
 header "HyperShell is running!"
 echo ""
+
 info "HTTP API:     https://${API_HOSTNAME}"
 info "Web Console:  https://${CONSOLE_HOSTNAME}"
 info "Health:       https://${HEALTH_HOSTNAME}"
