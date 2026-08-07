@@ -274,7 +274,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | # | Requirement | Status | Gap | Code Location | Priority |
 |---|-------------|--------|-----|---------------|----------|
 | L1 | Single-Command Setup (`kind-up`) | Present | Root Makefile + `scripts/kind/up.sh` | `Makefile`, `scripts/kind/up.sh` | P0 |
-| L2 | Per-Component Swap | Missing | Swap targets not yet implemented | — | P1 |
+| L2 | Per-Component Swap | Present | `swap-component.sh` implements `make kind-<component>-up/down` for api-server, control-plane, and web-console | `scripts/kind/swap-component.sh` | P1 |
 | L3 | Cluster Teardown (`kind-down`) | Present | Root Makefile + `scripts/kind/down.sh` | `Makefile`, `scripts/kind/down.sh` | P0 |
 | L4 | Cluster Status (`kind-status`) | Present | Root Makefile + `scripts/kind/status.sh` | `Makefile`, `scripts/kind/status.sh` | P0 |
 | L5 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` in lib.sh | `scripts/kind/lib.sh` | — |
@@ -283,9 +283,9 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | L8 | Gateway via REST API | Present | Fleet + Gateway seeded via curl in up.sh | `scripts/kind/up.sh` | P0 |
 | L9 | Controller RBAC | Present | ClusterRole + ClusterRoleBinding | `deploy/kind/controller-rbac.yaml` | P0 |
 | L10 | API Server Database | Present | postgres.yaml (Secret + Deployment + Service) | `deploy/kind/postgres.yaml` | P0 |
-| L11 | Hot Reload | Missing | Not yet implemented | — | P2 |
+| L11 | Hot Reload | Present | `swap-component.sh:swap_up()` web-console case scales down deployment, redirects Service → host dev server via Endpoints, runs `pnpm dev` with cleanup trap | `scripts/kind/swap-component.sh` | P2 |
 | L12 | Multi-Namespace Deployments | Missing | Not yet implemented | — | P2 |
-| L13 | Swap Tracking | Missing | `.kind-swaps` file not implemented | — | P2 |
+| L13 | Swap Tracking | Present | `lib.sh` defines `track_swap()`, `clear_swap()`, `is_swapped()` using `.kind-swaps` file; consumed by `up.sh` and `swap-component.sh` | `scripts/kind/lib.sh` | P2 |
 | L14 | Developer Documentation | Present | `DEVELOPMENT.md` created | `DEVELOPMENT.md` | P0 |
 | L15 | Container Engine Support | Present | Auto-detection (Podman preferred) | `scripts/kind/lib.sh` | — |
 | L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` + up.sh integration | `scripts/kind/build-images.sh` | — |

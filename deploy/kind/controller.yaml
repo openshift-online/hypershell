@@ -39,6 +39,8 @@ spec:
               value: "hypershell-system"
             - name: HYPERSHELL_LOG_LEVEL
               value: "info"
+            - name: GATEWAY_API_BASE_DOMAIN
+              value: "hypershell.localhost"
           resources:
             requests:
               cpu: 100m
