@@ -16,7 +16,7 @@ if [[ "${ACTION}" == "undeploy" ]]; then
     exit 1
   fi
   header "Removing namespace ${KIND_NAMESPACE}"
-  kubectl delete namespace "${KIND_NAMESPACE}" --ignore-not-found
+  kube delete namespace "${KIND_NAMESPACE}" --ignore-not-found
   success "Done."
   exit 0
 fi
@@ -28,11 +28,11 @@ SANITIZED="$(echo "${BRANCH}" | sed 's/[^a-z0-9-]/-/g')"
 header "Deploy to namespace ${NS}"
 info "From branch $(git rev-parse --abbrev-ref HEAD)"
 
-kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f -
+kube create namespace "${NS}" --dry-run=client -o yaml | kube apply -f -
 
 info "Applying manifests to ${NS}..."
 for f in deploy/kind/api-server.yaml deploy/kind/controller.yaml deploy/kind/web-console.yaml; do
-  sed "s/namespace: hypershell-system/namespace: ${NS}/g" "${f}" | kubectl apply -f -
+  sed "s/namespace: hypershell-system/namespace: ${NS}/g" "${f}" | kube apply -f -
 done
 
 header "HTTPRoutes"
@@ -43,7 +43,7 @@ for svc_host in "api-server:api.${SANITIZED}.hypershell.localhost:8000" \
   SVC="$(echo "${svc_host}" | cut -d: -f1)"
   HOST="$(echo "${svc_host}" | cut -d: -f2)"
   PORT="$(echo "${svc_host}" | cut -d: -f3)"
-  kubectl apply -f - <<EOF
+  kube apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -65,9 +65,9 @@ success "HTTPRoutes created"
 
 header "Readiness"
 info "Waiting for components in ${NS}..."
-kubectl wait --for=condition=available deployment/hypershell-api-server -n "${NS}" --timeout=120s
-kubectl wait --for=condition=available deployment/hypershell-controller -n "${NS}" --timeout=120s
-kubectl wait --for=condition=available deployment/hypershell-web-console -n "${NS}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-api-server -n "${NS}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-controller -n "${NS}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-web-console -n "${NS}" --timeout=120s
 success "All components ready"
 
 echo ""

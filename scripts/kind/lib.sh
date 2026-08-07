@@ -49,6 +49,10 @@ kctx() {
   echo "kind-${KIND_CLUSTER_NAME}"
 }
 
+kube() {
+  kubectl --context "$(kctx)" "$@"
+}
+
 # --- Swap tracking (.kind-swaps) ---
 
 SWAP_FILE=".kind-swaps"
@@ -156,21 +160,21 @@ cleanup_resolver() {
 
 # --- Port forwarding (443 → ephemeral) ---
 
+PF_ANCHOR="com.hypershell/${KIND_CLUSTER_NAME}"
+IPTABLES_CHAIN="HS-${KIND_CLUSTER_NAME}"
+
 start_port_forward() {
   local ephemeral_port="$1"
   PORT_FORWARD_ACTIVE=""
   case "$(uname -s)" in
     Darwin)
       info "Setting up port forwarding: 443 -> ${ephemeral_port} (pfctl)..."
-      # macOS PF only evaluates anchors declared in /etc/pf.conf.
-      # Insert our rdr-anchor in the correct rule order (after existing
-      # rdr-anchor lines, before filter rules), then load the rdr rule.
       local pf_rules
       pf_rules=$(sed '/^rdr-anchor "com\.apple\/\*"/a\
-rdr-anchor "com.hypershell"' /etc/pf.conf)
+rdr-anchor "com.hypershell/*"' /etc/pf.conf)
       if echo "${pf_rules}" | sudo pfctl -f - 2>/dev/null && \
          echo "rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port ${ephemeral_port}" \
-           | sudo pfctl -a com.hypershell -f - 2>/dev/null && \
+           | sudo pfctl -a "${PF_ANCHOR}" -f - 2>/dev/null && \
          sudo pfctl -E 2>/dev/null; then
         PORT_FORWARD_ACTIVE=true
         success "Port forwarding active: https://localhost:443 -> :${ephemeral_port}"
@@ -180,11 +184,12 @@ rdr-anchor "com.hypershell"' /etc/pf.conf)
       ;;
     Linux)
       info "Setting up port forwarding: 443 -> ${ephemeral_port} (iptables)..."
-      sudo iptables -t nat -D OUTPUT -p tcp -d 127.0.0.1 --dport 443 \
-        -j REDIRECT -m comment --comment "hypershell-dev" 2>/dev/null || true
-      if sudo iptables -t nat -A OUTPUT -p tcp -d 127.0.0.1 --dport 443 \
-           -j REDIRECT --to-port "${ephemeral_port}" \
-           -m comment --comment "hypershell-dev"; then
+      sudo iptables -t nat -N "${IPTABLES_CHAIN}" 2>/dev/null || \
+        sudo iptables -t nat -F "${IPTABLES_CHAIN}"
+      if sudo iptables -t nat -A "${IPTABLES_CHAIN}" -p tcp -d 127.0.0.1 --dport 443 \
+           -j REDIRECT --to-port "${ephemeral_port}" && \
+         sudo iptables -t nat -C OUTPUT -j "${IPTABLES_CHAIN}" 2>/dev/null || \
+         sudo iptables -t nat -A OUTPUT -j "${IPTABLES_CHAIN}"; then
         PORT_FORWARD_ACTIVE=true
         success "Port forwarding active: https://localhost:443 -> :${ephemeral_port}"
       else
@@ -197,11 +202,12 @@ rdr-anchor "com.hypershell"' /etc/pf.conf)
 stop_port_forward() {
   case "$(uname -s)" in
     Darwin)
-      sudo pfctl -a com.hypershell -F all 2>/dev/null || true
+      sudo pfctl -a "${PF_ANCHOR}" -F all 2>/dev/null || true
       ;;
     Linux)
-      sudo iptables -t nat -D OUTPUT -p tcp -d 127.0.0.1 --dport 443 \
-        -j REDIRECT -m comment --comment "hypershell-dev" 2>/dev/null || true
+      sudo iptables -t nat -D OUTPUT -j "${IPTABLES_CHAIN}" 2>/dev/null || true
+      sudo iptables -t nat -F "${IPTABLES_CHAIN}" 2>/dev/null || true
+      sudo iptables -t nat -X "${IPTABLES_CHAIN}" 2>/dev/null || true
       ;;
   esac
 }

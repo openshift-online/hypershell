@@ -79,12 +79,12 @@ swap_up() {
     fi
 
     info "Scaling down in-cluster web console..."
-    kubectl scale deployment "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --replicas=0
+    kube scale deployment "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --replicas=0
 
     info "Redirecting Service → host dev server (${HOST_IP}:${DEV_PORT})..."
-    kubectl patch service "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --type=json \
+    kube patch service "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --type=json \
       -p='[{"op": "remove", "path": "/spec/selector"}]' 2>/dev/null || true
-    kubectl apply -f - <<EOF
+    kube apply -f - <<EOF
 apiVersion: v1
 kind: Endpoints
 metadata:
@@ -99,7 +99,7 @@ subsets:
 EOF
 
     info "Port-forwarding API server to localhost:8000..."
-    kubectl port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
+    kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
     API_PF_PID=$!
 
     track_swap "${COMPONENT}"
@@ -113,11 +113,11 @@ EOF
       kill "${API_PF_PID}" 2>/dev/null || true
       wait "${API_PF_PID}" 2>/dev/null || true
       info "Restoring in-cluster web console..."
-      kubectl delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-      kubectl apply -f "${REPO_ROOT}/deploy/kind/web-console.yaml" || true
-      kubectl rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" || true
+      kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
+      kube apply -f "${REPO_ROOT}/deploy/kind/web-console.yaml" || true
+      kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" || true
       info "Waiting for web console to become available..."
-      kubectl wait --for=condition=available "deployment/${DEPLOYMENT}" \
+      kube wait --for=condition=available "deployment/${DEPLOYMENT}" \
         -n "${KIND_NAMESPACE}" --timeout=120s || true
       clear_swap "${COMPONENT}" 2>/dev/null || true
       success "Web console reverted to baseline"
@@ -161,11 +161,11 @@ EOF
     set_image_args="${set_image_args} ${container}=${LOCAL_IMAGE}"
   done
   # shellcheck disable=SC2086
-  kubectl set image "deployment/${DEPLOYMENT}" ${set_image_args} -n "${KIND_NAMESPACE}"
-  kubectl rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}"
+  kube set image "deployment/${DEPLOYMENT}" ${set_image_args} -n "${KIND_NAMESPACE}"
+  kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}"
 
   info "Waiting for ${COMPONENT}..."
-  kubectl wait --for=condition=available "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
+  kube wait --for=condition=available "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
   track_swap "${COMPONENT}"
   success "${COMPONENT} swapped to local build."
 }
@@ -181,20 +181,20 @@ swap_down() {
   info "Reverting ${COMPONENT} to baseline image..."
 
   if [[ "${COMPONENT}" == "web-console" ]]; then
-    kubectl delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-    kubectl apply -f deploy/kind/web-console.yaml
+    kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
+    kube apply -f deploy/kind/web-console.yaml
   else
     local set_image_args=""
     for container in ${CONTAINERS}; do
       set_image_args="${set_image_args} ${container}=${BASELINE_IMAGE}"
     done
     # shellcheck disable=SC2086
-    kubectl set image "deployment/${DEPLOYMENT}" ${set_image_args} -n "${KIND_NAMESPACE}"
+    kube set image "deployment/${DEPLOYMENT}" ${set_image_args} -n "${KIND_NAMESPACE}"
   fi
 
-  kubectl rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}"
+  kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}"
   info "Waiting for ${COMPONENT}..."
-  kubectl wait --for=condition=available "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
+  kube wait --for=condition=available "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
   clear_swap "${COMPONENT}"
   success "${COMPONENT} reverted to baseline."
 }

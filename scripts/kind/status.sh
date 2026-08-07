@@ -6,24 +6,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 header "Cluster"
-kubectl cluster-info --context "$(kctx)" 2>/dev/null || warn "Cluster '${KIND_CLUSTER_NAME}' is not running"
+kube cluster-info 2>/dev/null || warn "Cluster '${KIND_CLUSTER_NAME}' is not running"
 echo ""
 
 header "Namespaces"
-NS_OUTPUT=$(kubectl get namespaces -l app.kubernetes.io/part-of=hypershell --no-headers 2>/dev/null)
+NS_OUTPUT=$(kube get namespaces -l app.kubernetes.io/part-of=hypershell --no-headers 2>/dev/null)
 if [[ -n "${NS_OUTPUT}" ]]; then
-  kubectl get namespaces -l app.kubernetes.io/part-of=hypershell
+  kube get namespaces -l app.kubernetes.io/part-of=hypershell
 else
-  kubectl get namespace "${KIND_NAMESPACE}" 2>/dev/null || warn "No HyperShell namespaces found"
+  kube get namespace "${KIND_NAMESPACE}" 2>/dev/null || warn "No HyperShell namespaces found"
 fi
 echo ""
 
 header "Pods (${KIND_NAMESPACE})"
-kubectl get pods -n "${KIND_NAMESPACE}" -o wide 2>/dev/null || warn "Namespace not found"
+kube get pods -n "${KIND_NAMESPACE}" -o wide 2>/dev/null || warn "Namespace not found"
 echo ""
 
 header "Services (${KIND_NAMESPACE})"
-kubectl get svc -n "${KIND_NAMESPACE}" 2>/dev/null || warn "Namespace not found"
+kube get svc -n "${KIND_NAMESPACE}" 2>/dev/null || warn "Namespace not found"
 echo ""
 
 header "Component Swap Status"
@@ -55,7 +55,7 @@ header "Port Forwarding"
 PF_ACTIVE=""
 case "$(uname -s)" in
   Darwin)
-    PF_RULE=$(sudo pfctl -a com.hypershell -s nat 2>/dev/null | grep "rdr" || true)
+    PF_RULE=$(sudo pfctl -a "${PF_ANCHOR}" -s nat 2>/dev/null | grep "rdr" || true)
     if [[ -n "${PF_RULE}" ]]; then
       PF_ACTIVE=true
       PF_PORT=$(echo "${PF_RULE}" | grep -o 'port [0-9]*$' | awk '{print $2}')
@@ -65,7 +65,7 @@ case "$(uname -s)" in
     fi
     ;;
   Linux)
-    IPT_RULE=$(sudo iptables -t nat -L OUTPUT -n 2>/dev/null | grep "hypershell-dev" || true)
+    IPT_RULE=$(sudo iptables -t nat -L "${IPTABLES_CHAIN}" -n 2>/dev/null | grep "REDIRECT" || true)
     if [[ -n "${IPT_RULE}" ]]; then
       PF_ACTIVE=true
       IPT_PORT=$(echo "${IPT_RULE}" | grep -o 'redir ports [0-9]*' | awk '{print $3}')

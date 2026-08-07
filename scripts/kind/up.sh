@@ -23,12 +23,12 @@ else
 fi
 
 # --- Set kubectl context and wait for API server ---
-kubectl cluster-info --context "$(kctx)" >/dev/null 2>&1 || \
+kube cluster-info >/dev/null 2>&1 || \
   kubectl config use-context "$(kctx)"
 
 info "Waiting for Kubernetes API server..."
 for i in $(seq 1 15); do
-  if kubectl get nodes --context "$(kctx)" >/dev/null 2>&1; then break; fi
+  if kube get nodes >/dev/null 2>&1; then break; fi
   info "API server not ready, retrying (${i}/15)..."
   sleep 2
 done
@@ -36,19 +36,25 @@ echo ""
 
 # --- Create namespace ---
 header "Namespace"
-kubectl --context "$(kctx)" create namespace "${KIND_NAMESPACE}" --dry-run=client -o yaml | \
-  kubectl --context "$(kctx)" apply -f -
+kube create namespace "${KIND_NAMESPACE}" --dry-run=client -o yaml | \
+  kube apply -f -
 
 if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
   info "Applying pull secret from ${KIND_PULL_SECRET}..."
-  kubectl apply -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}"
+  kube apply -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}"
+  SECRET_NAME=$(kube get -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
+  if [[ -n "${SECRET_NAME}" ]]; then
+    info "Patching default ServiceAccount with imagePullSecrets..."
+    kube patch serviceaccount default -n "${KIND_NAMESPACE}" \
+      -p "{\"imagePullSecrets\":[{\"name\":\"${SECRET_NAME}\"}]}"
+  fi
 fi
 echo ""
 
 # --- Install Gateway API CRDs ---
 header "Gateway API CRDs"
 info "Installing Gateway API CRDs (${GATEWAY_API_VERSION}, experimental channel)..."
-kubectl apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
+kube apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
 success "Gateway API CRDs installed"
 echo ""
 
@@ -79,22 +85,24 @@ echo ""
 # --- Install cert-manager ---
 header "cert-manager"
 info "Installing cert-manager ${CERT_MANAGER_VERSION}..."
-if kubectl get namespace cert-manager >/dev/null 2>&1; then
+if kube get namespace cert-manager >/dev/null 2>&1; then
   warn "cert-manager namespace exists, skipping install"
 else
-  kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+  kube apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
 fi
 info "Waiting for cert-manager..."
-kubectl wait --for=condition=available deployment/cert-manager -n cert-manager --timeout=120s
-kubectl wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=120s
+kube wait --for=condition=available deployment/cert-manager -n cert-manager --timeout=120s
+kube wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=120s
 success "cert-manager ready"
 echo ""
 
 # --- Build and load local images (offline mode) ---
+FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   header "Local Images"
-  info "Building images from working tree..."
+  info "Building baseline images from origin/main..."
   "${SCRIPT_DIR}/build-images.sh"
+  FORCE_ROLLOUT=true
   echo ""
 fi
 
@@ -102,11 +110,11 @@ fi
 header "Keycloak"
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Deploying local Keycloak in 'keycloak' namespace..."
-  kubectl --context "$(kctx)" create namespace keycloak --dry-run=client -o yaml | \
-    kubectl --context "$(kctx)" apply -f -
-  kubectl apply -f deploy/kind/prerequisites/keycloak.yaml
+  kube create namespace keycloak --dry-run=client -o yaml | \
+    kube apply -f -
+  kube apply -f deploy/kind/prerequisites/keycloak.yaml
   info "Waiting for Keycloak..."
-  kubectl wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
+  kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
   success "Keycloak ready"
 else
   warn "Using external Keycloak: ${KIND_KEYCLOAK_URL}"
@@ -115,50 +123,63 @@ echo ""
 
 # --- Apply manifests (skip swapped components) ---
 header "Deploying Components"
-kubectl apply -f deploy/kind/namespace.yaml
+kube apply -f deploy/kind/namespace.yaml
 
 info "Deploying API server database..."
-kubectl apply -f deploy/kind/postgres.yaml
+kube apply -f deploy/kind/postgres.yaml
 info "Waiting for PostgreSQL..."
-kubectl wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
 success "PostgreSQL ready"
 
 if ! is_swapped api-server; then
   info "Deploying API server..."
-  kubectl apply -f deploy/kind/api-server.yaml
+  kube apply -f deploy/kind/api-server.yaml
 else
   warn "API server is swapped — skipping manifest"
 fi
 
 if ! is_swapped control-plane; then
   info "Deploying control plane RBAC..."
-  kubectl apply -f deploy/kind/controller-rbac.yaml
+  kube apply -f deploy/kind/controller-rbac.yaml
   info "Deploying control plane..."
-  kubectl apply -f deploy/kind/controller.yaml
+  kube apply -f deploy/kind/controller.yaml
 else
   warn "Control plane is swapped — skipping manifest"
 fi
 
 if ! is_swapped web-console; then
   info "Deploying web console..."
-  kubectl apply -f deploy/kind/web-console.yaml
+  kube apply -f deploy/kind/web-console.yaml
 else
   warn "Web console is swapped — skipping manifest"
+fi
+
+if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
+  info "Rolling out non-swapped deployments to pick up rebuilt images..."
+  for pair in "hypershell-api-server:api-server" \
+              "hypershell-controller:control-plane" \
+              "hypershell-web-console:web-console"; do
+    dep="${pair%%:*}"
+    comp="${pair##*:}"
+    if ! is_swapped "${comp}"; then
+      kube rollout restart "deployment/${dep}" -n "${KIND_NAMESPACE}"
+    fi
+  done
 fi
 echo ""
 
 # --- Certificates and networking ---
 header "TLS & Networking"
 info "Setting up TLS certificates..."
-kubectl apply -f deploy/kind/prerequisites/certificates.yaml
+kube apply -f deploy/kind/prerequisites/certificates.yaml
 
 info "Setting up Gateway API networking..."
-kubectl apply -f deploy/kind/prerequisites/networking-gateway.yaml
-kubectl apply -f deploy/kind/prerequisites/httproutes.yaml
+kube apply -f deploy/kind/prerequisites/networking-gateway.yaml
+kube apply -f deploy/kind/prerequisites/httproutes.yaml
 
 info "Waiting for networking Gateway to get an address..."
 for i in $(seq 1 30); do
-  GW_ADDR=$(kubectl get gateway hypershell-gw -n "${KIND_NAMESPACE}" \
+  GW_ADDR=$(kube get gateway hypershell-gw -n "${KIND_NAMESPACE}" \
     -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
   if [[ -n "${GW_ADDR}" ]]; then break; fi
   if (( i % 5 == 0 )); then
@@ -200,15 +221,15 @@ echo ""
 # --- Wait for readiness ---
 header "Readiness"
 info "Waiting for API server..."
-kubectl wait --for=condition=available deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
 success "API server ready"
 
 info "Waiting for control plane..."
-kubectl wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 success "Control plane ready"
 
 info "Waiting for web console..."
-kubectl wait --for=condition=available deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --timeout=120s
 success "Web console ready"
 echo ""
 
@@ -216,12 +237,13 @@ echo ""
 header "Gateway Provisioning"
 API_URL="http://localhost:8000"
 info "Port-forwarding to API server..."
-kubectl port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
+kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
 PF_PID=$!
+cleanup_pf() { kill "${PF_PID}" 2>/dev/null || true; wait "${PF_PID}" 2>/dev/null || true; }
+trap cleanup_pf EXIT
 sleep 2
 
 # Helper: POST a JSON resource; prints the response body on success or failure.
-# Uses -sS (silent but show errors) instead of -sf (which hides the response body on HTTP errors).
 api_post() {
   local url="$1" data="$2"
   curl -sS -w "\n%{http_code}" -X POST "${url}" \
@@ -229,9 +251,10 @@ api_post() {
     -d "${data}" 2>&1 || true
 }
 
-# Extract ID from a JSON response
 extract_id() {
-  echo "$1" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4
+  local id
+  id=$(echo "$1" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+  echo "${id}"
 }
 
 seed_failed=""
@@ -318,8 +341,8 @@ if [[ -n "${seed_failed}" ]]; then
   warn "Automatic seeding incomplete — create resources manually after API server is ready"
 fi
 
-kill "${PF_PID}" 2>/dev/null || true
-wait "${PF_PID}" 2>/dev/null || true
+cleanup_pf
+trap - EXIT
 echo ""
 
 # --- DNS resolution ---
