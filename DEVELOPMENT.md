@@ -41,26 +41,28 @@ This creates a Kind cluster and deploys:
 ```
 === HyperShell is running! ===
 
-  HTTP API:     https://api.hypershell.localhost:<PORT>
-  Web Console:  https://console.hypershell.localhost:<PORT>
-  Health:       https://health.hypershell.localhost:<PORT>
-  gRPC:         https://openshell-gateway.gw.localhost:<PORT>
-  Keycloak:     https://keycloak.hypershell.localhost:<PORT> (admin/admin)
+  HTTP API:     https://api.hypershell.localhost
+  Web Console:  https://console.hypershell.localhost
+  Health:       https://health.hypershell.localhost
+  Keycloak:     https://keycloak.hypershell.localhost (admin/admin)
 ```
 
 Services are accessed via `.localhost` hostnames routed through the networking
-Gateway. On macOS, container IPs are not directly routable, so
-cloud-provider-kind publishes an ephemeral host port for the Gateway's HTTPS
-listener. The actual port is printed in the banner each time you run
-`make kind-up` (e.g. `https://console.hypershell.localhost:60355`).
-`make kind-up` manages `/etc/hosts` entries automatically (prompts for `sudo` on
-first run). The TLS certificate is self-signed -- trust it in your browser or
-use `curl --cacert`.
+Gateway. CoreDNS resolves all `*.hypershell.localhost` to loopback, and
+OS-level port forwarding (pfctl on macOS, iptables on Linux) redirects
+host port 443 to cloud-provider-kind's ephemeral Gateway port. The TLS
+certificate is self-signed — trust it in your browser or use `curl --cacert`.
 
 ## Per-Component Swap
 
-Baseline images are pulled from the container registry. To test local changes,
-swap individual components:
+Baseline images are pulled from the container registry. To build all baseline
+images locally instead (e.g. when registry access is unavailable), run:
+
+```bash
+LOCAL_IMAGES=true make kind-up
+```
+
+To test local changes, swap individual components:
 
 ```bash
 # Build and deploy API server from working tree
@@ -76,8 +78,11 @@ make kind-web-console-up
 KIND_HOT_RELOAD=false make kind-web-console-up
 ```
 
-Each invocation rebuilds from the current working tree and replaces the running
-deployment. Re-run after making changes to pick them up.
+The web console uses hot reload by default — `kind-web-console-up` starts a
+local Vite dev server and proxies through the cluster. Use
+`KIND_HOT_RELOAD=false` to build and deploy a full container image instead.
+API server and control plane rebuilds replace the running deployment; re-run
+after making changes to pick them up.
 
 ### Revert to Baseline
 
