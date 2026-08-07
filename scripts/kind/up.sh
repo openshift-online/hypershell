@@ -345,22 +345,6 @@ if [[ -z "${seed_failed}" ]]; then
   fi
 fi
 
-if [[ -z "${seed_failed}" ]]; then
-  info "Creating Gateway (controller will provision database)..."
-  GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
-    "{\"name\":\"openshell-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"namespace\":\"${KIND_NAMESPACE}\"}")
-  GW_HTTP=$(echo "${GW_RAW}" | tail -1)
-  GW_RESP=$(echo "${GW_RAW}" | sed '$d')
-  GW_ID=$(extract_id "${GW_RESP}")
-
-  if [[ -n "${GW_ID}" ]]; then
-    success "Gateway created: ${GW_ID} — controller will reconcile"
-  else
-    warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
-    seed_failed=true
-  fi
-fi
-
 if [[ -n "${seed_failed}" ]]; then
   warn "Automatic seeding incomplete — create resources manually after API server is ready"
 fi
@@ -388,7 +372,7 @@ fi
 info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
 info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
 info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
-info "gRPC:         https://openshell-gateway.gw.localhost${PORT_SUFFIX}"
+
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"

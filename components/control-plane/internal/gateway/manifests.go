@@ -96,7 +96,12 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	if config.Image != "" {
 		image = config.Image
 	}
+	// Protect DB_IMAGE_PLACEHOLDER from the IMAGE_PLACEHOLDER replacement
+	// (the shorter string is a substring of the longer one).
+	const dbImageHold = "$$DB_IMG_HOLD$$"
+	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_IMAGE_PLACEHOLDER", dbImageHold)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "IMAGE_PLACEHOLDER", image)
+	manifestJSON = strings.ReplaceAll(manifestJSON, dbImageHold, "DB_IMAGE_PLACEHOLDER")
 
 	result := &unstructured.Unstructured{}
 	if err := result.UnmarshalJSON([]byte(manifestJSON)); err != nil {
@@ -109,7 +114,7 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseConfig) error {
 	jsonBytes, err := obj.MarshalJSON()
 	if err != nil {
-		return nil
+		return fmt.Errorf("marshal for database overrides: %w", err)
 	}
 	manifestJSON := string(jsonBytes)
 
