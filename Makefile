@@ -4,7 +4,7 @@ GO_TOOLCHAIN=go1.26.4
 GOLANGCI_LINT_VERSION=v2.12.2
 GOLANGCI_LINT_PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 DEPENDENCY_MIN_AGE_DAYS=14
-PNPM_VERSION=11.15.1
+PNPM_MIN_VERSION=11.15.1
 PNPM?=pnpm
 
 # --- Image registry and tags ---
@@ -43,12 +43,62 @@ CERT_MANAGER_VERSION?=v1.21.1
 
 # Kind config
 KIND_CONFIG=deploy/kind/kind-config.yaml
+KIND_DNS_PORT?=5553
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
 KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
+
+# ============================================================================
+# Help
+# ============================================================================
+
+.PHONY: help
+help:
+	@echo ""
+	@echo "  HyperShell Makefile"
+	@echo "  ==================="
+	@echo ""
+	@echo "  Local Development (Kind)"
+	@echo "    kind-up                  Create cluster + deploy all components"
+	@echo "    kind-down                Delete cluster + stop cloud-provider-kind"
+	@echo "    kind-status              Show cluster info, pods, services, swap state"
+	@echo "    kind-deploy              Deploy into a new namespace (from branch name)"
+	@echo "    kind-undeploy            Delete a namespace deployment"
+	@echo "    kind-api-server-up       Build + swap API server from working tree"
+	@echo "    kind-api-server-down     Revert API server to baseline image"
+	@echo "    kind-control-plane-up    Build + swap control plane from working tree"
+	@echo "    kind-control-plane-down  Revert control plane to baseline image"
+	@echo "    kind-web-console-up      Hot reload (default) or build + swap web console"
+	@echo "    kind-web-console-down    Revert web console to baseline image"
+	@echo ""
+	@echo "  Build"
+	@echo "    build-all                Build all container images"
+	@echo "    web-console-image        Build web console container image"
+	@echo "    web-console-dev          Start web console dev server (pnpm)"
+	@echo ""
+	@echo "  Test & Lint"
+	@echo "    test-all                 Run all test suites"
+	@echo "    lint                     Run all linters (Go + JS/TS)"
+	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
+	@echo "    lint-control-plane       Lint control plane (gofmt, go vet, golangci-lint)"
+	@echo "    lint-sdk-typescript      Lint TypeScript SDK"
+	@echo "    lint-gateway-ui          Lint gateway UI package"
+	@echo "    lint-web-console         Lint web console (app + BFF)"
+	@echo ""
+	@echo "  Policy"
+	@echo "    check                    Run all policy checks"
+	@echo "    check-forbidden-terms    Check for forbidden terms in source"
+	@echo "    check-dependency-pins    Verify dependency version pins"
+	@echo "    check-dependency-age     Verify dependency minimum age"
+	@echo "    check-ci-components      Verify CI component registration"
+	@echo ""
+	@echo "  Hooks"
+	@echo "    hooks-install            Install Git hooks (lefthook)"
+	@echo "    hooks-run                Run hook checks manually"
+	@echo ""
 
 # ============================================================================
 # Build targets
@@ -60,7 +110,9 @@ build-all:
 
 .PHONY: verify-pnpm
 verify-pnpm:
-	test "$$($(PNPM) --version)" = "$(PNPM_VERSION)"
+	@current=$$($(PNPM) --version); \
+	printf '%s\n%s\n' "$(PNPM_MIN_VERSION)" "$$current" | sort -V -C || \
+	  { echo "pnpm $$current < minimum $(PNPM_MIN_VERSION)"; exit 1; }
 
 .PHONY: install-js
 install-js: verify-pnpm
@@ -187,6 +239,7 @@ export api_server_ref control_plane_ref web_console_ref
 export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME
+export KIND_DNS_PORT
 
 .PHONY: kind-up
 kind-up:

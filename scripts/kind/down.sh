@@ -13,6 +13,10 @@ if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
   success "cloud-provider-kind stopped"
 fi
 
+stop_port_forward
+stop_dns
+cleanup_resolver
+
 if cluster_exists; then
   info "Deleting cluster..."
   kind delete cluster --name "${KIND_CLUSTER_NAME}"

@@ -185,6 +185,7 @@ if [[ -n "${GW_ADDR}" ]]; then
 
   if [[ -n "${GATEWAY_PORT}" ]]; then
     success "Gateway HTTPS on host port ${GATEWAY_PORT}"
+    start_port_forward "${GATEWAY_PORT}"
   else
     warn "Could not discover Gateway proxy port — check 'docker ps --filter name=kindccm-gw'"
   fi
@@ -320,19 +321,11 @@ kill "${PF_PID}" 2>/dev/null || true
 wait "${PF_PID}" 2>/dev/null || true
 echo ""
 
-# --- Configure /etc/hosts ---
-header "/etc/hosts"
-HOSTNAMES=("${API_HOSTNAME}" "${CONSOLE_HOSTNAME}" "${HEALTH_HOSTNAME}")
-if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
-  HOSTNAMES+=("${KEYCLOAK_HOSTNAME}")
-fi
-for h in "${HOSTNAMES[@]}"; do
-  if ! grep -q "${h}" /etc/hosts 2>/dev/null; then
-    info "Adding ${h} to /etc/hosts (requires sudo)"
-    sudo sh -c "echo '127.0.0.1 ${h}' >> /etc/hosts"
-  fi
-done
-success "Host entries configured"
+# --- DNS resolution ---
+header "DNS"
+start_dns
+setup_resolver
+success "DNS configured — *.hypershell.localhost resolves to 127.0.0.1"
 echo ""
 
 # --- Summary banner ---
@@ -340,7 +333,7 @@ header "HyperShell is running!"
 echo ""
 
 PORT_SUFFIX=""
-if [[ -n "${GATEWAY_PORT:-}" ]]; then
+if [[ -z "${PORT_FORWARD_ACTIVE:-}" ]] && [[ -n "${GATEWAY_PORT:-}" ]]; then
   PORT_SUFFIX=":${GATEWAY_PORT}"
 fi
 

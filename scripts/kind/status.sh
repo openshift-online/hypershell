@@ -39,8 +39,53 @@ else
 fi
 echo ""
 
+header "DNS"
+if dns_container_running 2>/dev/null; then
+  info "CoreDNS: running (${DNS_CONTAINER_NAME} on port ${KIND_DNS_PORT})"
+else
+  warn "CoreDNS: not running"
+fi
+echo ""
+
+header "Port Forwarding"
+PF_ACTIVE=""
+case "$(uname -s)" in
+  Darwin)
+    PF_RULE=$(sudo pfctl -a com.hypershell -s nat 2>/dev/null | grep "rdr" || true)
+    if [[ -n "${PF_RULE}" ]]; then
+      PF_ACTIVE=true
+      PF_PORT=$(echo "${PF_RULE}" | grep -o 'port [0-9]*$' | awk '{print $2}')
+      info "pfctl: active (443 -> ${PF_PORT:-?})"
+    else
+      warn "pfctl: no forwarding rules"
+    fi
+    ;;
+  Linux)
+    IPT_RULE=$(sudo iptables -t nat -L OUTPUT -n 2>/dev/null | grep "hypershell-dev" || true)
+    if [[ -n "${IPT_RULE}" ]]; then
+      PF_ACTIVE=true
+      IPT_PORT=$(echo "${IPT_RULE}" | grep -o 'redir ports [0-9]*' | awk '{print $3}')
+      info "iptables: active (443 -> ${IPT_PORT:-?})"
+    else
+      warn "iptables: no forwarding rules"
+    fi
+    ;;
+esac
+echo ""
+
+PORT_SUFFIX=""
+if [[ -z "${PF_ACTIVE}" ]]; then
+  PROXY_CONTAINER=$(docker ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+  if [[ -n "${PROXY_CONTAINER}" ]]; then
+    GW_PORT=$(docker port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
+    if [[ -n "${GW_PORT}" ]]; then
+      PORT_SUFFIX=":${GW_PORT}"
+    fi
+  fi
+fi
+
 header "Access"
-info "HTTP API:     https://${API_HOSTNAME}"
-info "Web Console:  https://${CONSOLE_HOSTNAME}"
-info "Health:       https://${HEALTH_HOSTNAME}"
-info "Keycloak:     https://${KEYCLOAK_HOSTNAME}"
+info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
+info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
+info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
+info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}"

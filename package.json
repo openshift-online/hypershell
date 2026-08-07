@@ -2,10 +2,10 @@
   "name": "hypershell",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@11.15.1",
+  "packageManager": "pnpm@11.20.0",
   "engines": {
-    "node": ">=24.18.1 <25",
-    "pnpm": "11.15.1"
+    "node": ">=24.18.1",
+    "pnpm": ">=11.15.1"
   },
   "scripts": {
     "build:web": "pnpm --filter @openshift-online/hypershell-sdk build && pnpm --filter @openshift-online/hypershell-domain-probes build && pnpm --filter @openshift-online/hypershell-gateway-ui build && pnpm --filter @openshift-online/hypershell-web-console build && pnpm --filter @openshift-online/hypershell-web-console-bff build",

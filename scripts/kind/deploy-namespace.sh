@@ -63,17 +63,6 @@ EOF
 done
 success "HTTPRoutes created"
 
-header "/etc/hosts"
-for h in "api.${SANITIZED}.hypershell.localhost" \
-         "console.${SANITIZED}.hypershell.localhost" \
-         "health.${SANITIZED}.hypershell.localhost"; do
-  if ! grep -q "${h}" /etc/hosts 2>/dev/null; then
-    info "Adding ${h} (requires sudo)"
-    sudo sh -c "echo '127.0.0.1 ${h}' >> /etc/hosts"
-  fi
-done
-success "Host entries configured"
-
 header "Readiness"
 info "Waiting for components in ${NS}..."
 kubectl wait --for=condition=available deployment/hypershell-api-server -n "${NS}" --timeout=120s

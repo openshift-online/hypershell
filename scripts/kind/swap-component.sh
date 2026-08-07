@@ -52,30 +52,89 @@ case "${COMPONENT}" in
 esac
 
 swap_up() {
-  # Web console hot reload mode
+  # Web console hot reload mode: run Vite dev server on the host,
+  # redirect the in-cluster Service so the Gateway routes to it.
   if [[ "${COMPONENT}" == "web-console" ]] && [[ "${KIND_HOT_RELOAD:-true}" == "true" ]]; then
     header "Web Console (hot reload)"
-    info "Mounting ${KIND_HOST_MOUNT_PATH:-$(pwd)}/components/web-console into pod..."
-    kubectl patch deployment "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --type=json -p='[
-      {"op": "replace", "path": "/spec/template/spec/containers/0/image", "value": "node:22-slim"},
-      {"op": "replace", "path": "/spec/template/spec/containers/0/command", "value": ["sh", "-c", "cd /mnt/host/components/web-console && npm run dev -- --host 0.0.0.0 --port 8080"]},
-      {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts", "value": [{"name": "host-src", "mountPath": "/mnt/host"}]},
-      {"op": "add", "path": "/spec/template/spec/volumes", "value": [{"name": "host-src", "hostPath": {"path": "/mnt/host"}}]},
-      {"op": "replace", "path": "/spec/template/spec/containers/0/env", "value": [{"name": "PORT", "value": "8080"}, {"name": "HOST", "value": "0.0.0.0"}]}
-    ]'
-    info "Waiting for web console (hot reload)..."
-    kubectl wait --for=condition=available "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
-    track_swap "${COMPONENT}"
-    echo ""
-    success "Web console running in hot reload mode."
-    info "File changes in ${KIND_HOST_MOUNT_PATH:-$(pwd)}/components/web-console are reflected immediately."
-    return
-  fi
 
-  if [[ "${COMPONENT}" == "web-console" ]] || [[ "${COMPONENT}" == "api-server" ]] || [[ "${COMPONENT}" == "control-plane" ]]; then
-    if [[ "${COMPONENT}" != "web-console" ]] && [[ "${KIND_HOT_RELOAD:-true}" == "true" ]]; then
-      info "Hot reload is not supported for ${COMPONENT}, using rebuild-and-replace"
+    DEV_PORT=5173
+
+    # Discover the host IP reachable from containers.
+    # Docker Desktop and Podman on macOS/Windows run containers in a Linux
+    # VM, so the bridge gateway is internal to that VM.  Both provide a
+    # special hostname that resolves to an IP routing back to the real host.
+    # On native Linux, fall back to the Docker bridge gateway.
+    HOST_IP=""
+    for host_alias in host.docker.internal host.containers.internal; do
+      HOST_IP=$(${CONTAINER_ENGINE} run --rm alpine getent hosts "${host_alias}" 2>/dev/null | awk '{print $1}')
+      if [[ -n "${HOST_IP}" ]]; then break; fi
+    done
+    if [[ -z "${HOST_IP}" ]]; then
+      HOST_IP=$(${CONTAINER_ENGINE} inspect "${KIND_CLUSTER_NAME}-control-plane" \
+        -f '{{.NetworkSettings.Networks.kind.Gateway}}' 2>/dev/null)
     fi
+    if [[ -z "${HOST_IP}" ]]; then
+      error "Could not determine host IP from Kind network"
+      exit 1
+    fi
+
+    info "Scaling down in-cluster web console..."
+    kubectl scale deployment "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --replicas=0
+
+    info "Redirecting Service → host dev server (${HOST_IP}:${DEV_PORT})..."
+    kubectl patch service "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --type=json \
+      -p='[{"op": "remove", "path": "/spec/selector"}]' 2>/dev/null || true
+    kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ${DEPLOYMENT}
+  namespace: ${KIND_NAMESPACE}
+subsets:
+  - addresses:
+      - ip: ${HOST_IP}
+    ports:
+      - name: http
+        port: ${DEV_PORT}
+EOF
+
+    info "Port-forwarding API server to localhost:8000..."
+    kubectl port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
+    API_PF_PID=$!
+
+    track_swap "${COMPONENT}"
+
+    _cleaned=false
+    cleanup_hot_reload() {
+      ${_cleaned} && return
+      _cleaned=true
+      echo ""
+      info "Stopping hot reload..."
+      kill "${API_PF_PID}" 2>/dev/null || true
+      wait "${API_PF_PID}" 2>/dev/null || true
+      info "Restoring in-cluster web console..."
+      kubectl apply -f "${REPO_ROOT}/deploy/kind/web-console.yaml" 2>/dev/null || true
+      kubectl rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
+      clear_swap "${COMPONENT}" 2>/dev/null || true
+      success "Web console reverted to baseline"
+    }
+    trap cleanup_hot_reload EXIT
+    # Let pnpm receive SIGINT from the terminal; bash stays alive to run cleanup.
+    trap : INT TERM
+
+    echo ""
+    success "Web Console: https://${CONSOLE_HOSTNAME}"
+    info "To use rebuild-and-replace instead: KIND_HOT_RELOAD=false make kind-web-console-up"
+    info "Starting dev server (Ctrl+C to stop and revert)..."
+    echo ""
+
+    (cd "${REPO_ROOT}" && pnpm install --frozen-lockfile && \
+      info "Building workspace dependencies (sdk → domain-probes → gateway-ui)..." && \
+      pnpm --filter @openshift-online/hypershell-sdk build && \
+      pnpm --filter @openshift-online/hypershell-domain-probes build && \
+      pnpm --filter @openshift-online/hypershell-gateway-ui build && \
+      DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev 2>/dev/null) || true
+    exit 0
   fi
 
   header "Swap ${COMPONENT} (up)"
