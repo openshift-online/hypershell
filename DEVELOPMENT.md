@@ -245,12 +245,19 @@ brew install cloud-provider-kind
 go install sigs.k8s.io/cloud-provider-kind@latest
 ```
 
-### /etc/hosts permission denied
+### DNS resolution not working
 
-`make kind-up` prompts for `sudo` to update `/etc/hosts`. Ensure your user
-has `sudo` access, or pre-add the entries manually:
+`make kind-up` runs a CoreDNS container (`hypershell-dns`) for wildcard
+`*.hypershell.localhost` resolution. If hostnames don't resolve:
 ```bash
-echo '127.0.0.1 api.hypershell.localhost console.hypershell.localhost health.hypershell.localhost keycloak.hypershell.localhost' | sudo tee -a /etc/hosts
+# Check if the DNS container is running
+docker ps --filter name=hypershell-dns
+
+# Restart it
+docker restart hypershell-dns
+
+# Verify resolution
+dig @127.0.0.1 -p 5553 api.hypershell.localhost
 ```
 
 ### Pods stuck in ImagePullBackOff
