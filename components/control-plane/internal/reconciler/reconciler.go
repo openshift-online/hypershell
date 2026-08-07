@@ -257,6 +257,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gwConfig.Image = *gw.Image
 	}
 
+	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
+		gwConfig.SupervisorImage = *gw.SupervisorImage
+	}
+
 	if gw.Oidc != nil && *gw.Oidc != "" {
 		var oidcConfig gateway.OIDCConfig
 		if err := json.Unmarshal([]byte(*gw.Oidc), &oidcConfig); err != nil {

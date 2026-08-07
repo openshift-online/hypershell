@@ -68,6 +68,25 @@ If the gateway needs to interact with an OIDC issuer (e.g., Keycloak) that uses 
 kubectl -n hypershell create configmap gateway-trusted-ca --from-file=ca-bundle.crt=/path/to/ca.crt
 ```
 
+### Base domain (`GATEWAY_API_BASE_DOMAIN`)
+
+The control plane requires `GATEWAY_API_BASE_DOMAIN` to derive GRPCRoute hostnames for tenant gateways. Without it, GRPCRoute creation is skipped and gateways will not be externally reachable.
+
+On OpenShift, look up the cluster's default base domain:
+
+```shell
+oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'
+```
+
+This typically returns a value like `apps.<cluster-name>.<base-domain>`. Set this value as `GATEWAY_API_BASE_DOMAIN` on the controller deployment:
+
+```shell
+oc set env deployment/hypershell-controller -n hypershell-api \
+  GATEWAY_API_BASE_DOMAIN="$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
+```
+
+Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the placeholder value before applying.
+
 ### Control plane environment variables
 
 | Variable | Default | Description |

@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: hypershell-api-server
-  namespace: hypershell-api
+  namespace: hypershell
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hypershell-api-server
-  namespace: hypershell-api
+  namespace: hypershell
 spec:
   replicas: 1
   selector:
@@ -24,7 +24,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: migrate
-          image: image-registry.openshift-image-registry.svc:5000/hypershell-api/hypershell:dev
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest
           imagePullPolicy: Always
           command:
             - /usr/local/bin/hypershell
@@ -45,7 +45,7 @@ spec:
               readOnly: true
       containers:
         - name: api-server
-          image: image-registry.openshift-image-registry.svc:5000/hypershell-api/hypershell:dev
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest
           imagePullPolicy: Always
           command:
             - /usr/local/bin/hypershell
@@ -97,7 +97,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hypershell-api-server
-  namespace: hypershell-api
+  namespace: hypershell
 spec:
   selector:
     app: hypershell-api-server

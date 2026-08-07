@@ -27,6 +27,7 @@ func ConvertGateway(gateway openapi.Gateway) *Gateway {
 	c.Status = gateway.Status
 	c.Phase = gateway.Phase
 	c.Image = gateway.Image
+	c.SupervisorImage = gateway.SupervisorImage
 	c.RouteAddress = gateway.RouteAddress
 	c.Oidc = gateway.Oidc
 	c.Route = gateway.Route
@@ -65,8 +66,9 @@ func PresentGateway(gateway *Gateway) openapi.Gateway {
 		ServiceType:    gateway.ServiceType,
 		Status:         gateway.Status,
 		Phase:          gateway.Phase,
-		Image:          gateway.Image,
-		RouteAddress:   gateway.RouteAddress,
+		Image:           gateway.Image,
+		SupervisorImage: gateway.SupervisorImage,
+		RouteAddress:    gateway.RouteAddress,
 		Oidc:           gateway.Oidc,
 		Route:          gateway.Route,
 		DatabaseConfig: gateway.DatabaseConfig,

@@ -40,6 +40,8 @@ type Gateway struct {
 	Phase       *string    `json:"phase,omitempty"`
 	// Container image for the gateway deployment
 	Image *string `json:"image,omitempty"`
+	// Container image for the supervisor sidecar
+	SupervisorImage *string `json:"supervisor_image,omitempty"`
 	// DNS names for TLS certificate SANs
 	ServerDnsNames []string `json:"server_dns_names,omitempty"`
 	// External route address populated by the control plane
@@ -573,6 +575,38 @@ func (o *Gateway) SetImage(v string) {
 	o.Image = &v
 }
 
+// GetSupervisorImage returns the SupervisorImage field value if set, zero value otherwise.
+func (o *Gateway) GetSupervisorImage() string {
+	if o == nil || IsNil(o.SupervisorImage) {
+		var ret string
+		return ret
+	}
+	return *o.SupervisorImage
+}
+
+// GetSupervisorImageOk returns a tuple with the SupervisorImage field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetSupervisorImageOk() (*string, bool) {
+	if o == nil || IsNil(o.SupervisorImage) {
+		return nil, false
+	}
+	return o.SupervisorImage, true
+}
+
+// HasSupervisorImage returns a boolean if a field has been set.
+func (o *Gateway) HasSupervisorImage() bool {
+	if o != nil && !IsNil(o.SupervisorImage) {
+		return true
+	}
+
+	return false
+}
+
+// SetSupervisorImage gets a reference to the given string and assigns it to the SupervisorImage field.
+func (o *Gateway) SetSupervisorImage(v string) {
+	o.SupervisorImage = &v
+}
+
 // GetServerDnsNames returns the ServerDnsNames field value if set, zero value otherwise.
 func (o *Gateway) GetServerDnsNames() []string {
 	if o == nil || IsNil(o.ServerDnsNames) {
@@ -781,6 +815,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Image) {
 		toSerialize["image"] = o.Image
+	}
+	if !IsNil(o.SupervisorImage) {
+		toSerialize["supervisor_image"] = o.SupervisorImage
 	}
 	if !IsNil(o.ServerDnsNames) {
 		toSerialize["server_dns_names"] = o.ServerDnsNames

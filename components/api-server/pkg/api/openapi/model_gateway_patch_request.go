@@ -19,23 +19,24 @@ var _ MappedNullable = &GatewayPatchRequest{}
 
 // GatewayPatchRequest struct for GatewayPatchRequest
 type GatewayPatchRequest struct {
-	Name           *string  `json:"name,omitempty"`
-	FleetId        *string  `json:"fleet_id,omitempty"`
-	ClusterId      *string  `json:"cluster_id,omitempty"`
-	ReleaseId      *string  `json:"release_id,omitempty"`
-	DatabaseId     *string  `json:"database_id,omitempty"`
-	Namespace      *string  `json:"namespace,omitempty"`
-	ExternalDns    *string  `json:"external_dns,omitempty"`
-	TlsMode        *string  `json:"tls_mode,omitempty"`
-	ServiceType    *string  `json:"service_type,omitempty"`
-	Status         *string  `json:"status,omitempty"`
-	Phase          *string  `json:"phase,omitempty"`
-	Image          *string  `json:"image,omitempty"`
-	ServerDnsNames []string `json:"server_dns_names,omitempty"`
-	RouteAddress   *string  `json:"route_address,omitempty"`
-	Oidc           *string  `json:"oidc,omitempty"`
-	Route          *string  `json:"route,omitempty"`
-	DatabaseConfig *string  `json:"database_config,omitempty"`
+	Name            *string  `json:"name,omitempty"`
+	FleetId         *string  `json:"fleet_id,omitempty"`
+	ClusterId       *string  `json:"cluster_id,omitempty"`
+	ReleaseId       *string  `json:"release_id,omitempty"`
+	DatabaseId      *string  `json:"database_id,omitempty"`
+	Namespace       *string  `json:"namespace,omitempty"`
+	ExternalDns     *string  `json:"external_dns,omitempty"`
+	TlsMode         *string  `json:"tls_mode,omitempty"`
+	ServiceType     *string  `json:"service_type,omitempty"`
+	Status          *string  `json:"status,omitempty"`
+	Phase           *string  `json:"phase,omitempty"`
+	Image           *string  `json:"image,omitempty"`
+	SupervisorImage *string  `json:"supervisor_image,omitempty"`
+	ServerDnsNames  []string `json:"server_dns_names,omitempty"`
+	RouteAddress    *string  `json:"route_address,omitempty"`
+	Oidc            *string  `json:"oidc,omitempty"`
+	Route           *string  `json:"route,omitempty"`
+	DatabaseConfig  *string  `json:"database_config,omitempty"`
 }
 
 // NewGatewayPatchRequest instantiates a new GatewayPatchRequest object
@@ -439,6 +440,38 @@ func (o *GatewayPatchRequest) SetImage(v string) {
 	o.Image = &v
 }
 
+// GetSupervisorImage returns the SupervisorImage field value if set, zero value otherwise.
+func (o *GatewayPatchRequest) GetSupervisorImage() string {
+	if o == nil || IsNil(o.SupervisorImage) {
+		var ret string
+		return ret
+	}
+	return *o.SupervisorImage
+}
+
+// GetSupervisorImageOk returns a tuple with the SupervisorImage field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayPatchRequest) GetSupervisorImageOk() (*string, bool) {
+	if o == nil || IsNil(o.SupervisorImage) {
+		return nil, false
+	}
+	return o.SupervisorImage, true
+}
+
+// HasSupervisorImage returns a boolean if a field has been set.
+func (o *GatewayPatchRequest) HasSupervisorImage() bool {
+	if o != nil && !IsNil(o.SupervisorImage) {
+		return true
+	}
+
+	return false
+}
+
+// SetSupervisorImage gets a reference to the given string and assigns it to the SupervisorImage field.
+func (o *GatewayPatchRequest) SetSupervisorImage(v string) {
+	o.SupervisorImage = &v
+}
+
 // GetServerDnsNames returns the ServerDnsNames field value if set, zero value otherwise.
 func (o *GatewayPatchRequest) GetServerDnsNames() []string {
 	if o == nil || IsNil(o.ServerDnsNames) {
@@ -644,6 +677,9 @@ func (o GatewayPatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Image) {
 		toSerialize["image"] = o.Image
+	}
+	if !IsNil(o.SupervisorImage) {
+		toSerialize["supervisor_image"] = o.SupervisorImage
 	}
 	if !IsNil(o.ServerDnsNames) {
 		toSerialize["server_dns_names"] = o.ServerDnsNames

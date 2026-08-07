@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +48,10 @@ func ReconcileGateway(
 		return fmt.Errorf("reconcile database credentials in %s: %w", nsConfig.Name, err)
 	}
 
+	if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
+		return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
+	}
+
 	if opts.HasCertManager {
 		if err := reconcileCertManagerResources(ctx, dynamicClient, nsConfig); err != nil {
 			return fmt.Errorf("reconcile cert-manager resources in %s: %w", nsConfig.Name, err)
@@ -57,19 +62,13 @@ func ReconcileGateway(
 
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
-	if err := deployGateway(ctx, dynamicClient, nsConfig, manifests, defaultImage, opts, hasTrustedCA); err != nil {
+	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, defaultImage, opts, hasTrustedCA); err != nil {
 		return fmt.Errorf("deploy gateway in %s: %w", nsConfig.Name, err)
 	}
 
 	if opts.IsOpenShift {
 		if err := reconcileOpenShiftSCC(ctx, dynamicClient, nsConfig.Name); err != nil {
 			log.Printf("WARN failed to reconcile OpenShift SCC binding in %s: %v", nsConfig.Name, err)
-		}
-		if err := reconcilePassthroughRoute(ctx, dynamicClient, nsConfig); err != nil {
-			log.Printf("WARN failed to reconcile passthrough Route in %s: %v", nsConfig.Name, err)
-		}
-		if err := reconcileRouterNetworkPolicy(ctx, dynamicClient, nsConfig.Name); err != nil {
-			log.Printf("WARN failed to reconcile router NetworkPolicy in %s: %v", nsConfig.Name, err)
 		}
 	}
 
@@ -109,12 +108,6 @@ func DeleteGatewayResources(
 		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
-	}
-
-	if opts.IsOpenShift {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
-		)
 	}
 
 	if opts.HasCertManager {
@@ -192,6 +185,15 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		log.Printf("WARN failed to delete backend CA ConfigMap: %v", err)
 	}
 
+	netpolGVR := schema.GroupVersionResource{
+		Group:    "networking.k8s.io",
+		Version:  "v1",
+		Resource: "networkpolicies",
+	}
+	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete router NetworkPolicy: %v", err)
+	}
+
 	log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
 	return nil
 }
@@ -223,6 +225,7 @@ func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, names
 func deployGateway(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
 	nsConfig NamespaceConfig,
 	manifests map[string][]*unstructured.Unstructured,
 	defaultImage string,
@@ -248,17 +251,21 @@ func deployGateway(
 		}
 
 		for _, manifest := range resources {
-			obj, err := ApplyManifestToNamespace(manifest, nsConfig.Name, nsConfig.Gateway, defaultImage)
+			// Apply database overrides on a copy first so that
+			// DB_IMAGE_PLACEHOLDER is resolved before the generic
+			// IMAGE_PLACEHOLDER replacement runs (substring overlap).
+			raw := manifest.DeepCopy()
+			if err := ApplyDatabaseOverrides(raw, nsConfig.Gateway.Database); err != nil {
+				return fmt.Errorf("apply database overrides for %s: %w", filename, err)
+			}
+
+			obj, err := ApplyManifestToNamespace(raw, nsConfig.Name, nsConfig.Gateway, defaultImage)
 			if err != nil {
 				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
 			}
 
 			if err := ApplyConfigOverrides(obj, nsConfig.Gateway); err != nil {
 				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
-			}
-
-			if err := ApplyDatabaseOverrides(obj, nsConfig.Gateway.Database); err != nil {
-				return fmt.Errorf("apply database overrides for %s: %w", filename, err)
 			}
 
 			if hasTrustedCA && obj.GetKind() == "Deployment" {
@@ -275,9 +282,39 @@ func deployGateway(
 
 			log.Printf("DEBUG reconciled %s %s in %s", obj.GetKind(), obj.GetName(), nsConfig.Name)
 		}
+
+		if filename == "database.yaml" {
+			if err := waitForDeploymentReady(ctx, clientset, nsConfig.Name, "openshell-gateway-db", 2*time.Minute); err != nil {
+				return fmt.Errorf("wait for database in %s: %w", nsConfig.Name, err)
+			}
+		}
 	}
 
 	return nil
+}
+
+func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for deployment %s/%s to become ready", namespace, name)
+		case <-ticker.C:
+			deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+			if deploy.Spec.Replicas != nil && deploy.Status.ReadyReplicas >= *deploy.Spec.Replicas {
+				log.Printf("INFO deployment %s/%s is ready", namespace, name)
+				return nil
+			}
+		}
+	}
 }
 
 func reconcileResource(ctx context.Context, dynamicClient dynamic.Interface, obj *unstructured.Unstructured) error {
@@ -349,7 +386,6 @@ func kindToResource(kind string) string {
 		"ClusterRoleBinding":    "clusterrolebindings",
 		"NetworkPolicy":         "networkpolicies",
 		"Secret":                "secrets",
-		"Route":                 "routes",
 		"PersistentVolumeClaim": "persistentvolumeclaims",
 		"Issuer":                "issuers",
 		"Certificate":           "certificates",
@@ -465,155 +501,6 @@ func reconcileOpenShiftSCC(ctx context.Context, dynamicClient dynamic.Interface,
 	binding.SetResourceVersion(existing.GetResourceVersion())
 	if _, err := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Update(ctx, binding, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update SCC RoleBinding: %w", err)
-	}
-	return nil
-}
-
-func reconcilePassthroughRoute(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) error {
-	osRouteGVR := schema.GroupVersionResource{
-		Group:    "route.openshift.io",
-		Version:  "v1",
-		Resource: "routes",
-	}
-
-	namespace := nsConfig.Name
-	routeName := "openshell-gateway-grpc"
-
-	hostname := nsConfig.Gateway.ExternalDns
-	if hostname == "" {
-		hostname = fmt.Sprintf("openshell-gateway-%s.apps.openshiftapps.com", namespace)
-	}
-
-	routeSpec := map[string]interface{}{
-		"port": map[string]interface{}{
-			"targetPort": "grpc",
-		},
-		"tls": map[string]interface{}{
-			"termination": "passthrough",
-		},
-		"to": map[string]interface{}{
-			"kind":   "Service",
-			"name":   "openshell-gateway",
-			"weight": int64(100),
-		},
-	}
-
-	if hostname != "" {
-		routeSpec["host"] = hostname
-	}
-
-	route := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "route.openshift.io/v1",
-			"kind":       "Route",
-			"metadata": map[string]interface{}{
-				"name":      routeName,
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-				"annotations": map[string]interface{}{
-					"haproxy.router.openshift.io/timeout": "3600s",
-				},
-			},
-			"spec": routeSpec,
-		},
-	}
-
-	existing, err := dynamicClient.Resource(osRouteGVR).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
-	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("get Route: %w", err)
-		}
-		if _, createErr := dynamicClient.Resource(osRouteGVR).Namespace(namespace).Create(ctx, route, metav1.CreateOptions{}); createErr != nil {
-			return fmt.Errorf("create Route: %w", createErr)
-		}
-		log.Printf("INFO created passthrough Route %s in %s", routeName, namespace)
-		return nil
-	}
-
-	route.SetResourceVersion(existing.GetResourceVersion())
-	if _, err := dynamicClient.Resource(osRouteGVR).Namespace(namespace).Update(ctx, route, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update Route: %w", err)
-	}
-	return nil
-}
-
-func reconcileRouterNetworkPolicy(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {
-	netpolGVR := schema.GroupVersionResource{
-		Group:    "networking.k8s.io",
-		Version:  "v1",
-		Resource: "networkpolicies",
-	}
-
-	policyName := "openshell-gateway-allow-router"
-	policy := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "networking.k8s.io/v1",
-			"kind":       "NetworkPolicy",
-			"metadata": map[string]interface{}{
-				"name":      policyName,
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"podSelector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
-						"app.kubernetes.io/instance": "openshell-gateway",
-						"app.kubernetes.io/name":     "openshell",
-					},
-				},
-				"policyTypes": []interface{}{"Ingress"},
-				"ingress": []interface{}{
-					map[string]interface{}{
-						"from": []interface{}{
-							map[string]interface{}{
-								"namespaceSelector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"kubernetes.io/metadata.name": "openshift-ingress",
-									},
-								},
-							},
-						},
-						"ports": []interface{}{
-							map[string]interface{}{
-								"port":     int64(8080),
-								"protocol": "TCP",
-							},
-							map[string]interface{}{
-								"port":     int64(8081),
-								"protocol": "TCP",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	existing, err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Get(ctx, policyName, metav1.GetOptions{})
-	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("get router NetworkPolicy: %w", err)
-		}
-		if _, createErr := dynamicClient.Resource(netpolGVR).Namespace(namespace).Create(ctx, policy, metav1.CreateOptions{}); createErr != nil {
-			return fmt.Errorf("create router NetworkPolicy: %w", createErr)
-		}
-		log.Printf("INFO created router NetworkPolicy %s in %s", policyName, namespace)
-		return nil
-	}
-
-	policy.SetResourceVersion(existing.GetResourceVersion())
-	if _, err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Update(ctx, policy, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update router NetworkPolicy: %w", err)
 	}
 	return nil
 }
@@ -769,6 +656,47 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 	}
 
 	log.Printf("INFO created database credentials secret %s in %s (password length=%d)", secretName, namespace, len(password))
+	return nil
+}
+
+func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
+	secretName := "openshell-gateway-credential-kek"
+	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err == nil {
+		log.Printf("DEBUG credential KEK secret %s already exists in %s, skipping", secretName, namespace)
+		return nil
+	}
+	if !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("get credential KEK secret: %w", err)
+	}
+
+	kekBytes := make([]byte, 32)
+	if _, err := rand.Read(kekBytes); err != nil {
+		return fmt.Errorf("generate credential KEK: %w", err)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"key-encryption-key": kekBytes,
+		},
+	}
+
+	if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create credential KEK secret: %w", err)
+	}
+
+	log.Printf("INFO created credential KEK secret %s in %s", secretName, namespace)
 	return nil
 }
 
@@ -957,6 +885,58 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		if err := reconcileResource(ctx, dynamicClient, btlsPolicy); err != nil {
 			log.Printf("WARN failed to reconcile BackendTLSPolicy (may require OpenShift 4.22+): %v", err)
 		}
+	}
+
+	routerNetpol := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.k8s.io/v1",
+			"kind":       "NetworkPolicy",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-allow-router",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"podSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"app.kubernetes.io/instance": "openshell-gateway",
+						"app.kubernetes.io/name":     "openshell",
+					},
+				},
+				"policyTypes": []interface{}{"Ingress"},
+				"ingress": []interface{}{
+					map[string]interface{}{
+						"from": []interface{}{
+							map[string]interface{}{
+								"podSelector": map[string]interface{}{
+									"matchLabels": map[string]interface{}{
+										"gateway.networking.k8s.io/gateway-name": "openshell-gateway",
+									},
+								},
+							},
+						},
+						"ports": []interface{}{
+							map[string]interface{}{
+								"port":     int64(8080),
+								"protocol": "TCP",
+							},
+							map[string]interface{}{
+								"port":     int64(8081),
+								"protocol": "TCP",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, routerNetpol); err != nil {
+		log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
 	}
 
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)

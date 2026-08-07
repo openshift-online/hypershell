@@ -94,13 +94,12 @@ The gateway workload SHALL always be deployed as a Deployment (not a StatefulSet
 - WHEN the GatewayReconciler reconciles
 - THEN it SHALL create a Deployment (not StatefulSet) for the gateway
 - AND the gateway container's `--db-url` argument SHALL reference the credentials Secret via env var
-- AND an init container SHALL run `pg_isready` to wait for the database before starting the gateway
 
 ---
 
 ### Requirement: Database Resource Provisioning Order
 
-Database resources (Secret, PVC, Deployment, Service, NetworkPolicy) SHALL be applied BEFORE the gateway workload. The gateway's init container (`pg_isready`) depends on the database Service being available.
+Database resources (Secret, PVC, Deployment, Service, NetworkPolicy) SHALL be applied BEFORE the gateway workload. After reconciling `database.yaml`, the control plane SHALL wait for the `openshell-gateway-db` Deployment to reach ready state (2-minute timeout) before proceeding to deploy the gateway.
 
 ---
 
@@ -170,7 +169,7 @@ serverDnsNames:
 |---|---|---|
 | `hsctl apply` missing database resources | `kustomize.Resource` missing `Database` field | Ensure SDK `Resource` struct includes `Database map[string]any` |
 | Docker Hub `toomanyrequests` for postgres | Default image was `postgres:16` | Use `registry.redhat.io/rhel9/postgresql-16:latest` |
-| Gateway pod CrashLoopBackOff after provisioning | init container `pg_isready` fails | Check DB Deployment is Running, Service exists |
+| Gateway pod not created after provisioning | `waitForDeploymentReady` timed out for DB | Check DB Deployment events and pod logs |
 | Database password changes on re-reconciliation | Secret uses update instead of create-or-skip | Fix to create-or-skip semantics |
 
 ---

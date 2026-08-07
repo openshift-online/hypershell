@@ -6,12 +6,13 @@ type NamespaceConfig struct {
 }
 
 type GatewayConfig struct {
-	Image          string         `yaml:"image"`
-	ServerDnsNames []string       `yaml:"serverDnsNames"`
-	ExternalDns    string         `yaml:"externalDns"`
-	Database       DatabaseConfig `yaml:"database"`
-	OIDC           OIDCConfig     `yaml:"oidc"`
-	Route          RouteConfig    `yaml:"route"`
+	Image           string         `yaml:"image"`
+	SupervisorImage string         `yaml:"supervisorImage"`
+	ServerDnsNames  []string       `yaml:"serverDnsNames"`
+	ExternalDns     string         `yaml:"externalDns"`
+	Database        DatabaseConfig `yaml:"database"`
+	OIDC            OIDCConfig     `yaml:"oidc"`
+	Route           RouteConfig    `yaml:"route"`
 }
 
 type RouteConfig struct {

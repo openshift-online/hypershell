@@ -16,6 +16,7 @@ Name | Type | Description | Notes
 **Status** | Pointer to **string** |  | [optional] 
 **Phase** | Pointer to **string** |  | [optional] 
 **Image** | Pointer to **string** |  | [optional] 
+**SupervisorImage** | Pointer to **string** |  | [optional] 
 **ServerDnsNames** | Pointer to **[]string** |  | [optional] 
 **RouteAddress** | Pointer to **string** |  | [optional] 
 **Oidc** | Pointer to **string** |  | [optional] 
@@ -340,6 +341,31 @@ SetImage sets Image field to given value.
 `func (o *GatewayPatchRequest) HasImage() bool`
 
 HasImage returns a boolean if a field has been set.
+
+### GetSupervisorImage
+
+`func (o *GatewayPatchRequest) GetSupervisorImage() string`
+
+GetSupervisorImage returns the SupervisorImage field if non-nil, zero value otherwise.
+
+### GetSupervisorImageOk
+
+`func (o *GatewayPatchRequest) GetSupervisorImageOk() (*string, bool)`
+
+GetSupervisorImageOk returns a tuple with the SupervisorImage field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetSupervisorImage
+
+`func (o *GatewayPatchRequest) SetSupervisorImage(v string)`
+
+SetSupervisorImage sets SupervisorImage field to given value.
+
+### HasSupervisorImage
+
+`func (o *GatewayPatchRequest) HasSupervisorImage() bool`
+
+HasSupervisorImage returns a boolean if a field has been set.
 
 ### GetServerDnsNames
 

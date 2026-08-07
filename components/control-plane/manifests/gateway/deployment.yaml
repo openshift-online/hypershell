@@ -31,42 +31,18 @@ spec:
     spec:
       terminationGracePeriodSeconds: 5
       serviceAccountName: openshell-gateway
-      initContainers:
-        - name: wait-for-db
-          image: IMAGE_PLACEHOLDER
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              until pg_isready -h openshell-gateway-db -p 5432 -U openshell; do
-                echo "waiting for database..."
-                sleep 2
-              done
-          env:
-            - name: OPENSHELL_DB_URL
-              valueFrom:
-                secretKeyRef:
-                  name: openshell-gateway-db-credentials
-                  key: url
-          securityContext:
-            allowPrivilegeEscalation: false
-            seccompProfile:
-              type: RuntimeDefault
-            capabilities:
-              drop:
-              - ALL
-            runAsNonRoot: true
-            readOnlyRootFilesystem: true
+      securityContext:
+        runAsNonRoot: true
       containers:
         - name: openshell-gateway
           securityContext:
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
             seccompProfile:
               type: RuntimeDefault
             capabilities:
               drop:
               - ALL
-            runAsNonRoot: true
-            readOnlyRootFilesystem: true
           image: IMAGE_PLACEHOLDER
           imagePullPolicy: IfNotPresent
           args:
@@ -80,6 +56,11 @@ spec:
                 secretKeyRef:
                   name: openshell-gateway-db-credentials
                   key: url
+            - name: OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openshell-gateway-credential-kek
+                  key: key-encryption-key
           volumeMounts:
             - name: gateway-config
               mountPath: /etc/openshell
@@ -144,9 +125,11 @@ spec:
         - name: tls-cert
           secret:
             secretName: openshell-server-tls
+            defaultMode: 256
         - name: tls-client-ca
           secret:
-            secretName: openshell-server-tls
+            secretName: openshell-client-tls
             items:
               - key: ca.crt
                 path: ca.crt
+            defaultMode: 256

@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: hypershell-controller
-  namespace: hypershell-api
+  namespace: hypershell
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hypershell-controller
-  namespace: hypershell-api
+  namespace: hypershell
 spec:
   replicas: 1
   selector:
@@ -24,7 +24,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: controller
-          image: image-registry.openshift-image-registry.svc:5000/hypershell-api/hypershell-controller:dev
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest
           imagePullPolicy: Always
           env:
             - name: HYPERSHELL_GRPC_SERVER_ADDR
@@ -32,9 +32,11 @@ spec:
             - name: HYPERSHELL_API_SERVER_URL
               value: "http://hypershell-api-server:8000"
             - name: HYPERSHELL_NAMESPACE
-              value: "hypershell-api"
+              value: "hypershell"
             - name: HYPERSHELL_LOG_LEVEL
               value: "info"
+            - name: GATEWAY_API_BASE_DOMAIN
+              value: "REPLACE_WITH_CLUSTER_BASE_DOMAIN"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

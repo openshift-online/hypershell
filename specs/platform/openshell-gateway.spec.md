@@ -325,6 +325,7 @@ The GatewayReconciler SHALL load gateway resource manifests from the container f
 - THEN it SHALL read all YAML files from the manifests directory
 - AND it SHALL parse each file into Kubernetes resource objects
 - AND it SHALL substitute `NAMESPACE_PLACEHOLDER` with the target namespace name
+- AND it SHALL substitute `DB_IMAGE_PLACEHOLDER` and `DB_STORAGE_PLACEHOLDER` before `IMAGE_PLACEHOLDER` to avoid substring collision
 - AND it SHALL substitute `IMAGE_PLACEHOLDER` with the Gateway resource's `image` field
 
 #### Scenario: Required manifest files missing
@@ -483,10 +484,10 @@ All gateway resources SHALL carry the following labels:
 - `hypershell.redhat.io/managed=true`
 
 The gateway Deployment SHALL specify:
-- **Init container:** `wait-for-db` — runs `pg_isready` in a loop until the database is reachable. SecurityContext: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`, `readOnlyRootFilesystem: true`
+- **No init containers.** Database readiness is enforced by the control plane's `waitForDeploymentReady` check after reconciling `database.yaml`, before the gateway Deployment is created.
 - **Container image:** from the Gateway resource's `image` field
 - **Container args:** `--config /etc/openshell/gateway.toml`
-- **SecurityContext:** `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`, `readOnlyRootFilesystem: true`
+- **SecurityContext:** `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`
 - **Resource requests:** `cpu: 100m`, `memory: 256Mi`
 - **Resource limits:** `cpu: 500m`, `memory: 512Mi`
 - **Ports:** `grpc: 8080`, `health: 8081`, `metrics: 9090`
@@ -494,13 +495,14 @@ The gateway Deployment SHALL specify:
   - Startup: `GET /healthz` on `health` port (period 2s, failureThreshold 30)
   - Liveness: `GET /healthz` on `health` port (period 5s, failureThreshold 3)
   - Readiness: `GET /readyz` on `health` port (period 2s, failureThreshold 3)
-- **Env vars:** `OPENSHELL_DB_URL` from database credentials Secret
+- **Env vars:**
+  - `OPENSHELL_DB_URL` from Secret `openshell-gateway-db-credentials` key `url`
+  - `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` from Secret `openshell-gateway-credential-kek` key `key-encryption-key`
 - **Volume mounts:**
   - `/etc/openshell` — ConfigMap `openshell-gateway-config` (readOnly)
   - `/etc/openshell-jwt` — Secret `openshell-gateway-jwt-keys` (readOnly)
   - `/etc/openshell-tls/server` — Secret `openshell-server-tls` (readOnly)
-  - `/etc/openshell-tls/client-ca` — Secret `openshell-server-tls` (only `ca.crt` key, readOnly)
-  - `/tmp` — emptyDir (required for readOnlyRootFilesystem)
+  - `/etc/openshell-tls/client-ca` — Secret `openshell-client-tls` (only `ca.crt` key, readOnly)
 
 #### Scenario: Deploy gateway to project namespace
 
@@ -536,6 +538,9 @@ The gateway pod runs as ServiceAccount `openshell-gateway` and needs:
    - apiGroups: [""]
      resources: ["nodes"]
      verbs: ["get", "list", "watch"]
+   - apiGroups: [""]
+     resources: ["namespaces"]
+     verbs: ["get"]
    ```
 
 2. **ClusterRoleBinding `openshell-gateway-node-reader-<tenant-namespace>`**: binds the ClusterRole to `ServiceAccount/openshell-gateway` in the tenant namespace. Each tenant gets a dedicated ClusterRoleBinding with a namespace-qualified name to avoid collisions across tenants. When a Gateway is deleted, the GatewayReconciler SHALL delete the corresponding ClusterRoleBinding.
@@ -593,7 +598,7 @@ The GatewayReconciler SHALL create a Job (`openshell-gateway-certgen`) to genera
 #### Scenario: Certgen job SecurityContext
 
 - GIVEN the certgen job is created
-- THEN the job container SHALL specify: `allowPrivilegeEscalation: false`, `seccompProfile.type: RuntimeDefault`, capabilities `drop: [ALL]`, `runAsNonRoot: true`, `readOnlyRootFilesystem: true`
+- THEN the job container SHALL specify: `allowPrivilegeEscalation: false`, `seccompProfile.type: RuntimeDefault`, capabilities `drop: [ALL]`
 - AND resource requests SHALL be `cpu: 50m`, `memory: 64Mi` with limits `cpu: 200m`, `memory: 128Mi`
 - AND `backoffLimit` SHALL be `3` with `restartPolicy: OnFailure`
 
@@ -654,12 +659,20 @@ sandbox_namespace        = "<tenant-namespace>"
 default_image            = "<sandbox-default-image>"
 supervisor_image         = "<supervisor-image>"
 client_tls_secret_name   = "openshell-client-tls"
+enable_loopback_service_http = true
+policy_validation_failure_mode = "fail_closed"
 server_sans              = [<serverDnsNames from Gateway resource>]
 
 [openshell.gateway.tls]
 cert_path      = "/etc/openshell-tls/server/tls.crt"
 key_path       = "/etc/openshell-tls/server/tls.key"
 client_ca_path = "/etc/openshell-tls/client-ca/ca.crt"
+
+[openshell.gateway.credential_storage]
+key_encryption_key_env = "OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY"
+
+[openshell.gateway.auth]
+allow_unauthenticated_users = false
 
 [openshell.gateway.gateway_jwt]
 signing_key_path = "/etc/openshell-jwt/signing.pem"
@@ -669,11 +682,18 @@ gateway_id       = "openshell-gateway"
 ttl_secs         = 3600
 
 [openshell.drivers.kubernetes]
-grpc_endpoint            = "https://openshell-gateway.<namespace>.svc.cluster.local:8080"
-service_account_name     = "openshell-gateway-sandbox"
+grpc_endpoint              = "https://openshell-gateway.<namespace>.svc.cluster.local:8080"
+service_account_name       = "openshell-gateway-sandbox"
 supervisor_sideload_method = "image-volume"
-sa_token_ttl_secs        = 3600
+sa_token_ttl_secs          = 3600
+app_armor_profile          = "Unconfined"
+topology                   = "single-cluster"
+
+[openshell.drivers.kubernetes.sidecar]
+image = "<supervisor-image>"
 ```
+
+The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.92`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
 
 #### OIDC Section (conditional)
 
@@ -681,8 +701,8 @@ When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OI
 
 #### Auth Section
 
-- When OIDC is enabled: `allow_unauthenticated_users = false`
-- When OIDC is not configured: `allow_unauthenticated_users = true` (dev/testing only)
+- Default: `allow_unauthenticated_users = false`
+- When OIDC is enabled, the reconciler also injects the `[openshell.gateway.oidc]` section
 
 ---
 
@@ -789,6 +809,7 @@ Control Plane
 | `name` | Yes | — | Resource name (typically `openshell-gateway`) |
 | `project` | Yes | — | Project name (determines target namespace) |
 | `image` | No | `OPENSHELL_GATEWAY_IMAGE` env var | Gateway container image reference |
+| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.92` | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | — | DNS names for TLS certificate generation |
 | `oidc` | No | — | OIDC authentication configuration (see OIDC spec) |
 | `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |

@@ -256,6 +256,9 @@ components:
             image:
               type: string
               description: Container image for the gateway deployment
+            supervisor_image:
+              type: string
+              description: Container image for the supervisor sidecar
             server_dns_names:
               type: array
               items:
@@ -313,6 +316,8 @@ components:
         phase:
           type: string
         image:
+          type: string
+        supervisor_image:
           type: string
         server_dns_names:
           type: array

@@ -18,8 +18,9 @@ type Gateway struct {
 	ServiceType    *string `json:"service_type"`
 	Status         *string `json:"status"`
 	Phase          *string `json:"phase"`
-	Image          *string `json:"image"`
-	ServerDnsNames *string `json:"server_dns_names" gorm:"type:jsonb"`
+	Image           *string `json:"image"`
+	SupervisorImage *string `json:"supervisor_image"`
+	ServerDnsNames  *string `json:"server_dns_names" gorm:"type:jsonb"`
 	RouteAddress   *string `json:"route_address"`
 	Oidc           *string `json:"oidc" gorm:"type:jsonb"`
 	Route          *string `json:"route" gorm:"type:jsonb"`
@@ -54,8 +55,9 @@ type GatewayPatchRequest struct {
 	ServiceType    *string `json:"service_type,omitempty"`
 	Status         *string `json:"status,omitempty"`
 	Phase          *string `json:"phase,omitempty"`
-	Image          *string `json:"image,omitempty"`
-	ServerDnsNames *string `json:"server_dns_names,omitempty"`
+	Image           *string `json:"image,omitempty"`
+	SupervisorImage *string `json:"supervisor_image,omitempty"`
+	ServerDnsNames  *string `json:"server_dns_names,omitempty"`
 	RouteAddress   *string `json:"route_address,omitempty"`
 	Oidc           *string `json:"oidc,omitempty"`
 	Route          *string `json:"route,omitempty"`

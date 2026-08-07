@@ -86,6 +86,12 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	manifestJSON := string(jsonBytes)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "NAMESPACE_PLACEHOLDER", namespace)
 
+	supervisorImage := "ghcr.io/nvidia/openshell/supervisor:0.0.92"
+	if config.SupervisorImage != "" {
+		supervisorImage = config.SupervisorImage
+	}
+	manifestJSON = strings.ReplaceAll(manifestJSON, "SUPERVISOR_IMAGE_PLACEHOLDER", supervisorImage)
+
 	image := defaultImage
 	if config.Image != "" {
 		image = config.Image

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: hypershell-db
-  namespace: hypershell-api
+  namespace: hypershell
 type: Opaque
 stringData:
   db.host: hypershell-postgres
@@ -15,7 +15,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hypershell-postgres
-  namespace: hypershell-api
+  namespace: hypershell
 spec:
   selector:
     app: hypershell-postgres
@@ -27,7 +27,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: hypershell-postgres
-  namespace: hypershell-api
+  namespace: hypershell
 spec:
   serviceName: hypershell-postgres
   replicas: 1

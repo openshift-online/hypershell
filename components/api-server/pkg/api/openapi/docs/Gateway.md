@@ -21,6 +21,7 @@ Name | Type | Description | Notes
 **Status** | Pointer to **string** |  | [optional] 
 **Phase** | Pointer to **string** |  | [optional] 
 **Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
+**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional] 
@@ -440,6 +441,31 @@ SetImage sets Image field to given value.
 `func (o *Gateway) HasImage() bool`
 
 HasImage returns a boolean if a field has been set.
+
+### GetSupervisorImage
+
+`func (o *Gateway) GetSupervisorImage() string`
+
+GetSupervisorImage returns the SupervisorImage field if non-nil, zero value otherwise.
+
+### GetSupervisorImageOk
+
+`func (o *Gateway) GetSupervisorImageOk() (*string, bool)`
+
+GetSupervisorImageOk returns a tuple with the SupervisorImage field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetSupervisorImage
+
+`func (o *Gateway) SetSupervisorImage(v string)`
+
+SetSupervisorImage sets SupervisorImage field to given value.
+
+### HasSupervisorImage
+
+`func (o *Gateway) HasSupervisorImage() bool`
+
+HasSupervisorImage returns a boolean if a field has been set.
 
 ### GetServerDnsNames
 

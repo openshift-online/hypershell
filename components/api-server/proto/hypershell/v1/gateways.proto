@@ -20,6 +20,7 @@ message Gateway {
   optional string status = 11;
   optional string phase = 12;
   optional string image = 13;
+  optional string supervisor_image = 19;
   repeated string server_dns_names = 14;
   optional string route_address = 15;
   optional string oidc = 16;
@@ -40,6 +41,7 @@ message CreateGatewayRequest {
   optional string status = 10;
   optional string phase = 11;
   optional string image = 12;
+  optional string supervisor_image = 17;
   repeated string server_dns_names = 13;
   optional string oidc = 14;
   optional string route = 15;
@@ -72,6 +74,7 @@ message UpdateGatewayRequest {
   optional string status = 11;
   optional string phase = 12;
   optional string image = 13;
+  optional string supervisor_image = 19;
   repeated string server_dns_names = 14;
   optional string route_address = 15;
   optional string oidc = 16;

@@ -2247,6 +2247,9 @@ components:
           image:
             description: Container image for the gateway deployment
             type: string
+          supervisor_image:
+            description: Container image for the supervisor sidecar
+            type: string
           server_dns_names:
             description: DNS names for TLS certificate SANs
             items:
@@ -2284,6 +2287,7 @@ components:
         created_at: 2000-01-23T04:56:07.000+00:00
         route_address: route_address
         oidc: oidc
+        supervisor_image: supervisor_image
         cluster_id: cluster_id
         service_type: service_type
         tls_mode: tls_mode
@@ -2327,6 +2331,7 @@ components:
           created_at: 2000-01-23T04:56:07.000+00:00
           route_address: route_address
           oidc: oidc
+          supervisor_image: supervisor_image
           cluster_id: cluster_id
           service_type: service_type
           tls_mode: tls_mode
@@ -2351,6 +2356,7 @@ components:
           created_at: 2000-01-23T04:56:07.000+00:00
           route_address: route_address
           oidc: oidc
+          supervisor_image: supervisor_image
           cluster_id: cluster_id
           service_type: service_type
           tls_mode: tls_mode
@@ -2375,6 +2381,7 @@ components:
         - server_dns_names
         route_address: route_address
         oidc: oidc
+        supervisor_image: supervisor_image
         cluster_id: cluster_id
         service_type: service_type
         tls_mode: tls_mode
@@ -2410,6 +2417,8 @@ components:
         phase:
           type: string
         image:
+          type: string
+        supervisor_image:
           type: string
         server_dns_names:
           items:
