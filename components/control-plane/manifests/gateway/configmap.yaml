@@ -51,7 +51,7 @@ data:
     supervisor_sideload_method   = "image-volume"
     sa_token_ttl_secs            = 3600
     app_armor_profile            = "Unconfined"
-    topology                     = "single-cluster"
+    topology                     = "combined"
 
     [openshell.drivers.kubernetes.sidecar]
     proxy_uid                    = 1337
