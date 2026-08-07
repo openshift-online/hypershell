@@ -42,7 +42,7 @@
     "@types/react-dom": "19.2.3",
     "@vitest/coverage-v8": "4.1.10",
     "eslint": "9.39.5",
-    "eslint-plugin-formatjs": "6.4.19",
+    "eslint-plugin-formatjs": "6.4.20",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react-compiler": "19.1.0-rc.2",
     "eslint-plugin-react-hooks": "7.1.1",
