@@ -693,7 +693,7 @@ topology                   = "single-cluster"
 image = "<supervisor-image>"
 ```
 
-The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.92`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
+The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.101`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
 
 #### OIDC Section (conditional)
 
@@ -809,7 +809,7 @@ Control Plane
 | `name` | Yes | — | Resource name (typically `openshell-gateway`) |
 | `project` | Yes | — | Project name (determines target namespace) |
 | `image` | No | `OPENSHELL_GATEWAY_IMAGE` env var | Gateway container image reference |
-| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.92` | Supervisor sidecar container image |
+| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.101` | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | — | DNS names for TLS certificate generation |
 | `oidc` | No | — | OIDC authentication configuration (see OIDC spec) |
 | `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |

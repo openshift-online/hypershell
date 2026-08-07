@@ -1,5 +1,14 @@
 package gateway
 
+// TODO: Move default image versions into the hypershell database so they can be
+// updated dynamically without downtime and vary by region/group. Use a versions
+// table for each OpenShell release and a gatewayVersion join table to associate
+// gateways with specific version sets.
+const (
+	DefaultGatewayImage    = "ghcr.io/nvidia/openshell/gateway:0.0.101"
+	DefaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:0.0.101"
+)
+
 type NamespaceConfig struct {
 	Name    string        `yaml:"name"`
 	Gateway GatewayConfig `yaml:"gateway"`
