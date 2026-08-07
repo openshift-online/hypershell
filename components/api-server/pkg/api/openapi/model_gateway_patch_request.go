@@ -19,12 +19,12 @@ var _ MappedNullable = &GatewayPatchRequest{}
 
 // GatewayPatchRequest struct for GatewayPatchRequest
 type GatewayPatchRequest struct {
-	Name        *string `json:"name,omitempty"`
-	FleetId     *string `json:"fleet_id,omitempty"`
-	ClusterId   *string `json:"cluster_id,omitempty"`
-	ReleaseId   *string `json:"release_id,omitempty"`
-	DatabaseId  *string `json:"database_id,omitempty"`
-	Namespace   *string `json:"namespace,omitempty"`
+	Name           *string  `json:"name,omitempty"`
+	FleetId        *string  `json:"fleet_id,omitempty"`
+	ClusterId      *string  `json:"cluster_id,omitempty"`
+	ReleaseId      *string  `json:"release_id,omitempty"`
+	DatabaseId     *string  `json:"database_id,omitempty"`
+	Namespace      *string  `json:"namespace,omitempty"`
 	ExternalDns    *string  `json:"external_dns,omitempty"`
 	TlsMode        *string  `json:"tls_mode,omitempty"`
 	ServiceType    *string  `json:"service_type,omitempty"`

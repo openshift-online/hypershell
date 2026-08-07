@@ -22,28 +22,28 @@ var _ MappedNullable = &Gateway{}
 
 // Gateway struct for Gateway
 type Gateway struct {
-	Id          *string    `json:"id,omitempty"`
-	Kind        *string    `json:"kind,omitempty"`
-	Href        *string    `json:"href,omitempty"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-	Name        string     `json:"name"`
-	FleetId     string     `json:"fleet_id"`
-	ClusterId   string     `json:"cluster_id"`
-	ReleaseId   string     `json:"release_id"`
-	DatabaseId  string     `json:"database_id"`
-	Namespace   string     `json:"namespace"`
-	ExternalDns    *string   `json:"external_dns,omitempty"`
-	TlsMode        *string   `json:"tls_mode,omitempty"`
-	ServiceType    *string   `json:"service_type,omitempty"`
-	Status         *string   `json:"status,omitempty"`
-	Phase          *string   `json:"phase,omitempty"`
-	Image          *string   `json:"image,omitempty"`
-	ServerDnsNames []string  `json:"server_dns_names,omitempty"`
-	RouteAddress   *string   `json:"route_address,omitempty"`
-	Oidc           *string   `json:"oidc,omitempty"`
-	Route          *string   `json:"route,omitempty"`
-	DatabaseConfig *string   `json:"database_config,omitempty"`
+	Id             *string    `json:"id,omitempty"`
+	Kind           *string    `json:"kind,omitempty"`
+	Href           *string    `json:"href,omitempty"`
+	CreatedAt      *time.Time `json:"created_at,omitempty"`
+	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
+	Name           string     `json:"name"`
+	FleetId        string     `json:"fleet_id"`
+	ClusterId      string     `json:"cluster_id"`
+	ReleaseId      string     `json:"release_id"`
+	DatabaseId     string     `json:"database_id"`
+	Namespace      string     `json:"namespace"`
+	ExternalDns    *string    `json:"external_dns,omitempty"`
+	TlsMode        *string    `json:"tls_mode,omitempty"`
+	ServiceType    *string    `json:"service_type,omitempty"`
+	Status         *string    `json:"status,omitempty"`
+	Phase          *string    `json:"phase,omitempty"`
+	Image          *string    `json:"image,omitempty"`
+	ServerDnsNames []string   `json:"server_dns_names,omitempty"`
+	RouteAddress   *string    `json:"route_address,omitempty"`
+	Oidc           *string    `json:"oidc,omitempty"`
+	Route          *string    `json:"route,omitempty"`
+	DatabaseConfig *string    `json:"database_config,omitempty"`
 }
 
 type _Gateway Gateway
