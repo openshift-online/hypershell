@@ -1,0 +1,43 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "timezone": "America/New_York",
+  "schedule": ["* 0-7 * * 1"],
+  "minimumReleaseAge": "14 days",
+  "internalChecksFilter": "strict",
+  "prConcurrentLimit": 6,
+  "packageRules": [
+    {
+      "description": "Group non-major Go indirect dependencies",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "matchUpdateTypes": ["digest", "minor", "patch"],
+      "groupName": "Go indirect dependencies"
+    },
+    {
+      "description": "Group non-major npm development dependencies",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["digest", "minor", "patch", "pin", "pinDigest"],
+      "groupName": "npm development dependencies"
+    },
+    {
+      "description": "Group non-major npm production dependencies",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies", "optionalDependencies"],
+      "matchUpdateTypes": ["digest", "minor", "patch", "pin", "pinDigest"],
+      "groupName": "npm production dependencies"
+    },
+    {
+      "description": "Group container image updates",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["digest", "minor", "patch", "pinDigest"],
+      "groupName": "container images"
+    },
+    {
+      "description": "Group GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["digest", "minor", "patch", "pinDigest"],
+      "groupName": "GitHub Actions"
+    }
+  ]
+}
