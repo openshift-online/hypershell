@@ -77,8 +77,9 @@ help:
 	@echo ""
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
-	@echo "    web-console-image        Build web console container image"
-	@echo "    web-console-dev          (deprecated: use 'make kind-web-console-up')"
+	@echo "    build-api-server         Build API server container image"
+	@echo "    build-controller         Build control plane container image"
+	@echo "    build-web-console        Build web console container image"
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
@@ -119,13 +120,19 @@ verify-pnpm:
 install-js: verify-pnpm
 	$(PNPM) install --frozen-lockfile
 
-.PHONY: web-console-dev
-web-console-dev:
-	@echo "DEPRECATED: use 'make kind-web-console-up' instead (hot reload with Kind cluster routing)"
-	@exit 1
+.PHONY: build-api-server
+build-api-server:
+	$(CONTAINER_ENGINE) build -t $(api_server_local) \
+		--build-arg GIT_VERSION=$(build_version) --build-arg BUILD_TIME="$(build_time)" \
+		components/api-server
 
-.PHONY: web-console-image
-web-console-image:
+.PHONY: build-controller
+build-controller:
+	$(CONTAINER_ENGINE) build -t $(control_plane_local) \
+		-f components/control-plane/Dockerfile .
+
+.PHONY: build-web-console
+build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
 		-f components/web-console/Dockerfile .
 
