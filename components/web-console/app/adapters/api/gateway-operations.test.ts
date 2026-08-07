@@ -50,6 +50,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     server_dns_names: "",
     service_type: "",
     status: "Ready",
+    supervisor_image: "",
     tls_mode: "",
     updated_at: null,
     ...overrides,
