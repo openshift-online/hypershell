@@ -31,7 +31,7 @@ Developers selectively swap individual components with local builds using per-co
 
 `make kind-up` SHALL install the Gateway API CRDs before starting cloud-provider-kind. The CRDs SHALL be applied from the upstream release bundle (`https://github.com/kubernetes-sigs/gateway-api/releases/download/<version>/experimental-install.yaml`) using the `experimental` channel, which includes BackendTLSPolicy. The version SHALL be pinned via a `GATEWAY_API_VERSION` variable. On OpenShift 4.19+ these CRDs ship by default; on Kind they must be installed explicitly.
 
-[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Gateway API CRDs are installed and the Kind cluster is created. It provides LoadBalancer service support and acts as a Gateway API controller, implementing the GatewayClass and proxying traffic for GRPCRoute resources. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL use port mapping to expose LoadBalancer services on `localhost`. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
+[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Gateway API CRDs are installed and the Kind cluster is created. It provides LoadBalancer service support and acts as a Gateway API controller, implementing the GatewayClass and proxying traffic for GRPCRoute resources. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL be started with `--enable-lb-port-mapping` to expose Gateway listeners on the host via ephemeral ports. The assigned port is not configurable — cloud-provider-kind allocates an ephemeral host port per listener ([kubernetes-sigs/cloud-provider-kind#417](https://github.com/kubernetes-sigs/cloud-provider-kind/issues/417)). `make kind-up` SHALL discover the mapped HTTPS port from the Docker proxy container (`kindccm-gw-*`) and include it in all banner URLs. Kind's `extraPortMappings` SHALL NOT be used for Gateway ports — they conflict with cloud-provider-kind's own `--publish` flags on the envoy container. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.21.1`).
 
@@ -416,26 +416,27 @@ The system SHALL accept a `KIND_CLUSTER_NAME` environment variable to control th
 
 ### Requirement: Hostname-Based Service Access
 
-All services SHALL be accessible via `.localhost` hostnames routed through the networking Gateway (see Gateway API Routing). The system SHALL NOT use `kubectl port-forward` for service access.
+All services SHALL be accessible via `.localhost` hostnames routed through the networking Gateway (see Gateway API Routing). The system SHALL NOT use `kubectl port-forward` for service access. On macOS and Windows, cloud-provider-kind publishes Gateway listeners on ephemeral host ports ([kubernetes-sigs/cloud-provider-kind#417](https://github.com/kubernetes-sigs/cloud-provider-kind/issues/417)), so URLs include the discovered port (e.g. `https://console.hypershell.localhost:<PORT>`).
 
 | Service | Hostname | Purpose |
 |---------|----------|---------|
-| HTTP API | `https://api.hypershell.localhost` | REST API access |
-| Web Console | `https://console.hypershell.localhost` | Browser UI |
-| Health | `https://health.hypershell.localhost` | Health check endpoint |
-| gRPC | `https://<gateway-name>.gw.localhost` | gRPC streaming (control plane, CLI) |
+| HTTP API | `https://api.hypershell.localhost:<PORT>` | REST API access |
+| Web Console | `https://console.hypershell.localhost:<PORT>` | Browser UI |
+| Health | `https://health.hypershell.localhost:<PORT>` | Health check endpoint |
+| gRPC | `https://<gateway-name>.gw.localhost:<PORT>` | gRPC streaming (control plane, CLI) |
 
 `make kind-up` SHALL configure `/etc/hosts` entries for all service hostnames, mapping them to `127.0.0.1`. The developer is prompted for `sudo` on first run. Subsequent runs update entries idempotently. The self-signed TLS certificate issued by cert-manager must be trusted by the developer's browser or CLI tool (e.g. `curl --cacert`).
 
-For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. `make kind-deploy` adds the corresponding `/etc/hosts` entries automatically. No port management is required — each namespace is differentiated by hostname, not port number.
+For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. `make kind-deploy` adds the corresponding `/etc/hosts` entries automatically. All namespaces share the same Gateway and therefore the same ephemeral port — each namespace is differentiated by hostname, not port number.
 
 #### Scenario: Default Access
 - GIVEN no special configuration
 - WHEN `make kind-up` completes
-- THEN the HTTP API SHALL be accessible at `https://api.hypershell.localhost`
-- AND the web console SHALL be accessible at `https://console.hypershell.localhost`
-- AND the health endpoint SHALL be accessible at `https://health.hypershell.localhost`
+- THEN the HTTP API SHALL be accessible at `https://api.hypershell.localhost:<PORT>`
+- AND the web console SHALL be accessible at `https://console.hypershell.localhost:<PORT>`
+- AND the health endpoint SHALL be accessible at `https://health.hypershell.localhost:<PORT>`
 - AND `/etc/hosts` SHALL contain entries for all service hostnames
+- AND the banner SHALL print the discovered `<PORT>` in every URL
 
 #### Scenario: Multi-Namespace Hostname Differentiation
 - GIVEN the default deployment is running in `hypershell-system`
