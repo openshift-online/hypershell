@@ -204,7 +204,6 @@ Use `mcp__jira__jira_create_issue` with:
 `mcp__jira__jira_assign_issue` with `assignee: ""` (empty string) on the new issue key
 to ensure it is **Unassigned**. The project default may auto-assign to a specific user;
 this explicit unassignment overrides that.
-```
 
 **Batch execution order** (the order matters because later steps depend on earlier ones):
 1. Create Epics first — their keys are needed for linking
