@@ -6,6 +6,10 @@ HyperShell provisions and manages [OpenShell](https://github.com/NVIDIA/OpenShel
 
 The control plane requires the following resources to be present on the target cluster before it can fully reconcile gateways.
 
+### Agent Sandbox controller
+
+The [Agent Sandbox controller](https://github.com/kubernetes-sigs/agent-sandbox) (`agents.x-k8s.io`) must be installed on the cluster. Gateway pods manage sandboxes via the `Sandbox` custom resource, and the provisioned RBAC grants permissions on `agents.x-k8s.io/sandboxes`. NetworkPolicies also reference sandbox labels (`agents.x-k8s.io/sandbox-name-hash`) for pod-level traffic control.
+
 ### cert-manager
 
 [cert-manager](https://cert-manager.io/) must be installed for automatic TLS certificate provisioning. The control plane auto-detects cert-manager at startup. If absent, TLS certificates must be provisioned manually via the certgen job.
