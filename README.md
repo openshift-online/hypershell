@@ -32,33 +32,17 @@ A GatewayClass must exist on the cluster for per-tenant Gateway resources to ref
 
 The GatewayClass name is configurable via the `GATEWAY_API_GATEWAY_CLASS` environment variable (default: `openshift-default`).
 
-### Gateway resource and TLS certificate Secret
+### TLS certificate Secret (`grpc-gateway-certs`)
 
-A Gateway API Gateway resource must exist in the ingress namespace to serve as the parent for per-tenant GRPCRoutes. By default the control plane expects a Gateway named `hsgw` in the `openshift-ingress` namespace (configurable via `GATEWAY_API_GATEWAY_NAME` and `GATEWAY_API_GATEWAY_NAMESPACE`).
+A wildcard TLS Secret named `grpc-gateway-certs` must be present in the control plane namespace. The control plane copies this Secret into each tenant namespace when provisioning a gateway. The per-tenant Gateway API Gateway resource references it for HTTPS termination.
 
-The Gateway must reference a TLS certificate Secret (`grpc-gateway-certs`) for HTTPS termination. This is typically a wildcard certificate covering all tenant hostnames under the base domain:
+The Secret must contain `tls.crt` and `tls.key` entries covering all tenant hostnames under the base domain (e.g., `*.hsgw.<base-domain>`).
 
-```yaml
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
-metadata:
-  name: hsgw
-  namespace: openshift-ingress
-spec:
-  gatewayClassName: openshift-default
-  listeners:
-  - name: grpc
-    hostname: "*.hsgw.<base-domain>"
-    port: 443
-    protocol: HTTPS
-    tls:
-      mode: Terminate
-      certificateRefs:
-      - name: grpc-gateway-certs
-        kind: Secret
+```shell
+kubectl -n hypershell create secret tls grpc-gateway-certs \
+  --cert=/path/to/wildcard.crt \
+  --key=/path/to/wildcard.key
 ```
-
-The `grpc-gateway-certs` Secret must contain `tls.crt` and `tls.key` entries and be present in the same namespace as the Gateway resource.
 
 ### Trusted CA bundle (optional)
 
@@ -76,7 +60,6 @@ kubectl -n hypershell create configmap gateway-trusted-ca --from-file=ca-bundle.
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | HTTP address of the API server |
 | `HYPERSHELL_NAMESPACE` | `hypershell` | Namespace the control plane runs in (used for trusted CA bundle source) |
 | `OPENSHELL_GATEWAY_IMAGE` | `ghcr.io/nvidia/openshell/gateway:0.0.92` | Default gateway container image |
-| `GATEWAY_API_GATEWAY_NAME` | `hsgw` | Name of the parent Gateway resource for GRPCRoutes |
-| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace of the parent Gateway resource |
-| `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for auto-derived GRPCRoute hostnames (e.g., `apps.cluster.example.com`) |
+| `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources |
+| `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for auto-derived hostnames (e.g., `apps.cluster.example.com`) |
 | `GATEWAY_MANIFESTS_DIR` | `/manifests/gateway` | Path to gateway manifest templates |
