@@ -297,6 +297,7 @@ if [[ -n "${seed_failed}" ]]; then
 fi
 
 kill "${PF_PID}" 2>/dev/null || true
+wait "${PF_PID}" 2>/dev/null || true
 echo ""
 
 # --- Configure /etc/hosts ---
