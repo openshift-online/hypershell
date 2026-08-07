@@ -15,6 +15,12 @@ Name | Type | Description | Notes
 **ServiceType** | Pointer to **string** |  | [optional] 
 **Status** | Pointer to **string** |  | [optional] 
 **Phase** | Pointer to **string** |  | [optional] 
+**Image** | Pointer to **string** |  | [optional] 
+**ServerDnsNames** | Pointer to **[]string** |  | [optional] 
+**RouteAddress** | Pointer to **string** |  | [optional] 
+**Oidc** | Pointer to **string** |  | [optional] 
+**Route** | Pointer to **string** |  | [optional] 
+**DatabaseConfig** | Pointer to **string** |  | [optional] 
 
 ## Methods
 
@@ -309,6 +315,156 @@ SetPhase sets Phase field to given value.
 `func (o *GatewayPatchRequest) HasPhase() bool`
 
 HasPhase returns a boolean if a field has been set.
+
+### GetImage
+
+`func (o *GatewayPatchRequest) GetImage() string`
+
+GetImage returns the Image field if non-nil, zero value otherwise.
+
+### GetImageOk
+
+`func (o *GatewayPatchRequest) GetImageOk() (*string, bool)`
+
+GetImageOk returns a tuple with the Image field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetImage
+
+`func (o *GatewayPatchRequest) SetImage(v string)`
+
+SetImage sets Image field to given value.
+
+### HasImage
+
+`func (o *GatewayPatchRequest) HasImage() bool`
+
+HasImage returns a boolean if a field has been set.
+
+### GetServerDnsNames
+
+`func (o *GatewayPatchRequest) GetServerDnsNames() []string`
+
+GetServerDnsNames returns the ServerDnsNames field if non-nil, zero value otherwise.
+
+### GetServerDnsNamesOk
+
+`func (o *GatewayPatchRequest) GetServerDnsNamesOk() (*[]string, bool)`
+
+GetServerDnsNamesOk returns a tuple with the ServerDnsNames field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetServerDnsNames
+
+`func (o *GatewayPatchRequest) SetServerDnsNames(v []string)`
+
+SetServerDnsNames sets ServerDnsNames field to given value.
+
+### HasServerDnsNames
+
+`func (o *GatewayPatchRequest) HasServerDnsNames() bool`
+
+HasServerDnsNames returns a boolean if a field has been set.
+
+### GetRouteAddress
+
+`func (o *GatewayPatchRequest) GetRouteAddress() string`
+
+GetRouteAddress returns the RouteAddress field if non-nil, zero value otherwise.
+
+### GetRouteAddressOk
+
+`func (o *GatewayPatchRequest) GetRouteAddressOk() (*string, bool)`
+
+GetRouteAddressOk returns a tuple with the RouteAddress field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRouteAddress
+
+`func (o *GatewayPatchRequest) SetRouteAddress(v string)`
+
+SetRouteAddress sets RouteAddress field to given value.
+
+### HasRouteAddress
+
+`func (o *GatewayPatchRequest) HasRouteAddress() bool`
+
+HasRouteAddress returns a boolean if a field has been set.
+
+### GetOidc
+
+`func (o *GatewayPatchRequest) GetOidc() string`
+
+GetOidc returns the Oidc field if non-nil, zero value otherwise.
+
+### GetOidcOk
+
+`func (o *GatewayPatchRequest) GetOidcOk() (*string, bool)`
+
+GetOidcOk returns a tuple with the Oidc field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetOidc
+
+`func (o *GatewayPatchRequest) SetOidc(v string)`
+
+SetOidc sets Oidc field to given value.
+
+### HasOidc
+
+`func (o *GatewayPatchRequest) HasOidc() bool`
+
+HasOidc returns a boolean if a field has been set.
+
+### GetRoute
+
+`func (o *GatewayPatchRequest) GetRoute() string`
+
+GetRoute returns the Route field if non-nil, zero value otherwise.
+
+### GetRouteOk
+
+`func (o *GatewayPatchRequest) GetRouteOk() (*string, bool)`
+
+GetRouteOk returns a tuple with the Route field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRoute
+
+`func (o *GatewayPatchRequest) SetRoute(v string)`
+
+SetRoute sets Route field to given value.
+
+### HasRoute
+
+`func (o *GatewayPatchRequest) HasRoute() bool`
+
+HasRoute returns a boolean if a field has been set.
+
+### GetDatabaseConfig
+
+`func (o *GatewayPatchRequest) GetDatabaseConfig() string`
+
+GetDatabaseConfig returns the DatabaseConfig field if non-nil, zero value otherwise.
+
+### GetDatabaseConfigOk
+
+`func (o *GatewayPatchRequest) GetDatabaseConfigOk() (*string, bool)`
+
+GetDatabaseConfigOk returns a tuple with the DatabaseConfig field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDatabaseConfig
+
+`func (o *GatewayPatchRequest) SetDatabaseConfig(v string)`
+
+SetDatabaseConfig sets DatabaseConfig field to given value.
+
+### HasDatabaseConfig
+
+`func (o *GatewayPatchRequest) HasDatabaseConfig() bool`
+
+HasDatabaseConfig returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

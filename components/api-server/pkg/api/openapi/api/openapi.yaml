@@ -2244,6 +2244,27 @@ components:
             type: string
           phase:
             type: string
+          image:
+            description: Container image for the gateway deployment
+            type: string
+          server_dns_names:
+            description: DNS names for TLS certificate SANs
+            items:
+              type: string
+            type: array
+          route_address:
+            description: External route address populated by the control plane
+            readOnly: true
+            type: string
+          oidc:
+            description: JSON-encoded OIDC authentication configuration
+            type: string
+          route:
+            description: JSON-encoded route configuration
+            type: string
+          database_config:
+            description: JSON-encoded database provisioning configuration
+            type: string
         required:
         - cluster_id
         - database_id
@@ -2255,13 +2276,21 @@ components:
       example:
         phase: phase
         release_id: release_id
+        image: image
         kind: kind
+        server_dns_names:
+        - server_dns_names
+        - server_dns_names
         created_at: 2000-01-23T04:56:07.000+00:00
+        route_address: route_address
+        oidc: oidc
         cluster_id: cluster_id
         service_type: service_type
         tls_mode: tls_mode
+        route: route
         updated_at: 2000-01-23T04:56:07.000+00:00
         database_id: database_id
+        database_config: database_config
         name: name
         namespace: namespace
         id: id
@@ -2290,13 +2319,21 @@ components:
         items:
         - phase: phase
           release_id: release_id
+          image: image
           kind: kind
+          server_dns_names:
+          - server_dns_names
+          - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
+          route_address: route_address
+          oidc: oidc
           cluster_id: cluster_id
           service_type: service_type
           tls_mode: tls_mode
+          route: route
           updated_at: 2000-01-23T04:56:07.000+00:00
           database_id: database_id
+          database_config: database_config
           name: name
           namespace: namespace
           id: id
@@ -2306,13 +2343,21 @@ components:
           status: status
         - phase: phase
           release_id: release_id
+          image: image
           kind: kind
+          server_dns_names:
+          - server_dns_names
+          - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
+          route_address: route_address
+          oidc: oidc
           cluster_id: cluster_id
           service_type: service_type
           tls_mode: tls_mode
+          route: route
           updated_at: 2000-01-23T04:56:07.000+00:00
           database_id: database_id
+          database_config: database_config
           name: name
           namespace: namespace
           id: id
@@ -2324,10 +2369,18 @@ components:
       example:
         phase: phase
         release_id: release_id
+        image: image
+        server_dns_names:
+        - server_dns_names
+        - server_dns_names
+        route_address: route_address
+        oidc: oidc
         cluster_id: cluster_id
         service_type: service_type
         tls_mode: tls_mode
+        route: route
         database_id: database_id
+        database_config: database_config
         name: name
         namespace: namespace
         fleet_id: fleet_id
@@ -2355,6 +2408,20 @@ components:
         status:
           type: string
         phase:
+          type: string
+        image:
+          type: string
+        server_dns_names:
+          items:
+            type: string
+          type: array
+        route_address:
+          type: string
+        oidc:
+          type: string
+        route:
+          type: string
+        database_config:
           type: string
       type: object
     GatewayNetwork:

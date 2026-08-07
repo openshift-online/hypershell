@@ -20,6 +20,12 @@ Name | Type | Description | Notes
 **ServiceType** | Pointer to **string** |  | [optional] 
 **Status** | Pointer to **string** |  | [optional] 
 **Phase** | Pointer to **string** |  | [optional] 
+**Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
+**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
+**RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
+**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional] 
+**Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
+**DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
 
 ## Methods
 
@@ -409,6 +415,156 @@ SetPhase sets Phase field to given value.
 `func (o *Gateway) HasPhase() bool`
 
 HasPhase returns a boolean if a field has been set.
+
+### GetImage
+
+`func (o *Gateway) GetImage() string`
+
+GetImage returns the Image field if non-nil, zero value otherwise.
+
+### GetImageOk
+
+`func (o *Gateway) GetImageOk() (*string, bool)`
+
+GetImageOk returns a tuple with the Image field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetImage
+
+`func (o *Gateway) SetImage(v string)`
+
+SetImage sets Image field to given value.
+
+### HasImage
+
+`func (o *Gateway) HasImage() bool`
+
+HasImage returns a boolean if a field has been set.
+
+### GetServerDnsNames
+
+`func (o *Gateway) GetServerDnsNames() []string`
+
+GetServerDnsNames returns the ServerDnsNames field if non-nil, zero value otherwise.
+
+### GetServerDnsNamesOk
+
+`func (o *Gateway) GetServerDnsNamesOk() (*[]string, bool)`
+
+GetServerDnsNamesOk returns a tuple with the ServerDnsNames field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetServerDnsNames
+
+`func (o *Gateway) SetServerDnsNames(v []string)`
+
+SetServerDnsNames sets ServerDnsNames field to given value.
+
+### HasServerDnsNames
+
+`func (o *Gateway) HasServerDnsNames() bool`
+
+HasServerDnsNames returns a boolean if a field has been set.
+
+### GetRouteAddress
+
+`func (o *Gateway) GetRouteAddress() string`
+
+GetRouteAddress returns the RouteAddress field if non-nil, zero value otherwise.
+
+### GetRouteAddressOk
+
+`func (o *Gateway) GetRouteAddressOk() (*string, bool)`
+
+GetRouteAddressOk returns a tuple with the RouteAddress field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRouteAddress
+
+`func (o *Gateway) SetRouteAddress(v string)`
+
+SetRouteAddress sets RouteAddress field to given value.
+
+### HasRouteAddress
+
+`func (o *Gateway) HasRouteAddress() bool`
+
+HasRouteAddress returns a boolean if a field has been set.
+
+### GetOidc
+
+`func (o *Gateway) GetOidc() string`
+
+GetOidc returns the Oidc field if non-nil, zero value otherwise.
+
+### GetOidcOk
+
+`func (o *Gateway) GetOidcOk() (*string, bool)`
+
+GetOidcOk returns a tuple with the Oidc field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetOidc
+
+`func (o *Gateway) SetOidc(v string)`
+
+SetOidc sets Oidc field to given value.
+
+### HasOidc
+
+`func (o *Gateway) HasOidc() bool`
+
+HasOidc returns a boolean if a field has been set.
+
+### GetRoute
+
+`func (o *Gateway) GetRoute() string`
+
+GetRoute returns the Route field if non-nil, zero value otherwise.
+
+### GetRouteOk
+
+`func (o *Gateway) GetRouteOk() (*string, bool)`
+
+GetRouteOk returns a tuple with the Route field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRoute
+
+`func (o *Gateway) SetRoute(v string)`
+
+SetRoute sets Route field to given value.
+
+### HasRoute
+
+`func (o *Gateway) HasRoute() bool`
+
+HasRoute returns a boolean if a field has been set.
+
+### GetDatabaseConfig
+
+`func (o *Gateway) GetDatabaseConfig() string`
+
+GetDatabaseConfig returns the DatabaseConfig field if non-nil, zero value otherwise.
+
+### GetDatabaseConfigOk
+
+`func (o *Gateway) GetDatabaseConfigOk() (*string, bool)`
+
+GetDatabaseConfigOk returns a tuple with the DatabaseConfig field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDatabaseConfig
+
+`func (o *Gateway) SetDatabaseConfig(v string)`
+
+SetDatabaseConfig sets DatabaseConfig field to given value.
+
+### HasDatabaseConfig
+
+`func (o *Gateway) HasDatabaseConfig() bool`
+
+HasDatabaseConfig returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
