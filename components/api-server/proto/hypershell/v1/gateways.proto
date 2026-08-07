@@ -19,6 +19,12 @@ message Gateway {
   optional string service_type = 10;
   optional string status = 11;
   optional string phase = 12;
+  optional string image = 13;
+  repeated string server_dns_names = 14;
+  optional string route_address = 15;
+  optional string oidc = 16;
+  optional string route = 17;
+  optional string database_config = 18;
 }
 
 message CreateGatewayRequest {
@@ -33,6 +39,11 @@ message CreateGatewayRequest {
   optional string service_type = 9;
   optional string status = 10;
   optional string phase = 11;
+  optional string image = 12;
+  repeated string server_dns_names = 13;
+  optional string oidc = 14;
+  optional string route = 15;
+  optional string database_config = 16;
 }
 
 message CreateGatewayResponse {
@@ -60,6 +71,12 @@ message UpdateGatewayRequest {
   optional string service_type = 10;
   optional string status = 11;
   optional string phase = 12;
+  optional string image = 13;
+  repeated string server_dns_names = 14;
+  optional string route_address = 15;
+  optional string oidc = 16;
+  optional string route = 17;
+  optional string database_config = 18;
 }
 
 message UpdateGatewayResponse {

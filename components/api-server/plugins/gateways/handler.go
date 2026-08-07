@@ -1,6 +1,7 @@
 package gateways
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -94,6 +95,26 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			}
 			if patch.Phase != nil {
 				found.Phase = patch.Phase
+			}
+			if patch.Image != nil {
+				found.Image = patch.Image
+			}
+			if len(patch.ServerDnsNames) > 0 {
+				data, _ := json.Marshal(patch.ServerDnsNames)
+				s := string(data)
+				found.ServerDnsNames = &s
+			}
+			if patch.RouteAddress != nil {
+				found.RouteAddress = patch.RouteAddress
+			}
+			if patch.Oidc != nil {
+				found.Oidc = patch.Oidc
+			}
+			if patch.Route != nil {
+				found.Route = patch.Route
+			}
+			if patch.DatabaseConfig != nil {
+				found.DatabaseConfig = patch.DatabaseConfig
 			}
 
 			gatewayModel, err := h.gateway.Replace(ctx, found)

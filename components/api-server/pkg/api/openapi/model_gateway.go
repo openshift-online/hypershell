@@ -33,11 +33,17 @@ type Gateway struct {
 	ReleaseId   string     `json:"release_id"`
 	DatabaseId  string     `json:"database_id"`
 	Namespace   string     `json:"namespace"`
-	ExternalDns *string    `json:"external_dns,omitempty"`
-	TlsMode     *string    `json:"tls_mode,omitempty"`
-	ServiceType *string    `json:"service_type,omitempty"`
-	Status      *string    `json:"status,omitempty"`
-	Phase       *string    `json:"phase,omitempty"`
+	ExternalDns    *string   `json:"external_dns,omitempty"`
+	TlsMode        *string   `json:"tls_mode,omitempty"`
+	ServiceType    *string   `json:"service_type,omitempty"`
+	Status         *string   `json:"status,omitempty"`
+	Phase          *string   `json:"phase,omitempty"`
+	Image          *string   `json:"image,omitempty"`
+	ServerDnsNames []string  `json:"server_dns_names,omitempty"`
+	RouteAddress   *string   `json:"route_address,omitempty"`
+	Oidc           *string   `json:"oidc,omitempty"`
+	Route          *string   `json:"route,omitempty"`
+	DatabaseConfig *string   `json:"database_config,omitempty"`
 }
 
 type _Gateway Gateway
@@ -574,6 +580,24 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Phase) {
 		toSerialize["phase"] = o.Phase
+	}
+	if !IsNil(o.Image) {
+		toSerialize["image"] = o.Image
+	}
+	if len(o.ServerDnsNames) > 0 {
+		toSerialize["server_dns_names"] = o.ServerDnsNames
+	}
+	if !IsNil(o.RouteAddress) {
+		toSerialize["route_address"] = o.RouteAddress
+	}
+	if !IsNil(o.Oidc) {
+		toSerialize["oidc"] = o.Oidc
+	}
+	if !IsNil(o.Route) {
+		toSerialize["route"] = o.Route
+	}
+	if !IsNil(o.DatabaseConfig) {
+		toSerialize["database_config"] = o.DatabaseConfig
 	}
 	return toSerialize, nil
 }

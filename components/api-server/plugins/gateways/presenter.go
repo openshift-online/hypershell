@@ -1,6 +1,8 @@
 package gateways
 
 import (
+	"encoding/json"
+
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
@@ -24,6 +26,17 @@ func ConvertGateway(gateway openapi.Gateway) *Gateway {
 	c.ServiceType = gateway.ServiceType
 	c.Status = gateway.Status
 	c.Phase = gateway.Phase
+	c.Image = gateway.Image
+	c.RouteAddress = gateway.RouteAddress
+	c.Oidc = gateway.Oidc
+	c.Route = gateway.Route
+	c.DatabaseConfig = gateway.DatabaseConfig
+
+	if len(gateway.ServerDnsNames) > 0 {
+		data, _ := json.Marshal(gateway.ServerDnsNames)
+		s := string(data)
+		c.ServerDnsNames = &s
+	}
 
 	if gateway.CreatedAt != nil {
 		c.CreatedAt = *gateway.CreatedAt
@@ -35,22 +48,36 @@ func ConvertGateway(gateway openapi.Gateway) *Gateway {
 
 func PresentGateway(gateway *Gateway) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
-	return openapi.Gateway{
-		Id:          reference.Id,
-		Kind:        reference.Kind,
-		Href:        reference.Href,
-		CreatedAt:   openapi.PtrTime(gateway.CreatedAt),
-		UpdatedAt:   openapi.PtrTime(gateway.UpdatedAt),
-		Name:        gateway.Name,
-		FleetId:     gateway.FleetId,
-		ClusterId:   gateway.ClusterId,
-		ReleaseId:   gateway.ReleaseId,
-		DatabaseId:  gateway.DatabaseId,
-		Namespace:   gateway.Namespace,
-		ExternalDns: gateway.ExternalDns,
-		TlsMode:     gateway.TlsMode,
-		ServiceType: gateway.ServiceType,
-		Status:      gateway.Status,
-		Phase:       gateway.Phase,
+	g := openapi.Gateway{
+		Id:             reference.Id,
+		Kind:           reference.Kind,
+		Href:           reference.Href,
+		CreatedAt:      openapi.PtrTime(gateway.CreatedAt),
+		UpdatedAt:      openapi.PtrTime(gateway.UpdatedAt),
+		Name:           gateway.Name,
+		FleetId:        gateway.FleetId,
+		ClusterId:      gateway.ClusterId,
+		ReleaseId:      gateway.ReleaseId,
+		DatabaseId:     gateway.DatabaseId,
+		Namespace:      gateway.Namespace,
+		ExternalDns:    gateway.ExternalDns,
+		TlsMode:        gateway.TlsMode,
+		ServiceType:    gateway.ServiceType,
+		Status:         gateway.Status,
+		Phase:          gateway.Phase,
+		Image:          gateway.Image,
+		RouteAddress:   gateway.RouteAddress,
+		Oidc:           gateway.Oidc,
+		Route:          gateway.Route,
+		DatabaseConfig: gateway.DatabaseConfig,
 	}
+
+	if gateway.ServerDnsNames != nil {
+		var names []string
+		if err := json.Unmarshal([]byte(*gateway.ServerDnsNames), &names); err == nil {
+			g.ServerDnsNames = names
+		}
+	}
+
+	return g
 }

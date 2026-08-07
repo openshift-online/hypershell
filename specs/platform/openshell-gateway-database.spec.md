@@ -56,7 +56,7 @@ The GatewayReconciler SHALL provision:
 5. **NetworkPolicy** (`openshell-gateway-db`)
    - Allow ingress only from gateway pods (same labels)
 
-All database resources SHALL carry ownerReferences to the gateway workload for cascading deletion.
+All database resources SHALL carry the label `hypershell.redhat.io/managed: "true"`. On gateway deletion, the control plane SHALL explicitly delete all labelled resources from the tenant namespace (label-based cleanup). ownerReferences are not used because database resources are created before the gateway Deployment exists.
 
 ---
 
@@ -130,8 +130,8 @@ A Gateway SHALL NOT be deleted if active sandboxes exist. This prevents orphaned
 
 - GIVEN a Gateway with no active sandboxes
 - WHEN a user deletes the Gateway
-- THEN all database resources SHALL be cleaned up via ownerReferences (cascading deletion)
-- AND the database PVC SHALL be deleted with the rest of the resources
+- THEN the control plane SHALL delete all resources with label `hypershell.redhat.io/managed: "true"` from the tenant namespace (explicit label-based cleanup)
+- AND the database PVC SHALL be deleted with the rest of the labelled resources
 
 ---
 

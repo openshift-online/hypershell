@@ -74,12 +74,125 @@ func ReconcileGateway(
 	}
 
 	if opts.HasGatewayAPI {
-		if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
-			log.Printf("WARN failed to reconcile Gateway API resources in %s: %v", nsConfig.Name, err)
+		if nsConfig.Gateway.Route.Enabled {
+			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
+				log.Printf("WARN failed to reconcile Gateway API resources in %s: %v", nsConfig.Name, err)
+			}
+		} else {
+			if err := deleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name); err != nil {
+				log.Printf("WARN failed to remove Gateway API resources in %s: %v", nsConfig.Name, err)
+			}
 		}
 	}
 
 	log.Printf("INFO gateway reconciled in namespace %s", nsConfig.Name)
+	return nil
+}
+
+func DeleteGatewayResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
+	namespace string,
+	opts ReconcileOpts,
+) error {
+	labelSelector := "hypershell.redhat.io/managed=true"
+
+	namespacedResources := []schema.GroupVersionResource{
+		{Group: "apps", Version: "v1", Resource: "deployments"},
+		{Version: "v1", Resource: "services"},
+		{Version: "v1", Resource: "configmaps"},
+		{Version: "v1", Resource: "serviceaccounts"},
+		{Version: "v1", Resource: "secrets"},
+		{Version: "v1", Resource: "persistentvolumeclaims"},
+		{Group: "batch", Version: "v1", Resource: "jobs"},
+		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
+	}
+
+	if opts.IsOpenShift {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
+		)
+	}
+
+	if opts.HasCertManager {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
+		)
+	}
+
+	if opts.HasGatewayAPI {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1alpha3", Resource: "backendtlspolicies"},
+		)
+	}
+
+	for _, gvr := range namespacedResources {
+		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				continue
+			}
+			log.Printf("WARN failed to list %s in %s: %v", gvr.Resource, namespace, err)
+			continue
+		}
+		for _, item := range list.Items {
+			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+				log.Printf("WARN failed to delete %s %s in %s: %v", gvr.Resource, item.GetName(), namespace, err)
+			} else {
+				log.Printf("INFO deleted %s %s from %s", gvr.Resource, item.GetName(), namespace)
+			}
+		}
+	}
+
+	crbGVR := schema.GroupVersionResource{
+		Group:    "rbac.authorization.k8s.io",
+		Version:  "v1",
+		Resource: "clusterrolebindings",
+	}
+	crbName := fmt.Sprintf("openshell-gateway-node-reader-%s", namespace)
+	if err := dynamicClient.Resource(crbGVR).Delete(ctx, crbName, metav1.DeleteOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete ClusterRoleBinding %s: %v", crbName, err)
+		}
+	} else {
+		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
+	}
+
+	log.Printf("INFO gateway resources cleaned up from namespace %s", namespace)
+	return nil
+}
+
+func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string) error {
+	grpcRouteGVR := schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1",
+		Resource: "grpcroutes",
+	}
+	if err := dynamicClient.Resource(grpcRouteGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete GRPCRoute: %v", err)
+	}
+
+	btlsGVR := schema.GroupVersionResource{
+		Group:    "gateway.networking.k8s.io",
+		Version:  "v1alpha3",
+		Resource: "backendtlspolicies",
+	}
+	if err := dynamicClient.Resource(btlsGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete BackendTLSPolicy: %v", err)
+	}
+
+	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "openshell-backend-ca", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete backend CA ConfigMap: %v", err)
+	}
+
+	log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
 	return nil
 }
 
@@ -708,10 +821,6 @@ func DetectGatewayAPI(clientset *kubernetes.Clientset) bool {
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig) error {
 	namespace := nsConfig.Name
 	routeConfig := nsConfig.Gateway.Route
-
-	if !routeConfig.Enabled {
-		return nil
-	}
 
 	gatewayName := os.Getenv("GATEWAY_API_GATEWAY_NAME")
 	if gatewayName == "" {

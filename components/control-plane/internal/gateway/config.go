@@ -15,23 +15,24 @@ type GatewayConfig struct {
 }
 
 type RouteConfig struct {
-	Host    string `yaml:"host"`
-	Enabled bool   `yaml:"enabled"`
+	Host    string `yaml:"host" json:"host,omitempty"`
+	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
 }
 
 type OIDCConfig struct {
-	Issuer      string `yaml:"issuer"`
-	Audience    string `yaml:"audience"`
-	JwksTTL     int    `yaml:"jwks_ttl"`
-	RolesClaim  string `yaml:"roles_claim"`
-	AdminRole   string `yaml:"admin_role"`
-	UserRole    string `yaml:"user_role"`
-	ScopesClaim string `yaml:"scopes_claim"`
+	Issuer      string `yaml:"issuer" json:"issuer,omitempty"`
+	Audience    string `yaml:"audience" json:"audience,omitempty"`
+	JwksTTL     int    `yaml:"jwks_ttl" json:"jwks_ttl,omitempty"`
+	RolesClaim  string `yaml:"roles_claim" json:"roles_claim,omitempty"`
+	AdminRole   string `yaml:"admin_role" json:"admin_role,omitempty"`
+	UserRole    string `yaml:"user_role" json:"user_role,omitempty"`
+	ScopesClaim string `yaml:"scopes_claim" json:"scopes_claim,omitempty"`
 }
 
 type DatabaseConfig struct {
-	StorageSize string `yaml:"storageSize"`
-	Image       string `yaml:"image"`
+	StorageSize       string `yaml:"storageSize" json:"storage_size,omitempty"`
+	Image             string `yaml:"image" json:"image,omitempty"`
+	ExternalSecretRef string `yaml:"externalSecretRef" json:"external_secret_ref,omitempty"`
 }
 
 type ReconcileOpts struct {

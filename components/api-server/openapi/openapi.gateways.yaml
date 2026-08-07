@@ -253,6 +253,27 @@ components:
               type: string
             phase:
               type: string
+            image:
+              type: string
+              description: Container image for the gateway deployment
+            server_dns_names:
+              type: array
+              items:
+                type: string
+              description: DNS names for TLS certificate SANs
+            route_address:
+              type: string
+              readOnly: true
+              description: External route address populated by the control plane
+            oidc:
+              type: string
+              description: JSON-encoded OIDC authentication configuration
+            route:
+              type: string
+              description: JSON-encoded route configuration
+            database_config:
+              type: string
+              description: JSON-encoded database provisioning configuration
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END
@@ -290,6 +311,20 @@ components:
         status:
           type: string
         phase:
+          type: string
+        image:
+          type: string
+        server_dns_names:
+          type: array
+          items:
+            type: string
+        route_address:
+          type: string
+        oidc:
+          type: string
+        route:
+          type: string
+        database_config:
           type: string
   parameters:
       id:

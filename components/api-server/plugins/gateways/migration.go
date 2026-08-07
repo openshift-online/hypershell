@@ -33,3 +33,30 @@ func migration() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddProvisioningFields() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		Image          *string
+		ServerDnsNames *string `gorm:"type:jsonb"`
+		RouteAddress   *string
+		Oidc           *string `gorm:"type:jsonb"`
+		Route          *string `gorm:"type:jsonb"`
+		DatabaseConfig *string `gorm:"type:jsonb"`
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026080712000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			for _, col := range []string{"image", "server_dns_names", "route_address", "oidc", "route", "database_config"} {
+				if err := tx.Migrator().DropColumn(&Gateway{}, col); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+}

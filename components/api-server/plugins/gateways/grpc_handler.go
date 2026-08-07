@@ -2,6 +2,7 @@ package gateways
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -58,18 +59,30 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		return nil, err
 	}
 
+	var serverDnsNamesJSON *string
+	if len(req.ServerDnsNames) > 0 {
+		data, _ := json.Marshal(req.ServerDnsNames)
+		s := string(data)
+		serverDnsNamesJSON = &s
+	}
+
 	gateway := &Gateway{
-		Name:        req.Name,
-		FleetId:     req.FleetId,
-		ClusterId:   req.ClusterId,
-		ReleaseId:   req.ReleaseId,
-		DatabaseId:  req.DatabaseId,
-		Namespace:   req.Namespace,
-		ExternalDns: req.ExternalDns,
-		TlsMode:     req.TlsMode,
-		ServiceType: req.ServiceType,
-		Status:      req.Status,
-		Phase:       req.Phase,
+		Name:           req.Name,
+		FleetId:        req.FleetId,
+		ClusterId:      req.ClusterId,
+		ReleaseId:      req.ReleaseId,
+		DatabaseId:     req.DatabaseId,
+		Namespace:      req.Namespace,
+		ExternalDns:    req.ExternalDns,
+		TlsMode:        req.TlsMode,
+		ServiceType:    req.ServiceType,
+		Status:         req.Status,
+		Phase:          req.Phase,
+		Image:          req.Image,
+		ServerDnsNames: serverDnsNamesJSON,
+		Oidc:           req.Oidc,
+		Route:          req.Route,
+		DatabaseConfig: req.DatabaseConfig,
 	}
 	result, svcErr := h.service.Create(ctx, gateway)
 	if svcErr != nil {
@@ -174,6 +187,26 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.Phase != nil {
 		gateway.Phase = req.Phase
+	}
+	if req.Image != nil {
+		gateway.Image = req.Image
+	}
+	if len(req.ServerDnsNames) > 0 {
+		data, _ := json.Marshal(req.ServerDnsNames)
+		s := string(data)
+		gateway.ServerDnsNames = &s
+	}
+	if req.RouteAddress != nil {
+		gateway.RouteAddress = req.RouteAddress
+	}
+	if req.Oidc != nil {
+		gateway.Oidc = req.Oidc
+	}
+	if req.Route != nil {
+		gateway.Route = req.Route
+	}
+	if req.DatabaseConfig != nil {
+		gateway.DatabaseConfig = req.DatabaseConfig
 	}
 	result, svcErr := h.service.Replace(ctx, gateway)
 	if svcErr != nil {

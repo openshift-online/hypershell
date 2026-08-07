@@ -178,12 +178,7 @@ metadata:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
     app.kubernetes.io/managed-by: hypershell-control-plane
-  ownerReferences:
-  - apiVersion: apps/v1
-    kind: Deployment
-    name: openshell-gateway
-    controller: true
-    blockOwnerDeletion: true
+    hypershell.redhat.io/managed: "true"
 spec:
   parentRefs:
   - name: openshell-gateway

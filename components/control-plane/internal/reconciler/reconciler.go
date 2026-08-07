@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -126,6 +127,7 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 type GatewayReconciler struct {
 	mu                    sync.Mutex
 	active                map[string]struct{}
+	namespaces            map[string]string
 	dynamicClient         dynamic.Interface
 	clientset             *kubernetes.Clientset
 	grpcConn              *grpc.ClientConn
@@ -156,6 +158,7 @@ func NewGatewayReconciler(
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
+		namespaces:            make(map[string]string),
 		dynamicClient:         dynamicClient,
 		clientset:             clientset,
 		grpcConn:              grpcConn,
@@ -182,6 +185,31 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		r.mu.Unlock()
 	}()
 
+	if event.Type == watcher.EventDeleted {
+		r.mu.Lock()
+		namespace, known := r.namespaces[event.ResourceID]
+		delete(r.namespaces, event.ResourceID)
+		r.mu.Unlock()
+
+		if !known {
+			log.Printf("WARN gateway %s deleted but namespace unknown (CP may have restarted), skipping cleanup", event.ResourceID)
+			return nil
+		}
+
+		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
+		opts := gateway.ReconcileOpts{
+			IsOpenShift:           r.isOpenShift,
+			HasCertManager:        r.hasCertManager,
+			HasGatewayAPI:         r.hasGatewayAPI,
+			ControlPlaneNamespace: r.controlPlaneNamespace,
+		}
+		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts); err != nil {
+			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
+		}
+		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
+		return nil
+	}
+
 	gw := event.Resource
 	if gw == nil {
 		log.Printf("WARN gateway event %s has nil resource, skipping", event.ResourceID)
@@ -190,11 +218,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	log.Printf("INFO reconciling Gateway %s name=%s namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
-
-	if event.Type == watcher.EventDeleted {
-		log.Printf("INFO gateway %s deleted, skipping provisioning", event.ResourceID)
-		return nil
-	}
 
 	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning") {
 		log.Printf("DEBUG gateway %s phase=%s, skipping reconciliation", event.ResourceID, *gw.Phase)
@@ -206,11 +229,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		namespace = fmt.Sprintf("openshell-%s", gw.Name)
 	}
 
-	dnsNames := []string{
-		fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
-	}
-	if gw.ExternalDns != nil && *gw.ExternalDns != "" {
-		dnsNames = append(dnsNames, *gw.ExternalDns)
+	r.mu.Lock()
+	r.namespaces[event.ResourceID] = namespace
+	r.mu.Unlock()
+
+	dnsNames := gw.ServerDnsNames
+	if len(dnsNames) == 0 {
+		dnsNames = []string{
+			fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
+		}
+		if gw.ExternalDns != nil && *gw.ExternalDns != "" {
+			dnsNames = append(dnsNames, *gw.ExternalDns)
+		}
 	}
 
 	externalDns := ""
@@ -218,12 +248,42 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		externalDns = *gw.ExternalDns
 	}
 
+	gwConfig := gateway.GatewayConfig{
+		ServerDnsNames: dnsNames,
+		ExternalDns:    externalDns,
+	}
+
+	if gw.Image != nil && *gw.Image != "" {
+		gwConfig.Image = *gw.Image
+	}
+
+	if gw.Oidc != nil && *gw.Oidc != "" {
+		var oidcConfig gateway.OIDCConfig
+		if err := json.Unmarshal([]byte(*gw.Oidc), &oidcConfig); err != nil {
+			return fmt.Errorf("invalid oidc config for gateway %s: %w", gw.Name, err)
+		}
+		gwConfig.OIDC = oidcConfig
+	}
+
+	if gw.Route != nil && *gw.Route != "" {
+		var routeConfig gateway.RouteConfig
+		if err := json.Unmarshal([]byte(*gw.Route), &routeConfig); err != nil {
+			return fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
+		}
+		gwConfig.Route = routeConfig
+	}
+
+	if gw.DatabaseConfig != nil && *gw.DatabaseConfig != "" {
+		var dbConfig gateway.DatabaseConfig
+		if err := json.Unmarshal([]byte(*gw.DatabaseConfig), &dbConfig); err != nil {
+			return fmt.Errorf("invalid database config for gateway %s: %w", gw.Name, err)
+		}
+		gwConfig.Database = dbConfig
+	}
+
 	nsConfig := gateway.NamespaceConfig{
-		Name: namespace,
-		Gateway: gateway.GatewayConfig{
-			ServerDnsNames: dnsNames,
-			ExternalDns:    externalDns,
-		},
+		Name:    namespace,
+		Gateway: gwConfig,
 	}
 
 	opts := gateway.ReconcileOpts{
