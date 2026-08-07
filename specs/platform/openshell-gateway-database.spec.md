@@ -47,7 +47,7 @@ The GatewayReconciler SHALL provision:
    - Image: `database.image` (default RHEL postgresql-16)
    - Env from Secret: `POSTGRESQL_USER`, `POSTGRESQL_PASSWORD`, `POSTGRESQL_DATABASE`
    - Volume mount: PVC at `/var/lib/pgsql/data`
-   - SecurityContext: `runAsNonRoot`, drop ALL capabilities, `readOnlyRootFilesystem: false` (postgres needs writable data dir)
+   - SecurityContext: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`, `readOnlyRootFilesystem: false` (postgres needs writable data dir)
    - Readiness probe: TCP on port 5432
 
 4. **Service** (`openshell-gateway-db`)
@@ -143,7 +143,7 @@ A Gateway SHALL NOT be deleted if active sandboxes exist. This prevents orphaned
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: ghcr.io/nvidia/openshell/gateway:0.0.88
+image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 database:
@@ -157,7 +157,7 @@ database:
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: ghcr.io/nvidia/openshell/gateway:0.0.88
+image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 ```

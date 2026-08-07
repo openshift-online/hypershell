@@ -80,7 +80,7 @@ openshell-gateway Pod
 
 The following resources must exist on the cluster before the GatewayReconciler can operate. They are configuration prerequisites — the control plane does not create them.
 
-1. **GatewayClass** — `openshift-default` with controller `openshift.io/gateway-controller/v1`. Must be created by an administrator. Referenced by per-tenant Gateway resources.
+1. **GatewayClass** — A GatewayClass matching `GATEWAY_API_GATEWAY_CLASS` (default: `openshift-default`). Must be created by an administrator. Referenced by per-tenant Gateway resources. On Kind clusters, use `cloud-provider-kind`.
 2. **Wildcard TLS Secret (`grpc-gateway-certs`)** — The cluster's wildcard certificate for `*.<base-domain>`, stored as a Secret named `grpc-gateway-certs` in the HyperShell control plane namespace. The GatewayReconciler copies it into each tenant namespace for per-tenant Gateway TLS termination (see "Gateway Ingress TLS Certificate" below). An administrator must provision this Secret before any gateway can be exposed externally.
 3. **cert-manager** — Required for TLS certificate lifecycle management. See [TLS spec](./openshell-gateway-tls.spec.md) and the "TLS Certificate Management via cert-manager" requirement below.
 
@@ -100,7 +100,7 @@ For each gateway with `route` configuration, the control plane creates all Gatew
        app.kubernetes.io/component: gateway
        app.kubernetes.io/managed-by: hypershell-control-plane
    spec:
-     gatewayClassName: openshift-default
+     gatewayClassName: <GATEWAY_API_GATEWAY_CLASS>   # default: openshift-default
      listeners:
      - name: grpc
        hostname: "openshell-gateway-<tenant-namespace>.<base-domain>"
@@ -175,6 +175,8 @@ The per-tenant Gateway listener terminates external TLS using the cluster's wild
 
 This avoids per-tenant certificate issuance for the ingress listener — the `openshell-gateway-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate.
 
+> **Security boundary:** The wildcard TLS private key is copied into each tenant namespace. Any principal with Secret read access in a tenant namespace can extract the key. This is acceptable when namespaces are administered by the same trust domain (all managed by the HyperShell control plane). For environments where tenant namespaces are shared with untrusted workloads, a future enhancement SHOULD issue per-tenant certificates (e.g., via cert-manager Certificate resources with the exact hostname) instead of copying the wildcard key.
+
 ### Route TLS Strategy
 
 The Gateway API approach uses HTTPS on the listener and BackendTLSPolicy for re-encryption:
@@ -208,7 +210,7 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   kind: Gateway
   name: openshell-gateway
   project: tenant-a
-  image: ghcr.io/nvidia/openshell:v0.0.70
+  image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
   serverDnsNames:
     - openshell-gateway.tenant-a.svc.cluster.local
   ```
@@ -440,7 +442,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: ghcr.io/nvidia/openshell:v0.0.70
+  image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
   serverDnsNames: []
   ```
 - AND a tenant overlay patches the DNS names:
@@ -481,7 +483,7 @@ All gateway resources SHALL carry the following labels:
 - `hypershell.redhat.io/managed=true`
 
 The gateway Deployment SHALL specify:
-- **Init container:** `wait-for-db` — runs `pg_isready` in a loop until the database is reachable
+- **Init container:** `wait-for-db` — runs `pg_isready` in a loop until the database is reachable. SecurityContext: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`, `readOnlyRootFilesystem: true`
 - **Container image:** from the Gateway resource's `image` field
 - **Container args:** `--config /etc/openshell/gateway.toml`
 - **SecurityContext:** `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`, `readOnlyRootFilesystem: true`
@@ -536,7 +538,7 @@ The gateway pod runs as ServiceAccount `openshell-gateway` and needs:
      verbs: ["get", "list", "watch"]
    ```
 
-2. **ClusterRoleBinding `openshell-gateway-node-reader`**: binds the ClusterRole to `ServiceAccount/openshell-gateway` in the tenant namespace.
+2. **ClusterRoleBinding `openshell-gateway-node-reader-<tenant-namespace>`**: binds the ClusterRole to `ServiceAccount/openshell-gateway` in the tenant namespace. Each tenant gets a dedicated ClusterRoleBinding with a namespace-qualified name to avoid collisions across tenants. When a Gateway is deleted, the GatewayReconciler SHALL delete the corresponding ClusterRoleBinding.
 
 3. **Role `openshell-gateway-sandbox`** (namespace-scoped):
    ```yaml
@@ -809,6 +811,7 @@ Control Plane
 | Variable | Default | Description |
 |---|---|---|
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Cluster base domain for hostname generation (read from `ingresses.config.openshift.io/cluster` `.spec.domain`) |
+| `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources (e.g., `cloud-provider-kind` for Kind clusters) |
 
 ### Example: Full Gateway Configuration
 
@@ -816,7 +819,7 @@ Control Plane
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: ghcr.io/nvidia/openshell:v0.0.83
+image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 oidc:

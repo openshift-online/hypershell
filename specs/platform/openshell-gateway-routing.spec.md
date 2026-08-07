@@ -42,6 +42,8 @@ Requires:
 
 The GatewayReconciler creates `openshell-gateway-allow-sandbox-v2` which allows ingress only from pods in the same namespace. The Gateway API controller spawns Envoy proxy pods in the tenant namespace (co-located with the gateway). A separate NetworkPolicy SHALL be required for external route connectivity.
 
+> **Future consideration:** This same-namespace policy assumes gateways and sandboxes are co-located on the same cluster. When separating GatewayClusters from SandboxClusters, or when supporting non-Kubernetes sandbox backends (e.g., VMs), the NetworkPolicy model will need to be extended to allow cross-namespace or cross-cluster ingress. For now, the smallest blast radius is achieved by keeping a dedicated gateway per tenant namespace.
+
 #### Scenario: Proxy NetworkPolicy required for GRPCRoute
 
 - GIVEN an OpenShell gateway exposed via GRPCRoute
@@ -86,8 +88,9 @@ The control plane SHALL detect at startup whether the cluster supports the Gatew
 #### Scenario: Gateway API available
 
 - GIVEN the `gateway.networking.k8s.io` API group is available (Gateway, GRPCRoute, BackendTLSPolicy CRDs exist)
-- AND a GatewayClass named `openshift-default` exists
+- AND a supported GatewayClass exists (e.g., `openshift-default` on OpenShift, `cloud-provider-kind` on Kind)
 - THEN the control plane SHALL enable Gateway API route provisioning
+- AND the GatewayClass name SHALL be configurable via the `GATEWAY_API_GATEWAY_CLASS` environment variable (default: `openshift-default`)
 
 #### Scenario: Gateway API not available
 
@@ -106,12 +109,28 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 - GIVEN a Gateway with `route: {}`
 - THEN the control plane SHALL create a per-tenant Gateway API Gateway and GRPCRoute in the tenant namespace
 - AND the hostname SHALL be `openshell-gateway-<tenant-namespace>.<base-domain>`
+- AND the derived hostname's first DNS label (`openshell-gateway-<tenant-namespace>`) SHALL be validated against the 63-character DNS label limit (RFC 1123)
+- AND if the label exceeds 63 characters, the reconciler SHALL truncate the namespace portion and append a short hash suffix to ensure uniqueness (e.g., `openshell-gateway-<truncated>-<hash>`)
+
+#### Scenario: Gateway with explicit route host
+
+- GIVEN a Gateway with `route: { host: "custom.example.com" }`
+- THEN the control plane SHALL use the provided hostname instead of auto-deriving it
+- AND the hostname SHALL be validated as a valid RFC 1123 DNS name before use
 
 #### Scenario: Gateway without route configuration
 
 - GIVEN a Gateway with no `route` field
 - THEN no Gateway API resources (Gateway, GRPCRoute, BackendTLSPolicy) SHALL be created
 - AND the gateway SHALL be accessible only via cluster-internal DNS and `kubectl port-forward`
+
+#### Scenario: Route configuration removed from existing Gateway
+
+- GIVEN a Gateway that previously had `route` configuration and associated route resources
+- WHEN the `route` field is removed or set to null
+- THEN the GatewayReconciler SHALL delete all route-owned resources: the per-tenant Gateway API Gateway, GRPCRoute, BackendTLSPolicy, `openshell-backend-ca` ConfigMap, and `openshell-gateway-allow-router` NetworkPolicy
+- AND it SHALL clear the `routeAddress` field on the Gateway resource via the API server
+- AND the gateway SHALL revert to cluster-internal-only access
 
 ---
 
@@ -130,7 +149,7 @@ metadata:
     app.kubernetes.io/component: gateway
     app.kubernetes.io/managed-by: hypershell-control-plane
 spec:
-  gatewayClassName: openshift-default
+  gatewayClassName: <GATEWAY_API_GATEWAY_CLASS>   # default: openshift-default
   listeners:
   - name: grpc
     hostname: "openshell-gateway-<tenant-namespace>.<base-domain>"
@@ -191,11 +210,13 @@ The control plane SHALL create a BackendTLSPolicy to enable TLS verification fro
 
 ### Requirement: Route Address Discovery
 
-The GatewayReconciler SHALL derive the external route address from the GRPCRoute hostname and PATCH it into the Gateway's `routeAddress` field via the API server.
+The GatewayReconciler SHALL derive the external route address from the GRPCRoute hostname and PATCH it into the Gateway's `routeAddress` field via the API server, but only after the Gateway is ready to serve traffic.
 
+- The reconciler SHALL wait for the per-tenant Gateway API Gateway to report `Accepted: True` and `Programmed: True` status conditions before publishing the `routeAddress`
 - Format: `grpcs://<hostname>:443`
 - Stored in the Gateway API resource for CLI consumption
 - `hsctl get gateways` displays the routeAddress
+- If the Gateway conditions are not yet met, the `routeAddress` SHALL remain empty until they are satisfied on a subsequent reconciliation cycle
 
 ---
 
@@ -204,6 +225,7 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
 | Variable | Default | Description |
 |---|---|---|
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Cluster base domain for hostname generation (read from `ingresses.config.openshift.io/cluster` `.spec.domain`) |
+| `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources (e.g., `cloud-provider-kind` for Kind clusters) |
 
 ---
 

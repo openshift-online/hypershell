@@ -148,9 +148,11 @@ All resources (ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, Gateway
 
 A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster.
 
+> **Relationship to fleet management fields:** The `image` field provides a direct image reference for the control plane reconciler, while `release_id` references a GatewayRelease for fleet-level rollout management (canary, rollback). When both are set, `release_id` takes precedence and the reconciler resolves it to an image. Similarly, `database` (JSONB) carries inline provisioning config for the reconciler, while `database_id` references a ManagedDatabase for fleet-level database lifecycle. When `database_id` is set, it takes precedence and the reconciler reads the connection details from the referenced ManagedDatabase.
+
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `ghcr.io/nvidia/openshell/gateway:0.0.99`) |
+| `image` | string | Gateway container image reference (e.g., `ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
