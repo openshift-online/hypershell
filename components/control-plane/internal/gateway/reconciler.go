@@ -773,7 +773,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
 			return nil
 		}
-		hostname = fmt.Sprintf("openshell-gateway-%s.hsgw.%s", namespace, baseDomain)
+		hostname = fmt.Sprintf("openshell-gateway-%s.%s", namespace, baseDomain)
 	}
 
 	grpcRoute := &unstructured.Unstructured{
