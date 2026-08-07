@@ -31,7 +31,7 @@ Developers selectively swap individual components with local builds using per-co
 
 `make kind-up` SHALL install the Gateway API CRDs before starting cloud-provider-kind. The CRDs SHALL be applied from the upstream release bundle (`https://github.com/kubernetes-sigs/gateway-api/releases/download/<version>/experimental-install.yaml`) using the `experimental` channel, which includes BackendTLSPolicy. The version SHALL be pinned via a `GATEWAY_API_VERSION` variable. On OpenShift 4.19+ these CRDs ship by default; on Kind they must be installed explicitly.
 
-[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Gateway API CRDs are installed and the Kind cluster is created. It provides LoadBalancer service support and acts as a Gateway API controller, implementing the GatewayClass and proxying traffic for GRPCRoute resources. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL be started with `--enable-lb-port-mapping` to expose Gateway listeners on the host via ephemeral ports. The assigned port is not configurable — cloud-provider-kind allocates an ephemeral host port per listener ([kubernetes-sigs/cloud-provider-kind#417](https://github.com/kubernetes-sigs/cloud-provider-kind/issues/417)). `make kind-up` SHALL discover the mapped HTTPS port from the Docker proxy container (`kindccm-gw-*`) and include it in all banner URLs. Kind's `extraPortMappings` SHALL NOT be used for Gateway ports — they conflict with cloud-provider-kind's own `--publish` flags on the envoy container. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
+[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Gateway API CRDs are installed and the Kind cluster is created. It provides LoadBalancer service support and acts as a Gateway API controller, implementing the GatewayClass and proxying traffic for GRPCRoute resources. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL be started with `--enable-lb-port-mapping` to expose Gateway listeners on the host via ephemeral ports. The assigned port is not configurable — cloud-provider-kind allocates an ephemeral host port per listener ([kubernetes-sigs/cloud-provider-kind#417](https://github.com/kubernetes-sigs/cloud-provider-kind/issues/417)). `make kind-up` SHALL discover the mapped HTTPS port from the Docker proxy container (`kindccm-gw-*`) and set up OS-native port forwarding to redirect host port 443 to the ephemeral port (see Port Forwarding). Kind's `extraPortMappings` SHALL NOT be used for Gateway ports — they conflict with cloud-provider-kind's own `--publish` flags on the envoy container. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.21.1`).
 
@@ -82,7 +82,7 @@ The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod
 
 ### Gateway API Routing
 
-The local cluster uses the Kubernetes Gateway API to route all external traffic — both component services and gateway gRPC — through a single networking Gateway. This mirrors the production topology where a networking Gateway terminates external TLS. Component services (API, console, health) are exposed via HTTPRoute resources at `*.hypershell.localhost` hostnames; gateway gRPC traffic uses GRPCRoute at `*.gw.localhost`. `make kind-up` configures `/etc/hosts` entries for hostname resolution (prompts for `sudo` on first run). For environments where `/etc/hosts` cannot be modified (e.g. CI), `KIND_USE_NODEPORT=true` falls back to NodePort + `extraPortMappings` with port-based access.
+The local cluster uses the Kubernetes Gateway API to route all external traffic — both component services and gateway gRPC — through a single networking Gateway. This mirrors the production topology where a networking Gateway terminates external TLS. Component services (API, console, health) are exposed via HTTPRoute resources at `*.hypershell.localhost` hostnames; gateway gRPC traffic uses GRPCRoute at `*.gw.localhost`. `make kind-up` starts a CoreDNS container for wildcard `*.localhost` resolution (see DNS Resolution) and sets up OS-native port forwarding from host port 443 to the ephemeral port assigned by cloud-provider-kind (see Port Forwarding).
 
 #### Networking Gateway (Cluster-Level)
 
@@ -125,7 +125,31 @@ spec:
 
 cert-manager SHALL issue two wildcard certificates (self-signed CA): `hypershell-https-tls` for `*.hypershell.localhost` (component services) and `hypershell-gw-tls` for `*.gw.localhost` (gateway gRPC). The `allowedRoutes.namespaces.from: All` permits routes from any namespace, supporting multi-namespace deployments.
 
-`make kind-up` SHALL add `/etc/hosts` entries mapping component hostnames to `127.0.0.1`. On first run, the developer is prompted for `sudo` access. Subsequent runs update entries idempotently.
+#### DNS Resolution
+
+`make kind-up` SHALL start a CoreDNS container (`${KIND_CLUSTER_NAME}-dns`) bound to `127.0.0.1:${KIND_DNS_PORT}` that resolves all `*.localhost` queries to `127.0.0.1` (A) and `::1` (AAAA) using the `template` plugin. The Corefile is stored at `deploy/kind/coredns/Corefile` and mounted read-only. The container uses `--restart unless-stopped` so it survives Docker restarts.
+
+OS-specific resolver configuration routes `.localhost` DNS queries to CoreDNS:
+
+| Platform | Mechanism | Persistence |
+|----------|-----------|-------------|
+| macOS | `/etc/resolver/localhost` file with `nameserver 127.0.0.1` + `port ${KIND_DNS_PORT}` | Survives reboots (file on disk) |
+| Fedora (Linux) | `resolvectl dns lo 127.0.0.1:${KIND_DNS_PORT}` + `resolvectl domain lo '~localhost'` | Ephemeral (cleared on reboot); re-applied by `kind-up` |
+
+Wildcard resolution means multi-namespace hostnames (e.g. `api.feature-add-auth.hypershell.localhost`) work automatically — no per-hostname configuration needed. `make kind-down` SHALL stop the CoreDNS container and revert the Linux resolver (macOS resolver file is harmless without CoreDNS). If `sudo` fails during resolver setup, `kind-up` SHALL warn with manual instructions but continue.
+
+#### Port Forwarding
+
+cloud-provider-kind assigns ephemeral host ports for Gateway listeners. `make kind-up` SHALL set up OS-native port forwarding to redirect host port 443 to the discovered ephemeral port:
+
+| Platform | Mechanism | Details |
+|----------|-----------|---------|
+| macOS | `pfctl` with named anchor `com.hypershell` | `rdr pass on lo0` rule; requires `rdr-anchor` registration in `/etc/pf.conf` rule ordering |
+| Fedora (Linux) | `iptables -t nat` OUTPUT chain REDIRECT | Rule tagged with `--comment "hypershell-dev"` for identification |
+
+Both require `sudo`, which cloud-provider-kind already requires. If port forwarding setup fails, `kind-up` SHALL fall back to printing URLs with the ephemeral port suffix (e.g. `https://console.hypershell.localhost:51300`). `make kind-down` SHALL flush the forwarding rules. `make kind-status` SHALL report whether forwarding is active and show the target port.
+
+This is a workaround until cloud-provider-kind supports publishing on specific host ports — once fixed upstream, the port forwarding functions can be removed.
 
 #### Component Service Routes (kind-up Managed)
 
@@ -188,7 +212,7 @@ spec:
 | Health | `health.hypershell.localhost` | Health check endpoint |
 | gRPC | `<gateway-name>.gw.localhost` | gRPC streaming (control plane, CLI) |
 
-For multi-namespace deployments, component hostnames include the namespace: `api.<namespace>.hypershell.localhost` (e.g. `api.feature-add-auth.hypershell.localhost`). `make kind-deploy` creates namespace-scoped HTTPRoutes and adds the corresponding `/etc/hosts` entries.
+For multi-namespace deployments, component hostnames include the namespace: `api.<namespace>.hypershell.localhost` (e.g. `api.feature-add-auth.hypershell.localhost`). `make kind-deploy` creates namespace-scoped HTTPRoutes; wildcard DNS resolves all subdomains automatically.
 
 #### Per-Gateway Route Resources (Control Plane Reconciled)
 
@@ -273,7 +297,7 @@ Client                   Networking Gateway              Gateway Pod
 | Service hostname pattern | `<service>.hypershell.localhost` | Route-based (OpenShift Routes or Gateway API HTTPRoute) |
 | gRPC base domain | `gw.localhost` | `gw.<cluster-domain>` |
 | gRPC hostname pattern | `<gateway-name>.gw.localhost` | `<gateway-name>-<namespace>.gw.<base-domain>` |
-| DNS resolution | `/etc/hosts` managed by `kind-up` | Cluster DNS / external DNS |
+| DNS resolution | CoreDNS container + OS resolver + pfctl/iptables port forwarding | Cluster DNS / external DNS |
 
 ## Requirements
 
@@ -391,8 +415,10 @@ The system SHALL provide a `make kind-status` target that reports the current st
 - WHEN a developer runs `make kind-status`
 - THEN cluster connectivity information SHALL be displayed
 - AND pod status for all components SHALL be displayed
-- AND service hostnames (or host ports in NodePort mode) SHALL be displayed
+- AND service hostnames SHALL be displayed
 - AND the output SHALL indicate which components have active local swaps versus baseline images
+- AND CoreDNS container status SHALL be displayed
+- AND port forwarding status (active/inactive, target port) SHALL be displayed
 
 #### Scenario: Status When No Cluster Exists
 - GIVEN no Kind cluster is running
@@ -416,56 +442,38 @@ The system SHALL accept a `KIND_CLUSTER_NAME` environment variable to control th
 
 ### Requirement: Hostname-Based Service Access
 
-All services SHALL be accessible via `.localhost` hostnames routed through the networking Gateway (see Gateway API Routing). The system SHALL NOT use `kubectl port-forward` for service access. On macOS and Windows, cloud-provider-kind publishes Gateway listeners on ephemeral host ports ([kubernetes-sigs/cloud-provider-kind#417](https://github.com/kubernetes-sigs/cloud-provider-kind/issues/417)), so URLs include the discovered port (e.g. `https://console.hypershell.localhost:<PORT>`).
+All services SHALL be accessible via `.localhost` hostnames routed through the networking Gateway (see Gateway API Routing). The system SHALL NOT use `kubectl port-forward` for service access. DNS resolution is provided by a CoreDNS container with OS-specific resolver configuration (see DNS Resolution). Port forwarding redirects host port 443 to the ephemeral port assigned by cloud-provider-kind (see Port Forwarding), enabling clean `https://` URLs without a port suffix.
 
 | Service | Hostname | Purpose |
 |---------|----------|---------|
-| HTTP API | `https://api.hypershell.localhost:<PORT>` | REST API access |
-| Web Console | `https://console.hypershell.localhost:<PORT>` | Browser UI |
-| Health | `https://health.hypershell.localhost:<PORT>` | Health check endpoint |
-| gRPC | `https://<gateway-name>.gw.localhost:<PORT>` | gRPC streaming (control plane, CLI) |
+| HTTP API | `https://api.hypershell.localhost` | REST API access |
+| Web Console | `https://console.hypershell.localhost` | Browser UI |
+| Health | `https://health.hypershell.localhost` | Health check endpoint |
+| gRPC | `https://<gateway-name>.gw.localhost` | gRPC streaming (control plane, CLI) |
 
-`make kind-up` SHALL configure `/etc/hosts` entries for all service hostnames, mapping them to `127.0.0.1`. The developer is prompted for `sudo` on first run. Subsequent runs update entries idempotently. The self-signed TLS certificate issued by cert-manager must be trusted by the developer's browser or CLI tool (e.g. `curl --cacert`).
+The self-signed TLS certificate issued by cert-manager must be trusted by the developer's browser or CLI tool (e.g. `curl --cacert`).
 
-For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. `make kind-deploy` adds the corresponding `/etc/hosts` entries automatically. All namespaces share the same Gateway and therefore the same ephemeral port — each namespace is differentiated by hostname, not port number.
+For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. Wildcard DNS resolves all subdomains automatically — no per-hostname configuration is needed. All namespaces share the same Gateway — each namespace is differentiated by hostname, not port number.
 
-#### Scenario: Default Access
+#### Scenario: Default Access (Port Forwarding Active)
 - GIVEN no special configuration
+- WHEN `make kind-up` completes and port forwarding succeeds
+- THEN the HTTP API SHALL be accessible at `https://api.hypershell.localhost`
+- AND the web console SHALL be accessible at `https://console.hypershell.localhost`
+- AND the health endpoint SHALL be accessible at `https://health.hypershell.localhost`
+- AND the banner SHALL print URLs without a port suffix
+
+#### Scenario: Graceful Fallback (Port Forwarding Unavailable)
+- GIVEN port forwarding setup fails (e.g. sudo denied)
 - WHEN `make kind-up` completes
-- THEN the HTTP API SHALL be accessible at `https://api.hypershell.localhost:<PORT>`
-- AND the web console SHALL be accessible at `https://console.hypershell.localhost:<PORT>`
-- AND the health endpoint SHALL be accessible at `https://health.hypershell.localhost:<PORT>`
-- AND `/etc/hosts` SHALL contain entries for all service hostnames
-- AND the banner SHALL print the discovered `<PORT>` in every URL
+- THEN the banner SHALL print URLs with the ephemeral port suffix (e.g. `https://console.hypershell.localhost:<PORT>`)
+- AND services SHALL remain accessible at the ephemeral port
 
 #### Scenario: Multi-Namespace Hostname Differentiation
 - GIVEN the default deployment is running in `hypershell-system`
 - AND a second deployment is running in `hypershell-feature-add-auth`
 - WHEN a developer accesses `https://api.feature-add-auth.hypershell.localhost`
 - THEN the request SHALL route to the API server in the `hypershell-feature-add-auth` namespace
-
-#### Scenario: NodePort Fallback
-- GIVEN `KIND_USE_NODEPORT=true` is set
-- WHEN `make kind-up` completes
-- THEN services SHALL be exposed via NodePort + `extraPortMappings` instead of hostname routing
-- AND the HTTP API SHALL be accessible at `localhost:23080`
-- AND the gRPC endpoint SHALL be accessible at `localhost:29000`
-- AND the health endpoint SHALL be accessible at `localhost:24434`
-- AND the web console SHALL be accessible at `localhost:23000`
-- AND `/etc/hosts` SHALL NOT be modified
-
-When `KIND_USE_NODEPORT=true` is set, per-service ports are configurable via environment variables:
-
-| Service | Env Var | Default Host Port | NodePort |
-|---------|---------|-------------------|----------|
-| HTTP API | `KIND_API_PORT` | `23080` | `30080` |
-| gRPC | `KIND_GRPC_PORT` | `29000` | `30090` |
-| Health | `KIND_HEALTH_PORT` | `24434` | `30100` |
-| Web Console | `KIND_CONSOLE_PORT` | `23000` | `30110` |
-
-NodePorts use a sequential block starting at 30080 with 10-port spacing, keeping the mapping predictable regardless of the host port values.
-
-For multi-namespace deployments in NodePort mode, the system SHALL auto-allocate ports using `KIND_PORT_OFFSET`. The offset SHALL be assigned sequentially per namespace: the second namespace gets offset 1 (base + 1), the third gets offset 2 (base + 2), and so on. The offset is added to each host port and each NodePort (e.g. offset 1: host 23081/29001/24435/23001, NodePort 30081/30091/30101/30111). When the allocated port would conflict with an existing service, `make kind-deploy` SHALL warn the user and suggest the next available offset.
 
 ### Requirement: Container Engine Support
 
@@ -626,7 +634,7 @@ The database image SHALL be overridable via the `KIND_DB_IMAGE` environment vari
 
 The system SHALL support deploying the platform into multiple namespaces within a single Kind cluster. Each namespace gets its own set of HyperShell components with isolated hostnames, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents).
 
-The system SHALL provide a `make kind-deploy` target that deploys the platform into a new namespace. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). Each namespace gets its own HTTPRoutes with namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`) and corresponding `/etc/hosts` entries. The default deployment (`make kind-up`) uses the `hypershell-system` namespace and base hostnames; `kind-deploy` creates additional deployments alongside it.
+The system SHALL provide a `make kind-deploy` target that deploys the platform into a new namespace. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). Each namespace gets its own HTTPRoutes with namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`). Wildcard DNS resolves all subdomains automatically — no per-hostname configuration is needed. The default deployment (`make kind-up`) uses the `hypershell-system` namespace and base hostnames; `kind-deploy` creates additional deployments alongside it.
 
 Per-component swap and teardown targets operate on the specified namespace when `KIND_NAMESPACE` is set.
 
@@ -637,7 +645,7 @@ Per-component swap and teardown targets operate on the specified namespace when 
 - THEN a namespace `hypershell-feature-add-auth` SHALL be created (derived from the branch name)
 - AND a full set of HyperShell components SHALL be deployed into that namespace
 - AND namespace-scoped HTTPRoutes SHALL be created (e.g. `api.feature-add-auth.hypershell.localhost`)
-- AND `/etc/hosts` entries SHALL be added for the new hostnames
+- AND wildcard DNS SHALL resolve the new hostnames automatically
 - AND both deployments SHALL run independently without interference
 
 #### Scenario: Status Reports All Deployments
@@ -662,12 +670,7 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `KIND_CLUSTER_NAME` | `hypershell-dev` | Kind cluster name |
-| `KIND_USE_NODEPORT` | (unset — hostname routing) | Set to `true` to use NodePort + `extraPortMappings` instead of hostname-based routing |
-| `KIND_API_PORT` | `23080` | Host port for HTTP API (NodePort mode only) |
-| `KIND_GRPC_PORT` | `29000` | Host port for gRPC (NodePort mode only) |
-| `KIND_HEALTH_PORT` | `24434` | Host port for health endpoint (NodePort mode only) |
-| `KIND_CONSOLE_PORT` | `23000` | Host port for web console (NodePort mode only) |
-| `KIND_PORT_OFFSET` | (auto-assigned sequentially: 1, 2, 3…) | Port offset for multi-namespace deployments (NodePort mode only) |
+| `KIND_DNS_PORT` | `5553` | Host port for the CoreDNS container (UDP+TCP) |
 | `KIND_HOT_RELOAD` | `true` | Hot reload for supported components; set to `false` to disable |
 | `KIND_HOST_MOUNT_PATH` | Repository root (`git rev-parse --show-toplevel`) | Host directory mounted into Kind nodes for hot reload |
 | `KIND_KEYCLOAK_URL` | (unset — deploy local) | External Keycloak issuer URL; skips local deployment when set |
@@ -685,16 +688,16 @@ Per-component swap and teardown targets operate on the specified namespace when 
 
 | Target | Behavior |
 |--------|----------|
-| `make kind-up` | Create cluster (if needed) + pull baseline images from registry + deploy + wait for readiness |
-| `make kind-down` | Delete the Kind cluster |
-| `make kind-status` | Show cluster info, pods, services, hostnames, and active component swaps |
+| `make kind-up` | Create cluster (if needed) + pull baseline images from registry + deploy + start CoreDNS + configure resolver + set up port forwarding + wait for readiness |
+| `make kind-down` | Delete the Kind cluster + stop CoreDNS + flush port forwarding rules + revert resolver (Linux) |
+| `make kind-status` | Show cluster info, pods, services, hostnames, DNS status, port forwarding status, and active component swaps |
 | `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
 | `make kind-api-server-down` | Revert api-server to baseline image + restart + wait |
 | `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
-| `make kind-deploy` | Deploy platform into a new namespace (derived from current branch) with namespace-scoped hostnames + configure `/etc/hosts` + wait |
+| `make kind-deploy` | Deploy platform into a new namespace (derived from current branch) with namespace-scoped hostnames (wildcard DNS resolves automatically) + wait |
 | `make kind-undeploy` | Delete a namespace deployment and its resources (`KIND_NAMESPACE` required) |
 
 ## Design Decisions
@@ -703,8 +706,9 @@ Per-component swap and teardown targets operate on the specified namespace when 
 |----------|-----------|
 | Registry pull for baseline images | Faster setup; no local build required for baseline; per-component swap handles local development |
 | Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` serves a separate purpose — offline baseline builds from `main` when registry access is unavailable |
-| Hostname routing via networking Gateway as default | All component services route through the networking Gateway using HTTPRoute resources at `*.hypershell.localhost`. Developers access services by name (`api.hypershell.localhost`) instead of memorizing port numbers. Multi-namespace deployments get distinct hostnames instead of port offsets. Requires `/etc/hosts` entries (managed by `kind-up`). `KIND_USE_NODEPORT=true` provides a fallback for CI or environments where `/etc/hosts` cannot be modified |
-| NodePort fallback via `KIND_USE_NODEPORT` | When hostname routing is unavailable, services fall back to NodePort + `extraPortMappings` with configurable ports and auto-offset for multi-namespace |
+| Hostname routing via networking Gateway as default | All component services route through the networking Gateway using HTTPRoute resources at `*.hypershell.localhost`. Developers access services by name (`api.hypershell.localhost`) instead of memorizing port numbers. Multi-namespace deployments get distinct hostnames without any per-hostname configuration thanks to wildcard DNS |
+| CoreDNS for wildcard DNS | A CoreDNS container resolves all `*.localhost` to loopback, eliminating per-hostname `/etc/hosts` management. OS resolver config routes `.localhost` queries to CoreDNS (macOS: `/etc/resolver/localhost`; Linux: `resolvectl`). Multi-namespace hostnames work automatically |
+| OS-native port forwarding (pfctl/iptables) | Redirects host:443 to cloud-provider-kind's ephemeral port, enabling clean `https://` URLs. Workaround until cloud-provider-kind supports publishing on specific host ports. Graceful fallback: if sudo fails, URLs show the ephemeral port suffix |
 | Pre-check cluster existence for idempotency | Check `kind get clusters` for the target name before attempting creation; skip if already present. Avoids `\|\| true` which swallows real failures (Docker not running, resource exhaustion) |
 | Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
@@ -713,7 +717,7 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)), exercising the same path as production. The API server's own database (`deploy/kind/postgres.yaml`) is always deployed directly by `kind-up` |
 | Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images — HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
-| Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). Namespace derived from branch name via explicit `kind-deploy` target; each namespace gets namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`) |
+| Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). Namespace derived from branch name via explicit `kind-deploy` target; each namespace gets namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`). Wildcard DNS resolves all subdomains automatically |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
 | GRPCRoute, not HTTPRoute | OpenShell gateway speaks gRPC; GRPCRoute is the correct Gateway API resource type for gRPC backends |

@@ -113,14 +113,18 @@ EOF
       kill "${API_PF_PID}" 2>/dev/null || true
       wait "${API_PF_PID}" 2>/dev/null || true
       info "Restoring in-cluster web console..."
-      kubectl apply -f "${REPO_ROOT}/deploy/kind/web-console.yaml" 2>/dev/null || true
-      kubectl rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
+      kubectl delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
+      kubectl apply -f "${REPO_ROOT}/deploy/kind/web-console.yaml" || true
+      kubectl rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" || true
+      info "Waiting for web console to become available..."
+      kubectl wait --for=condition=available "deployment/${DEPLOYMENT}" \
+        -n "${KIND_NAMESPACE}" --timeout=120s || true
       clear_swap "${COMPONENT}" 2>/dev/null || true
       success "Web console reverted to baseline"
     }
     trap cleanup_hot_reload EXIT
     # Let pnpm receive SIGINT from the terminal; bash stays alive to run cleanup.
-    trap : INT TERM
+    trap : INT TERM HUP
 
     echo ""
     success "Web Console: https://${CONSOLE_HOSTNAME}"
@@ -177,6 +181,7 @@ swap_down() {
   info "Reverting ${COMPONENT} to baseline image..."
 
   if [[ "${COMPONENT}" == "web-console" ]]; then
+    kubectl delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
     kubectl apply -f deploy/kind/web-console.yaml
   else
     local set_image_args=""

@@ -212,7 +212,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | LD-5 | Cluster teardown (`make kind-down`) | Present | — | `Makefile`, `api-server/Makefile` | — |
 | LD-6 | Cluster status with swap state | Partial | Shows pods/services; no swap state reporting | `Makefile` | Future |
 | LD-7 | Configurable cluster name | Present | `KIND_CLUSTER_NAME?=hypershell-dev` | `api-server/Makefile` | — |
-| LD-8 | Hostname-based service access | Missing | NodePort only; no Gateway API routing | — | Future |
+| LD-8 | Hostname-based service access | Present | CoreDNS wildcard DNS + pfctl/iptables port forwarding + Gateway API routing | `scripts/kind/lib.sh`, `deploy/kind/coredns/` | — |
 | LD-9 | Container engine support (Podman/Docker) | Present | Auto-detects via `CONTAINER_ENGINE` | `Makefile` | — |
 | LD-10 | Security contexts on all containers | Missing | No securityContext on any Kind manifest | `deploy/kind/*.yaml` | Future |
 | LD-11 | Swap tracking (`.kind-swaps`) | Missing | `.gitignore` entry exists; no logic | — | Future |
@@ -228,7 +228,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | LD-21 | Gateway API routing (HTTPRoute, GRPCRoute) | Missing | No routing resources | — | Future |
 | LD-22 | Multiple namespace deployments | Missing | No `kind-deploy`/`kind-undeploy` | — | Future |
 | LD-23 | Single root Makefile (deprecate component) | Partial | Root delegates to `api-server/Makefile` | `Makefile` | Future |
-| LD-24 | NodePort fallback (`KIND_USE_NODEPORT`) | Partial | Only API server HTTP port mapped | `kind-config.yaml` | Future |
+| LD-24 | NodePort fallback (`KIND_USE_NODEPORT`) | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | — | — |
 
 ### web-console/architecture.spec.md
 
@@ -278,8 +278,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | L3 | Cluster Teardown (`kind-down`) | Present | Root Makefile + `scripts/kind/down.sh` | `Makefile`, `scripts/kind/down.sh` | P0 |
 | L4 | Cluster Status (`kind-status`) | Present | Root Makefile + `scripts/kind/status.sh` | `Makefile`, `scripts/kind/status.sh` | P0 |
 | L5 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` in lib.sh | `scripts/kind/lib.sh` | — |
-| L6 | Hostname Routing (Gateway API) | Partial | HTTPRoutes + `/etc/hosts` wired; multi-namespace routing missing | `deploy/kind/prerequisites/` | P1 |
-| L7 | NodePort Fallback | Partial | Config variables defined; nodeport-services.yaml exists | `scripts/kind/lib.sh` | P2 |
+| L6 | Hostname Routing (Gateway API) | Present | HTTPRoutes + CoreDNS wildcard DNS + pfctl/iptables port forwarding (443 → ephemeral) | `deploy/kind/prerequisites/`, `scripts/kind/lib.sh`, `deploy/kind/coredns/` | — |
+| L7 | NodePort Fallback | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | — | — |
 | L8 | Gateway via REST API | Present | Fleet + Gateway seeded via curl in up.sh | `scripts/kind/up.sh` | P0 |
 | L9 | Controller RBAC | Present | ClusterRole + ClusterRoleBinding | `deploy/kind/controller-rbac.yaml` | P0 |
 | L10 | API Server Database | Present | postgres.yaml (Secret + Deployment + Service) | `deploy/kind/postgres.yaml` | P0 |

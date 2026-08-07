@@ -14,10 +14,11 @@ if cluster_exists; then
   warn "Cluster '${KIND_CLUSTER_NAME}' already exists, reusing"
 else
   info "Creating Kind cluster '${KIND_CLUSTER_NAME}'..."
+  rendered=$(mktemp /tmp/kind-config-XXXXXX.yaml)
   sed "s|__KIND_HOST_MOUNT_PATH__|${KIND_HOST_MOUNT_PATH:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}|g" \
-    "${KIND_CONFIG}" > /tmp/kind-config-rendered.yaml
-  kind create cluster --name "${KIND_CLUSTER_NAME}" --config /tmp/kind-config-rendered.yaml
-  rm -f /tmp/kind-config-rendered.yaml
+    "${KIND_CONFIG}" > "${rendered}"
+  kind create cluster --name "${KIND_CLUSTER_NAME}" --config "${rendered}"
+  rm -f "${rendered}"
   success "Cluster created"
 fi
 
@@ -175,9 +176,9 @@ if [[ -n "${GW_ADDR}" ]]; then
   GATEWAY_PORT=""
   info "Discovering Gateway proxy port..."
   for j in $(seq 1 15); do
-    PROXY_CONTAINER=$(docker ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+    PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
     if [[ -n "${PROXY_CONTAINER}" ]]; then
-      GATEWAY_PORT=$(docker port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
+      GATEWAY_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
       if [[ -n "${GATEWAY_PORT}" ]]; then break; fi
     fi
     sleep 2
@@ -187,7 +188,7 @@ if [[ -n "${GW_ADDR}" ]]; then
     success "Gateway HTTPS on host port ${GATEWAY_PORT}"
     start_port_forward "${GATEWAY_PORT}"
   else
-    warn "Could not discover Gateway proxy port — check 'docker ps --filter name=kindccm-gw'"
+    warn "Could not discover Gateway proxy port — check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
   fi
 else
   warn "Gateway has no address after 60s — cloud-provider-kind may not be running"

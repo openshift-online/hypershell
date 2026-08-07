@@ -10,8 +10,12 @@ kubectl cluster-info --context "$(kctx)" 2>/dev/null || warn "Cluster '${KIND_CL
 echo ""
 
 header "Namespaces"
-kubectl get namespaces -l app.kubernetes.io/part-of=hypershell 2>/dev/null || \
+NS_OUTPUT=$(kubectl get namespaces -l app.kubernetes.io/part-of=hypershell --no-headers 2>/dev/null)
+if [[ -n "${NS_OUTPUT}" ]]; then
+  kubectl get namespaces -l app.kubernetes.io/part-of=hypershell
+else
   kubectl get namespace "${KIND_NAMESPACE}" 2>/dev/null || warn "No HyperShell namespaces found"
+fi
 echo ""
 
 header "Pods (${KIND_NAMESPACE})"
@@ -75,9 +79,9 @@ echo ""
 
 PORT_SUFFIX=""
 if [[ -z "${PF_ACTIVE}" ]]; then
-  PROXY_CONTAINER=$(docker ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+  PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
   if [[ -n "${PROXY_CONTAINER}" ]]; then
-    GW_PORT=$(docker port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
+    GW_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
     if [[ -n "${GW_PORT}" ]]; then
       PORT_SUFFIX=":${GW_PORT}"
     fi
