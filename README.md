@@ -44,6 +44,22 @@ kubectl -n hypershell create secret tls grpc-gateway-certs \
   --key=/path/to/wildcard.key
 ```
 
+On OpenShift, if you want gateways to share the same FQDN base as the cluster's other ingresses (e.g., `*.apps.<cluster>.<domain>`), you can copy the cluster's default wildcard certificate. The Ingress Operator stores it in the `openshift-ingress` namespace:
+
+```shell
+# Find the default ingress certificate Secret name
+oc get ingresscontroller default -n openshift-ingress-operator \
+  -o jsonpath='{.spec.defaultCertificate.name}'
+
+# If no custom cert is set, the operator generates one automatically:
+oc get secret -n openshift-ingress -l app=router --no-headers -o name
+
+# Copy it into the hypershell namespace as grpc-gateway-certs
+oc get secret <secret-name> -n openshift-ingress -o json \
+  | jq 'del(.metadata.namespace,.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.labels) | .metadata.name = "grpc-gateway-certs"' \
+  | oc apply -n hypershell -f -
+```
+
 ### Trusted CA bundle (optional)
 
 If the cluster uses a private CA, create a ConfigMap named `gateway-trusted-ca` in the control plane namespace (default: `hypershell`). The control plane copies this ConfigMap into each tenant namespace and mounts it into gateway pods so they trust the cluster's internal certificates.
