@@ -38,8 +38,11 @@ The GatewayReconciler SHALL dynamically detect the PostgreSQL image variant and 
 | Password env var / secret key | `POSTGRESQL_PASSWORD` | `POSTGRES_PASSWORD` |
 | Database env var / secret key | `POSTGRESQL_DATABASE` | `POSTGRES_DB` |
 | Data mount path | `/var/lib/pgsql/data` | `/var/lib/postgresql/data` |
+| `PGDATA` env var | Not set (RHEL image handles subdirectory internally) | `<mount_path>/pgdata` (required: upstream `postgres` refuses to init in a directory containing `lost+found`) |
 
 This detection SHALL be applied in both the credential Secret provisioning and the Deployment manifest construction, ensuring the env vars in the Deployment match the keys in the Secret and the data volume mount matches the image's expected data directory.
+
+For upstream images, the reconciler SHALL inject a `PGDATA` environment variable set to `<mount_path>/pgdata` to avoid the `initdb: error: directory exists but is not empty` failure caused by the `lost+found` directory present on ext4-formatted PVC mount points.
 
 > **Reference implementation:** The upstream OpenShell control plane uses this same `strings.Contains(pgImage, "rhel")` heuristic for image variant detection.
 

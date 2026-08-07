@@ -155,7 +155,37 @@ func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseCon
 		return fmt.Errorf("unmarshal after database overrides: %w", err)
 	}
 
+	if obj.GetKind() == "Deployment" && !isRHELPostgres(dbImage) {
+		injectPGDATA(obj, dataPath)
+	}
+
 	return nil
+}
+
+func injectPGDATA(obj *unstructured.Unstructured, mountPath string) {
+	containers, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	if !found {
+		return
+	}
+
+	pgdataValue := mountPath + "/pgdata"
+
+	for i, c := range containers {
+		container, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		envList, _, _ := unstructured.NestedSlice(container, "env")
+		envList = append(envList, map[string]interface{}{
+			"name":  "PGDATA",
+			"value": pgdataValue,
+		})
+		container["env"] = envList
+		containers[i] = container
+	}
+
+	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 }
 
 func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) error {
