@@ -81,7 +81,7 @@ oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'
 This typically returns a value like `apps.<cluster-name>.<base-domain>`. Set this value as `GATEWAY_API_BASE_DOMAIN` on the controller deployment:
 
 ```shell
-oc set env deployment/hypershell-controller -n hypershell-api \
+oc set env deployment/hypershell-controller -n hypershell \
   GATEWAY_API_BASE_DOMAIN="$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
 ```
 
@@ -94,7 +94,6 @@ Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the
 | `HYPERSHELL_GRPC_SERVER_ADDR` | `localhost:9000` | gRPC address of the API server |
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | HTTP address of the API server |
 | `HYPERSHELL_NAMESPACE` | `hypershell` | Namespace the control plane runs in (used for trusted CA bundle source) |
-| `OPENSHELL_GATEWAY_IMAGE` | `ghcr.io/nvidia/openshell/gateway:0.0.92` | Default gateway container image |
 | `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources |
 | `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for auto-derived hostnames (e.g., `apps.cluster.example.com`) |
 | `GATEWAY_MANIFESTS_DIR` | `/manifests/gateway` | Path to gateway manifest templates |

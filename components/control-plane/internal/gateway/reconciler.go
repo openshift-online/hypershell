@@ -307,6 +307,9 @@ func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset
 		case <-ticker.C:
 			deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
+				if !k8serrors.IsNotFound(err) {
+					log.Printf("WARN error checking deployment %s/%s readiness: %v", namespace, name, err)
+				}
 				continue
 			}
 			if deploy.Spec.Replicas != nil && deploy.Status.ReadyReplicas >= *deploy.Spec.Replicas {
@@ -659,6 +662,9 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 	return nil
 }
 
+// reconcileCredentialKEK uses create-or-skip (not update-or-create) because
+// replacing an existing key would render all previously encrypted credentials
+// unrecoverable.
 func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
 	secretName := "openshell-gateway-credential-kek"
 	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})

@@ -598,7 +598,7 @@ The GatewayReconciler SHALL create a Job (`openshell-gateway-certgen`) to genera
 #### Scenario: Certgen job SecurityContext
 
 - GIVEN the certgen job is created
-- THEN the job container SHALL specify: `allowPrivilegeEscalation: false`, `seccompProfile.type: RuntimeDefault`, capabilities `drop: [ALL]`
+- THEN the job container SHALL specify: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `seccompProfile.type: RuntimeDefault`, capabilities `drop: [ALL]`
 - AND resource requests SHALL be `cpu: 50m`, `memory: 64Mi` with limits `cpu: 200m`, `memory: 128Mi`
 - AND `backoffLimit` SHALL be `3` with `restartPolicy: OnFailure`
 
