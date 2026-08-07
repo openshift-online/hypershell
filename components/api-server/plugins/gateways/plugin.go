@@ -94,4 +94,5 @@ func init() {
 
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationAddProvisioningFields())
+	db.RegisterMigration(migrationAddSupervisorImage())
 }

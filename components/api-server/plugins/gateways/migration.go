@@ -60,3 +60,20 @@ func migrationAddProvisioningFields() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddSupervisorImage() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		SupervisorImage *string
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026080712000002",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "supervisor_image")
+		},
+	}
+}

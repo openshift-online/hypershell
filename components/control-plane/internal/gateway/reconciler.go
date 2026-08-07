@@ -919,6 +919,11 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 					map[string]interface{}{
 						"from": []interface{}{
 							map[string]interface{}{
+								"namespaceSelector": map[string]interface{}{
+									"matchLabels": map[string]interface{}{
+										"kubernetes.io/metadata.name": gatewayNamespace,
+									},
+								},
 								"podSelector": map[string]interface{}{
 									"matchLabels": map[string]interface{}{
 										"gateway.networking.k8s.io/gateway-name": "openshell-gateway",
