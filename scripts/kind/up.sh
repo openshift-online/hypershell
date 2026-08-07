@@ -168,6 +168,26 @@ done
 
 if [[ -n "${GW_ADDR}" ]]; then
   success "Networking Gateway address: ${GW_ADDR}"
+
+  # cloud-provider-kind exposes Gateways via Docker proxy containers.
+  # On macOS the container IPs are not routable, so --enable-lb-port-mapping
+  # publishes an ephemeral host port.  Discover it for the banner URLs.
+  GATEWAY_PORT=""
+  info "Discovering Gateway proxy port..."
+  for j in $(seq 1 15); do
+    PROXY_CONTAINER=$(docker ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+    if [[ -n "${PROXY_CONTAINER}" ]]; then
+      GATEWAY_PORT=$(docker port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
+      if [[ -n "${GATEWAY_PORT}" ]]; then break; fi
+    fi
+    sleep 2
+  done
+
+  if [[ -n "${GATEWAY_PORT}" ]]; then
+    success "Gateway HTTPS on host port ${GATEWAY_PORT}"
+  else
+    warn "Could not discover Gateway proxy port — check 'docker ps --filter name=kindccm-gw'"
+  fi
 else
   warn "Gateway has no address after 60s — cloud-provider-kind may not be running"
   warn "Install: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
@@ -319,13 +339,18 @@ echo ""
 header "HyperShell is running!"
 echo ""
 
-info "HTTP API:     https://${API_HOSTNAME}"
-info "Web Console:  https://${CONSOLE_HOSTNAME}"
-info "Health:       https://${HEALTH_HOSTNAME}"
-info "gRPC:         https://openshell-gateway.gw.localhost"
+PORT_SUFFIX=""
+if [[ -n "${GATEWAY_PORT:-}" ]]; then
+  PORT_SUFFIX=":${GATEWAY_PORT}"
+fi
+
+info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
+info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
+info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
+info "gRPC:         https://openshell-gateway.gw.localhost${PORT_SUFFIX}"
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
-  info "Keycloak:     https://${KEYCLOAK_HOSTNAME} (admin/admin)"
+  info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
   info "OIDC Issuer:  http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
 else
   info "Keycloak:     ${KIND_KEYCLOAK_URL}"

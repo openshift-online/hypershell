@@ -41,19 +41,21 @@ This creates a Kind cluster and deploys:
 ```
 === HyperShell is running! ===
 
-  HTTP API:     https://api.hypershell.localhost
-  Web Console:  https://console.hypershell.localhost
-  Health:       https://health.hypershell.localhost
-  gRPC:         https://openshell-gateway.gw.localhost
-  Keycloak:     https://keycloak.hypershell.localhost (admin/admin)
+  HTTP API:     https://api.hypershell.localhost:<PORT>
+  Web Console:  https://console.hypershell.localhost:<PORT>
+  Health:       https://health.hypershell.localhost:<PORT>
+  gRPC:         https://openshell-gateway.gw.localhost:<PORT>
+  Keycloak:     https://keycloak.hypershell.localhost:<PORT> (admin/admin)
 ```
 
 Services are accessed via `.localhost` hostnames routed through the networking
-Gateway. cloud-provider-kind's `--enable-lb-port-mapping` flag maps Gateway
-listener ports directly to the host, so services are reachable on standard HTTPS
-port 443. `make kind-up` manages `/etc/hosts` entries automatically (prompts for
-`sudo` on first run). The TLS certificate is self-signed -- trust it in your
-browser or use `curl --cacert`.
+Gateway. On macOS, container IPs are not directly routable, so
+cloud-provider-kind publishes an ephemeral host port for the Gateway's HTTPS
+listener. The actual port is printed in the banner each time you run
+`make kind-up` (e.g. `https://console.hypershell.localhost:60355`).
+`make kind-up` manages `/etc/hosts` entries automatically (prompts for `sudo` on
+first run). The TLS certificate is self-signed -- trust it in your browser or
+use `curl --cacert`.
 
 ## Per-Component Swap
 
@@ -214,7 +216,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `LOCAL_IMAGES` | (unset) | Set to `true` for offline baseline builds |
 | `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
 | `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
-| `CLOUD_PROVIDER_KIND_VERSION` | `v0.6.0` | cloud-provider-kind version |
+| `CLOUD_PROVIDER_KIND_VERSION` | `v0.11.1` | cloud-provider-kind version |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
 
 ## Make Targets
