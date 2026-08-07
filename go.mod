@@ -4,6 +4,8 @@ go 1.26.4
 
 tool github.com/evilmartians/lefthook/v2
 
+require github.com/gorilla/mux v1.8.1
+
 require (
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect
 	charm.land/lipgloss/v2 v2.0.5 // indirect
@@ -20,7 +22,7 @@ require (
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/evilmartians/lefthook/v2 v2.1.10 // indirect
 	github.com/fatih/color v1.18.0 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
