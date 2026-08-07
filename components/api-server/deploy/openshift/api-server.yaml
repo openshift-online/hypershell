@@ -24,7 +24,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: migrate
-          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main@sha256:4b2898091ffb72ff3f7f60e6cc41bf2219065ccad05c901dffd4b4baa9774252
           imagePullPolicy: Always
           command:
             - /usr/local/bin/hypershell
@@ -45,7 +45,7 @@ spec:
               readOnly: true
       containers:
         - name: api-server
-          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main@sha256:4b2898091ffb72ff3f7f60e6cc41bf2219065ccad05c901dffd4b4baa9774252
           imagePullPolicy: Always
           command:
             - /usr/local/bin/hypershell
