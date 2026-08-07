@@ -200,12 +200,20 @@ Use `mcp__jira__jira_create_issue` with:
 }
 ```
 
+**Important**: Do NOT pass an `assignee` parameter. After creation, immediately call
+`mcp__jira__jira_assign_issue` with `assignee: ""` (empty string) on the new issue key
+to ensure it is **Unassigned**. The project default may auto-assign to a specific user;
+this explicit unassignment overrides that.
+```
+
 **Batch execution order** (the order matters because later steps depend on earlier ones):
 1. Create Epics first — their keys are needed for linking
-2. Create remaining tickets (Stories, Bugs, Tasks, Spikes)
-3. Link child tickets to their epics via `mcp__jira__jira_link_to_epic`
-4. Create blocking relationships via `mcp__jira__jira_create_issue_link` with `link_type: "Blocks"`
-5. Create related links via `mcp__jira__jira_create_issue_link` with `link_type: "Related"`
+2. Unassign all Epics via `mcp__jira__jira_assign_issue` with `assignee: ""`
+3. Create remaining tickets (Stories, Bugs, Tasks, Spikes)
+4. Unassign all remaining tickets via `mcp__jira__jira_assign_issue` with `assignee: ""`
+5. Link child tickets to their epics via `mcp__jira__jira_link_to_epic`
+6. Create blocking relationships via `mcp__jira__jira_create_issue_link` with `link_type: "Blocks"`
+7. Create related links via `mcp__jira__jira_create_issue_link` with `link_type: "Related"`
 
 **Important**: the Jira link type for related issues is `"Related"` (not "Relates"). Using the wrong name silently fails.
 
