@@ -62,7 +62,7 @@ fi
 
 if ! pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
   info "Starting cloud-provider-kind (requires sudo for Docker proxy on macOS)..."
-  sudo -E nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &
+  sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
   sleep 2
   if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
     success "cloud-provider-kind started"
