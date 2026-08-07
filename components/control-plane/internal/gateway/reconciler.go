@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -694,7 +695,7 @@ func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			"key-encryption-key": []byte(hex.EncodeToString(kekBytes)),
+			"key-encryption-key": []byte(base64.StdEncoding.EncodeToString(kekBytes)),
 		},
 	}
 

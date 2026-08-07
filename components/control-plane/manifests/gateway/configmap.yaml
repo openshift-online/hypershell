@@ -54,4 +54,5 @@ data:
     topology                     = "single-cluster"
 
     [openshell.drivers.kubernetes.sidecar]
-    image = "SUPERVISOR_IMAGE_PLACEHOLDER"
+    proxy_uid                    = 1337
+    process_binary_aware_network_policy = false
