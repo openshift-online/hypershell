@@ -62,11 +62,13 @@ help:
 	@echo "  ==================="
 	@echo ""
 	@echo "  Local Development (Kind)"
+	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
+	@echo ""
 	@echo "    kind-up                  Create cluster + deploy all components"
 	@echo "    kind-down                Delete cluster + stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
-	@echo "    kind-deploy              Deploy into a new namespace (from branch name)"
-	@echo "    kind-undeploy            Delete a namespace deployment"
+	@echo "    kind-ns-add              Create namespace and deploy into it (KIND_NAMESPACE or from branch)"
+	@echo "    kind-ns-rm               Remove namespace and its deployment (KIND_NAMESPACE or from branch)"
 	@echo "    kind-api-server-up       Build + swap API server from working tree"
 	@echo "    kind-api-server-down     Revert API server to baseline image"
 	@echo "    kind-control-plane-up    Build + swap control plane from working tree"
@@ -277,10 +279,10 @@ kind-web-console-up:
 kind-web-console-down:
 	@scripts/kind/swap-component.sh down web-console
 
-.PHONY: kind-deploy
-kind-deploy:
+.PHONY: kind-ns-add
+kind-ns-add:
 	@scripts/kind/deploy-namespace.sh
 
-.PHONY: kind-undeploy
-kind-undeploy:
+.PHONY: kind-ns-rm
+kind-ns-rm:
 	@scripts/kind/deploy-namespace.sh undeploy

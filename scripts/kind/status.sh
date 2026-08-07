@@ -6,7 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 header "Cluster"
-kube cluster-info 2>/dev/null || warn "Cluster '${KIND_CLUSTER_NAME}' is not running"
+if ! kube cluster-info 2>/dev/null; then
+  warn "Cluster '${KIND_CLUSTER_NAME}' is not running"
+  exit 0
+fi
 echo ""
 
 header "Namespaces"

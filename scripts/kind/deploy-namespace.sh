@@ -9,24 +9,32 @@ require_cluster
 
 ACTION="${1:-deploy}"
 
-# --- Undeploy ---
+# --- Resolve target namespace ---
+# KIND_NAMESPACE drives both add and remove. When it is the default
+# (hypershell-system), derive from the current git branch instead.
+if [[ "${KIND_NAMESPACE}" != "hypershell-system" ]]; then
+  NS="${KIND_NAMESPACE}"
+else
+  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  NS="hypershell-$(echo "${BRANCH}" | sed 's/[^a-z0-9-]/-/g' | cut -c1-63)"
+fi
+
+# --- Remove ---
 if [[ "${ACTION}" == "undeploy" ]]; then
-  if [[ "${KIND_NAMESPACE}" == "hypershell-system" ]]; then
-    error "Cannot undeploy the default namespace. Use 'make kind-down' instead."
+  if [[ "${NS}" == "hypershell-system" ]]; then
+    error "Cannot remove the default namespace. Use 'make kind-down' instead."
     exit 1
   fi
-  header "Removing namespace ${KIND_NAMESPACE}"
-  kube delete namespace "${KIND_NAMESPACE}" --ignore-not-found
+  header "Removing namespace ${NS}"
+  kube delete namespace "${NS}" --ignore-not-found
   success "Done."
   exit 0
 fi
 
-BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null | sed 's/[^a-z0-9-]/-/g' | cut -c1-63)"
-NS="hypershell-${BRANCH}"
-SANITIZED="$(echo "${BRANCH}" | sed 's/[^a-z0-9-]/-/g')"
+# --- Add ---
+SANITIZED="${NS#hypershell-}"
 
 header "Deploy to namespace ${NS}"
-info "From branch $(git rev-parse --abbrev-ref HEAD)"
 
 kube create namespace "${NS}" --dry-run=client -o yaml | kube apply -f -
 

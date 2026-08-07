@@ -212,7 +212,7 @@ spec:
 | Health | `health.hypershell.localhost` | Health check endpoint |
 | gRPC | `<gateway-name>.gw.localhost` | gRPC streaming (control plane, CLI) |
 
-For multi-namespace deployments, component hostnames include the namespace: `api.<namespace>.hypershell.localhost` (e.g. `api.feature-add-auth.hypershell.localhost`). `make kind-deploy` creates namespace-scoped HTTPRoutes; wildcard DNS resolves all subdomains automatically.
+For multi-namespace deployments, component hostnames include the namespace: `api.<namespace>.hypershell.localhost` (e.g. `api.feature-add-auth.hypershell.localhost`). `make kind-ns-add` creates namespace-scoped HTTPRoutes; wildcard DNS resolves all subdomains automatically.
 
 #### Per-Gateway Route Resources (Control Plane Reconciled)
 
@@ -634,19 +634,25 @@ The database image SHALL be overridable via the `KIND_DB_IMAGE` environment vari
 
 The system SHALL support deploying the platform into multiple namespaces within a single Kind cluster. Each namespace gets its own set of HyperShell components with isolated hostnames, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents).
 
-The system SHALL provide a `make kind-deploy` target that deploys the platform into a new namespace. The namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). Each namespace gets its own HTTPRoutes with namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`). Wildcard DNS resolves all subdomains automatically — no per-hostname configuration is needed. The default deployment (`make kind-up`) uses the `hypershell-system` namespace and base hostnames; `kind-deploy` creates additional deployments alongside it.
+The system SHALL provide a `make kind-ns-add` target that adds the platform into a new namespace. When `KIND_NAMESPACE` is set, it SHALL be used as the target namespace; otherwise, the namespace is derived from the current git branch name, sanitized to a valid Kubernetes namespace (lowercase, alphanumeric and hyphens, max 63 characters). Each namespace gets its own HTTPRoutes with namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`). Wildcard DNS resolves all subdomains automatically — no per-hostname configuration is needed. The default deployment (`make kind-up`) uses the `hypershell-system` namespace and base hostnames; `kind-ns-add` creates additional deployments alongside it.
 
-Per-component swap and teardown targets operate on the specified namespace when `KIND_NAMESPACE` is set.
+All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (default: `hypershell-system`).
 
 #### Scenario: Deploy to Additional Namespace from Branch
 - GIVEN a Kind cluster is running with the default deployment in `hypershell-system`
 - AND the developer is on branch `feature/add-auth`
-- WHEN they run `make kind-deploy`
+- WHEN they run `make kind-ns-add`
 - THEN a namespace `hypershell-feature-add-auth` SHALL be created (derived from the branch name)
 - AND a full set of HyperShell components SHALL be deployed into that namespace
 - AND namespace-scoped HTTPRoutes SHALL be created (e.g. `api.feature-add-auth.hypershell.localhost`)
 - AND wildcard DNS SHALL resolve the new hostnames automatically
 - AND both deployments SHALL run independently without interference
+
+#### Scenario: Deploy to Explicit Namespace
+- GIVEN a Kind cluster is running
+- WHEN a developer runs `KIND_NAMESPACE=my-feature make kind-ns-add`
+- THEN a namespace `my-feature` SHALL be created
+- AND a full set of HyperShell components SHALL be deployed into that namespace
 
 #### Scenario: Status Reports All Deployments
 - GIVEN the platform is deployed into multiple namespaces
@@ -655,7 +661,7 @@ Per-component swap and teardown targets operate on the specified namespace when 
 
 #### Scenario: Teardown Namespace Deployment
 - GIVEN the platform is deployed in `hypershell-system` and `hypershell-feature-add-auth`
-- WHEN a developer runs `make kind-undeploy KIND_NAMESPACE=hypershell-feature-add-auth`
+- WHEN a developer runs `make kind-ns-rm KIND_NAMESPACE=hypershell-feature-add-auth`
 - THEN only the `hypershell-feature-add-auth` namespace and its resources SHALL be deleted
 - AND the default deployment in `hypershell-system` SHALL continue running
 
@@ -683,13 +689,15 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | `CLOUD_PROVIDER_KIND_VERSION` | (pinned in Makefile) | cloud-provider-kind binary version |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
-| `KIND_NAMESPACE` | `hypershell-system` | Target namespace for deployment; scopes swap/teardown targets to the specified namespace |
+| `KIND_NAMESPACE` | `hypershell-system` | Target namespace for all `kind-*` targets |
 
 ## Make Targets Summary
 
+All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
+
 | Target | Behavior |
 |--------|----------|
-| `make kind-up` | Create cluster (if needed) + pull baseline images from registry + deploy + start CoreDNS + configure resolver + set up port forwarding + wait for readiness |
+| `make kind-up` | Create cluster (if needed) + deploy into `KIND_NAMESPACE` + start CoreDNS + configure resolver + set up port forwarding + wait for readiness |
 | `make kind-down` | Delete the Kind cluster + stop CoreDNS + flush port forwarding rules + revert resolver (Linux) |
 | `make kind-status` | Show cluster info, pods, services, hostnames, DNS status, port forwarding status, and active component swaps |
 | `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
@@ -698,8 +706,8 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
-| `make kind-deploy` | Deploy platform into a new namespace (derived from current branch) with namespace-scoped hostnames (wildcard DNS resolves automatically) + wait |
-| `make kind-undeploy` | Delete a namespace deployment and its resources (`KIND_NAMESPACE` required) |
+| `make kind-ns-add` | Create `KIND_NAMESPACE` (or derive from branch) and deploy platform into it with namespace-scoped hostnames + wait |
+| `make kind-ns-rm` | Remove `KIND_NAMESPACE` (or derive from branch) and its resources |
 
 ## Design Decisions
 
@@ -718,7 +726,7 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)), exercising the same path as production. The API server's own database (`deploy/kind/postgres.yaml`) is always deployed directly by `kind-up` |
 | Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images — HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
-| Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). Namespace derived from branch name via explicit `kind-deploy` target; each namespace gets namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`). Wildcard DNS resolves all subdomains automatically |
+| Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). Namespace derived from branch name via explicit `kind-ns-add` target; each namespace gets namespace-prefixed hostnames (e.g. `api.<namespace>.hypershell.localhost`). Wildcard DNS resolves all subdomains automatically |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
 | GRPCRoute, not HTTPRoute | OpenShell gateway speaks gRPC; GRPCRoute is the correct Gateway API resource type for gRPC backends |

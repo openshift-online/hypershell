@@ -146,11 +146,11 @@ Deploy the platform into additional namespaces within the same Kind cluster.
 Each namespace gets its own set of components with isolated hostnames.
 
 ```bash
-# Deploy into a namespace derived from the current branch name
-make kind-deploy
+# Add a namespace derived from the current branch name
+make kind-ns-add
 
-# Tear down a specific namespace deployment
-make kind-undeploy KIND_NAMESPACE=hypershell-feature-add-auth
+# Remove a specific namespace deployment
+make kind-ns-rm KIND_NAMESPACE=hypershell-feature-add-auth
 ```
 
 ### Hostname Pattern
@@ -232,8 +232,8 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-control-plane-down` | Revert control plane to baseline image |
 | `make kind-web-console-up` | Hot reload (default) or build + swap web console |
 | `make kind-web-console-down` | Revert web console to baseline image |
-| `make kind-deploy` | Deploy into new namespace (from branch name) |
-| `make kind-undeploy` | Delete namespace deployment |
+| `make kind-ns-add` | Add a namespace deployment (from branch name) |
+| `make kind-ns-rm` | Remove a namespace deployment |
 
 ## Troubleshooting
 

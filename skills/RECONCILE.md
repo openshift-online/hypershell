@@ -226,7 +226,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | LD-19 | Keycloak | Missing | Not deployed | — | Future |
 | LD-20 | HyperShell Gateway resource in Kind | Missing | Not created | — | Future |
 | LD-21 | Gateway API routing (HTTPRoute, GRPCRoute) | Missing | No routing resources | — | Future |
-| LD-22 | Multiple namespace deployments | Missing | No `kind-deploy`/`kind-undeploy` | — | Future |
+| LD-22 | Multiple namespace deployments | Missing | No `kind-ns-add`/`kind-ns-rm` | — | Future |
 | LD-23 | Single root Makefile (deprecate component) | Partial | Root delegates to `api-server/Makefile` | `Makefile` | Future |
 | LD-24 | NodePort fallback (`KIND_USE_NODEPORT`) | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | — | — |
 
