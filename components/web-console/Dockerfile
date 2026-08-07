@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:63f3ae9ba3ac4af3c809d58c0845effbfbb75a6f2e08148af8ae2e95d889132f AS build
+FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:52ea553eff206e75c3dec4ab689c7daa49ec3b81103f2b26e7b82cc7800f61ce AS build
 
 USER 0
 
