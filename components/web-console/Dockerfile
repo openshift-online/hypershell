@@ -30,7 +30,7 @@ RUN pnpm install --frozen-lockfile --offline \
     && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
     && cp -R components/web-console/build/client /tmp/web-console/public
 
-FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:b24c3fce1b2803aa622d1bd7add354d0974528fdf1f16f1303226bfa5e3c6666
+FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:857f024ce7d62986f94925062513293a89e818cdecdadedbb0fb6757920a2a40
 
 LABEL org.opencontainers.image.title="HyperShell web console" \
       org.opencontainers.image.description="HyperShell web console BFF and static application" \
