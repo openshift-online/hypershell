@@ -173,7 +173,8 @@ build time, so no external dependency checkout is needed.
 
 ```bash
 make kind-up        # Create cluster + deploy everything
-make kind-down      # Delete cluster (stops cloud-provider-kind)
+make kind-down      # Remove namespace and its resources
+make kind-teardown  # Destroy Kind cluster entirely
 make kind-status    # Show cluster info, pods, services, swap state
 ```
 
