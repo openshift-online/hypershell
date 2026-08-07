@@ -40,6 +40,13 @@ spec:
               name: http
             - containerPort: 9000
               name: management
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
           readinessProbe:
             httpGet:
               path: /health/ready

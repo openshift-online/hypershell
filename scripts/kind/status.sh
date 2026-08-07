@@ -58,7 +58,7 @@ header "Port Forwarding"
 PF_ACTIVE=""
 case "$(uname -s)" in
   Darwin)
-    PF_RULE=$(sudo pfctl -a "${PF_ANCHOR}" -s nat 2>/dev/null | grep "rdr" || true)
+    PF_RULE=$(sudo -n pfctl -a "${PF_ANCHOR}" -s nat 2>/dev/null | grep "rdr" || true)
     if [[ -n "${PF_RULE}" ]]; then
       PF_ACTIVE=true
       PF_PORT=$(echo "${PF_RULE}" | grep -o 'port [0-9]*$' | awk '{print $2}')
@@ -68,7 +68,7 @@ case "$(uname -s)" in
     fi
     ;;
   Linux)
-    IPT_RULE=$(sudo iptables -t nat -L "${IPTABLES_CHAIN}" -n 2>/dev/null | grep "REDIRECT" || true)
+    IPT_RULE=$(sudo -n iptables -t nat -L "${IPTABLES_CHAIN}" -n 2>/dev/null | grep "REDIRECT" || true)
     if [[ -n "${IPT_RULE}" ]]; then
       PF_ACTIVE=true
       IPT_PORT=$(echo "${IPT_RULE}" | grep -o 'redir ports [0-9]*' | awk '{print $3}')

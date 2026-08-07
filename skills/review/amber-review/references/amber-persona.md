@@ -142,6 +142,7 @@ Fleet Created → Clusters/DBs Registered → Release Published → Gateway Depl
 - API Server: OpenAPI client not manually edited (`make generate` only)
 - API Server: Errors wrapped with context: `fmt.Errorf("context: %w", err)`
 - Control Plane: gRPC watch-stream pattern, NOT controller-runtime
+- Control Plane: No HTTP server — pure gRPC watcher, so liveness/readiness probes are not applicable (no health endpoint to check)
 - Control Plane: SecurityContext on all pod specs
 - Control Plane: Status updates on error paths
 - All: No `panic()` in production code—return explicit `fmt.Errorf`
