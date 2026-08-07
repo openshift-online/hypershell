@@ -78,7 +78,7 @@ help:
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
 	@echo "    web-console-image        Build web console container image"
-	@echo "    web-console-dev          Start web console dev server (pnpm)"
+	@echo "    web-console-dev          (deprecated: use 'make kind-web-console-up')"
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
@@ -120,8 +120,9 @@ install-js: verify-pnpm
 	$(PNPM) install --frozen-lockfile
 
 .PHONY: web-console-dev
-web-console-dev: install-js
-	$(PNPM) dev
+web-console-dev:
+	@echo "DEPRECATED: use 'make kind-web-console-up' instead (hot reload with Kind cluster routing)"
+	@exit 1
 
 .PHONY: web-console-image
 web-console-image:
