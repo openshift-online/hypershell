@@ -65,10 +65,9 @@ help:
 	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
 	@echo ""
 	@echo "    kind-up                  Create cluster + deploy all components"
-	@echo "    kind-down                Delete cluster + stop cloud-provider-kind"
+	@echo "    kind-down                Remove namespace and its resources"
+	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
-	@echo "    kind-ns-add              Create namespace and deploy into it (KIND_NAMESPACE or from branch)"
-	@echo "    kind-ns-rm               Remove namespace and its deployment (KIND_NAMESPACE or from branch)"
 	@echo "    kind-api-server-up       Build + swap API server from working tree"
 	@echo "    kind-api-server-down     Revert API server to baseline image"
 	@echo "    kind-control-plane-up    Build + swap control plane from working tree"
@@ -251,6 +250,10 @@ kind-up:
 kind-down:
 	@scripts/kind/down.sh
 
+.PHONY: kind-teardown
+kind-teardown:
+	@scripts/kind/teardown.sh
+
 .PHONY: kind-status
 kind-status:
 	@scripts/kind/status.sh
@@ -279,10 +282,3 @@ kind-web-console-up:
 kind-web-console-down:
 	@scripts/kind/swap-component.sh down web-console
 
-.PHONY: kind-ns-add
-kind-ns-add:
-	@scripts/kind/deploy-namespace.sh
-
-.PHONY: kind-ns-rm
-kind-ns-rm:
-	@scripts/kind/deploy-namespace.sh undeploy

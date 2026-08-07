@@ -5,25 +5,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
-header "Tearing down Kind cluster '${KIND_CLUSTER_NAME}'"
+require_cluster
 
-if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-  info "Stopping cloud-provider-kind..."
-  sudo pkill -f "cloud-provider-kind" 2>/dev/null || pkill -f "cloud-provider-kind" || true
-  success "cloud-provider-kind stopped"
+header "Removing namespace ${KIND_NAMESPACE}"
+kube delete namespace "${KIND_NAMESPACE}" --ignore-not-found
+success "Namespace ${KIND_NAMESPACE} deleted"
+
+# Check whether any hypershell-* namespaces remain.
+remaining=$(kube get namespaces -o name 2>/dev/null \
+  | grep -c '^namespace/hypershell' || true)
+
+if (( remaining == 0 )); then
+  echo ""
+  info "No HyperShell namespaces remain."
+  info "Run 'make kind-teardown' to destroy the Kind cluster."
 fi
-
-stop_port_forward
-stop_dns
-cleanup_resolver
-
-if cluster_exists; then
-  info "Deleting cluster..."
-  kind delete cluster --name "${KIND_CLUSTER_NAME}"
-  success "Cluster deleted"
-else
-  warn "Cluster '${KIND_CLUSTER_NAME}' not found"
-fi
-
-rm -f "${SWAP_FILE}"
-success "Done."

@@ -146,19 +146,12 @@ Deploy the platform into additional namespaces within the same Kind cluster.
 Each namespace gets its own set of components with isolated hostnames.
 
 ```bash
-# Add a namespace derived from the current branch name
-make kind-ns-add
+# Deploy into a custom namespace
+KIND_NAMESPACE=hypershell-feature-add-auth make kind-up
 
-# Remove a specific namespace deployment
-make kind-ns-rm KIND_NAMESPACE=hypershell-feature-add-auth
+# Remove that namespace (cluster stays running)
+KIND_NAMESPACE=hypershell-feature-add-auth make kind-down
 ```
-
-### Hostname Pattern
-
-| Deployment | API | Console | Health |
-|------------|-----|---------|--------|
-| Default | `api.hypershell.localhost` | `console.hypershell.localhost` | `health.hypershell.localhost` |
-| Branch `feature/add-auth` | `api.feature-add-auth.hypershell.localhost` | `console.feature-add-auth.hypershell.localhost` | `health.feature-add-auth.hypershell.localhost` |
 
 Per-component swap targets respect `KIND_NAMESPACE`:
 
@@ -224,7 +217,8 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | Target | Description |
 |--------|-------------|
 | `make kind-up` | Create cluster + prerequisites + deploy + wait |
-| `make kind-down` | Delete cluster + stop cloud-provider-kind |
+| `make kind-down` | Remove namespace and its resources |
+| `make kind-teardown` | Destroy Kind cluster, stop cloud-provider-kind |
 | `make kind-status` | Show cluster info, pods, services, swap state |
 | `make kind-api-server-up` | Build + swap API server from working tree |
 | `make kind-api-server-down` | Revert API server to baseline image |
@@ -232,8 +226,6 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-control-plane-down` | Revert control plane to baseline image |
 | `make kind-web-console-up` | Hot reload (default) or build + swap web console |
 | `make kind-web-console-down` | Revert web console to baseline image |
-| `make kind-ns-add` | Add a namespace deployment (from branch name) |
-| `make kind-ns-rm` | Remove a namespace deployment |
 
 ## Troubleshooting
 

@@ -226,7 +226,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | LD-19 | Keycloak | Missing | Not deployed | — | Future |
 | LD-20 | HyperShell Gateway resource in Kind | Missing | Not created | — | Future |
 | LD-21 | Gateway API routing (HTTPRoute, GRPCRoute) | Missing | No routing resources | — | Future |
-| LD-22 | Multiple namespace deployments | Missing | No `kind-ns-add`/`kind-ns-rm` | — | Future |
+| LD-22 | Multiple namespace deployments | Missing | `kind-up`/`kind-down` support `KIND_NAMESPACE` but deploy-namespace.sh not yet integrated | — | Future |
 | LD-23 | Single root Makefile (deprecate component) | Partial | Root delegates to `api-server/Makefile` | `Makefile` | Future |
 | LD-24 | NodePort fallback (`KIND_USE_NODEPORT`) | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | — | — |
 
@@ -275,7 +275,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 |---|-------------|--------|-----|---------------|----------|
 | L1 | Single-Command Setup (`kind-up`) | Present | Root Makefile + `scripts/kind/up.sh` | `Makefile`, `scripts/kind/up.sh` | P0 |
 | L2 | Per-Component Swap | Present | `swap-component.sh` implements `make kind-<component>-up/down` for api-server, control-plane, and web-console | `scripts/kind/swap-component.sh` | P1 |
-| L3 | Cluster Teardown (`kind-down`) | Present | Root Makefile + `scripts/kind/down.sh` | `Makefile`, `scripts/kind/down.sh` | P0 |
+| L3 | Namespace Teardown (`kind-down`) + Cluster Teardown (`kind-teardown`) | Present | `down.sh` removes namespace; `teardown.sh` destroys cluster | `Makefile`, `scripts/kind/down.sh`, `scripts/kind/teardown.sh` | P0 |
 | L4 | Cluster Status (`kind-status`) | Present | Root Makefile + `scripts/kind/status.sh` | `Makefile`, `scripts/kind/status.sh` | P0 |
 | L5 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` in lib.sh | `scripts/kind/lib.sh` | — |
 | L6 | Hostname Routing (Gateway API) | Present | HTTPRoutes + CoreDNS wildcard DNS + pfctl/iptables port forwarding (443 → ephemeral) | `deploy/kind/prerequisites/`, `scripts/kind/lib.sh`, `deploy/kind/coredns/` | — |
