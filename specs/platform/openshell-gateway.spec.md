@@ -808,7 +808,7 @@ Control Plane
 |---|---|---|---|
 | `name` | Yes | — | Resource name (typically `openshell-gateway`) |
 | `project` | Yes | — | Project name (determines target namespace) |
-| `image` | No | `OPENSHELL_GATEWAY_IMAGE` env var | Gateway container image reference |
+| `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.101` | Gateway container image reference |
 | `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.101` | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | — | DNS names for TLS certificate generation |
 | `oidc` | No | — | OIDC authentication configuration (see OIDC spec) |

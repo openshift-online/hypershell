@@ -1,13 +1,23 @@
 package gateway
 
-// TODO: Move default image versions into the hypershell database so they can be
-// updated dynamically without downtime and vary by region/group. Use a versions
-// table for each OpenShell release and a gatewayVersion join table to associate
-// gateways with specific version sets.
-const (
-	DefaultGatewayImage    = "ghcr.io/nvidia/openshell/gateway:0.0.101"
-	DefaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:0.0.101"
-)
+// ImageDefaults resolves the default container images for gateway deployments.
+// TODO: Replace StaticImageDefaults with a database-backed implementation that
+// reads from a versions table + gatewayVersion join table, so defaults can be
+// updated dynamically without downtime and vary by region/group/fleet.
+type ImageDefaults interface {
+	DefaultGatewayImage() string
+	DefaultSupervisorImage() string
+}
+
+type StaticImageDefaults struct{}
+
+func (StaticImageDefaults) DefaultGatewayImage() string {
+	return "ghcr.io/nvidia/openshell/gateway:0.0.101"
+}
+
+func (StaticImageDefaults) DefaultSupervisorImage() string {
+	return "ghcr.io/nvidia/openshell/supervisor:0.0.101"
+}
 
 type NamespaceConfig struct {
 	Name    string        `yaml:"name"`
@@ -50,4 +60,5 @@ type ReconcileOpts struct {
 	HasCertManager        bool
 	HasGatewayAPI         bool
 	ControlPlaneNamespace string
+	Images                ImageDefaults
 }

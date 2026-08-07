@@ -29,9 +29,9 @@ func ReconcileGateway(
 	manifests map[string][]*unstructured.Unstructured,
 	opts ReconcileOpts,
 ) error {
-	defaultImage := os.Getenv("OPENSHELL_GATEWAY_IMAGE")
-	if defaultImage == "" {
-		defaultImage = DefaultGatewayImage
+	images := opts.Images
+	if images == nil {
+		images = StaticImageDefaults{}
 	}
 
 	if !namespaceExists(ctx, clientset, nsConfig.Name) {
@@ -62,7 +62,7 @@ func ReconcileGateway(
 
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
-	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, defaultImage, opts, hasTrustedCA); err != nil {
+	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, images, opts, hasTrustedCA); err != nil {
 		return fmt.Errorf("deploy gateway in %s: %w", nsConfig.Name, err)
 	}
 
@@ -228,7 +228,7 @@ func deployGateway(
 	clientset *kubernetes.Clientset,
 	nsConfig NamespaceConfig,
 	manifests map[string][]*unstructured.Unstructured,
-	defaultImage string,
+	images ImageDefaults,
 	opts ReconcileOpts,
 	hasTrustedCA bool,
 ) error {
@@ -259,7 +259,7 @@ func deployGateway(
 				return fmt.Errorf("apply database overrides for %s: %w", filename, err)
 			}
 
-			obj, err := ApplyManifestToNamespace(raw, nsConfig.Name, nsConfig.Gateway, defaultImage)
+			obj, err := ApplyManifestToNamespace(raw, nsConfig.Name, nsConfig.Gateway, images)
 			if err != nil {
 				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
 			}

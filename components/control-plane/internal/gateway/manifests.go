@@ -75,7 +75,7 @@ func LoadGatewayManifests(manifestsDir string) (map[string][]*unstructured.Unstr
 	return manifests, nil
 }
 
-func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace string, config GatewayConfig, defaultImage string) (*unstructured.Unstructured, error) {
+func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace string, config GatewayConfig, images ImageDefaults) (*unstructured.Unstructured, error) {
 	obj := manifest.DeepCopy()
 
 	jsonBytes, err := obj.MarshalJSON()
@@ -86,13 +86,13 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	manifestJSON := string(jsonBytes)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "NAMESPACE_PLACEHOLDER", namespace)
 
-	supervisorImage := DefaultSupervisorImage
+	supervisorImage := images.DefaultSupervisorImage()
 	if config.SupervisorImage != "" {
 		supervisorImage = config.SupervisorImage
 	}
 	manifestJSON = strings.ReplaceAll(manifestJSON, "SUPERVISOR_IMAGE_PLACEHOLDER", supervisorImage)
 
-	image := defaultImage
+	image := images.DefaultGatewayImage()
 	if config.Image != "" {
 		image = config.Image
 	}
