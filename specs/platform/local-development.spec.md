@@ -670,6 +670,7 @@ Per-component swap and teardown targets operate on the specified namespace when 
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `KIND_CLUSTER_NAME` | `hypershell-dev` | Kind cluster name |
+| `KIND_NO_SUDO` | (unset) | Set to `true` to skip all sudo operations (cloud-provider-kind, DNS resolver, port forwarding); services use ephemeral ports |
 | `KIND_DNS_PORT` | `5553` | Host port for the CoreDNS container (UDP+TCP) |
 | `KIND_HOT_RELOAD` | `true` | Hot reload for supported components; set to `false` to disable |
 | `KIND_HOST_MOUNT_PATH` | Repository root (`git rev-parse --show-toplevel`) | Host directory mounted into Kind nodes for hot reload |

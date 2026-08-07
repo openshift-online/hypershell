@@ -109,6 +109,10 @@ stop_dns() {
 }
 
 setup_resolver() {
+  if [[ "${HAVE_SUDO:-true}" == "false" ]]; then
+    warn "Skipping resolver setup (no sudo)"
+    return
+  fi
   case "$(uname -s)" in
     Darwin)
       local resolver_file="/etc/resolver/localhost"
@@ -166,6 +170,10 @@ IPTABLES_CHAIN="HS-${KIND_CLUSTER_NAME}"
 start_port_forward() {
   local ephemeral_port="$1"
   PORT_FORWARD_ACTIVE=""
+  if [[ "${HAVE_SUDO:-true}" == "false" ]]; then
+    warn "Skipping port forwarding (no sudo) — use port ${ephemeral_port} directly"
+    return
+  fi
   case "$(uname -s)" in
     Darwin)
       info "Setting up port forwarding: 443 -> ${ephemeral_port} (pfctl)..."

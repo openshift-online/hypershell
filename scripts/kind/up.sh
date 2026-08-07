@@ -8,6 +8,25 @@ source "${SCRIPT_DIR}/lib.sh"
 header "HyperShell Local Development Environment"
 echo ""
 
+# --- Early sudo acquisition ---
+# Several steps need elevated privileges (cloud-provider-kind, DNS resolver,
+# port forwarding). Prompt once now so the rest of the script runs unattended.
+if [[ "${KIND_NO_SUDO:-}" == "true" ]]; then
+  warn "KIND_NO_SUDO=true — skipping sudo; port forwarding and DNS resolver setup will be skipped"
+  HAVE_SUDO=false
+else
+  info "This script needs sudo for cloud-provider-kind, DNS, and port forwarding."
+  info "Set KIND_NO_SUDO=true to skip (services will use ephemeral ports)."
+  if sudo -v 2>/dev/null; then
+    HAVE_SUDO=true
+    success "sudo credentials cached"
+  else
+    warn "sudo unavailable — port forwarding and DNS resolver setup will be skipped"
+    HAVE_SUDO=false
+  fi
+fi
+echo ""
+
 # --- Cluster creation (idempotent) ---
 header "Cluster"
 if cluster_exists; then
@@ -68,14 +87,19 @@ if ! command -v cloud-provider-kind >/dev/null 2>&1; then
 fi
 
 if ! pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-  info "Starting cloud-provider-kind (requires sudo for Docker proxy on macOS)..."
-  sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
-  sleep 2
-  if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-    success "cloud-provider-kind started"
+  if [[ "${HAVE_SUDO}" == "true" ]]; then
+    info "Starting cloud-provider-kind..."
+    sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
+    sleep 2
+    if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+      success "cloud-provider-kind started"
+    else
+      error "cloud-provider-kind failed to start — check /tmp/cloud-provider-kind.log"
+      exit 1
+    fi
   else
-    error "cloud-provider-kind failed to start — check /tmp/cloud-provider-kind.log"
-    exit 1
+    warn "Skipping cloud-provider-kind (no sudo) — Gateway routing will not work"
+    warn "Start manually: sudo nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &"
   fi
 else
   warn "cloud-provider-kind already running"
