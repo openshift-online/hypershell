@@ -62,7 +62,7 @@ oc get secret <secret-name> -n openshift-ingress -o json \
 
 ### Trusted CA bundle (optional)
 
-If the cluster uses a private CA, create a ConfigMap named `gateway-trusted-ca` in the control plane namespace (default: `hypershell`). The control plane copies this ConfigMap into each tenant namespace and mounts it into gateway pods so they trust the cluster's internal certificates.
+If the gateway needs to interact with an OIDC issuer (e.g., Keycloak) that uses a self-signed or private CA certificate, create a ConfigMap named `gateway-trusted-ca` in the control plane namespace (default: `hypershell`). The control plane copies this ConfigMap into each tenant namespace and mounts it into gateway pods so they can validate the issuer's TLS certificate when fetching JWKS keys or verifying tokens.
 
 ```shell
 kubectl -n hypershell create configmap gateway-trusted-ca --from-file=ca-bundle.crt=/path/to/ca.crt
