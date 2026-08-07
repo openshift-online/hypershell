@@ -35,7 +35,7 @@ export default defineConfig({
     target: "es2022",
   },
   server: {
-    host: process.env.DEV_SERVER_HOST || "127.0.0.1",
+    host: process.env.DEV_SERVER_HOST ?? "127.0.0.1",
     port: 5173,
     strictPort: true,
     proxy: {
