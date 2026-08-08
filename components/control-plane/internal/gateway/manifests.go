@@ -204,9 +204,11 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) 
 				audience = "openshell-cli"
 			}
 			oidcSection += fmt.Sprintf("    audience    = \"%s\"\n", audience)
-			if config.OIDC.JwksTTL > 0 {
-				oidcSection += fmt.Sprintf("    jwks_ttl    = %d\n", config.OIDC.JwksTTL)
+			jwksTTL := config.OIDC.JwksTTL
+			if jwksTTL == 0 {
+				jwksTTL = 3600
 			}
+			oidcSection += fmt.Sprintf("    jwks_ttl    = %d\n", jwksTTL)
 			if config.OIDC.RolesClaim != "" {
 				oidcSection += fmt.Sprintf("    roles_claim = \"%s\"\n", config.OIDC.RolesClaim)
 			}

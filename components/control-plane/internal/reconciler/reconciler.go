@@ -295,6 +295,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		HasCertManager:        r.hasCertManager,
 		HasGatewayAPI:         r.hasGatewayAPI,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
+		GatewayID:             event.ResourceID,
+		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
@@ -317,6 +319,25 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 	})
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s phase to %s: %v", gatewayID, phase, err)
+	}
+}
+
+// makeRouteAddressUpdater returns a RouteAddressUpdater callback that PATCHes
+// the route_address field on the API-server Gateway via gRPC.
+func (r *GatewayReconciler) makeRouteAddressUpdater(gatewayID string) gateway.RouteAddressUpdater {
+	return func(ctx context.Context, routeAddress string) {
+		r.updateRouteAddress(ctx, gatewayID, routeAddress)
+	}
+}
+
+func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID string, routeAddress string) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:           gatewayID,
+		RouteAddress: &routeAddress,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update gateway %s route_address to %s: %v", gatewayID, routeAddress, err)
 	}
 }
 
