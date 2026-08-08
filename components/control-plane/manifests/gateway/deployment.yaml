@@ -75,6 +75,8 @@ spec:
             - name: tls-client-ca
               mountPath: /etc/openshell-tls/client-ca
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           ports:
             - name: grpc
               containerPort: 8080
@@ -134,3 +136,5 @@ spec:
               - key: ca.crt
                 path: ca.crt
             defaultMode: 256
+        - name: tmp
+          emptyDir: {}
