@@ -55,13 +55,17 @@ Only the API infrastructure adapter and its composition root MAY import or const
 
 Collection ports SHALL accept the normalized page, page size, search, filter, and sort values required by their consumers and return items with authoritative page metadata. An adapter SHALL NOT exhaust every upstream page merely to recreate pagination in the presentation layer, and an incomplete upstream page sequence SHALL NOT be returned as a successful complete collection.
 
-**Verification:** Search all SDK imports and constructions and confirm they are confined to the adapter/composition surface. Contract-test success, typed errors, abort, one-page collection mapping, search and sort propagation, authoritative page metadata, inconsistent or partial page responses, conditional requests, operation polling, credential propagation, and correlation propagation against the generated client. Fail a list adapter that requests a second page without an explicit application invocation for that page.
+Search text intended as a literal value SHALL remain literal across adapter query languages. Infrastructure adapters SHALL escape quotation, wildcard, and escape metacharacters required by the target filter grammar rather than allow user input to change the filter expression's matching semantics.
+
+**Verification:** Search all SDK imports and constructions and confirm they are confined to the adapter/composition surface. Contract-test success, typed errors, abort, one-page collection mapping, literal search values containing quotation, wildcard, and escape metacharacters, search and sort propagation, authoritative page metadata, inconsistent or partial page responses, conditional requests, operation polling, credential propagation, and correlation propagation against the generated client. Fail a list adapter that requests a second page without an explicit application invocation for that page.
 
 ### Requirement UI-HEX-06: TanStack Query Boundary
 
 TanStack Query SHALL remain a presentation-side driving adapter for server-state caching and synchronization. Query and mutation functions SHALL call application use cases rather than SDK or transport clients; query keys, cache state, invalidation, freshness, and UI retry policy SHALL remain outside domain/application code. Query `AbortSignal` values SHALL propagate through the use case and port to the SDK. A request path SHALL have one explicit retry owner so TanStack and an adapter do not compound retries.
 
-**Verification:** Trace each query and mutation from hook or options factory through the use case, port, adapter, and SDK. Fail direct SDK calls, TanStack types below the presentation boundary, discarded abort signals, duplicated caches, cache operations inside use cases, and layered retry loops.
+Every server-state data class SHALL have a deliberate freshness policy. A reusable UI package SHALL declare task-specific freshness when its request behavior must not depend on host defaults. Reopening or remounting a view while cached data remains fresh SHALL NOT trigger an unnecessary dependency request.
+
+**Verification:** Trace each query and mutation from hook or options factory through the use case, port, adapter, and SDK. Record retry, freshness, refetch, and invalidation policy by data class; remount and reopen consumers within the freshness window and assert dependency request counts. Fail direct SDK calls, TanStack types below the presentation boundary, discarded abort signals, duplicated caches, cache operations inside use cases, layered retry loops, and undocumented reliance on incidental host cache defaults.
 
 ### Requirement UI-HEX-07: Explicit Composition and Lifetimes
 

@@ -43,11 +43,13 @@ const createdGateway = {
   status: "",
 };
 
-function renderPage() {
-  const queryClient = new QueryClient({
+function createTestQueryClient() {
+  return new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
+}
 
+function renderPage(queryClient = createTestQueryClient()) {
   return render(
     <IntlProvider locale="en">
       <QueryClientProvider client={queryClient}>
@@ -140,6 +142,48 @@ describe("GatewayCreatePage", () => {
       "East",
       expect.any(AbortSignal),
     );
+  });
+
+  it("debounces placement searches into one API request", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(findGatewayPlacementsMock).toHaveBeenCalledWith(
+        "",
+        expect.any(AbortSignal),
+      );
+    });
+    findGatewayPlacementsMock.mockClear();
+
+    await user.click(
+      screen.getByRole("button", { name: "Clear cluster search" }),
+    );
+    await user.type(screen.getByRole("combobox", { name: "Cluster" }), "East");
+
+    expect(findGatewayPlacementsMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(findGatewayPlacementsMock).toHaveBeenCalledWith(
+        "East",
+        expect.any(AbortSignal),
+      );
+    });
+    expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
+  });
+
+  it("reuses fresh placement results after remounting", async () => {
+    const user = userEvent.setup();
+    const queryClient = createTestQueryClient();
+    const firstRender = renderPage(queryClient);
+    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
+    expect(await screen.findByText("Cluster East")).toBeTruthy();
+    expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
+    firstRender.unmount();
+
+    renderPage(queryClient);
+    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
+    expect(await screen.findByText("Cluster East")).toBeTruthy();
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
   });
 
   it("keeps hub provisioning available when managed clusters fail to load", async () => {

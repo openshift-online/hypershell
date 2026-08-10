@@ -61,7 +61,9 @@ Dates, times, time zones, calendars, numbers, currency, units, collation, and pl
 
 User-facing strings SHALL be externalized as complete translatable messages with supported plural and grammatical variation. Layout SHALL tolerate text expansion, contraction, wrapping, alternate fonts, and different reading directions without clipping or lost function.
 
-**Verification:** Run pseudo-localization and longest-string tests across responsive and scaled-text states. Reject concatenated fragments that translators cannot reorder correctly.
+Reusable presentation mappers and helpers SHALL require localized user-facing labels from their caller when the value is not supplied by authoritative data. They SHALL NOT hide an English default parameter that lets a future production call site bypass localization.
+
+**Verification:** Run pseudo-localization and longest-string tests across responsive and scaled-text states. Reject concatenated fragments that translators cannot reorder correctly. Type-check reusable presentation call sites and fail omitted localized fallback labels or embedded default-language fallback parameters.
 
 ### Requirement UI-I18N-05: In-context Locale Quality
 

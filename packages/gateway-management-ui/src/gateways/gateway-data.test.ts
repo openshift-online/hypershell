@@ -20,8 +20,10 @@ function gateway(overrides: Partial<GatewayRecord> = {}): GatewayRecord {
 
 describe("gateway presentation data", () => {
   it("maps gateway values into the connection view", () => {
-    expect(toGatewayConnection(gateway())).toMatchObject({
-      clusterName: "Hub cluster",
+    expect(
+      toGatewayConnection(gateway(), "Localized hub cluster"),
+    ).toMatchObject({
+      clusterName: "Localized hub cluster",
       endpoint: "https://gateway.example.com:443",
       id: "gateway-1",
       name: "Team gateway",
@@ -31,7 +33,10 @@ describe("gateway presentation data", () => {
 
   it("keeps a returned cluster identifier for name resolution only", () => {
     expect(
-      toGatewayConnection(gateway({ clusterId: "cluster-east" })),
+      toGatewayConnection(
+        gateway({ clusterId: "cluster-east" }),
+        "Hub cluster",
+      ),
     ).toMatchObject({
       clusterId: "cluster-east",
       clusterName: "",
@@ -41,6 +46,7 @@ describe("gateway presentation data", () => {
   it("keeps API-owned connection values unavailable when they are absent", () => {
     const connection = toGatewayConnection(
       gateway({ externalDns: undefined, status: undefined }),
+      "Hub cluster",
     );
 
     expect(connection.endpoint).toBeUndefined();

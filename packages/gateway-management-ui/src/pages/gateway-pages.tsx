@@ -37,7 +37,9 @@ import {
 import {
   gatewayListQueryKey,
   gatewayPlacementDetailQueryKey,
+  gatewayPlacementStaleMilliseconds,
   gatewayQueryKey,
+  gatewaySearchDebounceMilliseconds,
   toGatewayConnection,
 } from "../gateways/gateway-data";
 import { GatewayLoadState } from "../gateways/gateway-load-state";
@@ -49,6 +51,7 @@ import {
   type ResourceTableStateChangeReason,
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
+import { useDebouncedValue } from "../shared/use-debounced-value";
 import { messages } from "../messages";
 import styles from "./gateway-pages.module.css";
 
@@ -88,6 +91,7 @@ function GatewayClusterName({ gateway }: { gateway: GatewayConnection }) {
     enabled: clusterId.length > 0,
     queryFn: ({ signal }) => gateways.getGatewayPlacement(clusterId, signal),
     queryKey: gatewayPlacementDetailQueryKey(clusterId),
+    staleTime: gatewayPlacementStaleMilliseconds,
   });
 
   if (!clusterId) {
@@ -187,9 +191,13 @@ export function GatewaysPage({
   const [localCollectionState, setLocalCollectionState] =
     useState<GatewayListRequest>({ ...defaultGatewayListRequest });
   const currentCollectionState = collectionState ?? localCollectionState;
+  const debouncedGatewaySearch = useDebouncedValue(
+    currentCollectionState.search.trim(),
+    gatewaySearchDebounceMilliseconds,
+  );
   const gatewayRequest: GatewayListRequest = {
     ...currentCollectionState,
-    search: currentCollectionState.search.trim(),
+    search: debouncedGatewaySearch,
   };
   const gatewayQuery = useQuery({
     enabled: gateways === undefined,

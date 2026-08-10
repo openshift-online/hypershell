@@ -34,12 +34,20 @@ const gatewaySortFields = {
   status: "status",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
+function escapeIlikeLiteral(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_")
+    .replaceAll("'", "\\'");
+}
+
 function gatewaySearch(value: string): string | undefined {
   const query = value.trim();
   if (!query) {
     return undefined;
   }
-  const literal = query.replaceAll("'", "''");
+  const literal = escapeIlikeLiteral(query);
   return ["name", "cluster_id", "status", "external_dns"]
     .map((field) => `${field} ilike '%${literal}%'`)
     .join(" or ");
@@ -119,7 +127,7 @@ export function createGatewayControlPlaneAdapter(
     async findGatewayPlacements(search, context) {
       return mapFailure(async () => {
         const normalizedSearch = search.trim();
-        const literal = normalizedSearch.replaceAll("'", "''");
+        const literal = escapeIlikeLiteral(normalizedSearch);
         const result = await apiClient(
           apiFactory,
           context,

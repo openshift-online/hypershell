@@ -146,7 +146,7 @@ describe("gateway API operations adapter", () => {
       {
         orderBy: "name asc",
         page: 1,
-        search: "name ilike '%team''s east%'",
+        search: "name ilike '%team\\'s east%'",
         size: 20,
       },
       { signal: abortController.signal },
@@ -190,6 +190,35 @@ describe("gateway API operations adapter", () => {
     expect(managedClusterApi.list).toHaveBeenCalledOnce();
   });
 
+  it("treats ILIKE wildcard and escape characters as search literals", async () => {
+    managedClusterApi.list.mockResolvedValue(managedClusterList([]));
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.findGatewayPlacements("my_cluster%\\west", context);
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "my_cluster%\\west",
+      },
+      context,
+    );
+
+    expect(managedClusterApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search: "name ilike '%my\\_cluster\\%\\\\west%'",
+      }),
+      { signal: undefined },
+    );
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search:
+          "name ilike '%my\\_cluster\\%\\\\west%' or cluster_id ilike '%my\\_cluster\\%\\\\west%' or status ilike '%my\\_cluster\\%\\\\west%' or external_dns ilike '%my\\_cluster\\%\\\\west%'",
+      }),
+      { signal: undefined },
+    );
+  });
+
   it("maps exactly one authoritative gateway page with search and sort", async () => {
     const abortController = new AbortController();
     gatewayApi.list.mockResolvedValueOnce(gatewayList([gateway()], 21, 2));
@@ -212,7 +241,7 @@ describe("gateway API operations adapter", () => {
         orderBy: "status desc",
         page: 2,
         search:
-          "name ilike '%team''s gateway%' or cluster_id ilike '%team''s gateway%' or status ilike '%team''s gateway%' or external_dns ilike '%team''s gateway%'",
+          "name ilike '%team\\'s gateway%' or cluster_id ilike '%team\\'s gateway%' or status ilike '%team\\'s gateway%' or external_dns ilike '%team\\'s gateway%'",
         size: 20,
       },
       { signal: abortController.signal },

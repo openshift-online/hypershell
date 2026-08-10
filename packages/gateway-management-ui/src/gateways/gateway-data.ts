@@ -6,6 +6,8 @@ import type { GatewayConnection } from "./gateway-connections";
 
 export const gatewayListQueryRoot = ["gateways", "list"] as const;
 export const gatewayPlacementQueryRoot = ["gateways", "placements"] as const;
+export const gatewayPlacementStaleMilliseconds = 60_000;
+export const gatewaySearchDebounceMilliseconds = 250;
 
 export function gatewayListQueryKey(request: GatewayListRequest) {
   return [
@@ -50,7 +52,7 @@ function gatewayEndpoint(gateway: GatewayApiPayload): string | undefined {
 
 export function toGatewayConnection(
   gateway: GatewayApiPayload,
-  hubClusterName = "Hub cluster",
+  hubClusterName: string,
 ): GatewayConnection {
   const status = [gateway.status, gateway.phase].find(
     (value) => value !== undefined && value.trim().length > 0,

@@ -23,7 +23,12 @@ import { useIntl } from "react-intl";
 import type { GatewayPlacement } from "../application/gateway-types";
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
-import { gatewayPlacementQueryKey } from "./gateway-data";
+import { useDebouncedValue } from "../shared/use-debounced-value";
+import {
+  gatewayPlacementQueryKey,
+  gatewayPlacementStaleMilliseconds,
+  gatewaySearchDebounceMilliseconds,
+} from "./gateway-data";
 
 const loadingValue = Symbol("loading placements");
 const noResultsValue = Symbol("no placement results");
@@ -79,10 +84,16 @@ export function GatewayPlacementSelect({
   const [activeItemId, setActiveItemId] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(null);
   const normalizedSearch = searchValue.trim();
+  const debouncedSearch = useDebouncedValue(
+    normalizedSearch,
+    gatewaySearchDebounceMilliseconds,
+  );
+  const isSearchPending = normalizedSearch !== debouncedSearch;
   const placementQuery = useQuery({
     queryFn: ({ signal }) =>
-      gateways.findGatewayPlacements(normalizedSearch, signal),
-    queryKey: gatewayPlacementQueryKey(normalizedSearch),
+      gateways.findGatewayPlacements(debouncedSearch, signal),
+    queryKey: gatewayPlacementQueryKey(debouncedSearch),
+    staleTime: gatewayPlacementStaleMilliseconds,
   });
   const hubMatches = hubLabel
     .toLocaleLowerCase(intl.locale)
@@ -91,14 +102,16 @@ export function GatewayPlacementSelect({
     ...(hubMatches
       ? [{ label: hubLabel, value: "" } satisfies PlacementOption]
       : []),
-    ...(placementQuery.data?.items.map((placement) => ({
-      description: placementDescription(placement, intl.formatMessage),
-      label: placement.name,
-      value: placement.id,
-    })) ?? []),
+    ...(!isSearchPending
+      ? (placementQuery.data?.items.map((placement) => ({
+          description: placementDescription(placement, intl.formatMessage),
+          label: placement.name,
+          value: placement.id,
+        })) ?? [])
+      : []),
   ];
 
-  if (placementQuery.isPending) {
+  if (isSearchPending || placementQuery.isPending) {
     options.push({
       isDisabled: true,
       label: intl.formatMessage(messages.loadingClusters),
@@ -174,7 +187,7 @@ export function GatewayPlacementSelect({
           inputId="gateway-cluster"
           inputProps={{
             "aria-autocomplete": "list",
-            "aria-busy": placementQuery.isFetching,
+            "aria-busy": isSearchPending || placementQuery.isFetching,
             ...(error ? { "aria-describedby": "gateway-cluster-helper" } : {}),
             autoComplete: "off",
             required: true,
@@ -292,7 +305,7 @@ export function GatewayPlacementSelect({
           </HelperText>
         </FormHelperText>
       ) : null}
-      {placementQuery.isFetching ? (
+      {isSearchPending || placementQuery.isFetching ? (
         <FormHelperText>
           <HelperText>
             <HelperTextItem role="status" variant="indeterminate">
@@ -301,7 +314,9 @@ export function GatewayPlacementSelect({
           </HelperText>
         </FormHelperText>
       ) : null}
-      {placementQuery.data?.hasMore && !placementQuery.isFetching ? (
+      {placementQuery.data?.hasMore &&
+      !isSearchPending &&
+      !placementQuery.isFetching ? (
         <FormHelperText>
           <HelperText>
             <HelperTextItem>
@@ -310,7 +325,7 @@ export function GatewayPlacementSelect({
           </HelperText>
         </FormHelperText>
       ) : null}
-      {placementQuery.isError ? (
+      {placementQuery.isError && !isSearchPending ? (
         <Alert
           actionLinks={
             <AlertActionLink onClick={() => void placementQuery.refetch()}>

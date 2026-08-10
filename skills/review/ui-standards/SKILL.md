@@ -50,6 +50,9 @@ Before either mode:
 - Trace changed components into the composed page and complete journey. Inspect enough unchanged code to evaluate state, semantics, responsive behavior, and downstream effects.
 - Trace each changed workflow through presentation or BFF driving adapter, application use case, application-owned ports, infrastructure adapters, and composition root. Keep pure and presentational code outside this boundary.
 - Trace every TanStack query or mutation to its use case and SDK adapter, including `AbortSignal`, cache ownership, invalidation, and the single retry owner.
+- For incremental API search, inspect debounce timing, normalized query identity, intermediate request count, cancellation, and literal handling of quotation, wildcard, and escape characters.
+- For every changed server-state data class, inspect explicit or documented freshness, remount/reopen refetch behavior, and whether a reusable package accidentally depends on host query defaults.
+- Type-check reusable presentation mappers so localized fallback labels are required rather than hidden behind English default parameters.
 - Enumerate required workflow, transition, dependency, failure, and recovery probes. Inspect typed schemas, fan-out sinks, privacy/cardinality mappings, correlation, delivery failure, and duplicate emissions.
 - Search production browser/BFF code for raw console/standard-stream calls and direct logging, metrics, tracing, analytics, or generated-SDK imports outside approved adapters.
 - For every new or substantially duplicated component, search the repository and PatternFly 6 catalog by purpose, semantics, behavior, rendered result, and styles—not filename alone.
@@ -67,9 +70,11 @@ Before either mode:
 
 - Cite `file:line`, route/state, rendered artifact, DOM/accessibility-tree result, command/test output, or research evidence for each conclusion.
 - Run safe, relevant existing checks when available: type/lint/unit/component/E2E tests, accessibility rules, keyboard tests, responsive/zoom checks, and performance tools.
+- Treat formatting and deterministic source ordering as mechanical policy: run the configured formatter and lint rules, and add a narrow rule when stable ordering can be enforced without constraining unrelated objects.
 - Trace each new component through the `UI-PF-05` reuse order. Verify generic components live in the shared component surface, consumers import the canonical implementation, and copied or near-duplicate implementations do not remain.
 - Enforce the `UI-HEX-*` dependency rule with an import graph, isolated use-case tests, and adapter contracts; do not reward ports that only rename a framework or generated SDK.
 - Use a recording probe publisher to prove `UI-OBS-*` coverage. Test at least two fan-out sinks plus one failing sink, and distinguish one logical outcome from dependency retry attempts.
+- For API-backed search, record dependency calls during slow input and a rapid multi-character burst; for cached queries, remount or reopen within the declared freshness window and assert no unnecessary request.
 - Preserve tool name/version and distinguish machine-detectable results from manual judgment.
 - Do not invent user evidence. Mark outcome and comprehension requirements `NOT_TESTED` when no valid study or field evidence exists.
 

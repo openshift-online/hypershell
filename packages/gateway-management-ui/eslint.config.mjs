@@ -76,6 +76,16 @@ export default tseslint.config(
     },
   },
   {
+    files: ["src/messages.ts"],
+    rules: {
+      "sort-keys": [
+        "error",
+        "asc",
+        { caseSensitive: false, minKeys: 4, natural: true },
+      ],
+    },
+  },
+  {
     files: ["src/application/**/*.ts"],
     rules: {
       "no-restricted-globals": [

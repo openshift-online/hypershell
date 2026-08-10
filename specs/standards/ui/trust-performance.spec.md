@@ -51,7 +51,9 @@ Critical tasks SHALL have product-specific response and completion budgets for r
 
 Paginated collection views SHALL request only the page needed for the current view unless an explicit bounded bulk workflow requires more. Search, filtering, and sorting that affect the collection SHALL execute at the authoritative data source for high-volume views, and their normalized state SHALL participate in request identity and reproducible navigation.
 
-**Verification:** Benchmark cold, warm, throttled, degraded, and high-volume conditions against thresholds declared before final evaluation. Record upstream request count and transferred rows for initial load, page change, search, filter, and sort; fail an ordinary paginated view that exhausts the collection before first render.
+Incremental server-backed search and filtering SHALL coalesce rapid input with a documented, task-appropriate debounce and cancel obsolete requests. Text typeaheads SHOULD use 250 milliseconds unless task evidence or an external contract supports a different value. A rapid input burst SHALL NOT issue one upstream request per keystroke.
+
+**Verification:** Benchmark cold, warm, throttled, degraded, and high-volume conditions against thresholds declared before final evaluation. Record upstream request count and transferred rows for initial load, page change, search, filter, and sort; test slow typing and a rapid multi-character burst against the declared debounce; and fail an ordinary paginated view that exhausts the collection before first render or an incremental search that requests every intermediate value.
 
 ### Requirement UI-PERF-03: Stable and Accurate Progress
 

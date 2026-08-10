@@ -374,6 +374,35 @@ describe("gateway shell pages", () => {
     expect(filter.getAttribute("value")).toBe("openshell");
   });
 
+  it("debounces rapid gateway filters into one API request", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock.mockResolvedValue({
+      items: [gatewayResponse("gateway-1", "Team gateway")],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "Team gateway" });
+    listGatewaysMock.mockClear();
+
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Filter by name, cluster, status, or endpoint",
+      }),
+      "east",
+    );
+
+    expect(listGatewaysMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "east" }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(listGatewaysMock).toHaveBeenCalledOnce();
+  });
+
   it("shows gateway API failures", async () => {
     listGatewaysMock.mockRejectedValue(new Error("unavailable"));
 
