@@ -1084,7 +1084,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
-	// No namespaceSelector needed: the per-tenant Gateway places router pods in the tenant namespace alongside the workloads.
+	// Router pods live in openshift-ingress, not the tenant namespace, so namespaceSelector is required.
 	routerNetpol := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "networking.k8s.io/v1",
@@ -1111,6 +1111,11 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 					map[string]interface{}{
 						"from": []interface{}{
 							map[string]interface{}{
+								"namespaceSelector": map[string]interface{}{
+									"matchLabels": map[string]interface{}{
+										"kubernetes.io/metadata.name": "openshift-ingress",
+									},
+								},
 								"podSelector": map[string]interface{}{
 									"matchLabels": map[string]interface{}{
 										"gateway.networking.k8s.io/gateway-name": "openshell-gateway",
