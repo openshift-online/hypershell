@@ -583,19 +583,21 @@ data:
       }
 
       .pf-v5-c-button.pf-m-primary {
-        --pf-v5-c-button--m-primary--BackgroundColor: #1fa7f8;
-        --pf-v5-c-button--m-primary--hover--BackgroundColor: #73bcf7;
-        --pf-v5-c-button--m-primary--focus--BackgroundColor: #73bcf7;
-        --pf-v5-c-button--m-primary--active--BackgroundColor: #73bcf7;
-        background-color: #1fa7f8 !important;
-        border-color: #1fa7f8 !important;
+        --pf-v5-c-button--m-primary--BackgroundColor: #73bcf7;
+        --pf-v5-c-button--m-primary--hover--BackgroundColor: #bee1f4;
+        --pf-v5-c-button--m-primary--focus--BackgroundColor: #bee1f4;
+        --pf-v5-c-button--m-primary--active--BackgroundColor: #bee1f4;
+        background-color: #73bcf7 !important;
+        border-color: #73bcf7 !important;
+        color: #151515 !important;
       }
 
       .pf-v5-c-button.pf-m-primary:hover,
       .pf-v5-c-button.pf-m-primary:focus,
       .pf-v5-c-button.pf-m-primary:active {
-        background-color: #73bcf7 !important;
-        border-color: #73bcf7 !important;
+        background-color: #bee1f4 !important;
+        border-color: #bee1f4 !important;
+        color: #151515 !important;
       }
 
       .pf-v5-c-button.pf-m-control:hover::after,
