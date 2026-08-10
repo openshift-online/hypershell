@@ -61,3 +61,20 @@ spec:
     - backendRefs:
         - name: keycloak-service
           port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak-http
+  namespace: keycloak
+spec:
+  parentRefs:
+    - name: hypershell-gw
+      namespace: hypershell-system
+      sectionName: http-keycloak
+  hostnames:
+    - keycloak.hypershell.localhost
+  rules:
+    - backendRefs:
+        - name: keycloak-service
+          port: 8080

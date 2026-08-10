@@ -35,6 +35,10 @@ spec:
               value: "8080"
             - name: KC_HEALTH_ENABLED
               value: "true"
+            - name: KC_HOSTNAME
+              value: "http://keycloak.hypershell.localhost:8080"
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
           ports:
             - containerPort: 8080
               name: http

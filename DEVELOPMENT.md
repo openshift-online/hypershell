@@ -41,17 +41,20 @@ This creates a Kind cluster and deploys:
 ```
 === HyperShell is running! ===
 
-  HTTP API:     https://api.hypershell.localhost
-  Web Console:  https://console.hypershell.localhost
-  Health:       https://health.hypershell.localhost
-  Keycloak:     https://keycloak.hypershell.localhost (admin/admin)
+  HTTP API:      https://api.hypershell.localhost
+  Web Console:   https://console.hypershell.localhost
+  Health:        https://health.hypershell.localhost
+  Keycloak:      https://keycloak.hypershell.localhost (admin/admin)
+  Keycloak HTTP: http://keycloak.hypershell.localhost:8080 (admin/admin)
+  OIDC Issuer:   http://keycloak.hypershell.localhost:8080/realms/hypershell
 ```
 
 Services are accessed via `.localhost` hostnames routed through the networking
 Gateway. CoreDNS resolves all `*.hypershell.localhost` to loopback, and
 OS-level port forwarding (pfctl on macOS, iptables on Linux) redirects
-host port 443 to cloud-provider-kind's ephemeral Gateway port. The TLS
-certificate is self-signed - trust it in your browser or use `curl --cacert`.
+host ports 443 and 8080 to cloud-provider-kind's ephemeral Gateway ports.
+The TLS certificate is self-signed -- trust it in your browser or use
+`curl --cacert`.
 
 ## Per-Component Swap
 
@@ -133,6 +136,32 @@ production.
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
 | Admin user | `admin` / `admin` (role: `hypershell-admins`) |
 | Developer user | `developer` / `developer` (role: `hypershell-users`) |
+| OIDC Issuer URL | `http://keycloak.hypershell.localhost:8080/realms/hypershell` |
+| Admin Console | `http://keycloak.hypershell.localhost:8080/admin/` |
+
+### OIDC
+
+Keycloak is configured with `KC_HOSTNAME=http://keycloak.hypershell.localhost:8080`,
+which sets the OIDC issuer and all frontend URLs to use plain HTTP on port 8080.
+The networking Gateway has a dedicated HTTP listener (`http-keycloak`) on port
+8080 scoped to `keycloak.hypershell.localhost`. This avoids TLS/CA-trust
+complexity and means the same OIDC issuer URL works from both the host browser
+and in-cluster pods (cluster CoreDNS is patched to resolve
+`*.hypershell.localhost` to the Gateway LB IP).
+
+Port forwarding (pfctl/iptables) maps host port 8080 to the Gateway's ephemeral
+HTTP port. If port forwarding is not active (e.g. after a cluster restart),
+re-establish it with:
+
+```bash
+make kind-fix-ports
+```
+
+Verify the OIDC discovery endpoint:
+
+```bash
+curl http://keycloak.hypershell.localhost:8080/realms/hypershell/.well-known/openid-configuration
+```
 
 ### External Keycloak
 
@@ -190,6 +219,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `KIND_HOT_RELOAD` | `true` | Hot reload for web console |
 | `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
 | `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
+| `KEYCLOAK_OIDC_ISSUER` | `http://keycloak.hypershell.localhost:8080/realms/hypershell` | OIDC issuer URL |
 | `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
@@ -213,6 +243,98 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-control-plane-down` | Revert control plane to baseline image |
 | `make kind-web-console-up` | Hot reload (default) or build + swap web console |
 | `make kind-web-console-down` | Revert web console to baseline image |
+| `make kind-fix-ports` | Re-establish host port forwarding (443 + 8080) |
+
+## Gateway Access
+
+The control plane provisions openshell-gateway pods that serve gRPC over TLS
+using cert-manager-issued certificates. Accessing these gateways from the host
+depends on the environment.
+
+### Kind (port-forward)
+
+In Kind, the simplest method is `kubectl port-forward`. This connects directly
+to the gateway pod's TLS endpoint, bypassing the networking Gateway entirely:
+
+```bash
+kubectl --context kind-hypershell-dev port-forward \
+  -n <gateway-namespace> svc/openshell-gateway 7443:8080 &
+```
+
+Then register the gateway with the openshell CLI:
+
+```bash
+openshell gateway add \
+  --name my-gateway \
+  --oidc-issuer http://keycloak.hypershell.localhost:8080/realms/hypershell \
+  --oidc-client-id hypershell-frontend \
+  https://localhost:7443
+```
+
+This opens a browser for Keycloak login. Use `admin`/`admin` or
+`developer`/`developer`.
+
+The OIDC issuer URL **must** be
+`http://keycloak.hypershell.localhost:8080/realms/hypershell` (not the ephemeral
+port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
+passed to `openshell gateway add` must match exactly. This requires host port
+8080 to be forwarded -- if it isn't, run `make kind-fix-ports` first.
+
+The e2e test (`components/pr-test/e2e-openshell.sh`) uses the same port-forward
+fallback when no passthrough route is available.
+
+### OpenShift (automatic)
+
+On OpenShift, the control plane automatically creates networking resources when
+a gateway has `Route.Enabled` set:
+
+1. A per-namespace **Gateway** with `openshift-default` gateway class
+2. A **GRPCRoute** routing to `openshell-gateway:8080`
+3. A **BackendTLSPolicy** for TLS re-encryption to the backend (the OpenShift
+   router terminates external TLS, then re-encrypts to the pod using the
+   gateway's cert-manager CA)
+4. A **NetworkPolicy** allowing ingress from `openshift-ingress` router pods
+
+The gateway becomes reachable at
+`grpcs://<openshell-gateway-NAMESPACE>.<GATEWAY_API_BASE_DOMAIN>:443` with no
+port-forward needed. The control plane writes this address back to the API
+server's `route_address` field.
+
+### Why Kind requires port-forward
+
+The networking Gateway's `*.gw.localhost` listener uses TLS Terminate mode,
+which strips the external TLS and forwards plaintext to the backend. But
+openshell-gateway pods expect TLS connections (they serve gRPC with their own
+cert-manager certificates). On OpenShift this is solved with BackendTLSPolicy
+(re-encryption), which cloud-provider-kind does not support.
+
+### Creating a gateway with OIDC
+
+`make kind-up` seeds Fleet, ManagedCluster, GatewayRelease, and ManagedDatabase
+but does not create a Gateway. Create one via the API:
+
+```bash
+# Get the seeded resource IDs
+FLEET_ID=$(curl -s http://localhost:8000/api/hypershell/v1/fleets | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+CLUSTER_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_clusters | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+RELEASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/gateway_releases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+DATABASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_databases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+
+# Create a gateway with OIDC
+curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"dev-gateway\",
+    \"fleet_id\": \"${FLEET_ID}\",
+    \"cluster_id\": \"${CLUSTER_ID}\",
+    \"release_id\": \"${RELEASE_ID}\",
+    \"database_id\": \"${DATABASE_ID}\",
+    \"namespace\": \"openshell-dev\",
+    \"oidc\": \"{\\\"issuer\\\":\\\"http://keycloak.hypershell.localhost:8080/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
+  }"
+```
+
+Wait ~30s for the control plane to reconcile, then port-forward and register.
 
 ## Troubleshooting
 
@@ -258,6 +380,35 @@ docker restart hypershell-dns
 
 # Verify resolution
 dig @127.0.0.1 -p 5553 api.hypershell.localhost
+```
+
+### OIDC discovery fails
+
+```
+Authentication failed: error sending request for url (http://keycloak.hypershell.localhost:8080/...)
+```
+
+Port 8080 is not forwarded to the Gateway's ephemeral HTTP port. Re-establish
+port forwarding:
+
+```bash
+make kind-fix-ports
+```
+
+If you see an issuer mismatch error, you are likely using the ephemeral port
+directly instead of port 8080. The OIDC issuer URL must always be
+`http://keycloak.hypershell.localhost:8080/realms/hypershell` because Keycloak
+embeds that URL in the token's `iss` claim.
+
+### Keycloak admin console redirect loop
+
+If the Keycloak admin console (`/admin/`) redirects in a loop, verify that the
+`KC_HOSTNAME` env var in `deploy/kind/prerequisites/keycloak.yaml` is set to
+`http://keycloak.hypershell.localhost:8080`. Restart the Keycloak deployment
+after changes:
+
+```bash
+kubectl --context kind-hypershell-dev rollout restart deployment/keycloak -n keycloak
 ```
 
 ### Pods stuck in ImagePullBackOff

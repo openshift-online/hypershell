@@ -98,7 +98,7 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 	dbImage := config.Database.Image
 	if dbImage == "" {
-		dbImage = "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
+		dbImage = images.DefaultDatabaseImage()
 	}
 	dbStorage := config.Database.StorageSize
 	if dbStorage == "" {
@@ -129,7 +129,7 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	return result, nil
 }
 
-func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseConfig) error {
+func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseConfig, images ImageDefaults) error {
 	jsonBytes, err := obj.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("marshal for database overrides: %w", err)
@@ -142,7 +142,7 @@ func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseCon
 	}
 	dbImage := dbConfig.Image
 	if dbImage == "" {
-		dbImage = "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
+		dbImage = images.DefaultDatabaseImage()
 	}
 
 	userKey, passKey, dbKey := postgresEnvKeys(dbImage)

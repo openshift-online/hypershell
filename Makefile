@@ -50,6 +50,7 @@ API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
 KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
+KEYCLOAK_OIDC_ISSUER?=http://$(KEYCLOAK_HOSTNAME):8080/realms/hypershell
 
 # ============================================================================
 # Help
@@ -68,6 +69,7 @@ help:
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
+	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
 	@echo "    kind-api-server-up       Build + swap API server from working tree"
 	@echo "    kind-api-server-down     Revert API server to baseline image"
 	@echo "    kind-control-plane-up    Build + swap control plane from working tree"
@@ -251,7 +253,7 @@ export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export api_server_local control_plane_local web_console_local
 export build_version build_time
-export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME
+export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
 
 .PHONY: kind-up
@@ -269,6 +271,10 @@ kind-teardown:
 .PHONY: kind-status
 kind-status:
 	@scripts/kind/status.sh
+
+.PHONY: kind-fix-ports
+kind-fix-ports:
+	@scripts/kind/port-forward.sh
 
 .PHONY: kind-api-server-up
 kind-api-server-up:

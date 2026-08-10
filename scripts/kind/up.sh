@@ -220,15 +220,19 @@ done
 if [[ -n "${GW_ADDR}" ]]; then
   success "Networking Gateway address: ${GW_ADDR}"
 
+  patch_cluster_coredns "${GW_ADDR}"
+
   # cloud-provider-kind exposes Gateways via Docker proxy containers.
   # On macOS the container IPs are not routable, so --enable-lb-port-mapping
   # publishes an ephemeral host port.  Discover it for the banner URLs.
   GATEWAY_PORT=""
+  KEYCLOAK_HTTP_PORT=""
   info "Discovering Gateway proxy port..."
   for j in $(seq 1 15); do
     PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
     if [[ -n "${PROXY_CONTAINER}" ]]; then
       GATEWAY_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
+      KEYCLOAK_HTTP_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 8080 2>/dev/null | head -1 | cut -d: -f2)
       if [[ -n "${GATEWAY_PORT}" ]]; then break; fi
     fi
     sleep 2
@@ -236,7 +240,10 @@ if [[ -n "${GW_ADDR}" ]]; then
 
   if [[ -n "${GATEWAY_PORT}" ]]; then
     success "Gateway HTTPS on host port ${GATEWAY_PORT}"
-    start_port_forward "${GATEWAY_PORT}"
+    if [[ -n "${KEYCLOAK_HTTP_PORT}" ]]; then
+      success "Gateway HTTP (Keycloak) on host port ${KEYCLOAK_HTTP_PORT}"
+    fi
+    start_port_forward "${GATEWAY_PORT}" "${KEYCLOAK_HTTP_PORT:-}"
   else
     warn "Could not discover Gateway proxy port - check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
   fi
@@ -381,7 +388,8 @@ info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
-  info "OIDC Issuer:  http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
+  info "Keycloak HTTP: http://${KEYCLOAK_HOSTNAME}:8080 (admin/admin)"
+  info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"
 else
   info "Keycloak:     ${KIND_KEYCLOAK_URL}"
 fi

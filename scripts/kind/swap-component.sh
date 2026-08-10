@@ -24,7 +24,7 @@ case "${COMPONENT}" in
     BASELINE_IMAGE="${api_server_ref}"
     DOCKERFILE="components/api-server/Dockerfile"
     BUILD_CONTEXT="components/api-server"
-    BUILD_ARGS="--build-arg GIT_VERSION=${build_version} --build-arg BUILD_TIME=${build_time}"
+    BUILD_ARGS=(--build-arg "GIT_VERSION=${build_version}" --build-arg "BUILD_TIME=${build_time}")
     ;;
   control-plane)
     DEPLOYMENT="hypershell-controller"
@@ -33,7 +33,7 @@ case "${COMPONENT}" in
     BASELINE_IMAGE="${control_plane_ref}"
     DOCKERFILE="components/control-plane/Dockerfile"
     BUILD_CONTEXT="."
-    BUILD_ARGS=""
+    BUILD_ARGS=()
     ;;
   web-console)
     DEPLOYMENT="hypershell-web-console"
@@ -42,7 +42,7 @@ case "${COMPONENT}" in
     BASELINE_IMAGE="${web_console_ref}"
     DOCKERFILE="components/web-console/Dockerfile"
     BUILD_CONTEXT="."
-    BUILD_ARGS=""
+    BUILD_ARGS=()
     ;;
   *)
     error "Unknown component: ${COMPONENT}"
@@ -158,9 +158,8 @@ EOF
   header "Swap ${COMPONENT} (up)"
 
   info "Building ${COMPONENT} from working tree..."
-  # shellcheck disable=SC2086
   ${CONTAINER_ENGINE} build -t "${LOCAL_IMAGE}" \
-    -f "${DOCKERFILE}" ${BUILD_ARGS} "${BUILD_CONTEXT}"
+    -f "${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "${BUILD_CONTEXT}"
 
   info "Loading image into Kind..."
   local tar_file="/tmp/hypershell-${COMPONENT}-dev.tar"
