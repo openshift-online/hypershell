@@ -101,6 +101,48 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{40}$`))
 }
 
+func TestGatewayPostDefaultsRouteEnabled(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gatewayInput := openapi.GatewayCreateRequest{
+		Name:       "route-default-test",
+		FleetId:    "",
+		ClusterId:  "",
+		ReleaseId:  "",
+		DatabaseId: "",
+	}
+
+	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(gatewayOutput.GetRoute()).To(Equal(`{"enabled":true}`))
+}
+
+func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	customRoute := `{"enabled":true,"host":"custom.example.com"}`
+	gatewayInput := openapi.GatewayCreateRequest{
+		Name:       "route-explicit-test",
+		FleetId:    "",
+		ClusterId:  "",
+		ReleaseId:  "",
+		DatabaseId: "",
+		Route:      openapi.PtrString(customRoute),
+	}
+
+	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(gatewayOutput.GetRoute()).To(Equal(customRoute))
+}
+
 func TestGatewayPatch(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
