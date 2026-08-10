@@ -2,6 +2,7 @@ import type {
   GatewayListRequest,
   GatewayRecord,
 } from "../application/gateway-types";
+import { normalizeGatewayPlacementClusterIds } from "../application/gateway-placement";
 import type { GatewayConnection } from "./gateway-connections";
 
 export const gatewayListQueryRoot = ["gateways", "list"] as const;
@@ -33,9 +34,7 @@ export function gatewayPlacementDetailQueryKey(clusterId: string) {
 }
 
 export function gatewayPlacementBatchQueryKey(clusterIds: readonly string[]) {
-  const normalizedClusterIds = [
-    ...new Set(clusterIds.map((clusterId) => clusterId.trim()).filter(Boolean)),
-  ].sort();
+  const normalizedClusterIds = normalizeGatewayPlacementClusterIds(clusterIds);
   return [
     ...gatewayPlacementQueryRoot,
     "batch",

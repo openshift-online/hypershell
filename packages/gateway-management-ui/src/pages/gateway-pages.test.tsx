@@ -510,6 +510,16 @@ describe("gateway shell pages", () => {
     ).toBe("/gateways/new");
   });
 
+  it("renders Running with the semantic success label", () => {
+    renderPage(() => (
+      <GatewaysPage gateways={[{ ...previewGateway, status: "Running" }]} />
+    ));
+
+    const statusLabel = screen.getByText("Running").closest(".pf-v6-c-label");
+    expect(statusLabel?.classList.contains("pf-m-success")).toBe(true);
+    expect(statusLabel?.classList.contains("pf-m-green")).toBe(false);
+  });
+
   it("resolves managed-cluster names without displaying their identifiers", async () => {
     renderPage(() => (
       <GatewaysPage

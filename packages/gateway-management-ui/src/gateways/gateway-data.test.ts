@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { normalizeGatewayPlacementClusterIds } from "../application/gateway-placement";
 import type { GatewayRecord } from "../application/gateway-types";
-import { toGatewayConnection } from "./gateway-data";
+import {
+  gatewayPlacementBatchQueryKey,
+  toGatewayConnection,
+} from "./gateway-data";
 
 function gateway(overrides: Partial<GatewayRecord> = {}): GatewayRecord {
   return {
@@ -19,6 +23,22 @@ function gateway(overrides: Partial<GatewayRecord> = {}): GatewayRecord {
 }
 
 describe("gateway presentation data", () => {
+  it("uses one canonical cluster identifier normalization for batch keys", () => {
+    const clusterIds = [" cluster-west ", "", "cluster-east", "cluster-west"];
+
+    expect(normalizeGatewayPlacementClusterIds(clusterIds)).toEqual([
+      "cluster-east",
+      "cluster-west",
+    ]);
+    expect(gatewayPlacementBatchQueryKey(clusterIds)).toEqual([
+      "gateways",
+      "placements",
+      "batch",
+      "cluster-east",
+      "cluster-west",
+    ]);
+  });
+
   it("maps gateway values into the connection view", () => {
     expect(
       toGatewayConnection(gateway(), "Localized hub cluster"),

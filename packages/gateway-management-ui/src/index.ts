@@ -35,6 +35,7 @@ export {
   createGatewayOperations,
   type GatewayOperationDependencies,
 } from "./application/gateway-operations";
+export { normalizeGatewayPlacementClusterIds } from "./application/gateway-placement";
 export {
   GatewayCreatePage,
   type GatewayCreatePageProps,

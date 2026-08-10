@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildGatewayAddCommand,
-  gatewayStatusColor,
+  gatewayStatusAppearance,
   type GatewayConnection,
 } from "./gateway-connections";
 
@@ -43,14 +43,18 @@ describe("gateway connections", () => {
   });
 
   it.each([
-    ["Ready", "green"],
-    ["Failed", "orange"],
-    ["Degraded", "yellow"],
-    ["Provisioning", "blue"],
-    ["Unknown", "grey"],
-    ["Unexpected provider state", "grey"],
-    ["", "grey"],
-  ] as const)("maps %s to the bounded %s status color", (status, color) => {
-    expect(gatewayStatusColor(status)).toBe(color);
-  });
+    ["Ready", { status: "success" }],
+    ["Running", { status: "success" }],
+    ["Failed", { status: "danger" }],
+    ["Degraded", { status: "warning" }],
+    ["Provisioning", { status: "info" }],
+    ["Unknown", { color: "grey" }],
+    ["Unexpected provider state", { color: "grey" }],
+    ["", { color: "grey" }],
+  ] as const)(
+    "maps %s to bounded semantic label props",
+    (status, appearance) => {
+      expect(gatewayStatusAppearance(status)).toEqual(appearance);
+    },
+  );
 });

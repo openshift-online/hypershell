@@ -26,7 +26,7 @@ import {
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import {
   buildGatewayAddCommand,
-  gatewayStatusColor,
+  gatewayStatusAppearance,
   type GatewayConnection,
 } from "../gateways/gateway-connections";
 import {
@@ -320,7 +320,7 @@ export function GatewaysPage({
       id: "status",
       label: intl.formatMessage(messages.status),
       render: ({ status }) => (
-        <Label color={gatewayStatusColor(status)} isCompact>
+        <Label {...gatewayStatusAppearance(status)} isCompact>
           {status}
         </Label>
       ),

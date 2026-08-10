@@ -21,7 +21,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { messages } from "../messages";
 import {
   buildGatewayAddCommand,
-  gatewayStatusColor,
+  gatewayStatusAppearance,
   type GatewayConnection,
 } from "./gateway-connections";
 import { GatewayDeleteDialog } from "./gateway-delete-dialog";
@@ -207,7 +207,7 @@ export function GatewayDetailHeader({
             </Title>
           </FlexItem>
           <FlexItem>
-            <Label color={gatewayStatusColor(gateway.status)}>
+            <Label {...gatewayStatusAppearance(gateway.status)}>
               {gateway.status}
             </Label>
           </FlexItem>

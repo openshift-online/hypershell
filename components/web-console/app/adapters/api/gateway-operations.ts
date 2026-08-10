@@ -6,7 +6,11 @@ import type {
   GatewayPlacement,
   GatewayRecord,
 } from "@openshift-online/hypershell-gateway-management-ui";
-import { GatewayOperationError } from "@openshift-online/hypershell-gateway-management-ui";
+import {
+  defaultGatewayListRequest,
+  GatewayOperationError,
+  normalizeGatewayPlacementClusterIds,
+} from "@openshift-online/hypershell-gateway-management-ui";
 import {
   SDKAPIError,
   type Gateway,
@@ -25,7 +29,7 @@ interface GatewayApiClient {
 }
 type GatewayApiFactory = (correlationId: string) => GatewayApiClient;
 
-const placementPageSize = 20;
+const placementPageSize = defaultGatewayListRequest.size;
 
 const gatewaySortFields = {
   cluster: "cluster_id",
@@ -35,6 +39,8 @@ const gatewaySortFields = {
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
 function escapeIlikeLiteral(value: string): string {
+  // Escape backslashes first so the escapes added for SQL wildcards remain
+  // single escapes rather than being escaped again.
   return escapeSearchLiteral(value)
     .replaceAll("\\", "\\\\")
     .replaceAll("%", "\\%")
@@ -43,12 +49,6 @@ function escapeIlikeLiteral(value: string): string {
 
 function escapeSearchLiteral(value: string): string {
   return value.replaceAll("'", "''");
-}
-
-function normalizeClusterIds(clusterIds: readonly string[]): string[] {
-  return [
-    ...new Set(clusterIds.map((clusterId) => clusterId.trim()).filter(Boolean)),
-  ].sort();
 }
 
 function gatewaySearch(value: string): string | undefined {
@@ -69,7 +69,27 @@ function apiClient(
   return factory(context.correlationId);
 }
 
+function jsonObject(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toGatewayRecord(gateway: Gateway): GatewayRecord {
+  const oidc = jsonObject(gateway.oidc);
+  const oidcAudience = optionalString(oidc?.audience);
+  const oidcClientId = optionalString(oidc?.client_id);
+  const oidcIssuer = optionalString(oidc?.issuer);
+
+  // The current Gateway contract has no console URL. Keep it unavailable;
+  // route_address is a gateway endpoint and is not a browser-console URL.
   return {
     clusterId: gateway.cluster_id,
     databaseId: gateway.database_id,
@@ -77,6 +97,9 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     id: gateway.id,
     name: gateway.name,
     namespace: gateway.namespace,
+    ...(oidcAudience ? { oidcAudience } : {}),
+    ...(oidcClientId ? { oidcClientId } : {}),
+    ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     releaseId: gateway.release_id,
     status: gateway.status,
@@ -174,7 +197,8 @@ export function createGatewayControlPlaneAdapter(
     },
     async getGatewayPlacements(clusterIds, context) {
       return mapFailure(async () => {
-        const normalizedClusterIds = normalizeClusterIds(clusterIds);
+        const normalizedClusterIds =
+          normalizeGatewayPlacementClusterIds(clusterIds);
         if (normalizedClusterIds.length === 0) {
           return [];
         }

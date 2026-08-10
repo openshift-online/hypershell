@@ -308,6 +308,36 @@ describe("gateway API operations adapter", () => {
     );
   });
 
+  it("maps explicit OIDC connection values from the gateway response", async () => {
+    gatewayApi.get.mockResolvedValue(
+      gateway({
+        oidc: JSON.stringify({
+          audience: "openshell-api",
+          client_id: "openshell-cli",
+          issuer: "https://issuer.example.test/realms/openshell",
+        }),
+      }),
+    );
+
+    await expect(
+      controlPlane.getGateway("gateway-1", context),
+    ).resolves.toMatchObject({
+      oidcAudience: "openshell-api",
+      oidcClientId: "openshell-cli",
+      oidcIssuer: "https://issuer.example.test/realms/openshell",
+    });
+  });
+
+  it("keeps malformed OIDC connection values unavailable", async () => {
+    gatewayApi.get.mockResolvedValue(gateway({ oidc: "not-json" }));
+
+    const result = await controlPlane.getGateway("gateway-1", context);
+
+    expect(result.oidcAudience).toBeUndefined();
+    expect(result.oidcClientId).toBeUndefined();
+    expect(result.oidcIssuer).toBeUndefined();
+  });
+
   it("rejects an incomplete upstream page instead of returning a partial list", async () => {
     gatewayApi.list.mockResolvedValue(gatewayList([gateway()], 41, 2));
 
