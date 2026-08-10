@@ -47,12 +47,14 @@ spec:
           ports:
             - containerPort: 5432
           env:
-            - name: POSTGRESQL_USER
+            - name: POSTGRES_USER
               value: hypershell
-            - name: POSTGRESQL_PASSWORD
+            - name: POSTGRES_PASSWORD
               value: hypershell
-            - name: POSTGRESQL_DATABASE
+            - name: POSTGRES_DB
               value: hypershell
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "hypershell"]
@@ -64,7 +66,7 @@ spec:
               drop: ["ALL"]
           volumeMounts:
             - name: data
-              mountPath: /var/lib/pgsql/data
+              mountPath: /var/lib/postgresql/data
   volumeClaimTemplates:
     - metadata:
         name: data
