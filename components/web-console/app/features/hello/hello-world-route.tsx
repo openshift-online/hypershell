@@ -5,7 +5,7 @@ import { HelloWorld } from "./hello-world";
 
 export const meta: MetaFunction = () => [
   {
-    title: `${englishMessages["app.productName"]} — ${englishMessages["app.hello.title"]}`,
+    title: `${englishMessages["app.productName"]} ${englishMessages["app.hello.title"]}`,
   },
   { name: "description", content: englishMessages["app.hello.description"] },
 ];

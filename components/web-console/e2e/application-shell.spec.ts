@@ -122,7 +122,7 @@ test("makes gateway management the primary HyperShell experience", async ({
 }) => {
   await page.goto("/");
 
-  await expect(page).toHaveTitle("HyperShell — OpenShell Gateways");
+  await expect(page).toHaveTitle("HyperShell OpenShell Gateways");
   await expect(
     page.getByRole("link", { name: "HyperShell", exact: true }),
   ).toBeVisible();
@@ -207,7 +207,7 @@ test("keeps connection methods on gateway details", async ({
     .click();
 
   await expect(page).toHaveURL(/\/gateways\/openshell-gateway-test$/);
-  await expect(page).toHaveTitle("HyperShell — Gateway details");
+  await expect(page).toHaveTitle("HyperShell Gateway details");
   await expect(
     page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
   ).toBeFocused();
