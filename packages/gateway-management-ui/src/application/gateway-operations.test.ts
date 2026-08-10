@@ -46,6 +46,13 @@ function setup() {
       name: "Cluster East",
       provider: "AWS",
     }),
+    getGatewayPlacements: vi.fn().mockResolvedValue([
+      {
+        id: "cluster-east",
+        name: "Cluster East",
+        provider: "AWS",
+      },
+    ]),
     listGateways,
     provisionGateway: vi.fn().mockResolvedValue(gateway),
     removeGateway: vi.fn().mockResolvedValue(undefined),
@@ -88,6 +95,11 @@ describe("gateway application operations", () => {
       "get-placement",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.getGatewayPlacement("cluster-east"),
+    ],
+    [
+      "get-placements",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.getGatewayPlacements(["cluster-east"]),
     ],
     [
       "list",

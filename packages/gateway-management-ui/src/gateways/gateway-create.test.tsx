@@ -18,6 +18,7 @@ const gatewayOperations = {
   findGatewayPlacements: findGatewayPlacementsMock,
   getGateway: vi.fn(),
   getGatewayPlacement: vi.fn(),
+  getGatewayPlacements: vi.fn(),
   listGateways: vi.fn(),
   provisionGateway: createGatewayMock,
   removeGateway: vi.fn(),

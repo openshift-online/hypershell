@@ -175,6 +175,10 @@ export function createGatewayOperations({
       execute("get-placement", signal, (context) =>
         controlPlane.getGatewayPlacement(clusterId, context),
       ),
+    getGatewayPlacements: (clusterIds, signal) =>
+      execute("get-placements", signal, (context) =>
+        controlPlane.getGatewayPlacements(clusterIds, context),
+      ),
     getGateway: (gatewayId, signal) =>
       execute("get", signal, (context) =>
         controlPlane.getGateway(gatewayId, context),

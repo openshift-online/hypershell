@@ -171,6 +171,53 @@ describe("gateway API operations adapter", () => {
     });
   });
 
+  it("resolves a cold page of distinct cluster identifiers in one batch", async () => {
+    const clusterIds = Array.from(
+      { length: 20 },
+      (_, index) => `cluster-${String(index)}`,
+    ).sort();
+    managedClusterApi.list.mockResolvedValue(
+      managedClusterList(
+        clusterIds.map((id) => managedCluster({ id, name: `Name for ${id}` })),
+      ),
+    );
+
+    await expect(
+      controlPlane.getGatewayPlacements(
+        [...clusterIds, " cluster-0 ", "", "cluster-1"],
+        context,
+      ),
+    ).resolves.toHaveLength(20);
+    expect(managedClusterApi.list).toHaveBeenCalledOnce();
+    expect(managedClusterApi.list).toHaveBeenCalledWith(
+      {
+        orderBy: "id asc",
+        page: 1,
+        search: `id in (${clusterIds.map((id) => `'${id}'`).join(", ")})`,
+        size: 20,
+      },
+      { signal: undefined },
+    );
+    expect(managedClusterApi.get).not.toHaveBeenCalled();
+  });
+
+  it("rejects an inconsistent cluster batch response", async () => {
+    managedClusterApi.list.mockResolvedValue(
+      managedClusterList([managedCluster({ id: "cluster-unrequested" })]),
+    );
+
+    await expect(
+      controlPlane.getGatewayPlacements(["cluster-east"], context),
+    ).rejects.toMatchObject({ kind: "unavailable" });
+  });
+
+  it("skips the cluster API when a placement batch has no identifiers", async () => {
+    await expect(
+      controlPlane.getGatewayPlacements(["", "  "], context),
+    ).resolves.toEqual([]);
+    expect(managedClusterApi.list).not.toHaveBeenCalled();
+  });
+
   it("reports when a bounded placement search has more results", async () => {
     managedClusterApi.list.mockResolvedValue(
       managedClusterList(

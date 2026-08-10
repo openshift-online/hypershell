@@ -92,6 +92,10 @@ export interface GatewayControlPlane {
     clusterId: string,
     context: GatewayInvocationContext,
   ): Promise<GatewayPlacement>;
+  getGatewayPlacements(
+    clusterIds: readonly string[],
+    context: GatewayInvocationContext,
+  ): Promise<readonly GatewayPlacement[]>;
   getGateway(
     gatewayId: string,
     context: GatewayInvocationContext,
@@ -125,6 +129,10 @@ export interface GatewayOperations {
     clusterId: string,
     signal?: AbortSignal,
   ): Promise<GatewayPlacement>;
+  getGatewayPlacements(
+    clusterIds: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<readonly GatewayPlacement[]>;
   getGateway(gatewayId: string, signal?: AbortSignal): Promise<GatewayRecord>;
   listGateways(
     request: GatewayListRequest,

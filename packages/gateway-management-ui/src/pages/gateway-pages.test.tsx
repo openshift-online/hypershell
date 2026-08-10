@@ -30,12 +30,14 @@ const previewGateways = [previewGateway] as const;
 const {
   deleteGatewayMock,
   getGatewayPlacementMock,
+  getGatewayPlacementsMock,
   listGatewaysMock,
   navigateMock,
   renameGatewayMock,
 } = vi.hoisted(() => ({
   deleteGatewayMock: vi.fn(),
   getGatewayPlacementMock: vi.fn(),
+  getGatewayPlacementsMock: vi.fn(),
   listGatewaysMock: vi.fn(),
   navigateMock: vi.fn(),
   renameGatewayMock: vi.fn(),
@@ -45,6 +47,7 @@ const gatewayOperations = {
   findGatewayPlacements: vi.fn(),
   getGateway: vi.fn(),
   getGatewayPlacement: getGatewayPlacementMock,
+  getGatewayPlacements: getGatewayPlacementsMock,
   listGateways: listGatewaysMock,
   provisionGateway: vi.fn(),
   removeGateway: deleteGatewayMock,
@@ -99,6 +102,15 @@ describe("gateway shell pages", () => {
       region: "us-east-1",
       status: "Ready",
     });
+    getGatewayPlacementsMock.mockResolvedValue([
+      {
+        id: "cluster-east",
+        name: "Cluster East",
+        provider: "AWS",
+        region: "us-east-1",
+        status: "Ready",
+      },
+    ]);
     navigateMock.mockResolvedValue(undefined);
   });
 
@@ -513,14 +525,15 @@ describe("gateway shell pages", () => {
 
     expect(await screen.findByText("Cluster East")).toBeTruthy();
     expect(screen.queryByText("cluster-east")).toBeNull();
-    expect(getGatewayPlacementMock).toHaveBeenCalledWith(
-      "cluster-east",
+    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
+      ["cluster-east"],
       expect.any(AbortSignal),
     );
+    expect(getGatewayPlacementMock).not.toHaveBeenCalled();
   });
 
   it("shows an unavailable state instead of a cluster identifier", async () => {
-    getGatewayPlacementMock.mockRejectedValue(new Error("unavailable"));
+    getGatewayPlacementsMock.mockRejectedValue(new Error("unavailable"));
     renderPage(() => (
       <GatewaysPage
         gateways={[
@@ -535,6 +548,65 @@ describe("gateway shell pages", () => {
 
     expect(await screen.findByText("Not available")).toBeTruthy();
     expect(screen.queryByText("cluster-east")).toBeNull();
+  });
+
+  it("resolves a cold page of distinct cluster names with one batch request", async () => {
+    const gateways = Array.from({ length: 20 }, (_, index) => ({
+      ...gatewayResponse(
+        `gateway-${String(index)}`,
+        `Gateway ${String(index)}`,
+      ),
+      clusterId: `cluster-${String(index)}`,
+    }));
+    const clusterIds = gateways.map(({ clusterId }) => clusterId).sort();
+    listGatewaysMock.mockResolvedValue({
+      items: gateways,
+      page: 1,
+      size: 20,
+      total: 20,
+    });
+    getGatewayPlacementsMock.mockResolvedValue(
+      clusterIds.map((id) => ({
+        id,
+        name: `Name for ${id}`,
+        provider: "AWS",
+      })),
+    );
+
+    renderPage(() => <GatewaysPage />);
+
+    expect(await screen.findByText("Name for cluster-0")).toBeTruthy();
+    expect(listGatewaysMock).toHaveBeenCalledOnce();
+    expect(getGatewayPlacementsMock).toHaveBeenCalledOnce();
+    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
+      clusterIds,
+      expect.any(AbortSignal),
+    );
+    expect(getGatewayPlacementMock).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates repeated cluster identifiers before batch resolution", async () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          { ...previewGateway, clusterId: "cluster-east", clusterName: "" },
+          {
+            ...previewGateway,
+            clusterId: "cluster-east",
+            clusterName: "",
+            id: "gateway-2",
+            name: "gateway-2",
+          },
+        ]}
+      />
+    ));
+
+    expect(await screen.findAllByText("Cluster East")).toHaveLength(2);
+    expect(getGatewayPlacementsMock).toHaveBeenCalledOnce();
+    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
+      ["cluster-east"],
+      expect.any(AbortSignal),
+    );
   });
 
   it("provides console and CLI actions from the gateway row menu", async () => {

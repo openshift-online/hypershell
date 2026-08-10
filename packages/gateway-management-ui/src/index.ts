@@ -42,6 +42,7 @@ export {
 export {
   gatewayListQueryKey,
   gatewayListQueryRoot,
+  gatewayPlacementBatchQueryKey,
   gatewayPlacementDetailQueryKey,
   gatewayPlacementQueryKey,
   gatewayQueryKey,

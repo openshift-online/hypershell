@@ -9,6 +9,7 @@ export type GatewayAction =
   | "find-placements"
   | "get"
   | "get-placement"
+  | "get-placements"
   | "list"
   | "provision"
   | "remove"

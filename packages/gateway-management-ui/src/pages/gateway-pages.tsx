@@ -36,6 +36,7 @@ import {
 } from "../gateways/gateway-detail-header";
 import {
   gatewayListQueryKey,
+  gatewayPlacementBatchQueryKey,
   gatewayPlacementDetailQueryKey,
   gatewayPlacementStaleMilliseconds,
   gatewayQueryKey,
@@ -83,7 +84,7 @@ function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
   return <a {...link}>{gateway.name}</a>;
 }
 
-function GatewayClusterName({ gateway }: { gateway: GatewayConnection }) {
+function GatewayDetailClusterName({ gateway }: { gateway: GatewayConnection }) {
   const intl = useIntl();
   const { gateways } = useGatewayUi();
   const clusterId = gateway.clusterId ?? "";
@@ -108,6 +109,33 @@ function GatewayClusterName({ gateway }: { gateway: GatewayConnection }) {
     return intl.formatMessage(messages.notAvailable);
   }
   return placementQuery.data.name;
+}
+
+function GatewayCollectionClusterName({
+  gateway,
+  isLoading,
+  placementNames,
+}: {
+  gateway: GatewayConnection;
+  isLoading: boolean;
+  placementNames: ReadonlyMap<string, string>;
+}) {
+  const intl = useIntl();
+  const clusterId = gateway.clusterId ?? "";
+
+  if (!clusterId || gateway.clusterName.trim()) {
+    return gateway.clusterName;
+  }
+  if (isLoading) {
+    return (
+      <span role="status">
+        {intl.formatMessage(messages.loadingClusterName)}
+      </span>
+    );
+  }
+  return (
+    placementNames.get(clusterId) ?? intl.formatMessage(messages.notAvailable)
+  );
 }
 
 function GatewaySuccessAlerts({
@@ -224,6 +252,26 @@ export function GatewaysPage({
         total: gateways.length,
       }
     : gatewayQuery.data;
+  const placementClusterIds = [
+    ...new Set(
+      (visiblePage?.items ?? [])
+        .filter(
+          (gateway) =>
+            Boolean(gateway.clusterId) && !gateway.clusterName.trim(),
+        )
+        .map((gateway) => gateway.clusterId ?? ""),
+    ),
+  ].sort();
+  const placementsQuery = useQuery({
+    enabled: placementClusterIds.length > 0,
+    queryFn: ({ signal }) =>
+      gatewayOperations.getGatewayPlacements(placementClusterIds, signal),
+    queryKey: gatewayPlacementBatchQueryKey(placementClusterIds),
+    staleTime: gatewayPlacementStaleMilliseconds,
+  });
+  const placementNames = new Map(
+    placementsQuery.data?.map(({ id, name }) => [id, name]),
+  );
   const tableState: ResourceTableState = {
     page: currentCollectionState.page,
     query: currentCollectionState.search,
@@ -259,7 +307,13 @@ export function GatewaysPage({
     {
       id: "cluster",
       label: intl.formatMessage(messages.cluster),
-      render: (gateway) => <GatewayClusterName gateway={gateway} />,
+      render: (gateway) => (
+        <GatewayCollectionClusterName
+          gateway={gateway}
+          isLoading={placementsQuery.isPending}
+          placementNames={placementNames}
+        />
+      ),
       width: 20,
     },
     {
@@ -450,7 +504,7 @@ export function GatewayPage({
               <FormattedMessage {...messages.cluster} />
             </DescriptionListTerm>
             <DescriptionListDescription>
-              <GatewayClusterName gateway={connection} />
+              <GatewayDetailClusterName gateway={connection} />
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>

@@ -25,11 +25,22 @@ export function gatewayQueryKey(gatewayId: string) {
 }
 
 export function gatewayPlacementQueryKey(search: string) {
-  return [...gatewayPlacementQueryRoot, search.trim()] as const;
+  return [...gatewayPlacementQueryRoot, "search", search.trim()] as const;
 }
 
 export function gatewayPlacementDetailQueryKey(clusterId: string) {
-  return ["gateways", "placement", clusterId] as const;
+  return [...gatewayPlacementQueryRoot, "detail", clusterId] as const;
+}
+
+export function gatewayPlacementBatchQueryKey(clusterIds: readonly string[]) {
+  const normalizedClusterIds = [
+    ...new Set(clusterIds.map((clusterId) => clusterId.trim()).filter(Boolean)),
+  ].sort();
+  return [
+    ...gatewayPlacementQueryRoot,
+    "batch",
+    ...normalizedClusterIds,
+  ] as const;
 }
 
 type GatewayApiPayload = Omit<

@@ -35,11 +35,19 @@ const gatewaySortFields = {
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
 function escapeIlikeLiteral(value: string): string {
-  return value
-    .replaceAll("\\", "\\\\")
+  return escapeSearchLiteral(value)
     .replaceAll("%", "\\%")
-    .replaceAll("_", "\\_")
-    .replaceAll("'", "\\'");
+    .replaceAll("_", "\\_");
+}
+
+function escapeSearchLiteral(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+}
+
+function normalizeClusterIds(clusterIds: readonly string[]): string[] {
+  return [
+    ...new Set(clusterIds.map((clusterId) => clusterId.trim()).filter(Boolean)),
+  ].sort();
 }
 
 function gatewaySearch(value: string): string | undefined {
@@ -162,6 +170,44 @@ export function createGatewayControlPlaneAdapter(
           }),
         ),
       );
+    },
+    async getGatewayPlacements(clusterIds, context) {
+      return mapFailure(async () => {
+        const normalizedClusterIds = normalizeClusterIds(clusterIds);
+        if (normalizedClusterIds.length === 0) {
+          return [];
+        }
+
+        const requestedClusterIds = new Set(normalizedClusterIds);
+        const result = await apiClient(
+          apiFactory,
+          context,
+        ).managedClusters.list(
+          {
+            orderBy: "id asc",
+            page: 1,
+            search: `id in (${normalizedClusterIds
+              .map((clusterId) => `'${escapeSearchLiteral(clusterId)}'`)
+              .join(", ")})`,
+            size: normalizedClusterIds.length,
+          },
+          { signal: context.signal },
+        );
+        const returnedClusterIds = result.items.map(({ id }) => id);
+        if (
+          result.page !== 1 ||
+          result.total < 0 ||
+          result.total > normalizedClusterIds.length ||
+          result.items.length !== result.total ||
+          new Set(returnedClusterIds).size !== returnedClusterIds.length ||
+          returnedClusterIds.some(
+            (clusterId) => !requestedClusterIds.has(clusterId),
+          )
+        ) {
+          throw new GatewayOperationError("unavailable");
+        }
+        return result.items.map(toGatewayPlacement);
+      });
     },
     async getGateway(gatewayId, context) {
       return mapFailure(async () =>
