@@ -9,7 +9,7 @@
 
 ## Purpose
 
-HyperShell requires infrastructure-agnostic end-to-end testing that validates the full provisioning path: API creation of a Gateway, control plane reconciliation, gateway pod readiness, route connectivity, and sandbox lifecycle. The same test suite SHALL run against Kind (local development, CI) and OpenShift (staging, QE) with infrastructure-specific logic isolated into driver scripts. A CI workflow SHALL execute these tests automatically on every pull request.
+HyperShell requires infrastructure-agnostic end-to-end testing that validates the full provisioning path: API creation of a Gateway, control plane reconciliation, gateway pod readiness, route connectivity, and sandbox lifecycle. The same test suite SHALL run against Kind (local development, CI) and OpenShift (staging, QE) with infrastructure-specific logic isolated into driver scripts. A CI workflow SHALL execute these tests automatically on pull requests that modify e2e-relevant components.
 
 The existing e2e test (`components/pr-test/e2e-openshell.sh`) validates 6 areas — gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction — but is hardcoded for OpenShift. This spec defines the driver abstraction, CI workflow, and deploy restructuring required to run the same tests across multiple infrastructure targets.
 
@@ -41,7 +41,7 @@ Each driver exports shell functions that abstract infrastructure-specific operat
 | `discover_api_host` | Find the HyperShell API server URL | HTTPRoute hostname `api.hypershell.localhost` or port-forward to `svc/hypershell-api-server` | `oc get route hypershell-api -o jsonpath='{.spec.host}'` |
 | `discover_gateway_endpoint` | Find the gateway gRPC endpoint | GRPCRoute hostname `<gw-name>.gw.localhost` via Gateway status address | Route with `spec.tls.termination=passthrough` targeting `svc/openshell-gateway` |
 | `get_cluster_domain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
-| `get_cli_binary` | Return the Kubernetes CLI binary path | `kubectl` | `oc` |
+| `get_cli_binary` | Return the Kubernetes CLI binary path | `oc` | `oc` |
 | `wait_for_gateway_route` | Block until the gateway is externally reachable | Check Gateway API Gateway status conditions and GRPCRoute parent status | Check OpenShift Route `.status.ingress[].conditions` for `Admitted` |
 
 ### CI Pipeline
@@ -107,7 +107,7 @@ The e2e test framework SHALL isolate infrastructure-specific logic into driver s
 - GIVEN `E2E_INFRA_DRIVER=kind`
 - WHEN the e2e test script starts
 - THEN the `tests/e2e/drivers/kind.sh` driver SHALL be sourced
-- AND all infrastructure functions SHALL use `kubectl` and Kind-specific discovery (HTTPRoute hostnames, Gateway API status)
+- AND all infrastructure functions SHALL use `oc` and Kind-specific discovery (HTTPRoute hostnames, Gateway API status)
 
 #### Scenario: OpenShift Driver Selected (Follow-Up)
 
@@ -164,7 +164,16 @@ Each driver script SHALL export the following shell functions. The main test scr
 
 - GIVEN the `kind` driver is active
 - WHEN `get_cli_binary` is called
-- THEN it SHALL return `kubectl`
+- THEN it SHALL return `oc`
+
+#### Scenario: Wait for Gateway Route — Kind
+
+- GIVEN the `kind` driver is active
+- AND a gateway named `$GW_NAME` has been provisioned
+- WHEN `wait_for_gateway_route` is called
+- THEN it SHALL poll the Gateway API Gateway resource's status conditions for `Programmed=True`
+- AND verify the corresponding GRPCRoute's parent status reports `Accepted=True`
+- AND return success when both conditions are met or fail after `E2E_PROVISION_TIMEOUT` seconds
 
 ### Requirement: E2E Test Suite Coverage
 
@@ -398,4 +407,5 @@ deploy/
 | `make kind-up` accepts image overrides | Passing `IMAGE_TAG=<digest>` or per-component image variables to `make kind-up` allows CI to deploy Konflux-built images directly without a separate load step. Developers can also use this to test specific image versions locally |
 | Backward-compatible migration | The refactoring does not change `make kind-up`. `scripts/kind/up.sh` can be migrated to use `kustomize build deploy/kind/` incrementally. The spec defines the target state; the migration path is incremental |
 | OpenShift overlay and driver are follow-up | The `deploy/openshift/` overlay (Route, SCC) and the `tests/e2e/drivers/openshift.sh` driver are not part of this spec's implementation scope. The driver interface is defined here to establish the contract; the OpenShift implementation and its CI job come in a subsequent iteration |
+| Env vars renamed with `E2E_` prefix | The existing `e2e-openshell.sh` uses `SANDBOX_TIMEOUT`, `PROVISION_TIMEOUT`, `SKIP_CLEANUP`, and `GATEWAY_NAMESPACE`. These are renamed to `E2E_SANDBOX_TIMEOUT`, `E2E_PROVISION_TIMEOUT`, `E2E_SKIP_CLEANUP`, and `E2E_NAMESPACE` to avoid namespace collisions with non-e2e configuration and make the e2e origin of these variables explicit |
 | CI uses `make kind-up`, not raw `kind create cluster` | Reuses the same cluster setup path developers use locally. Ensures the CI environment is identical to local development. Avoids a second "create a Kind cluster" implementation that could drift |
