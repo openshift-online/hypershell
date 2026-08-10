@@ -33,7 +33,7 @@ if cluster_exists; then
   warn "Cluster '${KIND_CLUSTER_NAME}' already exists, reusing"
 else
   info "Creating Kind cluster '${KIND_CLUSTER_NAME}'..."
-  rendered=$(mktemp /tmp/kind-config-XXXXXX.yaml)
+  rendered=$(mktemp /tmp/kind-config-XXXXXX)
   sed "s|__KIND_HOST_MOUNT_PATH__|${KIND_HOST_MOUNT_PATH:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}|g" \
     "${KIND_CONFIG}" > "${rendered}"
   kind create cluster --name "${KIND_CLUSTER_NAME}" --config "${rendered}"

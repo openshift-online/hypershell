@@ -26,6 +26,9 @@ error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 : "${KIND_CLUSTER_NAME:=hypershell-dev}"
 : "${KIND_NAMESPACE:=hypershell-system}"
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
+if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
+  export KIND_EXPERIMENTAL_PROVIDER=podman
+fi
 : "${GATEWAY_IMAGE:=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KIND_DNS_PORT:=5553}"

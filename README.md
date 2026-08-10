@@ -34,17 +34,17 @@ The GatewayClass name is configurable via the `GATEWAY_API_GATEWAY_CLASS` enviro
 
 ### TLS certificate Secret (`grpc-gateway-certs`)
 
-A wildcard TLS Secret named `grpc-gateway-certs` must be present in the control plane namespace. The control plane copies this Secret into each tenant namespace when provisioning a gateway. The per-tenant Gateway API Gateway resource references it for HTTPS termination.
+A wildcard TLS Secret named `grpc-gateway-certs` must be present in the `openshift-ingress` namespace. Per-tenant Gateway API Gateway resources are created in `openshift-ingress` and reference this Secret for HTTPS termination. The ingress operator auto-creates DNS records for Gateways in this namespace, which is why the Gateway (and the cert) live here.
 
-The Secret must contain `tls.crt` and `tls.key` entries covering all tenant hostnames under the base domain (e.g., `*.hsgw.<base-domain>`).
+The Secret must contain `tls.crt` and `tls.key` entries covering all tenant hostnames under the base domain (e.g., `*.apps.<cluster>.<domain>`).
 
 ```shell
-kubectl -n hypershell create secret tls grpc-gateway-certs \
+kubectl -n openshift-ingress create secret tls grpc-gateway-certs \
   --cert=/path/to/wildcard.crt \
   --key=/path/to/wildcard.key
 ```
 
-On OpenShift, if you want gateways to share the same FQDN base as the cluster's other ingresses (e.g., `*.apps.<cluster>.<domain>`), you can copy the cluster's default wildcard certificate. The Ingress Operator stores it in the `openshift-ingress` namespace:
+On OpenShift, if you want gateways to share the same FQDN base as the cluster's other ingresses (e.g., `*.apps.<cluster>.<domain>`), you can copy the cluster's default wildcard certificate. The Ingress Operator already stores it in `openshift-ingress`:
 
 ```shell
 # Find the default ingress certificate Secret name
@@ -54,10 +54,10 @@ oc get ingresscontroller default -n openshift-ingress-operator \
 # If no custom cert is set, the operator generates one automatically:
 oc get secret -n openshift-ingress -l app=router --no-headers -o name
 
-# Copy it into the hypershell namespace as grpc-gateway-certs
+# Copy it within openshift-ingress under the name grpc-gateway-certs
 oc get secret <secret-name> -n openshift-ingress -o json \
-  | jq 'del(.metadata.namespace,.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.labels) | .metadata.name = "grpc-gateway-certs"' \
-  | oc apply -n hypershell -f -
+  | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.labels) | .metadata.name = "grpc-gateway-certs"' \
+  | oc apply -n openshift-ingress -f -
 ```
 
 ### Trusted CA bundle (optional)
@@ -95,5 +95,6 @@ Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | HTTP address of the API server |
 | `HYPERSHELL_NAMESPACE` | `hypershell` | Namespace the control plane runs in (used for trusted CA bundle source) |
 | `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources |
+| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where per-tenant Gateway API Gateway resources are created |
 | `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for auto-derived hostnames (e.g., `apps.cluster.example.com`) |
 | `GATEWAY_MANIFESTS_DIR` | `/manifests/gateway` | Path to gateway manifest templates |
