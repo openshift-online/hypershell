@@ -48,7 +48,11 @@ export function useColorScheme() {
     applyScheme(readPreference());
   }
 
-  const scheme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const scheme = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  );
 
   const toggle = useCallback(() => {
     const next: ColorScheme = getSnapshot() === "dark" ? "light" : "dark";
