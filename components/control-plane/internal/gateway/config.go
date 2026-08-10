@@ -1,6 +1,9 @@
 package gateway
 
-import "os"
+import (
+	"context"
+	"os"
+)
 
 // ImageDefaults resolves the default container images for gateway deployments.
 // TODO: Replace StaticImageDefaults with a database-backed implementation that
@@ -67,10 +70,21 @@ type DatabaseConfig struct {
 	ExternalSecretRef string `yaml:"externalSecretRef" json:"external_secret_ref,omitempty"`
 }
 
+// RouteAddressUpdater is called by the gateway reconciler to update the
+// route_address field on the API-server Gateway resource.  The implementation
+// is provided by the top-level reconciler which owns the gRPC connection.
+type RouteAddressUpdater func(ctx context.Context, routeAddress string) error
+
 type ReconcileOpts struct {
 	IsOpenShift           bool
 	HasCertManager        bool
 	HasGatewayAPI         bool
 	ControlPlaneNamespace string
 	Images                ImageDefaults
+	// GatewayID is the API-server resource ID for the gateway being reconciled.
+	// Used when updating fields (e.g. routeAddress) back to the API server.
+	GatewayID string
+	// UpdateRouteAddress is an optional callback that PATCHes the route_address
+	// field on the API-server Gateway.  Nil means no update will be attempted.
+	UpdateRouteAddress RouteAddressUpdater
 }
