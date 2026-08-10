@@ -333,6 +333,10 @@ data:
       color: #151515 !important;
     }
 
+    .pf-v5-c-form-control::before {
+      border-color: #e0e0e0 !important;
+    }
+
     .pf-v5-c-form-control input {
       background-color: transparent !important;
       color: #151515 !important;
@@ -507,6 +511,10 @@ data:
         background-color: #1b1d21 !important;
         border-color: #3c3f42 !important;
         color: #e0e0e0 !important;
+      }
+
+      .pf-v5-c-form-control::before {
+        border-color: #3c3f42 !important;
       }
 
       .pf-v5-c-form-control input {
