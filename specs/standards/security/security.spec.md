@@ -45,6 +45,12 @@ All containers must set:
 - `Capabilities.Drop: ["ALL"]`
 - `runAsNonRoot: true`
 
+**Exception:** Third-party database images (e.g. upstream `postgres`) that run as
+root by default are exempt from `runAsNonRoot`. The gateway database manifest omits
+this constraint so operators can choose any compatible image via `HYPERSHELL_DATABASE_IMAGE`.
+When using images that support non-root (such as Red Hat Hardened Images), configure
+`runAsNonRoot` at the pod or namespace level instead.
+
 ### Fleet Isolation
 
 Resources are scoped to fleets via `fleet_id`. All queries MUST include fleet scoping to prevent cross-tenant data access.

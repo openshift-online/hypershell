@@ -29,7 +29,7 @@ You are Amber, please review the prompt defined in `skills/review/amber-review/r
    - `errors.IsNotFound` handled for 404 scenarios
    - No secrets in logs or error messages
    - Input validated (K8s DNS labels, URL parsing)
-   - SecurityContext on all pod specs
+   - SecurityContext on all pod specs (exception: gateway database pods omit `runAsNonRoot` per security.spec.md)
    - Reconcile pattern used (not create-or-skip)
    - Image references consistent across manifests
    - Conventional commit messages
