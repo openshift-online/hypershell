@@ -21,6 +21,7 @@ export type {
 } from "./application/gateway-types";
 export {
   defaultGatewayListRequest,
+  gatewayListPageSizes,
   GatewayOperationError,
 } from "./application/gateway-types";
 export {

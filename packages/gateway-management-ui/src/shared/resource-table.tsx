@@ -61,6 +61,7 @@ interface ResourceTableProps<Row> {
     state: ResourceTableState,
     reason: ResourceTableStateChangeReason,
   ) => void;
+  pageSizeOptions: readonly number[];
   primaryAction?: React.ReactNode;
   renderRowAction?: (row: Row) => React.ReactNode;
   rows: readonly Row[];
@@ -75,6 +76,7 @@ export function ResourceTable<Row>({
   itemCount,
   labels,
   onStateChange,
+  pageSizeOptions,
   primaryAction,
   renderRowAction,
   rows,
@@ -148,6 +150,10 @@ export function ResourceTable<Row>({
               }}
               page={state.page}
               perPage={state.pageSize}
+              perPageOptions={pageSizeOptions.map((value) => ({
+                title: String(value),
+                value,
+              }))}
               widgetId={`${id}-pagination`}
             />
           </ToolbarItem>

@@ -420,6 +420,12 @@ describe("gateway shell pages", () => {
     expect(
       await screen.findByRole("link", { name: "Gateway page size 50" }),
     ).toBeTruthy();
+    await user.click(pageSizeToggle as HTMLButtonElement);
+    expect(
+      screen
+        .getByRole("menuitem", { name: "50 per page" })
+        .classList.contains("pf-m-selected"),
+    ).toBe(true);
   });
 
   it("refreshes the gateway list", async () => {

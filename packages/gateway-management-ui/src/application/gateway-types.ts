@@ -38,11 +38,13 @@ export interface GatewayListRequest {
   sortField: GatewaySortField;
 }
 
+export const gatewayListPageSizes = [10, 20, 50, 100] as const;
+
 export const defaultGatewayListRequest: Readonly<GatewayListRequest> =
   Object.freeze({
     page: 1,
     search: "",
-    size: 20,
+    size: gatewayListPageSizes[1],
     sortDirection: "asc",
     sortField: "name",
   });

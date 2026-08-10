@@ -19,6 +19,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 
 import {
   defaultGatewayListRequest,
+  gatewayListPageSizes,
   type GatewayListRequest,
   type GatewayRecord,
   type GatewaySortField,
@@ -424,6 +425,7 @@ export function GatewaysPage({
             </Button>
           }
           onStateChange={changeTableState}
+          pageSizeOptions={gatewayListPageSizes}
           renderRowAction={(gateway) => (
             <GatewayRowActions
               gateway={gateway}
