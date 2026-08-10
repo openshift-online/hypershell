@@ -30,12 +30,13 @@ import {
   gatewaySearchDebounceMilliseconds,
 } from "./gateway-data";
 
-const loadingValue = Symbol("loading placements");
-const noResultsValue = Symbol("no placement results");
+const loadingValue = Symbol();
+const noResultsValue = Symbol();
 
 interface PlacementOption {
   description?: string;
   isDisabled?: boolean;
+  key: string;
   label: string;
   value: string | symbol;
 }
@@ -100,11 +101,12 @@ export function GatewayPlacementSelect({
     .includes(normalizedSearch.toLocaleLowerCase(intl.locale));
   const options: PlacementOption[] = [
     ...(hubMatches
-      ? [{ label: hubLabel, value: "" } satisfies PlacementOption]
+      ? [{ key: "hub", label: hubLabel, value: "" } satisfies PlacementOption]
       : []),
     ...(!isSearchPending
       ? (placementQuery.data?.items.map((placement) => ({
           description: placementDescription(placement, intl.formatMessage),
+          key: `cluster:${placement.id}`,
           label: placement.name,
           value: placement.id,
         })) ?? [])
@@ -114,12 +116,14 @@ export function GatewayPlacementSelect({
   if (isSearchPending || placementQuery.isPending) {
     options.push({
       isDisabled: true,
+      key: "loading",
       label: intl.formatMessage(messages.loadingClusters),
       value: loadingValue,
     });
   } else if (options.length === 0) {
     options.push({
       isDisabled: true,
+      key: "no-results",
       label: intl.formatMessage(messages.noMatchingClusters),
       value: noResultsValue,
     });
@@ -280,11 +284,7 @@ export function GatewayPlacementSelect({
               isSelected={
                 typeof option.value === "string" && value === option.value
               }
-              key={
-                typeof option.value === "string"
-                  ? option.value
-                  : option.value.description
-              }
+              key={option.key}
               value={option.value}
             >
               {option.label}
@@ -301,15 +301,6 @@ export function GatewayPlacementSelect({
               variant="error"
             >
               {error}
-            </HelperTextItem>
-          </HelperText>
-        </FormHelperText>
-      ) : null}
-      {isSearchPending || placementQuery.isFetching ? (
-        <FormHelperText>
-          <HelperText>
-            <HelperTextItem role="status" variant="indeterminate">
-              {intl.formatMessage(messages.loadingClusters)}
             </HelperTextItem>
           </HelperText>
         </FormHelperText>

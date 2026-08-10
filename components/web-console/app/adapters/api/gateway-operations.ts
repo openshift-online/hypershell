@@ -36,12 +36,13 @@ const gatewaySortFields = {
 
 function escapeIlikeLiteral(value: string): string {
   return escapeSearchLiteral(value)
+    .replaceAll("\\", "\\\\")
     .replaceAll("%", "\\%")
     .replaceAll("_", "\\_");
 }
 
 function escapeSearchLiteral(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+  return value.replaceAll("'", "''");
 }
 
 function normalizeClusterIds(clusterIds: readonly string[]): string[] {

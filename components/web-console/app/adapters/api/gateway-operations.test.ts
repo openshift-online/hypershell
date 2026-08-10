@@ -146,7 +146,7 @@ describe("gateway API operations adapter", () => {
       {
         orderBy: "name asc",
         page: 1,
-        search: "name ilike '%team\\'s east%'",
+        search: "name ilike '%team''s east%'",
         size: 20,
       },
       { signal: abortController.signal },
@@ -218,6 +218,19 @@ describe("gateway API operations adapter", () => {
     expect(managedClusterApi.list).not.toHaveBeenCalled();
   });
 
+  it("uses the API search grammar for quoted batch identifiers", async () => {
+    managedClusterApi.list.mockResolvedValue(managedClusterList([]));
+
+    await controlPlane.getGatewayPlacements(["team's\\cluster"], context);
+
+    expect(managedClusterApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search: "id in ('team''s\\cluster')",
+      }),
+      { signal: undefined },
+    );
+  });
+
   it("reports when a bounded placement search has more results", async () => {
     managedClusterApi.list.mockResolvedValue(
       managedClusterList(
@@ -241,26 +254,26 @@ describe("gateway API operations adapter", () => {
     managedClusterApi.list.mockResolvedValue(managedClusterList([]));
     gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
 
-    await controlPlane.findGatewayPlacements("my_cluster%\\west", context);
+    await controlPlane.findGatewayPlacements("my_cluster%\\west's", context);
     await controlPlane.listGateways(
       {
         ...listRequest,
         page: 1,
-        search: "my_cluster%\\west",
+        search: "my_cluster%\\west's",
       },
       context,
     );
 
     expect(managedClusterApi.list).toHaveBeenCalledWith(
       expect.objectContaining({
-        search: "name ilike '%my\\_cluster\\%\\\\west%'",
+        search: "name ilike '%my\\_cluster\\%\\\\west''s%'",
       }),
       { signal: undefined },
     );
     expect(gatewayApi.list).toHaveBeenCalledWith(
       expect.objectContaining({
         search:
-          "name ilike '%my\\_cluster\\%\\\\west%' or cluster_id ilike '%my\\_cluster\\%\\\\west%' or status ilike '%my\\_cluster\\%\\\\west%' or external_dns ilike '%my\\_cluster\\%\\\\west%'",
+          "name ilike '%my\\_cluster\\%\\\\west''s%' or cluster_id ilike '%my\\_cluster\\%\\\\west''s%' or status ilike '%my\\_cluster\\%\\\\west''s%' or external_dns ilike '%my\\_cluster\\%\\\\west''s%'",
       }),
       { signal: undefined },
     );
@@ -288,7 +301,7 @@ describe("gateway API operations adapter", () => {
         orderBy: "status desc",
         page: 2,
         search:
-          "name ilike '%team\\'s gateway%' or cluster_id ilike '%team\\'s gateway%' or status ilike '%team\\'s gateway%' or external_dns ilike '%team\\'s gateway%'",
+          "name ilike '%team''s gateway%' or cluster_id ilike '%team''s gateway%' or status ilike '%team''s gateway%' or external_dns ilike '%team''s gateway%'",
         size: 20,
       },
       { signal: abortController.signal },

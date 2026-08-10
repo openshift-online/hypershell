@@ -160,3 +160,27 @@ func TestManagedClusterListSearch(t *testing.T) {
 	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(managedClusters[0].ID))
 }
+
+func TestManagedClusterListSearchEscapedLiteral(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	clusterName := "team's_100%"
+	clusterInput := openapi.ManagedCluster{
+		Name:             clusterName,
+		FleetId:          "test-fleet_id",
+		Provider:         "test-provider",
+		KubeconfigSecret: "test-kubeconfig_secret",
+	}
+
+	_, _, err := client.DefaultAPI.CreateManagedCluster(ctx).ManagedCluster(clusterInput).Execute()
+	Expect(err).NotTo(HaveOccurred())
+
+	search := "name ilike '%team''s\\_100\\%%'"
+	list, _, err := client.DefaultAPI.ListManagedClusters(ctx).Search(search).Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error searching for a literal managed cluster name: %v", err)
+	Expect(len(list.Items)).To(Equal(1))
+	Expect(list.GetTotal()).To(Equal(int32(1)))
+	Expect(list.Items[0].GetName()).To(Equal(clusterName))
+}

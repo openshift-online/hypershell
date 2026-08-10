@@ -171,6 +171,20 @@ describe("GatewayCreatePage", () => {
     expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
   });
 
+  it("shows one loading message while placement options are pending", async () => {
+    const user = userEvent.setup();
+    findGatewayPlacementsMock.mockReturnValue(new Promise(() => undefined));
+    renderPage();
+
+    const clusterInput = screen.getByRole("combobox", { name: "Cluster" });
+    await user.click(clusterInput);
+
+    expect(await screen.findAllByText("Loading managed clusters")).toHaveLength(
+      1,
+    );
+    expect(clusterInput.getAttribute("aria-busy")).toBe("true");
+  });
+
   it("reuses fresh placement results after remounting", async () => {
     const user = userEvent.setup();
     const queryClient = createTestQueryClient();
