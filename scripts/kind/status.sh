@@ -81,12 +81,17 @@ esac
 echo ""
 
 PORT_SUFFIX=""
+HTTP_PORT_SUFFIX=""
 if [[ -z "${PF_ACTIVE}" ]]; then
   PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
   if [[ -n "${PROXY_CONTAINER}" ]]; then
     GW_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
     if [[ -n "${GW_PORT}" ]]; then
       PORT_SUFFIX=":${GW_PORT}"
+    fi
+    KC_HTTP_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 8080 2>/dev/null | head -1 | cut -d: -f2)
+    if [[ -n "${KC_HTTP_PORT:-}" ]]; then
+      HTTP_PORT_SUFFIX=":${KC_HTTP_PORT}"
     fi
   fi
 fi
@@ -96,3 +101,5 @@ info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
 info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
 info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
 info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}"
+info "Keycloak HTTP: http://${KEYCLOAK_HOSTNAME}:8080"
+info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"

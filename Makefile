@@ -50,6 +50,7 @@ API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
 KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
+KEYCLOAK_OIDC_ISSUER?=http://$(KEYCLOAK_HOSTNAME):8080/realms/hypershell
 
 # ============================================================================
 # Help
@@ -247,7 +248,7 @@ export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export api_server_local control_plane_local web_console_local
 export build_version build_time
-export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME
+export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
 
 .PHONY: kind-up
