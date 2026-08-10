@@ -179,7 +179,7 @@ export function ResourceTable<Row>({
                   </Td>
                 ))}
                 {renderRowAction ? (
-                  <Td hasAction modifier="fitContent">
+                  <Td isActionCell modifier="fitContent">
                     {renderRowAction(row)}
                   </Td>
                 ) : null}

@@ -454,6 +454,28 @@ test("reflows the gateway table without horizontal page overflow", async ({
   );
   expect(hasOverflow).toBe(false);
 
+  const gatewayRow = page
+    .getByRole("grid", { name: "OpenShell Gateways" })
+    .getByRole("row")
+    .filter({ hasText: "openshell-gateway-test" });
+  const actionsButton = gatewayRow.getByRole("button", {
+    name: "Actions for openshell-gateway-test",
+  });
+  const actionCell = actionsButton.locator("xpath=ancestor::td[1]");
+  await expect(actionCell).toHaveClass(/pf-v6-c-table__action/u);
+
+  const [rowBox, actionsBox] = await Promise.all([
+    gatewayRow.boundingBox(),
+    actionsButton.boundingBox(),
+  ]);
+  if (!rowBox || !actionsBox) {
+    throw new Error("Expected the responsive gateway row action to be visible");
+  }
+  expect(actionsBox.y).toBeLessThan(rowBox.y + 48);
+  expect(
+    rowBox.x + rowBox.width - (actionsBox.x + actionsBox.width),
+  ).toBeLessThan(48);
+
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
