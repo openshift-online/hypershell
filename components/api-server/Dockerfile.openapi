@@ -1,8 +1,8 @@
-FROM golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651 AS go-toolchain
+FROM registry.access.redhat.com/hi/go:1.26.5-builder@sha256:fe0672d0b4bf43b502fe7ab4f251c266b558346cd3b8892c7c79b3b5f2c3a92f AS go-toolchain
 
 FROM openapitools/openapi-generator-cli:v7.16.0@sha256:e56372add5e038753fb91aa1bbb470724ef58382fdfc35082bf1b3e079ce353c
 
-COPY --from=go-toolchain /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+COPY --from=go-toolchain /usr/lib/golang/bin/gofmt /usr/local/bin/gofmt
 
 RUN mkdir -p /local
 COPY . /local
