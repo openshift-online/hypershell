@@ -10,7 +10,6 @@ import {
   DropdownList,
   Flex,
   FlexItem,
-  Label,
   MenuToggle,
   Title,
 } from "@patternfly/react-core";
@@ -21,11 +20,11 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { messages } from "../messages";
 import {
   buildGatewayAddCommand,
-  gatewayStatusAppearance,
   type GatewayConnection,
 } from "./gateway-connections";
 import { GatewayDeleteDialog } from "./gateway-delete-dialog";
 import { GatewayRenameDialog } from "./gateway-rename-dialog";
+import { GatewayStatus } from "./gateway-status";
 
 export function GatewayCliCopy({ gateway }: { gateway: GatewayConnection }) {
   const intl = useIntl();
@@ -207,9 +206,7 @@ export function GatewayDetailHeader({
             </Title>
           </FlexItem>
           <FlexItem>
-            <Label {...gatewayStatusAppearance(gateway.status)}>
-              {gateway.status}
-            </Label>
+            <GatewayStatus status={gateway.status} />
           </FlexItem>
         </Flex>
         <Content>

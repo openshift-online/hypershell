@@ -315,6 +315,10 @@
     "defaultMessage": "Actions",
     "description": "Accessible heading for table row actions."
   },
+  "app.table.column.created": {
+    "defaultMessage": "Created",
+    "description": "Heading for a resource creation date column."
+  },
   "app.table.column.status": {
     "defaultMessage": "Status",
     "description": "Heading for a resource status column."

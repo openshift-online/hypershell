@@ -33,6 +33,7 @@ const placementPageSize = defaultGatewayListRequest.size;
 
 const gatewaySortFields = {
   cluster: "cluster_id",
+  created: "created_at",
   endpoint: "external_dns",
   name: "name",
   status: "status",
@@ -92,6 +93,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   // route_address is a gateway endpoint and is not a browser-console URL.
   return {
     clusterId: gateway.cluster_id,
+    ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
     databaseId: gateway.database_id,
     externalDns: gateway.external_dns,
     id: gateway.id,

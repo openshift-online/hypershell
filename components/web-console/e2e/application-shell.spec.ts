@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 
 const gateway = {
   cluster_id: "cluster-east",
-  created_at: null,
+  created_at: "2026-08-10T14:30:00Z",
   database_id: "database-1",
   external_dns: "gateway.example.test",
   fleet_id: "",
@@ -141,6 +141,12 @@ test("makes gateway management the primary HyperShell experience", async ({
       .getByRole("grid", { name: "OpenShell Gateways" })
       .getByText("Cluster East"),
   ).toBeVisible();
+  const gatewayGrid = page.getByRole("grid", { name: "OpenShell Gateways" });
+  await expect(
+    gatewayGrid.getByRole("columnheader", { name: "Created" }),
+  ).toBeVisible();
+  await expect(gatewayGrid.getByText("Aug 10, 2026")).toBeVisible();
+  await expect(gatewayGrid.locator(".pf-v6-c-label")).toHaveCount(0);
   await expect(
     page.getByRole("navigation", { name: "Primary navigation" }),
   ).toHaveCount(0);

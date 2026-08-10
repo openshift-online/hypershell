@@ -43,16 +43,17 @@ describe("gateway connections", () => {
   });
 
   it.each([
-    ["Ready", { status: "success" }],
-    ["Running", { status: "success" }],
-    ["Failed", { status: "danger" }],
-    ["Degraded", { status: "warning" }],
-    ["Provisioning", { status: "info" }],
-    ["Unknown", { color: "grey" }],
-    ["Unexpected provider state", { color: "grey" }],
-    ["", { color: "grey" }],
+    ["Ready", "success"],
+    ["Running", "success"],
+    ["Failed", "danger"],
+    ["Degraded", "warning"],
+    ["Pending", "pending"],
+    ["Provisioning", "progress"],
+    ["Unknown", "unknown"],
+    ["Unexpected provider state", "unknown"],
+    ["", "unknown"],
   ] as const)(
-    "maps %s to bounded semantic label props",
+    "maps %s to a bounded status appearance",
     (status, appearance) => {
       expect(gatewayStatusAppearance(status)).toEqual(appearance);
     },

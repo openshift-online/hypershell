@@ -103,6 +103,11 @@ export const messages = defineMessages({
     description:
       "Accessible label for copying a specific gateway's network endpoint.",
   },
+  created: {
+    id: "app.table.column.created",
+    defaultMessage: "Created",
+    description: "Heading for a resource creation date column.",
+  },
   deleteGateway: {
     id: "app.gateway.delete",
     defaultMessage: "Delete gateway",

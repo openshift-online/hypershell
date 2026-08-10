@@ -1,6 +1,7 @@
 export interface GatewayRecord {
   clusterId: string;
   consoleUrl?: string;
+  createdAt?: string;
   databaseId: string;
   externalDns?: string;
   id: string;
@@ -28,7 +29,8 @@ export interface GatewayPlacementOptions {
 }
 
 export type GatewaySortDirection = "asc" | "desc";
-export type GatewaySortField = "cluster" | "endpoint" | "name" | "status";
+export type GatewaySortField =
+  "cluster" | "created" | "endpoint" | "name" | "status";
 
 export interface GatewayListRequest {
   page: number;

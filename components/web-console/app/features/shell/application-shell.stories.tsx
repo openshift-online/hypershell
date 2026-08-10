@@ -14,6 +14,7 @@ import { ApplicationShell } from "./application-shell";
 const previewGateway: GatewayConnection = {
   clusterName: "Hub cluster",
   consoleUrl: "https://console.example.test",
+  createdAt: "2026-08-10T14:30:00Z",
   endpoint: "https://gateway.example.test:443",
   id: "gateway-b",
   name: "OpenShell gateway",
@@ -25,6 +26,7 @@ const previewGateway: GatewayConnection = {
 
 const previewGatewayResource: GatewayRecord = {
   clusterId: "",
+  createdAt: "2026-08-10T14:30:00Z",
   databaseId: "database-1",
   externalDns: "gateway.example.test",
   id: "gateway-b",

@@ -1,0 +1,6 @@
+.status {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--pf-t--global--spacer--sm);
+  white-space: nowrap;
+}

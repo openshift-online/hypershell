@@ -281,7 +281,9 @@ describe("gateway API operations adapter", () => {
 
   it("maps exactly one authoritative gateway page with search and sort", async () => {
     const abortController = new AbortController();
-    gatewayApi.list.mockResolvedValueOnce(gatewayList([gateway()], 21, 2));
+    gatewayApi.list.mockResolvedValueOnce(
+      gatewayList([gateway({ created_at: "2026-08-10T14:30:00Z" })], 21, 2),
+    );
 
     await expect(
       controlPlane.listGateways(listRequest, {
@@ -289,7 +291,13 @@ describe("gateway API operations adapter", () => {
         signal: abortController.signal,
       }),
     ).resolves.toMatchObject({
-      items: [{ id: "gateway-1", name: "Team gateway" }],
+      items: [
+        {
+          createdAt: "2026-08-10T14:30:00Z",
+          id: "gateway-1",
+          name: "Team gateway",
+        },
+      ],
       page: 2,
       size: 20,
       total: 21,
@@ -357,6 +365,20 @@ describe("gateway API operations adapter", () => {
 
     expect(gatewayApi.list).toHaveBeenCalledWith(
       { orderBy: "status desc", page: 1, size: 20 },
+      { signal: undefined },
+    );
+  });
+
+  it("sorts gateways by the API creation timestamp", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      { ...listRequest, page: 1, search: "", sortField: "created" },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      { orderBy: "created_at desc", page: 1, size: 20 },
       { signal: undefined },
     );
   });

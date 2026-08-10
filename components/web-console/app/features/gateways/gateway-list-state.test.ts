@@ -9,7 +9,7 @@ describe("gateway list URL state", () => {
   it("round-trips the authoritative collection controls", () => {
     const state = parseGatewayListState(
       new URLSearchParams(
-        "q=east&page=3&size=50&sort=status&direction=desc&unrelated=ignored",
+        "q=east&page=3&size=50&sort=created&direction=desc&unrelated=ignored",
       ),
     );
 
@@ -18,10 +18,10 @@ describe("gateway list URL state", () => {
       search: "east",
       size: 50,
       sortDirection: "desc",
-      sortField: "status",
+      sortField: "created",
     });
     expect(serializeGatewayListState(state).toString()).toBe(
-      "q=east&page=3&size=50&sort=status&direction=desc",
+      "q=east&page=3&size=50&sort=created&direction=desc",
     );
   });
 

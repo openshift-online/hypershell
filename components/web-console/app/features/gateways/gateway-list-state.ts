@@ -31,6 +31,7 @@ function sizeFrom(value: string | null): number {
 function sortFieldFrom(value: string | null) {
   switch (value) {
     case "cluster":
+    case "created":
     case "endpoint":
     case "name":
     case "status":

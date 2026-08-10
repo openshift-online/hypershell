@@ -9,7 +9,6 @@ import {
   DescriptionListTerm,
   Flex,
   FlexItem,
-  Label,
   PageSection,
   Title,
 } from "@patternfly/react-core";
@@ -27,7 +26,6 @@ import {
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import {
   buildGatewayAddCommand,
-  gatewayStatusAppearance,
   type GatewayConnection,
 } from "../gateways/gateway-connections";
 import {
@@ -37,15 +35,18 @@ import {
 } from "../gateways/gateway-detail-header";
 import {
   gatewayListQueryKey,
+  gatewayNeedsStatusPolling,
   gatewayPlacementBatchQueryKey,
   gatewayPlacementDetailQueryKey,
   gatewayPlacementStaleMilliseconds,
   gatewayQueryKey,
   gatewaySearchDebounceMilliseconds,
+  gatewayStatusPollMilliseconds,
   toGatewayConnection,
 } from "../gateways/gateway-data";
 import { GatewayLoadState } from "../gateways/gateway-load-state";
 import { GatewayRowActions } from "../gateways/gateway-row-actions";
+import { GatewayStatus } from "../gateways/gateway-status";
 import {
   ResourceTable,
   type ResourceTableColumn,
@@ -75,7 +76,7 @@ export interface GatewaysPageProps {
 }
 
 function isGatewaySortField(value: string): value is GatewaySortField {
-  return ["cluster", "endpoint", "name", "status"].includes(value);
+  return ["cluster", "created", "endpoint", "name", "status"].includes(value);
 }
 
 function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
@@ -83,6 +84,25 @@ function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
   const link = useGatewayLink(navigation.detailHref(gateway.id));
 
   return <a {...link}>{gateway.name}</a>;
+}
+
+function GatewayCreatedDate({ createdAt }: { createdAt?: string }) {
+  const intl = useIntl();
+  const createdDate = createdAt ? new Date(createdAt) : undefined;
+
+  if (!createdDate || Number.isNaN(createdDate.getTime())) {
+    return intl.formatMessage(messages.notAvailable);
+  }
+
+  return (
+    <time dateTime={createdAt}>
+      {intl.formatDate(createdDate, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })}
+    </time>
+  );
 }
 
 function GatewayDetailClusterName({ gateway }: { gateway: GatewayConnection }) {
@@ -252,9 +272,13 @@ export function GatewaysPage({
         items: result.items.map((gateway) =>
           toGatewayConnection(gateway, intl.formatMessage(messages.hubCluster)),
         ),
+        shouldPollStatus: result.items.some(gatewayNeedsStatusPolling),
       };
     },
     queryKey: gatewayListQueryKey(gatewayRequest),
+    refetchInterval: ({ state }) =>
+      state.data?.shouldPollStatus ? gatewayStatusPollMilliseconds : false,
+    refetchIntervalInBackground: false,
   });
   const visiblePage = gateways
     ? {
@@ -333,11 +357,13 @@ export function GatewaysPage({
     {
       id: "status",
       label: intl.formatMessage(messages.status),
-      render: ({ status }) => (
-        <Label {...gatewayStatusAppearance(status)} isCompact>
-          {status}
-        </Label>
-      ),
+      render: ({ status }) => <GatewayStatus status={status} />,
+      width: 15,
+    },
+    {
+      id: "created",
+      label: intl.formatMessage(messages.created),
+      render: ({ createdAt }) => <GatewayCreatedDate createdAt={createdAt} />,
       width: 15,
     },
     {
@@ -461,6 +487,11 @@ export function GatewayPage({
     enabled: gateway === undefined && gatewayId.length > 0,
     queryFn: ({ signal }) => gateways.getGateway(gatewayId, signal),
     queryKey: gatewayQueryKey(gatewayId),
+    refetchInterval: ({ state }) =>
+      state.data && gatewayNeedsStatusPolling(state.data)
+        ? gatewayStatusPollMilliseconds
+        : false,
+    refetchIntervalInBackground: false,
   });
   const visibleGateway = gateway ?? gatewayQuery.data;
 
@@ -510,7 +541,7 @@ export function GatewayPage({
               <FormattedMessage {...messages.status} />
             </DescriptionListTerm>
             <DescriptionListDescription>
-              {connection.status}
+              <GatewayStatus status={connection.status} />
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>

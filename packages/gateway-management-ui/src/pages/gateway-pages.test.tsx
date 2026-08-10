@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -8,7 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { IntlProvider } from "react-intl";
-import { beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
 import { GatewayUiProvider } from "../gateway-ui-provider";
 import type { GatewayConnection } from "../gateways/gateway-connections";
@@ -17,6 +18,7 @@ import { GatewayPage, GatewaysPage } from "./gateway-pages";
 const previewGateway: GatewayConnection = {
   clusterName: "Hub cluster",
   consoleUrl: "https://console.example.test",
+  createdAt: "2026-08-10T14:30:00Z",
   endpoint: "https://gateway.example.test:443",
   id: "openshell-gateway-test",
   name: "openshell-gateway-test",
@@ -64,6 +66,7 @@ const navigation = {
 function gatewayResponse(id: string, name: string) {
   return {
     clusterId: "",
+    createdAt: "2026-08-10T14:30:00Z",
     databaseId: "database-1",
     externalDns: "gateway.example.com",
     id,
@@ -92,6 +95,10 @@ function renderPage(Page: () => React.ReactNode) {
 }
 
 describe("gateway shell pages", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     deleteGatewayMock.mockResolvedValue(undefined);
@@ -238,6 +245,42 @@ describe("gateway shell pages", () => {
     expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
   });
 
+  it("polls gateway details until its lifecycle reaches a terminal state", async () => {
+    vi.useFakeTimers();
+    gatewayOperations.getGateway
+      .mockResolvedValueOnce({
+        ...gatewayResponse("gateway-1", "Team gateway"),
+        phase: "Provisioning",
+        status: "",
+      })
+      .mockResolvedValue({
+        ...gatewayResponse("gateway-1", "Team gateway"),
+        phase: "Running",
+        status: "",
+      });
+
+    const view = renderPage(() => <GatewayPage gatewayId="gateway-1" />);
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getAllByText("Provisioning").length).toBeGreaterThan(0);
+    expect(gatewayOperations.getGateway).toHaveBeenCalledOnce();
+
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(gatewayOperations.getGateway).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText("Running").length).toBeGreaterThan(0);
+
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+
+    expect(gatewayOperations.getGateway).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
   it("resolves the managed-cluster name on gateway details", async () => {
     renderPage(() => (
       <GatewayPage
@@ -324,6 +367,56 @@ describe("gateway shell pages", () => {
     expect(
       await screen.findByRole("link", { name: "openshell-gateway-test" }),
     ).toBeTruthy();
+  });
+
+  it("polls the current gateway page once until its lifecycles are terminal", async () => {
+    vi.useFakeTimers();
+    listGatewaysMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            ...gatewayResponse("gateway-1", "Team gateway"),
+            phase: "Provisioning",
+            status: "",
+          },
+        ],
+        page: 1,
+        size: 20,
+        total: 1,
+      })
+      .mockResolvedValue({
+        items: [
+          {
+            ...gatewayResponse("gateway-1", "Team gateway"),
+            phase: "Running",
+            status: "",
+          },
+        ],
+        page: 1,
+        size: 20,
+        total: 1,
+      });
+
+    const view = renderPage(GatewaysPage);
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText("Provisioning")).toBeTruthy();
+    expect(listGatewaysMock).toHaveBeenCalledOnce();
+
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(listGatewaysMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Running")).toBeTruthy();
+
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+
+    expect(listGatewaysMock).toHaveBeenCalledTimes(2);
+    view.unmount();
   });
 
   it("normalizes search before invoking the gateway entry port", async () => {
@@ -572,7 +665,9 @@ describe("gateway shell pages", () => {
     renderPage(() => <GatewaysPage gateways={previewGateways} />);
 
     expect(screen.getByRole("columnheader", { name: "Cluster" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Created" })).toBeTruthy();
     expect(screen.getByText("Hub cluster")).toBeTruthy();
+    expect(screen.getByText("Aug 10, 2026")).toBeTruthy();
     expect(
       screen
         .getByRole("link", { name: "Provision gateway" })
@@ -580,14 +675,47 @@ describe("gateway shell pages", () => {
     ).toBe("/gateways/new");
   });
 
-  it("renders Running with the semantic success label", () => {
+  it("sorts the gateway list by creation date", async () => {
+    const user = userEvent.setup();
+    const onCollectionStateChange = vi.fn();
+    const collectionState = {
+      page: 1,
+      search: "",
+      size: 20,
+      sortDirection: "asc" as const,
+      sortField: "name" as const,
+    };
+    renderPage(() => (
+      <GatewaysPage
+        collectionState={collectionState}
+        gateways={previewGateways}
+        onCollectionStateChange={onCollectionStateChange}
+      />
+    ));
+
+    await user.click(screen.getByRole("button", { name: "Created" }));
+
+    expect(onCollectionStateChange).toHaveBeenCalledWith(
+      {
+        ...collectionState,
+        page: 1,
+        sortDirection: "asc",
+        sortField: "created",
+      },
+      "sort",
+    );
+  });
+
+  it("renders Running with a semantic icon and no label chip", () => {
     renderPage(() => (
       <GatewaysPage gateways={[{ ...previewGateway, status: "Running" }]} />
     ));
 
-    const statusLabel = screen.getByText("Running").closest(".pf-v6-c-label");
-    expect(statusLabel?.classList.contains("pf-m-success")).toBe(true);
-    expect(statusLabel?.classList.contains("pf-m-green")).toBe(false);
+    const statusCell = screen.getByText("Running").closest("td");
+    expect(statusCell?.querySelector(".pf-v6-c-label")).toBeNull();
+    expect(
+      statusCell?.querySelector(".pf-v6-c-icon__content.pf-m-success"),
+    ).toBeTruthy();
   });
 
   it("resolves managed-cluster names without displaying their identifiers", async () => {
