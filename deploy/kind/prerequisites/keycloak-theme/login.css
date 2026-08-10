@@ -292,7 +292,7 @@ h1.pf-v5-c-title.pf-m-3xl,
   grid-area: unset !important;
 }
 
-/* Dark mode -- follow OS/browser preference, use PF5 dark palette */
+/* Dark mode -- follow OS/browser preference, PF6 dark palette with lighter blue */
 @media (prefers-color-scheme: dark) {
   .pf-v5-c-login,
   html.pf-v5-theme-dark .pf-v5-c-login {
@@ -386,6 +386,64 @@ h1.pf-v5-c-title.pf-m-3xl,
   .pf-v5-c-button.pf-m-control i,
   .pf-v5-c-button[data-password-toggle] i {
     color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-form-control:hover::after,
+  .pf-v5-c-form-control:focus-within::after {
+    border-bottom-color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-form-control:focus-within,
+  .pf-v5-c-form-control:focus {
+    border-color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-button.pf-m-primary {
+    --pf-v5-c-button--m-primary--BackgroundColor: #1fa7f8;
+    --pf-v5-c-button--m-primary--hover--BackgroundColor: #73bcf7;
+    --pf-v5-c-button--m-primary--focus--BackgroundColor: #73bcf7;
+    --pf-v5-c-button--m-primary--active--BackgroundColor: #73bcf7;
+    background-color: #1fa7f8 !important;
+    border-color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-button.pf-m-primary:hover,
+  .pf-v5-c-button.pf-m-primary:focus,
+  .pf-v5-c-button.pf-m-primary:active {
+    background-color: #73bcf7 !important;
+    border-color: #73bcf7 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover::after,
+  .pf-v5-c-button.pf-m-control:focus::after,
+  .pf-v5-c-button.pf-m-control:active::after {
+    border-bottom-color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover,
+  .pf-v5-c-button.pf-m-control:focus,
+  .pf-v5-c-button.pf-m-control:active {
+    color: #1fa7f8 !important;
+    border-color: #1fa7f8 !important;
+    background-color: #1b1d21 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover i.fa-eye,
+  .pf-v5-c-button.pf-m-control:hover i.fa-eye-slash,
+  .pf-v5-c-button.pf-m-control:hover i.fas,
+  .pf-v5-c-button.pf-m-control:hover i,
+  .pf-v5-c-button.pf-m-control:focus i,
+  .pf-v5-c-button[data-password-toggle]:hover i {
+    color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-login__main-footer-links a,
+  .pf-v5-c-button.pf-m-link {
+    color: #73bcf7 !important;
+  }
+
+  .pf-v5-c-button.pf-m-link:hover {
+    color: #1fa7f8 !important;
   }
 
   .pf-v5-c-alert {
