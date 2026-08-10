@@ -49,7 +49,7 @@ func ReconcileGateway(
 
 	dbImage := nsConfig.Gateway.Database.Image
 	if dbImage == "" {
-		dbImage = "postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
+		dbImage = "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
 	}
 
 	if err := reconcileDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage); err != nil {
@@ -748,7 +748,7 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 }
 
 func isRHELPostgres(image string) bool {
-	return strings.Contains(image, "rhel") || strings.Contains(image, "redhat.com")
+	return strings.Contains(image, "rhel") && strings.Contains(image, "postgresql-")
 }
 
 func postgresEnvKeys(image string) (userKey, passKey, dbKey string) {
@@ -763,6 +763,13 @@ func postgresDataPath(image string) string {
 		return "/var/lib/pgsql/data"
 	}
 	return "/var/lib/postgresql/data"
+}
+
+func postgresPGDataPath(image string) string {
+	if isRHELPostgres(image) {
+		return "/var/lib/pgsql/data"
+	}
+	return "/var/lib/postgresql/data/pgdata"
 }
 
 // reconcileCredentialKEK uses create-or-skip (not update-or-create) because

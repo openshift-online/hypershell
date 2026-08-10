@@ -284,7 +284,14 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 				ResourceId: evt.SourceID,
 			}
 
-			if evt.EventType != api.DeleteEventType {
+			if evt.EventType == api.DeleteEventType {
+				gateway, svcErr := h.service.GetUnscoped(ctx, evt.SourceID)
+				if svcErr != nil {
+					glog.Warningf("WatchGateways: failed to load soft-deleted gateway %s: %v", evt.SourceID, svcErr)
+				} else {
+					watchEvent.Gateway = gatewayToProto(gateway)
+				}
+			} else {
 				gateway, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
 					glog.Warningf("WatchGateways: failed to load gateway %s: %v", evt.SourceID, svcErr)

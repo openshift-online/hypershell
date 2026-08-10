@@ -33,6 +33,7 @@ spec:
       serviceAccountName: openshell-gateway
       securityContext:
         runAsNonRoot: true
+        fsGroup: 1001
       containers:
         - name: openshell-gateway
           securityContext:
@@ -124,17 +125,17 @@ spec:
         - name: sandbox-jwt
           secret:
             secretName: openshell-gateway-jwt-keys
-            defaultMode: 256
+            defaultMode: 288
         - name: tls-cert
           secret:
             secretName: openshell-server-tls
-            defaultMode: 256
+            defaultMode: 288
         - name: tls-client-ca
           secret:
             secretName: openshell-client-tls
             items:
               - key: ca.crt
                 path: ca.crt
-            defaultMode: 256
+            defaultMode: 288
         - name: tmp
           emptyDir: {}
