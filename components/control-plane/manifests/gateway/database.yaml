@@ -72,6 +72,8 @@ spec:
                 secretKeyRef:
                   name: openshell-gateway-db-credentials
                   key: DB_NAME_KEY_PLACEHOLDER
+            - name: PGDATA
+              value: DB_PGDATA_PATH_PLACEHOLDER
           ports:
             - name: postgresql
               containerPort: 5432

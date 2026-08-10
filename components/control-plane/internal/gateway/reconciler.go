@@ -765,6 +765,13 @@ func postgresDataPath(image string) string {
 	return "/var/lib/postgresql/data"
 }
 
+func postgresPGDataPath(image string) string {
+	if isRHELPostgres(image) {
+		return "/var/lib/pgsql/data"
+	}
+	return "/var/lib/postgresql/data/pgdata"
+}
+
 // reconcileCredentialKEK uses create-or-skip (not update-or-create) because
 // replacing an existing key would render all previously encrypted credentials
 // unrecoverable.

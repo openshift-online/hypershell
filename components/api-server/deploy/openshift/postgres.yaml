@@ -53,6 +53,8 @@ spec:
               value: hypershell
             - name: POSTGRES_DB
               value: hypershell
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "hypershell"]
