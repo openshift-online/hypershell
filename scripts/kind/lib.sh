@@ -21,7 +21,7 @@ success() { printf "${GREEN}    %s${NC}\n" "$*"; }
 warn()    { printf "${YELLOW}    %s${NC}\n" "$*"; }
 error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 
-# --- Defaults (defensive — Make exports these, but scripts can run standalone) ---
+# --- Defaults (defensive - Make exports these, but scripts can run standalone) ---
 
 : "${KIND_CLUSTER_NAME:=hypershell-dev}"
 : "${KIND_NAMESPACE:=hypershell-system}"
@@ -127,7 +127,7 @@ setup_resolver() {
          printf '%s\n' "${expected}" | sudo tee "${resolver_file}" >/dev/null; then
         success "macOS resolver configured: ${resolver_file}"
       else
-        warn "Could not configure resolver — manually create ${resolver_file} with:"
+        warn "Could not configure resolver - manually create ${resolver_file} with:"
         warn "  nameserver 127.0.0.1"
         warn "  port ${KIND_DNS_PORT}"
       fi
@@ -143,7 +143,7 @@ setup_resolver() {
           warn "Add '127.0.0.1 <hostname>' to /etc/hosts as a fallback"
         fi
       else
-        warn "resolvectl not found — add hostnames to /etc/hosts manually"
+        warn "resolvectl not found - add hostnames to /etc/hosts manually"
       fi
       ;;
   esac
@@ -171,7 +171,7 @@ start_port_forward() {
   local ephemeral_port="$1"
   PORT_FORWARD_ACTIVE=""
   if [[ "${HAVE_SUDO:-true}" == "false" ]]; then
-    warn "Skipping port forwarding (no sudo) — use port ${ephemeral_port} directly"
+    warn "Skipping port forwarding (no sudo) - use port ${ephemeral_port} directly"
     return
   fi
   case "$(uname -s)" in
@@ -187,7 +187,7 @@ rdr-anchor "com.hypershell/*"' /etc/pf.conf)
         PORT_FORWARD_ACTIVE=true
         success "Port forwarding active: https://localhost:443 -> :${ephemeral_port}"
       else
-        warn "pfctl setup failed — access services on port ${ephemeral_port} instead"
+        warn "pfctl setup failed - access services on port ${ephemeral_port} instead"
       fi
       ;;
     Linux)
@@ -201,7 +201,7 @@ rdr-anchor "com.hypershell/*"' /etc/pf.conf)
         PORT_FORWARD_ACTIVE=true
         success "Port forwarding active: https://localhost:443 -> :${ephemeral_port}"
       else
-        warn "iptables setup failed — access services on port ${ephemeral_port} instead"
+        warn "iptables setup failed - access services on port ${ephemeral_port} instead"
       fi
       ;;
   esac

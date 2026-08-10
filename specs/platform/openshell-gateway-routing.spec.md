@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-05
 **Status:** Draft
-**Parent:** `openshell-gateway.spec.md` — core gateway provisioning
-**Related:** `openshell-gateway-tls.spec.md` — TLS modes; `openshell-gateway-oidc.spec.md` — OIDC authentication
+**Parent:** `openshell-gateway.spec.md` - core gateway provisioning
+**Related:** `openshell-gateway-tls.spec.md` - TLS modes; `openshell-gateway-oidc.spec.md` - OIDC authentication
 
 ---
 

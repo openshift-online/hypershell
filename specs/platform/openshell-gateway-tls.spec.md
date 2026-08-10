@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-05
 **Status:** Draft
-**Parent:** `openshell-gateway.spec.md` — core gateway provisioning
-**Related:** `openshell-gateway-oidc.spec.md` — OIDC authentication; `openshell-gateway-routing.spec.md` — external connectivity
+**Parent:** `openshell-gateway.spec.md` - core gateway provisioning
+**Related:** `openshell-gateway-oidc.spec.md` - OIDC authentication; `openshell-gateway-routing.spec.md` - external connectivity
 
 ---
 
@@ -108,7 +108,7 @@ The control plane ClusterRole SHALL include permissions for TLS-related resource
 |---|---|---|
 | `DecryptError` in gateway logs | Stale client cert from sandbox after cert rotation | Recreate affected sandboxes |
 | Cert deletion loop (every 30s) | ConfigMap SANs don't match API SANs | Ensure exact match; manual certgen if needed |
-| `invalid peer certificate: UnknownIssuer` | Self-signed CA — CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
+| `invalid peer certificate: UnknownIssuer` | Self-signed CA - CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
 | OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap |
 
 ---

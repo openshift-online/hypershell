@@ -9,7 +9,7 @@ export function createPageMeta(
 ): MetaFunction {
   return () => [
     {
-      title: `${englishMessages[productId]} ${englishMessages[titleId]}`,
+      title: `${englishMessages[productId]} - ${englishMessages[titleId]}`,
     },
     { name: "description", content: englishMessages[descriptionId] },
   ];

@@ -1,6 +1,6 @@
 name: hypershell
 version: 1.0.0
-description: HyperShell — Distributed API gateway fleet management platform
+description: HyperShell - Distributed API gateway fleet management platform
 author: OpenShift Fleet Engineering
 targets:
 - claude

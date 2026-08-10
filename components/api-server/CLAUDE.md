@@ -1,4 +1,4 @@
-# CLAUDE.md — hypershell-api-server
+# CLAUDE.md - hypershell-api-server
 
 REST + gRPC API microservice for the HyperShell platform. Built on the [rh-trex-ai](https://github.com/openshift-online/rh-trex-ai) framework with auto-generated Kind plugins providing CRUD, event-driven controllers, and OpenAPI client generation.
 
@@ -54,7 +54,7 @@ Each Kind is a self-contained plugin in `plugins/{kinds}/` with uniform structur
 
 | File | Role |
 |------|------|
-| `plugin.go` | `init()` — registers service, routes, controller, presenter paths, migration |
+| `plugin.go` | `init()` - registers service, routes, controller, presenter paths, migration |
 | `model.go` | Gorm model + patch request struct |
 | `handler.go` | HTTP handlers (Create, Get, List, Patch, Delete) |
 | `grpc_handler.go` | gRPC handlers (Watch, Create, Get, List, Patch, Delete) |
@@ -69,13 +69,13 @@ Each Kind is a self-contained plugin in `plugins/{kinds}/` with uniform structur
 ## Upstream Framework (rh-trex-ai)
 
 Key upstream packages consumed:
-- `pkg/api` — Meta type, event types, ID generation
-- `pkg/server` — API server, metrics, health check servers
-- `pkg/environments` — Environment framework (dev, test, prod)
-- `pkg/handlers` — HTTP handler patterns
-- `pkg/services` — GenericService (List with TSL search)
-- `pkg/db` — SessionFactory, advisory locks, migrations
-- `pkg/cmd` — Root/Serve/Migrate cobra commands
+- `pkg/api` - Meta type, event types, ID generation
+- `pkg/server` - API server, metrics, health check servers
+- `pkg/environments` - Environment framework (dev, test, prod)
+- `pkg/handlers` - HTTP handler patterns
+- `pkg/services` - GenericService (List with TSL search)
+- `pkg/db` - SessionFactory, advisory locks, migrations
+- `pkg/cmd` - Root/Serve/Migrate cobra commands
 
 ## Environment System
 
@@ -106,7 +106,7 @@ Kinds: `fleets`, `gateways`, `gateway_networks`, `gateway_releases`, `managed_cl
 - All Go code uses `go fmt`; `golangci-lint run` must pass
 - No `panic()` in production code
 - Table-driven tests with subtests
-- OpenAPI client is generated — **Never** edit `pkg/api/openapi/` manually
+- OpenAPI client is generated - **Never** edit `pkg/api/openapi/` manually
 - Plugin imports in `main.go` are side-effect imports (`_ "..."`)
 - `api.Meta` provides `ID`, `CreatedAt`, `UpdatedAt`, `DeletedAt` to all models
 - `BeforeCreate` gorm hook assigns `api.NewID()` (KSUID)

@@ -31,7 +31,7 @@ Components SHALL use PatternFly 6 semantic tokens rather than hard-coded values 
 
 Each repeated UI concept or behavior SHALL have one canonical implementation. Generic presentation, interaction, and domain components SHALL live in the shared component surface and expose a documented reusable API. Route-specific code MAY own orchestration and composition but SHALL NOT duplicate reusable behavior or styling.
 
-**Verification:** Inventory component definitions and imports by purpose, semantics, state model, visible result, and styling—not filename alone. Confirm pages import the canonical component and that a second implementation of the same concept is absent or backed by a decision explaining the material semantic difference.
+**Verification:** Inventory component definitions and imports by purpose, semantics, state model, visible result, and styling-not filename alone. Confirm pages import the canonical component and that a second implementation of the same concept is absent or backed by a decision explaining the material semantic difference.
 
 ### Requirement UI-PF-05: Reuse Before Creation
 

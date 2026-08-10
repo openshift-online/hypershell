@@ -7,12 +7,12 @@
 
 The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers. The model is organized around sectors:
 
-- **Sector** — top-level organizational unit. Groups clusters, databases, releases, gateways, and networks. All resources belong to exactly one sector via `sector_id`.
-- **ManagedCluster** — a Kubernetes cluster registered into a sector. Tracks provider, region, API server URL, and a kubeconfig secret reference.
-- **ManagedDatabase** — a database instance provisioned for a sector. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
-- **GatewayRelease** — a versioned container image for gateway deployments within a sector. Supports rollout strategies with canary percent/duration controls.
-- **Gateway** — an API gateway instance deployed onto a specific cluster, using a specific release and database, within a namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
-- **GatewayNetwork** — defines network connectivity topology between gateways in a sector. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
+- **Sector** - top-level organizational unit. Groups clusters, databases, releases, gateways, and networks. All resources belong to exactly one sector via `sector_id`.
+- **ManagedCluster** - a Kubernetes cluster registered into a sector. Tracks provider, region, API server URL, and a kubeconfig secret reference.
+- **ManagedDatabase** - a database instance provisioned for a sector. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
+- **GatewayRelease** - a versioned container image for gateway deployments within a sector. Supports rollout strategies with canary percent/duration controls.
+- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within a namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **GatewayNetwork** - defines network connectivity topology between gateways in a sector. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
 
 ## Entity Relationship Diagram
 

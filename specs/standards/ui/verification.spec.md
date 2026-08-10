@@ -47,7 +47,7 @@ Critical tasks SHALL define unassisted completion, critical errors, failure/aban
 
 ### Requirement UI-VER-07: Severity and Release Gate
 
-Severity SHALL be based on user impact, affected breadth, exposure, consequence, and recoverability—not cosmetic preference or implementation effort. A release SHALL NOT pass with an applicable normative failure, unresolved critical finding, failed critical-task threshold, or material segment failure hidden by an aggregate.
+Severity SHALL be based on user impact, affected breadth, exposure, consequence, and recoverability-not cosmetic preference or implementation effort. A release SHALL NOT pass with an applicable normative failure, unresolved critical finding, failed critical-task threshold, or material segment failure hidden by an aggregate.
 
 **Verification:** Apply these levels: `Critical` blocks a critical task or creates likely material harm/severe exclusion; `High` seriously degrades a major task or violates an applicable obligation; `Medium` creates recoverable delay/error/confusion; `Low` has limited task impact. Preserve accountable, expiring risk acceptance separately from pass status.
 

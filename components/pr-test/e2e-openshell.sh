@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e-openshell.sh — end-to-end test of the OpenShell gateway provisioned by HyperShell.
+# e2e-openshell.sh - end-to-end test of the OpenShell gateway provisioned by HyperShell.
 #
 # Proves the full path: HyperShell API → control plane → gateway provisioning
 # → openshell CLI → sandbox pod creation + interaction.

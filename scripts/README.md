@@ -6,15 +6,16 @@ Run all repository policy checks directly with:
 make check
 ```
 
-The checks scan Git-tracked files for forbidden terminology, mutable external
-dependencies, dependencies younger than 14 days, and incomplete CI component
-registration. Every directory under `components/` must declare its detection
-paths and lint job, and that job must be included in the stable lint summary
-gate. GitHub Actions and Git dependencies require full commit SHAs, remote
-images require sha256 digests, and Buf plugins require exact versions and
-revisions. Dockerfiles use digest-pinned build stages instead of mutable OS
-package installation. Locally built `localhost/` images are allowed only with
-`imagePullPolicy: Never` because they are never fetched from a registry.
+The checks scan Git-tracked files for forbidden or discouraged text, mutable
+external dependencies, dependencies younger than 14 days, and incomplete CI
+component registration. Typographic em dashes (U+2014) are discouraged; use
+ASCII punctuation instead. Every directory under `components/` must declare
+its detection paths and lint job, and that job must be included in the stable
+lint summary gate. GitHub Actions and Git dependencies require full commit
+SHAs, remote images require sha256 digests, and Buf plugins require exact
+versions and revisions. Dockerfiles use digest-pinned build stages instead of
+mutable OS package installation. Locally built `localhost/` images are allowed
+only with `imagePullPolicy: Never` because they are never fetched from a registry.
 Images built and pushed by the OpenShift deployment workflow may use the `:dev`
 tag only under `image-registry.openshift-image-registry.svc:5000/`; this narrow
 exception does not apply to other tags or registries.

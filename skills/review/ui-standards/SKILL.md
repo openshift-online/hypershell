@@ -55,7 +55,7 @@ Before either mode:
 - Type-check reusable presentation mappers so localized fallback labels are required rather than hidden behind English default parameters.
 - Enumerate required workflow, transition, dependency, failure, and recovery probes. Inspect typed schemas, fan-out sinks, privacy/cardinality mappings, correlation, delivery failure, and duplicate emissions.
 - Search production browser/BFF code for raw console/standard-stream calls and direct logging, metrics, tracing, analytics, or generated-SDK imports outside approved adapters.
-- For every new or substantially duplicated component, search the repository and PatternFly 6 catalog by purpose, semantics, behavior, rendered result, and styles—not filename alone.
+- For every new or substantially duplicated component, search the repository and PatternFly 6 catalog by purpose, semantics, behavior, rendered result, and styles-not filename alone.
 - Record what cannot be evaluated from source alone, such as rendered contrast, focus behavior, assistive-technology output, field performance, or user comprehension.
 
 ### 2. Build the applicable requirement set

@@ -12,7 +12,7 @@ echo ""
 # Several steps need elevated privileges (cloud-provider-kind, DNS resolver,
 # port forwarding). Prompt once now so the rest of the script runs unattended.
 if [[ "${KIND_NO_SUDO:-}" == "true" ]]; then
-  warn "KIND_NO_SUDO=true — skipping sudo; port forwarding and DNS resolver setup will be skipped"
+  warn "KIND_NO_SUDO=true - skipping sudo; port forwarding and DNS resolver setup will be skipped"
   HAVE_SUDO=false
 else
   info "This script needs sudo for cloud-provider-kind, DNS, and port forwarding."
@@ -21,7 +21,7 @@ else
     HAVE_SUDO=true
     success "sudo credentials cached"
   else
-    warn "sudo unavailable — port forwarding and DNS resolver setup will be skipped"
+    warn "sudo unavailable - port forwarding and DNS resolver setup will be skipped"
     HAVE_SUDO=false
   fi
 fi
@@ -99,11 +99,11 @@ if ! pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
     if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
       success "cloud-provider-kind started"
     else
-      error "cloud-provider-kind failed to start — check /tmp/cloud-provider-kind.log"
+      error "cloud-provider-kind failed to start - check /tmp/cloud-provider-kind.log"
       exit 1
     fi
   else
-    warn "Skipping cloud-provider-kind (no sudo) — Gateway routing will not work"
+    warn "Skipping cloud-provider-kind (no sudo) - Gateway routing will not work"
     warn "Start manually: sudo nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &"
   fi
 else
@@ -164,7 +164,7 @@ if ! is_swapped api-server; then
   info "Deploying API server..."
   kube apply -f deploy/kind/api-server.yaml
 else
-  warn "API server is swapped — skipping manifest"
+  warn "API server is swapped - skipping manifest"
 fi
 
 if ! is_swapped control-plane; then
@@ -173,14 +173,14 @@ if ! is_swapped control-plane; then
   info "Deploying control plane..."
   kube apply -f deploy/kind/controller.yaml
 else
-  warn "Control plane is swapped — skipping manifest"
+  warn "Control plane is swapped - skipping manifest"
 fi
 
 if ! is_swapped web-console; then
   info "Deploying web console..."
   kube apply -f deploy/kind/web-console.yaml
 else
-  warn "Web console is swapped — skipping manifest"
+  warn "Web console is swapped - skipping manifest"
 fi
 
 if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
@@ -238,10 +238,10 @@ if [[ -n "${GW_ADDR}" ]]; then
     success "Gateway HTTPS on host port ${GATEWAY_PORT}"
     start_port_forward "${GATEWAY_PORT}"
   else
-    warn "Could not discover Gateway proxy port — check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
+    warn "Could not discover Gateway proxy port - check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
   fi
 else
-  warn "Gateway has no address after 60s — cloud-provider-kind may not be running"
+  warn "Gateway has no address after 60s - cloud-provider-kind may not be running"
   warn "Install: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
   warn "Start:   sudo nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &"
 fi
@@ -351,7 +351,7 @@ if [[ -z "${seed_failed}" ]]; then
 fi
 
 if [[ -n "${seed_failed}" ]]; then
-  warn "Automatic seeding incomplete — create resources manually after API server is ready"
+  warn "Automatic seeding incomplete - create resources manually after API server is ready"
 fi
 
 cleanup_pf
@@ -362,7 +362,7 @@ echo ""
 header "DNS"
 start_dns
 setup_resolver
-success "DNS configured — *.hypershell.localhost resolves to 127.0.0.1"
+success "DNS configured - *.hypershell.localhost resolves to 127.0.0.1"
 echo ""
 
 # --- Summary banner ---

@@ -51,7 +51,7 @@ Services are accessed via `.localhost` hostnames routed through the networking
 Gateway. CoreDNS resolves all `*.hypershell.localhost` to loopback, and
 OS-level port forwarding (pfctl on macOS, iptables on Linux) redirects
 host port 443 to cloud-provider-kind's ephemeral Gateway port. The TLS
-certificate is self-signed — trust it in your browser or use `curl --cacert`.
+certificate is self-signed - trust it in your browser or use `curl --cacert`.
 
 ## Per-Component Swap
 
@@ -78,7 +78,7 @@ make kind-web-console-up
 KIND_HOT_RELOAD=false make kind-web-console-up
 ```
 
-The web console uses hot reload by default — `kind-web-console-up` starts a
+The web console uses hot reload by default - `kind-web-console-up` starts a
 local Vite dev server and proxies through the cluster. Use
 `KIND_HOT_RELOAD=false` to build and deploy a full container image instead.
 API server and control plane rebuilds replace the running deployment; re-run
