@@ -41,7 +41,7 @@ Each driver exports shell functions that abstract infrastructure-specific operat
 | `discover_api_host` | Find the HyperShell API server URL | HTTPRoute hostname `api.hypershell.localhost` or port-forward to `svc/hypershell-api-server` | `oc get route hypershell-api -o jsonpath='{.spec.host}'` |
 | `discover_gateway_endpoint` | Find the gateway gRPC endpoint | GRPCRoute hostname `<gw-name>.gw.localhost` via Gateway status address | Route with `spec.tls.termination=passthrough` targeting `svc/openshell-gateway` |
 | `get_cluster_domain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
-| `get_cli_binary` | Return the Kubernetes CLI binary path | `oc` | `oc` |
+| `get_cli_binary` | Return the Kubernetes CLI binary path | `kubectl` | `oc` |
 | `wait_for_gateway_route` | Block until the gateway is externally reachable | Check Gateway API Gateway status conditions and GRPCRoute parent status | Check OpenShift Route `.status.ingress[].conditions` for `Admitted` |
 
 ### CI Pipeline
@@ -107,7 +107,7 @@ The e2e test framework SHALL isolate infrastructure-specific logic into driver s
 - GIVEN `E2E_INFRA_DRIVER=kind`
 - WHEN the e2e test script starts
 - THEN the `tests/e2e/drivers/kind.sh` driver SHALL be sourced
-- AND all infrastructure functions SHALL use `oc` and Kind-specific discovery (HTTPRoute hostnames, Gateway API status)
+- AND all infrastructure functions SHALL use `kubectl` and Kind-specific discovery (HTTPRoute hostnames, Gateway API status)
 
 #### Scenario: OpenShift Driver Selected (Follow-Up)
 
@@ -164,7 +164,7 @@ Each driver script SHALL export the following shell functions. The main test scr
 
 - GIVEN the `kind` driver is active
 - WHEN `get_cli_binary` is called
-- THEN it SHALL return `oc`
+- THEN it SHALL return `kubectl`
 
 #### Scenario: Wait for Gateway Route -- Kind
 
