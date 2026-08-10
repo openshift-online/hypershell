@@ -25,22 +25,26 @@ function shellArgument(value: string) {
 export function buildGatewayAddCommand(
   gateway: GatewayConnection,
 ): string | undefined {
-  if (
-    !gateway.endpoint ||
-    !gateway.oidcAudience ||
-    !gateway.oidcClientId ||
-    !gateway.oidcIssuer
-  ) {
+  if (!gateway.endpoint) {
     return undefined;
   }
-  return [
+
+  const parts = [
     "openshell gateway add",
     `--name ${shellArgument(gateway.name)}`,
-    `--oidc-issuer ${shellArgument(gateway.oidcIssuer)}`,
-    `--oidc-client-id ${shellArgument(gateway.oidcClientId)}`,
-    `--oidc-audience ${shellArgument(gateway.oidcAudience)}`,
-    shellArgument(gateway.endpoint),
-  ].join(" ");
+  ];
+
+  if (gateway.oidcIssuer && gateway.oidcClientId && gateway.oidcAudience) {
+    parts.push(
+      `--oidc-issuer ${shellArgument(gateway.oidcIssuer)}`,
+      `--oidc-client-id ${shellArgument(gateway.oidcClientId)}`,
+      `--oidc-audience ${shellArgument(gateway.oidcAudience)}`,
+    );
+  }
+
+  parts.push(shellArgument(gateway.endpoint));
+
+  return parts.join(" ");
 }
 
 export type GatewayStatusAppearance =

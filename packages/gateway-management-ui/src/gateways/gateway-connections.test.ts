@@ -36,9 +36,30 @@ describe("gateway connections", () => {
     );
   });
 
-  it("does not construct a command from incomplete API data", () => {
+  it("omits OIDC flags when OIDC is not configured", () => {
+    const noAuth: GatewayConnection = {
+      ...gateway,
+      oidcAudience: undefined,
+      oidcClientId: undefined,
+      oidcIssuer: undefined,
+    };
+
+    expect(buildGatewayAddCommand(noAuth)).toBe(
+      "openshell gateway add --name gateway-1 https://gateway.example.test:443",
+    );
+  });
+
+  it("omits OIDC flags when OIDC is only partially configured", () => {
     expect(
-      buildGatewayAddCommand({ ...gateway, oidcIssuer: undefined }),
+      buildGatewayAddCommand({ ...gateway, oidcClientId: undefined }),
+    ).toBe(
+      "openshell gateway add --name gateway-1 https://gateway.example.test:443",
+    );
+  });
+
+  it("does not construct a command without an endpoint", () => {
+    expect(
+      buildGatewayAddCommand({ ...gateway, endpoint: undefined }),
     ).toBeUndefined();
   });
 

@@ -225,7 +225,7 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
-  it("renders absent connection configuration as unavailable", () => {
+  it("renders a connection command without OIDC flags when OIDC is not configured", () => {
     renderPage(() => (
       <GatewayPage
         gateway={gatewayResponse("gateway-1", "Team gateway")}
@@ -233,7 +233,6 @@ describe("gateway shell pages", () => {
       />
     ));
 
-    expect(screen.getByText("Not available")).toBeTruthy();
     expect(
       screen.getByDisplayValue("https://gateway.example.com:443"),
     ).toBeTruthy();
@@ -242,7 +241,11 @@ describe("gateway shell pages", () => {
         name: "Open console for Team gateway in a new tab",
       }),
     ).toBeNull();
-    expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
+    expect(
+      screen.getByDisplayValue(
+        "openshell gateway add --name 'Team gateway' https://gateway.example.com:443",
+      ),
+    ).toBeTruthy();
   });
 
   it("polls gateway details until its lifecycle reaches a terminal state", async () => {
