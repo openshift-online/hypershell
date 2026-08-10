@@ -25,7 +25,7 @@ func (StaticImageDefaults) DefaultSupervisorImage() string {
 }
 
 func (StaticImageDefaults) DefaultDatabaseImage() string {
-	if v := os.Getenv("RELATED_IMAGE_POSTGRESQL"); v != "" {
+	if v := os.Getenv("HYPERSHELL_DATABASE_IMAGE"); v != "" {
 		return v
 	}
 	return defaultDatabaseImage
