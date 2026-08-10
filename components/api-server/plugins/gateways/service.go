@@ -14,6 +14,7 @@ const gatewaysLockType db.LockType = "gateways"
 
 type GatewayService interface {
 	Get(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
+	GetUnscoped(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
 	Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError)
 	Replace(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError)
 	Delete(ctx context.Context, id string) *errors.ServiceError
@@ -62,6 +63,14 @@ func (s *sqlGatewayService) OnDelete(ctx context.Context, id string) error {
 
 func (s *sqlGatewayService) Get(ctx context.Context, id string) (*Gateway, *errors.ServiceError) {
 	gateway, err := s.gatewayDao.Get(ctx, id)
+	if err != nil {
+		return nil, services.HandleGetError("Gateway", "id", id, err)
+	}
+	return gateway, nil
+}
+
+func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gateway, *errors.ServiceError) {
+	gateway, err := s.gatewayDao.GetUnscoped(ctx, id)
 	if err != nil {
 		return nil, services.HandleGetError("Gateway", "id", id, err)
 	}

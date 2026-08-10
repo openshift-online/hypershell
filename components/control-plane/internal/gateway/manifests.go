@@ -98,7 +98,7 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 	dbImage := config.Database.Image
 	if dbImage == "" {
-		dbImage = "postgres:16"
+		dbImage = "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
 	}
 	dbStorage := config.Database.StorageSize
 	if dbStorage == "" {
@@ -106,14 +106,18 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 	userKey, passKey, dbKey := postgresEnvKeys(dbImage)
 	dataPath := postgresDataPath(dbImage)
+	pgdataPath := postgresPGDataPath(dbImage)
 
 	// Replace DB_IMAGE_PLACEHOLDER before IMAGE_PLACEHOLDER because
 	// the shorter string is a substring of the longer one.
+	// Replace DB_PGDATA_PATH_PLACEHOLDER before DB_DATA_PATH_PLACEHOLDER
+	// because the shorter string is a substring of the longer one.
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_IMAGE_PLACEHOLDER", dbImage)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_STORAGE_PLACEHOLDER", dbStorage)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_USER_KEY_PLACEHOLDER", userKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PASS_KEY_PLACEHOLDER", passKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_NAME_KEY_PLACEHOLDER", dbKey)
+	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PGDATA_PATH_PLACEHOLDER", pgdataPath)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_DATA_PATH_PLACEHOLDER", dataPath)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "IMAGE_PLACEHOLDER", image)
 
@@ -138,17 +142,19 @@ func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseCon
 	}
 	dbImage := dbConfig.Image
 	if dbImage == "" {
-		dbImage = "postgres:16"
+		dbImage = "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
 	}
 
 	userKey, passKey, dbKey := postgresEnvKeys(dbImage)
 	dataPath := postgresDataPath(dbImage)
+	pgdataPath := postgresPGDataPath(dbImage)
 
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_STORAGE_PLACEHOLDER", storageSize)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_IMAGE_PLACEHOLDER", dbImage)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_USER_KEY_PLACEHOLDER", userKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PASS_KEY_PLACEHOLDER", passKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_NAME_KEY_PLACEHOLDER", dbKey)
+	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PGDATA_PATH_PLACEHOLDER", pgdataPath)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_DATA_PATH_PLACEHOLDER", dataPath)
 
 	if err := obj.UnmarshalJSON([]byte(manifestJSON)); err != nil {
@@ -234,9 +240,11 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) 
 				audience = "openshell-cli"
 			}
 			oidcSection += fmt.Sprintf("    audience    = \"%s\"\n", audience)
-			if config.OIDC.JwksTTL > 0 {
-				oidcSection += fmt.Sprintf("    jwks_ttl    = %d\n", config.OIDC.JwksTTL)
+			jwksTTL := config.OIDC.JwksTTL
+			if jwksTTL == 0 {
+				jwksTTL = 3600
 			}
+			oidcSection += fmt.Sprintf("    jwks_ttl    = %d\n", jwksTTL)
 			if config.OIDC.RolesClaim != "" {
 				oidcSection += fmt.Sprintf("    roles_claim = \"%s\"\n", config.OIDC.RolesClaim)
 			}

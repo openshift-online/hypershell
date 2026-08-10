@@ -27,6 +27,10 @@ func (d *gatewayDaoMock) Get(ctx context.Context, id string) (*Gateway, error) {
 	return nil, gorm.ErrRecordNotFound
 }
 
+func (d *gatewayDaoMock) GetUnscoped(ctx context.Context, id string) (*Gateway, error) {
+	return d.Get(ctx, id)
+}
+
 func (d *gatewayDaoMock) Create(ctx context.Context, gateway *Gateway) (*Gateway, error) {
 	d.gateways = append(d.gateways, gateway)
 	return gateway, nil
