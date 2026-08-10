@@ -178,7 +178,7 @@ spec:
             kubernetes.io/metadata.name: <tenant-namespace>
 ```
 
-The `grpc-gateway-certs` Secret must exist in `openshift-ingress` (cluster prerequisite — see README). The `allowedRoutes` selector restricts which namespaces can attach GRPCRoutes to this Gateway.
+The `grpc-gateway-certs` Secret must exist in `openshift-ingress` (cluster prerequisite -- see README). The `allowedRoutes` selector restricts which namespaces can attach GRPCRoutes to this Gateway.
 
 ---
 

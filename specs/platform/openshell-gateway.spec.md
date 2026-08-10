@@ -89,7 +89,7 @@ The following resources must exist on the cluster before the GatewayReconciler c
 
 For each gateway with `route` configuration, the control plane creates Gateway API resources across two namespaces:
 
-1. **Gateway** — A dedicated Gateway resource per openshell gateway, created in `openshift-ingress` (so the ingress operator auto-creates a DNSRecord pointing the hostname to the Gateway's ELB):
+1. **Gateway** -- A dedicated Gateway resource per openshell gateway, created in `openshift-ingress` (so the ingress operator auto-creates a DNSRecord pointing the hostname to the Gateway's ELB):
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: Gateway
@@ -122,7 +122,7 @@ For each gateway with `route` configuration, the control plane creates Gateway A
    ```
    The `<base-domain>` is read from `ingresses.config.openshift.io/cluster` `.spec.domain` (e.g., `apps-crc.testing`). Each tenant gets its own Gateway with a hostname scoped to the tenant namespace. The `grpc-gateway-certs` Secret must exist in `openshift-ingress` (see "Gateway Ingress TLS Certificate" below).
 
-2. **GRPCRoute** — In the tenant namespace, with a cross-namespace parentRef to the Gateway in `openshift-ingress`:
+2. **GRPCRoute** -- In the tenant namespace, with a cross-namespace parentRef to the Gateway in `openshift-ingress`:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: GRPCRoute
@@ -178,9 +178,9 @@ For each gateway with `route` configuration, the control plane creates Gateway A
 The per-tenant Gateway listener terminates external TLS using the cluster's wildcard certificate for `*.<base-domain>`. This certificate is stored as a Secret named `grpc-gateway-certs` in the `openshift-ingress` namespace, where all Gateway resources are created.
 
 - **Location:** Secret `grpc-gateway-certs` in the `openshift-ingress` namespace
-- The Secret is a cluster prerequisite — it must be created before any gateway can be exposed externally (see README)
+- The Secret is a cluster prerequisite -- it must be created before any gateway can be exposed externally (see README)
 - All per-tenant Gateways in `openshift-ingress` reference the same Secret
-- The wildcard private key is NOT copied into tenant namespaces — it stays in `openshift-ingress`
+- The wildcard private key is NOT copied into tenant namespaces -- it stays in `openshift-ingress`
 
 This avoids per-tenant certificate issuance for the ingress listener - the `openshell-gateway-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate.
 
