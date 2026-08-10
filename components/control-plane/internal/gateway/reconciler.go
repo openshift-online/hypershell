@@ -1184,7 +1184,13 @@ func gatewayConditionsMet(gw *unstructured.Unstructured) bool {
 		if !ok {
 			continue
 		}
-		obsGen, _ := cond["observedGeneration"].(int64)
+		var obsGen int64
+		switch v := cond["observedGeneration"].(type) {
+		case int64:
+			obsGen = v
+		case float64:
+			obsGen = int64(v)
+		}
 		if obsGen < generation {
 			continue
 		}
