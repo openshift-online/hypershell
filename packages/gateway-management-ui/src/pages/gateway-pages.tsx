@@ -14,7 +14,7 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
@@ -106,7 +106,18 @@ function GatewayDetailClusterName({ gateway }: { gateway: GatewayConnection }) {
     );
   }
   if (placementQuery.isError) {
-    return intl.formatMessage(messages.notAvailable);
+    return (
+      <>
+        {intl.formatMessage(messages.notAvailable)}{" "}
+        <Button
+          isInline
+          onClick={() => void placementQuery.refetch()}
+          variant="link"
+        >
+          {intl.formatMessage(messages.retry)}
+        </Button>
+      </>
+    );
   }
   return placementQuery.data.name;
 }
@@ -269,8 +280,9 @@ export function GatewaysPage({
     queryKey: gatewayPlacementBatchQueryKey(placementClusterIds),
     staleTime: gatewayPlacementStaleMilliseconds,
   });
-  const placementNames = new Map(
-    placementsQuery.data?.map(({ id, name }) => [id, name]),
+  const placementNames = useMemo(
+    () => new Map(placementsQuery.data?.map(({ id, name }) => [id, name])),
+    [placementsQuery.data],
   );
   const tableState: ResourceTableState = {
     page: currentCollectionState.page,

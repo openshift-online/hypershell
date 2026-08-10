@@ -84,6 +84,7 @@ export function GatewayPlacementSelect({
   const [focusedItemIndex, setFocusedItemIndex] = useState<number | null>(null);
   const [activeItemId, setActiveItemId] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastAcceptedSelectionRef = useRef({ label: hubLabel, value: "" });
   const normalizedSearch = searchValue.trim();
   const debouncedSearch = useDebouncedValue(
     normalizedSearch,
@@ -141,6 +142,10 @@ export function GatewayPlacementSelect({
     if (typeof option.value !== "string" || option.isDisabled) {
       return;
     }
+    lastAcceptedSelectionRef.current = {
+      label: option.label,
+      value: option.value,
+    };
     onChange(option.value);
     setInputValue(option.label);
     setSearchValue("");
@@ -222,6 +227,13 @@ export function GatewayPlacementSelect({
                 event.preventDefault();
                 setIsOpen(true);
               }
+            } else if (event.key === "Escape" && isOpen) {
+              event.preventDefault();
+              const lastAcceptedSelection = lastAcceptedSelectionRef.current;
+              setInputValue(lastAcceptedSelection.label);
+              setSearchValue("");
+              onChange(lastAcceptedSelection.value);
+              closeMenu();
             }
           }}
           placeholder={intl.formatMessage(messages.selectCluster)}

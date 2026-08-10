@@ -290,6 +290,43 @@ describe("GatewayCreatePage", () => {
     expect(clusterInput.value).toBe("Cluster West");
   });
 
+  it("restores the last accepted placement when Escape cancels a search", async () => {
+    const user = userEvent.setup();
+    createGatewayMock.mockResolvedValue({
+      ...createdGateway,
+      clusterId: "cluster-east",
+    });
+    renderPage();
+
+    await user.click(
+      screen.getByRole("button", { name: "Clear cluster search" }),
+    );
+    const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
+      name: "Cluster",
+    });
+    await user.type(clusterInput, "East");
+    await user.click(await screen.findByText("Cluster East"));
+
+    await user.clear(clusterInput);
+    await user.type(clusterInput, "Uncommitted search");
+    await user.keyboard("{Escape}");
+
+    expect(clusterInput.value).toBe("Cluster East");
+    expect(clusterInput.getAttribute("aria-expanded")).toBe("false");
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+    await waitFor(() => {
+      expect(createGatewayMock).toHaveBeenCalledWith({
+        clusterId: "cluster-east",
+        name: "team-gateway",
+      });
+    });
+  });
+
   it("shows the available provider and region context for cluster options", async () => {
     const user = userEvent.setup();
     findGatewayPlacementsMock.mockResolvedValue({

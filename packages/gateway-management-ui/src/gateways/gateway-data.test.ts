@@ -54,7 +54,7 @@ describe("gateway presentation data", () => {
   it("keeps a returned cluster identifier for name resolution only", () => {
     expect(
       toGatewayConnection(
-        gateway({ clusterId: "cluster-east" }),
+        gateway({ clusterId: "  cluster-east  " }),
         "Hub cluster",
       ),
     ).toMatchObject({

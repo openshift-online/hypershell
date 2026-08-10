@@ -64,15 +64,14 @@ export function toGatewayConnection(
   gateway: GatewayApiPayload,
   hubClusterName: string,
 ): GatewayConnection {
+  const clusterId = gateway.clusterId.trim();
   const status = [gateway.status, gateway.phase].find(
     (value) => value !== undefined && value.trim().length > 0,
   );
 
   return {
-    ...(gateway.clusterId.trim()
-      ? { clusterId: gateway.clusterId.trim() }
-      : {}),
-    clusterName: gateway.clusterId.trim() ? "" : hubClusterName,
+    ...(clusterId ? { clusterId } : {}),
+    clusterName: clusterId ? "" : hubClusterName,
     ...(gateway.consoleUrl ? { consoleUrl: gateway.consoleUrl } : {}),
     endpoint: gatewayEndpoint(gateway),
     id: gateway.id,

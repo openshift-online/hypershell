@@ -257,6 +257,33 @@ describe("gateway shell pages", () => {
     );
   });
 
+  it("retries managed-cluster name resolution on gateway details", async () => {
+    const user = userEvent.setup();
+    getGatewayPlacementMock
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValue({
+        id: "cluster-east",
+        name: "Cluster East",
+        provider: "AWS",
+        region: "us-east-1",
+        status: "Ready",
+      });
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          clusterId: "cluster-east",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Cluster East")).toBeTruthy();
+    expect(getGatewayPlacementMock).toHaveBeenCalledTimes(2);
+  });
+
   it("shows an empty state when there are no gateways", () => {
     renderPage(() => <GatewaysPage gateways={[]} />);
 
