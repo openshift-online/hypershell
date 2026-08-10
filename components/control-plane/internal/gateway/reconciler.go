@@ -220,8 +220,11 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 
 	// Clear routeAddress on the API-server Gateway resource.
 	if opts.UpdateRouteAddress != nil {
-		opts.UpdateRouteAddress(ctx, "")
-		log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
+			log.Printf("WARN failed to clear routeAddress for gateway in %s: %v", namespace, err)
+		} else {
+			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+		}
 	}
 
 	log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
@@ -484,6 +487,9 @@ func applyConfigHashAnnotation(ctx context.Context, clientset *kubernetes.Client
 			h.Write([]byte(k))
 			h.Write([]byte(cm.Data[k]))
 		}
+	} else if !k8serrors.IsNotFound(err) {
+		log.Printf("WARN skipping config-hash annotation in %s: failed to get ConfigMap: %v", namespace, err)
+		return
 	}
 
 	tlsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
@@ -497,6 +503,9 @@ func applyConfigHashAnnotation(ctx context.Context, clientset *kubernetes.Client
 			h.Write([]byte(k))
 			h.Write(tlsSecret.Data[k])
 		}
+	} else if !k8serrors.IsNotFound(err) {
+		log.Printf("WARN skipping config-hash annotation in %s: failed to get Secret: %v", namespace, err)
+		return
 	}
 
 	hashStr := hex.EncodeToString(h.Sum(nil))
@@ -906,7 +915,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
 			return nil
 		}
-		firstLabel := safeDNSLabel("openshell-gateway-" + namespace)
+		firstLabel := truncateDNSLabel("openshell-gateway-" + namespace)
 		hostname = fmt.Sprintf("%s.%s", firstLabel, baseDomain)
 	}
 
@@ -914,7 +923,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	// per-tenant Gateway listener can reference it via certificateRefs.
 	if opts.ControlPlaneNamespace != "" {
 		if err := reconcileWildcardCertSecret(ctx, clientset, opts.ControlPlaneNamespace, namespace); err != nil {
-			log.Printf("WARN failed to copy wildcard cert secret to %s: %v", namespace, err)
+			return fmt.Errorf("copy wildcard cert secret to %s: %w", namespace, err)
 		}
 	}
 
@@ -1140,8 +1149,11 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			log.Printf("WARN failed to get Gateway status for routeAddress discovery: %v", err)
 		} else if gatewayConditionsMet(gwObj) {
 			routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
-			opts.UpdateRouteAddress(ctx, routeAddress)
-			log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+			if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+				log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+			} else {
+				log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+			}
 		} else {
 			log.Printf("DEBUG Gateway not yet ready in %s, deferring routeAddress update", namespace)
 		}
@@ -1154,6 +1166,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 // gatewayConditionsMet returns true when the Gateway API Gateway resource
 // reports both Accepted: True and Programmed: True status conditions.
 func gatewayConditionsMet(gw *unstructured.Unstructured) bool {
+	generation, _, _ := unstructured.NestedInt64(gw.Object, "metadata", "generation")
 	conditions, found, _ := unstructured.NestedSlice(gw.Object, "status", "conditions")
 	if !found {
 		return false
@@ -1163,6 +1176,10 @@ func gatewayConditionsMet(gw *unstructured.Unstructured) bool {
 	for _, c := range conditions {
 		cond, ok := c.(map[string]interface{})
 		if !ok {
+			continue
+		}
+		obsGen, _ := cond["observedGeneration"].(int64)
+		if obsGen < generation {
 			continue
 		}
 		condType, _ := cond["type"].(string)
@@ -1177,7 +1194,7 @@ func gatewayConditionsMet(gw *unstructured.Unstructured) bool {
 	return accepted && programmed
 }
 
-func safeDNSLabel(label string) string {
+func truncateDNSLabel(label string) string {
 	const maxLen = 63
 	if len(label) <= maxLen {
 		return label

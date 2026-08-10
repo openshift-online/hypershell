@@ -325,20 +325,21 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 // makeRouteAddressUpdater returns a RouteAddressUpdater callback that PATCHes
 // the route_address field on the API-server Gateway via gRPC.
 func (r *GatewayReconciler) makeRouteAddressUpdater(gatewayID string) gateway.RouteAddressUpdater {
-	return func(ctx context.Context, routeAddress string) {
-		r.updateRouteAddress(ctx, gatewayID, routeAddress)
+	return func(ctx context.Context, routeAddress string) error {
+		return r.updateRouteAddress(ctx, gatewayID, routeAddress)
 	}
 }
 
-func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID string, routeAddress string) {
+func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID string, routeAddress string) error {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
 		Id:           gatewayID,
 		RouteAddress: &routeAddress,
 	})
 	if err != nil {
-		log.Printf("WARN failed to update gateway %s route_address to %s: %v", gatewayID, routeAddress, err)
+		return fmt.Errorf("update gateway %s route_address to %s: %w", gatewayID, routeAddress, err)
 	}
+	return nil
 }
 
 type StubGatewayReconciler struct{}

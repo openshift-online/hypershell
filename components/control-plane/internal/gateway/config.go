@@ -60,7 +60,7 @@ type DatabaseConfig struct {
 // RouteAddressUpdater is called by the gateway reconciler to update the
 // route_address field on the API-server Gateway resource.  The implementation
 // is provided by the top-level reconciler which owns the gRPC connection.
-type RouteAddressUpdater func(ctx context.Context, routeAddress string)
+type RouteAddressUpdater func(ctx context.Context, routeAddress string) error
 
 type ReconcileOpts struct {
 	IsOpenShift           bool
