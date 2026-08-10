@@ -748,7 +748,7 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 }
 
 func isRHELPostgres(image string) bool {
-	return strings.Contains(image, "rhel") || strings.Contains(image, "redhat.com")
+	return strings.Contains(image, "rhel") && strings.Contains(image, "postgresql-")
 }
 
 func postgresEnvKeys(image string) (userKey, passKey, dbKey string) {
