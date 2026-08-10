@@ -100,7 +100,8 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     clusterId: gateway.cluster_id,
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
     databaseId: gateway.database_id,
-    externalDns: gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
+    externalDns:
+      gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     id: gateway.id,
     name: gateway.name,
     namespace: gateway.namespace,
