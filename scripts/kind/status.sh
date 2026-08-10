@@ -58,21 +58,29 @@ header "Port Forwarding"
 PF_ACTIVE=""
 case "$(uname -s)" in
   Darwin)
-    PF_RULE=$(sudo -n pfctl -a "${PF_ANCHOR}" -s nat 2>/dev/null | grep "rdr" || true)
-    if [[ -n "${PF_RULE}" ]]; then
+    PF_RULES=$(sudo -n pfctl -a "${PF_ANCHOR}" -s nat 2>/dev/null | grep "rdr" || true)
+    if [[ -n "${PF_RULES}" ]]; then
       PF_ACTIVE=true
-      PF_PORT=$(echo "${PF_RULE}" | grep -o 'port [0-9]*$' | awk '{print $2}')
-      info "pfctl: active (443 -> ${PF_PORT:-?})"
+      echo "${PF_RULES}" | awk '{
+        for(i=1;i<=NF;i++){
+          if($i=="->"){src=prev;break}
+          if($i~/^[0-9]+$/&&prev~/port|=/)prev=$i;else if($i!="=")prev=$i
+        }
+        printf "    pfctl: active (%s -> %s)\n", src, $NF
+      }'
     else
       warn "pfctl: no forwarding rules"
     fi
     ;;
   Linux)
-    IPT_RULE=$(sudo -n iptables -t nat -L "${IPTABLES_CHAIN}" -n 2>/dev/null | grep "REDIRECT" || true)
-    if [[ -n "${IPT_RULE}" ]]; then
+    IPT_RULES=$(sudo -n iptables -t nat -L "${IPTABLES_CHAIN}" -n 2>/dev/null | grep "REDIRECT" || true)
+    if [[ -n "${IPT_RULES}" ]]; then
       PF_ACTIVE=true
-      IPT_PORT=$(echo "${IPT_RULE}" | grep -o 'redir ports [0-9]*' | awk '{print $3}')
-      info "iptables: active (443 -> ${IPT_PORT:-?})"
+      while IFS= read -r rule; do
+        src_port=$(echo "${rule}" | grep -o 'dpt:[0-9]*' | cut -d: -f2)
+        dst_port=$(echo "${rule}" | grep -o 'redir ports [0-9]*' | awk '{print $3}')
+        info "iptables: active (${src_port:-?} -> ${dst_port:-?})"
+      done <<< "${IPT_RULES}"
     else
       warn "iptables: no forwarding rules"
     fi
@@ -97,7 +105,7 @@ if [[ -z "${PF_ACTIVE}" ]]; then
 fi
 
 header "Access"
-info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
+info "API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
 info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
 info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
 info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}"

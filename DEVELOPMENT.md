@@ -136,6 +136,32 @@ production.
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
 | Admin user | `admin` / `admin` (role: `hypershell-admins`) |
 | Developer user | `developer` / `developer` (role: `hypershell-users`) |
+| OIDC Issuer URL | `http://keycloak.hypershell.localhost:8080/realms/hypershell` |
+| Admin Console | `http://keycloak.hypershell.localhost:8080/admin/` |
+
+### OIDC
+
+Keycloak is configured with `KC_HOSTNAME=http://keycloak.hypershell.localhost:8080`,
+which sets the OIDC issuer and all frontend URLs to use plain HTTP on port 8080.
+The networking Gateway has a dedicated HTTP listener (`http-keycloak`) on port
+8080 scoped to `keycloak.hypershell.localhost`. This avoids TLS/CA-trust
+complexity and means the same OIDC issuer URL works from both the host browser
+and in-cluster pods (cluster CoreDNS is patched to resolve
+`*.hypershell.localhost` to the Gateway LB IP).
+
+Port forwarding (pfctl/iptables) maps host port 8080 to the Gateway's ephemeral
+HTTP port. If port forwarding is not active (e.g. after a cluster restart),
+re-establish it with:
+
+```bash
+make kind-fix-ports
+```
+
+Verify the OIDC discovery endpoint:
+
+```bash
+curl http://keycloak.hypershell.localhost:8080/realms/hypershell/.well-known/openid-configuration
+```
 
 ### External Keycloak
 
@@ -193,6 +219,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `KIND_HOT_RELOAD` | `true` | Hot reload for web console |
 | `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
 | `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
+| `KEYCLOAK_OIDC_ISSUER` | `http://keycloak.hypershell.localhost:8080/realms/hypershell` | OIDC issuer URL |
 | `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
@@ -216,6 +243,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-control-plane-down` | Revert control plane to baseline image |
 | `make kind-web-console-up` | Hot reload (default) or build + swap web console |
 | `make kind-web-console-down` | Revert web console to baseline image |
+| `make kind-fix-ports` | Re-establish host port forwarding (443 + 8080) |
 
 ## Gateway Access
 
@@ -245,6 +273,12 @@ openshell gateway add \
 
 This opens a browser for Keycloak login. Use `admin`/`admin` or
 `developer`/`developer`.
+
+The OIDC issuer URL **must** be
+`http://keycloak.hypershell.localhost:8080/realms/hypershell` (not the ephemeral
+port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
+passed to `openshell gateway add` must match exactly. This requires host port
+8080 to be forwarded — if it isn't, run `make kind-fix-ports` first.
 
 The e2e test (`components/pr-test/e2e-openshell.sh`) uses the same port-forward
 fallback when no passthrough route is available.
@@ -346,6 +380,35 @@ docker restart hypershell-dns
 
 # Verify resolution
 dig @127.0.0.1 -p 5553 api.hypershell.localhost
+```
+
+### OIDC discovery fails
+
+```
+Authentication failed: error sending request for url (http://keycloak.hypershell.localhost:8080/...)
+```
+
+Port 8080 is not forwarded to the Gateway's ephemeral HTTP port. Re-establish
+port forwarding:
+
+```bash
+make kind-fix-ports
+```
+
+If you see an issuer mismatch error, you are likely using the ephemeral port
+directly instead of port 8080. The OIDC issuer URL must always be
+`http://keycloak.hypershell.localhost:8080/realms/hypershell` because Keycloak
+embeds that URL in the token's `iss` claim.
+
+### Keycloak admin console redirect loop
+
+If the Keycloak admin console (`/admin/`) redirects in a loop, verify that the
+`KC_HOSTNAME` env var in `deploy/kind/prerequisites/keycloak.yaml` is set to
+`http://keycloak.hypershell.localhost:8080`. Restart the Keycloak deployment
+after changes:
+
+```bash
+kubectl --context kind-hypershell-dev rollout restart deployment/keycloak -n keycloak
 ```
 
 ### Pods stuck in ImagePullBackOff
