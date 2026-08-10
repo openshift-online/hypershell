@@ -3,7 +3,7 @@ module github.com/openshift-online/hypershell/components/api-server
 go 1.26.4
 
 require (
-	github.com/go-gormigrate/gormigrate/v2 v2.1.5
+	github.com/go-gormigrate/gormigrate/v2 v2.1.6
 	github.com/golang/glog v1.2.5
 	github.com/gorilla/mux v1.7.3
 	github.com/onsi/gomega v1.27.1
