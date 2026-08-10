@@ -86,19 +86,20 @@ The following resources must exist on the cluster before the GatewayReconciler c
 
 ### Per-Tenant Route Resources (Managed by Control Plane)
 
-For each gateway with `route` configuration, the control plane creates all Gateway API resources in the **tenant namespace**:
+For each gateway with `route` configuration, the control plane creates Gateway API resources across two namespaces:
 
-1. **Gateway** — A dedicated Gateway resource per openshell gateway, created in the tenant namespace:
+1. **Gateway** — A dedicated Gateway resource per openshell gateway, created in `openshift-ingress` (so the ingress operator auto-creates a DNSRecord pointing the hostname to the Gateway's ELB):
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: Gateway
    metadata:
-     name: openshell-gateway
-     namespace: <tenant-namespace>
+     name: openshell-gw-<tenant-namespace>
+     namespace: openshift-ingress
      labels:
        app.kubernetes.io/name: openshell
        app.kubernetes.io/component: gateway
        app.kubernetes.io/managed-by: hypershell-control-plane
+       hypershell.redhat.io/tenant: <tenant-namespace>
    spec:
      gatewayClassName: <GATEWAY_API_GATEWAY_CLASS>   # default: openshift-default
      listeners:
@@ -111,10 +112,16 @@ For each gateway with `route` configuration, the control plane creates all Gatew
          certificateRefs:
          - name: grpc-gateway-certs
            kind: Secret
+       allowedRoutes:
+         namespaces:
+           from: Selector
+           selector:
+             matchLabels:
+               kubernetes.io/metadata.name: <tenant-namespace>
    ```
-   The `<base-domain>` is read from `ingresses.config.openshift.io/cluster` `.spec.domain` (e.g., `apps-crc.testing`). Each tenant gets its own Gateway with a hostname scoped to the tenant namespace. The `grpc-gateway-certs` Secret is the cluster's wildcard TLS certificate, sourced from the HyperShell control plane namespace and copied into each tenant namespace by the GatewayReconciler (see "Gateway Ingress TLS Certificate" requirement below).
+   The `<base-domain>` is read from `ingresses.config.openshift.io/cluster` `.spec.domain` (e.g., `apps-crc.testing`). Each tenant gets its own Gateway with a hostname scoped to the tenant namespace. The `grpc-gateway-certs` Secret must exist in `openshift-ingress` (see "Gateway Ingress TLS Certificate" below).
 
-2. **GRPCRoute** — In the tenant namespace, referencing the per-tenant Gateway:
+2. **GRPCRoute** — In the tenant namespace, with a cross-namespace parentRef to the Gateway in `openshift-ingress`:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: GRPCRoute
@@ -123,7 +130,8 @@ For each gateway with `route` configuration, the control plane creates all Gatew
      namespace: <tenant-namespace>
    spec:
      parentRefs:
-     - name: openshell-gateway
+     - name: openshell-gw-<tenant-namespace>
+       namespace: openshift-ingress
      hostnames:
      - openshell-gateway-<tenant-namespace>.<base-domain>
      rules:
@@ -166,16 +174,16 @@ For each gateway with `route` configuration, the control plane creates all Gatew
 
 ### Gateway Ingress TLS Certificate
 
-The per-tenant Gateway listener terminates external TLS using the cluster's wildcard certificate for `*.<base-domain>`. This certificate is stored as a Secret named `grpc-gateway-certs` in the HyperShell control plane namespace. The GatewayReconciler copies it into each tenant namespace so the per-tenant Gateway can reference it.
+The per-tenant Gateway listener terminates external TLS using the cluster's wildcard certificate for `*.<base-domain>`. This certificate is stored as a Secret named `grpc-gateway-certs` in the `openshift-ingress` namespace, where all Gateway resources are created.
 
-- **Source:** Secret `grpc-gateway-certs` in the HyperShell control plane namespace
-- **Destination:** Secret `grpc-gateway-certs` in each tenant namespace (create-or-update)
-- The Secret SHALL be copied before the Gateway API Gateway resource is created
-- When the source Secret is updated (e.g., certificate renewal), the reconciler SHALL update the copies in all tenant namespaces on the next reconciliation cycle
+- **Location:** Secret `grpc-gateway-certs` in the `openshift-ingress` namespace
+- The Secret is a cluster prerequisite — it must be created before any gateway can be exposed externally (see README)
+- All per-tenant Gateways in `openshift-ingress` reference the same Secret
+- The wildcard private key is NOT copied into tenant namespaces — it stays in `openshift-ingress`
 
 This avoids per-tenant certificate issuance for the ingress listener — the `openshell-gateway-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate.
 
-> **Security boundary:** The wildcard TLS private key is copied into each tenant namespace. Any principal with Secret read access in a tenant namespace can extract the key. This is acceptable when namespaces are administered by the same trust domain (all managed by the HyperShell control plane). For environments where tenant namespaces are shared with untrusted workloads, a future enhancement SHOULD issue per-tenant certificates (e.g., via cert-manager Certificate resources with the exact hostname) instead of copying the wildcard key.
+> **Security improvement:** Unlike the previous approach that copied the wildcard private key into each tenant namespace, the key now stays in `openshift-ingress` (an admin-only namespace). Tenant namespace principals cannot extract the wildcard key.
 
 ### Route TLS Strategy
 

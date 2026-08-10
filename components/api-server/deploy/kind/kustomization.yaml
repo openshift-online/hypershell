@@ -7,3 +7,4 @@ resources:
   - api-server.yaml
   - api-server-nodeport.yaml
   - controller.yaml
+  - controller-gateway-rbac.yaml
