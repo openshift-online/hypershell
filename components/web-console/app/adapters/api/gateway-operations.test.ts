@@ -350,7 +350,6 @@ describe("gateway API operations adapter", () => {
         database_id: "",
         fleet_id: "",
         name: "team-gateway",
-        namespace: "openshell",
         release_id: "",
       },
       { signal: undefined },

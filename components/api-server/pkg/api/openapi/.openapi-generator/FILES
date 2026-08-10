@@ -12,6 +12,7 @@ docs/Fleet.md
 docs/FleetList.md
 docs/FleetPatchRequest.md
 docs/Gateway.md
+docs/GatewayCreateRequest.md
 docs/GatewayList.md
 docs/GatewayNetwork.md
 docs/GatewayNetworkList.md
@@ -36,6 +37,7 @@ model_fleet.go
 model_fleet_list.go
 model_fleet_patch_request.go
 model_gateway.go
+model_gateway_create_request.go
 model_gateway_list.go
 model_gateway_network.go
 model_gateway_network_list.go

@@ -21,7 +21,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 
 ## Purpose
 
-The control plane SHALL provision and reconcile OpenShell gateway deployments in project namespaces through a fully API-driven model. Gateway configuration is expressed as a first-class HyperShell resource (`kind: Gateway`), applied via `hsctl apply -k` alongside Project resources. The API server persists Gateway resources in PostgreSQL. The control plane discovers Gateway resources via the same gRPC watch stream used for all other resources and reconciles them into Kubernetes gateway deployments.
+The control plane SHALL provision and reconcile OpenShell gateway deployments in dedicated, API-assigned namespaces through a fully API-driven model. The API server persists Gateway resources in PostgreSQL. The control plane discovers Gateway resources via the same gRPC watch stream used for all other resources and reconciles them into Kubernetes gateway deployments.
 
 This specification covers core gateway provisioning. OIDC, TLS, routing, and database concerns are defined in dedicated sub-specs (see table above).
 
@@ -46,14 +46,15 @@ API Server (PostgreSQL)
 Control Plane - GatewayReconciler (internal/reconciler/)
     │  receives Gateway ADDED/MODIFIED event
     │  validates image, DNS names, TOML config
-    │  applies gateway K8s manifests to the project namespace
+    │  creates the API-assigned namespace when absent
+    │  applies gateway K8s manifests to that namespace
     ▼
 Kubernetes (Deployment, Service, RBAC, certgen Job, NetworkPolicy)
 ```
 
-### Relationship to Projects
+### Gateway Namespace Ownership
 
-**Project = Namespace.** The ProjectReconciler already creates a Kubernetes namespace for each Project via `ensureNamespace()`. A Gateway resource references a Project by name. When the GatewayReconciler processes a Gateway event, the target namespace already exists because the ProjectReconciler runs first in the reconciler chain.
+The API server assigns the Gateway namespace as `openshell-<gateway-id-hex>` before persistence and event publication, where the suffix is the lowercase hexadecimal encoding of the Gateway KSUID bytes. Clients do not select or update it. The GatewayReconciler creates that namespace if it is absent and then uses the persisted value for all resources. Gateway renames do not change namespace.
 
 ### Relationship to PlatformReconciler
 
@@ -201,7 +202,7 @@ The `openshell-gateway-` prefix produces a hostname that is a subdomain of `<bas
 
 ### Requirement: Gateway as API Resource
 
-Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL and exposed via the REST API under the project scope. The Gateway resource declares that a project namespace should have an OpenShell gateway deployed with specific configuration.
+Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL and exposed via the REST API. Each Gateway declares an OpenShell gateway deployment with specific configuration, while the API server owns its namespace assignment.
 
 #### Scenario: Create a Gateway via hsctl apply
 
@@ -209,16 +210,14 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  project: tenant-a
   image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
-  serverDnsNames:
-    - openshell-gateway.tenant-a.svc.cluster.local
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server
 - AND the API server SHALL persist the Gateway in PostgreSQL
+- AND the persisted Gateway SHALL have a unique namespace derived from its identifier
 - AND the API server SHALL emit a gRPC watch event for the new Gateway
-- AND the GatewayReconciler SHALL receive the event and deploy gateway K8s resources to the `tenant-a` namespace
+- AND the GatewayReconciler SHALL receive the event and deploy gateway K8s resources to the assigned namespace
 
 #### Scenario: Update a Gateway via overlay patch
 
@@ -228,13 +227,12 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 - THEN the CLI SHALL PATCH the existing Gateway resource
 - AND the GatewayReconciler SHALL detect the change and update the gateway Deployment
 
-#### Scenario: Gateway without a corresponding Project
+#### Scenario: Gateway namespace does not exist yet
 
-- GIVEN a Gateway resource references project `nonexistent`
-- AND no Project named `nonexistent` exists
-- WHEN the Gateway is applied
-- THEN the API server SHALL accept and persist the Gateway (eventual consistency)
-- AND the GatewayReconciler SHALL log a warning and skip reconciliation until the Project (and namespace) exists
+- GIVEN a newly persisted Gateway whose API-assigned namespace does not exist
+- WHEN the GatewayReconciler processes its creation event
+- THEN the GatewayReconciler SHALL create the namespace
+- AND it SHALL continue reconciling the Gateway resources in that namespace
 
 ---
 
@@ -274,9 +272,9 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 #### Scenario: Gateway ADDED event
 
 - GIVEN the GatewayReconciler receives a Gateway ADDED event
-- AND the target namespace exists (created by ProjectReconciler)
 - WHEN the reconciler processes the event
-- THEN it SHALL validate the Gateway configuration (image reference, DNS names, TOML config)
+- THEN it SHALL create the API-assigned namespace if it does not exist
+- AND it SHALL validate the Gateway configuration (image reference, DNS names, TOML config)
 - AND it SHALL apply all K8S resources needed for gateway provisioning to the namespace
 - AND all resources SHALL carry the label `hypershell.redhat.io/managed-by=hypershell-control-plane`
 - AND the reconciler SHALL use update-or-create semantics (SSA or equivalent)
@@ -294,23 +292,22 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 - GIVEN the GatewayReconciler receives a Gateway DELETED event
 - WHEN the reconciler processes the event
 - THEN it SHALL delete gateway K8s resources from the namespace
-- AND it SHALL NOT delete the namespace itself (namespace lifecycle is owned by ProjectReconciler)
+- AND it SHALL NOT delete the namespace itself because legacy Gateway records may reference caller-selected or shared namespaces
 
 #### Scenario: Validation failure
 
 - GIVEN a Gateway resource with an invalid image reference or malformed TOML config
 - WHEN the GatewayReconciler processes the event
-- THEN it SHALL log a validation error with the Gateway name and project
+- THEN it SHALL log a validation error with the Gateway name and assigned namespace
 - AND it SHALL NOT apply any K8s resources
 - AND it SHALL retry on the next reconciliation cycle
 
-#### Scenario: Namespace not yet ready
+#### Scenario: Namespace creation fails
 
-- GIVEN the GatewayReconciler receives a Gateway event
-- AND the target namespace does not exist yet (ProjectReconciler hasn't processed the Project)
-- WHEN the reconciler processes the event
-- THEN it SHALL log a warning and skip reconciliation
-- AND it SHALL retry when the namespace becomes available
+- GIVEN the GatewayReconciler receives a Gateway event whose assigned namespace does not exist
+- WHEN namespace creation fails
+- THEN reconciliation SHALL fail without applying namespaced resources
+- AND it SHALL retry on the next reconciliation cycle
 
 ---
 
@@ -434,8 +431,9 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
   ```
 - WHEN a user runs `hsctl apply -k examples/overlays/tenant-a/`
 - THEN the Project and Gateway SHALL all be applied in order
-- AND the ProjectReconciler SHALL create the namespace
-- AND the GatewayReconciler SHALL deploy the gateway into that namespace
+- AND the ProjectReconciler SHALL create the Project namespace
+- AND the GatewayReconciler SHALL create the Gateway's distinct API-assigned namespace
+- AND the GatewayReconciler SHALL deploy the gateway into its assigned namespace
 
 #### Scenario: Gateway base with per-tenant patches
 
@@ -461,7 +459,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
 
 ### Requirement: Gateway Deployment Resources
 
-For each Gateway resource, the GatewayReconciler SHALL deploy the following Kubernetes resources into the project namespace:
+For each Gateway resource, the GatewayReconciler SHALL deploy the following Kubernetes resources into the API-assigned namespace:
 
 All gateway resources SHALL use fixed names (one gateway per namespace):
 - Deployment: `openshell-gateway`
@@ -504,12 +502,12 @@ The gateway Deployment SHALL specify:
   - `/etc/openshell-tls/server` - Secret `openshell-server-tls` (readOnly)
   - `/etc/openshell-tls/client-ca` - Secret `openshell-client-tls` (only `ca.crt` key, readOnly)
 
-#### Scenario: Deploy gateway to project namespace
+#### Scenario: Deploy gateway to assigned namespace
 
-- GIVEN a Gateway resource exists for project `tenant-a`
-- AND the namespace `tenant-a` exists (created by ProjectReconciler)
+- GIVEN a Gateway resource has the assigned namespace `openshell-abc123`
 - WHEN the GatewayReconciler reconciles
-- THEN it SHALL apply all gateway manifests with namespace set to `tenant-a`
+- THEN it SHALL ensure namespace `openshell-abc123` exists
+- AND it SHALL apply all gateway manifests with namespace set to `openshell-abc123`
 - AND it SHALL use update-or-create semantics (never create-and-ignore-AlreadyExists)
 
 #### Scenario: Gateway already exists (idempotency)
@@ -807,7 +805,7 @@ Control Plane
 | Field | Required | Default | Description |
 |---|---|---|---|
 | `name` | Yes | - | Resource name (typically `openshell-gateway`) |
-| `project` | Yes | - | Project name (determines target namespace) |
+| `namespace` | No | API assigned | Read-only Kubernetes namespace derived from the Gateway identifier |
 | `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.101` | Gateway container image reference |
 | `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.101` | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |

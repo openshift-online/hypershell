@@ -1,10 +1,5 @@
 [
   {
-    "filename": "components/pr-test/e2e-openshell.sh",
-    "line": 93,
-    "rationale": "Required to preserve the externally assigned ROSA cluster domain used as the end-to-end test fallback."
-  },
-  {
     "filename": "pnpm-lock.yaml",
     "line": 1417,
     "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."

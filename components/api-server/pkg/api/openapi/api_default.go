@@ -187,14 +187,14 @@ func (a *DefaultAPIService) CreateFleetExecute(r ApiCreateFleetRequest) (*Fleet,
 }
 
 type ApiCreateGatewayRequest struct {
-	ctx        context.Context
-	ApiService *DefaultAPIService
-	gateway    *Gateway
+	ctx                  context.Context
+	ApiService           *DefaultAPIService
+	gatewayCreateRequest *GatewayCreateRequest
 }
 
 // Gateway data
-func (r ApiCreateGatewayRequest) Gateway(gateway Gateway) ApiCreateGatewayRequest {
-	r.gateway = &gateway
+func (r ApiCreateGatewayRequest) GatewayCreateRequest(gatewayCreateRequest GatewayCreateRequest) ApiCreateGatewayRequest {
+	r.gatewayCreateRequest = &gatewayCreateRequest
 	return r
 }
 
@@ -236,8 +236,8 @@ func (a *DefaultAPIService) CreateGatewayExecute(r ApiCreateGatewayRequest) (*Ga
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.gateway == nil {
-		return localVarReturnValue, nil, reportError("gateway is required and must be specified")
+	if r.gatewayCreateRequest == nil {
+		return localVarReturnValue, nil, reportError("gatewayCreateRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -258,7 +258,7 @@ func (a *DefaultAPIService) CreateGatewayExecute(r ApiCreateGatewayRequest) (*Ga
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.gateway
+	localVarPostBody = r.gatewayCreateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

@@ -11,7 +11,7 @@ The HyperShell API server provides a control plane for deploying and managing di
 - **ManagedCluster** - a Kubernetes cluster registered into a sector. Tracks provider, region, API server URL, and a kubeconfig secret reference.
 - **ManagedDatabase** - a database instance provisioned for a sector. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
 - **GatewayRelease** - a versioned container image for gateway deployments within a sector. Supports rollout strategies with canary percent/duration controls.
-- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within a namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **GatewayNetwork** - defines network connectivity topology between gateways in a sector. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
 
 ## Entity Relationship Diagram
@@ -143,6 +143,25 @@ All resources (ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, Gateway
 - WHEN a POST request is made to `/api/hypershell/v1/gateways`
 - THEN a new Gateway is created within the specified sector
 - AND the Gateway references valid cluster, release, and database resources
+
+### Requirement: Gateway Namespace Ownership
+
+The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<gateway-id-hex>`, where `gateway-id-hex` is the lowercase hexadecimal encoding of the Gateway KSUID bytes, so that it is stable, collision-preserving, and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
+
+#### Scenario: Create Gateways Without a Namespace
+
+- GIVEN two valid Gateway create requests that omit namespace
+- WHEN the API server creates both Gateways
+- THEN each response SHALL contain a non-empty namespace derived from its Gateway identifier
+- AND the namespaces SHALL be distinct Kubernetes DNS labels
+- AND each creation event SHALL contain the same namespace that was persisted
+
+#### Scenario: Namespace Cannot Be Selected or Updated
+
+- GIVEN the REST and gRPC Gateway contracts
+- WHEN a client constructs a create or update request
+- THEN namespace SHALL NOT be available as an input field
+- AND the API-assigned namespace SHALL remain available on Gateway responses and events
 
 ### Requirement: Gateway Provisioning Fields
 

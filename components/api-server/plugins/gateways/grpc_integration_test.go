@@ -57,7 +57,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		ClusterId:   "TestClusterId",
 		ReleaseId:   "TestReleaseId",
 		DatabaseId:  "TestDatabaseId",
-		Namespace:   "TestNamespace",
 		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
@@ -67,8 +66,10 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(created.Gateway.Metadata.Id).NotTo(BeEmpty())
+	Expect(created.Gateway.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{40}$`))
 
 	gatewayID := created.Gateway.Metadata.Id
+	gatewayNamespace := created.Gateway.Namespace
 
 	getReq := &pb.GetGatewayRequest{Id: gatewayID}
 	retrieved, err := grpcClient.GetGateway(ctx, getReq)
@@ -82,7 +83,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		ClusterId:   func() *string { s := "UpdatedClusterId"; return &s }(),
 		ReleaseId:   func() *string { s := "UpdatedReleaseId"; return &s }(),
 		DatabaseId:  func() *string { s := "UpdatedDatabaseId"; return &s }(),
-		Namespace:   func() *string { s := "UpdatedNamespace"; return &s }(),
 		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
@@ -92,6 +92,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	updated, err := grpcClient.UpdateGateway(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.Gateway.Metadata.Id).To(Equal(gatewayID))
+	Expect(updated.Gateway.Namespace).To(Equal(gatewayNamespace))
 
 	listReq := &pb.ListGatewaysRequest{
 		Page: 1,
@@ -149,10 +150,10 @@ func TestGRPCWatchGateways(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		for name := range itemNames {
-			gatewayInput := openapi.Gateway{
+			gatewayInput := openapi.GatewayCreateRequest{
 				Name: name,
 			}
-			_, resp, postErr := client.DefaultAPI.CreateGateway(ctx).Gateway(gatewayInput).Execute()
+			_, resp, postErr := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)
 				return
@@ -247,7 +248,6 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 		ClusterId:  "test-cluster",
 		ReleaseId:  "test-release",
 		DatabaseId: "test-db",
-		Namespace:  "test-ns",
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
@@ -281,7 +281,7 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 
 		Expect(evt.Gateway).NotTo(BeNil(), "delete event must include the gateway resource")
 		Expect(evt.Gateway.Name).To(Equal("delete-watch-test"))
-		Expect(evt.Gateway.Namespace).To(Equal("test-ns"))
+		Expect(evt.Gateway.Namespace).To(Equal(created.Gateway.Namespace))
 		Expect(evt.Gateway.ClusterId).To(Equal("test-cluster"))
 		break
 	}

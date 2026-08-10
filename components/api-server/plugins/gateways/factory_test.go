@@ -17,7 +17,6 @@ func newGateway(id string) (*gateways.Gateway, error) {
 		ClusterId:   "test-cluster_id",
 		ReleaseId:   "test-release_id",
 		DatabaseId:  "test-database_id",
-		Namespace:   "test-namespace",
 		ExternalDns: stringPtr("test-external_dns"),
 		TlsMode:     stringPtr("test-tls_mode"),
 		ServiceType: stringPtr("test-service_type"),

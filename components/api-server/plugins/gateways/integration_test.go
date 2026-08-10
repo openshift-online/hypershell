@@ -46,13 +46,12 @@ func TestGatewayPost(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	gatewayInput := openapi.Gateway{
+	gatewayInput := openapi.GatewayCreateRequest{
 		Name:        "test-name",
 		FleetId:     "test-fleet_id",
 		ClusterId:   "test-cluster_id",
 		ReleaseId:   "test-release_id",
 		DatabaseId:  "test-database_id",
-		Namespace:   "test-namespace",
 		ExternalDns: openapi.PtrString("test-external_dns"),
 		TlsMode:     openapi.PtrString("test-tls_mode"),
 		ServiceType: openapi.PtrString("test-service_type"),
@@ -60,12 +59,13 @@ func TestGatewayPost(t *testing.T) {
 		Phase:       openapi.PtrString("test-phase"),
 	}
 
-	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).Gateway(gatewayInput).Execute()
+	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(*gatewayOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
 	Expect(*gatewayOutput.Kind).To(Equal("Gateway"))
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
+	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{40}$`))
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
 	restyResp, err := resty.R().
@@ -83,22 +83,22 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
-	gatewayInput := openapi.Gateway{
+	gatewayInput := openapi.GatewayCreateRequest{
 		Name:       "local-gateway",
 		FleetId:    "",
 		ClusterId:  "",
 		ReleaseId:  "",
 		DatabaseId: "",
-		Namespace:  "test-namespace",
 	}
 
-	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).Gateway(gatewayInput).Execute()
+	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with local placement: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(gatewayOutput.FleetId).To(BeEmpty())
 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
 	Expect(gatewayOutput.DatabaseId).To(BeEmpty())
+	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{40}$`))
 }
 
 func TestGatewayPatch(t *testing.T) {

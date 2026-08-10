@@ -118,6 +118,7 @@ Class | Method | HTTP request | Description
  - [FleetList](docs/FleetList.md)
  - [FleetPatchRequest](docs/FleetPatchRequest.md)
  - [Gateway](docs/Gateway.md)
+ - [GatewayCreateRequest](docs/GatewayCreateRequest.md)
  - [GatewayList](docs/GatewayList.md)
  - [GatewayNetwork](docs/GatewayNetwork.md)
  - [GatewayNetworkList](docs/GatewayNetworkList.md)

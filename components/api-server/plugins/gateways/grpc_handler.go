@@ -55,10 +55,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("database_id", req.DatabaseId, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("namespace", req.Namespace, true); err != nil {
-		return nil, err
-	}
-
 	var serverDnsNamesJSON *string
 	if len(req.ServerDnsNames) > 0 {
 		data, _ := json.Marshal(req.ServerDnsNames)
@@ -72,7 +68,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		ClusterId:      req.ClusterId,
 		ReleaseId:      req.ReleaseId,
 		DatabaseId:     req.DatabaseId,
-		Namespace:      req.Namespace,
 		ExternalDns:    req.ExternalDns,
 		TlsMode:        req.TlsMode,
 		ServiceType:    req.ServiceType,
@@ -120,11 +115,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 			return nil, err
 		}
 	}
-	if req.Namespace != nil {
-		if err := grpcutil.ValidateStringField("namespace", *req.Namespace, false); err != nil {
-			return nil, err
-		}
-	}
 	if req.ExternalDns != nil {
 		if err := grpcutil.ValidateStringField("external_dns", *req.ExternalDns, false); err != nil {
 			return nil, err
@@ -169,9 +159,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.DatabaseId != nil {
 		gateway.DatabaseId = *req.DatabaseId
-	}
-	if req.Namespace != nil {
-		gateway.Namespace = *req.Namespace
 	}
 	if req.ExternalDns != nil {
 		gateway.ExternalDns = req.ExternalDns

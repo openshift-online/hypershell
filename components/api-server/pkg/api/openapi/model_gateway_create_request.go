@@ -14,26 +14,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
-// checks if the Gateway type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &Gateway{}
+// checks if the GatewayCreateRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &GatewayCreateRequest{}
 
-// Gateway struct for Gateway
-type Gateway struct {
-	Id         *string    `json:"id,omitempty"`
-	Kind       *string    `json:"kind,omitempty"`
-	Href       *string    `json:"href,omitempty"`
-	CreatedAt  *time.Time `json:"created_at,omitempty"`
-	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
-	Name       string     `json:"name"`
-	FleetId    string     `json:"fleet_id"`
-	ClusterId  string     `json:"cluster_id"`
-	ReleaseId  string     `json:"release_id"`
-	DatabaseId string     `json:"database_id"`
-	// API-assigned Kubernetes namespace derived from the Gateway identifier
-	Namespace   string  `json:"namespace"`
+// GatewayCreateRequest struct for GatewayCreateRequest
+type GatewayCreateRequest struct {
+	Name        string  `json:"name"`
+	FleetId     string  `json:"fleet_id"`
+	ClusterId   string  `json:"cluster_id"`
+	ReleaseId   string  `json:"release_id"`
+	DatabaseId  string  `json:"database_id"`
 	ExternalDns *string `json:"external_dns,omitempty"`
 	TlsMode     *string `json:"tls_mode,omitempty"`
 	ServiceType *string `json:"service_type,omitempty"`
@@ -45,8 +37,6 @@ type Gateway struct {
 	SupervisorImage *string `json:"supervisor_image,omitempty"`
 	// DNS names for TLS certificate SANs
 	ServerDnsNames []string `json:"server_dns_names,omitempty"`
-	// External route address populated by the control plane
-	RouteAddress *string `json:"route_address,omitempty"`
 	// JSON-encoded OIDC authentication configuration
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
@@ -55,193 +45,32 @@ type Gateway struct {
 	DatabaseConfig *string `json:"database_config,omitempty"`
 }
 
-type _Gateway Gateway
+type _GatewayCreateRequest GatewayCreateRequest
 
-// NewGateway instantiates a new Gateway object
+// NewGatewayCreateRequest instantiates a new GatewayCreateRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGateway(name string, fleetId string, clusterId string, releaseId string, databaseId string, namespace string) *Gateway {
-	this := Gateway{}
+func NewGatewayCreateRequest(name string, fleetId string, clusterId string, releaseId string, databaseId string) *GatewayCreateRequest {
+	this := GatewayCreateRequest{}
 	this.Name = name
 	this.FleetId = fleetId
 	this.ClusterId = clusterId
 	this.ReleaseId = releaseId
 	this.DatabaseId = databaseId
-	this.Namespace = namespace
 	return &this
 }
 
-// NewGatewayWithDefaults instantiates a new Gateway object
+// NewGatewayCreateRequestWithDefaults instantiates a new GatewayCreateRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewGatewayWithDefaults() *Gateway {
-	this := Gateway{}
+func NewGatewayCreateRequestWithDefaults() *GatewayCreateRequest {
+	this := GatewayCreateRequest{}
 	return &this
-}
-
-// GetId returns the Id field value if set, zero value otherwise.
-func (o *Gateway) GetId() string {
-	if o == nil || IsNil(o.Id) {
-		var ret string
-		return ret
-	}
-	return *o.Id
-}
-
-// GetIdOk returns a tuple with the Id field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetIdOk() (*string, bool) {
-	if o == nil || IsNil(o.Id) {
-		return nil, false
-	}
-	return o.Id, true
-}
-
-// HasId returns a boolean if a field has been set.
-func (o *Gateway) HasId() bool {
-	if o != nil && !IsNil(o.Id) {
-		return true
-	}
-
-	return false
-}
-
-// SetId gets a reference to the given string and assigns it to the Id field.
-func (o *Gateway) SetId(v string) {
-	o.Id = &v
-}
-
-// GetKind returns the Kind field value if set, zero value otherwise.
-func (o *Gateway) GetKind() string {
-	if o == nil || IsNil(o.Kind) {
-		var ret string
-		return ret
-	}
-	return *o.Kind
-}
-
-// GetKindOk returns a tuple with the Kind field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetKindOk() (*string, bool) {
-	if o == nil || IsNil(o.Kind) {
-		return nil, false
-	}
-	return o.Kind, true
-}
-
-// HasKind returns a boolean if a field has been set.
-func (o *Gateway) HasKind() bool {
-	if o != nil && !IsNil(o.Kind) {
-		return true
-	}
-
-	return false
-}
-
-// SetKind gets a reference to the given string and assigns it to the Kind field.
-func (o *Gateway) SetKind(v string) {
-	o.Kind = &v
-}
-
-// GetHref returns the Href field value if set, zero value otherwise.
-func (o *Gateway) GetHref() string {
-	if o == nil || IsNil(o.Href) {
-		var ret string
-		return ret
-	}
-	return *o.Href
-}
-
-// GetHrefOk returns a tuple with the Href field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetHrefOk() (*string, bool) {
-	if o == nil || IsNil(o.Href) {
-		return nil, false
-	}
-	return o.Href, true
-}
-
-// HasHref returns a boolean if a field has been set.
-func (o *Gateway) HasHref() bool {
-	if o != nil && !IsNil(o.Href) {
-		return true
-	}
-
-	return false
-}
-
-// SetHref gets a reference to the given string and assigns it to the Href field.
-func (o *Gateway) SetHref(v string) {
-	o.Href = &v
-}
-
-// GetCreatedAt returns the CreatedAt field value if set, zero value otherwise.
-func (o *Gateway) GetCreatedAt() time.Time {
-	if o == nil || IsNil(o.CreatedAt) {
-		var ret time.Time
-		return ret
-	}
-	return *o.CreatedAt
-}
-
-// GetCreatedAtOk returns a tuple with the CreatedAt field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetCreatedAtOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.CreatedAt) {
-		return nil, false
-	}
-	return o.CreatedAt, true
-}
-
-// HasCreatedAt returns a boolean if a field has been set.
-func (o *Gateway) HasCreatedAt() bool {
-	if o != nil && !IsNil(o.CreatedAt) {
-		return true
-	}
-
-	return false
-}
-
-// SetCreatedAt gets a reference to the given time.Time and assigns it to the CreatedAt field.
-func (o *Gateway) SetCreatedAt(v time.Time) {
-	o.CreatedAt = &v
-}
-
-// GetUpdatedAt returns the UpdatedAt field value if set, zero value otherwise.
-func (o *Gateway) GetUpdatedAt() time.Time {
-	if o == nil || IsNil(o.UpdatedAt) {
-		var ret time.Time
-		return ret
-	}
-	return *o.UpdatedAt
-}
-
-// GetUpdatedAtOk returns a tuple with the UpdatedAt field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetUpdatedAtOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.UpdatedAt) {
-		return nil, false
-	}
-	return o.UpdatedAt, true
-}
-
-// HasUpdatedAt returns a boolean if a field has been set.
-func (o *Gateway) HasUpdatedAt() bool {
-	if o != nil && !IsNil(o.UpdatedAt) {
-		return true
-	}
-
-	return false
-}
-
-// SetUpdatedAt gets a reference to the given time.Time and assigns it to the UpdatedAt field.
-func (o *Gateway) SetUpdatedAt(v time.Time) {
-	o.UpdatedAt = &v
 }
 
 // GetName returns the Name field value
-func (o *Gateway) GetName() string {
+func (o *GatewayCreateRequest) GetName() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -252,7 +81,7 @@ func (o *Gateway) GetName() string {
 
 // GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetNameOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetNameOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -260,12 +89,12 @@ func (o *Gateway) GetNameOk() (*string, bool) {
 }
 
 // SetName sets field value
-func (o *Gateway) SetName(v string) {
+func (o *GatewayCreateRequest) SetName(v string) {
 	o.Name = v
 }
 
 // GetFleetId returns the FleetId field value
-func (o *Gateway) GetFleetId() string {
+func (o *GatewayCreateRequest) GetFleetId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -276,7 +105,7 @@ func (o *Gateway) GetFleetId() string {
 
 // GetFleetIdOk returns a tuple with the FleetId field value
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetFleetIdOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetFleetIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -284,12 +113,12 @@ func (o *Gateway) GetFleetIdOk() (*string, bool) {
 }
 
 // SetFleetId sets field value
-func (o *Gateway) SetFleetId(v string) {
+func (o *GatewayCreateRequest) SetFleetId(v string) {
 	o.FleetId = v
 }
 
 // GetClusterId returns the ClusterId field value
-func (o *Gateway) GetClusterId() string {
+func (o *GatewayCreateRequest) GetClusterId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -300,7 +129,7 @@ func (o *Gateway) GetClusterId() string {
 
 // GetClusterIdOk returns a tuple with the ClusterId field value
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetClusterIdOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetClusterIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -308,12 +137,12 @@ func (o *Gateway) GetClusterIdOk() (*string, bool) {
 }
 
 // SetClusterId sets field value
-func (o *Gateway) SetClusterId(v string) {
+func (o *GatewayCreateRequest) SetClusterId(v string) {
 	o.ClusterId = v
 }
 
 // GetReleaseId returns the ReleaseId field value
-func (o *Gateway) GetReleaseId() string {
+func (o *GatewayCreateRequest) GetReleaseId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -324,7 +153,7 @@ func (o *Gateway) GetReleaseId() string {
 
 // GetReleaseIdOk returns a tuple with the ReleaseId field value
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetReleaseIdOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetReleaseIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -332,12 +161,12 @@ func (o *Gateway) GetReleaseIdOk() (*string, bool) {
 }
 
 // SetReleaseId sets field value
-func (o *Gateway) SetReleaseId(v string) {
+func (o *GatewayCreateRequest) SetReleaseId(v string) {
 	o.ReleaseId = v
 }
 
 // GetDatabaseId returns the DatabaseId field value
-func (o *Gateway) GetDatabaseId() string {
+func (o *GatewayCreateRequest) GetDatabaseId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -348,7 +177,7 @@ func (o *Gateway) GetDatabaseId() string {
 
 // GetDatabaseIdOk returns a tuple with the DatabaseId field value
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetDatabaseIdOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetDatabaseIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -356,36 +185,12 @@ func (o *Gateway) GetDatabaseIdOk() (*string, bool) {
 }
 
 // SetDatabaseId sets field value
-func (o *Gateway) SetDatabaseId(v string) {
+func (o *GatewayCreateRequest) SetDatabaseId(v string) {
 	o.DatabaseId = v
 }
 
-// GetNamespace returns the Namespace field value
-func (o *Gateway) GetNamespace() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.Namespace
-}
-
-// GetNamespaceOk returns a tuple with the Namespace field value
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetNamespaceOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.Namespace, true
-}
-
-// SetNamespace sets field value
-func (o *Gateway) SetNamespace(v string) {
-	o.Namespace = v
-}
-
 // GetExternalDns returns the ExternalDns field value if set, zero value otherwise.
-func (o *Gateway) GetExternalDns() string {
+func (o *GatewayCreateRequest) GetExternalDns() string {
 	if o == nil || IsNil(o.ExternalDns) {
 		var ret string
 		return ret
@@ -395,7 +200,7 @@ func (o *Gateway) GetExternalDns() string {
 
 // GetExternalDnsOk returns a tuple with the ExternalDns field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetExternalDnsOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetExternalDnsOk() (*string, bool) {
 	if o == nil || IsNil(o.ExternalDns) {
 		return nil, false
 	}
@@ -403,7 +208,7 @@ func (o *Gateway) GetExternalDnsOk() (*string, bool) {
 }
 
 // HasExternalDns returns a boolean if a field has been set.
-func (o *Gateway) HasExternalDns() bool {
+func (o *GatewayCreateRequest) HasExternalDns() bool {
 	if o != nil && !IsNil(o.ExternalDns) {
 		return true
 	}
@@ -412,12 +217,12 @@ func (o *Gateway) HasExternalDns() bool {
 }
 
 // SetExternalDns gets a reference to the given string and assigns it to the ExternalDns field.
-func (o *Gateway) SetExternalDns(v string) {
+func (o *GatewayCreateRequest) SetExternalDns(v string) {
 	o.ExternalDns = &v
 }
 
 // GetTlsMode returns the TlsMode field value if set, zero value otherwise.
-func (o *Gateway) GetTlsMode() string {
+func (o *GatewayCreateRequest) GetTlsMode() string {
 	if o == nil || IsNil(o.TlsMode) {
 		var ret string
 		return ret
@@ -427,7 +232,7 @@ func (o *Gateway) GetTlsMode() string {
 
 // GetTlsModeOk returns a tuple with the TlsMode field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetTlsModeOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetTlsModeOk() (*string, bool) {
 	if o == nil || IsNil(o.TlsMode) {
 		return nil, false
 	}
@@ -435,7 +240,7 @@ func (o *Gateway) GetTlsModeOk() (*string, bool) {
 }
 
 // HasTlsMode returns a boolean if a field has been set.
-func (o *Gateway) HasTlsMode() bool {
+func (o *GatewayCreateRequest) HasTlsMode() bool {
 	if o != nil && !IsNil(o.TlsMode) {
 		return true
 	}
@@ -444,12 +249,12 @@ func (o *Gateway) HasTlsMode() bool {
 }
 
 // SetTlsMode gets a reference to the given string and assigns it to the TlsMode field.
-func (o *Gateway) SetTlsMode(v string) {
+func (o *GatewayCreateRequest) SetTlsMode(v string) {
 	o.TlsMode = &v
 }
 
 // GetServiceType returns the ServiceType field value if set, zero value otherwise.
-func (o *Gateway) GetServiceType() string {
+func (o *GatewayCreateRequest) GetServiceType() string {
 	if o == nil || IsNil(o.ServiceType) {
 		var ret string
 		return ret
@@ -459,7 +264,7 @@ func (o *Gateway) GetServiceType() string {
 
 // GetServiceTypeOk returns a tuple with the ServiceType field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetServiceTypeOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetServiceTypeOk() (*string, bool) {
 	if o == nil || IsNil(o.ServiceType) {
 		return nil, false
 	}
@@ -467,7 +272,7 @@ func (o *Gateway) GetServiceTypeOk() (*string, bool) {
 }
 
 // HasServiceType returns a boolean if a field has been set.
-func (o *Gateway) HasServiceType() bool {
+func (o *GatewayCreateRequest) HasServiceType() bool {
 	if o != nil && !IsNil(o.ServiceType) {
 		return true
 	}
@@ -476,12 +281,12 @@ func (o *Gateway) HasServiceType() bool {
 }
 
 // SetServiceType gets a reference to the given string and assigns it to the ServiceType field.
-func (o *Gateway) SetServiceType(v string) {
+func (o *GatewayCreateRequest) SetServiceType(v string) {
 	o.ServiceType = &v
 }
 
 // GetStatus returns the Status field value if set, zero value otherwise.
-func (o *Gateway) GetStatus() string {
+func (o *GatewayCreateRequest) GetStatus() string {
 	if o == nil || IsNil(o.Status) {
 		var ret string
 		return ret
@@ -491,7 +296,7 @@ func (o *Gateway) GetStatus() string {
 
 // GetStatusOk returns a tuple with the Status field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetStatusOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetStatusOk() (*string, bool) {
 	if o == nil || IsNil(o.Status) {
 		return nil, false
 	}
@@ -499,7 +304,7 @@ func (o *Gateway) GetStatusOk() (*string, bool) {
 }
 
 // HasStatus returns a boolean if a field has been set.
-func (o *Gateway) HasStatus() bool {
+func (o *GatewayCreateRequest) HasStatus() bool {
 	if o != nil && !IsNil(o.Status) {
 		return true
 	}
@@ -508,12 +313,12 @@ func (o *Gateway) HasStatus() bool {
 }
 
 // SetStatus gets a reference to the given string and assigns it to the Status field.
-func (o *Gateway) SetStatus(v string) {
+func (o *GatewayCreateRequest) SetStatus(v string) {
 	o.Status = &v
 }
 
 // GetPhase returns the Phase field value if set, zero value otherwise.
-func (o *Gateway) GetPhase() string {
+func (o *GatewayCreateRequest) GetPhase() string {
 	if o == nil || IsNil(o.Phase) {
 		var ret string
 		return ret
@@ -523,7 +328,7 @@ func (o *Gateway) GetPhase() string {
 
 // GetPhaseOk returns a tuple with the Phase field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetPhaseOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetPhaseOk() (*string, bool) {
 	if o == nil || IsNil(o.Phase) {
 		return nil, false
 	}
@@ -531,7 +336,7 @@ func (o *Gateway) GetPhaseOk() (*string, bool) {
 }
 
 // HasPhase returns a boolean if a field has been set.
-func (o *Gateway) HasPhase() bool {
+func (o *GatewayCreateRequest) HasPhase() bool {
 	if o != nil && !IsNil(o.Phase) {
 		return true
 	}
@@ -540,12 +345,12 @@ func (o *Gateway) HasPhase() bool {
 }
 
 // SetPhase gets a reference to the given string and assigns it to the Phase field.
-func (o *Gateway) SetPhase(v string) {
+func (o *GatewayCreateRequest) SetPhase(v string) {
 	o.Phase = &v
 }
 
 // GetImage returns the Image field value if set, zero value otherwise.
-func (o *Gateway) GetImage() string {
+func (o *GatewayCreateRequest) GetImage() string {
 	if o == nil || IsNil(o.Image) {
 		var ret string
 		return ret
@@ -555,7 +360,7 @@ func (o *Gateway) GetImage() string {
 
 // GetImageOk returns a tuple with the Image field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetImageOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetImageOk() (*string, bool) {
 	if o == nil || IsNil(o.Image) {
 		return nil, false
 	}
@@ -563,7 +368,7 @@ func (o *Gateway) GetImageOk() (*string, bool) {
 }
 
 // HasImage returns a boolean if a field has been set.
-func (o *Gateway) HasImage() bool {
+func (o *GatewayCreateRequest) HasImage() bool {
 	if o != nil && !IsNil(o.Image) {
 		return true
 	}
@@ -572,12 +377,12 @@ func (o *Gateway) HasImage() bool {
 }
 
 // SetImage gets a reference to the given string and assigns it to the Image field.
-func (o *Gateway) SetImage(v string) {
+func (o *GatewayCreateRequest) SetImage(v string) {
 	o.Image = &v
 }
 
 // GetSupervisorImage returns the SupervisorImage field value if set, zero value otherwise.
-func (o *Gateway) GetSupervisorImage() string {
+func (o *GatewayCreateRequest) GetSupervisorImage() string {
 	if o == nil || IsNil(o.SupervisorImage) {
 		var ret string
 		return ret
@@ -587,7 +392,7 @@ func (o *Gateway) GetSupervisorImage() string {
 
 // GetSupervisorImageOk returns a tuple with the SupervisorImage field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetSupervisorImageOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetSupervisorImageOk() (*string, bool) {
 	if o == nil || IsNil(o.SupervisorImage) {
 		return nil, false
 	}
@@ -595,7 +400,7 @@ func (o *Gateway) GetSupervisorImageOk() (*string, bool) {
 }
 
 // HasSupervisorImage returns a boolean if a field has been set.
-func (o *Gateway) HasSupervisorImage() bool {
+func (o *GatewayCreateRequest) HasSupervisorImage() bool {
 	if o != nil && !IsNil(o.SupervisorImage) {
 		return true
 	}
@@ -604,12 +409,12 @@ func (o *Gateway) HasSupervisorImage() bool {
 }
 
 // SetSupervisorImage gets a reference to the given string and assigns it to the SupervisorImage field.
-func (o *Gateway) SetSupervisorImage(v string) {
+func (o *GatewayCreateRequest) SetSupervisorImage(v string) {
 	o.SupervisorImage = &v
 }
 
 // GetServerDnsNames returns the ServerDnsNames field value if set, zero value otherwise.
-func (o *Gateway) GetServerDnsNames() []string {
+func (o *GatewayCreateRequest) GetServerDnsNames() []string {
 	if o == nil || IsNil(o.ServerDnsNames) {
 		var ret []string
 		return ret
@@ -619,7 +424,7 @@ func (o *Gateway) GetServerDnsNames() []string {
 
 // GetServerDnsNamesOk returns a tuple with the ServerDnsNames field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetServerDnsNamesOk() ([]string, bool) {
+func (o *GatewayCreateRequest) GetServerDnsNamesOk() ([]string, bool) {
 	if o == nil || IsNil(o.ServerDnsNames) {
 		return nil, false
 	}
@@ -627,7 +432,7 @@ func (o *Gateway) GetServerDnsNamesOk() ([]string, bool) {
 }
 
 // HasServerDnsNames returns a boolean if a field has been set.
-func (o *Gateway) HasServerDnsNames() bool {
+func (o *GatewayCreateRequest) HasServerDnsNames() bool {
 	if o != nil && !IsNil(o.ServerDnsNames) {
 		return true
 	}
@@ -636,44 +441,12 @@ func (o *Gateway) HasServerDnsNames() bool {
 }
 
 // SetServerDnsNames gets a reference to the given []string and assigns it to the ServerDnsNames field.
-func (o *Gateway) SetServerDnsNames(v []string) {
+func (o *GatewayCreateRequest) SetServerDnsNames(v []string) {
 	o.ServerDnsNames = v
 }
 
-// GetRouteAddress returns the RouteAddress field value if set, zero value otherwise.
-func (o *Gateway) GetRouteAddress() string {
-	if o == nil || IsNil(o.RouteAddress) {
-		var ret string
-		return ret
-	}
-	return *o.RouteAddress
-}
-
-// GetRouteAddressOk returns a tuple with the RouteAddress field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetRouteAddressOk() (*string, bool) {
-	if o == nil || IsNil(o.RouteAddress) {
-		return nil, false
-	}
-	return o.RouteAddress, true
-}
-
-// HasRouteAddress returns a boolean if a field has been set.
-func (o *Gateway) HasRouteAddress() bool {
-	if o != nil && !IsNil(o.RouteAddress) {
-		return true
-	}
-
-	return false
-}
-
-// SetRouteAddress gets a reference to the given string and assigns it to the RouteAddress field.
-func (o *Gateway) SetRouteAddress(v string) {
-	o.RouteAddress = &v
-}
-
 // GetOidc returns the Oidc field value if set, zero value otherwise.
-func (o *Gateway) GetOidc() string {
+func (o *GatewayCreateRequest) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
 		var ret string
 		return ret
@@ -683,7 +456,7 @@ func (o *Gateway) GetOidc() string {
 
 // GetOidcOk returns a tuple with the Oidc field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetOidcOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetOidcOk() (*string, bool) {
 	if o == nil || IsNil(o.Oidc) {
 		return nil, false
 	}
@@ -691,7 +464,7 @@ func (o *Gateway) GetOidcOk() (*string, bool) {
 }
 
 // HasOidc returns a boolean if a field has been set.
-func (o *Gateway) HasOidc() bool {
+func (o *GatewayCreateRequest) HasOidc() bool {
 	if o != nil && !IsNil(o.Oidc) {
 		return true
 	}
@@ -700,12 +473,12 @@ func (o *Gateway) HasOidc() bool {
 }
 
 // SetOidc gets a reference to the given string and assigns it to the Oidc field.
-func (o *Gateway) SetOidc(v string) {
+func (o *GatewayCreateRequest) SetOidc(v string) {
 	o.Oidc = &v
 }
 
 // GetRoute returns the Route field value if set, zero value otherwise.
-func (o *Gateway) GetRoute() string {
+func (o *GatewayCreateRequest) GetRoute() string {
 	if o == nil || IsNil(o.Route) {
 		var ret string
 		return ret
@@ -715,7 +488,7 @@ func (o *Gateway) GetRoute() string {
 
 // GetRouteOk returns a tuple with the Route field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetRouteOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetRouteOk() (*string, bool) {
 	if o == nil || IsNil(o.Route) {
 		return nil, false
 	}
@@ -723,7 +496,7 @@ func (o *Gateway) GetRouteOk() (*string, bool) {
 }
 
 // HasRoute returns a boolean if a field has been set.
-func (o *Gateway) HasRoute() bool {
+func (o *GatewayCreateRequest) HasRoute() bool {
 	if o != nil && !IsNil(o.Route) {
 		return true
 	}
@@ -732,12 +505,12 @@ func (o *Gateway) HasRoute() bool {
 }
 
 // SetRoute gets a reference to the given string and assigns it to the Route field.
-func (o *Gateway) SetRoute(v string) {
+func (o *GatewayCreateRequest) SetRoute(v string) {
 	o.Route = &v
 }
 
 // GetDatabaseConfig returns the DatabaseConfig field value if set, zero value otherwise.
-func (o *Gateway) GetDatabaseConfig() string {
+func (o *GatewayCreateRequest) GetDatabaseConfig() string {
 	if o == nil || IsNil(o.DatabaseConfig) {
 		var ret string
 		return ret
@@ -747,7 +520,7 @@ func (o *Gateway) GetDatabaseConfig() string {
 
 // GetDatabaseConfigOk returns a tuple with the DatabaseConfig field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetDatabaseConfigOk() (*string, bool) {
+func (o *GatewayCreateRequest) GetDatabaseConfigOk() (*string, bool) {
 	if o == nil || IsNil(o.DatabaseConfig) {
 		return nil, false
 	}
@@ -755,7 +528,7 @@ func (o *Gateway) GetDatabaseConfigOk() (*string, bool) {
 }
 
 // HasDatabaseConfig returns a boolean if a field has been set.
-func (o *Gateway) HasDatabaseConfig() bool {
+func (o *GatewayCreateRequest) HasDatabaseConfig() bool {
 	if o != nil && !IsNil(o.DatabaseConfig) {
 		return true
 	}
@@ -764,11 +537,11 @@ func (o *Gateway) HasDatabaseConfig() bool {
 }
 
 // SetDatabaseConfig gets a reference to the given string and assigns it to the DatabaseConfig field.
-func (o *Gateway) SetDatabaseConfig(v string) {
+func (o *GatewayCreateRequest) SetDatabaseConfig(v string) {
 	o.DatabaseConfig = &v
 }
 
-func (o Gateway) MarshalJSON() ([]byte, error) {
+func (o GatewayCreateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -776,29 +549,13 @@ func (o Gateway) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o Gateway) ToMap() (map[string]interface{}, error) {
+func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Id) {
-		toSerialize["id"] = o.Id
-	}
-	if !IsNil(o.Kind) {
-		toSerialize["kind"] = o.Kind
-	}
-	if !IsNil(o.Href) {
-		toSerialize["href"] = o.Href
-	}
-	if !IsNil(o.CreatedAt) {
-		toSerialize["created_at"] = o.CreatedAt
-	}
-	if !IsNil(o.UpdatedAt) {
-		toSerialize["updated_at"] = o.UpdatedAt
-	}
 	toSerialize["name"] = o.Name
 	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
 	toSerialize["database_id"] = o.DatabaseId
-	toSerialize["namespace"] = o.Namespace
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
 	}
@@ -823,9 +580,6 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.ServerDnsNames) {
 		toSerialize["server_dns_names"] = o.ServerDnsNames
 	}
-	if !IsNil(o.RouteAddress) {
-		toSerialize["route_address"] = o.RouteAddress
-	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc
 	}
@@ -838,7 +592,7 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *Gateway) UnmarshalJSON(data []byte) (err error) {
+func (o *GatewayCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -848,7 +602,6 @@ func (o *Gateway) UnmarshalJSON(data []byte) (err error) {
 		"cluster_id",
 		"release_id",
 		"database_id",
-		"namespace",
 	}
 
 	allProperties := make(map[string]interface{})
@@ -865,53 +618,53 @@ func (o *Gateway) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varGateway := _Gateway{}
+	varGatewayCreateRequest := _GatewayCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varGateway)
+	err = decoder.Decode(&varGatewayCreateRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = Gateway(varGateway)
+	*o = GatewayCreateRequest(varGatewayCreateRequest)
 
 	return err
 }
 
-type NullableGateway struct {
-	value *Gateway
+type NullableGatewayCreateRequest struct {
+	value *GatewayCreateRequest
 	isSet bool
 }
 
-func (v NullableGateway) Get() *Gateway {
+func (v NullableGatewayCreateRequest) Get() *GatewayCreateRequest {
 	return v.value
 }
 
-func (v *NullableGateway) Set(val *Gateway) {
+func (v *NullableGatewayCreateRequest) Set(val *GatewayCreateRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableGateway) IsSet() bool {
+func (v NullableGatewayCreateRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableGateway) Unset() {
+func (v *NullableGatewayCreateRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableGateway(val *Gateway) *NullableGateway {
-	return &NullableGateway{value: val, isSet: true}
+func NewNullableGatewayCreateRequest(val *GatewayCreateRequest) *NullableGatewayCreateRequest {
+	return &NullableGatewayCreateRequest{value: val, isSet: true}
 }
 
-func (v NullableGateway) MarshalJSON() ([]byte, error) {
+func (v NullableGatewayCreateRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableGateway) UnmarshalJSON(src []byte) error {
+func (v *NullableGatewayCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

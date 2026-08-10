@@ -433,7 +433,6 @@ test("provisions a gateway on an existing managed cluster", async ({
     database_id: "",
     fleet_id: "",
     name: "team-gateway",
-    namespace: "openshell",
     release_id: "",
   });
 });

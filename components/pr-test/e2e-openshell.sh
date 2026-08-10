@@ -14,7 +14,6 @@
 # Environment variables:
 #   OC                   oc/kubectl binary (default: oc)
 #   HYPERSHELL_NAMESPACE API server namespace (default: hypershell-api)
-#   GATEWAY_NAMESPACE    target namespace for the gateway (default: openshell-e2e)
 #   GATEWAY_NAME         gateway name (default: e2e-gw)
 #   SANDBOX_TIMEOUT      seconds to wait for sandbox (default: 120)
 #   PROVISION_TIMEOUT    seconds to wait for gateway provisioning (default: 180)
@@ -26,7 +25,7 @@ set -euo pipefail
 CLI="${OC:-oc}"
 OPENSHELL="${OPENSHELL_BIN:-openshell}"
 HS_NAMESPACE="${HYPERSHELL_NAMESPACE:-hypershell-api}"
-GW_NAMESPACE="${GATEWAY_NAMESPACE:-openshell-e2e}"
+GW_NAMESPACE=""
 GW_NAME="${GATEWAY_NAME:-e2e-gw}"
 SANDBOX_TIMEOUT="${SANDBOX_TIMEOUT:-120}"
 PROVISION_TIMEOUT="${PROVISION_TIMEOUT:-180}"
@@ -88,12 +87,6 @@ if [[ -z "$API_HOST" ]]; then
   exit 1
 fi
 
-CLUSTER_DOMAIN=$($CLI get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
-if [[ -z "$CLUSTER_DOMAIN" ]]; then
-  CLUSTER_DOMAIN="apps.rosa.vteam-stage.7fpc.p3.openshiftapps.com"
-fi
-GW_EXTERNAL_DNS="openshell-gateway-${GW_NAMESPACE}.${CLUSTER_DOMAIN}"
-
 echo ""
 bold "HyperShell OpenShell Gateway End-to-End Test"
 sep
@@ -106,9 +99,7 @@ printf '  %s\n' "5. Sandbox lifecycle (create → ready)"
 printf '  %s\n' "6. Sandbox interaction"
 echo ""
 dim  "  HyperShell API:    https://${API_HOST}"
-dim  "  Gateway namespace: ${GW_NAMESPACE}"
 dim  "  Gateway name:      ${GW_NAME}"
-dim  "  External DNS:      ${GW_EXTERNAL_DNS}"
 dim  "  Sandbox timeout:   ${SANDBOX_TIMEOUT}s"
 echo ""
 sep
@@ -133,6 +124,14 @@ for gw in items:
 
 if [[ -n "$EXISTING_ID" ]]; then
   GW_ID="$EXISTING_ID"
+  GW_NAMESPACE=$(echo "$EXISTING_GW" | python3 -c "
+import json,sys
+data = json.load(sys.stdin)
+for gw in data.get('items', []):
+    if gw.get('id','') == '${GW_ID}':
+        print(gw.get('namespace',''))
+        break
+" 2>/dev/null || true)
   GW_PHASE=$(echo "$EXISTING_GW" | python3 -c "
 import json,sys
 data = json.load(sys.stdin)
@@ -143,7 +142,7 @@ for gw in data.get('items', []):
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
-  show_cmd "curl -sk -X POST https://${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, namespace: ${GW_NAMESPACE}, ...}'"
+  show_cmd "curl -sk -X POST https://${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, ...}'"
   CREATE_RESPONSE=$(curl -sk -X POST "https://${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
     -d "{
@@ -151,12 +150,11 @@ else
       \"fleet_id\": \"e2e-fleet\",
       \"cluster_id\": \"e2e-cluster\",
       \"release_id\": \"e2e-release\",
-      \"database_id\": \"e2e-db\",
-      \"namespace\": \"${GW_NAMESPACE}\",
-      \"external_dns\": \"${GW_EXTERNAL_DNS}\"
+      \"database_id\": \"e2e-db\"
     }" 2>/dev/null || true)
 
   GW_ID=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+  GW_NAMESPACE=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
 
   if [[ -n "$GW_ID" ]]; then
     pass "Gateway created: ${GW_NAME} (${GW_ID})"
@@ -185,6 +183,12 @@ else
     exit 1
   fi
 fi
+
+if [[ -z "$GW_NAMESPACE" ]]; then
+  fail_test "Gateway response did not include a server-assigned namespace"
+  exit 1
+fi
+dim "  Gateway namespace: ${GW_NAMESPACE}"
 sep
 
 # ── 2. gateway infrastructure ──────────────────────────────────────────────

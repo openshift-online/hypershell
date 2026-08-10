@@ -260,7 +260,6 @@ export function createGatewayControlPlaneAdapter(
               database_id: "",
               fleet_id: "",
               name: input.name,
-              namespace: "openshell",
               release_id: "",
             },
             { signal: context.signal },

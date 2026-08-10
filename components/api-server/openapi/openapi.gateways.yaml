@@ -49,7 +49,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Gateway'
+              $ref: '#/components/schemas/GatewayCreateRequest'
       responses:
         '201':
           description: Created
@@ -243,6 +243,8 @@ components:
               type: string
             namespace:
               type: string
+              readOnly: true
+              description: API-assigned Kubernetes namespace derived from the Gateway identifier
             external_dns:
               type: string
             tls_mode:
@@ -277,6 +279,55 @@ components:
             database_config:
               type: string
               description: JSON-encoded database provisioning configuration
+    GatewayCreateRequest:
+      type: object
+      required:
+        - name
+        - fleet_id
+        - cluster_id
+        - release_id
+        - database_id
+      properties:
+        name:
+          type: string
+        fleet_id:
+          type: string
+        cluster_id:
+          type: string
+        release_id:
+          type: string
+        database_id:
+          type: string
+        external_dns:
+          type: string
+        tls_mode:
+          type: string
+        service_type:
+          type: string
+        status:
+          type: string
+        phase:
+          type: string
+        image:
+          type: string
+          description: Container image for the gateway deployment
+        supervisor_image:
+          type: string
+          description: Container image for the supervisor sidecar
+        server_dns_names:
+          type: array
+          items:
+            type: string
+          description: DNS names for TLS certificate SANs
+        oidc:
+          type: string
+          description: JSON-encoded OIDC authentication configuration
+        route:
+          type: string
+          description: JSON-encoded route configuration
+        database_config:
+          type: string
+          description: JSON-encoded database provisioning configuration
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END
@@ -302,8 +353,6 @@ components:
         release_id:
           type: string
         database_id:
-          type: string
-        namespace:
           type: string
         external_dns:
           type: string

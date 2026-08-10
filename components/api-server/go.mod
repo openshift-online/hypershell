@@ -8,6 +8,7 @@ require (
 	github.com/gorilla/mux v1.7.3
 	github.com/onsi/gomega v1.27.1
 	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260803221848-ee905fbd54a8
+	github.com/segmentio/ksuid v1.0.2
 	github.com/spf13/pflag v1.0.5
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
@@ -80,7 +81,6 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
-	github.com/segmentio/ksuid v1.0.2 // indirect
 	github.com/shirou/gopsutil/v3 v3.23.12 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
