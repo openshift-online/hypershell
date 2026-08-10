@@ -83,19 +83,24 @@ function jsonObject(value: string): Record<string, unknown> | undefined {
   }
 }
 
+function endpointFromRouteAddress(routeAddress: string): string | undefined {
+  if (!routeAddress) {
+    return undefined;
+  }
+  return routeAddress.replace(/^grpcs?:\/\//u, "");
+}
+
 function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const oidc = jsonObject(gateway.oidc);
   const oidcAudience = optionalString(oidc?.audience);
   const oidcClientId = optionalString(oidc?.client_id);
   const oidcIssuer = optionalString(oidc?.issuer);
 
-  // The current Gateway contract has no console URL. Keep it unavailable;
-  // route_address is a gateway endpoint and is not a browser-console URL.
   return {
     clusterId: gateway.cluster_id,
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
     databaseId: gateway.database_id,
-    externalDns: gateway.external_dns,
+    externalDns: gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     id: gateway.id,
     name: gateway.name,
     namespace: gateway.namespace,

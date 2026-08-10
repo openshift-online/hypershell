@@ -336,6 +336,21 @@ describe("gateway API operations adapter", () => {
     });
   });
 
+  it("derives the endpoint from route_address when external_dns is absent", async () => {
+    gatewayApi.get.mockResolvedValue(
+      gateway({
+        external_dns: "",
+        route_address: "grpcs://openshell-gw-test.apps.example.com:443",
+      }),
+    );
+
+    await expect(
+      controlPlane.getGateway("gateway-1", context),
+    ).resolves.toMatchObject({
+      externalDns: "openshell-gw-test.apps.example.com:443",
+    });
+  });
+
   it("keeps malformed OIDC connection values unavailable", async () => {
     gatewayApi.get.mockResolvedValue(gateway({ oidc: "not-json" }));
 
