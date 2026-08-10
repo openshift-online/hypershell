@@ -194,7 +194,7 @@ h1.pf-v5-c-title.pf-m-3xl,
 }
 
 .pf-v5-c-button.pf-m-control::before {
-  border-left-color: #e0e0e0 !important;
+  border-color: #e0e0e0 !important;
 }
 
 .pf-v5-c-button.pf-m-control {
@@ -354,7 +354,7 @@ h1.pf-v5-c-title.pf-m-3xl,
   }
 
   .pf-v5-c-button.pf-m-control::before {
-    border-left-color: #3c3f42 !important;
+    border-color: #3c3f42 !important;
   }
 
   .pf-v5-c-button.pf-m-control {
