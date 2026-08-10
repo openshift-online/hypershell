@@ -382,7 +382,16 @@ data:
       border-left-color: #e0e0e0 !important;
     }
 
+    .pf-v5-c-input-group {
+      --pf-v5-c-input-group--item--BorderLeftColor: #e0e0e0 !important;
+    }
+
+    .pf-v5-c-button.pf-m-control::before {
+      border-left-color: #e0e0e0 !important;
+    }
+
     .pf-v5-c-button.pf-m-control {
+      border-left-color: #e0e0e0 !important;
       --pf-v5-c-button--m-control--BackgroundColor: #ffffff;
       --pf-v5-c-button--m-control--hover--BackgroundColor: #ffffff;
       --pf-v5-c-button--m-control--focus--BackgroundColor: #ffffff;
