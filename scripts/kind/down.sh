@@ -9,6 +9,7 @@ require_cluster
 
 header "Removing namespace ${KIND_NAMESPACE}"
 kube delete namespace "${KIND_NAMESPACE}" --ignore-not-found
+rm -f "${SWAP_FILE}"
 success "Namespace ${KIND_NAMESPACE} deleted"
 
 # Check whether any hypershell-* namespaces remain.
