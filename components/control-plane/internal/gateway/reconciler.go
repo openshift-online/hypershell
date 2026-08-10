@@ -47,7 +47,7 @@ func ReconcileGateway(
 
 	dbImage := nsConfig.Gateway.Database.Image
 	if dbImage == "" {
-		dbImage = "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
+		dbImage = images.DefaultDatabaseImage()
 	}
 
 	if err := reconcileDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage); err != nil {
@@ -261,7 +261,7 @@ func deployGateway(
 			// DB_IMAGE_PLACEHOLDER is resolved before the generic
 			// IMAGE_PLACEHOLDER replacement runs (substring overlap).
 			raw := manifest.DeepCopy()
-			if err := ApplyDatabaseOverrides(raw, nsConfig.Gateway.Database); err != nil {
+			if err := ApplyDatabaseOverrides(raw, nsConfig.Gateway.Database, images); err != nil {
 				return fmt.Errorf("apply database overrides for %s: %w", filename, err)
 			}
 

@@ -41,6 +41,8 @@ spec:
               value: "info"
             - name: GATEWAY_API_BASE_DOMAIN
               value: "hypershell.localhost"
+            - name: RELATED_IMAGE_POSTGRESQL
+              value: "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
           resources:
             requests:
               cpu: 100m

@@ -1,5 +1,7 @@
 package gateway
 
+import "os"
+
 // ImageDefaults resolves the default container images for gateway deployments.
 // TODO: Replace StaticImageDefaults with a database-backed implementation that
 // reads from a versions table + gatewayVersion join table, so defaults can be
@@ -7,7 +9,10 @@ package gateway
 type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
+	DefaultDatabaseImage() string
 }
+
+const defaultDatabaseImage = "postgres:18"
 
 type StaticImageDefaults struct{}
 
@@ -17,6 +22,13 @@ func (StaticImageDefaults) DefaultGatewayImage() string {
 
 func (StaticImageDefaults) DefaultSupervisorImage() string {
 	return "ghcr.io/nvidia/openshell/supervisor:0.0.101"
+}
+
+func (StaticImageDefaults) DefaultDatabaseImage() string {
+	if v := os.Getenv("RELATED_IMAGE_POSTGRESQL"); v != "" {
+		return v
+	}
+	return defaultDatabaseImage
 }
 
 type NamespaceConfig struct {
