@@ -53,7 +53,7 @@ Services are accessed via `.localhost` hostnames routed through the networking
 Gateway. CoreDNS resolves all `*.hypershell.localhost` to loopback, and
 OS-level port forwarding (pfctl on macOS, iptables on Linux) redirects
 host ports 443 and 8080 to cloud-provider-kind's ephemeral Gateway ports.
-The TLS certificate is self-signed — trust it in your browser or use
+The TLS certificate is self-signed -- trust it in your browser or use
 `curl --cacert`.
 
 ## Per-Component Swap
@@ -278,7 +278,7 @@ The OIDC issuer URL **must** be
 `http://keycloak.hypershell.localhost:8080/realms/hypershell` (not the ephemeral
 port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
 passed to `openshell gateway add` must match exactly. This requires host port
-8080 to be forwarded — if it isn't, run `make kind-fix-ports` first.
+8080 to be forwarded -- if it isn't, run `make kind-fix-ports` first.
 
 The e2e test (`components/pr-test/e2e-openshell.sh`) uses the same port-forward
 fallback when no passthrough route is available.

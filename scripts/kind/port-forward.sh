@@ -11,7 +11,7 @@ require_cluster
 
 PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
 if [[ -z "${PROXY_CONTAINER}" ]]; then
-  error "No Gateway proxy container found — is cloud-provider-kind running?"
+  error "No Gateway proxy container found -- is cloud-provider-kind running?"
   exit 1
 fi
 
