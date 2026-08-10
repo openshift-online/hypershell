@@ -16,6 +16,11 @@ export const messages = defineMessages({
     defaultMessage: "Clear filters",
     description: "Action that clears collection filters.",
   },
+  clearClusterSearch: {
+    id: "app.gateway.cluster.clearSearch",
+    defaultMessage: "Clear cluster search",
+    description: "Accessible label for clearing the cluster typeahead input.",
+  },
   cliConnection: {
     id: "app.gateway.cliConnection",
     defaultMessage: "CLI connection",
@@ -41,6 +46,35 @@ export const messages = defineMessages({
     id: "app.gateway.cluster",
     defaultMessage: "Cluster",
     description: "Heading for the gateway placement cluster column.",
+  },
+  clusterLoadError: {
+    id: "app.gateway.cluster.loadError.title",
+    defaultMessage: "Managed clusters could not be loaded",
+    description: "Title shown when remote gateway placements cannot be loaded.",
+  },
+  clusterLoadErrorBody: {
+    id: "app.gateway.cluster.loadError.body",
+    defaultMessage:
+      "You can provision on Hub cluster (default), or try loading managed clusters again.",
+    description:
+      "Recovery guidance when remote gateway placements cannot be loaded.",
+  },
+  clusterProvider: {
+    id: "app.gateway.cluster.provider",
+    defaultMessage: "Provider: {provider}",
+    description:
+      "Provider context that distinguishes a managed cluster option.",
+  },
+  clusterProviderAndRegion: {
+    id: "app.gateway.cluster.providerAndRegion",
+    defaultMessage: "Provider: {provider}; region: {region}",
+    description:
+      "Provider and region context that distinguishes a managed cluster option.",
+  },
+  clusterRegion: {
+    id: "app.gateway.cluster.region",
+    defaultMessage: "Region: {region}",
+    description: "Region context that distinguishes a managed cluster option.",
   },
   copied: {
     id: "app.clipboard.copied",
@@ -156,6 +190,16 @@ export const messages = defineMessages({
     defaultMessage: "Check the values and try again.",
     description: "Recovery guidance when gateway provisioning fails.",
   },
+  hubCluster: {
+    id: "app.gateway.cluster.hub",
+    defaultMessage: "Hub cluster",
+    description: "Placement label for the cluster hosting HyperShell.",
+  },
+  hubClusterDefault: {
+    id: "app.gateway.cluster.hubDefault",
+    defaultMessage: "Hub cluster (default)",
+    description: "Default placement option for a gateway provisioning form.",
+  },
   gatewayReleaseId: {
     id: "app.gateway.releaseId",
     defaultMessage: "Gateway release ID",
@@ -207,6 +251,17 @@ export const messages = defineMessages({
     defaultMessage: "Loading gateways",
     description: "Accessible label shown while gateway data is loading.",
   },
+  loadingClusters: {
+    id: "app.gateway.cluster.loading",
+    defaultMessage: "Loading managed clusters",
+    description: "Status shown while remote gateway placements are loading.",
+  },
+  loadingClusterName: {
+    id: "app.gateway.cluster.loadingName",
+    defaultMessage: "Loading cluster name",
+    description:
+      "Status shown while a gateway row resolves its placement name.",
+  },
   managedDatabaseId: {
     id: "app.gateway.managedDatabaseId",
     defaultMessage: "Managed database ID",
@@ -215,7 +270,7 @@ export const messages = defineMessages({
   namespace: {
     id: "app.gateway.namespace",
     defaultMessage: "Namespace",
-    description: "Label for a gateway namespace form field.",
+    description: "Label for a gateway namespace value.",
   },
   notAvailable: {
     id: "app.value.notAvailable",
@@ -231,6 +286,11 @@ export const messages = defineMessages({
     id: "app.page.gateways.noResults.body",
     defaultMessage: "Adjust or clear the filter to see gateways.",
     description: "Guidance when no gateways match the current filter.",
+  },
+  noMatchingClusters: {
+    id: "app.gateway.cluster.noResults",
+    defaultMessage: "No matching clusters",
+    description: "Status shown when no managed clusters match the search.",
   },
   notifications: {
     id: "app.notifications",
@@ -263,6 +323,13 @@ export const messages = defineMessages({
     defaultMessage: "Provisioning gateway",
     description: "Accessible progress text while a gateway is provisioning.",
   },
+  moreClustersAvailable: {
+    id: "app.gateway.cluster.moreResults",
+    defaultMessage:
+      "More clusters are available. Refine your search to find a specific cluster.",
+    description:
+      "Guidance when a bounded cluster search has additional API results.",
+  },
   refreshGateways: {
     id: "app.gateways.refresh",
     defaultMessage: "Refresh gateways",
@@ -283,6 +350,11 @@ export const messages = defineMessages({
     defaultMessage: "Renaming gateway",
     description: "Accessible progress text while a gateway is being renamed.",
   },
+  retry: {
+    id: "app.action.retry",
+    defaultMessage: "Retry",
+    description: "Action that repeats a failed request.",
+  },
   requiredField: {
     id: "app.form.requiredField",
     defaultMessage: "This field is required.",
@@ -292,6 +364,16 @@ export const messages = defineMessages({
     id: "app.table.results",
     defaultMessage: "results",
     description: "Context announced after a filtered collection result count.",
+  },
+  selectCluster: {
+    id: "app.gateway.cluster.select",
+    defaultMessage: "Select a cluster",
+    description: "Accessible label and placeholder for the cluster selector.",
+  },
+  error: {
+    id: "app.status.error",
+    defaultMessage: "Error:",
+    description: "Screen-reader prefix for an error message.",
   },
   status: {
     id: "app.table.column.status",

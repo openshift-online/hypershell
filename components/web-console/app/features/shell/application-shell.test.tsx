@@ -16,7 +16,9 @@ const navigateToGatewayLabel = "Navigate to gateway";
 
 vi.mock("../../composition/gateway-composition", () => ({
   gatewayOperations: {
+    findGatewayPlacements: vi.fn(),
     getGateway: getGatewayMock,
+    getGatewayPlacement: vi.fn(),
     listGateways: vi.fn(),
     provisionGateway: vi.fn(),
     removeGateway: vi.fn(),

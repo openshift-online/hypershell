@@ -5,6 +5,7 @@ import type {
 import type { GatewayConnection } from "./gateway-connections";
 
 export const gatewayListQueryRoot = ["gateways", "list"] as const;
+export const gatewayPlacementQueryRoot = ["gateways", "placements"] as const;
 
 export function gatewayListQueryKey(request: GatewayListRequest) {
   return [
@@ -19,6 +20,14 @@ export function gatewayListQueryKey(request: GatewayListRequest) {
 
 export function gatewayQueryKey(gatewayId: string) {
   return ["gateways", "detail", gatewayId] as const;
+}
+
+export function gatewayPlacementQueryKey(search: string) {
+  return [...gatewayPlacementQueryRoot, search.trim()] as const;
+}
+
+export function gatewayPlacementDetailQueryKey(clusterId: string) {
+  return ["gateways", "placement", clusterId] as const;
 }
 
 type GatewayApiPayload = Omit<
@@ -41,13 +50,17 @@ function gatewayEndpoint(gateway: GatewayApiPayload): string | undefined {
 
 export function toGatewayConnection(
   gateway: GatewayApiPayload,
+  hubClusterName = "Hub cluster",
 ): GatewayConnection {
   const status = [gateway.status, gateway.phase].find(
     (value) => value !== undefined && value.trim().length > 0,
   );
 
   return {
-    clusterName: gateway.clusterId.trim() || "Local cluster",
+    ...(gateway.clusterId.trim()
+      ? { clusterId: gateway.clusterId.trim() }
+      : {}),
+    clusterName: gateway.clusterId.trim() ? "" : hubClusterName,
     ...(gateway.consoleUrl ? { consoleUrl: gateway.consoleUrl } : {}),
     endpoint: gatewayEndpoint(gateway),
     id: gateway.id,

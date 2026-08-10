@@ -3,6 +3,8 @@ import {
   SDKAPIError,
   type Gateway,
   type GatewayList,
+  type ManagedCluster,
+  type ManagedClusterList,
 } from "@openshift-online/hypershell-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,7 +17,14 @@ const gatewayApi = {
   list: vi.fn(),
   update: vi.fn(),
 };
-const gatewayApiFactory = vi.fn(() => gatewayApi);
+const managedClusterApi = {
+  get: vi.fn(),
+  list: vi.fn(),
+};
+const gatewayApiFactory = vi.fn(() => ({
+  gateways: gatewayApi,
+  managedClusters: managedClusterApi,
+}));
 const controlPlane = createGatewayControlPlaneAdapter(gatewayApiFactory);
 const context = {
   correlationId: "11111111-1111-4111-8111-111111111111",
@@ -71,9 +80,114 @@ function gatewayList(
   };
 }
 
+function managedCluster(
+  overrides: Partial<ManagedCluster> = {},
+): ManagedCluster {
+  return {
+    api_server_url: "https://api.east.example.com",
+    created_at: null,
+    fleet_id: "fleet-1",
+    href: "/api/hypershell/v1/managed_clusters/cluster-east",
+    id: "cluster-east",
+    kind: "ManagedCluster",
+    kubeconfig_secret: "cluster-east-kubeconfig",
+    name: "Cluster East",
+    provider: "AWS",
+    region: "us-east-1",
+    status: "Ready",
+    updated_at: null,
+    ...overrides,
+  };
+}
+
+function managedClusterList(
+  items: ManagedCluster[],
+  total = items.length,
+): ManagedClusterList {
+  return {
+    items,
+    kind: "ManagedClusterList",
+    page: 1,
+    size: items.length,
+    total,
+  };
+}
+
 describe("gateway API operations adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("maps one authoritative managed-cluster search page into placements", async () => {
+    const abortController = new AbortController();
+    managedClusterApi.list.mockResolvedValue(
+      managedClusterList([managedCluster()]),
+    );
+
+    await expect(
+      controlPlane.findGatewayPlacements(" team's east ", {
+        ...context,
+        signal: abortController.signal,
+      }),
+    ).resolves.toEqual({
+      hasMore: false,
+      items: [
+        {
+          id: "cluster-east",
+          name: "Cluster East",
+          provider: "AWS",
+          region: "us-east-1",
+          status: "Ready",
+        },
+      ],
+    });
+    expect(managedClusterApi.list).toHaveBeenCalledOnce();
+    expect(managedClusterApi.list).toHaveBeenCalledWith(
+      {
+        orderBy: "name asc",
+        page: 1,
+        search: "name ilike '%team''s east%'",
+        size: 20,
+      },
+      { signal: abortController.signal },
+    );
+  });
+
+  it("resolves a managed cluster into a gateway placement", async () => {
+    const abortController = new AbortController();
+    managedClusterApi.get.mockResolvedValue(managedCluster());
+
+    await expect(
+      controlPlane.getGatewayPlacement("cluster-east", {
+        ...context,
+        signal: abortController.signal,
+      }),
+    ).resolves.toMatchObject({
+      id: "cluster-east",
+      name: "Cluster East",
+    });
+    expect(managedClusterApi.get).toHaveBeenCalledWith("cluster-east", {
+      signal: abortController.signal,
+    });
+  });
+
+  it("reports when a bounded placement search has more results", async () => {
+    managedClusterApi.list.mockResolvedValue(
+      managedClusterList(
+        Array.from({ length: 20 }, (_, index) =>
+          managedCluster({
+            id: `cluster-${String(index)}`,
+            name: `Cluster ${String(index)}`,
+          }),
+        ),
+        21,
+      ),
+    );
+
+    await expect(
+      controlPlane.findGatewayPlacements("", context),
+    ).resolves.toMatchObject({ hasMore: true });
+    expect(managedClusterApi.list).toHaveBeenCalledOnce();
   });
 
   it("maps exactly one authoritative gateway page with search and sort", async () => {
@@ -128,22 +242,22 @@ describe("gateway API operations adapter", () => {
     );
   });
 
-  it("provisions with reconciler-owned identifiers omitted by the form", async () => {
+  it("provisions on the selected cluster with hidden request defaults", async () => {
     gatewayApi.create.mockResolvedValue(
       gateway({ database_id: "", release_id: "" }),
     );
 
     await controlPlane.provisionGateway(
       {
+        clusterId: "cluster-east",
         name: "team-gateway",
-        namespace: "openshell",
       },
       context,
     );
 
     expect(gatewayApi.create).toHaveBeenCalledWith(
       {
-        cluster_id: "",
+        cluster_id: "cluster-east",
         database_id: "",
         fleet_id: "",
         name: "team-gateway",

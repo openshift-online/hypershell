@@ -7,7 +7,7 @@ import {
 } from "./gateway-connections";
 
 const gateway: GatewayConnection = {
-  clusterName: "Local cluster",
+  clusterName: "Hub cluster",
   consoleUrl: "https://console.example.test",
   endpoint: "https://gateway.example.test:443",
   id: "gateway-1",

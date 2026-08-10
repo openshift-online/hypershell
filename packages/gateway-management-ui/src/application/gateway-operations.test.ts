@@ -36,7 +36,16 @@ function setup() {
   });
   const renameGateway = vi.fn().mockResolvedValue(gateway);
   const controlPlane: GatewayControlPlane = {
+    findGatewayPlacements: vi.fn().mockResolvedValue({
+      hasMore: false,
+      items: [],
+    }),
     getGateway: vi.fn().mockResolvedValue(gateway),
+    getGatewayPlacement: vi.fn().mockResolvedValue({
+      id: "cluster-east",
+      name: "Cluster East",
+      provider: "AWS",
+    }),
     listGateways,
     provisionGateway: vi.fn().mockResolvedValue(gateway),
     removeGateway: vi.fn().mockResolvedValue(undefined),
@@ -66,9 +75,19 @@ function setup() {
 describe("gateway application operations", () => {
   it.each([
     [
+      "find-placements",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.findGatewayPlacements(" east "),
+    ],
+    [
       "get",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.getGateway("gateway-1"),
+    ],
+    [
+      "get-placement",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.getGatewayPlacement("cluster-east"),
     ],
     [
       "list",
@@ -79,8 +98,8 @@ describe("gateway application operations", () => {
       "provision",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.provisionGateway({
+          clusterId: "",
           name: "Team gateway",
-          namespace: "openshell",
         }),
     ],
     [

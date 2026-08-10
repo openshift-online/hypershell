@@ -145,8 +145,8 @@ The canonical gateway management interface SHALL live in the private `packages/g
 The gateway management UI package SHALL own:
 
 - gateway application use cases, their entry-port contract, stable application values, driven gateway-port contract, and typed gateway-probe schemas and catalog;
-- gateway query keys, server-state queries, mutations, and cache invalidation behavior;
-- gateway list, detail, provisioning, rename, delete, connection, loading, empty, validation, error, success, and recovery presentation;
+- gateway and placement-cluster query keys, server-state queries, mutations, and cache invalidation behavior;
+- gateway list, detail, provisioning, placement selection, rename, delete, connection, loading, empty, validation, error, success, and recovery presentation;
 - canonical gateway-domain components and feature-scoped shared resource components; and
 - the localized message descriptors used by those workflows.
 
@@ -157,7 +157,7 @@ The host SHALL own:
 - the shared TanStack Query client and React Intl provider instances; and
 - product-wide notifications, telemetry, feature flags, and runtime configuration unless an explicit package integration contract delegates a narrow behavior.
 
-The package SHALL receive a purpose-shaped gateway application entry port and navigation behavior through typed props or a typed provider contract. Its application use-case factory SHALL receive an application-owned gateway control-plane port, a workflow-runtime port for time and invocation identity, and a typed domain-probe publisher. The gateway entry and driven ports SHALL express gateway tasks and stable application values rather than mirror SDK resources, transport DTOs, pagination, or a broad generated client. The host API adapter SHALL translate between the driven port and the generated SDK, including any reconciler-owned request defaults, and the host composition root SHALL wire the adapters into the package use cases. Every gateway use-case invocation and API dependency attempt SHALL publish the typed started and terminal facts required by `standards/ui/domain-observability.spec.md`. The package SHALL NOT import or construct the generated SDK, configure integrations through mutable module globals, assume a particular deployment origin, construct a second Query client, construct a second localization provider, or require a particular host router. Shared runtime libraries including React, React DOM, PatternFly, TanStack Query, and React Intl SHALL resolve to host-compatible singleton versions through peer dependency contracts or an equivalent workspace-enforced mechanism.
+The package SHALL receive a purpose-shaped gateway application entry port and navigation behavior through typed props or a typed provider contract. Its application use-case factory SHALL receive an application-owned gateway control-plane port, a workflow-runtime port for time and invocation identity, and a typed domain-probe publisher. The gateway entry and driven ports SHALL express gateway tasks and stable application values, including the managed clusters available as gateway placement targets, rather than mirror SDK resources, transport DTOs, pagination, or a broad generated client. The host API adapter SHALL translate between the driven port and the generated gateway and managed-cluster SDK resources, including any reconciler-owned request defaults, and the host composition root SHALL wire the adapters into the package use cases. Every gateway use-case invocation and API dependency attempt SHALL publish the typed started and terminal facts required by `standards/ui/domain-observability.spec.md`. The package SHALL NOT import or construct the generated SDK, configure integrations through mutable module globals, assume a particular deployment origin, construct a second Query client, construct a second localization provider, or require a particular host router. Shared runtime libraries including React, React DOM, PatternFly, TanStack Query, and React Intl SHALL resolve to host-compatible singleton versions through peer dependency contracts or an equivalent workspace-enforced mechanism.
 
 The internal package MAY expose TypeScript source to workspace consumers while it remains private and has one repository consumer. Publishing it to a registry or supporting external consumers SHALL require compiled JavaScript and declarations, explicit package exports, a versioning and deprecation policy, asset and CSS delivery contracts, compatibility testing against every supported host, and removal of consumer-specific source aliases or transpilation exceptions.
 
@@ -280,6 +280,8 @@ TanStack Query SHALL own REST response data, asynchronous request state, caching
 
 Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded.
 
+Gateway placement searches SHALL request exactly one authoritative managed-cluster API page for the normalized search value. The placement selector SHALL NOT call an all-pages helper or exhaust the managed-cluster collection before rendering. When more matching clusters exist than the returned page, the interface SHALL tell the user to refine the search rather than presenting the page as the complete result set.
+
 React Router loaders MAY verify session and route access and prefill the Query client. Loader data and React Context SHALL NOT become competing REST caches. Redux, Zustand, MobX, or another global state store SHALL NOT be added until a recorded design decision demonstrates cross-route client-only state that React, URL state, and TanStack Query cannot manage clearly.
 
 Query and mutation functions SHALL call application use cases through the narrow boundary in `standards/ui/hexagonal-architecture.spec.md`; they SHALL NOT call the generated SDK directly. TanStack Query remains the presentation-side owner of server-state policy and SHALL NOT be hidden behind a generic query port.
@@ -347,6 +349,55 @@ Preview placeholders MAY be used while the API contract is under development, bu
 Gateway status presentation SHALL use an explicit bounded mapping. Ready/success states MAY use success green; known failure states SHALL use their defined error or warning semantics; pending or transitional states SHALL use neutral or informational semantics; and unknown, absent, or unrecognized values SHALL use gray. Status text SHALL remain visible so color is never the only carrier.
 
 **Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic labels. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior.
+
+### Requirement WEB-UI-04: Gateway Placement Selection
+
+The gateway provisioning form SHALL collect a gateway name and one placement cluster. It SHALL use the PatternFly searchable single-select pattern and populate remote placement options from the managed-cluster API. The control SHALL display each managed cluster by name, distinguish options with available provider and region context, and SHALL NOT offer cluster creation or registration.
+
+The gateway collection and gateway details SHALL display the managed-cluster name for every gateway with a non-empty `cluster_id`. They SHALL resolve that identifier through the managed-cluster API, cache the result by stable cluster identifier, and render explicit loading and unavailable states without exposing the raw identifier as a display fallback. Gateways with an empty `cluster_id` SHALL display `Hub cluster` in both experiences.
+
+`Hub cluster (default)` SHALL be the initially selected placement and SHALL represent the cluster that hosts HyperShell. Selecting this option SHALL send an empty `cluster_id`. Selecting a managed cluster SHALL send that cluster's stable identifier as `cluster_id`. Typing text that does not identify a selected option SHALL NOT silently retain or submit a different placement.
+
+The form SHALL NOT collect a Kubernetes namespace, fleet identifier, release identifier, or database identifier. The host adapter SHALL send `openshell` as the namespace and empty fleet, release, and database identifiers until those values have a user-facing or reconciler-defined contract. Loading, no-match, partial-page, managed-cluster API failure, retry, and cancellation states SHALL be explicit. A managed-cluster API failure SHALL NOT prevent provisioning to the hub cluster, but the interface SHALL explain that remote placements are unavailable and provide a retry action.
+
+Managed-cluster search SHALL execute at the API through the gateway application use case and its application-owned port. Search values SHALL be normalized in the query identity, obsolete requests SHALL be cancelled, and the query SHALL request only the first bounded result page. Cluster list and gateway provisioning requests SHALL retain one correlation context each and publish their required workflow and dependency probes.
+
+**Verification:** Inspect the composed provisioning form, application port, query key, SDK adapter, request payload, and probe recordings. Exercise keyboard and screen-reader selection, search, no-match, more-results, slow load, API failure and retry, cancellation, hub provisioning, and managed-cluster provisioning. Confirm that the form contains no namespace or cluster-creation controls, the default payload uses `cluster_id: ""` and `namespace: "openshell"`, and a selected managed cluster uses its identifier without changing the other reconciler-owned identifiers.
+
+#### Scenario: Provision on the Hub Cluster
+
+- GIVEN the provisioning form has loaded
+- WHEN the user keeps `Hub cluster (default)` selected and provisions a gateway
+- THEN the request SHALL contain an empty `cluster_id`
+- AND the request SHALL contain `namespace: "openshell"`
+
+#### Scenario: Provision on a Managed Cluster
+
+- GIVEN the managed-cluster API returns an existing cluster
+- WHEN the user searches for and selects that cluster and provisions a gateway
+- THEN the request SHALL contain the selected managed cluster identifier as `cluster_id`
+- AND the interface SHALL NOT offer to create or register a cluster
+
+#### Scenario: Managed Clusters Are Unavailable
+
+- GIVEN the managed-cluster API request fails
+- WHEN the provisioning form reports the failure
+- THEN `Hub cluster (default)` SHALL remain available for selection
+- AND the user SHALL be able to retry loading managed clusters without losing valid gateway form input
+
+#### Scenario: Gateway Collection Shows Placement Names
+
+- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- WHEN the gateway collection renders that row
+- THEN the Cluster column SHALL show the managed cluster's name
+- AND it SHALL NOT show the managed cluster identifier
+
+#### Scenario: Gateway Details Show Placement Names
+
+- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- WHEN the gateway details render
+- THEN the Cluster value SHALL show the managed cluster's name
+- AND it SHALL NOT show the managed cluster identifier
 
 ### Requirement WEB-I18N-01: Localization from First Implementation
 
@@ -452,7 +503,7 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
 - gateway list, search, pagination, sort, and filter semantics;
-- managed-cluster configuration and lifecycle contracts when remote placement is introduced;
+- a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
 - authorization behavior and browser-safe capability/permission metadata;
 - stable error envelopes with field errors and a support-safe operation identifier;
@@ -464,9 +515,9 @@ The UI SHALL NOT infer authorization solely from object visibility, guess whethe
 
 During the initial single-tenant increment, every gateway returned by the API SHALL be treated as visible to every authenticated user, and the provisioning action SHALL be available in the primary gateway experience. Authorization-filtered gateway visibility and mutation capabilities SHALL be defined before a multi-tenant deployment.
 
-For the initial single-cluster deployment, the gateway table SHALL identify an empty `cluster_id` as `Local cluster` in a sortable Cluster column. The provisioning form SHALL NOT collect `fleet_id`, `cluster_id`, `release_id`, or `database_id`. It SHALL send all four fields as empty strings because the initial reconciler owns the local-cluster, gateway-image, and SQLite database defaults and does not resolve those resource identifiers. The existing API contract and data model SHALL remain unchanged by this UI increment. A future workflow MAY expose these choices after they drive reconciliation. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
+The gateway table SHALL identify an empty `cluster_id` as `Hub cluster` in a sortable Cluster column. The provisioning form SHALL expose the hub as `Hub cluster (default)` and list existing managed clusters as remote placement choices, without offering cluster creation or registration. Hub placement SHALL send an empty `cluster_id`; managed-cluster placement SHALL send the selected cluster identifier. The form SHALL NOT collect `fleet_id`, `release_id`, `database_id`, or `namespace`; it SHALL send the first three identifiers as empty strings and `namespace` as `openshell` because the reconciler owns the gateway-image and SQLite database defaults and the namespace is not currently a user choice. The existing API contract and data model SHALL remain unchanged by this UI increment. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name, and that the initial provisioning form does not expose fleet, cluster, release, or database identifier fields and sends all four identifiers as empty strings while the API schema remains unchanged.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; hub placement sends an empty cluster identifier; managed placement sends the selected cluster identifier; and the provisioning form does not expose fleet, release, database, or namespace fields while the API schema remains unchanged.
 
 ## Initial Delivery Sequence
 

@@ -11,6 +11,8 @@ export type {
   GatewayListRequest,
   GatewayOperations,
   GatewayPage as GatewayPageResult,
+  GatewayPlacement,
+  GatewayPlacementOptions,
   GatewayProvisionInput,
   GatewayRecord,
   GatewaySortDirection,
@@ -40,6 +42,8 @@ export {
 export {
   gatewayListQueryKey,
   gatewayListQueryRoot,
+  gatewayPlacementDetailQueryKey,
+  gatewayPlacementQueryKey,
   gatewayQueryKey,
   toGatewayConnection,
 } from "./gateways/gateway-data";

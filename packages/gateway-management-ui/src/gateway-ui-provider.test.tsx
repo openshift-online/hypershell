@@ -9,7 +9,9 @@ import {
 } from "./gateway-ui-provider";
 
 const gatewayOperations = {
+  findGatewayPlacements: vi.fn(),
   getGateway: vi.fn(),
+  getGatewayPlacement: vi.fn(),
   listGateways: vi.fn(),
   provisionGateway: vi.fn(),
   removeGateway: vi.fn(),

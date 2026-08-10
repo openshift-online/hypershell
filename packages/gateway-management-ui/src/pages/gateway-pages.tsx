@@ -36,6 +36,7 @@ import {
 } from "../gateways/gateway-detail-header";
 import {
   gatewayListQueryKey,
+  gatewayPlacementDetailQueryKey,
   gatewayQueryKey,
   toGatewayConnection,
 } from "../gateways/gateway-data";
@@ -77,6 +78,32 @@ function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
   const link = useGatewayLink(navigation.detailHref(gateway.id));
 
   return <a {...link}>{gateway.name}</a>;
+}
+
+function GatewayClusterName({ gateway }: { gateway: GatewayConnection }) {
+  const intl = useIntl();
+  const { gateways } = useGatewayUi();
+  const clusterId = gateway.clusterId ?? "";
+  const placementQuery = useQuery({
+    enabled: clusterId.length > 0,
+    queryFn: ({ signal }) => gateways.getGatewayPlacement(clusterId, signal),
+    queryKey: gatewayPlacementDetailQueryKey(clusterId),
+  });
+
+  if (!clusterId) {
+    return gateway.clusterName;
+  }
+  if (placementQuery.isPending) {
+    return (
+      <span role="status">
+        {intl.formatMessage(messages.loadingClusterName)}
+      </span>
+    );
+  }
+  if (placementQuery.isError) {
+    return intl.formatMessage(messages.notAvailable);
+  }
+  return placementQuery.data.name;
 }
 
 function GatewaySuccessAlerts({
@@ -172,7 +199,12 @@ export function GatewaysPage({
         gatewayRequest,
         signal,
       );
-      return { ...result, items: result.items.map(toGatewayConnection) };
+      return {
+        ...result,
+        items: result.items.map((gateway) =>
+          toGatewayConnection(gateway, intl.formatMessage(messages.hubCluster)),
+        ),
+      };
     },
     queryKey: gatewayListQueryKey(gatewayRequest),
   });
@@ -219,7 +251,7 @@ export function GatewaysPage({
     {
       id: "cluster",
       label: intl.formatMessage(messages.cluster),
-      render: ({ clusterName }) => clusterName,
+      render: (gateway) => <GatewayClusterName gateway={gateway} />,
       width: 20,
     },
     {
@@ -346,6 +378,7 @@ export function GatewayPage({
   gatewayId,
   onDeleted,
 }: GatewayPageProps) {
+  const intl = useIntl();
   const { gateways, navigation } = useGatewayUi();
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const gatewayQuery = useQuery({
@@ -365,7 +398,10 @@ export function GatewayPage({
     return <GatewayLoadState isError />;
   }
 
-  const connection = toGatewayConnection(visibleGateway);
+  const connection = toGatewayConnection(
+    visibleGateway,
+    intl.formatMessage(messages.hubCluster),
+  );
 
   return (
     <>
@@ -399,6 +435,14 @@ export function GatewayPage({
             </DescriptionListTerm>
             <DescriptionListDescription>
               {connection.status}
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              <FormattedMessage {...messages.cluster} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <GatewayClusterName gateway={connection} />
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
