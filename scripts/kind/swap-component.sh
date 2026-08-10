@@ -159,7 +159,7 @@ EOF
 
   info "Building ${COMPONENT} from working tree..."
   ${CONTAINER_ENGINE} build -t "${LOCAL_IMAGE}" \
-    -f "${DOCKERFILE}" "${BUILD_ARGS[@]}" "${BUILD_CONTEXT}"
+    -f "${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "${BUILD_CONTEXT}"
 
   info "Loading image into Kind..."
   local tar_file="/tmp/hypershell-${COMPONENT}-dev.tar"
