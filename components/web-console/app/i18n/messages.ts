@@ -48,4 +48,9 @@ export const messages = defineMessages({
     description:
       "Accessibility link that moves focus to the main page content.",
   },
+  toggleDarkMode: {
+    id: "app.toggleDarkMode",
+    defaultMessage: "Toggle dark mode",
+    description: "Accessible label for the dark mode toggle button.",
+  },
 });
