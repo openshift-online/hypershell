@@ -29,6 +29,7 @@ $ARGUMENTS
 ### Phase 2 -- Ground in the codebase
 
 Read actual code and existing specs in the affected areas:
+
 - Read existing specs in the target domain
 - Grep the components identified in Phase 1
 - Summarize back in 3-5 sentences
@@ -45,9 +46,13 @@ Follow the spec format:
 ### Phase 4 -- Critic Pass
 
 Check for:
+
 - Schema / migration impacts
 - Cross-component consistency
 - HyperShell terminology correctness
+- Incremental API search debounce, cancellation, literal wildcard/escape semantics, and bounded request counts
+- Server-state freshness, refetch, retry, and invalidation behavior rather than incidental framework defaults
+- Localized caller-supplied fallback labels in reusable presentation helpers
 
 ### Phase 5 -- Apply and Verify
 
@@ -61,14 +66,17 @@ Apply all fixes. Place the file in `specs/{domain}/` with filename `<descriptive
 # <Domain> Specification
 
 ## Purpose
+
 High-level description of this spec's domain.
 
 ## Requirements
 
 ### Requirement: <Name>
+
 The system SHALL <observable behavior>.
 
 #### Scenario: <Name>
+
 - GIVEN <precondition>
 - WHEN <action>
 - THEN <expected outcome>

@@ -3,12 +3,18 @@ import type {
   GatewayFailureKind,
   GatewayInvocationContext,
   GatewayListRequest,
+  GatewayPlacement,
   GatewayRecord,
 } from "@openshift-online/hypershell-gateway-management-ui";
-import { GatewayOperationError } from "@openshift-online/hypershell-gateway-management-ui";
+import {
+  defaultGatewayListRequest,
+  GatewayOperationError,
+  normalizeGatewayPlacementClusterIds,
+} from "@openshift-online/hypershell-gateway-management-ui";
 import {
   SDKAPIError,
   type Gateway,
+  type ManagedCluster,
   type SDKClient,
 } from "@openshift-online/hypershell-sdk";
 
@@ -16,7 +22,14 @@ type GatewayApi = Pick<
   SDKClient["gateways"],
   "create" | "delete" | "get" | "list" | "update"
 >;
-type GatewayApiFactory = (correlationId: string) => GatewayApi;
+type ManagedClusterApi = Pick<SDKClient["managedClusters"], "get" | "list">;
+interface GatewayApiClient {
+  gateways: GatewayApi;
+  managedClusters: ManagedClusterApi;
+}
+type GatewayApiFactory = (correlationId: string) => GatewayApiClient;
+
+const placementPageSize = defaultGatewayListRequest.size;
 
 const gatewaySortFields = {
   cluster: "cluster_id",
@@ -25,25 +38,58 @@ const gatewaySortFields = {
   status: "status",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
+function escapeIlikeLiteral(value: string): string {
+  // Escape backslashes first so the escapes added for SQL wildcards remain
+  // single escapes rather than being escaped again.
+  return escapeSearchLiteral(value)
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_");
+}
+
+function escapeSearchLiteral(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
 function gatewaySearch(value: string): string | undefined {
   const query = value.trim();
   if (!query) {
     return undefined;
   }
-  const literal = query.replaceAll("'", "''");
+  const literal = escapeIlikeLiteral(query);
   return ["name", "cluster_id", "status", "external_dns"]
     .map((field) => `${field} ilike '%${literal}%'`)
     .join(" or ");
 }
 
-function gatewayApi(
+function apiClient(
   factory: GatewayApiFactory,
   context: GatewayInvocationContext,
-): GatewayApi {
+): GatewayApiClient {
   return factory(context.correlationId);
 }
 
+function jsonObject(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toGatewayRecord(gateway: Gateway): GatewayRecord {
+  const oidc = jsonObject(gateway.oidc);
+  const oidcAudience = optionalString(oidc?.audience);
+  const oidcClientId = optionalString(oidc?.client_id);
+  const oidcIssuer = optionalString(oidc?.issuer);
+
+  // The current Gateway contract has no console URL. Keep it unavailable;
+  // route_address is a gateway endpoint and is not a browser-console URL.
   return {
     clusterId: gateway.cluster_id,
     databaseId: gateway.database_id,
@@ -51,9 +97,28 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     id: gateway.id,
     name: gateway.name,
     namespace: gateway.namespace,
+    ...(oidcAudience ? { oidcAudience } : {}),
+    ...(oidcClientId ? { oidcClientId } : {}),
+    ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     releaseId: gateway.release_id,
     status: gateway.status,
+  };
+}
+
+function optionalString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
+  const region = optionalString(cluster.region);
+  const status = optionalString(cluster.status);
+  return {
+    id: cluster.id,
+    name: cluster.name,
+    provider: cluster.provider,
+    ...(region ? { region } : {}),
+    ...(status ? { status } : {}),
   };
 }
 
@@ -91,10 +156,88 @@ export function createGatewayControlPlaneAdapter(
   apiFactory: GatewayApiFactory,
 ): GatewayControlPlane {
   return {
+    async findGatewayPlacements(search, context) {
+      return mapFailure(async () => {
+        const normalizedSearch = search.trim();
+        const literal = escapeIlikeLiteral(normalizedSearch);
+        const result = await apiClient(
+          apiFactory,
+          context,
+        ).managedClusters.list(
+          {
+            orderBy: "name asc",
+            page: 1,
+            ...(literal ? { search: `name ilike '%${literal}%'` } : {}),
+            size: placementPageSize,
+          },
+          { signal: context.signal },
+        );
+        const expectedItemCount = Math.min(placementPageSize, result.total);
+        if (
+          result.page !== 1 ||
+          result.total < 0 ||
+          result.items.length !== expectedItemCount
+        ) {
+          throw new GatewayOperationError("unavailable");
+        }
+        return {
+          hasMore: result.total > result.items.length,
+          items: result.items.map(toGatewayPlacement),
+        };
+      });
+    },
+    async getGatewayPlacement(clusterId, context) {
+      return mapFailure(async () =>
+        toGatewayPlacement(
+          await apiClient(apiFactory, context).managedClusters.get(clusterId, {
+            signal: context.signal,
+          }),
+        ),
+      );
+    },
+    async getGatewayPlacements(clusterIds, context) {
+      return mapFailure(async () => {
+        const normalizedClusterIds =
+          normalizeGatewayPlacementClusterIds(clusterIds);
+        if (normalizedClusterIds.length === 0) {
+          return [];
+        }
+
+        const requestedClusterIds = new Set(normalizedClusterIds);
+        const result = await apiClient(
+          apiFactory,
+          context,
+        ).managedClusters.list(
+          {
+            orderBy: "id asc",
+            page: 1,
+            search: `id in (${normalizedClusterIds
+              .map((clusterId) => `'${escapeSearchLiteral(clusterId)}'`)
+              .join(", ")})`,
+            size: normalizedClusterIds.length,
+          },
+          { signal: context.signal },
+        );
+        const returnedClusterIds = result.items.map(({ id }) => id);
+        if (
+          result.page !== 1 ||
+          result.total < 0 ||
+          result.total > normalizedClusterIds.length ||
+          result.items.length !== result.total ||
+          new Set(returnedClusterIds).size !== returnedClusterIds.length ||
+          returnedClusterIds.some(
+            (clusterId) => !requestedClusterIds.has(clusterId),
+          )
+        ) {
+          throw new GatewayOperationError("unavailable");
+        }
+        return result.items.map(toGatewayPlacement);
+      });
+    },
     async getGateway(gatewayId, context) {
       return mapFailure(async () =>
         toGatewayRecord(
-          await gatewayApi(apiFactory, context).get(gatewayId, {
+          await apiClient(apiFactory, context).gateways.get(gatewayId, {
             signal: context.signal,
           }),
         ),
@@ -103,7 +246,7 @@ export function createGatewayControlPlaneAdapter(
     async listGateways(request, context) {
       return mapFailure(async () => {
         const search = gatewaySearch(request.search);
-        const result = await gatewayApi(apiFactory, context).list(
+        const result = await apiClient(apiFactory, context).gateways.list(
           {
             orderBy: `${gatewaySortFields[request.sortField]} ${request.sortDirection}`,
             page: request.page,
@@ -135,12 +278,12 @@ export function createGatewayControlPlaneAdapter(
     async provisionGateway(input, context) {
       return mapFailure(async () =>
         toGatewayRecord(
-          await gatewayApi(apiFactory, context).create(
+          await apiClient(apiFactory, context).gateways.create(
             {
-              ...input,
-              cluster_id: "",
+              cluster_id: input.clusterId,
               database_id: "",
               fleet_id: "",
+              name: input.name,
               release_id: "",
             },
             { signal: context.signal },
@@ -150,7 +293,7 @@ export function createGatewayControlPlaneAdapter(
     },
     async removeGateway(gatewayId, context) {
       await mapFailure(() =>
-        gatewayApi(apiFactory, context).delete(gatewayId, {
+        apiClient(apiFactory, context).gateways.delete(gatewayId, {
           signal: context.signal,
         }),
       );
@@ -158,7 +301,7 @@ export function createGatewayControlPlaneAdapter(
     async renameGateway(gatewayId, name, context) {
       return mapFailure(async () =>
         toGatewayRecord(
-          await gatewayApi(apiFactory, context).update(
+          await apiClient(apiFactory, context).gateways.update(
             gatewayId,
             { name },
             { signal: context.signal },

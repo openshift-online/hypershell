@@ -1,5 +1,6 @@
 import {
   defaultGatewayListRequest,
+  gatewayListPageSizes,
   type GatewayListRequest,
 } from "@openshift-online/hypershell-gateway-management-ui";
 
@@ -15,6 +16,16 @@ function sortDirectionFrom(value: string | null) {
   return value === "asc" || value === "desc"
     ? value
     : defaultGatewayListRequest.sortDirection;
+}
+
+function sizeFrom(value: string | null): number {
+  if (!value || !/^[1-9][0-9]*$/u.test(value)) {
+    return defaultGatewayListRequest.size;
+  }
+  const size = Number(value);
+  return gatewayListPageSizes.some((candidate) => candidate === size)
+    ? size
+    : defaultGatewayListRequest.size;
 }
 
 function sortFieldFrom(value: string | null) {
@@ -37,7 +48,7 @@ export function parseGatewayListState(
   return {
     page: pageFrom(parameters.get("page")),
     search: parameters.get("q") ?? defaultGatewayListRequest.search,
-    size: defaultGatewayListRequest.size,
+    size: sizeFrom(parameters.get("size")),
     sortDirection: sortDirectionFrom(direction),
     sortField: sortFieldFrom(sort),
   };
@@ -52,6 +63,9 @@ export function serializeGatewayListState(
   }
   if (state.page !== defaultGatewayListRequest.page) {
     parameters.set("page", String(state.page));
+  }
+  if (state.size !== defaultGatewayListRequest.size) {
+    parameters.set("size", String(state.size));
   }
   if (state.sortField !== defaultGatewayListRequest.sortField) {
     parameters.set("sort", state.sortField);

@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05
 **Status:** Draft
-**Parent:** `openshell-gateway.spec.md` — core gateway provisioning
+**Parent:** `openshell-gateway.spec.md` - core gateway provisioning
 
 ---
 
@@ -22,7 +22,7 @@ The Gateway API resource SHALL include a `database` object. PostgreSQL is the so
 |---|---|---|---|---|
 | `database.storageSize` | string | No | `5Gi` | PVC size for PostgreSQL data |
 | `database.image` | string | No | `postgres:16` | PostgreSQL container image. RHEL image (`registry.redhat.io/rhel9/postgresql-16:latest`) recommended on ROSA/OpenShift. Env vars and data path adapt automatically based on image detection. |
-| `database.externalSecretRef` | string | No | — | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
+| `database.externalSecretRef` | string | No | - | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
 
 > **Image policy:** The default database image is `postgres:16`. On ROSA/OpenShift, operators SHOULD override this to `registry.redhat.io/rhel9/postgresql-16:latest` (pre-authenticated via the cluster pull secret, avoids Docker Hub rate limits). The reconciler dynamically adapts env vars and data paths based on image detection (see below).
 
@@ -196,5 +196,5 @@ serverDnsNames:
 
 ## References
 
-- [OpenShell Helm Chart — `server.externalDbSecret`](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell)
-- [OpenShell Kubernetes Setup — External DB](https://docs.nvidia.com/openshell/latest/kubernetes/setup)
+- [OpenShell Helm Chart - `server.externalDbSecret`](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell)
+- [OpenShell Kubernetes Setup - External DB](https://docs.nvidia.com/openshell/latest/kubernetes/setup)

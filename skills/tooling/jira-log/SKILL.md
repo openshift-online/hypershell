@@ -4,20 +4,20 @@ description: >
   Log Jira issues to the HYPERSHELL project with team:hypershell label
   pre-filled. Makes issues agent-actionable from cold start. Supports
   single tickets and batch creation from bullet lists. Use whenever the
-  user wants to create, log, file, track, or open Jira issues — stories,
+  user wants to create, log, file, track, or open Jira issues - stories,
   bugs, tasks, spikes, epics, cards, or tickets. Also triggers on batch
   creation requests and bullet lists of work items.
 ---
 
 # Jira Issue Logger
 
-Create well-structured Jira issues in the HYPERSHELL project with the `team:hypershell` label pre-filled. Every issue is built to be agent-actionable from a cold start — meaning another agent (or human) can pick it up and start working immediately without asking clarifying questions.
+Create well-structured Jira issues in the HYPERSHELL project with the `team:hypershell` label pre-filled. Every issue is built to be agent-actionable from a cold start - meaning another agent (or human) can pick it up and start working immediately without asking clarifying questions.
 
 ## What Makes a Jira Agent-Actionable
 
-A Jira is ready for cold-start work when it has: a user story (who/why), acceptance criteria (definition of done), repo + file paths (where to edit), constraints (what not to do), and testing requirements (expected coverage). Bug reports additionally need repro steps. Spikes need deliverables and a time-box. Epics need an overview and linked children — their actionability comes from the children being well-structured, not from the epic itself.
+A Jira is ready for cold-start work when it has: a user story (who/why), acceptance criteria (definition of done), repo + file paths (where to edit), constraints (what not to do), and testing requirements (expected coverage). Bug reports additionally need repro steps. Spikes need deliverables and a time-box. Epics need an overview and linked children - their actionability comes from the children being well-structured, not from the epic itself.
 
-This principle drives every step below — when gathering context, building descriptions, or reviewing batch tickets, ask yourself whether an agent picking this up cold would have enough information to start working without asking questions.
+This principle drives every step below - when gathering context, building descriptions, or reviewing batch tickets, ask yourself whether an agent picking this up cold would have enough information to start working without asking questions.
 
 ## User Input
 
@@ -31,11 +31,11 @@ Consider the user input before proceeding (if not empty).
 
 **Single ticket** (default): The input is a sentence, paragraph, or block of text describing one piece of work.
 
-**Batch mode**: The input contains a markdown bullet list (lines starting with `- ` or `* `). Each top-level bullet becomes a separate ticket. Sub-bullets provide context for that ticket's description. The reason batch mode skips interactive prompting is that asking questions for each of 10+ tickets would be exhausting — instead, use sub-bullet context and reasonable defaults, then confirm the full batch before creating.
+**Batch mode**: The input contains a markdown bullet list (lines starting with `- ` or `* `). Each top-level bullet becomes a separate ticket. Sub-bullets provide context for that ticket's description. The reason batch mode skips interactive prompting is that asking questions for each of 10+ tickets would be exhausting - instead, use sub-bullet context and reasonable defaults, then confirm the full batch before creating.
 
 ## Execution
 
-### Step 1 — Parse
+### Step 1 - Parse
 
 Extract from user input, per ticket:
 
@@ -46,9 +46,9 @@ Extract from user input, per ticket:
 | Priority | (inferred or ask) | See priority inference below. Values: Blocker, Critical, Major, Normal, Minor. |
 | Activity Type | (inferred) | See inference rules below. |
 | Description | (from context) | Sub-bullets, multi-line text, or gathered interactively |
-| Epic link | — | If a ticket should belong to an epic |
-| Blocking | — | "X blocks Y" relationships |
-| Related | — | "X related to Y" relationships |
+| Epic link | - | If a ticket should belong to an epic |
+| Blocking | - | "X blocks Y" relationships |
+| Related | - | "X related to Y" relationships |
 
 Type prefix syntax: `[Bug] Session crashes` → type=Bug, summary="Session crashes".
 
@@ -87,7 +87,7 @@ Infer `priority` from the issue context. Available values (highest to lowest):
 In **batch mode**, do not ask per-ticket. Instead, default unresolvable priorities to `Normal` and note
 it in the confirmation table so the user can edit before creation.
 
-### Step 2 — Gather Context (single ticket only)
+### Step 2 - Gather Context (single ticket only)
 
 To make a Jira actionable by an agent picking it up cold, gather the information they'd need. The specific info depends on the issue type:
 
@@ -95,15 +95,15 @@ To make a Jira actionable by an agent picking it up cold, gather the information
 
 **Bugs** need: steps to reproduce, expected vs actual behavior, and environment info if relevant.
 
-**Spikes** need: the question to answer, expected deliverables, and a time-box. Always include a time-box — spikes without one tend to expand indefinitely.
+**Spikes** need: the question to answer, expected deliverables, and a time-box. Always include a time-box - spikes without one tend to expand indefinitely.
 
-**Epics** need: a high-level overview of the initiative and the child stories/tasks that make it up. Epics are containers, so they don't need Testing Requirements or Acceptance Criteria of their own — their children carry those.
+**Epics** need: a high-level overview of the initiative and the child stories/tasks that make it up. Epics are containers, so they don't need Testing Requirements or Acceptance Criteria of their own - their children carry those.
 
 **All types** benefit from: relevant file paths, related issues/PRs/specs, constraints, and testing requirements.
 
-In batch mode, skip this interactive step — use whatever context the sub-bullets provide and fill in reasonable defaults for the rest. But don't skip content just because it's batch: every non-Epic ticket still needs Testing Requirements and Relevant Paths in its description, even if you have to infer them from the component. Going back to add these later is painful.
+In batch mode, skip this interactive step - use whatever context the sub-bullets provide and fill in reasonable defaults for the rest. But don't skip content just because it's batch: every non-Epic ticket still needs Testing Requirements and Relevant Paths in its description, even if you have to infer them from the component. Going back to add these later is painful.
 
-### Step 3 — Build Description
+### Step 3 - Build Description
 
 Use this template, dropping sections that don't apply:
 
@@ -145,13 +145,13 @@ As a [type of user], I want [goal], so that [benefit].
 ```
 
 **Section guidance by type:**
-- **Epics**: Overview only. No Acceptance Criteria, Testing Requirements, or User Story — those belong on the children.
+- **Epics**: Overview only. No Acceptance Criteria, Testing Requirements, or User Story - those belong on the children.
 - **Stories**: Overview, User Story, Acceptance Criteria, Technical Context (with Relevant Paths), Testing Requirements.
 - **Bugs**: Overview, Bug Details (Steps/Expected/Actual), Technical Context (with Relevant Paths), Testing Requirements.
 - **Tasks**: Overview, Acceptance Criteria, Technical Context (with Relevant Paths), Testing Requirements.
 - **Spikes**: Overview, Spike Deliverables (must include Time-box), Technical Context (with Relevant Paths).
 
-### Step 4 — Confirm
+### Step 4 - Confirm
 
 **Single ticket:**
 
@@ -169,16 +169,16 @@ About to create HYPERSHELL Jira:
 Shall I create this issue? (yes/no/edit)
 ```
 
-**Batch mode** — show a summary table:
+**Batch mode** - show a summary table:
 
 ```
 About to create N HYPERSHELL tickets:
 
 | # | Type  | Priority | Summary                        | Activity Type                     | Epic          |
 |---|-------|----------|--------------------------------|-----------------------------------|---------------|
-| 1 | Epic  | Normal   | Feature X                      | Product / Portfolio Work          | —             |
+| 1 | Epic  | Normal   | Feature X                      | Product / Portfolio Work          | -             |
 | 2 | Story | Major    | Implement Y                    | Product / Portfolio Work          | Feature X     |
-| 3 | Bug   | Major    | Fix Z                          | Quality / Stability / Reliability | —             |
+| 3 | Bug   | Major    | Fix Z                          | Quality / Stability / Reliability | -             |
 
 Blocking: #2 blocks #3
 Related: #4 related to #5
@@ -186,7 +186,7 @@ Related: #4 related to #5
 Create all? (yes/no/edit)
 ```
 
-### Step 5 — Create
+### Step 5 - Create
 
 Use `mcp__jira__jira_create_issue` with:
 
@@ -206,7 +206,7 @@ to ensure it is **Unassigned**. The project default may auto-assign to a specifi
 this explicit unassignment overrides that.
 
 **Batch execution order** (the order matters because later steps depend on earlier ones):
-1. Create Epics first — their keys are needed for linking
+1. Create Epics first - their keys are needed for linking
 2. Unassign all Epics via `mcp__jira__jira_assign_issue` with `assignee: ""`
 3. Create remaining tickets (Stories, Bugs, Tasks, Spikes)
 4. Unassign all remaining tickets via `mcp__jira__jira_assign_issue` with `assignee: ""`
@@ -218,7 +218,7 @@ this explicit unassignment overrides that.
 
 Parallelize where possible: all epics can be created in parallel, then all non-epics in parallel, then all links in parallel. But each phase must complete before the next begins.
 
-### Step 6 — Report
+### Step 6 - Report
 
 **Single ticket:**
 ```
@@ -238,9 +238,9 @@ Created N tickets:
 
 | Key            | Type  | Priority | Summary                        | Activity Type                     | Epic          |
 |----------------|-------|----------|--------------------------------|-----------------------------------|---------------|
-| HYPERSHELL-XXXXX  | Epic  | Normal   | Feature X                      | Product / Portfolio Work          | —             |
+| HYPERSHELL-XXXXX  | Epic  | Normal   | Feature X                      | Product / Portfolio Work          | -             |
 | HYPERSHELL-XXXXX  | Story | Major    | Implement Y                    | Product / Portfolio Work          | Feature X     |
-| HYPERSHELL-XXXXX  | Bug   | Major    | Fix Z                          | Quality / Stability / Reliability | —             |
+| HYPERSHELL-XXXXX  | Bug   | Major    | Fix Z                          | Quality / Stability / Reliability | -             |
 
 Links created:
 - HYPERSHELL-XXXXX blocks HYPERSHELL-XXXXX

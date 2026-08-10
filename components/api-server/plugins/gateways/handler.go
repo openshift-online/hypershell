@@ -28,12 +28,10 @@ func NewGatewayHandler(gateway GatewayService, generic services.GenericService) 
 }
 
 func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var gateway openapi.Gateway
+	var gateway openapi.GatewayCreateRequest
 	cfg := &handlers.HandlerConfig{
-		Body: &gateway,
-		Validators: []handlers.Validate{
-			handlers.ValidateEmpty(&gateway, "Id", "id"),
-		},
+		Body:       &gateway,
+		Validators: []handlers.Validate{},
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
@@ -77,9 +75,6 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			}
 			if patch.DatabaseId != nil {
 				found.DatabaseId = *patch.DatabaseId
-			}
-			if patch.Namespace != nil {
-				found.Namespace = *patch.Namespace
 			}
 			if patch.ExternalDns != nil {
 				found.ExternalDns = patch.ExternalDns

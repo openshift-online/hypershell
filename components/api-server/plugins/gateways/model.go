@@ -1,9 +1,15 @@
 package gateways
 
 import (
+	"encoding/hex"
+	"fmt"
+
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
+	"github.com/segmentio/ksuid"
 	"gorm.io/gorm"
 )
+
+const gatewayNamespacePrefix = "openshell-"
 
 type Gateway struct {
 	api.Meta
@@ -40,6 +46,12 @@ func (l GatewayList) Index() GatewayIndex {
 
 func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 	d.ID = api.NewID()
+
+	id, err := ksuid.Parse(d.ID)
+	if err != nil {
+		return fmt.Errorf("parse generated gateway ID: %w", err)
+	}
+	d.Namespace = gatewayNamespacePrefix + hex.EncodeToString(id.Bytes())
 	return nil
 }
 
@@ -49,7 +61,6 @@ type GatewayPatchRequest struct {
 	ClusterId       *string `json:"cluster_id,omitempty"`
 	ReleaseId       *string `json:"release_id,omitempty"`
 	DatabaseId      *string `json:"database_id,omitempty"`
-	Namespace       *string `json:"namespace,omitempty"`
 	ExternalDns     *string `json:"external_dns,omitempty"`
 	TlsMode         *string `json:"tls_mode,omitempty"`
 	ServiceType     *string `json:"service_type,omitempty"`

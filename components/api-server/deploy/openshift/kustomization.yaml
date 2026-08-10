@@ -6,4 +6,5 @@ resources:
   - postgres.yaml
   - api-server.yaml
   - controller.yaml
+  - controller-gateway-rbac.yaml
   - route.yaml

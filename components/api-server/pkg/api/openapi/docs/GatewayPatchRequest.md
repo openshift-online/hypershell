@@ -9,7 +9,6 @@ Name | Type | Description | Notes
 **ClusterId** | Pointer to **string** |  | [optional] 
 **ReleaseId** | Pointer to **string** |  | [optional] 
 **DatabaseId** | Pointer to **string** |  | [optional] 
-**Namespace** | Pointer to **string** |  | [optional] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -166,31 +165,6 @@ SetDatabaseId sets DatabaseId field to given value.
 `func (o *GatewayPatchRequest) HasDatabaseId() bool`
 
 HasDatabaseId returns a boolean if a field has been set.
-
-### GetNamespace
-
-`func (o *GatewayPatchRequest) GetNamespace() string`
-
-GetNamespace returns the Namespace field if non-nil, zero value otherwise.
-
-### GetNamespaceOk
-
-`func (o *GatewayPatchRequest) GetNamespaceOk() (*string, bool)`
-
-GetNamespaceOk returns a tuple with the Namespace field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetNamespace
-
-`func (o *GatewayPatchRequest) SetNamespace(v string)`
-
-SetNamespace sets Namespace field to given value.
-
-### HasNamespace
-
-`func (o *GatewayPatchRequest) HasNamespace() bool`
-
-HasNamespace returns a boolean if a field has been set.
 
 ### GetExternalDns
 

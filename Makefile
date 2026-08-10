@@ -94,7 +94,7 @@ help:
 	@echo ""
 	@echo "  Policy"
 	@echo "    check                    Run all policy checks"
-	@echo "    check-forbidden-terms    Check for forbidden terms in source"
+	@echo "    check-forbidden-terms    Check for forbidden or discouraged text"
 	@echo "    check-dependency-pins    Verify dependency version pins"
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
@@ -142,8 +142,12 @@ build-web-console:
 # Policy checks
 # ============================================================================
 
+.PHONY: test-forbidden-terms-policy
+test-forbidden-terms-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_forbidden_terms.py
+
 .PHONY: check-forbidden-terms
-check-forbidden-terms:
+check-forbidden-terms: test-forbidden-terms-policy
 	python3 scripts/check_forbidden_terms.py
 
 .PHONY: test-dependency-pin-policy
@@ -238,7 +242,7 @@ test-all: install-js
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff test:run
 
 # ============================================================================
-# Kind cluster lifecycle — shell logic lives in scripts/kind/
+# Kind cluster lifecycle - shell logic lives in scripts/kind/
 # ============================================================================
 
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE

@@ -1,4 +1,5 @@
 export interface GatewayConnection {
+  clusterId?: string;
   clusterName: string;
   consoleUrl?: string;
   endpoint?: string;
@@ -41,27 +42,31 @@ export function buildGatewayAddCommand(
   ].join(" ");
 }
 
-export function gatewayStatusColor(
+export type GatewayStatusAppearance =
+  { color: "grey" } | { status: "danger" | "info" | "success" | "warning" };
+
+export function gatewayStatusAppearance(
   status: string,
-): "blue" | "green" | "grey" | "orange" | "yellow" {
+): GatewayStatusAppearance {
   switch (status.trim().toLocaleLowerCase()) {
     case "active":
     case "available":
     case "ready":
+    case "running":
     case "succeeded":
-      return "green";
+      return { status: "success" };
     case "degraded":
     case "warning":
-      return "yellow";
+      return { status: "warning" };
     case "pending":
     case "provisioning":
     case "reconciling":
     case "updating":
-      return "blue";
+      return { status: "info" };
     case "error":
     case "failed":
-      return "orange";
+      return { status: "danger" };
     default:
-      return "grey";
+      return { color: "grey" };
   }
 }

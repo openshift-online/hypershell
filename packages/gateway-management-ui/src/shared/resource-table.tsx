@@ -29,12 +29,14 @@ export interface ResourceTableColumn<Row> {
 
 export interface ResourceTableState {
   page: number;
+  pageSize: number;
   query: string;
   sortColumnId: string;
   sortDirection: "asc" | "desc";
 }
 
-export type ResourceTableStateChangeReason = "filter" | "page" | "sort";
+export type ResourceTableStateChangeReason =
+  "filter" | "page" | "page-size" | "sort";
 
 interface ResourceTableLabels {
   actions: string;
@@ -59,7 +61,7 @@ interface ResourceTableProps<Row> {
     state: ResourceTableState,
     reason: ResourceTableStateChangeReason,
   ) => void;
-  pageSize: number;
+  pageSizeOptions: readonly number[];
   primaryAction?: React.ReactNode;
   renderRowAction?: (row: Row) => React.ReactNode;
   rows: readonly Row[];
@@ -74,7 +76,7 @@ export function ResourceTable<Row>({
   itemCount,
   labels,
   onStateChange,
-  pageSize,
+  pageSizeOptions,
   primaryAction,
   renderRowAction,
   rows,
@@ -140,8 +142,18 @@ export function ResourceTable<Row>({
               onSetPage={(_event, nextPage) => {
                 onStateChange({ ...state, page: nextPage }, "page");
               }}
+              onPerPageSelect={(_event, nextPageSize) => {
+                onStateChange(
+                  { ...state, page: 1, pageSize: nextPageSize },
+                  "page-size",
+                );
+              }}
               page={state.page}
-              perPage={pageSize}
+              perPage={state.pageSize}
+              perPageOptions={pageSizeOptions.map((value) => ({
+                title: String(value),
+                value,
+              }))}
               widgetId={`${id}-pagination`}
             />
           </ToolbarItem>
@@ -179,7 +191,7 @@ export function ResourceTable<Row>({
                   </Td>
                 ))}
                 {renderRowAction ? (
-                  <Td hasAction modifier="fitContent">
+                  <Td isActionCell modifier="fitContent">
                     {renderRowAction(row)}
                   </Td>
                 ) : null}

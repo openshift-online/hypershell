@@ -11,6 +11,8 @@ export type {
   GatewayListRequest,
   GatewayOperations,
   GatewayPage as GatewayPageResult,
+  GatewayPlacement,
+  GatewayPlacementOptions,
   GatewayProvisionInput,
   GatewayRecord,
   GatewaySortDirection,
@@ -19,6 +21,7 @@ export type {
 } from "./application/gateway-types";
 export {
   defaultGatewayListRequest,
+  gatewayListPageSizes,
   GatewayOperationError,
 } from "./application/gateway-types";
 export {
@@ -33,6 +36,7 @@ export {
   createGatewayOperations,
   type GatewayOperationDependencies,
 } from "./application/gateway-operations";
+export { normalizeGatewayPlacementClusterIds } from "./application/gateway-placement";
 export {
   GatewayCreatePage,
   type GatewayCreatePageProps,
@@ -40,6 +44,9 @@ export {
 export {
   gatewayListQueryKey,
   gatewayListQueryRoot,
+  gatewayPlacementBatchQueryKey,
+  gatewayPlacementDetailQueryKey,
+  gatewayPlacementQueryKey,
   gatewayQueryKey,
   toGatewayConnection,
 } from "./gateways/gateway-data";

@@ -24,7 +24,6 @@ type GatewayPatchRequest struct {
 	ClusterId       *string  `json:"cluster_id,omitempty"`
 	ReleaseId       *string  `json:"release_id,omitempty"`
 	DatabaseId      *string  `json:"database_id,omitempty"`
-	Namespace       *string  `json:"namespace,omitempty"`
 	ExternalDns     *string  `json:"external_dns,omitempty"`
 	TlsMode         *string  `json:"tls_mode,omitempty"`
 	ServiceType     *string  `json:"service_type,omitempty"`
@@ -214,38 +213,6 @@ func (o *GatewayPatchRequest) HasDatabaseId() bool {
 // SetDatabaseId gets a reference to the given string and assigns it to the DatabaseId field.
 func (o *GatewayPatchRequest) SetDatabaseId(v string) {
 	o.DatabaseId = &v
-}
-
-// GetNamespace returns the Namespace field value if set, zero value otherwise.
-func (o *GatewayPatchRequest) GetNamespace() string {
-	if o == nil || IsNil(o.Namespace) {
-		var ret string
-		return ret
-	}
-	return *o.Namespace
-}
-
-// GetNamespaceOk returns a tuple with the Namespace field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GatewayPatchRequest) GetNamespaceOk() (*string, bool) {
-	if o == nil || IsNil(o.Namespace) {
-		return nil, false
-	}
-	return o.Namespace, true
-}
-
-// HasNamespace returns a boolean if a field has been set.
-func (o *GatewayPatchRequest) HasNamespace() bool {
-	if o != nil && !IsNil(o.Namespace) {
-		return true
-	}
-
-	return false
-}
-
-// SetNamespace gets a reference to the given string and assigns it to the Namespace field.
-func (o *GatewayPatchRequest) SetNamespace(v string) {
-	o.Namespace = &v
 }
 
 // GetExternalDns returns the ExternalDns field value if set, zero value otherwise.
@@ -656,9 +623,6 @@ func (o GatewayPatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.DatabaseId) {
 		toSerialize["database_id"] = o.DatabaseId
-	}
-	if !IsNil(o.Namespace) {
-		toSerialize["namespace"] = o.Namespace
 	}
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns

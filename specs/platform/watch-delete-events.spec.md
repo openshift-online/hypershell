@@ -2,7 +2,7 @@
 
 ## Purpose
 
-gRPC watch streams deliver resource events (create, update, delete) from the API server to the control plane. Today, delete events carry only the `resource_id` — the resource payload is nil. This forces the control plane to maintain in-memory caches (e.g., the gateway-to-namespace map) to perform cleanup. When the control plane restarts, these caches are lost and cleanup is silently skipped.
+gRPC watch streams deliver resource events (create, update, delete) from the API server to the control plane. Today, delete events carry only the `resource_id` - the resource payload is nil. This forces the control plane to maintain in-memory caches (e.g., the gateway-to-namespace map) to perform cleanup. When the control plane restarts, these caches are lost and cleanup is silently skipped.
 
 This spec defines the behavior for including the full resource snapshot in delete watch events so that reconcilers always have the information they need to clean up, regardless of process restarts.
 

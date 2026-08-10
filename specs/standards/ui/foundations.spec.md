@@ -53,7 +53,7 @@ The default path SHALL work for a first-time user. Repeated-use accelerators, bu
 
 ### Requirement UI-FND-08: Complete Service
 
-The designed experience SHALL include discovery, entry, authentication, transaction, confirmation, notifications, support, interruption and return, amendment, cancellation, deletion, and failure recovery where applicable—not only the happy-path screen.
+The designed experience SHALL include discovery, entry, authentication, transaction, confirmation, notifications, support, interruption and return, amendment, cancellation, deletion, and failure recovery where applicable-not only the happy-path screen.
 
 **Verification:** Walk a service blueprint and execute every applicable cross-channel handoff and recovery path end to end. Verify consistent state, terminology, ownership, and outcome.
 

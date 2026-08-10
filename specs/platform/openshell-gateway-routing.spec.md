@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-05
 **Status:** Draft
-**Parent:** `openshell-gateway.spec.md` — core gateway provisioning
-**Related:** `openshell-gateway-tls.spec.md` — TLS modes; `openshell-gateway-oidc.spec.md` — OIDC authentication
+**Parent:** `openshell-gateway.spec.md` - core gateway provisioning
+**Related:** `openshell-gateway-tls.spec.md` - TLS modes; `openshell-gateway-oidc.spec.md` - OIDC authentication
 
 ---
 
@@ -19,20 +19,25 @@ This specification defines how OpenShell gateways are exposed to external client
 External Client (openshell CLI)
     │  TLS/HTTP2 (ALPN-negotiated)
     ▼
-Per-Tenant Gateway (OpenShift gateway controller / Envoy)
-    │  Created by control plane in the tenant namespace
+Per-Tenant Gateway (openshift-ingress namespace, Envoy)
+    │  Created by control plane in openshift-ingress (NOT the tenant namespace)
+    │  Ingress operator auto-creates DNSRecord → Route 53 CNAME → ELB
     │  Terminates external TLS, negotiates HTTP/2 via ALPN
-    │  GRPCRoute matches on hostname, forwards to backendRef
+    │  GRPCRoute (in tenant namespace) matches on hostname, forwards to backendRef
     │  BackendTLSPolicy: re-encrypts to pod, verifies cert via CA
     ▼
-openshell-gateway Service (ClusterIP :8080)
+openshell-gateway Service (ClusterIP :8080, tenant namespace)
     ▼
-openshell-gateway Pod
+openshell-gateway Pod (tenant namespace)
 ```
 
 Requires:
 - OpenShift 4.22+ (GatewayClass `openshift-default`)
 - Hostname: `openshell-gateway-<tenant-namespace>.<base-domain>` (auto-derived)
+
+### Why openshift-ingress?
+
+The OpenShift ingress operator's Gateway Service DNS controller only auto-creates `DNSRecord` CRs (which publish CNAME records to Route 53) for Gateway resources in the `openshift-ingress` namespace. Gateways in other namespaces get their own ELB but no DNS record, so the `*.apps` wildcard resolves to the default router instead of the Gateway's ELB. Placing the Gateway in `openshift-ingress` gives automatic DNS management without needing the ExternalDNS Operator.
 
 ---
 
@@ -49,7 +54,7 @@ The GatewayReconciler creates `openshell-gateway-allow-sandbox-v2` which allows 
 - GIVEN an OpenShell gateway exposed via GRPCRoute
 - AND the gateway namespace has NetworkPolicies applied
 - WHEN an external client connects via the per-tenant Gateway
-- THEN Gateway API proxy pods (Envoy) must reach the gateway pod on port 8080
+- THEN Gateway API proxy pods (Envoy, running in `openshift-ingress`) must reach the gateway pod on port 8080
 - AND without the proxy NetworkPolicy, the TLS handshake hangs with zero bytes read
 
 #### NetworkPolicy Definition
@@ -67,9 +72,12 @@ spec:
       app.kubernetes.io/name: openshell
   ingress:
   - from:
-    - podSelector:
+    - namespaceSelector:
         matchLabels:
-          gateway.networking.k8s.io/gateway-name: openshell-gateway
+          kubernetes.io/metadata.name: openshift-ingress
+      podSelector:
+        matchLabels:
+          gateway.networking.k8s.io/gateway-name: openshell-gw-<tenant-namespace>
     ports:
     - port: 8080
       protocol: TCP
@@ -77,7 +85,7 @@ spec:
       protocol: TCP
 ```
 
-> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule allows traffic from Gateway-labeled Envoy proxy pods (which run in the tenant namespace alongside the gateway).
+> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule allows traffic from Gateway-labeled Envoy proxy pods in `openshift-ingress` (cross-namespace, since the Gateway lives there).
 
 ---
 
@@ -107,7 +115,8 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 #### Scenario: Gateway with auto-assigned route host
 
 - GIVEN a Gateway with `route: {}`
-- THEN the control plane SHALL create a per-tenant Gateway API Gateway and GRPCRoute in the tenant namespace
+- THEN the control plane SHALL create a per-tenant Gateway API Gateway in the `openshift-ingress` namespace (named `openshell-gw-<tenant-namespace>`)
+- AND the control plane SHALL create a GRPCRoute in the tenant namespace with a cross-namespace parentRef to the Gateway
 - AND the hostname SHALL be `openshell-gateway-<tenant-namespace>.<base-domain>`
 - AND the derived hostname's first DNS label (`openshell-gateway-<tenant-namespace>`) SHALL be validated against the 63-character DNS label limit (RFC 1123)
 - AND if the label exceeds 63 characters, the reconciler SHALL truncate the namespace portion and append a short hash suffix to ensure uniqueness (e.g., `openshell-gateway-<truncated>-<hash>`)
@@ -128,7 +137,7 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 
 - GIVEN a Gateway that previously had `route` configuration and associated route resources
 - WHEN the `route` field is removed or set to null
-- THEN the GatewayReconciler SHALL delete all route-owned resources: the per-tenant Gateway API Gateway, GRPCRoute, BackendTLSPolicy, `openshell-backend-ca` ConfigMap, and `openshell-gateway-allow-router` NetworkPolicy
+- THEN the GatewayReconciler SHALL delete all route-owned resources: the per-tenant Gateway API Gateway (from `openshift-ingress`), GRPCRoute, BackendTLSPolicy, `openshell-backend-ca` ConfigMap, and `openshell-gateway-allow-router` NetworkPolicy
 - AND it SHALL clear the `routeAddress` field on the Gateway resource via the API server
 - AND the gateway SHALL revert to cluster-internal-only access
 
@@ -136,18 +145,19 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 
 ### Requirement: Per-Tenant Gateway Resource Specification
 
-The GatewayReconciler SHALL create a Gateway API Gateway resource in the tenant namespace for each openshell gateway with `route` configuration:
+The GatewayReconciler SHALL create a Gateway API Gateway resource in the `openshift-ingress` namespace for each openshell gateway with `route` configuration. The Gateway is placed in `openshift-ingress` so the ingress operator auto-creates a `DNSRecord` CR pointing the listener hostname to the Gateway's load balancer.
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: openshell-gateway
-  namespace: <tenant-namespace>
+  name: openshell-gw-<tenant-namespace>
+  namespace: openshift-ingress
   labels:
     app.kubernetes.io/name: openshell
     app.kubernetes.io/component: gateway
     app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/tenant: <tenant-namespace>
 spec:
   gatewayClassName: <GATEWAY_API_GATEWAY_CLASS>   # default: openshift-default
   listeners:
@@ -160,13 +170,21 @@ spec:
       certificateRefs:
       - name: grpc-gateway-certs
         kind: Secret
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            kubernetes.io/metadata.name: <tenant-namespace>
 ```
+
+The `grpc-gateway-certs` Secret must exist in `openshift-ingress` (cluster prerequisite -- see README). The `allowedRoutes` selector restricts which namespaces can attach GRPCRoutes to this Gateway.
 
 ---
 
 ### Requirement: GRPCRoute Resource Specification
 
-The GRPCRoute SHALL reference the per-tenant Gateway in the same namespace (no cross-namespace parentRef):
+The GRPCRoute SHALL be created in the tenant namespace with a cross-namespace parentRef pointing to the Gateway in `openshift-ingress`:
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -181,7 +199,8 @@ metadata:
     hypershell.redhat.io/managed: "true"
 spec:
   parentRefs:
-  - name: openshell-gateway
+  - name: openshell-gw-<tenant-namespace>
+    namespace: openshift-ingress
   hostnames:
   - openshell-gateway-<tenant-namespace>.<base-domain>
   rules:
@@ -189,6 +208,8 @@ spec:
     - name: openshell-gateway
       port: 8080
 ```
+
+The backendRef targets the `openshell-gateway` Service in the tenant namespace (same namespace as the GRPCRoute). No `ReferenceGrant` is needed for same-namespace backends.
 
 ---
 
@@ -221,14 +242,18 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
 |---|---|---|
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Cluster base domain for hostname generation (read from `ingresses.config.openshift.io/cluster` `.spec.domain`) |
 | `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources (e.g., `cloud-provider-kind` for Kind clusters) |
+| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where per-tenant Gateway API Gateway resources are created. On OpenShift, the ingress operator only auto-creates DNSRecord CRs for Gateways in `openshift-ingress` |
 
 ---
 
 ### Requirement: RBAC for Routing Resources
 
+The control-plane ServiceAccount needs permissions in two namespaces:
+
+**Tenant namespaces** (ClusterRole):
 ```yaml
 - apiGroups: ["gateway.networking.k8s.io"]
-  resources: ["gateways", "grpcroutes", "backendtlspolicies"]
+  resources: ["grpcroutes", "backendtlspolicies"]
   verbs: ["get", "list", "create", "update", "patch", "delete"]
 
 - apiGroups: ["gateway.networking.k8s.io"]
@@ -239,6 +264,19 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
   resources: ["networkpolicies"]
   verbs: ["get", "list", "create", "update", "patch", "delete"]
 ```
+
+**`openshift-ingress` namespace** (Role + RoleBinding):
+```yaml
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["gateways"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+```
+
+The `openshift-ingress` Role is deployed via `controller-gateway-rbac.yaml` in the deploy manifests.
 
 ---
 

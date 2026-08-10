@@ -11,6 +11,11 @@ export const messages = defineMessages({
     defaultMessage: "Cancel",
     description: "Action that leaves a form without submitting it.",
   },
+  clearClusterSearch: {
+    id: "app.gateway.cluster.clearSearch",
+    defaultMessage: "Clear cluster search",
+    description: "Accessible label for clearing the cluster typeahead input.",
+  },
   clearFilters: {
     id: "app.table.clearFilters",
     defaultMessage: "Clear filters",
@@ -41,6 +46,35 @@ export const messages = defineMessages({
     id: "app.gateway.cluster",
     defaultMessage: "Cluster",
     description: "Heading for the gateway placement cluster column.",
+  },
+  clusterLoadError: {
+    id: "app.gateway.cluster.loadError.title",
+    defaultMessage: "Managed clusters could not be loaded",
+    description: "Title shown when remote gateway placements cannot be loaded.",
+  },
+  clusterLoadErrorBody: {
+    id: "app.gateway.cluster.loadError.body",
+    defaultMessage:
+      "You can provision on Hub cluster (default), or try loading managed clusters again.",
+    description:
+      "Recovery guidance when remote gateway placements cannot be loaded.",
+  },
+  clusterProvider: {
+    id: "app.gateway.cluster.provider",
+    defaultMessage: "Provider: {provider}",
+    description:
+      "Provider context that distinguishes a managed cluster option.",
+  },
+  clusterProviderAndRegion: {
+    id: "app.gateway.cluster.providerAndRegion",
+    defaultMessage: "Provider: {provider}; region: {region}",
+    description:
+      "Provider and region context that distinguishes a managed cluster option.",
+  },
+  clusterRegion: {
+    id: "app.gateway.cluster.region",
+    defaultMessage: "Region: {region}",
+    description: "Region context that distinguishes a managed cluster option.",
   },
   copied: {
     id: "app.clipboard.copied",
@@ -90,6 +124,11 @@ export const messages = defineMessages({
     defaultMessage: "Deleting gateway",
     description: "Accessible progress text while a gateway is being deleted.",
   },
+  error: {
+    id: "app.status.error",
+    defaultMessage: "Error:",
+    description: "Screen-reader prefix for an error message.",
+  },
   filterGateways: {
     id: "app.page.gateways.filter",
     defaultMessage: "Filter by name, cluster, status, or endpoint",
@@ -100,6 +139,11 @@ export const messages = defineMessages({
     defaultMessage: "Gateway",
     description: "Fallback breadcrumb label while a gateway is loading.",
   },
+  gatewayDeleted: {
+    id: "app.gateway.deleted",
+    defaultMessage: "Gateway {gatewayName} deleted",
+    description: "Success notification after deleting a gateway.",
+  },
   gatewayDeleteError: {
     id: "app.gateway.delete.error.title",
     defaultMessage: "Gateway could not be deleted",
@@ -109,11 +153,6 @@ export const messages = defineMessages({
     id: "app.gateway.delete.error.body",
     defaultMessage: "No changes were made. Try again.",
     description: "Recovery guidance when gateway deletion fails.",
-  },
-  gatewayDeleted: {
-    id: "app.gateway.deleted",
-    defaultMessage: "Gateway {gatewayName} deleted",
-    description: "Success notification after deleting a gateway.",
   },
   gatewayDescription: {
     id: "app.page.gateway.description",
@@ -161,6 +200,11 @@ export const messages = defineMessages({
     defaultMessage: "Gateway release ID",
     description: "Label for a gateway's release identifier.",
   },
+  gatewayRenamed: {
+    id: "app.gateway.renamed",
+    defaultMessage: "Gateway renamed to {gatewayName}",
+    description: "Success notification after renaming a gateway.",
+  },
   gatewayRenameError: {
     id: "app.gateway.rename.error.title",
     defaultMessage: "Gateway could not be renamed",
@@ -171,11 +215,6 @@ export const messages = defineMessages({
     defaultMessage:
       "No changes were made. Choose a different name or try again.",
     description: "Recovery guidance when gateway renaming fails.",
-  },
-  gatewayRenamed: {
-    id: "app.gateway.renamed",
-    defaultMessage: "Gateway renamed to {gatewayName}",
-    description: "Success notification after renaming a gateway.",
   },
   gatewayRowActions: {
     id: "app.gateway.rowActions",
@@ -202,6 +241,27 @@ export const messages = defineMessages({
     defaultMessage: "No gateways",
     description: "Heading when the gateway list is empty.",
   },
+  hubCluster: {
+    id: "app.gateway.cluster.hub",
+    defaultMessage: "Hub cluster",
+    description: "Placement label for the cluster hosting HyperShell.",
+  },
+  hubClusterDefault: {
+    id: "app.gateway.cluster.hubDefault",
+    defaultMessage: "Hub cluster (default)",
+    description: "Default placement option for a gateway provisioning form.",
+  },
+  loadingClusterName: {
+    id: "app.gateway.cluster.loadingName",
+    defaultMessage: "Loading cluster name",
+    description:
+      "Status shown while a gateway row resolves its placement name.",
+  },
+  loadingClusters: {
+    id: "app.gateway.cluster.loading",
+    defaultMessage: "Loading managed clusters",
+    description: "Status shown while remote gateway placements are loading.",
+  },
   loadingGateways: {
     id: "app.gateway.loading",
     defaultMessage: "Loading gateways",
@@ -212,15 +272,22 @@ export const messages = defineMessages({
     defaultMessage: "Managed database ID",
     description: "Label for a gateway's managed database identifier.",
   },
+  moreClustersAvailable: {
+    id: "app.gateway.cluster.moreResults",
+    defaultMessage:
+      "More clusters are available. Refine your search to find a specific cluster.",
+    description:
+      "Guidance when a bounded cluster search has additional API results.",
+  },
   namespace: {
     id: "app.gateway.namespace",
     defaultMessage: "Namespace",
-    description: "Label for a gateway namespace form field.",
+    description: "Label for a gateway namespace value.",
   },
-  notAvailable: {
-    id: "app.value.notAvailable",
-    defaultMessage: "Not available",
-    description: "Shown when the API does not provide a value.",
+  noMatchingClusters: {
+    id: "app.gateway.cluster.noResults",
+    defaultMessage: "No matching clusters",
+    description: "Status shown when no managed clusters match the search.",
   },
   noMatchingGateways: {
     id: "app.page.gateways.noResults.title",
@@ -231,6 +298,11 @@ export const messages = defineMessages({
     id: "app.page.gateways.noResults.body",
     defaultMessage: "Adjust or clear the filter to see gateways.",
     description: "Guidance when no gateways match the current filter.",
+  },
+  notAvailable: {
+    id: "app.value.notAvailable",
+    defaultMessage: "Not available",
+    description: "Shown when the API does not provide a value.",
   },
   notifications: {
     id: "app.notifications",
@@ -292,6 +364,16 @@ export const messages = defineMessages({
     id: "app.table.results",
     defaultMessage: "results",
     description: "Context announced after a filtered collection result count.",
+  },
+  retry: {
+    id: "app.action.retry",
+    defaultMessage: "Retry",
+    description: "Action that repeats a failed request.",
+  },
+  selectCluster: {
+    id: "app.gateway.cluster.select",
+    defaultMessage: "Select a cluster",
+    description: "Accessible label and placeholder for the cluster selector.",
   },
   status: {
     id: "app.table.column.status",

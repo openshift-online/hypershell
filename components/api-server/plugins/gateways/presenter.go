@@ -4,23 +4,16 @@ import (
 	"encoding/json"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/pkg/util"
 )
 
-func ConvertGateway(gateway openapi.Gateway) *Gateway {
-	c := &Gateway{
-		Meta: api.Meta{
-			ID: util.NilToEmptyString(gateway.Id),
-		},
-	}
+func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
+	c := &Gateway{}
 	c.Name = gateway.Name
 	c.FleetId = gateway.FleetId
 	c.ClusterId = gateway.ClusterId
 	c.ReleaseId = gateway.ReleaseId
 	c.DatabaseId = gateway.DatabaseId
-	c.Namespace = gateway.Namespace
 	c.ExternalDns = gateway.ExternalDns
 	c.TlsMode = gateway.TlsMode
 	c.ServiceType = gateway.ServiceType
@@ -28,7 +21,6 @@ func ConvertGateway(gateway openapi.Gateway) *Gateway {
 	c.Phase = gateway.Phase
 	c.Image = gateway.Image
 	c.SupervisorImage = gateway.SupervisorImage
-	c.RouteAddress = gateway.RouteAddress
 	c.Oidc = gateway.Oidc
 	c.Route = gateway.Route
 	c.DatabaseConfig = gateway.DatabaseConfig
@@ -37,11 +29,6 @@ func ConvertGateway(gateway openapi.Gateway) *Gateway {
 		data, _ := json.Marshal(gateway.ServerDnsNames)
 		s := string(data)
 		c.ServerDnsNames = &s
-	}
-
-	if gateway.CreatedAt != nil {
-		c.CreatedAt = *gateway.CreatedAt
-		c.UpdatedAt = *gateway.UpdatedAt
 	}
 
 	return c

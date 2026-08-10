@@ -89,7 +89,7 @@ The console SHALL initially assume that authenticated users can view and provisi
 
 The masthead and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application.
 
-Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it.
+Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source.
 
 Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 
@@ -145,8 +145,8 @@ The canonical gateway management interface SHALL live in the private `packages/g
 The gateway management UI package SHALL own:
 
 - gateway application use cases, their entry-port contract, stable application values, driven gateway-port contract, and typed gateway-probe schemas and catalog;
-- gateway query keys, server-state queries, mutations, and cache invalidation behavior;
-- gateway list, detail, provisioning, rename, delete, connection, loading, empty, validation, error, success, and recovery presentation;
+- gateway and placement-cluster query keys, server-state queries, mutations, and cache invalidation behavior;
+- gateway list, detail, provisioning, placement selection, rename, delete, connection, loading, empty, validation, error, success, and recovery presentation;
 - canonical gateway-domain components and feature-scoped shared resource components; and
 - the localized message descriptors used by those workflows.
 
@@ -157,7 +157,7 @@ The host SHALL own:
 - the shared TanStack Query client and React Intl provider instances; and
 - product-wide notifications, telemetry, feature flags, and runtime configuration unless an explicit package integration contract delegates a narrow behavior.
 
-The package SHALL receive a purpose-shaped gateway application entry port and navigation behavior through typed props or a typed provider contract. Its application use-case factory SHALL receive an application-owned gateway control-plane port, a workflow-runtime port for time and invocation identity, and a typed domain-probe publisher. The gateway entry and driven ports SHALL express gateway tasks and stable application values rather than mirror SDK resources, transport DTOs, pagination, or a broad generated client. The host API adapter SHALL translate between the driven port and the generated SDK, including any reconciler-owned request defaults, and the host composition root SHALL wire the adapters into the package use cases. Every gateway use-case invocation and API dependency attempt SHALL publish the typed started and terminal facts required by `standards/ui/domain-observability.spec.md`. The package SHALL NOT import or construct the generated SDK, configure integrations through mutable module globals, assume a particular deployment origin, construct a second Query client, construct a second localization provider, or require a particular host router. Shared runtime libraries including React, React DOM, PatternFly, TanStack Query, and React Intl SHALL resolve to host-compatible singleton versions through peer dependency contracts or an equivalent workspace-enforced mechanism.
+The package SHALL receive a purpose-shaped gateway application entry port and navigation behavior through typed props or a typed provider contract. Its application use-case factory SHALL receive an application-owned gateway control-plane port, a workflow-runtime port for time and invocation identity, and a typed domain-probe publisher. The gateway entry and driven ports SHALL express gateway tasks and stable application values, including the managed clusters available as gateway placement targets, rather than mirror SDK resources, transport DTOs, pagination, or a broad generated client. The host API adapter SHALL translate between the driven port and the generated gateway and managed-cluster SDK resources, including any reconciler-owned request defaults, and the host composition root SHALL wire the adapters into the package use cases. Every gateway use-case invocation and API dependency attempt SHALL publish the typed started and terminal facts required by `standards/ui/domain-observability.spec.md`. The package SHALL NOT import or construct the generated SDK, configure integrations through mutable module globals, assume a particular deployment origin, construct a second Query client, construct a second localization provider, or require a particular host router. Shared runtime libraries including React, React DOM, PatternFly, TanStack Query, and React Intl SHALL resolve to host-compatible singleton versions through peer dependency contracts or an equivalent workspace-enforced mechanism.
 
 The internal package MAY expose TypeScript source to workspace consumers while it remains private and has one repository consumer. Publishing it to a registry or supporting external consumers SHALL require compiled JavaScript and declarations, explicit package exports, a versioning and deprecation policy, asset and CSS delivery contracts, compatibility testing against every supported host, and removal of consumer-specific source aliases or transpilation exceptions.
 
@@ -278,13 +278,15 @@ The production BFF SHALL forward the gateway management UI package's `/api/hyper
 
 TanStack Query SHALL own REST response data, asynchronous request state, caching, invalidation, and mutations. Query keys SHALL be factories that include resource kind, resource identifier, and normalized request parameters. Mutation success SHALL update or invalidate only affected keys.
 
-Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded.
+Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. Incremental gateway search SHALL debounce rapid input for 250 milliseconds so one typing burst produces one authoritative request. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded. Related placement names for the visible page SHALL be resolved with at most one additional managed-cluster list request after non-empty cluster identifiers have been normalized and deduplicated. The collection SHALL NOT issue one managed-cluster request per gateway row.
+
+Gateway placement searches SHALL debounce rapid input for 250 milliseconds and request exactly one authoritative managed-cluster API page for the normalized search value. Placement search and detail results SHALL remain fresh for 60 seconds so reopening the selector or remounting a placement name within that window does not issue another request. Search text SHALL retain literal semantics for API filter quotation, wildcard, and escape characters. The placement selector SHALL NOT call an all-pages helper or exhaust the managed-cluster collection before rendering. When more matching clusters exist than the returned page, the interface SHALL tell the user to refine the search rather than presenting the page as the complete result set.
 
 React Router loaders MAY verify session and route access and prefill the Query client. Loader data and React Context SHALL NOT become competing REST caches. Redux, Zustand, MobX, or another global state store SHALL NOT be added until a recorded design decision demonstrates cross-route client-only state that React, URL state, and TanStack Query cannot manage clearly.
 
 Query and mutation functions SHALL call application use cases through the narrow boundary in `standards/ui/hexagonal-architecture.spec.md`; they SHALL NOT call the generated SDK directly. TanStack Query remains the presentation-side owner of server-state policy and SHALL NOT be hidden behind a generic query port.
 
-**Verification:** Inventory state ownership and query keys. Navigate between gateways and list views with different request parameters and confirm that cached data never crosses resource boundaries. With an API total larger than one page, verify initial render issues one list request, page/search/sort changes issue one request for the normalized state, Back/Forward restores that state, and an inconsistent response is surfaced rather than presented as a complete collection.
+**Verification:** Inventory state ownership and query keys. Navigate between gateways and list views with different request parameters and confirm that cached data never crosses resource boundaries. With an API total larger than one page, verify initial render issues one gateway list request, page/search/sort changes issue one request for the normalized state, Back/Forward restores that state, and an inconsistent response is surfaced rather than presented as a complete collection. Cold-render the maximum gateway page with distinct managed-cluster identifiers and confirm placement resolution issues one managed-cluster list request and no per-cluster get requests. Repeat with duplicate identifiers and confirm they are deduplicated. A missing cluster or failed placement batch SHALL preserve the gateway rows and render their placement values as unavailable.
 
 ### Requirement WEB-DATA-02: URL and Local State
 
@@ -308,13 +310,13 @@ Each request path SHALL have one explicit retry owner. A TanStack Query `AbortSi
 
 ### Requirement WEB-DATA-04: Forms and Runtime Validation
 
-Nontrivial forms SHALL use React Hook Form with Zod schemas and PatternFly form components. Zod SHALL validate untrusted browser/runtime shapes where compile-time TypeScript types provide no runtime guarantee. The API remains authoritative for domain rules and authorization.
+Nontrivial forms SHALL use React Hook Form with Zod schemas and PatternFly form components. A form's Zod schema SHALL integrate through the React Hook Form resolver as the single client-side schema-validation path; a successful `handleSubmit` callback SHALL consume resolver output without parsing the same values again. Zod SHALL validate untrusted browser/runtime shapes where compile-time TypeScript types provide no runtime guarantee. The API remains authoritative for domain rules and authorization.
 
 Validation SHALL occur at submit and appropriate blur/interaction boundaries rather than producing disruptive errors for every keystroke. Forms SHALL preserve user input across recoverable failures, prevent accidental duplicate submission, focus or summarize errors accessibly, and map server field and global errors without exposing sensitive details.
 
 Destructive and conflicting changes SHALL follow the interaction and recovery requirements in `standards/ui/`.
 
-**Verification:** Exercise keyboard-only entry, server/client validation disagreement, duplicate submission, network failure, version conflict, session expiry, cancellation, and successful resubmission.
+**Verification:** Exercise keyboard-only entry, server/client validation disagreement, duplicate submission, network failure, version conflict, session expiry, cancellation, and successful resubmission. Lint presentation components against direct schema `safeParse` calls and inspect form setup for a resolver.
 
 ### Requirement WEB-UI-01: PatternFly-First Presentation
 
@@ -334,7 +336,7 @@ React components SHALL be implemented semantically and tested through user-obser
 
 ### Requirement WEB-UI-03: Gateway Connection Experience
 
-The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The full CLI command SHALL appear as a read-only PatternFly Clipboard Copy value in the resource description list rather than as a page-header action. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows.
+The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. When the gateway table reflows into its narrow responsive presentation, each row's actions trigger SHALL remain in the top-end corner rather than become a trailing content row. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The full CLI command SHALL appear as a read-only PatternFly Clipboard Copy value in the resource description list rather than as a page-header action. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows.
 
 Gateway renaming SHALL use the existing `PATCH /gateways/{id}` contract and send only the trimmed `name` field. Both rename entry points SHALL use the same required-field validation, prevent unchanged or duplicate submission, preserve user input with recovery guidance on failure, update gateway detail and breadcrumb cache state, invalidate the collection, and provide visible success feedback.
 
@@ -344,9 +346,59 @@ The generated command SHALL include the gateway name, OIDC issuer, OIDC client I
 
 Preview placeholders MAY be used while the API contract is under development, but they SHALL be isolated to explicit Storybook, test, or development fixtures and clearly removable. Production data mappers SHALL preserve missing connection values as unavailable and SHALL NOT replace them with a preview gateway's endpoint, console URL, issuer, client ID, or audience. Production connection values SHALL come from an authorized server response and SHALL NOT be inferred from unrelated deployment fields or embedded as build-time environment constants. Console and CLI controls SHALL be absent or disabled with truthful explanation until all values required by that action are available.
 
-Gateway status presentation SHALL use an explicit bounded mapping. Ready/success states MAY use success green; known failure states SHALL use their defined error or warning semantics; pending or transitional states SHALL use neutral or informational semantics; and unknown, absent, or unrecognized values SHALL use gray. Status text SHALL remain visible so color is never the only carrier.
+Gateway status presentation SHALL use an explicit bounded mapping. Ready, Running, and other success states SHALL use the PatternFly semantic success status and its brand success-green token, not the non-status green palette; known failure states SHALL use their defined error or warning semantics; pending or transitional states SHALL use neutral or informational semantics; and unknown, absent, or unrecognized values SHALL use gray. Status text SHALL remain visible so color is never the only carrier.
 
-**Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic labels. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior.
+**Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic labels. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior. At the responsive table breakpoint, verify the row actions trigger occupies the top-end action-cell position and does not appear below the labeled row values.
+
+### Requirement WEB-UI-04: Gateway Placement Selection
+
+The gateway provisioning form SHALL collect a gateway name and one placement cluster. It SHALL use the PatternFly searchable single-select pattern and populate remote placement options from the managed-cluster API. The control SHALL display each managed cluster by name, distinguish options with available provider and region context, and SHALL NOT offer cluster creation or registration.
+
+The gateway collection and gateway details SHALL display the managed-cluster name for every gateway with a non-empty `cluster_id`. Gateway details SHALL resolve one stable cluster identifier through the managed-cluster API and provide a direct retry action when name resolution fails. The gateway collection SHALL normalize and deduplicate the visible page's non-empty cluster identifiers through one application-owned normalizer, use that same normalized sequence for the batch cache key and API request, resolve it through one bounded managed-cluster list request, and cache that batch for 60 seconds. Managed-cluster typeahead results SHALL be bounded by the application-owned default collection page size. Both experiences SHALL render explicit loading and unavailable states without exposing the raw identifier as a display fallback. Gateways with an empty `cluster_id` SHALL display `Hub cluster` in both experiences.
+
+`Hub cluster (default)` SHALL be the initially selected placement and SHALL represent the cluster that hosts HyperShell. Selecting this option SHALL send an empty `cluster_id`. Selecting a managed cluster SHALL send that cluster's stable identifier as `cluster_id`. Typing text that does not identify a selected option SHALL NOT silently retain or submit a different placement. Pressing Escape during an uncommitted search SHALL close the popup and restore the input and form value to the last accepted placement.
+
+The form SHALL NOT collect a Kubernetes namespace, fleet identifier, release identifier, or database identifier. The host adapter SHALL omit namespace because the API server assigns it, and SHALL send empty fleet, release, and database identifiers until those values have a user-facing or reconciler-defined contract. Loading, no-match, partial-page, managed-cluster API failure, retry, and cancellation states SHALL be explicit. A managed-cluster API failure SHALL NOT prevent provisioning to the hub cluster, but the interface SHALL explain that remote placements are unavailable and provide a retry action.
+
+Managed-cluster search SHALL execute at the API through the gateway application use case and its application-owned port. Search values SHALL be normalized in the query identity, rapid input SHALL be debounced for 250 milliseconds, obsolete requests SHALL be cancelled, and the query SHALL request only the first bounded result page. Placement results SHALL remain fresh for 60 seconds. Cluster list and gateway provisioning requests SHALL retain one correlation context each and publish their required workflow and dependency probes.
+
+**Verification:** Inspect the composed provisioning form, application port, query key, freshness policy, SDK adapter, request payload, and probe recordings. Exercise keyboard and screen-reader selection, Escape from an uncommitted search, rapid and slow search input, literal `%`, `_`, apostrophe, and backslash search values, warm-cache remount, no-match, more-results, slow load, API failure and retry on both provisioning and gateway details, cancellation, hub provisioning, and managed-cluster provisioning. Confirm that one rapid typing burst produces one API search, warm placement data is reused for 60 seconds, the form contains no namespace or cluster-creation controls, the default payload uses `cluster_id: ""` and omits namespace, the response contains the server-assigned namespace, and a selected managed cluster uses its identifier without changing the other reconciler-owned identifiers.
+
+#### Scenario: Provision on the Hub Cluster
+
+- GIVEN the provisioning form has loaded
+- WHEN the user keeps `Hub cluster (default)` selected and provisions a gateway
+- THEN the request SHALL contain an empty `cluster_id`
+- AND the request SHALL omit namespace
+- AND the created Gateway response SHALL contain the server-assigned namespace
+
+#### Scenario: Provision on a Managed Cluster
+
+- GIVEN the managed-cluster API returns an existing cluster
+- WHEN the user searches for and selects that cluster and provisions a gateway
+- THEN the request SHALL contain the selected managed cluster identifier as `cluster_id`
+- AND the interface SHALL NOT offer to create or register a cluster
+
+#### Scenario: Managed Clusters Are Unavailable
+
+- GIVEN the managed-cluster API request fails
+- WHEN the provisioning form reports the failure
+- THEN `Hub cluster (default)` SHALL remain available for selection
+- AND the user SHALL be able to retry loading managed clusters without losing valid gateway form input
+
+#### Scenario: Gateway Collection Shows Placement Names
+
+- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- WHEN the gateway collection renders that row
+- THEN the Cluster column SHALL show the managed cluster's name
+- AND it SHALL NOT show the managed cluster identifier
+
+#### Scenario: Gateway Details Show Placement Names
+
+- GIVEN a gateway has a non-empty `cluster_id` for an existing managed cluster
+- WHEN the gateway details render
+- THEN the Cluster value SHALL show the managed cluster's name
+- AND it SHALL NOT show the managed cluster identifier
 
 ### Requirement WEB-I18N-01: Localization from First Implementation
 
@@ -452,7 +504,7 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
 - gateway list, search, pagination, sort, and filter semantics;
-- managed-cluster configuration and lifecycle contracts when remote placement is introduced;
+- a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
 - authorization behavior and browser-safe capability/permission metadata;
 - stable error envelopes with field errors and a support-safe operation identifier;
@@ -464,9 +516,9 @@ The UI SHALL NOT infer authorization solely from object visibility, guess whethe
 
 During the initial single-tenant increment, every gateway returned by the API SHALL be treated as visible to every authenticated user, and the provisioning action SHALL be available in the primary gateway experience. Authorization-filtered gateway visibility and mutation capabilities SHALL be defined before a multi-tenant deployment.
 
-For the initial single-cluster deployment, the gateway table SHALL identify an empty `cluster_id` as `Local cluster` in a sortable Cluster column. The provisioning form SHALL NOT collect `fleet_id`, `cluster_id`, `release_id`, or `database_id`. It SHALL send all four fields as empty strings because the initial reconciler owns the local-cluster, gateway-image, and SQLite database defaults and does not resolve those resource identifiers. The existing API contract and data model SHALL remain unchanged by this UI increment. A future workflow MAY expose these choices after they drive reconciliation. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
+The gateway table SHALL identify an empty `cluster_id` as `Hub cluster` in a sortable Cluster column. The provisioning form SHALL expose the hub as `Hub cluster (default)` and list existing managed clusters as remote placement choices, without offering cluster creation or registration. Hub placement SHALL send an empty `cluster_id`; managed-cluster placement SHALL send the selected cluster identifier. The form SHALL NOT collect `fleet_id`, `release_id`, `database_id`, or `namespace`; it SHALL send the first three identifiers as empty strings and omit namespace because the API server owns its assignment. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 
-**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name, and that the initial provisioning form does not expose fleet, cluster, release, or database identifier fields and sends all four identifiers as empty strings while the API schema remains unchanged.
+**Verification:** Run API contract tests and exercise permissions, the initial globally visible gateway list, managed-cluster search and placement, provisioning, valid, empty, unchanged, conflicting, and failed renames from both entry points, confirmed and cancelled deletion from both entry points, deletion failure and duplicate submission, invalid filters, duplicate creates, stale updates, lifecycle transitions, and error mapping through the BFF and UI. Verify that rename sends only the trimmed name; hub placement sends an empty cluster identifier; managed placement sends the selected cluster identifier; the create request omits namespace; the response contains an API-assigned namespace; and the provisioning form does not expose fleet, release, database, or namespace fields.
 
 ## Initial Delivery Sequence
 

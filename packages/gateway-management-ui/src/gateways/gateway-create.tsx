@@ -12,6 +12,7 @@ import {
   TextInput,
   Title,
 } from "@patternfly/react-core";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Controller, useForm, type Control } from "react-hook-form";
@@ -19,29 +20,26 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { z } from "zod";
 
 import { useGatewayUi } from "../gateway-ui-provider";
+import type { GatewayProvisionInput } from "../application/gateway-types";
 import { messages } from "../messages";
 import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
+import { GatewayPlacementSelect } from "./gateway-placement-select";
 
 export interface GatewayCreatePageProps {
   onCreated?: (gatewayId: string) => Promise<void> | void;
 }
 
 interface GatewayFormValues {
+  clusterId: string | null;
   name: string;
-  namespace: string;
 }
 
-const fieldNames = [
-  "name",
-  "namespace",
-] as const satisfies readonly (keyof GatewayFormValues)[];
-
 interface GatewayTextFieldProps {
-  control: Control<GatewayFormValues>;
+  control: Control<GatewayFormValues, undefined, GatewayProvisionInput>;
   fieldId: string;
   isDisabled: boolean;
   label: string;
-  name: keyof GatewayFormValues;
+  name: "name";
 }
 
 function GatewayTextField({
@@ -96,19 +94,33 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     const requiredString = z.string().trim().min(1, requiredMessage);
 
     return z.object({
+      clusterId: z
+        .string({ error: requiredMessage })
+        .nullable()
+        .transform((value, context) => {
+          if (value === null) {
+            context.addIssue({ code: "custom", message: requiredMessage });
+            return z.NEVER;
+          }
+          return value;
+        }),
       name: requiredString,
-      namespace: requiredString,
     });
   }, [requiredMessage]);
-  const { control, handleSubmit, setError } = useForm<GatewayFormValues>({
+  const { control, handleSubmit } = useForm<
+    GatewayFormValues,
+    undefined,
+    GatewayProvisionInput
+  >({
     defaultValues: {
+      clusterId: "",
       name: "",
-      namespace: "openshell",
     },
+    resolver: zodResolver(schema),
   });
 
   const createGateway = useMutation({
-    mutationFn: (values: GatewayFormValues) => {
+    mutationFn: (values: GatewayProvisionInput) => {
       return gateways.provisionGateway(values);
     },
     onSuccess: async (gateway) => {
@@ -125,21 +137,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
   });
 
   const submit = handleSubmit((values) => {
-    const result = schema.safeParse(values);
-    if (!result.success) {
-      for (const issue of result.error.issues) {
-        const fieldName = issue.path[0];
-        if (fieldNames.includes(fieldName as keyof GatewayFormValues)) {
-          setError(fieldName as keyof GatewayFormValues, {
-            message: issue.message,
-            type: "validate",
-          });
-        }
-      }
-      return;
-    }
-
-    createGateway.mutate(result.data);
+    createGateway.mutate(values);
   });
 
   return (
@@ -176,12 +174,17 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
             label={intl.formatMessage(messages.gatewayName)}
             name="name"
           />
-          <GatewayTextField
+          <Controller
             control={control}
-            fieldId="gateway-namespace"
-            isDisabled={createGateway.isPending}
-            label={intl.formatMessage(messages.namespace)}
-            name="namespace"
+            name="clusterId"
+            render={({ field, fieldState }) => (
+              <GatewayPlacementSelect
+                error={fieldState.error?.message}
+                isDisabled={createGateway.isPending}
+                onChange={field.onChange}
+                value={field.value}
+              />
+            )}
           />
           <ActionGroup>
             <Button

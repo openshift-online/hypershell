@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 const gateway = {
-  cluster_id: "",
+  cluster_id: "cluster-east",
   created_at: null,
   database_id: "database-1",
   external_dns: "gateway.example.test",
@@ -17,6 +17,21 @@ const gateway = {
   service_type: "",
   status: "Ready",
   tls_mode: "",
+  updated_at: null,
+};
+
+const managedCluster = {
+  api_server_url: "https://api.east.example.test",
+  created_at: null,
+  fleet_id: "fleet-1",
+  href: "/api/hypershell/v1/managed_clusters/cluster-east",
+  id: "cluster-east",
+  kind: "ManagedCluster",
+  kubeconfig_secret: "cluster-east-kubeconfig",
+  name: "Cluster East",
+  provider: "AWS",
+  region: "us-east-1",
+  status: "Ready",
   updated_at: null,
 };
 
@@ -80,6 +95,26 @@ test.beforeEach(async ({ browserName, page }) => {
       status: 200,
     });
   });
+  await page.route("**/api/hypershell/v1/managed_clusters**", async (route) => {
+    const isCollection = new URL(route.request().url()).pathname.endsWith(
+      "/managed_clusters",
+    );
+    await route.fulfill({
+      body: JSON.stringify(
+        isCollection
+          ? {
+              items: [managedCluster],
+              kind: "ManagedClusterList",
+              page: 1,
+              size: 1,
+              total: 1,
+            }
+          : managedCluster,
+      ),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
 });
 
 test("makes gateway management the primary HyperShell experience", async ({
@@ -87,7 +122,7 @@ test("makes gateway management the primary HyperShell experience", async ({
 }) => {
   await page.goto("/");
 
-  await expect(page).toHaveTitle("HyperShell — OpenShell Gateways");
+  await expect(page).toHaveTitle("HyperShell - OpenShell Gateways");
   await expect(
     page.getByRole("link", { name: "HyperShell", exact: true }),
   ).toBeVisible();
@@ -104,7 +139,7 @@ test("makes gateway management the primary HyperShell experience", async ({
   await expect(
     page
       .getByRole("grid", { name: "OpenShell Gateways" })
-      .getByText("Local cluster"),
+      .getByText("Cluster East"),
   ).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Primary navigation" }),
@@ -139,11 +174,11 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
     .getByRole("textbox", {
       name: "Filter by name, cluster, status, or endpoint",
     })
-    .fill("Local cluster");
+    .fill("Cluster East");
   await expect(
     page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\?q=Local\+cluster&sort=cluster$/u);
+  await expect(page).toHaveURL(/\?q=Cluster\+East&sort=cluster$/u);
   await page.goBack();
   await expect(page).toHaveURL(/\/$/u);
   await expect(
@@ -152,7 +187,10 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);
-  await expect(page.getByLabel("Cluster", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Cluster" })).toHaveValue(
+    "Hub cluster (default)",
+  );
+  await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
 });
 
 test("keeps connection methods on gateway details", async ({
@@ -169,10 +207,12 @@ test("keeps connection methods on gateway details", async ({
     .click();
 
   await expect(page).toHaveURL(/\/gateways\/openshell-gateway-test$/);
-  await expect(page).toHaveTitle("HyperShell — Gateway details");
+  await expect(page).toHaveTitle("HyperShell - Gateway details");
   await expect(
     page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
   ).toBeFocused();
+  await expect(page.getByText("Cluster East", { exact: true })).toBeVisible();
+  await expect(page.getByText("cluster-east", { exact: true })).toHaveCount(0);
   await expect(
     page.getByRole("link", {
       name: "Open console for openshell-gateway-test in a new tab",
@@ -323,7 +363,7 @@ test("does not preserve removed administration routes", async ({ page }) => {
   }
 });
 
-test("provisions a gateway without exposing placement fields", async ({
+test("provisions a gateway on an existing managed cluster", async ({
   page,
 }) => {
   let requestBody: Record<string, unknown> | undefined;
@@ -338,7 +378,7 @@ test("provisions a gateway without exposing placement fields", async ({
       contentType: "application/json",
       status: 201,
       body: JSON.stringify({
-        cluster_id: "",
+        cluster_id: "cluster-east",
         created_at: null,
         database_id: "",
         external_dns: "",
@@ -363,9 +403,19 @@ test("provisions a gateway without exposing placement fields", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
-  await expect(page.getByLabel("Cluster", { exact: true })).toHaveCount(0);
+  const clusterInput = page.getByRole("combobox", { name: "Cluster" });
+  await expect(clusterInput).toHaveValue("Hub cluster (default)");
+  await page.getByRole("button", { name: "Clear cluster search" }).click();
+  await clusterInput.fill("East");
+  await page.getByText("Cluster East", { exact: true }).click();
+  await expect(clusterInput).toHaveValue("Cluster East");
+  await expect(page.getByText("Provider: AWS; region: us-east-1")).toHaveCount(
+    0,
+  );
+  await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Gateway release")).toHaveCount(0);
   await expect(page.getByLabel("Managed database")).toHaveCount(0);
+  await expect(page.getByText(/create|register/iu)).toHaveCount(0);
   await page.getByLabel("Gateway name").fill("team-gateway");
   await page.getByRole("button", { name: "Provision gateway" }).click();
 
@@ -379,11 +429,10 @@ test("provisions a gateway without exposing placement fields", async ({
   await expect(page.getByText("Not available")).toHaveCount(2);
   await expect(page.getByRole("textbox")).toHaveCount(0);
   expect(requestBody).toEqual({
-    cluster_id: "",
+    cluster_id: "cluster-east",
     database_id: "",
     fleet_id: "",
     name: "team-gateway",
-    namespace: "openshell",
     release_id: "",
   });
 });
@@ -403,6 +452,28 @@ test("reflows the gateway table without horizontal page overflow", async ({
       document.documentElement.clientWidth,
   );
   expect(hasOverflow).toBe(false);
+
+  const gatewayRow = page
+    .getByRole("grid", { name: "OpenShell Gateways" })
+    .getByRole("row")
+    .filter({ hasText: "openshell-gateway-test" });
+  const actionsButton = gatewayRow.getByRole("button", {
+    name: "Actions for openshell-gateway-test",
+  });
+  const actionCell = actionsButton.locator("xpath=ancestor::td[1]");
+  await expect(actionCell).toHaveClass(/pf-v6-c-table__action/u);
+
+  const [rowBox, actionsBox] = await Promise.all([
+    gatewayRow.boundingBox(),
+    actionsButton.boundingBox(),
+  ]);
+  if (!rowBox || !actionsBox) {
+    throw new Error("Expected the responsive gateway row action to be visible");
+  }
+  expect(actionsBox.y).toBeLessThan(rowBox.y + 48);
+  expect(
+    rowBox.x + rowBox.width - (actionsBox.x + actionsBox.width),
+  ).toBeLessThan(48);
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);

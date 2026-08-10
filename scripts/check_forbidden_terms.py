@@ -25,6 +25,7 @@ _TERM_PARTS = (
     ("v", "-team"),
 )
 _DISPLAY_TERMS = tuple("".join(parts) for parts in _TERM_PARTS)
+_EM_DASH_LABEL = "em dash (U+2014)"
 _PATTERNS = tuple(
     (term, re.compile(re.escape(term), re.IGNORECASE)) for term in _DISPLAY_TERMS
 ) + (
@@ -32,6 +33,7 @@ _PATTERNS = tuple(
         " ".join(("agent", "control", "plane")),
         re.compile(r"agent\s+control\s+plane", re.IGNORECASE),
     ),
+    (_EM_DASH_LABEL, re.compile(chr(0x2014))),
 )
 
 
@@ -181,7 +183,7 @@ def main() -> int:
         if stale_entries:
             print(file=sys.stderr)
         print(
-            "Forbidden and deprecated terminology was found. Use the HyperShell "
+            "Forbidden or discouraged text was found. Use the repository-approved "
             "equivalent instead:",
             file=sys.stderr,
         )

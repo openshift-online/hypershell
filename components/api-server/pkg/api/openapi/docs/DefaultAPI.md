@@ -104,7 +104,7 @@ Name | Type | Description  | Notes
 
 ## CreateGateway
 
-> Gateway CreateGateway(ctx).Gateway(gateway).Execute()
+> Gateway CreateGateway(ctx).GatewayCreateRequest(gatewayCreateRequest).Execute()
 
 Create a new gateway
 
@@ -121,11 +121,11 @@ import (
 )
 
 func main() {
-	gateway := *openapiclient.NewGateway("Name_example", "FleetId_example", "ClusterId_example", "ReleaseId_example", "DatabaseId_example", "Namespace_example") // Gateway | Gateway data
+	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "FleetId_example", "ClusterId_example", "ReleaseId_example", "DatabaseId_example") // GatewayCreateRequest | Gateway data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.CreateGateway(context.Background()).Gateway(gateway).Execute()
+	resp, r, err := apiClient.DefaultAPI.CreateGateway(context.Background()).GatewayCreateRequest(gatewayCreateRequest).Execute()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateGateway``: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
@@ -146,7 +146,7 @@ Other parameters are passed through a pointer to a apiCreateGatewayRequest struc
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **gateway** | [**Gateway**](Gateway.md) | Gateway data | 
+ **gatewayCreateRequest** | [**GatewayCreateRequest**](GatewayCreateRequest.md) | Gateway data | 
 
 ### Return type
 

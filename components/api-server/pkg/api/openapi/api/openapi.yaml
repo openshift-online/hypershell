@@ -1219,7 +1219,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/Gateway"
+              $ref: "#/components/schemas/GatewayCreateRequest"
         description: Gateway data
         required: true
       responses:
@@ -2233,6 +2233,9 @@ components:
           database_id:
             type: string
           namespace:
+            description: API-assigned Kubernetes namespace derived from the Gateway
+              identifier
+            readOnly: true
             type: string
           external_dns:
             type: string
@@ -2389,7 +2392,6 @@ components:
         database_id: database_id
         database_config: database_config
         name: name
-        namespace: namespace
         fleet_id: fleet_id
         external_dns: external_dns
         status: status
@@ -2403,8 +2405,6 @@ components:
         release_id:
           type: string
         database_id:
-          type: string
-        namespace:
           type: string
         external_dns:
           type: string
@@ -2527,6 +2527,74 @@ components:
           type: string
         status:
           type: string
+      type: object
+    GatewayCreateRequest:
+      example:
+        phase: phase
+        release_id: release_id
+        image: image
+        server_dns_names:
+        - server_dns_names
+        - server_dns_names
+        oidc: oidc
+        supervisor_image: supervisor_image
+        cluster_id: cluster_id
+        service_type: service_type
+        tls_mode: tls_mode
+        route: route
+        database_id: database_id
+        database_config: database_config
+        name: name
+        fleet_id: fleet_id
+        external_dns: external_dns
+        status: status
+      properties:
+        name:
+          type: string
+        fleet_id:
+          type: string
+        cluster_id:
+          type: string
+        release_id:
+          type: string
+        database_id:
+          type: string
+        external_dns:
+          type: string
+        tls_mode:
+          type: string
+        service_type:
+          type: string
+        status:
+          type: string
+        phase:
+          type: string
+        image:
+          description: Container image for the gateway deployment
+          type: string
+        supervisor_image:
+          description: Container image for the supervisor sidecar
+          type: string
+        server_dns_names:
+          description: DNS names for TLS certificate SANs
+          items:
+            type: string
+          type: array
+        oidc:
+          description: JSON-encoded OIDC authentication configuration
+          type: string
+        route:
+          description: JSON-encoded route configuration
+          type: string
+        database_config:
+          description: JSON-encoded database provisioning configuration
+          type: string
+      required:
+      - cluster_id
+      - database_id
+      - fleet_id
+      - name
+      - release_id
       type: object
   securitySchemes:
     Bearer:

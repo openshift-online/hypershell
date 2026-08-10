@@ -14,7 +14,7 @@ Name | Type | Description | Notes
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
 **DatabaseId** | **string** |  | 
-**Namespace** | **string** |  | 
+**Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 

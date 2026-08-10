@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Review this Go handler code for HyperShell conventions. The file is at skills/review/amber-review/evals/files/panic_in_handler.go — it's a gateway deletion handler.",
+      "prompt": "Review this Go handler code for HyperShell conventions. The file is at skills/review/amber-review/evals/files/panic_in_handler.go - it's a gateway deletion handler.",
       "expected_output": "Should flag multiple panic() calls as Critical/Blocker violations. Should recommend replacing with proper error handling using fmt.Errorf and HTTP error responses. Should also flag missing errors.IsNotFound check.",
       "files": ["evals/files/panic_in_handler.go"],
       "expectations": [
@@ -17,7 +17,7 @@
     },
     {
       "id": 2,
-      "prompt": "Please review skills/review/amber-review/evals/files/secret_in_logs.go — this is an authentication handler for the HyperShell API server.",
+      "prompt": "Please review skills/review/amber-review/evals/files/secret_in_logs.go - this is an authentication handler for the HyperShell API server.",
       "expected_output": "Should flag logging of API keys and tokens as Blocker severity. Should recommend using len(secretValue) or redacted placeholders instead of raw secret values in log output.",
       "files": ["evals/files/secret_in_logs.go"],
       "expectations": [
@@ -33,7 +33,7 @@
     },
     {
       "id": 3,
-      "prompt": "Review skills/review/amber-review/evals/files/clean_code.go — it's a fleet GET handler for HyperShell.",
+      "prompt": "Review skills/review/amber-review/evals/files/clean_code.go - it's a fleet GET handler for HyperShell.",
       "expected_output": "Should find the code largely compliant. Proper error wrapping, IsNotFound handling, no panic(), no secrets logged. May note minor improvements but overall should approve.",
       "files": ["evals/files/clean_code.go"],
       "expectations": [

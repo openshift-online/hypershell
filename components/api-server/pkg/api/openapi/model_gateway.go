@@ -22,22 +22,23 @@ var _ MappedNullable = &Gateway{}
 
 // Gateway struct for Gateway
 type Gateway struct {
-	Id          *string    `json:"id,omitempty"`
-	Kind        *string    `json:"kind,omitempty"`
-	Href        *string    `json:"href,omitempty"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-	Name        string     `json:"name"`
-	FleetId     string     `json:"fleet_id"`
-	ClusterId   string     `json:"cluster_id"`
-	ReleaseId   string     `json:"release_id"`
-	DatabaseId  string     `json:"database_id"`
-	Namespace   string     `json:"namespace"`
-	ExternalDns *string    `json:"external_dns,omitempty"`
-	TlsMode     *string    `json:"tls_mode,omitempty"`
-	ServiceType *string    `json:"service_type,omitempty"`
-	Status      *string    `json:"status,omitempty"`
-	Phase       *string    `json:"phase,omitempty"`
+	Id         *string    `json:"id,omitempty"`
+	Kind       *string    `json:"kind,omitempty"`
+	Href       *string    `json:"href,omitempty"`
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+	Name       string     `json:"name"`
+	FleetId    string     `json:"fleet_id"`
+	ClusterId  string     `json:"cluster_id"`
+	ReleaseId  string     `json:"release_id"`
+	DatabaseId string     `json:"database_id"`
+	// API-assigned Kubernetes namespace derived from the Gateway identifier
+	Namespace   string  `json:"namespace"`
+	ExternalDns *string `json:"external_dns,omitempty"`
+	TlsMode     *string `json:"tls_mode,omitempty"`
+	ServiceType *string `json:"service_type,omitempty"`
+	Status      *string `json:"status,omitempty"`
+	Phase       *string `json:"phase,omitempty"`
 	// Container image for the gateway deployment
 	Image *string `json:"image,omitempty"`
 	// Container image for the supervisor sidecar

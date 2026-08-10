@@ -2,9 +2,9 @@
 
 **Date:** 2026-08-05
 **Status:** Draft
-**Related:** `control-plane.spec.md` — CP reconciliation patterns; `data-model.spec.md` — Gateway kind definition; `security/gateway-rbac-policy.spec.md` — gateway RBAC
-**Skill:** `skills/build/full-stack-pipeline/` — wave-based implementation pipeline
-**Upstream:** [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) — gateway Helm chart, `server.externalDbSecret` pattern; [OpenShell OIDC User Authentication](https://docs.nvidia.com/openshell/latest/kubernetes/access-control#oidc-user-authentication)
+**Related:** `control-plane.spec.md` - CP reconciliation patterns; `data-model.spec.md` - Gateway kind definition; `security/gateway-rbac-policy.spec.md` - gateway RBAC
+**Skill:** `skills/build/full-stack-pipeline/` - wave-based implementation pipeline
+**Upstream:** [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) - gateway Helm chart, `server.externalDbSecret` pattern; [OpenShell OIDC User Authentication](https://docs.nvidia.com/openshell/latest/kubernetes/access-control#oidc-user-authentication)
 
 ### Sub-Specifications
 
@@ -21,12 +21,12 @@ This specification covers core provisioning. Domain-specific concerns are define
 
 ## Purpose
 
-The control plane SHALL provision and reconcile OpenShell gateway deployments in project namespaces through a fully API-driven model. Gateway configuration is expressed as a first-class HyperShell resource (`kind: Gateway`), applied via `hsctl apply -k` alongside Project resources. The API server persists Gateway resources in PostgreSQL. The control plane discovers Gateway resources via the same gRPC watch stream used for all other resources and reconciles them into Kubernetes gateway deployments.
+The control plane SHALL provision and reconcile OpenShell gateway deployments in dedicated, API-assigned namespaces through a fully API-driven model. The API server persists Gateway resources in PostgreSQL. The control plane discovers Gateway resources via the same gRPC watch stream used for all other resources and reconciles them into Kubernetes gateway deployments.
 
 This specification covers core gateway provisioning. OIDC, TLS, routing, and database concerns are defined in dedicated sub-specs (see table above).
 
-- **Core Provisioning** — Gateway as API resource, GatewayReconciler, shared kustomize library, manifest templating, config validation, kustomize overlays, gateway deployment resources, failure handling
-- **OpenShift-Specific** — SCC bindings, security context adjustments
+- **Core Provisioning** - Gateway as API resource, GatewayReconciler, shared kustomize library, manifest templating, config validation, kustomize overlays, gateway deployment resources, failure handling
+- **OpenShift-Specific** - SCC bindings, security context adjustments
 
 ---
 
@@ -43,17 +43,18 @@ API Server (PostgreSQL)
     │  persists Gateway resource
     │  emits gRPC watch event
     ▼
-Control Plane — GatewayReconciler (internal/reconciler/)
+Control Plane - GatewayReconciler (internal/reconciler/)
     │  receives Gateway ADDED/MODIFIED event
     │  validates image, DNS names, TOML config
-    │  applies gateway K8s manifests to the project namespace
+    │  creates the API-assigned namespace when absent
+    │  applies gateway K8s manifests to that namespace
     ▼
 Kubernetes (Deployment, Service, RBAC, certgen Job, NetworkPolicy)
 ```
 
-### Relationship to Projects
+### Gateway Namespace Ownership
 
-**Project = Namespace.** The ProjectReconciler already creates a Kubernetes namespace for each Project via `ensureNamespace()`. A Gateway resource references a Project by name. When the GatewayReconciler processes a Gateway event, the target namespace already exists because the ProjectReconciler runs first in the reconciler chain.
+The API server assigns the Gateway namespace as `openshell-<gateway-id-hex>` before persistence and event publication, where the suffix is the lowercase hexadecimal encoding of the Gateway KSUID bytes. Clients do not select or update it. The GatewayReconciler creates that namespace if it is absent and then uses the persisted value for all resources. Gateway renames do not change namespace.
 
 ### Relationship to PlatformReconciler
 
@@ -78,27 +79,28 @@ openshell-gateway Pod
 
 ### Cluster Prerequisites
 
-The following resources must exist on the cluster before the GatewayReconciler can operate. They are configuration prerequisites — the control plane does not create them.
+The following resources must exist on the cluster before the GatewayReconciler can operate. They are configuration prerequisites - the control plane does not create them.
 
-1. **GatewayClass** — A GatewayClass matching `GATEWAY_API_GATEWAY_CLASS` (default: `openshift-default`). Must be created by an administrator. Referenced by per-tenant Gateway resources. On Kind clusters, use `cloud-provider-kind`.
-2. **Wildcard TLS Secret (`grpc-gateway-certs`)** — The cluster's wildcard certificate for `*.<base-domain>`, stored as a Secret named `grpc-gateway-certs` in the HyperShell control plane namespace. The GatewayReconciler copies it into each tenant namespace for per-tenant Gateway TLS termination (see "Gateway Ingress TLS Certificate" below). An administrator must provision this Secret before any gateway can be exposed externally.
-3. **cert-manager** — Required for TLS certificate lifecycle management. See [TLS spec](./openshell-gateway-tls.spec.md) and the "TLS Certificate Management via cert-manager" requirement below.
+1. **GatewayClass** - A GatewayClass matching `GATEWAY_API_GATEWAY_CLASS` (default: `openshift-default`). Must be created by an administrator. Referenced by per-tenant Gateway resources. On Kind clusters, use `cloud-provider-kind`.
+2. **Wildcard TLS Secret (`grpc-gateway-certs`)** - The cluster's wildcard certificate for `*.<base-domain>`, stored as a Secret named `grpc-gateway-certs` in the HyperShell control plane namespace. The GatewayReconciler copies it into each tenant namespace for per-tenant Gateway TLS termination (see "Gateway Ingress TLS Certificate" below). An administrator must provision this Secret before any gateway can be exposed externally.
+3. **cert-manager** - Required for TLS certificate lifecycle management. See [TLS spec](./openshell-gateway-tls.spec.md) and the "TLS Certificate Management via cert-manager" requirement below.
 
 ### Per-Tenant Route Resources (Managed by Control Plane)
 
-For each gateway with `route` configuration, the control plane creates all Gateway API resources in the **tenant namespace**:
+For each gateway with `route` configuration, the control plane creates Gateway API resources across two namespaces:
 
-1. **Gateway** — A dedicated Gateway resource per openshell gateway, created in the tenant namespace:
+1. **Gateway** -- A dedicated Gateway resource per openshell gateway, created in `openshift-ingress` (so the ingress operator auto-creates a DNSRecord pointing the hostname to the Gateway's ELB):
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: Gateway
    metadata:
-     name: openshell-gateway
-     namespace: <tenant-namespace>
+     name: openshell-gw-<tenant-namespace>
+     namespace: openshift-ingress
      labels:
        app.kubernetes.io/name: openshell
        app.kubernetes.io/component: gateway
        app.kubernetes.io/managed-by: hypershell-control-plane
+       hypershell.redhat.io/tenant: <tenant-namespace>
    spec:
      gatewayClassName: <GATEWAY_API_GATEWAY_CLASS>   # default: openshift-default
      listeners:
@@ -111,10 +113,16 @@ For each gateway with `route` configuration, the control plane creates all Gatew
          certificateRefs:
          - name: grpc-gateway-certs
            kind: Secret
+       allowedRoutes:
+         namespaces:
+           from: Selector
+           selector:
+             matchLabels:
+               kubernetes.io/metadata.name: <tenant-namespace>
    ```
-   The `<base-domain>` is read from `ingresses.config.openshift.io/cluster` `.spec.domain` (e.g., `apps-crc.testing`). Each tenant gets its own Gateway with a hostname scoped to the tenant namespace. The `grpc-gateway-certs` Secret is the cluster's wildcard TLS certificate, sourced from the HyperShell control plane namespace and copied into each tenant namespace by the GatewayReconciler (see "Gateway Ingress TLS Certificate" requirement below).
+   The `<base-domain>` is read from `ingresses.config.openshift.io/cluster` `.spec.domain` (e.g., `apps-crc.testing`). Each tenant gets its own Gateway with a hostname scoped to the tenant namespace. The `grpc-gateway-certs` Secret must exist in `openshift-ingress` (see "Gateway Ingress TLS Certificate" below).
 
-2. **GRPCRoute** — In the tenant namespace, referencing the per-tenant Gateway:
+2. **GRPCRoute** -- In the tenant namespace, with a cross-namespace parentRef to the Gateway in `openshift-ingress`:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: GRPCRoute
@@ -123,7 +131,8 @@ For each gateway with `route` configuration, the control plane creates all Gatew
      namespace: <tenant-namespace>
    spec:
      parentRefs:
-     - name: openshell-gateway
+     - name: openshell-gw-<tenant-namespace>
+       namespace: openshift-ingress
      hostnames:
      - openshell-gateway-<tenant-namespace>.<base-domain>
      rules:
@@ -132,7 +141,7 @@ For each gateway with `route` configuration, the control plane creates all Gatew
          port: 8080
    ```
 
-3. **BackendTLSPolicy** — Enables TLS verification from the Gateway to the pod:
+3. **BackendTLSPolicy** - Enables TLS verification from the Gateway to the pod:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: BackendTLSPolicy
@@ -152,7 +161,7 @@ For each gateway with `route` configuration, the control plane creates all Gatew
        hostname: openshell-gateway.<namespace>.svc.cluster.local
    ```
 
-4. **CA ConfigMap** — Contains the gateway pod's CA certificate for BackendTLSPolicy:
+4. **CA ConfigMap** - Contains the gateway pod's CA certificate for BackendTLSPolicy:
    ```yaml
    apiVersion: v1
    kind: ConfigMap
@@ -166,16 +175,16 @@ For each gateway with `route` configuration, the control plane creates all Gatew
 
 ### Gateway Ingress TLS Certificate
 
-The per-tenant Gateway listener terminates external TLS using the cluster's wildcard certificate for `*.<base-domain>`. This certificate is stored as a Secret named `grpc-gateway-certs` in the HyperShell control plane namespace. The GatewayReconciler copies it into each tenant namespace so the per-tenant Gateway can reference it.
+The per-tenant Gateway listener terminates external TLS using the cluster's wildcard certificate for `*.<base-domain>`. This certificate is stored as a Secret named `grpc-gateway-certs` in the `openshift-ingress` namespace, where all Gateway resources are created.
 
-- **Source:** Secret `grpc-gateway-certs` in the HyperShell control plane namespace
-- **Destination:** Secret `grpc-gateway-certs` in each tenant namespace (create-or-update)
-- The Secret SHALL be copied before the Gateway API Gateway resource is created
-- When the source Secret is updated (e.g., certificate renewal), the reconciler SHALL update the copies in all tenant namespaces on the next reconciliation cycle
+- **Location:** Secret `grpc-gateway-certs` in the `openshift-ingress` namespace
+- The Secret is a cluster prerequisite -- it must be created before any gateway can be exposed externally (see README)
+- All per-tenant Gateways in `openshift-ingress` reference the same Secret
+- The wildcard private key is NOT copied into tenant namespaces -- it stays in `openshift-ingress`
 
-This avoids per-tenant certificate issuance for the ingress listener — the `openshell-gateway-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate.
+This avoids per-tenant certificate issuance for the ingress listener - the `openshell-gateway-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate.
 
-> **Security boundary:** The wildcard TLS private key is copied into each tenant namespace. Any principal with Secret read access in a tenant namespace can extract the key. This is acceptable when namespaces are administered by the same trust domain (all managed by the HyperShell control plane). For environments where tenant namespaces are shared with untrusted workloads, a future enhancement SHOULD issue per-tenant certificates (e.g., via cert-manager Certificate resources with the exact hostname) instead of copying the wildcard key.
+> **Security improvement:** Unlike the previous approach that copied the wildcard private key into each tenant namespace, the key now stays in `openshift-ingress` (an admin-only namespace). Tenant namespace principals cannot extract the wildcard key.
 
 ### Route TLS Strategy
 
@@ -201,7 +210,7 @@ The `openshell-gateway-` prefix produces a hostname that is a subdomain of `<bas
 
 ### Requirement: Gateway as API Resource
 
-Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL and exposed via the REST API under the project scope. The Gateway resource declares that a project namespace should have an OpenShell gateway deployed with specific configuration.
+Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL and exposed via the REST API. Each Gateway declares an OpenShell gateway deployment with specific configuration, while the API server owns its namespace assignment.
 
 #### Scenario: Create a Gateway via hsctl apply
 
@@ -209,16 +218,14 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  project: tenant-a
   image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
-  serverDnsNames:
-    - openshell-gateway.tenant-a.svc.cluster.local
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server
 - AND the API server SHALL persist the Gateway in PostgreSQL
+- AND the persisted Gateway SHALL have a unique namespace derived from its identifier
 - AND the API server SHALL emit a gRPC watch event for the new Gateway
-- AND the GatewayReconciler SHALL receive the event and deploy gateway K8s resources to the `tenant-a` namespace
+- AND the GatewayReconciler SHALL receive the event and deploy gateway K8s resources to the assigned namespace
 
 #### Scenario: Update a Gateway via overlay patch
 
@@ -228,13 +235,12 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 - THEN the CLI SHALL PATCH the existing Gateway resource
 - AND the GatewayReconciler SHALL detect the change and update the gateway Deployment
 
-#### Scenario: Gateway without a corresponding Project
+#### Scenario: Gateway namespace does not exist yet
 
-- GIVEN a Gateway resource references project `nonexistent`
-- AND no Project named `nonexistent` exists
-- WHEN the Gateway is applied
-- THEN the API server SHALL accept and persist the Gateway (eventual consistency)
-- AND the GatewayReconciler SHALL log a warning and skip reconciliation until the Project (and namespace) exists
+- GIVEN a newly persisted Gateway whose API-assigned namespace does not exist
+- WHEN the GatewayReconciler processes its creation event
+- THEN the GatewayReconciler SHALL create the namespace
+- AND it SHALL continue reconciling the Gateway resources in that namespace
 
 ---
 
@@ -274,9 +280,9 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 #### Scenario: Gateway ADDED event
 
 - GIVEN the GatewayReconciler receives a Gateway ADDED event
-- AND the target namespace exists (created by ProjectReconciler)
 - WHEN the reconciler processes the event
-- THEN it SHALL validate the Gateway configuration (image reference, DNS names, TOML config)
+- THEN it SHALL create the API-assigned namespace if it does not exist
+- AND it SHALL validate the Gateway configuration (image reference, DNS names, TOML config)
 - AND it SHALL apply all K8S resources needed for gateway provisioning to the namespace
 - AND all resources SHALL carry the label `hypershell.redhat.io/managed-by=hypershell-control-plane`
 - AND the reconciler SHALL use update-or-create semantics (SSA or equivalent)
@@ -294,23 +300,22 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 - GIVEN the GatewayReconciler receives a Gateway DELETED event
 - WHEN the reconciler processes the event
 - THEN it SHALL delete gateway K8s resources from the namespace
-- AND it SHALL NOT delete the namespace itself (namespace lifecycle is owned by ProjectReconciler)
+- AND it SHALL NOT delete the namespace itself because legacy Gateway records may reference caller-selected or shared namespaces
 
 #### Scenario: Validation failure
 
 - GIVEN a Gateway resource with an invalid image reference or malformed TOML config
 - WHEN the GatewayReconciler processes the event
-- THEN it SHALL log a validation error with the Gateway name and project
+- THEN it SHALL log a validation error with the Gateway name and assigned namespace
 - AND it SHALL NOT apply any K8s resources
 - AND it SHALL retry on the next reconciliation cycle
 
-#### Scenario: Namespace not yet ready
+#### Scenario: Namespace creation fails
 
-- GIVEN the GatewayReconciler receives a Gateway event
-- AND the target namespace does not exist yet (ProjectReconciler hasn't processed the Project)
-- WHEN the reconciler processes the event
-- THEN it SHALL log a warning and skip reconciliation
-- AND it SHALL retry when the namespace becomes available
+- GIVEN the GatewayReconciler receives a Gateway event whose assigned namespace does not exist
+- WHEN namespace creation fails
+- THEN reconciliation SHALL fail without applying namespaced resources
+- AND it SHALL retry on the next reconciliation cycle
 
 ---
 
@@ -341,7 +346,7 @@ The GatewayReconciler SHALL load gateway resource manifests from the container f
 
 The GatewayReconciler SHALL use cert-manager for TLS certificate lifecycle management. cert-manager is a required cluster prerequisite. See [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) for full details.
 
-**Why cert-manager:** cert-manager automates certificate lifecycle — issuance, renewal before expiry, and secret rotation — without operator intervention. cert-manager also integrates with external CAs (ACME, Vault, etc.) for production deployments.
+**Why cert-manager:** cert-manager automates certificate lifecycle - issuance, renewal before expiry, and secret rotation - without operator intervention. cert-manager also integrates with external CAs (ACME, Vault, etc.) for production deployments.
 
 **Cluster prerequisite:** cert-manager (v1.20+ recommended) must be installed cluster-wide by an administrator before gateways can use it.
 
@@ -380,7 +385,7 @@ The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in th
 - THEN it SHALL update the copy in the tenant namespace
 - AND the gateway pod SHALL pick up the new CA bundle on its next restart
 
-**Design rationale:** The OIDC issuer URL must be identical inside and outside the cluster (OpenShell requirement — see [Gateway Auth: OIDC](https://docs.nvidia.com/openshell/reference/gateway-auth#oidc)). On CRC, the external Keycloak Route uses HTTPS with the CRC ingress controller's self-signed CA. The gateway must reach this same URL, so it needs the ingress CA in its trust store. This approach generalizes to any environment where the IdP uses a private CA.
+**Design rationale:** The OIDC issuer URL must be identical inside and outside the cluster (OpenShell requirement - see [Gateway Auth: OIDC](https://docs.nvidia.com/openshell/reference/gateway-auth#oidc)). On CRC, the external Keycloak Route uses HTTPS with the CRC ingress controller's self-signed CA. The gateway must reach this same URL, so it needs the ingress CA in its trust store. This approach generalizes to any environment where the IdP uses a private CA.
 
 ---
 
@@ -401,7 +406,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 - THEN validation SHALL fail with a descriptive error
 - AND the Gateway SHALL not be reconciled until the configuration is corrected
 
-> **GHCR image tag convention:** OpenShell gateway images on GHCR use commit-SHA tags only (no semver tags). For example, `ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873` corresponds to v0.0.91. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag — manual image changes on the Deployment will be reverted.
+> **GHCR image tag convention:** OpenShell gateway images on GHCR use commit-SHA tags only (no semver tags). For example, `ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873` corresponds to v0.0.91. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
 #### Scenario: Invalid DNS name
 
@@ -434,8 +439,9 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
   ```
 - WHEN a user runs `hsctl apply -k examples/overlays/tenant-a/`
 - THEN the Project and Gateway SHALL all be applied in order
-- AND the ProjectReconciler SHALL create the namespace
-- AND the GatewayReconciler SHALL deploy the gateway into that namespace
+- AND the ProjectReconciler SHALL create the Project namespace
+- AND the GatewayReconciler SHALL create the Gateway's distinct API-assigned namespace
+- AND the GatewayReconciler SHALL deploy the gateway into its assigned namespace
 
 #### Scenario: Gateway base with per-tenant patches
 
@@ -461,7 +467,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
 
 ### Requirement: Gateway Deployment Resources
 
-For each Gateway resource, the GatewayReconciler SHALL deploy the following Kubernetes resources into the project namespace:
+For each Gateway resource, the GatewayReconciler SHALL deploy the following Kubernetes resources into the API-assigned namespace:
 
 All gateway resources SHALL use fixed names (one gateway per namespace):
 - Deployment: `openshell-gateway`
@@ -499,17 +505,17 @@ The gateway Deployment SHALL specify:
   - `OPENSHELL_DB_URL` from Secret `openshell-gateway-db-credentials` key `url`
   - `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` from Secret `openshell-gateway-credential-kek` key `key-encryption-key`
 - **Volume mounts:**
-  - `/etc/openshell` — ConfigMap `openshell-gateway-config` (readOnly)
-  - `/etc/openshell-jwt` — Secret `openshell-gateway-jwt-keys` (readOnly)
-  - `/etc/openshell-tls/server` — Secret `openshell-server-tls` (readOnly)
-  - `/etc/openshell-tls/client-ca` — Secret `openshell-client-tls` (only `ca.crt` key, readOnly)
+  - `/etc/openshell` - ConfigMap `openshell-gateway-config` (readOnly)
+  - `/etc/openshell-jwt` - Secret `openshell-gateway-jwt-keys` (readOnly)
+  - `/etc/openshell-tls/server` - Secret `openshell-server-tls` (readOnly)
+  - `/etc/openshell-tls/client-ca` - Secret `openshell-client-tls` (only `ca.crt` key, readOnly)
 
-#### Scenario: Deploy gateway to project namespace
+#### Scenario: Deploy gateway to assigned namespace
 
-- GIVEN a Gateway resource exists for project `tenant-a`
-- AND the namespace `tenant-a` exists (created by ProjectReconciler)
+- GIVEN a Gateway resource has the assigned namespace `openshell-abc123`
 - WHEN the GatewayReconciler reconciles
-- THEN it SHALL apply all gateway manifests with namespace set to `tenant-a`
+- THEN it SHALL ensure namespace `openshell-abc123` exists
+- AND it SHALL apply all gateway manifests with namespace set to `openshell-abc123`
 - AND it SHALL use update-or-create semantics (never create-and-ignore-AlreadyExists)
 
 #### Scenario: Gateway already exists (idempotency)
@@ -584,9 +590,9 @@ The JWT key generation Job runs as ServiceAccount `openshell-gateway-certgen` wi
 ### Requirement: JWT Key Generation Job
 
 The GatewayReconciler SHALL create a Job (`openshell-gateway-certgen`) to generate JWT signing keys for the gateway. The certgen job creates a Secret named `openshell-gateway-jwt-keys` containing:
-- `signing.pem` — ECDSA private key for signing gateway JWTs
-- `public.pem` — corresponding public key
-- `kid` — key identifier
+- `signing.pem` - ECDSA private key for signing gateway JWTs
+- `public.pem` - corresponding public key
+- `kid` - key identifier
 
 #### Scenario: Certgen job runs alongside cert-manager
 
@@ -796,7 +802,7 @@ Control Plane
 
 **Path validation:** Before constructing the shell command, each `sandbox_path` is validated against the regex `^/[a-zA-Z0-9/_.\\-]+$` and checked for `..` traversal segments. Paths that fail validation are rejected before any SSH session is opened.
 
-**Implementation:** `internal/openshell/ssh_upload.go` — `GatewayClient.UploadPayloads()`
+**Implementation:** `internal/openshell/ssh_upload.go` - `GatewayClient.UploadPayloads()`
 
 ---
 
@@ -806,12 +812,12 @@ Control Plane
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `name` | Yes | — | Resource name (typically `openshell-gateway`) |
-| `project` | Yes | — | Project name (determines target namespace) |
+| `name` | Yes | - | Resource name (typically `openshell-gateway`) |
+| `namespace` | No | API assigned | Read-only Kubernetes namespace derived from the Gateway identifier |
 | `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.101` | Gateway container image reference |
 | `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.101` | Supervisor sidecar container image |
-| `serverDnsNames` | Yes | — | DNS names for TLS certificate generation |
-| `oidc` | No | — | OIDC authentication configuration (see OIDC spec) |
+| `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
+| `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
 | `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
 | `oidc.audience` | No | `"openshell-cli"` | Expected `aud` claim value in JWT |
 | `oidc.jwks_ttl` | No | `3600` | JWKS key cache retention in seconds |
@@ -819,13 +825,13 @@ Control Plane
 | `oidc.admin_role` | No | `""` | Role name conferring admin access |
 | `oidc.user_role` | No | `""` | Role name conferring standard user access |
 | `oidc.scopes_claim` | No | `""` | Dot-delimited path to scopes array in JWT claims |
-| `route` | No | — | Route configuration for external exposure |
+| `route` | No | - | Route configuration for external exposure |
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
-| `routeAddress` | — | — | Read-only. External address populated by the control plane |
-| `database` | No | — | Database backend configuration |
+| `routeAddress` | - | - | Read-only. External address populated by the control plane |
+| `database` | No | - | Database backend configuration |
 | `database.storageSize` | No | `5Gi` | PVC size for PostgreSQL data |
 | `database.image` | No | `registry.redhat.io/rhel9/postgresql-16:latest` | PostgreSQL container image (Red Hat hardened) |
-| `database.externalSecretRef` | No | — | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
+| `database.externalSecretRef` | No | - | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
 
 ### Control Plane Environment Variables
 
@@ -861,10 +867,10 @@ The Gateway kind in `data-model.spec.md` SHALL include `oidc`, `route`, `routeAd
 ```
 Gateway {
     ...existing fields...
-    jsonb  oidc         "nullable — OIDC authentication config: {issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}"
-    jsonb  route        "nullable — route exposure config (host)"
-    text   routeAddress "nullable — read-only external address populated by control plane"
-    jsonb  database     "nullable — database backend config: {storageSize, image, externalSecretRef}"
+    jsonb  oidc         "nullable - OIDC authentication config: {issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}"
+    jsonb  route        "nullable - route exposure config (host)"
+    text   routeAddress "nullable - read-only external address populated by control plane"
+    jsonb  database     "nullable - database backend config: {storageSize, image, externalSecretRef}"
 }
 ```
 
@@ -963,7 +969,7 @@ helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
 | `securityContext.runAsUser=null` | On OpenShift only: `applyOpenShiftOverrides()` clears `runAsUser` from container securityContext | `internal/gateway/reconciler.go` |
 | `server.disableTls=true` | **NOT used.** BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, requiring the gateway to serve TLS. TLS remains enabled on all clusters | N/A |
 | `server.externalDbSecret` | PostgreSQL Secret with `url` key provisioned by default; the gateway workload receives `OPENSHELL_DB_URL` from the Secret | `internal/reconciler/gateway_reconciler.go` |
-| `workload.kind=deployment` | Always Deployment — PostgreSQL is the sole backend | `internal/reconciler/gateway_reconciler.go` |
+| `workload.kind=deployment` | Always Deployment - PostgreSQL is the sole backend | `internal/reconciler/gateway_reconciler.go` |
 | `server.oidc.*` | `oidc` field on Gateway resource; injected into `gateway.toml` ConfigMap by `ApplyConfigOverrides` | `internal/gateway/manifests.go` |
 | `replicaCount` | HyperShell uses 1 replica (Deployment default) | N/A |
 
@@ -989,7 +995,7 @@ The NVIDIA docs recommend cert-manager v1.20+. HyperShell test environments curr
 | `oc adm policy add-scc-to-user privileged -z openshell-gateway-sandbox -n <ns>` | `reconcileOpenShiftSCC()` creates a RoleBinding granting `system:openshift:scc:privileged` ClusterRole to the `openshell-gateway-sandbox` ServiceAccount |
 | `--set podSecurityContext.fsGroup=null` | `applyOpenShiftOverrides()` clears `fsGroup` via `unstructured.RemoveNestedField()` |
 | `--set securityContext.runAsUser=null` | `applyOpenShiftOverrides()` clears `runAsUser` via `unstructured.RemoveNestedField()` |
-| `--set server.disableTls=true` | **NOT used** — BackendTLSPolicy re-encrypts to the pod |
+| `--set server.disableTls=true` | **NOT used** - BackendTLSPolicy re-encrypts to the pod |
 
 The NVIDIA docs note that the OpenShift install path is experimental and recommends `server.disableTls=true` for evaluation. HyperShell diverges from this recommendation by keeping TLS enabled, because BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, requiring the gateway to terminate TLS on the backend segment.
 
@@ -997,17 +1003,17 @@ The NVIDIA docs note that the OpenShift install path is experimental and recomme
 
 ## References
 
-- [OpenShell Gateway Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) — upstream chart source; consult `values.yaml` when adding new gateway configurations
-- [NVIDIA OpenShell on OpenShift](https://docs.nvidia.com/openshell/kubernetes/openshift) — OpenShift-specific deployment (SCC, security context, TLS)
-- [NVIDIA OpenShell Managing Certificates](https://docs.nvidia.com/openshell/kubernetes/managing-certificates) — cert-manager integration for TLS certificate lifecycle
-- [NVIDIA OpenShell Kubernetes Ingress Guide](https://docs.nvidia.com/openshell/kubernetes/ingress) — GRPCRoute and Gateway setup for OpenShell
-- [OpenShell Helm Gateway Template](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/templates/gateway.yaml) — Reference Gateway resource
-- [OpenShell Helm GRPCRoute Template](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/templates/grpcroute.yaml) — Reference GRPCRoute resource
-- [BackendTLSPolicy on OpenShift](https://www.redhat.com/en/blog/backendtlspolicy-expands-gateway-api-transport-security) — Re-encrypt TLS via Gateway API
-- [BackendTLSPolicy API Reference](https://gateway-api.sigs.k8s.io/reference/api-types/policy/backendtlspolicy/) — Spec structure and fields
-- [Gateway API TLS Guide](https://gateway-api.sigs.k8s.io/guides/tls/) — TLS configuration patterns
-- [OpenShell OIDC User Authentication](https://docs.nvidia.com/openshell/latest/kubernetes/access-control#oidc-user-authentication) — OIDC integration
-- [OpenShell OIDC Values Reference](https://docs.nvidia.com/openshell/latest/kubernetes/access-control#oidc-values-reference) — OIDC helm values
-- [OpenShell Helm Chart — `server.externalDbSecret`](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) — External PostgreSQL integration
-- [OpenShell Kubernetes Setup — External DB](https://docs.nvidia.com/openshell/latest/kubernetes/setup) — External DB documentation
-- [cert-manager Helm Chart](https://artifacthub.io/packages/helm/cert-manager/cert-manager) — cert-manager installation via Helm (alternative to kubectl apply)
+- [OpenShell Gateway Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) - upstream chart source; consult `values.yaml` when adding new gateway configurations
+- [NVIDIA OpenShell on OpenShift](https://docs.nvidia.com/openshell/kubernetes/openshift) - OpenShift-specific deployment (SCC, security context, TLS)
+- [NVIDIA OpenShell Managing Certificates](https://docs.nvidia.com/openshell/kubernetes/managing-certificates) - cert-manager integration for TLS certificate lifecycle
+- [NVIDIA OpenShell Kubernetes Ingress Guide](https://docs.nvidia.com/openshell/kubernetes/ingress) - GRPCRoute and Gateway setup for OpenShell
+- [OpenShell Helm Gateway Template](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/templates/gateway.yaml) - Reference Gateway resource
+- [OpenShell Helm GRPCRoute Template](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/templates/grpcroute.yaml) - Reference GRPCRoute resource
+- [BackendTLSPolicy on OpenShift](https://www.redhat.com/en/blog/backendtlspolicy-expands-gateway-api-transport-security) - Re-encrypt TLS via Gateway API
+- [BackendTLSPolicy API Reference](https://gateway-api.sigs.k8s.io/reference/api-types/policy/backendtlspolicy/) - Spec structure and fields
+- [Gateway API TLS Guide](https://gateway-api.sigs.k8s.io/guides/tls/) - TLS configuration patterns
+- [OpenShell OIDC User Authentication](https://docs.nvidia.com/openshell/latest/kubernetes/access-control#oidc-user-authentication) - OIDC integration
+- [OpenShell OIDC Values Reference](https://docs.nvidia.com/openshell/latest/kubernetes/access-control#oidc-values-reference) - OIDC helm values
+- [OpenShell Helm Chart - `server.externalDbSecret`](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) - External PostgreSQL integration
+- [OpenShell Kubernetes Setup - External DB](https://docs.nvidia.com/openshell/latest/kubernetes/setup) - External DB documentation
+- [cert-manager Helm Chart](https://artifacthub.io/packages/helm/cert-manager/cert-manager) - cert-manager installation via Helm (alternative to kubectl apply)

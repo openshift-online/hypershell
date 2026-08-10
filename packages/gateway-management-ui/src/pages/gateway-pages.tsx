@@ -14,11 +14,12 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
   defaultGatewayListRequest,
+  gatewayListPageSizes,
   type GatewayListRequest,
   type GatewayRecord,
   type GatewaySortField,
@@ -26,7 +27,7 @@ import {
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import {
   buildGatewayAddCommand,
-  gatewayStatusColor,
+  gatewayStatusAppearance,
   type GatewayConnection,
 } from "../gateways/gateway-connections";
 import {
@@ -36,7 +37,11 @@ import {
 } from "../gateways/gateway-detail-header";
 import {
   gatewayListQueryKey,
+  gatewayPlacementBatchQueryKey,
+  gatewayPlacementDetailQueryKey,
+  gatewayPlacementStaleMilliseconds,
   gatewayQueryKey,
+  gatewaySearchDebounceMilliseconds,
   toGatewayConnection,
 } from "../gateways/gateway-data";
 import { GatewayLoadState } from "../gateways/gateway-load-state";
@@ -48,6 +53,7 @@ import {
   type ResourceTableStateChangeReason,
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
+import { useDebouncedValue } from "../shared/use-debounced-value";
 import { messages } from "../messages";
 import styles from "./gateway-pages.module.css";
 
@@ -77,6 +83,71 @@ function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
   const link = useGatewayLink(navigation.detailHref(gateway.id));
 
   return <a {...link}>{gateway.name}</a>;
+}
+
+function GatewayDetailClusterName({ gateway }: { gateway: GatewayConnection }) {
+  const intl = useIntl();
+  const { gateways } = useGatewayUi();
+  const clusterId = gateway.clusterId ?? "";
+  const placementQuery = useQuery({
+    enabled: clusterId.length > 0,
+    queryFn: ({ signal }) => gateways.getGatewayPlacement(clusterId, signal),
+    queryKey: gatewayPlacementDetailQueryKey(clusterId),
+    staleTime: gatewayPlacementStaleMilliseconds,
+  });
+
+  if (!clusterId) {
+    return gateway.clusterName;
+  }
+  if (placementQuery.isPending) {
+    return (
+      <span role="status">
+        {intl.formatMessage(messages.loadingClusterName)}
+      </span>
+    );
+  }
+  if (placementQuery.isError) {
+    return (
+      <>
+        {intl.formatMessage(messages.notAvailable)}{" "}
+        <Button
+          isInline
+          onClick={() => void placementQuery.refetch()}
+          variant="link"
+        >
+          {intl.formatMessage(messages.retry)}
+        </Button>
+      </>
+    );
+  }
+  return placementQuery.data.name;
+}
+
+function GatewayCollectionClusterName({
+  gateway,
+  isLoading,
+  placementNames,
+}: {
+  gateway: GatewayConnection;
+  isLoading: boolean;
+  placementNames: ReadonlyMap<string, string>;
+}) {
+  const intl = useIntl();
+  const clusterId = gateway.clusterId ?? "";
+
+  if (!clusterId || gateway.clusterName.trim()) {
+    return gateway.clusterName;
+  }
+  if (isLoading) {
+    return (
+      <span role="status">
+        {intl.formatMessage(messages.loadingClusterName)}
+      </span>
+    );
+  }
+  return (
+    placementNames.get(clusterId) ?? intl.formatMessage(messages.notAvailable)
+  );
 }
 
 function GatewaySuccessAlerts({
@@ -160,9 +231,13 @@ export function GatewaysPage({
   const [localCollectionState, setLocalCollectionState] =
     useState<GatewayListRequest>({ ...defaultGatewayListRequest });
   const currentCollectionState = collectionState ?? localCollectionState;
+  const debouncedGatewaySearch = useDebouncedValue(
+    currentCollectionState.search.trim(),
+    gatewaySearchDebounceMilliseconds,
+  );
   const gatewayRequest: GatewayListRequest = {
     ...currentCollectionState,
-    search: currentCollectionState.search.trim(),
+    search: debouncedGatewaySearch,
   };
   const gatewayQuery = useQuery({
     enabled: gateways === undefined,
@@ -172,7 +247,12 @@ export function GatewaysPage({
         gatewayRequest,
         signal,
       );
-      return { ...result, items: result.items.map(toGatewayConnection) };
+      return {
+        ...result,
+        items: result.items.map((gateway) =>
+          toGatewayConnection(gateway, intl.formatMessage(messages.hubCluster)),
+        ),
+      };
     },
     queryKey: gatewayListQueryKey(gatewayRequest),
   });
@@ -184,8 +264,30 @@ export function GatewaysPage({
         total: gateways.length,
       }
     : gatewayQuery.data;
+  const placementClusterIds = [
+    ...new Set(
+      (visiblePage?.items ?? [])
+        .filter(
+          (gateway) =>
+            Boolean(gateway.clusterId) && !gateway.clusterName.trim(),
+        )
+        .map((gateway) => gateway.clusterId ?? ""),
+    ),
+  ].sort();
+  const placementsQuery = useQuery({
+    enabled: placementClusterIds.length > 0,
+    queryFn: ({ signal }) =>
+      gatewayOperations.getGatewayPlacements(placementClusterIds, signal),
+    queryKey: gatewayPlacementBatchQueryKey(placementClusterIds),
+    staleTime: gatewayPlacementStaleMilliseconds,
+  });
+  const placementNames = useMemo(
+    () => new Map(placementsQuery.data?.map(({ id, name }) => [id, name])),
+    [placementsQuery.data],
+  );
   const tableState: ResourceTableState = {
     page: currentCollectionState.page,
+    pageSize: currentCollectionState.size,
     query: currentCollectionState.search,
     sortColumnId: currentCollectionState.sortField,
     sortDirection: currentCollectionState.sortDirection,
@@ -197,7 +299,7 @@ export function GatewaysPage({
     const nextCollectionState: GatewayListRequest = {
       page: nextState.page,
       search: nextState.query,
-      size: currentCollectionState.size,
+      size: nextState.pageSize,
       sortDirection: nextState.sortDirection,
       sortField: isGatewaySortField(nextState.sortColumnId)
         ? nextState.sortColumnId
@@ -219,14 +321,20 @@ export function GatewaysPage({
     {
       id: "cluster",
       label: intl.formatMessage(messages.cluster),
-      render: ({ clusterName }) => clusterName,
+      render: (gateway) => (
+        <GatewayCollectionClusterName
+          gateway={gateway}
+          isLoading={placementsQuery.isPending}
+          placementNames={placementNames}
+        />
+      ),
       width: 20,
     },
     {
       id: "status",
       label: intl.formatMessage(messages.status),
       render: ({ status }) => (
-        <Label color={gatewayStatusColor(status)} isCompact>
+        <Label {...gatewayStatusAppearance(status)} isCompact>
           {status}
         </Label>
       ),
@@ -317,7 +425,7 @@ export function GatewaysPage({
             </Button>
           }
           onStateChange={changeTableState}
-          pageSize={currentCollectionState.size}
+          pageSizeOptions={gatewayListPageSizes}
           renderRowAction={(gateway) => (
             <GatewayRowActions
               gateway={gateway}
@@ -346,6 +454,7 @@ export function GatewayPage({
   gatewayId,
   onDeleted,
 }: GatewayPageProps) {
+  const intl = useIntl();
   const { gateways, navigation } = useGatewayUi();
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const gatewayQuery = useQuery({
@@ -365,7 +474,10 @@ export function GatewayPage({
     return <GatewayLoadState isError />;
   }
 
-  const connection = toGatewayConnection(visibleGateway);
+  const connection = toGatewayConnection(
+    visibleGateway,
+    intl.formatMessage(messages.hubCluster),
+  );
 
   return (
     <>
@@ -399,6 +511,14 @@ export function GatewayPage({
             </DescriptionListTerm>
             <DescriptionListDescription>
               {connection.status}
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              <FormattedMessage {...messages.cluster} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <GatewayDetailClusterName gateway={connection} />
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>

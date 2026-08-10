@@ -6,7 +6,7 @@
 
 ## Purpose
 
-HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components — API server, control plane, and web console — so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all baseline images from the local `main` branch instead of pulling from the registry.
+HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all baseline images from the local `main` branch instead of pulling from the registry.
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
 
@@ -31,11 +31,11 @@ Developers selectively swap individual components with local builds using per-co
 
 `make kind-up` SHALL install the Gateway API CRDs before starting cloud-provider-kind. The CRDs SHALL be applied from the upstream release bundle (`https://github.com/kubernetes-sigs/gateway-api/releases/download/<version>/experimental-install.yaml`) using the `experimental` channel, which includes BackendTLSPolicy. The version SHALL be pinned via a `GATEWAY_API_VERSION` variable. On OpenShift 4.19+ these CRDs ship by default; on Kind they must be installed explicitly.
 
-[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Gateway API CRDs are installed and the Kind cluster is created. It provides LoadBalancer service support and acts as a Gateway API controller, implementing the GatewayClass and proxying traffic for GRPCRoute resources. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL be started with `--enable-lb-port-mapping` to expose Gateway listeners on the host via ephemeral ports. The assigned port is not configurable — cloud-provider-kind allocates an ephemeral host port per listener ([kubernetes-sigs/cloud-provider-kind#417](https://github.com/kubernetes-sigs/cloud-provider-kind/issues/417)). `make kind-up` SHALL discover the mapped HTTPS port from the Docker proxy container (`kindccm-gw-*`) and set up OS-native port forwarding to redirect host port 443 to the ephemeral port (see Port Forwarding). Kind's `extraPortMappings` SHALL NOT be used for Gateway ports — they conflict with cloud-provider-kind's own `--publish` flags on the envoy container. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
+[cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) SHALL be started as a background process after the Gateway API CRDs are installed and the Kind cluster is created. It provides LoadBalancer service support and acts as a Gateway API controller, implementing the GatewayClass and proxying traffic for GRPCRoute resources. On macOS and Windows, where container IPs are not directly reachable from the host, cloud-provider-kind SHALL be started with `--enable-lb-port-mapping` to expose Gateway listeners on the host via ephemeral ports. The assigned port is not configurable - cloud-provider-kind allocates an ephemeral host port per listener ([kubernetes-sigs/cloud-provider-kind#417](https://github.com/kubernetes-sigs/cloud-provider-kind/issues/417)). `make kind-up` SHALL discover the mapped HTTPS port from the Docker proxy container (`kindccm-gw-*`) and set up OS-native port forwarding to redirect host port 443 to the ephemeral port (see Port Forwarding). Kind's `extraPortMappings` SHALL NOT be used for Gateway ports - they conflict with cloud-provider-kind's own `--publish` flags on the envoy container. The version SHALL be pinned via a `CLOUD_PROVIDER_KIND_VERSION` variable. `make kind-up` SHALL verify that the `cloud-provider-kind` binary is available in `PATH` and print an install hint (e.g. `brew install cloud-provider-kind` or `go install sigs.k8s.io/cloud-provider-kind@latest`) if it is missing. The process SHALL be stopped by `make kind-down`.
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.21.1`).
 
-Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker — a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients).
+Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker - a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients).
 
 ### Gateway Resource
 
@@ -57,13 +57,13 @@ oidc:
   user_role: hypershell-users
 ```
 
-The local environment SHALL NOT deploy the gateway's PostgreSQL directly — the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)). This ensures the local environment exercises the same database provisioning path used in production. The API server's own database (`deploy/kind/postgres.yaml`) is a separate concern — it stores platform resources (fleets, gateways, etc.) and is always deployed directly by `kind-up`.
+The local environment SHALL NOT deploy the gateway's PostgreSQL directly - the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)). This ensures the local environment exercises the same database provisioning path used in production. The API server's own database (`deploy/kind/postgres.yaml`) is a separate concern - it stores platform resources (fleets, gateways, etc.) and is always deployed directly by `kind-up`.
 
-TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer uses HTTP because the local Keycloak instance runs in dev mode without TLS; the TLS requirement applies to the gateway's own serving certificate, not to the OIDC issuer endpoint. Authentication SHALL use OIDC only — mTLS client authentication is not supported.
+TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer uses HTTP because the local Keycloak instance runs in dev mode without TLS; the TLS requirement applies to the gateway's own serving certificate, not to the OIDC issuer endpoint. Authentication SHALL use OIDC only - mTLS client authentication is not supported.
 
 ### Keycloak Configuration
 
-The Kind cluster Keycloak instance serves as the local equivalent of the downstream Keycloak — a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients. In production, the downstream Keycloak brokers authentication to Red Hat SSO (upstream) and manages per-gateway OIDC clients. The local instance mirrors this topology without the upstream broker, providing the same realm structure and client model.
+The Kind cluster Keycloak instance serves as the local equivalent of the downstream Keycloak - a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients. In production, the downstream Keycloak brokers authentication to Red Hat SSO (upstream) and manages per-gateway OIDC clients. The local instance mirrors this topology without the upstream broker, providing the same realm structure and client model.
 
 | Setting | Value |
 |---------|-------|
@@ -72,21 +72,21 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
 | Admin role | `hypershell-admins` |
 | User role | `hypershell-users` |
-| Users | `admin` / `admin` (admin role), `developer` / `developer` (user role) — password matches username (local dev only) |
+| Users | `admin` / `admin` (admin role), `developer` / `developer` (user role) - password matches username (local dev only) |
 
 The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `KIND_KEYCLOAK_URL` | (unset — deploy local) | External Keycloak issuer URL; skips local deployment when set |
+| `KIND_KEYCLOAK_URL` | (unset - deploy local) | External Keycloak issuer URL; skips local deployment when set |
 
 ### Gateway API Routing
 
-The local cluster uses the Kubernetes Gateway API to route all external traffic — both component services and gateway gRPC — through a single networking Gateway. This mirrors the production topology where a networking Gateway terminates external TLS. Component services (API, console, health) are exposed via HTTPRoute resources at `*.hypershell.localhost` hostnames; gateway gRPC traffic uses GRPCRoute at `*.gw.localhost`. `make kind-up` starts a CoreDNS container for wildcard `*.localhost` resolution (see DNS Resolution) and sets up OS-native port forwarding from host port 443 to the ephemeral port assigned by cloud-provider-kind (see Port Forwarding).
+The local cluster uses the Kubernetes Gateway API to route all external traffic - both component services and gateway gRPC - through a single networking Gateway. This mirrors the production topology where a networking Gateway terminates external TLS. Component services (API, console, health) are exposed via HTTPRoute resources at `*.hypershell.localhost` hostnames; gateway gRPC traffic uses GRPCRoute at `*.gw.localhost`. `make kind-up` starts a CoreDNS container for wildcard `*.localhost` resolution (see DNS Resolution) and sets up OS-native port forwarding from host port 443 to the ephemeral port assigned by cloud-provider-kind (see Port Forwarding).
 
 #### Networking Gateway (Cluster-Level)
 
-`make kind-up` SHALL create a networking `Gateway` resource that acts as the shared ingress point for all component HTTPRoutes and gateway GRPCRoutes. This is cluster-level infrastructure — not managed by the control plane reconciler.
+`make kind-up` SHALL create a networking `Gateway` resource that acts as the shared ingress point for all component HTTPRoutes and gateway GRPCRoutes. This is cluster-level infrastructure - not managed by the control plane reconciler.
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -136,7 +136,7 @@ OS-specific resolver configuration routes `.localhost` DNS queries to CoreDNS:
 | macOS | `/etc/resolver/localhost` file with `nameserver 127.0.0.1` + `port ${KIND_DNS_PORT}` | Survives reboots (file on disk) |
 | Fedora (Linux) | `resolvectl dns lo 127.0.0.1:${KIND_DNS_PORT}` + `resolvectl domain lo '~localhost'` | Ephemeral (cleared on reboot); re-applied by `kind-up` |
 
-Wildcard resolution means multi-namespace hostnames (e.g. `api.feature-add-auth.hypershell.localhost`) work automatically — no per-hostname configuration needed. `make kind-down` SHALL stop the CoreDNS container and revert the Linux resolver (macOS resolver file is harmless without CoreDNS). If `sudo` fails during resolver setup, `kind-up` SHALL warn with manual instructions but continue.
+Wildcard resolution means multi-namespace hostnames (e.g. `api.feature-add-auth.hypershell.localhost`) work automatically - no per-hostname configuration needed. `make kind-down` SHALL stop the CoreDNS container and revert the Linux resolver (macOS resolver file is harmless without CoreDNS). If `sudo` fails during resolver setup, `kind-up` SHALL warn with manual instructions but continue.
 
 #### Port Forwarding
 
@@ -149,7 +149,7 @@ cloud-provider-kind assigns ephemeral host ports for Gateway listeners. `make ki
 
 Both require `sudo`, which cloud-provider-kind already requires. If port forwarding setup fails, `kind-up` SHALL fall back to printing URLs with the ephemeral port suffix (e.g. `https://console.hypershell.localhost:51300`). `make kind-down` SHALL flush the forwarding rules. `make kind-status` SHALL report whether forwarding is active and show the target port.
 
-This is a workaround until cloud-provider-kind supports publishing on specific host ports — once fixed upstream, the port forwarding functions can be removed.
+This is a workaround until cloud-provider-kind supports publishing on specific host ports - once fixed upstream, the port forwarding functions can be removed.
 
 #### Component Service Routes (kind-up Managed)
 
@@ -218,7 +218,7 @@ For multi-namespace deployments, component hostnames include the namespace: `api
 
 For each HyperShell Gateway resource, the control plane reconciler creates three Kubernetes resources:
 
-1. **GRPCRoute** — Routes gRPC traffic from the networking Gateway to the gateway pod's Service:
+1. **GRPCRoute** - Routes gRPC traffic from the networking Gateway to the gateway pod's Service:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: GRPCRoute
@@ -237,7 +237,7 @@ For each HyperShell Gateway resource, the control plane reconciler creates three
          port: 8080
    ```
 
-2. **BackendTLSPolicy** — Instructs the networking Gateway to establish a TLS connection to the backend pod and verify its certificate against the CA ConfigMap (TLS re-encrypt). The `v1alpha3` API version ships in the Gateway API experimental channel and tracks `GATEWAY_API_VERSION`; the API shape may change before GA:
+2. **BackendTLSPolicy** - Instructs the networking Gateway to establish a TLS connection to the backend pod and verify its certificate against the CA ConfigMap (TLS re-encrypt). The `v1alpha3` API version ships in the Gateway API experimental channel and tracks `GATEWAY_API_VERSION`; the API shape may change before GA:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1alpha3
    kind: BackendTLSPolicy
@@ -257,7 +257,7 @@ For each HyperShell Gateway resource, the control plane reconciler creates three
        hostname: openshell-gateway.hypershell-system.svc.cluster.local
    ```
 
-3. **CA ConfigMap** — Contains the gateway pod's CA certificate so the networking Gateway can verify the pod's TLS cert:
+3. **CA ConfigMap** - Contains the gateway pod's CA certificate so the networking Gateway can verify the pod's TLS cert:
    ```yaml
    apiVersion: v1
    kind: ConfigMap
@@ -305,7 +305,7 @@ Client                   Networking Gateway              Gateway Pod
 
 The system SHALL provide a `make kind-up` target at the repository root that creates a fully functional local HyperShell environment. Baseline images SHALL be pulled from the container registry.
 
-#### Scenario: First Run — Clean State
+#### Scenario: First Run - Clean State
 - GIVEN no Kind cluster exists
 - WHEN a developer runs `make kind-up`
 - THEN a Kind cluster SHALL be created
@@ -315,7 +315,7 @@ The system SHALL provide a `make kind-up` target at the repository root that cre
 - AND the system SHALL wait for all components to become ready
 - AND connection information SHALL be printed to stdout
 
-#### Scenario: Subsequent Run — Idempotent
+#### Scenario: Subsequent Run - Idempotent
 - GIVEN a Kind cluster is already running from a previous `make kind-up`
 - WHEN a developer runs `make kind-up` again
 - THEN the cluster creation step SHALL be skipped (idempotent)
@@ -453,7 +453,7 @@ All services SHALL be accessible via `.localhost` hostnames routed through the n
 
 The self-signed TLS certificate issued by cert-manager must be trusted by the developer's browser or CLI tool (e.g. `curl --cacert`).
 
-For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. Wildcard DNS resolves all subdomains automatically — no per-hostname configuration is needed. All namespaces share the same Gateway — each namespace is differentiated by hostname, not port number.
+For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. Wildcard DNS resolves all subdomains automatically - no per-hostname configuration is needed. All namespaces share the same Gateway - each namespace is differentiated by hostname, not port number.
 
 #### Scenario: Default Access (Port Forwarding Active)
 - GIVEN no special configuration
@@ -557,9 +557,9 @@ When hot reload is enabled (the default), `kind-<component>-up` for a supported 
 
 | Component | Hot Reload Support |
 |-----------|-------------------|
-| Web Console | Yes — mounts `components/web-console/` and runs `npm run dev` |
-| API Server | No — Go service, rebuild-and-replace only |
-| Control Plane | No — Go service, rebuild-and-replace only |
+| Web Console | Yes - mounts `components/web-console/` and runs `npm run dev` |
+| API Server | No - Go service, rebuild-and-replace only |
+| Control Plane | No - Go service, rebuild-and-replace only |
 
 #### Scenario: Web Console Hot Reload (Default)
 - GIVEN a Kind cluster is running
@@ -593,13 +593,13 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 
 ### Requirement: Offline Development (LOCAL_IMAGES)
 
-The system SHALL support offline development by building all baseline images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from `origin/main` and load them into the Kind cluster. Repeated `kind-up` invocations with `LOCAL_IMAGES=true` SHALL rebuild from `origin/main`, picking up any new commits — analogous to a `git fetch` for images.
+The system SHALL support offline development by building all baseline images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from `origin/main` and load them into the Kind cluster. Repeated `kind-up` invocations with `LOCAL_IMAGES=true` SHALL rebuild from `origin/main`, picking up any new commits - analogous to a `git fetch` for images.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `LOCAL_IMAGES` | (unset — pull from registry) | Set to `true` to build baseline images from the local repository instead of pulling from the container registry |
+| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build baseline images from the local repository instead of pulling from the container registry |
 
-#### Scenario: First Run — Offline
+#### Scenario: First Run - Offline
 - GIVEN no Kind cluster exists
 - AND the developer has no access to the container registry
 - AND `LOCAL_IMAGES=true` is set
@@ -608,7 +608,7 @@ The system SHALL support offline development by building all baseline images fro
 - AND images SHALL be loaded into the Kind cluster
 - AND the cluster SHALL reach a ready state without any registry pulls for platform components
 
-#### Scenario: Subsequent Run — Rebuild from Main
+#### Scenario: Subsequent Run - Rebuild from Main
 - GIVEN a Kind cluster is running with locally-built images
 - AND `LOCAL_IMAGES=true` is set
 - WHEN the developer runs `make kind-up` again
@@ -622,7 +622,7 @@ All container images deployed into the Kind cluster SHALL use [Red Hat Hardened 
 
 The database image specified in the Gateway resource SHALL default to `registry.access.redhat.com/hi/postgresql:18`. Developers SHALL configure a pull secret in the Kind cluster to authenticate against `registry.access.redhat.com`. The pull secret is expected to be present before running `make kind-up`; the Makefile SHALL NOT manage registry credentials.
 
-The database image SHALL be overridable via the `KIND_DB_IMAGE` environment variable (e.g. `KIND_DB_IMAGE=docker.io/library/postgres:18`). This enables OSS contributors who do not have access to the Red Hat registry to use an alternative PostgreSQL image. Overriding the image is not officially supported — compatibility issues with non-HI images are the contributor's responsibility.
+The database image SHALL be overridable via the `KIND_DB_IMAGE` environment variable (e.g. `KIND_DB_IMAGE=docker.io/library/postgres:18`). This enables OSS contributors who do not have access to the Red Hat registry to use an alternative PostgreSQL image. Overriding the image is not officially supported - compatibility issues with non-HI images are the contributor's responsibility.
 
 #### Scenario: HI Image Used for Database
 - GIVEN a Kind cluster is running
@@ -672,10 +672,10 @@ All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (def
 | `KIND_DNS_PORT` | `5553` | Host port for the CoreDNS container (UDP+TCP) |
 | `KIND_HOT_RELOAD` | `true` | Hot reload for supported components; set to `false` to disable |
 | `KIND_HOST_MOUNT_PATH` | Repository root (`git rev-parse --show-toplevel`) | Host directory mounted into Kind nodes for hot reload |
-| `KIND_KEYCLOAK_URL` | (unset — deploy local) | External Keycloak issuer URL; skips local deployment when set |
+| `KIND_KEYCLOAK_URL` | (unset - deploy local) | External Keycloak issuer URL; skips local deployment when set |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry path for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
-| `LOCAL_IMAGES` | (unset — pull from registry) | Set to `true` to build baseline images from `origin/main` instead of pulling from registry |
+| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build baseline images from `origin/main` instead of pulling from registry |
 | `CONTAINER_ENGINE` | Auto-detected (Podman preferred) | Container engine (`podman` or `docker`) |
 | `GATEWAY_API_VERSION` | (pinned in Makefile) | Gateway API CRD release version |
 | `CLOUD_PROVIDER_KIND_VERSION` | (pinned in Makefile) | cloud-provider-kind binary version |
@@ -693,9 +693,9 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | `make kind-down` | Remove `KIND_NAMESPACE` and its resources; prompt for `kind-teardown` when last namespace is removed |
 | `make kind-teardown` | Destroy the Kind cluster + stop cloud-provider-kind + stop CoreDNS + flush port forwarding rules + revert resolver |
 | `make kind-status` | Show cluster info, pods, services, hostnames, DNS status, port forwarding status, and active component swaps |
-| `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
+| `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent - rebuilds and replaces on every call) |
 | `make kind-api-server-down` | Revert api-server to baseline image + restart + wait |
-| `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent — rebuilds and replaces on every call) |
+| `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent - rebuilds and replaces on every call) |
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
@@ -705,7 +705,7 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | Decision | Rationale |
 |----------|-----------|
 | Registry pull for baseline images | Faster setup; no local build required for baseline; per-component swap handles local development |
-| Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` serves a separate purpose — offline baseline builds from `main` when registry access is unavailable |
+| Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` serves a separate purpose - offline baseline builds from `main` when registry access is unavailable |
 | Hostname routing via networking Gateway as default | All component services route through the networking Gateway using HTTPRoute resources at `*.hypershell.localhost`. Developers access services by name (`api.hypershell.localhost`) instead of memorizing port numbers. Multi-namespace deployments get distinct hostnames without any per-hostname configuration thanks to wildcard DNS |
 | CoreDNS for wildcard DNS | A CoreDNS container resolves all `*.localhost` to loopback, eliminating per-hostname `/etc/hosts` management. OS resolver config routes `.localhost` queries to CoreDNS (macOS: `/etc/resolver/localhost`; Linux: `resolvectl`). Multi-namespace hostnames work automatically |
 | OS-native port forwarding (pfctl/iptables) | Redirects host:443 to cloud-provider-kind's ephemeral port, enabling clean `https://` URLs. Workaround until cloud-provider-kind supports publishing on specific host ports. Graceful fallback: if sudo fails, URLs show the ephemeral port suffix |
@@ -716,16 +716,16 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | Hot reload on by default | Swap targets for supported components (web console) mount host source and run a dev server in an interactive TTY by default; `KIND_HOT_RELOAD=false` opts out to rebuild-and-replace. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)), exercising the same path as production. The API server's own database (`deploy/kind/postgres.yaml`) is always deployed directly by `kind-up` |
-| Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images — HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
+| Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images - HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
 | Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames via `KIND_NAMESPACE=<name> make kind-up`. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). `kind-down` removes the target namespace; `kind-teardown` destroys the cluster |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
 | GRPCRoute, not HTTPRoute | OpenShell gateway speaks gRPC; GRPCRoute is the correct Gateway API resource type for gRPC backends |
-| BackendTLSPolicy for TLS re-encrypt | Matches production topology — the networking Gateway verifies the pod's cert via CA ConfigMap rather than terminating TLS and sending plaintext to the pod. Exercises the same code path the control plane uses on OpenShift |
+| BackendTLSPolicy for TLS re-encrypt | Matches production topology - the networking Gateway verifies the pod's cert via CA ConfigMap rather than terminating TLS and sending plaintext to the pod. Exercises the same code path the control plane uses on OpenShift |
 | Networking Gateway installed by kind-up | Cluster-level infrastructure (GatewayClass + Gateway), not per-tenant; the control plane only manages per-gateway route resources (GRPCRoute, BackendTLSPolicy, CA ConfigMap) |
 | cert-manager as prerequisite | Automates TLS certificate lifecycle (issuance, renewal, rotation) for gateway certificates; eliminates manual re-runs of the certgen job |
 | Keycloak for local OIDC | Local instance mirrors the downstream Keycloak topology (realm `hypershell`, per-gateway clients, provisioner service account); `KIND_KEYCLOAK_URL` override allows testing against an external instance |
 | OIDC only, no mTLS | Team agreed to drop mTLS client auth; OIDC is the recommended auth mode for Kubernetes deployments per upstream docs |
 | TLS always enabled | BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod (see Gateway API Routing section); the gateway must serve TLS even in local environments. cert-manager issues a self-signed CA for both the wildcard listener cert and the pod's server cert |
 | Configurable `IMAGE_REGISTRY` and `IMAGE_TAG` | Allows teams to test against different builds or staging registries |
-| Single root Makefile | All targets live in the root Makefile — build, test, codegen, and cluster lifecycle. Component-level Makefiles (`components/api-server/Makefile`, etc.) are deprecated; a single entrypoint eliminates indirection and makes `make <tab>` discoverable. Kind cluster lifecycle shell logic lives in `scripts/kind/` (`lib.sh`, `up.sh`, `down.sh`, `teardown.sh`, `status.sh`, `build-images.sh`, `swap-component.sh`); the Makefile exports configuration and dispatches to these scripts. Output uses colored headers (`NO_COLOR` respected) |
+| Single root Makefile | All targets live in the root Makefile - build, test, codegen, and cluster lifecycle. Component-level Makefiles (`components/api-server/Makefile`, etc.) are deprecated; a single entrypoint eliminates indirection and makes `make <tab>` discoverable. Kind cluster lifecycle shell logic lives in `scripts/kind/` (`lib.sh`, `up.sh`, `down.sh`, `teardown.sh`, `status.sh`, `build-images.sh`, `swap-component.sh`); the Makefile exports configuration and dispatches to these scripts. Output uses colored headers (`NO_COLOR` respected) |

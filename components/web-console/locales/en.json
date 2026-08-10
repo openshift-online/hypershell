@@ -7,6 +7,10 @@
     "defaultMessage": "Close",
     "description": "Accessible label for closing an overlay."
   },
+  "app.action.retry": {
+    "defaultMessage": "Retry",
+    "description": "Action that repeats a failed request."
+  },
   "app.breadcrumb.ariaLabel": {
     "defaultMessage": "Breadcrumb",
     "description": "Accessible label for the application breadcrumb navigation."
@@ -46,6 +50,58 @@
   "app.gateway.cluster": {
     "defaultMessage": "Cluster",
     "description": "Heading for the gateway placement cluster column."
+  },
+  "app.gateway.cluster.clearSearch": {
+    "defaultMessage": "Clear cluster search",
+    "description": "Accessible label for clearing the cluster typeahead input."
+  },
+  "app.gateway.cluster.hub": {
+    "defaultMessage": "Hub cluster",
+    "description": "Placement label for the cluster hosting HyperShell."
+  },
+  "app.gateway.cluster.hubDefault": {
+    "defaultMessage": "Hub cluster (default)",
+    "description": "Default placement option for a gateway provisioning form."
+  },
+  "app.gateway.cluster.loadError.body": {
+    "defaultMessage": "You can provision on Hub cluster (default), or try loading managed clusters again.",
+    "description": "Recovery guidance when remote gateway placements cannot be loaded."
+  },
+  "app.gateway.cluster.loadError.title": {
+    "defaultMessage": "Managed clusters could not be loaded",
+    "description": "Title shown when remote gateway placements cannot be loaded."
+  },
+  "app.gateway.cluster.loading": {
+    "defaultMessage": "Loading managed clusters",
+    "description": "Status shown while remote gateway placements are loading."
+  },
+  "app.gateway.cluster.loadingName": {
+    "defaultMessage": "Loading cluster name",
+    "description": "Status shown while a gateway row resolves its placement name."
+  },
+  "app.gateway.cluster.moreResults": {
+    "defaultMessage": "More clusters are available. Refine your search to find a specific cluster.",
+    "description": "Guidance when a bounded cluster search has additional API results."
+  },
+  "app.gateway.cluster.noResults": {
+    "defaultMessage": "No matching clusters",
+    "description": "Status shown when no managed clusters match the search."
+  },
+  "app.gateway.cluster.provider": {
+    "defaultMessage": "Provider: {provider}",
+    "description": "Provider context that distinguishes a managed cluster option."
+  },
+  "app.gateway.cluster.providerAndRegion": {
+    "defaultMessage": "Provider: {provider}; region: {region}",
+    "description": "Provider and region context that distinguishes a managed cluster option."
+  },
+  "app.gateway.cluster.region": {
+    "defaultMessage": "Region: {region}",
+    "description": "Region context that distinguishes a managed cluster option."
+  },
+  "app.gateway.cluster.select": {
+    "defaultMessage": "Select a cluster",
+    "description": "Accessible label and placeholder for the cluster selector."
   },
   "app.gateway.copyCliConnectionCommand": {
     "defaultMessage": "Copy CLI connection command",
@@ -113,7 +169,7 @@
   },
   "app.gateway.namespace": {
     "defaultMessage": "Namespace",
-    "description": "Label for a gateway namespace form field."
+    "description": "Label for a gateway namespace value."
   },
   "app.gateway.openConsole": {
     "defaultMessage": "Open gateway console",
@@ -246,6 +302,10 @@
   "app.skipToContent": {
     "defaultMessage": "Skip to content",
     "description": "Accessibility link that moves focus to the main page content."
+  },
+  "app.status.error": {
+    "defaultMessage": "Error:",
+    "description": "Screen-reader prefix for an error message."
   },
   "app.table.clearFilters": {
     "defaultMessage": "Clear filters",

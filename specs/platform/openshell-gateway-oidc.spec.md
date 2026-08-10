@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-05
 **Status:** Draft
-**Parent:** `openshell-gateway.spec.md` — core gateway provisioning
-**Related:** `openshell-gateway-tls.spec.md` — TLS certificate management; `openshell-gateway-routing.spec.md` — external connectivity
+**Parent:** `openshell-gateway.spec.md` - core gateway provisioning
+**Related:** `openshell-gateway-tls.spec.md` - TLS certificate management; `openshell-gateway-routing.spec.md` - external connectivity
 
 ---
 
@@ -192,11 +192,11 @@ OPENSHELL_GATEWAY_INSECURE=true openshell -g tenant-a-openshell-gateway sandbox 
 
 | Symptom | Root Cause | Fix |
 |---|---|---|
-| `role 'openshell-user' required` | OIDC `roles_claim` misconfigured — JWT has `groups` not `roles` | Set `roles_claim: groups` |
+| `role 'openshell-user' required` | OIDC `roles_claim` misconfigured - JWT has `groups` not `roles` | Set `roles_claim: groups` |
 | `Invalid client or Invalid client credentials` | Wrong client_secret or client_id | Check `sso-credentials` Secret |
 | Token expires after 5 minutes | Keycloak access token TTL | Use refresh token or increase session timeout |
 | `openshell gateway add` opens browser | No `--no-browser` flag | Write `metadata.json` directly, then use `hsctl gateway setup-cli` |
-| `GROUPS` env var returns `1000` in bash | Bash builtin collision — `GROUPS` is a reserved readonly array | Use `USER_GROUPS` instead of `GROUPS` for role/group env vars |
+| `GROUPS` env var returns `1000` in bash | Bash builtin collision - `GROUPS` is a reserved readonly array | Use `USER_GROUPS` instead of `GROUPS` for role/group env vars |
 | `openshell sandbox create` hangs | Blocking interactive command | Background the command and poll for pod status; use `ExecSandbox` for runner startup |
 
 ---

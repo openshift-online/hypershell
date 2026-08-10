@@ -21,11 +21,14 @@ success() { printf "${GREEN}    %s${NC}\n" "$*"; }
 warn()    { printf "${YELLOW}    %s${NC}\n" "$*"; }
 error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 
-# --- Defaults (defensive — Make exports these, but scripts can run standalone) ---
+# --- Defaults (defensive - Make exports these, but scripts can run standalone) ---
 
 : "${KIND_CLUSTER_NAME:=hypershell-dev}"
 : "${KIND_NAMESPACE:=hypershell-system}"
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
+if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
+  export KIND_EXPERIMENTAL_PROVIDER=podman
+fi
 : "${GATEWAY_IMAGE:=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KEYCLOAK_OIDC_ISSUER:=http://${KEYCLOAK_HOSTNAME}:8080/realms/hypershell}"
@@ -130,7 +133,7 @@ setup_resolver() {
          printf '%s\n' "${expected}" | sudo tee "${resolver_file}" >/dev/null; then
         success "macOS resolver configured: ${resolver_file}"
       else
-        warn "Could not configure resolver — manually create ${resolver_file} with:"
+        warn "Could not configure resolver - manually create ${resolver_file} with:"
         warn "  nameserver 127.0.0.1"
         warn "  port ${KIND_DNS_PORT}"
       fi
@@ -146,7 +149,7 @@ setup_resolver() {
           warn "Add '127.0.0.1 <hostname>' to /etc/hosts as a fallback"
         fi
       else
-        warn "resolvectl not found — add hostnames to /etc/hosts manually"
+        warn "resolvectl not found - add hostnames to /etc/hosts manually"
       fi
       ;;
   esac
@@ -207,7 +210,7 @@ start_port_forward() {
   local http_port="${2:-}"
   PORT_FORWARD_ACTIVE=""
   if [[ "${HAVE_SUDO:-true}" == "false" ]]; then
-    warn "Skipping port forwarding (no sudo) — use port ${ephemeral_port} directly"
+    warn "Skipping port forwarding (no sudo) - use port ${ephemeral_port} directly"
     return
   fi
   case "$(uname -s)" in
@@ -231,7 +234,7 @@ rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 8080 -> 127.0.0.1 port
           success "Port forwarding active: http://localhost:8080 -> :${http_port}"
         fi
       else
-        warn "pfctl setup failed — access services on port ${ephemeral_port} instead"
+        warn "pfctl setup failed - access services on port ${ephemeral_port} instead"
       fi
       ;;
     Linux)
@@ -245,7 +248,7 @@ rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 8080 -> 127.0.0.1 port
         PORT_FORWARD_ACTIVE=true
         success "Port forwarding active: https://localhost:443 -> :${ephemeral_port}"
       else
-        warn "iptables setup failed — access services on port ${ephemeral_port} instead"
+        warn "iptables setup failed - access services on port ${ephemeral_port} instead"
       fi
       if [[ -n "${http_port}" ]]; then
         if sudo iptables -t nat -A "${IPTABLES_CHAIN}" -p tcp -d 127.0.0.1 --dport 8080 \

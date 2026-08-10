@@ -53,15 +53,15 @@ skills/
 
 | Domain | Specs | Requirements | Present | Partial | Missing | Deferred | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|----------|
-| Platform — Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
-| Platform — Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
-| Platform — Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
-| Platform — Gateway DB | 1 | 9 | 5 | 0 | 4 | 0 | 56% |
-| Platform — Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
-| Platform — Gateway OIDC | 1 | 7 | 4 | 1 | 2 | 0 | 64% |
-| Platform — Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
-| Platform — Local Development | 1 | 24 | 3 | 5 | 16 | 0 | 23% |
-| Web Console — Architecture | 1 | 28 | 18 | 8 | 2 | 0 | 79% |
+| Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
+| Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
+| Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
+| Platform - Gateway DB | 1 | 9 | 5 | 0 | 4 | 0 | 56% |
+| Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
+| Platform - Gateway OIDC | 1 | 7 | 4 | 1 | 2 | 0 | 64% |
+| Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
+| Platform - Local Development | 1 | 24 | 3 | 5 | 16 | 0 | 23% |
+| Web Console - Architecture | 1 | 28 | 18 | 8 | 2 | 0 | 79% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
 | **TOTAL** | **22** | **136** | **70** | **25** | **41** | **0** | **61%** |
 
@@ -86,8 +86,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| DM-1 | Fleet (Sector) Lifecycle CRUD | Present | Naming: spec says "Sector", code says "Fleet" | `plugins/fleets/` | — |
-| DM-2 | Fleet-Scoped Resources (FK) | Present | `fleet_id` instead of `sector_id` | all child models | — |
+| DM-1 | Fleet (Sector) Lifecycle CRUD | Present | Naming: spec says "Sector", code says "Fleet" | `plugins/fleets/` | - |
+| DM-2 | Fleet-Scoped Resources (FK) | Present | `fleet_id` instead of `sector_id` | all child models | - |
 | DM-3a | Gateway field: `image` | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3b | Gateway field: `server_dns_names` | Present | Added as JSONB (model `*string`), proto `repeated string`, OpenAPI `[]string` | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3c | Gateway field: `oidc` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
@@ -97,24 +97,24 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
 | DM-5 | Canary release strategy fields | Present | Fields exist; no logic implements canary | `plugins/gatewayReleases/model.go` | Future |
 | DM-6 | Network topology fields | Present | Fields exist; reconciler is a stub | `plugins/gatewayNetworks/model.go` | Future |
-| DM-7 | API endpoints (all 6 resources) | Present | — | `plugins/*/` | — |
+| DM-7 | API endpoints (all 6 resources) | Present | - | `plugins/*/` | - |
 
 ### control-plane.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| CP-1 | gRPC watch streams (6 kinds) | Present | No checkpoint/resume-token on reconnect | `watcher/watcher.go` | — |
-| CP-2a | Deploy Gateway workloads | Present | — | `gateway/reconciler.go` | — |
-| CP-2b | Provision PostgreSQL | Present | — | `reconcileDatabaseCredentials()` | — |
-| CP-2c | TLS via cert-manager | Present | — | `reconcileCertManagerResources()` | — |
-| CP-2d | GRPCRoute + BackendTLSPolicy | Present | — | `reconcileGatewayAPIResources()` | — |
-| CP-2e | OIDC config injection | Present | — | `ApplyConfigOverrides()` | — |
+| CP-1 | gRPC watch streams (6 kinds) | Present | No checkpoint/resume-token on reconnect | `watcher/watcher.go` | - |
+| CP-2a | Deploy Gateway workloads | Present | - | `gateway/reconciler.go` | - |
+| CP-2b | Provision PostgreSQL | Present | - | `reconcileDatabaseCredentials()` | - |
+| CP-2c | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | - |
+| CP-2d | GRPCRoute + BackendTLSPolicy | Present | - | `reconcileGatewayAPIResources()` | - |
+| CP-2e | OIDC config injection | Present | - | `ApplyConfigOverrides()` | - |
 | CP-2f | Network mesh reconciliation | Missing | Stub: only logs | `reconciler.go:279-295` | Future |
 | CP-2g | Canary release rollout | Missing | Stub: only logs | `reconciler.go:99-124` | Future |
 | CP-2h | Update resource status/phase | Partial | Only updates `phase`, not `status` | `updateGatewayPhase()` | Future |
 | CP-2i | Read provisioning fields from proto | Present | GatewayReconciler populates GatewayConfig from proto fields via JSON unmarshal | `reconciler.go:248-280` | W5 ✅ |
 | CP-3 | Delete K8s resources on Gateway deletion | Present | Label-based deletion of all namespaced resources + per-tenant ClusterRoleBinding | `gateway/reconciler.go:DeleteGatewayResources()` | W6 ✅ |
-| CP-4 | Status synchronization / health checks | Missing | No periodic health polling | — | Future |
+| CP-4 | Status synchronization / health checks | Missing | No periodic health polling | - | Future |
 | CP-5 | Multi-cluster client pool | Missing | Single in-cluster client for all gateways | `main.go:58-68` | Future |
 
 ### openshell-gateway.spec.md (Core)
@@ -122,83 +122,83 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | G1 | Gateway as API Resource | Present | CRUD + all provisioning fields (image, server_dns_names, oidc, route, route_address, database_config) | `gateways.proto` | W5 ✅ |
-| G2 | Shared Kustomize Library | Missing | No library, no CLI, no examples | — | Future |
+| G2 | Shared Kustomize Library | Missing | No library, no CLI, no examples | - | Future |
 | G3 | GatewayReconciler | Present | DELETED handler with namespace cache and full resource cleanup | `reconciler.go` | W6 ✅ |
-| G4 | Gateway Manifest Templating | Present | — | `manifests.go` | W1 ✅ |
-| G5 | TLS via cert-manager | Present | — | `reconcileCertManagerResources()` | W2 ✅ |
-| G6 | Trusted CA Bundle Injection | Present | — | `reconcileTrustedCABundle()` | W3 ✅ |
-| G7 | Gateway Config Validation | Present | TOML validation absent | `validation.go` | — |
-| G8 | Labels on all resources | Present | — | all manifests + reconciler | W1 ✅ |
+| G4 | Gateway Manifest Templating | Present | - | `manifests.go` | W1 ✅ |
+| G5 | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | W2 ✅ |
+| G6 | Trusted CA Bundle Injection | Present | - | `reconcileTrustedCABundle()` | W3 ✅ |
+| G7 | Gateway Config Validation | Present | TOML validation absent | `validation.go` | - |
+| G8 | Labels on all resources | Present | - | all manifests + reconciler | W1 ✅ |
 | G9 | Gateway Deployment Resources | Partial | `/tmp` emptyDir volume missing from deployment.yaml | `deployment.yaml` | W7 |
 | G10 | Per-Gateway RBAC | Present | Per-tenant ClusterRoleBinding `...-<namespace>` | `rbac.yaml` | W6 ✅ |
 | G11 | JWT Certgen Job | Partial | Missing `runAsNonRoot`, missing resource requests/limits | `certgen-job.yaml` | W7 |
-| G12 | Gateway NetworkPolicies | Present | — | `networkpolicy.yaml` | — |
+| G12 | Gateway NetworkPolicies | Present | - | `networkpolicy.yaml` | - |
 | G13 | Configuration (gateway.toml) | Partial | `client_ca_path` missing from TLS section | `configmap.yaml` | W7 |
-| G14 | OpenShift-Specific Provisioning | Present | — | `reconcileOpenShiftSCC()` | W2 ✅ |
-| G15 | Deployment Failure Handling | Present | Relies on re-delivery rather than explicit requeue | `reconciler.go` | — |
-| G16 | Separation from Agent Config | Present | — | — | — |
-| G17 | SSH Payload Delivery | Missing | `internal/openshell/ssh_upload.go` does not exist | — | Future |
-| G18 | Per-Tenant Gateway API Resource | Missing | Code creates GRPCRoute only; no per-tenant K8s Gateway | — | W8 |
+| G14 | OpenShift-Specific Provisioning | Present | - | `reconcileOpenShiftSCC()` | W2 ✅ |
+| G15 | Deployment Failure Handling | Present | Relies on re-delivery rather than explicit requeue | `reconciler.go` | - |
+| G16 | Separation from Agent Config | Present | - | - | - |
+| G17 | SSH Payload Delivery | Missing | `internal/openshell/ssh_upload.go` does not exist | - | Future |
+| G18 | Per-Tenant Gateway API Resource | Missing | Code creates GRPCRoute only; no per-tenant K8s Gateway | - | W8 |
 
 ### openshell-gateway-database.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| D1 | Database config fields (storageSize, image) | Present | — | `config.go:32-33` | W1 ✅ |
-| D2 | PostgreSQL resource provisioning (PVC, Deployment, Service, NP) | Present | — | `database.yaml` | W1 ✅ |
-| D3 | Database credential security (crypto/rand) | Present | — | `reconcileDatabaseCredentials()` | W1 ✅ |
-| D4 | Manual credential rotation | Missing | No rotation annotation handler | — | Future |
-| D5 | Gateway uses Deployment + env from Secret | Present | — | `deployment.yaml` | W1 ✅ |
-| D6 | Database field immutability | Missing | No API validation | — | Future |
-| D7 | Gateway deletion protection | Missing | No sandbox check on delete | — | Future |
-| D8 | `externalSecretRef` (Phase 2 reserved) | Missing | Not in `DatabaseConfig` struct | — | Future |
+| D1 | Database config fields (storageSize, image) | Present | - | `config.go:32-33` | W1 ✅ |
+| D2 | PostgreSQL resource provisioning (PVC, Deployment, Service, NP) | Present | - | `database.yaml` | W1 ✅ |
+| D3 | Database credential security (crypto/rand) | Present | - | `reconcileDatabaseCredentials()` | W1 ✅ |
+| D4 | Manual credential rotation | Missing | No rotation annotation handler | - | Future |
+| D5 | Gateway uses Deployment + env from Secret | Present | - | `deployment.yaml` | W1 ✅ |
+| D6 | Database field immutability | Missing | No API validation | - | Future |
+| D7 | Gateway deletion protection | Missing | No sandbox check on delete | - | Future |
+| D8 | `externalSecretRef` (Phase 2 reserved) | Missing | Not in `DatabaseConfig` struct | - | Future |
 | D9 | Label-based cleanup on deletion | Present | Spec updated: label-based deletion via `DeleteGatewayResources()` replaces ownerReferences | `gateway/reconciler.go` | W6 ✅ |
 
 ### openshell-gateway-tls.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| T1 | cert-manager detection + full cert chain | Present | — | `DetectCertManager()`, `reconcileCertManagerResources()` | W2 ✅ |
-| T2 | SAN management via cert-manager Certificate | Present | — | `reconciler.go:948-975` | W2 ✅ |
-| T3 | Trusted CA bundle copy + mount | Present | — | `reconcileTrustedCABundle()` | W3 ✅ |
-| T4 | RBAC for cert-manager resources | Partial | Resources in `kindToResource`; ClusterRole not verified | `reconciler.go` | — |
+| T1 | cert-manager detection + full cert chain | Present | - | `DetectCertManager()`, `reconcileCertManagerResources()` | W2 ✅ |
+| T2 | SAN management via cert-manager Certificate | Present | - | `reconciler.go:948-975` | W2 ✅ |
+| T3 | Trusted CA bundle copy + mount | Present | - | `reconcileTrustedCABundle()` | W3 ✅ |
+| T4 | RBAC for cert-manager resources | Partial | Resources in `kindToResource`; ClusterRole not verified | `reconciler.go` | - |
 | T5 | cert-manager absent: block deployment | Partial | Logs WARN but does NOT block deployment | `reconciler.go:54-55` | W7 |
-| T6 | SAN change detection (ConfigMap vs API) | Missing | No comparison logic | — | W7 |
-| T7 | Gateway restart on cert regeneration | Missing | No hash annotation mechanism | — | W7 |
+| T6 | SAN change detection (ConfigMap vs API) | Missing | No comparison logic | - | W7 |
+| T7 | Gateway restart on cert regeneration | Missing | No hash annotation mechanism | - | W7 |
 
 ### openshell-gateway-oidc.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| O1 | OIDC API fields (issuer, audience, etc.) | Present | — | `config.go:23-29` | W3 ✅ |
-| O2 | OIDC role validation (both-or-neither) | Present | — | `ValidateOIDCConfig()` | W3 ✅ |
-| O3 | OIDC TOML injection in gateway.toml | Present | — | `ApplyConfigOverrides()` | W3 ✅ |
-| O4 | OIDC change detection → ConfigMap update | Present | — | ConfigMap always regenerated | W3 ✅ |
+| O1 | OIDC API fields (issuer, audience, etc.) | Present | - | `config.go:23-29` | W3 ✅ |
+| O2 | OIDC role validation (both-or-neither) | Present | - | `ValidateOIDCConfig()` | W3 ✅ |
+| O3 | OIDC TOML injection in gateway.toml | Present | - | `ApplyConfigOverrides()` | W3 ✅ |
+| O4 | OIDC change detection → ConfigMap update | Present | - | ConfigMap always regenerated | W3 ✅ |
 | O5 | `jwks_ttl` default 3600 | Partial | Field exists; default not applied when value is 0 | `config.go:25` | W7 |
-| O6 | Custom `config` field bypasses OIDC injection | Missing | No raw TOML `config` field in GatewayConfig | — | Future |
-| O7 | Gateway restart on OIDC change | Missing | No hash annotation mechanism | — | W7 |
+| O6 | Custom `config` field bypasses OIDC injection | Missing | No raw TOML `config` field in GatewayConfig | - | Future |
+| O7 | Gateway restart on OIDC change | Missing | No hash annotation mechanism | - | W7 |
 
 ### openshell-gateway-routing.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | R1 | Router NetworkPolicy | Partial | Uses namespaceSelector not podSelector; created unconditionally | `reconcileRouterNetworkPolicy()` | W7 |
-| R2 | Gateway API detection at startup | Present | — | `DetectGatewayAPI()` | W4 ✅ |
-| R3 | `GATEWAY_API_GATEWAY_CLASS` env var | Missing | Code uses NAME/NAMESPACE instead | — | W8 |
-| R4 | Gateway API not available: disable + log | Present | — | `reconciler.go:76-80` | W4 ✅ |
-| R5 | `route` config field (host, enabled) | Present | — | `config.go:17-20` | W4 ✅ |
+| R2 | Gateway API detection at startup | Present | - | `DetectGatewayAPI()` | W4 ✅ |
+| R3 | `GATEWAY_API_GATEWAY_CLASS` env var | Missing | Code uses NAME/NAMESPACE instead | - | W8 |
+| R4 | Gateway API not available: disable + log | Present | - | `reconciler.go:76-80` | W4 ✅ |
+| R5 | `route` config field (host, enabled) | Present | - | `config.go:17-20` | W4 ✅ |
 | R6 | Auto-derived hostname convention | Partial | Extra `.hsgw.` subdomain vs spec | `reconciler.go:727-731` | W8 |
-| R7 | DNS label validation (63-char, truncation+hash) | Missing | No validation | — | W7 |
-| R8 | GRPCRoute provisioning | Present | — | `reconciler.go:735-769` | W4 ✅ |
+| R7 | DNS label validation (63-char, truncation+hash) | Missing | No validation | - | W7 |
+| R8 | GRPCRoute provisioning | Present | - | `reconciler.go:735-769` | W4 ✅ |
 | R9 | GRPCRoute parentRefs: per-tenant Gateway | Partial | Points to shared gateway, not per-tenant | `reconciler.go:749-753` | W8 |
 | R10 | GRPCRoute managed label for cleanup | Present | Spec updated: `hypershell.redhat.io/managed` label replaces ownerReferences; cleanup via `deleteGatewayAPIResources()` | `gateway/reconciler.go` | W6 ✅ |
-| R11 | BackendTLSPolicy + CA ConfigMap | Present | — | `reconciler.go:813-849` | W4 ✅ |
-| R12 | Per-tenant K8s Gateway resource | Missing | Not created at all | — | W8 |
-| R13 | Wildcard cert copy (`grpc-gateway-certs`) | Missing | No code copies cert to tenant NS | — | W8 |
+| R11 | BackendTLSPolicy + CA ConfigMap | Present | - | `reconciler.go:813-849` | W4 ✅ |
+| R12 | Per-tenant K8s Gateway resource | Missing | Not created at all | - | W8 |
+| R13 | Wildcard cert copy (`grpc-gateway-certs`) | Missing | No code copies cert to tenant NS | - | W8 |
 | R14 | Route removal: delete resources, clear routeAddress | Partial | `deleteGatewayAPIResources()` removes GRPCRoute, BackendTLSPolicy, CA ConfigMap when route disabled; routeAddress clear deferred to W8 | `gateway/reconciler.go` | W6 ✅ |
-| R15 | routeAddress write-back (PATCH to API) | Missing | No code writes routeAddress | — | W8 |
-| R16 | Wait for Gateway Accepted+Programmed | Missing | No status polling | — | W8 |
-| R17 | Workload restart on config change (hash annotation) | Missing | Cross-cutting: also needed by TLS/OIDC | — | W7 |
+| R15 | routeAddress write-back (PATCH to API) | Missing | No code writes routeAddress | - | W8 |
+| R16 | Wait for Gateway Accepted+Programmed | Missing | No status polling | - | W8 |
+| R17 | Workload restart on config change (hash annotation) | Missing | Cross-cutting: also needed by TLS/OIDC | - | W7 |
 | R18 | `kindToResource` mapping for Gateway kind | Missing | Missing `"Gateway": "gateways"` entry | `reconciler.go:226-252` | W8 |
 
 ### local-development.spec.md
@@ -207,61 +207,61 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 |---|-------------|--------|-----|---------------|------|
 | LD-1 | `make kind-up` single-command setup | Partial | Builds locally (not registry); `\|\| true` on create; no web console | `Makefile`, `api-server/Makefile` | Future |
 | LD-2 | Idempotent subsequent run | Partial | `\|\| true` instead of `kind get clusters` check | `api-server/Makefile` | Future |
-| LD-3 | Per-component local swap targets | Missing | No `kind-api-server-up`, `kind-control-plane-up`, `kind-web-console-up` | — | Future |
-| LD-4 | Per-component revert targets | Missing | No `kind-*-down` per component | — | Future |
-| LD-5 | Cluster teardown (`make kind-down`) | Present | — | `Makefile`, `api-server/Makefile` | — |
+| LD-3 | Per-component local swap targets | Missing | No `kind-api-server-up`, `kind-control-plane-up`, `kind-web-console-up` | - | Future |
+| LD-4 | Per-component revert targets | Missing | No `kind-*-down` per component | - | Future |
+| LD-5 | Cluster teardown (`make kind-down`) | Present | - | `Makefile`, `api-server/Makefile` | - |
 | LD-6 | Cluster status with swap state | Partial | Shows pods/services; no swap state reporting | `Makefile` | Future |
-| LD-7 | Configurable cluster name | Present | `KIND_CLUSTER_NAME?=hypershell-dev` | `api-server/Makefile` | — |
-| LD-8 | Hostname-based service access | Present | CoreDNS wildcard DNS + pfctl/iptables port forwarding + Gateway API routing | `scripts/kind/lib.sh`, `deploy/kind/coredns/` | — |
-| LD-9 | Container engine support (Podman/Docker) | Present | Auto-detects via `CONTAINER_ENGINE` | `Makefile` | — |
+| LD-7 | Configurable cluster name | Present | `KIND_CLUSTER_NAME?=hypershell-dev` | `api-server/Makefile` | - |
+| LD-8 | Hostname-based service access | Present | CoreDNS wildcard DNS + pfctl/iptables port forwarding + Gateway API routing | `scripts/kind/lib.sh`, `deploy/kind/coredns/` | - |
+| LD-9 | Container engine support (Podman/Docker) | Present | Auto-detects via `CONTAINER_ENGINE` | `Makefile` | - |
 | LD-10 | Security contexts on all containers | Missing | No securityContext on any Kind manifest | `deploy/kind/*.yaml` | Future |
-| LD-11 | Swap tracking (`.kind-swaps`) | Missing | `.gitignore` entry exists; no logic | — | Future |
-| LD-12 | Developer documentation | Missing | No `DEVELOPMENT.md` | — | Future |
-| LD-13 | Hot reload support | Missing | No `KIND_HOT_RELOAD`, no `extraMounts` | — | Future |
-| LD-14 | Registry-pulled baseline images | Missing | Always builds locally | — | Future |
+| LD-11 | Swap tracking (`.kind-swaps`) | Missing | `.gitignore` entry exists; no logic | - | Future |
+| LD-12 | Developer documentation | Missing | No `DEVELOPMENT.md` | - | Future |
+| LD-13 | Hot reload support | Missing | No `KIND_HOT_RELOAD`, no `extraMounts` | - | Future |
+| LD-14 | Registry-pulled baseline images | Missing | Always builds locally | - | Future |
 | LD-15 | Red Hat hardened DB image | Missing | `postgres:13` from Docker Hub | `deploy/kind/postgres.yaml` | Future |
-| LD-16 | Gateway API CRDs | Missing | Not installed | — | Future |
-| LD-17 | cloud-provider-kind | Missing | Not started | — | Future |
-| LD-18 | cert-manager | Missing | Not installed | — | Future |
-| LD-19 | Keycloak | Missing | Not deployed | — | Future |
-| LD-20 | HyperShell Gateway resource in Kind | Missing | Not created | — | Future |
-| LD-21 | Gateway API routing (HTTPRoute, GRPCRoute) | Missing | No routing resources | — | Future |
-| LD-22 | Multiple namespace deployments | Missing | `kind-up`/`kind-down` support `KIND_NAMESPACE` but deploy-namespace.sh not yet integrated | — | Future |
+| LD-16 | Gateway API CRDs | Missing | Not installed | - | Future |
+| LD-17 | cloud-provider-kind | Missing | Not started | - | Future |
+| LD-18 | cert-manager | Missing | Not installed | - | Future |
+| LD-19 | Keycloak | Missing | Not deployed | - | Future |
+| LD-20 | HyperShell Gateway resource in Kind | Missing | Not created | - | Future |
+| LD-21 | Gateway API routing (HTTPRoute, GRPCRoute) | Missing | No routing resources | - | Future |
+| LD-22 | Multiple namespace deployments | Missing | `kind-up`/`kind-down` support `KIND_NAMESPACE` but deploy-namespace.sh not yet integrated | - | Future |
 | LD-23 | Single root Makefile (deprecate component) | Partial | Root delegates to `api-server/Makefile` | `Makefile` | Future |
-| LD-24 | NodePort fallback (`KIND_USE_NODEPORT`) | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | — | — |
+| LD-24 | NodePort fallback (`KIND_USE_NODEPORT`) | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | - | - |
 
 ### web-console/architecture.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| WEB-ARCH-01 | Client-rendered SPA | Present | — | `react-router.config.ts` | — |
-| WEB-ARCH-02 | Gateway management routes | Present | — | `routes.ts`, `gateway-ui/` | — |
-| WEB-ARCH-03 | Source/runtime boundaries | Present | — | `eslint.architecture.mjs` | — |
-| WEB-PKG-01 | pnpm workspace | Present | — | `pnpm-workspace.yaml` | — |
-| WEB-PKG-02 | Defensive resolution | Present | — | `pnpm-workspace.yaml` | — |
-| WEB-PKG-03 | Policy migration completeness | Partial | Verify pnpm lockfile inspection | `check_dependency_age.py` | — |
-| WEB-PKG-04 | Reusable gateway management UI package | Present | — | `packages/gateway-management-ui/` | — |
-| WEB-SDK-01 | Browser-compatible SDK | Present | — | `components/sdk-typescript/` | — |
-| WEB-AUTH-00 | No-auth dev mode | Present | — | `vite.config.ts` | — |
+| WEB-ARCH-01 | Client-rendered SPA | Present | - | `react-router.config.ts` | - |
+| WEB-ARCH-02 | Gateway management routes | Present | - | `routes.ts`, `gateway-ui/` | - |
+| WEB-ARCH-03 | Source/runtime boundaries | Present | - | `eslint.architecture.mjs` | - |
+| WEB-PKG-01 | pnpm workspace | Present | - | `pnpm-workspace.yaml` | - |
+| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml` | - |
+| WEB-PKG-03 | Policy migration completeness | Partial | Verify pnpm lockfile inspection | `check_dependency_age.py` | - |
+| WEB-PKG-04 | Reusable gateway management UI package | Present | - | `packages/gateway-management-ui/` | - |
+| WEB-SDK-01 | Browser-compatible SDK | Present | - | `components/sdk-typescript/` | - |
+| WEB-AUTH-00 | No-auth dev mode | Present | - | `vite.config.ts` | - |
 | WEB-AUTH-01 | OIDC BFF | Partial | `openid-client` declared; endpoints not implemented | `bff/src/app.ts` | Future |
-| WEB-AUTH-02 | Session + CSRF protection | Missing | No session management | — | Future |
-| WEB-AUTH-03 | Browser session contract | Missing | No session resource endpoint | — | Future |
-| WEB-BFF-01 | Same-origin static + API BFF | Present | — | `bff/src/app.ts` | — |
-| WEB-DATA-01 | Server-state ownership (TanStack Query) | Present | — | `root.tsx`, `gateway-data.ts` | — |
-| WEB-DATA-02 | URL and local state | Partial | Routes encode ID; pagination/search TBD | `routes.ts` | — |
-| WEB-DATA-03 | Retry, refresh, cancellation | Partial | Base config present; per-class policies TBD | `root.tsx` | — |
-| WEB-DATA-04 | Forms + runtime validation | Present | — | `gateway-create.tsx` | — |
-| WEB-UI-01 | PatternFly-first presentation | Present | — | PatternFly 6.6.0 | — |
-| WEB-UI-02 | Shared component evidence (Storybook) | Partial | Stories for shell only; none in gateway-ui | `.storybook/` | — |
-| WEB-UI-03 | Gateway connection experience | Partial | Components exist; command encoding TBD | `gateway-ui/src/gateways/` | — |
-| WEB-I18N-01 | Localization from first implementation | Present | — | `i18n/`, `locales/en.json` | — |
-| WEB-QUAL-01 | Static analysis | Present | — | `eslint.config.mjs` | — |
-| WEB-QUAL-02 | Test layers | Present | — | `vitest`, `playwright`, `storybook` | — |
-| WEB-QUAL-03 | Change and release gates | Partial | `check` script present; CI pipeline TBD | `package.json` | — |
-| WEB-DEPLOY-01 | Reproducible container | Present | — | `web-console/Dockerfile` | — |
-| WEB-DEPLOY-02 | Assets + runtime config | Present | — | `vite.config.ts`, `bff/src/config.ts` | — |
-| WEB-SEC-01 | Browser security headers | Present | — | `bff/src/app.ts` (helmet) | — |
-| WEB-OBS-01 | Web performance signals | Partial | `web-vitals` declared; wiring TBD | `domain-probes/` | — |
+| WEB-AUTH-02 | Session + CSRF protection | Missing | No session management | - | Future |
+| WEB-AUTH-03 | Browser session contract | Missing | No session resource endpoint | - | Future |
+| WEB-BFF-01 | Same-origin static + API BFF | Present | - | `bff/src/app.ts` | - |
+| WEB-DATA-01 | Server-state ownership (TanStack Query) | Present | - | `root.tsx`, `gateway-data.ts` | - |
+| WEB-DATA-02 | URL and local state | Partial | Routes encode ID; pagination/search TBD | `routes.ts` | - |
+| WEB-DATA-03 | Retry, refresh, cancellation | Partial | Base config present; per-class policies TBD | `root.tsx` | - |
+| WEB-DATA-04 | Forms + runtime validation | Present | - | `gateway-create.tsx` | - |
+| WEB-UI-01 | PatternFly-first presentation | Present | - | PatternFly 6.6.0 | - |
+| WEB-UI-02 | Shared component evidence (Storybook) | Partial | Stories for shell only; none in gateway-ui | `.storybook/` | - |
+| WEB-UI-03 | Gateway connection experience | Partial | Components exist; command encoding TBD | `gateway-ui/src/gateways/` | - |
+| WEB-I18N-01 | Localization from first implementation | Present | - | `i18n/`, `locales/en.json` | - |
+| WEB-QUAL-01 | Static analysis | Present | - | `eslint.config.mjs` | - |
+| WEB-QUAL-02 | Test layers | Present | - | `vitest`, `playwright`, `storybook` | - |
+| WEB-QUAL-03 | Change and release gates | Partial | `check` script present; CI pipeline TBD | `package.json` | - |
+| WEB-DEPLOY-01 | Reproducible container | Present | - | `web-console/Dockerfile` | - |
+| WEB-DEPLOY-02 | Assets + runtime config | Present | - | `vite.config.ts`, `bff/src/config.ts` | - |
+| WEB-SEC-01 | Browser security headers | Present | - | `bff/src/app.ts` (helmet) | - |
+| WEB-OBS-01 | Web performance signals | Partial | `web-vitals` declared; wiring TBD | `domain-probes/` | - |
 
 ### e2e-openshell.sh (Test Alignment)
 
@@ -277,19 +277,19 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | L2 | Per-Component Swap | Present | `swap-component.sh` implements `make kind-<component>-up/down` for api-server, control-plane, and web-console | `scripts/kind/swap-component.sh` | P1 |
 | L3 | Namespace Teardown (`kind-down`) + Cluster Teardown (`kind-teardown`) | Present | `down.sh` removes namespace; `teardown.sh` destroys cluster | `Makefile`, `scripts/kind/down.sh`, `scripts/kind/teardown.sh` | P0 |
 | L4 | Cluster Status (`kind-status`) | Present | Root Makefile + `scripts/kind/status.sh` | `Makefile`, `scripts/kind/status.sh` | P0 |
-| L5 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` in lib.sh | `scripts/kind/lib.sh` | — |
-| L6 | Hostname Routing (Gateway API) | Present | HTTPRoutes + CoreDNS wildcard DNS + pfctl/iptables port forwarding (443 → ephemeral) | `deploy/kind/prerequisites/`, `scripts/kind/lib.sh`, `deploy/kind/coredns/` | — |
-| L7 | NodePort Fallback | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | — | — |
+| L5 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` in lib.sh | `scripts/kind/lib.sh` | - |
+| L6 | Hostname Routing (Gateway API) | Present | HTTPRoutes + CoreDNS wildcard DNS + pfctl/iptables port forwarding (443 → ephemeral) | `deploy/kind/prerequisites/`, `scripts/kind/lib.sh`, `deploy/kind/coredns/` | - |
+| L7 | NodePort Fallback | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | - | - |
 | L8 | Gateway via REST API | Present | Fleet + Gateway seeded via curl in up.sh | `scripts/kind/up.sh` | P0 |
 | L9 | Controller RBAC | Present | ClusterRole + ClusterRoleBinding | `deploy/kind/controller-rbac.yaml` | P0 |
 | L10 | API Server Database | Present | postgres.yaml (Secret + Deployment + Service) | `deploy/kind/postgres.yaml` | P0 |
 | L11 | Hot Reload | Present | `swap-component.sh:swap_up()` web-console case scales down deployment, redirects Service → host dev server via Endpoints, runs `pnpm dev` with cleanup trap | `scripts/kind/swap-component.sh` | P2 |
-| L12 | Multi-Namespace Deployments | Missing | Not yet implemented | — | P2 |
+| L12 | Multi-Namespace Deployments | Missing | Not yet implemented | - | P2 |
 | L13 | Swap Tracking | Present | `lib.sh` defines `track_swap()`, `clear_swap()`, `is_swapped()` using `.kind-swaps` file; consumed by `up.sh` and `swap-component.sh` | `scripts/kind/lib.sh` | P2 |
 | L14 | Developer Documentation | Present | `DEVELOPMENT.md` created | `DEVELOPMENT.md` | P0 |
-| L15 | Container Engine Support | Present | Auto-detection (Podman preferred) | `scripts/kind/lib.sh` | — |
-| L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` + up.sh integration | `scripts/kind/build-images.sh` | — |
-| L17 | Red Hat HI Images | Partial | Spec requires HI; `KIND_DB_IMAGE` override exists but default still standard RHEL | — | P1 |
+| L15 | Container Engine Support | Present | Auto-detection (Podman preferred) | `scripts/kind/lib.sh` | - |
+| L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` + up.sh integration | `scripts/kind/build-images.sh` | - |
+| L17 | Red Hat HI Images | Partial | Spec requires HI; `KIND_DB_IMAGE` override exists but default still standard RHEL | - | P1 |
 
 ---
 
@@ -308,7 +308,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 **Wave 5 summary:** Added 6 gateway provisioning fields (image, server_dns_names, route_address, oidc, route, database_config) across proto, OpenAPI, model, migration, presenters, and gRPC/HTTP handlers. Control plane reconciler populates GatewayConfig from proto fields. Added ExternalSecretRef to DatabaseConfig.
 
-**Wave 6 summary:** Implemented `DeleteGatewayResources()` with label-based deletion of all namespaced resources + per-tenant ClusterRoleBinding cleanup. Added in-memory namespace cache for DELETED event handling (gRPC DELETE events have nil resource). Changed ClusterRoleBinding to per-tenant naming (`...-<namespace>`). Added `deleteGatewayAPIResources()` for route removal when routing disabled. ownerReferences deferred — explicit deletion covers the cleanup need.
+**Wave 6 summary:** Implemented `DeleteGatewayResources()` with label-based deletion of all namespaced resources + per-tenant ClusterRoleBinding cleanup. Added in-memory namespace cache for DELETED event handling (gRPC DELETE events have nil resource). Changed ClusterRoleBinding to per-tenant naming (`...-<namespace>`). Added `deleteGatewayAPIResources()` for route removal when routing disabled. ownerReferences deferred - explicit deletion covers the cleanup need.
 
 ### Wave 7: Cross-Cutting Fixes + Workload Restart Mechanism
 

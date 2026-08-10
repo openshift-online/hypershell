@@ -37,7 +37,7 @@ Users SHALL be able to back out, cancel, close, edit, or safely leave a mode or 
 
 The interface SHALL prevent foreseeable errors, accept harmless input variation, preserve valid work, identify the affected item, explain the problem without blame, and provide a feasible correction. Duplicate activation SHALL NOT produce duplicate consequential effects.
 
-**Verification:** Use valid boundary data and deliberate user, network, permission, timeout, and system failures. Test correction, retry, double activation, refresh, and recovery—not only error-message appearance.
+**Verification:** Use valid boundary data and deliberate user, network, permission, timeout, and system failures. Test correction, retry, double activation, refresh, and recovery-not only error-message appearance.
 
 ### Requirement UI-INT-06: Reversibility and Consequence
 

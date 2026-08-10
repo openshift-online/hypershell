@@ -17,7 +17,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: keycloak
-          image: quay.io/keycloak/keycloak:26.0
+          image: quay.io/keycloak/keycloak:26.2
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

@@ -14,6 +14,19 @@ export interface GatewayRecord {
   status?: string;
 }
 
+export interface GatewayPlacement {
+  id: string;
+  name: string;
+  provider: string;
+  region?: string;
+  status?: string;
+}
+
+export interface GatewayPlacementOptions {
+  hasMore: boolean;
+  items: readonly GatewayPlacement[];
+}
+
 export type GatewaySortDirection = "asc" | "desc";
 export type GatewaySortField = "cluster" | "endpoint" | "name" | "status";
 
@@ -25,11 +38,13 @@ export interface GatewayListRequest {
   sortField: GatewaySortField;
 }
 
+export const gatewayListPageSizes = [10, 20, 50, 100] as const;
+
 export const defaultGatewayListRequest: Readonly<GatewayListRequest> =
   Object.freeze({
     page: 1,
     search: "",
-    size: 20,
+    size: gatewayListPageSizes[1],
     sortDirection: "asc",
     sortField: "name",
   });
@@ -47,8 +62,8 @@ export interface GatewayInvocationContext {
 }
 
 export interface GatewayProvisionInput {
+  clusterId: string;
   name: string;
-  namespace: string;
 }
 
 export type GatewayFailureKind =
@@ -71,6 +86,18 @@ export class GatewayOperationError extends Error {
 
 /** Application-owned driven port for the HyperShell gateway control plane. */
 export interface GatewayControlPlane {
+  findGatewayPlacements(
+    search: string,
+    context: GatewayInvocationContext,
+  ): Promise<GatewayPlacementOptions>;
+  getGatewayPlacement(
+    clusterId: string,
+    context: GatewayInvocationContext,
+  ): Promise<GatewayPlacement>;
+  getGatewayPlacements(
+    clusterIds: readonly string[],
+    context: GatewayInvocationContext,
+  ): Promise<readonly GatewayPlacement[]>;
   getGateway(
     gatewayId: string,
     context: GatewayInvocationContext,
@@ -96,6 +123,18 @@ export interface GatewayControlPlane {
 
 /** Driving entry port used by the Gateway UI presentation adapters. */
 export interface GatewayOperations {
+  findGatewayPlacements(
+    search: string,
+    signal?: AbortSignal,
+  ): Promise<GatewayPlacementOptions>;
+  getGatewayPlacement(
+    clusterId: string,
+    signal?: AbortSignal,
+  ): Promise<GatewayPlacement>;
+  getGatewayPlacements(
+    clusterIds: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<readonly GatewayPlacement[]>;
   getGateway(gatewayId: string, signal?: AbortSignal): Promise<GatewayRecord>;
   listGateways(
     request: GatewayListRequest,

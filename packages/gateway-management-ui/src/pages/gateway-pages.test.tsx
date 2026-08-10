@@ -15,7 +15,7 @@ import type { GatewayConnection } from "../gateways/gateway-connections";
 import { GatewayPage, GatewaysPage } from "./gateway-pages";
 
 const previewGateway: GatewayConnection = {
-  clusterName: "Local cluster",
+  clusterName: "Hub cluster",
   consoleUrl: "https://console.example.test",
   endpoint: "https://gateway.example.test:443",
   id: "openshell-gateway-test",
@@ -27,16 +27,27 @@ const previewGateway: GatewayConnection = {
 };
 const previewGateways = [previewGateway] as const;
 
-const { deleteGatewayMock, listGatewaysMock, navigateMock, renameGatewayMock } =
-  vi.hoisted(() => ({
-    deleteGatewayMock: vi.fn(),
-    listGatewaysMock: vi.fn(),
-    navigateMock: vi.fn(),
-    renameGatewayMock: vi.fn(),
-  }));
+const {
+  deleteGatewayMock,
+  getGatewayPlacementMock,
+  getGatewayPlacementsMock,
+  listGatewaysMock,
+  navigateMock,
+  renameGatewayMock,
+} = vi.hoisted(() => ({
+  deleteGatewayMock: vi.fn(),
+  getGatewayPlacementMock: vi.fn(),
+  getGatewayPlacementsMock: vi.fn(),
+  listGatewaysMock: vi.fn(),
+  navigateMock: vi.fn(),
+  renameGatewayMock: vi.fn(),
+}));
 
 const gatewayOperations = {
+  findGatewayPlacements: vi.fn(),
   getGateway: vi.fn(),
+  getGatewayPlacement: getGatewayPlacementMock,
+  getGatewayPlacements: getGatewayPlacementsMock,
   listGateways: listGatewaysMock,
   provisionGateway: vi.fn(),
   removeGateway: deleteGatewayMock,
@@ -84,6 +95,22 @@ describe("gateway shell pages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     deleteGatewayMock.mockResolvedValue(undefined);
+    getGatewayPlacementMock.mockResolvedValue({
+      id: "cluster-east",
+      name: "Cluster East",
+      provider: "AWS",
+      region: "us-east-1",
+      status: "Ready",
+    });
+    getGatewayPlacementsMock.mockResolvedValue([
+      {
+        id: "cluster-east",
+        name: "Cluster East",
+        provider: "AWS",
+        region: "us-east-1",
+        status: "Ready",
+      },
+    ]);
     navigateMock.mockResolvedValue(undefined);
   });
 
@@ -120,6 +147,8 @@ describe("gateway shell pages", () => {
       screen.getByDisplayValue("https://gateway.example.com:443"),
     ).toBeTruthy();
     expect(screen.getByText("release-1")).toBeTruthy();
+    expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
+    expect(screen.getByText("Hub cluster")).toBeTruthy();
     expect(
       screen.getByRole("link", {
         name: "Open console for Team gateway in a new tab",
@@ -207,6 +236,52 @@ describe("gateway shell pages", () => {
       }),
     ).toBeNull();
     expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
+  });
+
+  it("resolves the managed-cluster name on gateway details", async () => {
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          clusterId: "cluster-east",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(await screen.findByText("Cluster East")).toBeTruthy();
+    expect(screen.queryByText("cluster-east")).toBeNull();
+    expect(getGatewayPlacementMock).toHaveBeenCalledWith(
+      "cluster-east",
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("retries managed-cluster name resolution on gateway details", async () => {
+    const user = userEvent.setup();
+    getGatewayPlacementMock
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValue({
+        id: "cluster-east",
+        name: "Cluster East",
+        provider: "AWS",
+        region: "us-east-1",
+        status: "Ready",
+      });
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          clusterId: "cluster-east",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Cluster East")).toBeTruthy();
+    expect(getGatewayPlacementMock).toHaveBeenCalledTimes(2);
   });
 
   it("shows an empty state when there are no gateways", () => {
@@ -310,6 +385,49 @@ describe("gateway shell pages", () => {
     expect(listGatewaysMock.mock.calls[1]?.[0]).toMatchObject({ page: 2 });
   });
 
+  it("requests a selected page size from the first page", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock.mockImplementation(
+      (request: { page: number; size: number }) =>
+        Promise.resolve({
+          items: [
+            gatewayResponse(
+              `gateway-${String(request.size)}`,
+              `Gateway page size ${String(request.size)}`,
+            ),
+          ],
+          page: request.page,
+          size: request.size,
+          total: 51,
+        }),
+    );
+    const { container } = renderPage(GatewaysPage);
+
+    await screen.findByRole("link", { name: "Gateway page size 20" });
+    const pageSizeToggle = container.querySelector(
+      "#gateways-pagination-top-toggle",
+    );
+    expect(pageSizeToggle).toBeInstanceOf(HTMLButtonElement);
+    await user.click(pageSizeToggle as HTMLButtonElement);
+    await user.click(screen.getByRole("menuitem", { name: "50 per page" }));
+
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, size: 50 }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(
+      await screen.findByRole("link", { name: "Gateway page size 50" }),
+    ).toBeTruthy();
+    await user.click(pageSizeToggle as HTMLButtonElement);
+    expect(
+      screen
+        .getByRole("menuitem", { name: "50 per page" })
+        .classList.contains("pf-m-selected"),
+    ).toBe(true);
+  });
+
   it("refreshes the gateway list", async () => {
     const user = userEvent.setup();
     listGatewaysMock.mockResolvedValue({
@@ -336,6 +454,35 @@ describe("gateway shell pages", () => {
       expect(listGatewaysMock).toHaveBeenCalledTimes(3);
     });
     expect(filter.getAttribute("value")).toBe("openshell");
+  });
+
+  it("debounces rapid gateway filters into one API request", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock.mockResolvedValue({
+      items: [gatewayResponse("gateway-1", "Team gateway")],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "Team gateway" });
+    listGatewaysMock.mockClear();
+
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Filter by name, cluster, status, or endpoint",
+      }),
+      "east",
+    );
+
+    expect(listGatewaysMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "east" }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(listGatewaysMock).toHaveBeenCalledOnce();
   });
 
   it("shows gateway API failures", async () => {
@@ -425,12 +572,121 @@ describe("gateway shell pages", () => {
     renderPage(() => <GatewaysPage gateways={previewGateways} />);
 
     expect(screen.getByRole("columnheader", { name: "Cluster" })).toBeTruthy();
-    expect(screen.getByText("Local cluster")).toBeTruthy();
+    expect(screen.getByText("Hub cluster")).toBeTruthy();
     expect(
       screen
         .getByRole("link", { name: "Provision gateway" })
         .getAttribute("href"),
     ).toBe("/gateways/new");
+  });
+
+  it("renders Running with the semantic success label", () => {
+    renderPage(() => (
+      <GatewaysPage gateways={[{ ...previewGateway, status: "Running" }]} />
+    ));
+
+    const statusLabel = screen.getByText("Running").closest(".pf-v6-c-label");
+    expect(statusLabel?.classList.contains("pf-m-success")).toBe(true);
+    expect(statusLabel?.classList.contains("pf-m-green")).toBe(false);
+  });
+
+  it("resolves managed-cluster names without displaying their identifiers", async () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          {
+            ...previewGateway,
+            clusterId: "cluster-east",
+            clusterName: "",
+          },
+        ]}
+      />
+    ));
+
+    expect(await screen.findByText("Cluster East")).toBeTruthy();
+    expect(screen.queryByText("cluster-east")).toBeNull();
+    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
+      ["cluster-east"],
+      expect.any(AbortSignal),
+    );
+    expect(getGatewayPlacementMock).not.toHaveBeenCalled();
+  });
+
+  it("shows an unavailable state instead of a cluster identifier", async () => {
+    getGatewayPlacementsMock.mockRejectedValue(new Error("unavailable"));
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          {
+            ...previewGateway,
+            clusterId: "cluster-east",
+            clusterName: "",
+          },
+        ]}
+      />
+    ));
+
+    expect(await screen.findByText("Not available")).toBeTruthy();
+    expect(screen.queryByText("cluster-east")).toBeNull();
+  });
+
+  it("resolves a cold page of distinct cluster names with one batch request", async () => {
+    const gateways = Array.from({ length: 20 }, (_, index) => ({
+      ...gatewayResponse(
+        `gateway-${String(index)}`,
+        `Gateway ${String(index)}`,
+      ),
+      clusterId: `cluster-${String(index)}`,
+    }));
+    const clusterIds = gateways.map(({ clusterId }) => clusterId).sort();
+    listGatewaysMock.mockResolvedValue({
+      items: gateways,
+      page: 1,
+      size: 20,
+      total: 20,
+    });
+    getGatewayPlacementsMock.mockResolvedValue(
+      clusterIds.map((id) => ({
+        id,
+        name: `Name for ${id}`,
+        provider: "AWS",
+      })),
+    );
+
+    renderPage(() => <GatewaysPage />);
+
+    expect(await screen.findByText("Name for cluster-0")).toBeTruthy();
+    expect(listGatewaysMock).toHaveBeenCalledOnce();
+    expect(getGatewayPlacementsMock).toHaveBeenCalledOnce();
+    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
+      clusterIds,
+      expect.any(AbortSignal),
+    );
+    expect(getGatewayPlacementMock).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates repeated cluster identifiers before batch resolution", async () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          { ...previewGateway, clusterId: "cluster-east", clusterName: "" },
+          {
+            ...previewGateway,
+            clusterId: "cluster-east",
+            clusterName: "",
+            id: "gateway-2",
+            name: "gateway-2",
+          },
+        ]}
+      />
+    ));
+
+    expect(await screen.findAllByText("Cluster East")).toHaveLength(2);
+    expect(getGatewayPlacementsMock).toHaveBeenCalledOnce();
+    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
+      ["cluster-east"],
+      expect.any(AbortSignal),
+    );
   });
 
   it("provides console and CLI actions from the gateway row menu", async () => {
