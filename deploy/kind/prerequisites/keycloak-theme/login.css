@@ -287,3 +287,113 @@ h1.pf-v5-c-title.pf-m-3xl,
   margin-top: 0.75rem;
   grid-area: unset !important;
 }
+
+/* Dark mode -- follow OS/browser preference, use PF5 dark palette */
+@media (prefers-color-scheme: dark) {
+  .pf-v5-c-login,
+  html.pf-v5-theme-dark .pf-v5-c-login {
+    background-color: #1b1d21 !important;
+  }
+
+  .pf-v5-c-login__header::after {
+    color: #e0e0e0;
+  }
+
+  .pf-v5-c-login__main {
+    background-color: #292e34 !important;
+    border-color: #3c3f42 !important;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  .pf-v5-c-login__main-header h1,
+  h1.pf-v5-c-title,
+  h1.pf-v5-c-title.pf-m-3xl,
+  #kc-page-title {
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-form-control {
+    --pf-v5-c-form-control--BorderTopColor: #3c3f42;
+    --pf-v5-c-form-control--BorderRightColor: #3c3f42;
+    --pf-v5-c-form-control--BorderBottomColor: #3c3f42;
+    --pf-v5-c-form-control--BorderLeftColor: #3c3f42;
+    --pf-v5-c-form-control--BackgroundColor: #1b1d21;
+    --pf-v5-c-form-control--Color: #e0e0e0;
+    --pf-v5-c-form-control--after--BorderBottomColor: #3c3f42;
+    background-color: #1b1d21 !important;
+    border-color: #3c3f42 !important;
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-form-control input {
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-form-control::after {
+    border-bottom-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-form__label-text {
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-input-group__item + .pf-v5-c-input-group__item::before {
+    border-left-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-input-group {
+    --pf-v5-c-input-group--item--BorderLeftColor: #3c3f42 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control::before {
+    border-left-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control {
+    border-left-color: #3c3f42 !important;
+    --pf-v5-c-button--m-control--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--hover--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--focus--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--active--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--BorderColor: #3c3f42;
+    --pf-v5-c-button--m-control--after--BorderBottomColor: #3c3f42;
+    background-color: #1b1d21 !important;
+    border-color: #3c3f42 !important;
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control::after {
+    border-bottom-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover,
+  .pf-v5-c-button.pf-m-control:focus,
+  .pf-v5-c-button.pf-m-control:active {
+    background-color: #1b1d21 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control i.fa-eye,
+  .pf-v5-c-button.pf-m-control i.fa-eye-slash,
+  .pf-v5-c-button.pf-m-control i.fas,
+  .pf-v5-c-button.pf-m-control i,
+  .pf-v5-c-button[data-password-toggle] i {
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-alert {
+    background-color: #292e34 !important;
+    border-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-alert__title {
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-check__label {
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-login__footer {
+    color: #a2a2a2;
+  }
+}
