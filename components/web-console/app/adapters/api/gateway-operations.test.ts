@@ -1,4 +1,4 @@
-import { GatewayOperationError } from "@openshift-online/hypershell-gateway-ui";
+import { GatewayOperationError } from "@openshift-online/hypershell-gateway-management-ui";
 import {
   SDKAPIError,
   type Gateway,

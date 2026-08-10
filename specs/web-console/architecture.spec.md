@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05
 **Status:** Active
-**Applies to:** `components/web-console`, `components/gateway-ui`, the browser-facing TypeScript SDK surface, and web-console build, test, deployment, and operations workflows
+**Applies to:** `components/web-console`, `packages/gateway-management-ui`, the browser-facing TypeScript SDK surface, and web-console build, test, deployment, and operations workflows
 
 ## Purpose
 
@@ -19,7 +19,7 @@ Browser
          │
          │ workspace package API and host adapters
          ▼
-  Gateway UI feature package
+  Gateway management UI package
   PatternFly 6 + TanStack Query gateway workflows
          │
          │ same-origin HTTPS, session cookie, CSRF protection
@@ -37,7 +37,7 @@ PostgreSQL / Control Plane / Managed Clusters
 
 In deployed environments, the browser SHALL communicate with the Backend-for-Frontend (BFF) on the same origin. The BFF SHALL own the OAuth/OIDC tokens, session, browser-facing security controls, static application delivery, and authenticated REST proxy. Initial local development MAY use the same `/api` browser contract through a Vite development proxy while the API server runs in its no-auth development mode. The React application SHALL NOT communicate directly with an OAuth token endpoint or persist bearer tokens.
 
-The HyperShell React application SHALL be the standalone host for the canonical Gateway UI feature package. The host SHALL own product-level routing, the application shell, authentication/session integration, localization and TanStack Query provider instances, and deployment-specific API construction. The Gateway UI package SHALL own the gateway-domain pages and workflows and SHALL receive host services through explicit typed integration contracts.
+The HyperShell React application SHALL be the standalone host for the canonical gateway management UI package. The host SHALL own product-level routing, the application shell, authentication/session integration, localization and TanStack Query provider instances, and deployment-specific API construction. The gateway management UI package SHALL own the gateway-domain pages and workflows and SHALL receive host services through explicit typed integration contracts.
 
 ## Selected Stack
 
@@ -110,15 +110,15 @@ The `gatewayId` SHALL be included in gateway-detail query keys, mutations, autho
 
 ### Requirement WEB-ARCH-03: Source and Runtime Boundaries
 
-Browser host, Gateway UI feature package, BFF, shared, generated SDK, and test code SHALL have explicit module boundaries and TypeScript configurations. Browser modules SHALL NOT import Node.js APIs, server environment access, OIDC tokens, session implementation, or server-only dependencies. BFF modules SHALL NOT import browser component code. The Gateway UI package SHALL NOT import application route modules, application-shell components, BFF modules, authentication/session implementations, deployment configuration, or the generated SDK.
+Browser host, gateway management UI package, BFF, shared, generated SDK, and test code SHALL have explicit module boundaries and TypeScript configurations. Browser modules SHALL NOT import Node.js APIs, server environment access, OIDC tokens, session implementation, or server-only dependencies. BFF modules SHALL NOT import browser component code. The gateway management UI package SHALL NOT import application route modules, application-shell components, BFF modules, authentication/session implementations, deployment configuration, or the generated SDK.
 
 TypeScript SHALL use strict checking. Browser and server compilation SHALL use modern ESM. Tests SHALL have a separate configuration so test globals and Node types do not leak into production browser code.
 
-**Verification:** Run browser host, Gateway UI package, and server type checks independently, inspect build outputs, and use boundary lint rules or equivalent tests to reject prohibited imports.
+**Verification:** Run browser host, gateway management UI package, and server type checks independently, inspect build outputs, and use boundary lint rules or equivalent tests to reject prohibited imports.
 
 ### Requirement WEB-PKG-01: pnpm Workspace
 
-HyperShell JavaScript packages SHALL use one repository-root pnpm workspace. The workspace SHALL include `components/sdk-typescript`, `components/gateway-ui`, `components/web-console`, the web-console BFF, and the web-console domain probes; use one root `pnpm-lock.yaml`; and use the `workspace:` protocol for internal package dependencies. The root `package.json` SHALL be private and SHALL declare an exact pnpm version in `packageManager`.
+HyperShell JavaScript packages SHALL use one repository-root pnpm workspace. The workspace SHALL include `components/sdk-typescript`, `packages/gateway-management-ui`, `components/web-console`, the web-console BFF, and the web-console domain probes; use one root `pnpm-lock.yaml`; and use the `workspace:` protocol for internal package dependencies. The root `package.json` SHALL be private and SHALL declare an exact pnpm version in `packageManager`.
 
 After migration, npm, Yarn, Bun, nested lockfiles, and per-package installation workflows SHALL NOT be used for repository JavaScript packages. `shamefullyHoist` SHALL NOT be enabled. Packages SHALL declare every dependency they import.
 
@@ -131,18 +131,18 @@ After migration, npm, Yarn, Bun, nested lockfiles, and per-package installation 
 - THEN pnpm SHALL resolve the repository SDK rather than a registry package
 - AND a missing or incompatible local SDK version SHALL fail resolution
 
-#### Scenario: Workspace Gateway UI Consumption
+#### Scenario: Workspace Gateway Management UI Package Consumption
 
-- GIVEN the web console declares the Gateway UI package as a workspace dependency
+- GIVEN the web console declares the gateway management UI package as a workspace dependency
 - WHEN a clean frozen install and production build run
-- THEN the console SHALL resolve the repository Gateway UI implementation through its declared public exports
-- AND a missing or incompatible local Gateway UI version SHALL fail resolution
+- THEN the console SHALL resolve the repository gateway management UI implementation through its declared public exports
+- AND a missing or incompatible local gateway management UI version SHALL fail resolution
 
 ### Requirement WEB-PKG-04: Reusable Gateway Feature Package
 
-The canonical gateway management interface SHALL live in the private `components/gateway-ui` workspace package. The package SHALL expose an explicit, documented public surface for its gateway collection, gateway detail, and gateway provisioning pages and for the typed host integration contract they require. The standalone web console SHALL consume those public exports and SHALL NOT retain copied gateway page, mutation, query, table, dialog, or gateway-specific presentation implementations.
+The canonical gateway management interface SHALL live in the private `packages/gateway-management-ui` workspace package. The package SHALL expose an explicit, documented public surface for its gateway collection, gateway detail, and gateway provisioning pages and for the typed host integration contract they require. The standalone web console SHALL consume those public exports and SHALL NOT retain copied gateway page, mutation, query, table, dialog, or gateway-specific presentation implementations.
 
-The Gateway UI package SHALL own:
+The gateway management UI package SHALL own:
 
 - gateway application use cases, their entry-port contract, stable application values, driven gateway-port contract, and typed gateway-probe schemas and catalog;
 - gateway query keys, server-state queries, mutations, and cache invalidation behavior;
@@ -161,19 +161,19 @@ The package SHALL receive a purpose-shaped gateway application entry port and na
 
 The internal package MAY expose TypeScript source to workspace consumers while it remains private and has one repository consumer. Publishing it to a registry or supporting external consumers SHALL require compiled JavaScript and declarations, explicit package exports, a versioning and deprecation policy, asset and CSS delivery contracts, compatibility testing against every supported host, and removal of consumer-specific source aliases or transpilation exceptions.
 
-**Verification:** Build and test the Gateway UI package independently, inspect its public exports and dependency graph, and search both packages for duplicate gateway implementations and generated-SDK imports. Render its collection, detail, and provisioning pages in the standalone console through the public package API. Substitute a test gateway entry port and navigation adapter without React Router or a live BFF, and verify that gateway queries and mutations use the injected services and the host's Query client and localization context. Run every gateway application use case in isolation with a fake control-plane port, deterministic workflow runtime, and recording probe publisher; verify one workflow terminal fact and one dependency terminal fact for success, failure, and cancellation. Contract-test the host SDK adapter for DTO mapping, typed failures, pagination, cancellation, and reconciler-owned request defaults, and test the production probe publisher with two sinks plus a failing sink.
+**Verification:** Build and test the gateway management UI package independently, inspect its public exports and dependency graph, and search both packages for duplicate gateway implementations and generated-SDK imports. Render its collection, detail, and provisioning pages in the standalone console through the public package API. Substitute a test gateway entry port and navigation adapter without React Router or a live BFF, and verify that gateway queries and mutations use the injected services and the host's Query client and localization context. Run every gateway application use case in isolation with a fake control-plane port, deterministic workflow runtime, and recording probe publisher; verify one workflow terminal fact and one dependency terminal fact for success, failure, and cancellation. Contract-test the host SDK adapter for DTO mapping, typed failures, pagination, cancellation, and reconciler-owned request defaults, and test the production probe publisher with two sinks plus a failing sink.
 
-#### Scenario: Standalone Console Hosts the Gateway UI
+#### Scenario: Standalone Console Hosts the Gateway Management UI Package
 
 - GIVEN the standalone console has constructed its SDK-backed gateway adapter, Query client, localization provider, and route adapter
 - WHEN a user opens a gateway route
-- THEN the route SHALL pass the gateway identifier and host integrations to the Gateway UI package
+- THEN the route SHALL pass the gateway identifier and host integrations to the gateway management UI package
 - AND the package SHALL render the canonical gateway workflow without creating competing provider or router state
 
 #### Scenario: A Second Product Embeds Gateway Management
 
 - GIVEN another React product uses compatible shared runtime dependencies and implements the documented gateway entry-port and navigation contracts
-- WHEN it mounts a Gateway UI page within its own shell
+- WHEN it mounts a gateway management UI page within its own shell
 - THEN the page SHALL use that product's navigation, localization, Query client, and gateway entry-port implementation
 - AND it SHALL NOT require the HyperShell masthead, route tree, BFF implementation, or build-time source aliases
 
@@ -270,7 +270,7 @@ The BFF SHALL use Node.js LTS and Fastify to provide:
 
 The proxy SHALL use an allowlisted upstream origin, remove untrusted hop-by-hop and identity headers, set the server-held authorization header, impose timeouts and body limits, preserve safe API status semantics, and cancel upstream work after client disconnect where supported.
 
-The production BFF SHALL forward the Gateway UI's `/api/hypershell/v1/*` requests to the configured HyperShell API; a Vite development proxy SHALL NOT be the only working API path. The BFF SHALL validate or replace the browser correlation identifier, include it in structured request context, and propagate it upstream. Browser application routes SHALL share one route contract with the production BFF or have an automated parity test; a removed route SHALL NOT remain in a server allowlist and a newly declared route SHALL NOT return a server 404 on direct navigation or refresh.
+The production BFF SHALL forward the gateway management UI package's `/api/hypershell/v1/*` requests to the configured HyperShell API; a Vite development proxy SHALL NOT be the only working API path. The BFF SHALL validate or replace the browser correlation identifier, include it in structured request context, and propagate it upstream. Browser application routes SHALL share one route contract with the production BFF or have an automated parity test; a removed route SHALL NOT remain in a server allowlist and a newly declared route SHALL NOT return a server 404 on direct navigation or refresh.
 
 **Verification:** Test routing precedence, header sanitation, correlation validation and propagation, timeouts, cancellation, large bodies, upstream failures, and SPA fallback behavior. Start the built production BFF against a recording API and complete a representative gateway list request through `/api/hypershell/v1/gateways`. Request `/`, `/gateways/new`, and a representative `/gateways/{id}` directly from the BFF and verify application HTML; verify unknown API, asset, health, and server paths do not receive the SPA document. Confirm that an arbitrary URL cannot turn the BFF into an open proxy.
 
@@ -326,7 +326,7 @@ Tailwind, Bootstrap, Material UI, Chakra UI, another general-purpose component s
 
 ### Requirement WEB-UI-02: Shared Component Evidence
 
-Canonical shared components SHALL have discoverable Storybook stories for applicable default, loading, empty, error, permission, overflow, localization, responsive, and interaction states. Gateway-domain stories SHALL import the canonical Gateway UI package public surface rather than a copied or private console implementation. Storybook SHALL be a development and verification surface, not a separately deployed production dependency unless explicitly required.
+Canonical shared components SHALL have discoverable Storybook stories for applicable default, loading, empty, error, permission, overflow, localization, responsive, and interaction states. Gateway-domain stories SHALL import the canonical gateway management UI package public surface rather than a copied or private console implementation. Storybook SHALL be a development and verification surface, not a separately deployed production dependency unless explicitly required.
 
 React components SHALL be implemented semantically and tested through user-observable behavior. Tests SHALL NOT depend primarily on implementation details, internal component state, or snapshots of large markup trees.
 
@@ -475,7 +475,7 @@ Implementation SHOULD proceed in these dependency-ordered increments:
 1. Migrate the SDK to the root pnpm workspace and update repository policy checks.
 2. Make the generated SDK ESM- and browser-compatible with an injectable transport.
 3. Scaffold React Router SPA mode, PatternFly, localization, test tooling, and one root route.
-4. Extract the canonical gateway workflows into the private Gateway UI workspace package and consume them through host adapters from the standalone console.
+4. Extract the canonical gateway workflows into the private gateway management UI workspace package and consume them through host adapters from the standalone console.
 5. Implement the BFF session and API proxy against the selected OIDC provider.
 6. Deliver the authenticated HyperShell gateway list and connection detail journey.
 7. Add gateway provisioning after the local-cluster, validation, permission, concurrency, CSRF, and recovery contracts are verified.
@@ -496,7 +496,7 @@ Implementation SHOULD proceed in these dependency-ordered increments:
 | REST/OpenAPI SDK rather than GraphQL or Axios                    | Reuses the existing typed API contract and Fetch transport without adding another protocol or request stack                                                                                                                               |
 | Adaptive polling for initial lifecycle refresh                   | The current REST API has no authenticated browser event contract; bounded polling meets the immediate need                                                                                                                                |
 | One gateway management experience                                | A single gateway list makes connection and provisioning workflows easy to find without introducing premature audience or navigation boundaries                                                                                            |
-| Private reusable Gateway UI workspace package                    | Establishes one canonical gateway experience that the standalone console hosts today and another product can embed later without coupling feature code to a shell, router, authentication implementation, or mutable global configuration |
+| Private reusable gateway management UI workspace package         | Establishes one canonical gateway experience that the standalone console hosts today and another product can embed later without coupling feature code to a shell, router, authentication implementation, or mutable global configuration |
 | Local-cluster placement first                                    | The initial form presents local placement and omits fleet and cluster values from its request without changing the API contract; remote placement can be added later                                                                      |
 | No general client-state store initially                          | URL state, local React state, Context, and TanStack Query have clear non-overlapping ownership                                                                                                                                            |
 | No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity                                                                                                                 |

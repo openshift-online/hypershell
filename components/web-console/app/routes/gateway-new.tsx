@@ -1,4 +1,4 @@
-import { GatewayCreatePage } from "@openshift-online/hypershell-gateway-ui";
+import { GatewayCreatePage } from "@openshift-online/hypershell-gateway-management-ui";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(

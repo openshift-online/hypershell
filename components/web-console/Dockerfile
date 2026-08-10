@@ -13,7 +13,7 @@ WORKDIR /app
 
 COPY --chown=65532:65532 package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=65532:65532 components/sdk-typescript/package.json components/sdk-typescript/package.json
-COPY --chown=65532:65532 components/gateway-ui/package.json components/gateway-ui/package.json
+COPY --chown=65532:65532 packages/gateway-management-ui/package.json packages/gateway-management-ui/package.json
 COPY --chown=65532:65532 components/web-console/package.json components/web-console/package.json
 COPY --chown=65532:65532 components/web-console/bff/package.json components/web-console/bff/package.json
 COPY --chown=65532:65532 components/web-console/domain-probes/package.json components/web-console/domain-probes/package.json
@@ -21,7 +21,7 @@ COPY --chown=65532:65532 components/web-console/domain-probes/package.json compo
 RUN pnpm fetch --frozen-lockfile
 
 COPY --chown=65532:65532 components/sdk-typescript components/sdk-typescript
-COPY --chown=65532:65532 components/gateway-ui components/gateway-ui
+COPY --chown=65532:65532 packages/gateway-management-ui packages/gateway-management-ui
 COPY --chown=65532:65532 components/web-console components/web-console
 COPY --chown=65532:65532 images/brand/logo.png images/brand/logo.png
 

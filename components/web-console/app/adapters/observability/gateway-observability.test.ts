@@ -1,4 +1,4 @@
-import type { GatewayProbe } from "@openshift-online/hypershell-gateway-ui";
+import type { GatewayProbe } from "@openshift-online/hypershell-gateway-management-ui";
 import { describe, expect, it, vi } from "vitest";
 
 import { createGatewayObservability } from "./gateway-observability";

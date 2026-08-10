@@ -13,7 +13,7 @@ import {
   gatewayQueryKey,
   GatewayUiProvider,
   type GatewayUiNavigation,
-} from "@openshift-online/hypershell-gateway-ui";
+} from "@openshift-online/hypershell-gateway-management-ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { FormattedMessage, useIntl } from "react-intl";

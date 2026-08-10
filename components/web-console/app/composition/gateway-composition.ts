@@ -1,4 +1,4 @@
-import { createGatewayOperations } from "@openshift-online/hypershell-gateway-ui";
+import { createGatewayOperations } from "@openshift-online/hypershell-gateway-management-ui";
 
 import { createApiClient } from "../adapters/api/api.client";
 import { createGatewayControlPlaneAdapter } from "../adapters/api/gateway-operations";

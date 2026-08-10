@@ -4,7 +4,7 @@ import {
   GatewaysPage,
   type GatewayConnection,
   type GatewayRecord,
-} from "@openshift-online/hypershell-gateway-ui";
+} from "@openshift-online/hypershell-gateway-management-ui";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
 

@@ -1,4 +1,4 @@
-# HyperShell Gateway UI
+# HyperShell Gateway Management UI Package
 
 Private workspace package containing HyperShell's canonical OpenShell gateway
 management experience. The standalone web console is its first host.

@@ -240,7 +240,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | WEB-PKG-01 | pnpm workspace | Present | — | `pnpm-workspace.yaml` | — |
 | WEB-PKG-02 | Defensive resolution | Present | — | `pnpm-workspace.yaml` | — |
 | WEB-PKG-03 | Policy migration completeness | Partial | Verify pnpm lockfile inspection | `check_dependency_age.py` | — |
-| WEB-PKG-04 | Reusable gateway-ui package | Present | — | `components/gateway-ui/` | — |
+| WEB-PKG-04 | Reusable gateway management UI package | Present | — | `packages/gateway-management-ui/` | — |
 | WEB-SDK-01 | Browser-compatible SDK | Present | — | `components/sdk-typescript/` | — |
 | WEB-AUTH-00 | No-auth dev mode | Present | — | `vite.config.ts` | — |
 | WEB-AUTH-01 | OIDC BFF | Partial | `openid-client` declared; endpoints not implemented | `bff/src/app.ts` | Future |

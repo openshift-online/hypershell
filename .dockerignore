@@ -14,8 +14,10 @@ components/**
 !components/control-plane/**
 !components/sdk-typescript/
 !components/sdk-typescript/**
-!components/gateway-ui/
-!components/gateway-ui/**
+!packages/
+packages/**
+!packages/gateway-management-ui/
+!packages/gateway-management-ui/**
 !components/web-console/
 !components/web-console/**
 **/node_modules

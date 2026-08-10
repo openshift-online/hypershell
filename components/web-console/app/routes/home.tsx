@@ -1,4 +1,4 @@
-import { GatewaysPage } from "@openshift-online/hypershell-gateway-ui";
+import { GatewaysPage } from "@openshift-online/hypershell-gateway-management-ui";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import {

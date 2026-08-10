@@ -59,19 +59,33 @@ swap_up() {
 
     DEV_PORT=5173
 
+    # Discover which container engine owns the existing Kind node. This may
+    # differ from CONTAINER_ENGINE when both Docker and Podman are installed.
+    KIND_ENGINE=""
+    for engine in "${CONTAINER_ENGINE}" docker podman; do
+      if command -v "${engine}" >/dev/null 2>&1 && \
+          "${engine}" inspect "${KIND_CLUSTER_NAME}-control-plane" >/dev/null 2>&1; then
+        KIND_ENGINE="${engine}"
+        break
+      fi
+    done
+
     # Discover the host IP reachable from containers.
     # Docker Desktop and Podman on macOS/Windows run containers in a Linux
     # VM, so the bridge gateway is internal to that VM.  Both provide a
     # special hostname that resolves to an IP routing back to the real host.
-    # On native Linux, fall back to the Docker bridge gateway.
+    # On native Linux, prefer the Kind network's bridge gateway.
     HOST_IP=""
-    for host_alias in host.docker.internal host.containers.internal; do
-      HOST_IP=$(${CONTAINER_ENGINE} run --rm alpine getent hosts "${host_alias}" 2>/dev/null | awk '{print $1}')
-      if [[ -n "${HOST_IP}" ]]; then break; fi
-    done
+    if [[ "$(uname -s)" == "Linux" ]] && [[ -n "${KIND_ENGINE}" ]]; then
+      HOST_IP=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
+        -f '{{.NetworkSettings.Networks.kind.Gateway}}' 2>/dev/null || true)
+    fi
     if [[ -z "${HOST_IP}" ]]; then
-      HOST_IP=$(${CONTAINER_ENGINE} inspect "${KIND_CLUSTER_NAME}-control-plane" \
-        -f '{{.NetworkSettings.Networks.kind.Gateway}}' 2>/dev/null)
+      LOOKUP_ENGINE="${KIND_ENGINE:-${CONTAINER_ENGINE}}"
+      for host_alias in host.docker.internal host.containers.internal; do
+        HOST_IP=$("${LOOKUP_ENGINE}" run --rm alpine getent hosts "${host_alias}" 2>/dev/null | awk '{print $1}' || true)
+        if [[ -n "${HOST_IP}" ]]; then break; fi
+      done
     fi
     if [[ -z "${HOST_IP}" ]]; then
       error "Could not determine host IP from Kind network"
@@ -133,10 +147,10 @@ EOF
     echo ""
 
     (cd "${REPO_ROOT}" && pnpm install --frozen-lockfile && \
-      info "Building workspace dependencies (sdk → domain-probes → gateway-ui)..." && \
+      info "Building workspace dependencies (sdk → domain-probes → gateway-management-ui)..." && \
       pnpm --filter @openshift-online/hypershell-sdk build && \
       pnpm --filter @openshift-online/hypershell-domain-probes build && \
-      pnpm --filter @openshift-online/hypershell-gateway-ui build && \
+      pnpm --filter @openshift-online/hypershell-gateway-management-ui build && \
       DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev 2>/dev/null) || true
     exit 0
   fi

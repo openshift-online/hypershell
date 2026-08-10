@@ -24,7 +24,7 @@ jobs:
     outputs:
       api_server: ${{ steps.detect.outputs.api_server }}
       control_plane: ${{ steps.detect.outputs.control_plane }}
-      gateway_ui: ${{ steps.detect.outputs.gateway_ui }}
+      gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
       pr_test: ${{ steps.detect.outputs.pr_test }}
       sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
       web_console: ${{ steps.detect.outputs.web_console }}
@@ -133,10 +133,10 @@ jobs:
       - name: Check generated SDK
         run: pnpm --filter @openshift-online/hypershell-sdk check
 
-  lint-gateway-ui:
-    name: Gateway UI quality gates
+  lint-gateway-management-ui:
+    name: Gateway management UI package quality gates
     needs: detect-changes
-    if: needs.detect-changes.outputs.gateway_ui == 'true'
+    if: needs.detect-changes.outputs.gateway_management_ui == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -151,8 +151,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build domain-probe contracts
         run: pnpm --filter @openshift-online/hypershell-domain-probes build
-      - name: Run Gateway UI quality gates
-        run: pnpm --filter @openshift-online/hypershell-gateway-ui check
+      - name: Run gateway management UI package quality gates
+        run: pnpm --filter @openshift-online/hypershell-gateway-management-ui check
 
   lint-pr-test:
     name: PR test script validation
@@ -195,7 +195,7 @@ jobs:
       - detect-changes
       - lint-api-server
       - lint-control-plane
-      - lint-gateway-ui
+      - lint-gateway-management-ui
       - lint-pr-test
       - lint-sdk-typescript
       - lint-web-console
@@ -206,12 +206,12 @@ jobs:
           DETECTION_RESULT: ${{ needs.detect-changes.result }}
           API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
           CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
-          GATEWAY_UI_RESULT: ${{ needs.lint-gateway-ui.result }}
+          GATEWAY_MANAGEMENT_UI_RESULT: ${{ needs.lint-gateway-management-ui.result }}
           PR_TEST_RESULT: ${{ needs.lint-pr-test.result }}
           SDK_TYPESCRIPT_RESULT: ${{ needs.lint-sdk-typescript.result }}
           WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
+          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more lint jobs failed or were cancelled."
               exit 1

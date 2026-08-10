@@ -1,7 +1,7 @@
 import {
   defaultGatewayListRequest,
   type GatewayListRequest,
-} from "@openshift-online/hypershell-gateway-ui";
+} from "@openshift-online/hypershell-gateway-management-ui";
 
 function pageFrom(value: string | null): number {
   if (!value || !/^[1-9][0-9]*$/u.test(value)) {

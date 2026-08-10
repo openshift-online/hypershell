@@ -1,6 +1,6 @@
 packages:
   - components/sdk-typescript
-  - components/gateway-ui
+  - packages/gateway-management-ui
   - components/web-console
   - components/web-console/bff
   - components/web-console/domain-probes

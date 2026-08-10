@@ -2,7 +2,7 @@ import type {
   GatewayProbe,
   GatewayProbePublisher,
   GatewayWorkflowRuntime,
-} from "@openshift-online/hypershell-gateway-ui";
+} from "@openshift-online/hypershell-gateway-management-ui";
 import {
   FanOutDomainProbePublisher,
   type DomainProbeSink,

@@ -1,4 +1,4 @@
-import { GatewayPage } from "@openshift-online/hypershell-gateway-ui";
+import { GatewayPage } from "@openshift-online/hypershell-gateway-management-ui";
 import { useParams } from "react-router";
 import { createPageMeta } from "../lib/page-meta";
 

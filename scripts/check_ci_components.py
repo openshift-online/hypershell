@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPONENTS_DIR = ROOT / "components"
+SOURCE_ROOTS = (ROOT / "components", ROOT / "packages")
 CONFIG_PATH = ROOT / ".github" / "component-paths.json"
 LINT_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "lint.yml"
 
@@ -31,9 +31,11 @@ def main() -> int:
         print(f"Unable to read {LINT_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
         return 1
 
-    component_directories = {
+    source_directories = {
         str(path.relative_to(ROOT))
-        for path in COMPONENTS_DIR.iterdir()
+        for source_root in SOURCE_ROOTS
+        if source_root.is_dir()
+        for path in source_root.iterdir()
         if path.is_dir()
     }
     registrations: dict[str, str] = {}
@@ -90,9 +92,9 @@ def main() -> int:
                     f"{LINT_WORKFLOW_PATH.relative_to(ROOT)}"
                 )
 
-    for directory in sorted(component_directories - registrations.keys()):
+    for directory in sorted(source_directories - registrations.keys()):
         errors.append(f"{directory} is not registered for component-aware CI")
-    for directory in sorted(registrations.keys() - component_directories):
+    for directory in sorted(registrations.keys() - source_directories):
         errors.append(f"registered component directory {directory} does not exist")
 
     if errors:
@@ -105,7 +107,7 @@ def main() -> int:
         )
         return 1
 
-    print(f"All {len(component_directories)} components are registered in CI.")
+    print(f"All {len(source_directories)} components and packages are registered in CI.")
     return 0
 
 

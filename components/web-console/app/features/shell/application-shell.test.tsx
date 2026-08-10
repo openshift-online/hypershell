@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useGatewayUi } from "@openshift-online/hypershell-gateway-ui";
+import { useGatewayUi } from "@openshift-online/hypershell-gateway-management-ui";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, vi } from "vitest";
