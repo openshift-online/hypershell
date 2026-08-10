@@ -98,7 +98,7 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 	dbImage := config.Database.Image
 	if dbImage == "" {
-		dbImage = "postgres:16"
+		dbImage = "postgres:18"
 	}
 	dbStorage := config.Database.StorageSize
 	if dbStorage == "" {
@@ -138,7 +138,7 @@ func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseCon
 	}
 	dbImage := dbConfig.Image
 	if dbImage == "" {
-		dbImage = "postgres:16"
+		dbImage = "postgres:18"
 	}
 
 	userKey, passKey, dbKey := postgresEnvKeys(dbImage)

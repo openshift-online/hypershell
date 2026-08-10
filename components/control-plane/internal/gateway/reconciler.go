@@ -49,7 +49,7 @@ func ReconcileGateway(
 
 	dbImage := nsConfig.Gateway.Database.Image
 	if dbImage == "" {
-		dbImage = "postgres:16"
+		dbImage = "postgres:18"
 	}
 
 	if err := reconcileDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage); err != nil {

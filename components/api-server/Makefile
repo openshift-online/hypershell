@@ -1,6 +1,6 @@
 BINARY_NAME=hypershell
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
-POSTGRES_IMAGE=postgres:13@sha256:4689940c683801b4ab839ab3b0a0a3555a5fe425371422310944e89eca7d8068
+POSTGRES_IMAGE=postgres:18
 OPENAPI_SPEC=$(abspath openapi/openapi.yaml)
 SDK_GENERATOR_DIR=$(abspath ../../scripts/sdk-generator)
 SDK_TYPESCRIPT_DIR=$(abspath ../sdk-typescript)
