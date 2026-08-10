@@ -55,14 +55,11 @@ function readPreference(): ColorScheme {
     : "light";
 }
 
-let initialized = false;
+if (typeof document !== "undefined") {
+  applyScheme(readPreference());
+}
 
 export function useColorScheme() {
-  if (typeof document !== "undefined" && !initialized) {
-    initialized = true;
-    applyScheme(readPreference());
-  }
-
   const scheme = useSyncExternalStore(
     subscribe,
     getSnapshot,
