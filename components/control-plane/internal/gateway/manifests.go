@@ -106,14 +106,18 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 	userKey, passKey, dbKey := postgresEnvKeys(dbImage)
 	dataPath := postgresDataPath(dbImage)
+	pgdataPath := postgresPGDataPath(dbImage)
 
 	// Replace DB_IMAGE_PLACEHOLDER before IMAGE_PLACEHOLDER because
 	// the shorter string is a substring of the longer one.
+	// Replace DB_PGDATA_PATH_PLACEHOLDER before DB_DATA_PATH_PLACEHOLDER
+	// because the shorter string is a substring of the longer one.
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_IMAGE_PLACEHOLDER", dbImage)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_STORAGE_PLACEHOLDER", dbStorage)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_USER_KEY_PLACEHOLDER", userKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PASS_KEY_PLACEHOLDER", passKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_NAME_KEY_PLACEHOLDER", dbKey)
+	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PGDATA_PATH_PLACEHOLDER", pgdataPath)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_DATA_PATH_PLACEHOLDER", dataPath)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "IMAGE_PLACEHOLDER", image)
 
@@ -143,12 +147,14 @@ func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseCon
 
 	userKey, passKey, dbKey := postgresEnvKeys(dbImage)
 	dataPath := postgresDataPath(dbImage)
+	pgdataPath := postgresPGDataPath(dbImage)
 
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_STORAGE_PLACEHOLDER", storageSize)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_IMAGE_PLACEHOLDER", dbImage)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_USER_KEY_PLACEHOLDER", userKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PASS_KEY_PLACEHOLDER", passKey)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_NAME_KEY_PLACEHOLDER", dbKey)
+	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_PGDATA_PATH_PLACEHOLDER", pgdataPath)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "DB_DATA_PATH_PLACEHOLDER", dataPath)
 
 	if err := obj.UnmarshalJSON([]byte(manifestJSON)); err != nil {

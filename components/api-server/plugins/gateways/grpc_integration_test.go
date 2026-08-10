@@ -221,6 +221,72 @@ func TestGRPCWatchGateways(t *testing.T) {
 	Expect(int(listResp.Metadata.Total)).To(BeNumerically(">=", totalItems))
 }
 
+func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	jwtToken := h.CreateJWTString(account)
+
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
+
+	grpcClient := pb.NewGatewayServiceClient(conn)
+
+	createReq := &pb.CreateGatewayRequest{
+		Name:       "delete-watch-test",
+		FleetId:    "test-fleet",
+		ClusterId:  "test-cluster",
+		ReleaseId:  "test-release",
+		DatabaseId: "test-db",
+		Namespace:  "test-ns",
+	}
+	created, err := grpcClient.CreateGateway(ctx, createReq)
+	Expect(err).NotTo(HaveOccurred())
+	gatewayID := created.Gateway.Metadata.Id
+
+	watchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	stream, err := grpcClient.WatchGateways(watchCtx, &pb.WatchGatewaysRequest{})
+	Expect(err).NotTo(HaveOccurred())
+
+	// Allow the stream to establish before deleting
+	time.Sleep(200 * time.Millisecond)
+
+	_, err = grpcClient.DeleteGateway(ctx, &pb.DeleteGatewayRequest{Id: gatewayID})
+	Expect(err).NotTo(HaveOccurred())
+
+	// Read events until we find the delete event for our gateway
+	for {
+		evt, recvErr := stream.Recv()
+		if recvErr != nil {
+			t.Fatalf("stream closed before receiving delete event: %v", recvErr)
+		}
+
+		if evt.ResourceId != gatewayID {
+			continue
+		}
+		if evt.Type != pb.EventType_EVENT_TYPE_DELETED {
+			continue
+		}
+
+		Expect(evt.Gateway).NotTo(BeNil(), "delete event must include the gateway resource")
+		Expect(evt.Gateway.Name).To(Equal("delete-watch-test"))
+		Expect(evt.Gateway.Namespace).To(Equal("test-ns"))
+		Expect(evt.Gateway.ClusterId).To(Equal("test-cluster"))
+		break
+	}
+}
+
 func TestGRPCGatewayErrorHandling(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()

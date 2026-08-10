@@ -55,6 +55,8 @@ spec:
             capabilities:
               drop:
               - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
           env:
             - name: DB_USER_KEY_PLACEHOLDER
               valueFrom:

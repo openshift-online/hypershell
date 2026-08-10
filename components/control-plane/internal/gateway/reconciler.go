@@ -748,7 +748,7 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 }
 
 func isRHELPostgres(image string) bool {
-	return strings.Contains(image, "rhel") || strings.Contains(image, "redhat.com")
+	return strings.Contains(image, "rhel") && strings.Contains(image, "postgresql-")
 }
 
 func postgresEnvKeys(image string) (userKey, passKey, dbKey string) {
@@ -763,6 +763,13 @@ func postgresDataPath(image string) string {
 		return "/var/lib/pgsql/data"
 	}
 	return "/var/lib/postgresql/data"
+}
+
+func postgresPGDataPath(image string) string {
+	if isRHELPostgres(image) {
+		return "/var/lib/pgsql/data"
+	}
+	return "/var/lib/postgresql/data/pgdata"
 }
 
 // reconcileCredentialKEK uses create-or-skip (not update-or-create) because

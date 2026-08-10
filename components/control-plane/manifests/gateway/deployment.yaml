@@ -33,7 +33,7 @@ spec:
       serviceAccountName: openshell-gateway
       securityContext:
         runAsNonRoot: true
-        fsGroup: 1000
+        fsGroup: 1001
       containers:
         - name: openshell-gateway
           securityContext:

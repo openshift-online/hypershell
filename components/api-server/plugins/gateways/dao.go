@@ -11,6 +11,7 @@ import (
 
 type GatewayDao interface {
 	Get(ctx context.Context, id string) (*Gateway, error)
+	GetUnscoped(ctx context.Context, id string) (*Gateway, error)
 	Create(ctx context.Context, gateway *Gateway) (*Gateway, error)
 	Replace(ctx context.Context, gateway *Gateway) (*Gateway, error)
 	Delete(ctx context.Context, id string) error
@@ -32,6 +33,15 @@ func (d *sqlGatewayDao) Get(ctx context.Context, id string) (*Gateway, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	var gateway Gateway
 	if err := g2.Take(&gateway, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &gateway, nil
+}
+
+func (d *sqlGatewayDao) GetUnscoped(ctx context.Context, id string) (*Gateway, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var gateway Gateway
+	if err := g2.Unscoped().Take(&gateway, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &gateway, nil

@@ -127,7 +127,6 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 type GatewayReconciler struct {
 	mu                    sync.Mutex
 	active                map[string]struct{}
-	namespaces            map[string]string
 	dynamicClient         dynamic.Interface
 	clientset             *kubernetes.Clientset
 	grpcConn              *grpc.ClientConn
@@ -158,7 +157,6 @@ func NewGatewayReconciler(
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
-		namespaces:            make(map[string]string),
 		dynamicClient:         dynamicClient,
 		clientset:             clientset,
 		grpcConn:              grpcConn,
@@ -185,15 +183,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		r.mu.Unlock()
 	}()
 
-	if event.Type == watcher.EventDeleted {
-		r.mu.Lock()
-		namespace, known := r.namespaces[event.ResourceID]
-		delete(r.namespaces, event.ResourceID)
-		r.mu.Unlock()
+	gw := event.Resource
+	if gw == nil {
+		log.Printf("WARN gateway event %s has nil resource, skipping", event.ResourceID)
+		return nil
+	}
 
-		if !known {
-			log.Printf("WARN gateway %s deleted but namespace unknown (CP may have restarted), skipping cleanup", event.ResourceID)
-			return nil
+	if event.Type == watcher.EventDeleted {
+		namespace := gw.Namespace
+		if namespace == "" {
+			namespace = fmt.Sprintf("openshell-%s", gw.Name)
 		}
 
 		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
@@ -210,12 +209,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
-	gw := event.Resource
-	if gw == nil {
-		log.Printf("WARN gateway event %s has nil resource, skipping", event.ResourceID)
-		return nil
-	}
-
 	log.Printf("INFO reconciling Gateway %s name=%s namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
 
@@ -228,10 +221,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if namespace == "" {
 		namespace = fmt.Sprintf("openshell-%s", gw.Name)
 	}
-
-	r.mu.Lock()
-	r.namespaces[event.ResourceID] = namespace
-	r.mu.Unlock()
 
 	dnsNames := gw.ServerDnsNames
 	if len(dnsNames) == 0 {
