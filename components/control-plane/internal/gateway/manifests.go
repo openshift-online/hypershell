@@ -244,7 +244,7 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) 
 			if jwksTTL == 0 {
 				jwksTTL = 3600
 			}
-			oidcSection += fmt.Sprintf("    jwks_ttl    = %d\n", jwksTTL)
+			oidcSection += fmt.Sprintf("    jwks_ttl_secs = %d\n", jwksTTL)
 			if config.OIDC.RolesClaim != "" {
 				oidcSection += fmt.Sprintf("    roles_claim = \"%s\"\n", config.OIDC.RolesClaim)
 			}

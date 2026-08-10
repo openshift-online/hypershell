@@ -41,17 +41,20 @@ This creates a Kind cluster and deploys:
 ```
 === HyperShell is running! ===
 
-  HTTP API:     https://api.hypershell.localhost
-  Web Console:  https://console.hypershell.localhost
-  Health:       https://health.hypershell.localhost
-  Keycloak:     https://keycloak.hypershell.localhost (admin/admin)
+  HTTP API:      https://api.hypershell.localhost
+  Web Console:   https://console.hypershell.localhost
+  Health:        https://health.hypershell.localhost
+  Keycloak:      https://keycloak.hypershell.localhost (admin/admin)
+  Keycloak HTTP: http://keycloak.hypershell.localhost:8080 (admin/admin)
+  OIDC Issuer:   http://keycloak.hypershell.localhost:8080/realms/hypershell
 ```
 
 Services are accessed via `.localhost` hostnames routed through the networking
 Gateway. CoreDNS resolves all `*.hypershell.localhost` to loopback, and
 OS-level port forwarding (pfctl on macOS, iptables on Linux) redirects
-host port 443 to cloud-provider-kind's ephemeral Gateway port. The TLS
-certificate is self-signed — trust it in your browser or use `curl --cacert`.
+host ports 443 and 8080 to cloud-provider-kind's ephemeral Gateway ports.
+The TLS certificate is self-signed — trust it in your browser or use
+`curl --cacert`.
 
 ## Per-Component Swap
 
@@ -213,6 +216,91 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-control-plane-down` | Revert control plane to baseline image |
 | `make kind-web-console-up` | Hot reload (default) or build + swap web console |
 | `make kind-web-console-down` | Revert web console to baseline image |
+
+## Gateway Access
+
+The control plane provisions openshell-gateway pods that serve gRPC over TLS
+using cert-manager-issued certificates. Accessing these gateways from the host
+depends on the environment.
+
+### Kind (port-forward)
+
+In Kind, the simplest method is `kubectl port-forward`. This connects directly
+to the gateway pod's TLS endpoint, bypassing the networking Gateway entirely:
+
+```bash
+kubectl --context kind-hypershell-dev port-forward \
+  -n <gateway-namespace> svc/openshell-gateway 7443:8080 &
+```
+
+Then register the gateway with the openshell CLI:
+
+```bash
+openshell gateway add \
+  --name my-gateway \
+  --oidc-issuer http://keycloak.hypershell.localhost:8080/realms/hypershell \
+  --oidc-client-id hypershell-frontend \
+  https://localhost:7443
+```
+
+This opens a browser for Keycloak login. Use `admin`/`admin` or
+`developer`/`developer`.
+
+The e2e test (`components/pr-test/e2e-openshell.sh`) uses the same port-forward
+fallback when no passthrough route is available.
+
+### OpenShift (automatic)
+
+On OpenShift, the control plane automatically creates networking resources when
+a gateway has `Route.Enabled` set:
+
+1. A per-namespace **Gateway** with `openshift-default` gateway class
+2. A **GRPCRoute** routing to `openshell-gateway:8080`
+3. A **BackendTLSPolicy** for TLS re-encryption to the backend (the OpenShift
+   router terminates external TLS, then re-encrypts to the pod using the
+   gateway's cert-manager CA)
+4. A **NetworkPolicy** allowing ingress from `openshift-ingress` router pods
+
+The gateway becomes reachable at
+`grpcs://<openshell-gateway-NAMESPACE>.<GATEWAY_API_BASE_DOMAIN>:443` with no
+port-forward needed. The control plane writes this address back to the API
+server's `route_address` field.
+
+### Why Kind requires port-forward
+
+The networking Gateway's `*.gw.localhost` listener uses TLS Terminate mode,
+which strips the external TLS and forwards plaintext to the backend. But
+openshell-gateway pods expect TLS connections (they serve gRPC with their own
+cert-manager certificates). On OpenShift this is solved with BackendTLSPolicy
+(re-encryption), which cloud-provider-kind does not support.
+
+### Creating a gateway with OIDC
+
+`make kind-up` seeds Fleet, ManagedCluster, GatewayRelease, and ManagedDatabase
+but does not create a Gateway. Create one via the API:
+
+```bash
+# Get the seeded resource IDs
+FLEET_ID=$(curl -s http://localhost:8000/api/hypershell/v1/fleets | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+CLUSTER_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_clusters | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+RELEASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/gateway_releases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+DATABASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_databases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
+
+# Create a gateway with OIDC
+curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"dev-gateway\",
+    \"fleet_id\": \"${FLEET_ID}\",
+    \"cluster_id\": \"${CLUSTER_ID}\",
+    \"release_id\": \"${RELEASE_ID}\",
+    \"database_id\": \"${DATABASE_ID}\",
+    \"namespace\": \"openshell-dev\",
+    \"oidc\": \"{\\\"issuer\\\":\\\"http://keycloak.hypershell.localhost:8080/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
+  }"
+```
+
+Wait ~30s for the control plane to reconcile, then port-forward and register.
 
 ## Troubleshooting
 
