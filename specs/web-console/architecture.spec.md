@@ -89,7 +89,7 @@ The console SHALL initially assume that authenticated users can view and provisi
 
 The masthead and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application.
 
-Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it.
+Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source.
 
 Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 

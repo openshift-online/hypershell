@@ -274,6 +274,7 @@ export function GatewaysPage({
   );
   const tableState: ResourceTableState = {
     page: currentCollectionState.page,
+    pageSize: currentCollectionState.size,
     query: currentCollectionState.search,
     sortColumnId: currentCollectionState.sortField,
     sortDirection: currentCollectionState.sortDirection,
@@ -285,7 +286,7 @@ export function GatewaysPage({
     const nextCollectionState: GatewayListRequest = {
       page: nextState.page,
       search: nextState.query,
-      size: currentCollectionState.size,
+      size: nextState.pageSize,
       sortDirection: nextState.sortDirection,
       sortField: isGatewaySortField(nextState.sortColumnId)
         ? nextState.sortColumnId
@@ -411,7 +412,6 @@ export function GatewaysPage({
             </Button>
           }
           onStateChange={changeTableState}
-          pageSize={currentCollectionState.size}
           renderRowAction={(gateway) => (
             <GatewayRowActions
               gateway={gateway}

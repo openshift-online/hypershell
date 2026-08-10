@@ -358,6 +358,43 @@ describe("gateway shell pages", () => {
     expect(listGatewaysMock.mock.calls[1]?.[0]).toMatchObject({ page: 2 });
   });
 
+  it("requests a selected page size from the first page", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock.mockImplementation(
+      (request: { page: number; size: number }) =>
+        Promise.resolve({
+          items: [
+            gatewayResponse(
+              `gateway-${String(request.size)}`,
+              `Gateway page size ${String(request.size)}`,
+            ),
+          ],
+          page: request.page,
+          size: request.size,
+          total: 51,
+        }),
+    );
+    const { container } = renderPage(GatewaysPage);
+
+    await screen.findByRole("link", { name: "Gateway page size 20" });
+    const pageSizeToggle = container.querySelector(
+      "#gateways-pagination-top-toggle",
+    );
+    expect(pageSizeToggle).toBeInstanceOf(HTMLButtonElement);
+    await user.click(pageSizeToggle as HTMLButtonElement);
+    await user.click(screen.getByRole("menuitem", { name: "50 per page" }));
+
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, size: 50 }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(
+      await screen.findByRole("link", { name: "Gateway page size 50" }),
+    ).toBeTruthy();
+  });
+
   it("refreshes the gateway list", async () => {
     const user = userEvent.setup();
     listGatewaysMock.mockResolvedValue({
