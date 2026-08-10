@@ -3,15 +3,15 @@
 **Date:** 2026-08-10
 **Status:** Draft
 **Jira:** HYPERSHELL-18
-**Related:** `local-development.spec.md` — Kind cluster setup;
-             `control-plane.spec.md` — reconciler behavior;
-             `openshell-gateway-routing.spec.md` — GRPCRoute provisioning
+**Related:** `local-development.spec.md` -- Kind cluster setup;
+             `control-plane.spec.md` -- reconciler behavior;
+             `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning
 
 ## Purpose
 
 HyperShell requires infrastructure-agnostic end-to-end testing that validates the full provisioning path: API creation of a Gateway, control plane reconciliation, gateway pod readiness, route connectivity, and sandbox lifecycle. The same test suite SHALL run against Kind (local development, CI) and OpenShift (staging, QE) with infrastructure-specific logic isolated into driver scripts. A CI workflow SHALL execute these tests automatically on pull requests that modify e2e-relevant components.
 
-The existing e2e test (`components/pr-test/e2e-openshell.sh`) validates 6 areas — gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction — but is hardcoded for OpenShift. This spec defines the driver abstraction, CI workflow, and deploy restructuring required to run the same tests across multiple infrastructure targets.
+The existing e2e test (`components/pr-test/e2e-openshell.sh`) validates 6 areas -- gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction -- but is hardcoded for OpenShift. This spec defines the driver abstraction, CI workflow, and deploy restructuring required to run the same tests across multiple infrastructure targets.
 
 ### Scope
 
@@ -100,7 +100,7 @@ deploy/
 
 ### Requirement: Infra Driver Abstraction
 
-The e2e test framework SHALL isolate infrastructure-specific logic into driver scripts located at `tests/e2e/drivers/<driver>.sh`. The main test script (`tests/e2e/e2e-openshell.sh`) SHALL remain infrastructure-agnostic and call only driver interface functions for infrastructure-specific operations. The `E2E_INFRA_DRIVER` environment variable SHALL select the driver and MUST be set — the script SHALL exit with an error if it is unset.
+The e2e test framework SHALL isolate infrastructure-specific logic into driver scripts located at `tests/e2e/drivers/<driver>.sh`. The main test script (`tests/e2e/e2e-openshell.sh`) SHALL remain infrastructure-agnostic and call only driver interface functions for infrastructure-specific operations. The `E2E_INFRA_DRIVER` environment variable SHALL select the driver and MUST be set -- the script SHALL exit with an error if it is unset.
 
 #### Scenario: Kind Driver Selected
 
@@ -140,33 +140,33 @@ The e2e test framework SHALL isolate infrastructure-specific logic into driver s
 
 Each driver script SHALL export the following shell functions. The main test script SHALL call only these functions for infrastructure-specific operations. A driver that does not implement all required functions SHALL cause the test script to exit with an error at startup. This spec covers the Kind driver implementations; OpenShift driver implementations are follow-up work.
 
-#### Scenario: API Host Discovery — Kind
+#### Scenario: API Host Discovery -- Kind
 
 - GIVEN the `kind` driver is active
 - WHEN `discover_api_host` is called
 - THEN it SHALL return `api.hypershell.localhost` (the HTTPRoute hostname from `deploy/kind/prerequisites/httproutes.yaml`)
 - OR fall back to `localhost:<port>` via `kubectl port-forward svc/hypershell-api-server` if the HTTPRoute is not reachable
 
-#### Scenario: Gateway Endpoint Discovery — Kind
+#### Scenario: Gateway Endpoint Discovery -- Kind
 
 - GIVEN the `kind` driver is active
 - AND a gateway named `$GW_NAME` exists in namespace `$GW_NAMESPACE`
 - WHEN `discover_gateway_endpoint` is called
 - THEN it SHALL return `https://<gw-name>.gw.localhost:443` derived from the GRPCRoute hostname and the networking Gateway's status address
 
-#### Scenario: Cluster Domain — Kind
+#### Scenario: Cluster Domain -- Kind
 
 - GIVEN the `kind` driver is active
 - WHEN `get_cluster_domain` is called
 - THEN it SHALL return `gw.localhost` (matching the `GATEWAY_API_BASE_DOMAIN` environment variable set on the control plane in the Kind deployment)
 
-#### Scenario: CLI Binary — Kind
+#### Scenario: CLI Binary -- Kind
 
 - GIVEN the `kind` driver is active
 - WHEN `get_cli_binary` is called
 - THEN it SHALL return `oc`
 
-#### Scenario: Wait for Gateway Route — Kind
+#### Scenario: Wait for Gateway Route -- Kind
 
 - GIVEN the `kind` driver is active
 - AND a gateway named `$GW_NAME` has been provisioned
@@ -177,14 +177,14 @@ Each driver script SHALL export the following shell functions. The main test scr
 
 ### Requirement: E2E Test Suite Coverage
 
-The e2e test suite SHALL validate the following 6 areas, preserving the existing test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic — they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
+The e2e test suite SHALL validate the following 6 areas, preserving the existing test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
 
-1. **Gateway provisioning via HyperShell API** — create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
-2. **Gateway infrastructure verification** — confirm the gateway deployment, service, TLS secret, and certgen job exist and are healthy
-3. **Route discovery + openshell CLI registration** — discover the gateway endpoint via the driver, register it with the openshell CLI
-4. **Gateway connectivity** — verify the openshell CLI can connect to the gateway and report status
-5. **Sandbox lifecycle** — create a sandbox, wait for the pod to reach `Running` state
-6. **Sandbox interaction** — execute commands inside the sandbox (`uname -a`, `ls /workspace`)
+1. **Gateway provisioning via HyperShell API** -- create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
+2. **Gateway infrastructure verification** -- confirm the gateway deployment, service, TLS secret, and certgen job exist and are healthy
+3. **Route discovery + openshell CLI registration** -- discover the gateway endpoint via the driver, register it with the openshell CLI
+4. **Gateway connectivity** -- verify the openshell CLI can connect to the gateway and report status
+5. **Sandbox lifecycle** -- create a sandbox, wait for the pod to reach `Running` state
+6. **Sandbox interaction** -- execute commands inside the sandbox (`uname -a`, `ls /workspace`)
 
 #### Scenario: Full Suite Execution
 
@@ -215,7 +215,7 @@ The e2e test suite SHALL validate the following 6 areas, preserving the existing
 
 ### Requirement: CI E2E Workflow
 
-The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster on every pull request and push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). The workflow SHALL gate on Konflux image builds completing and pull those images by digest — it SHALL NOT rebuild component images itself.
+The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster on every pull request and push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). The workflow SHALL gate on Konflux image builds completing and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
 #### Scenario: PR Triggers Workflow
 
@@ -287,7 +287,7 @@ On test failure, the CI workflow SHALL collect diagnostic artifacts to aid debug
 - THEN it SHALL collect: all pod logs from the HyperShell namespace (`kubectl logs --all-containers`), cluster events (`kubectl get events --sort-by=.lastTimestamp`), pod descriptions (`kubectl describe pods`), the e2e test script stdout/stderr
 - AND upload them as a GitHub Actions artifact named `e2e-diagnostics`
 
-#### Scenario: Success — No Artifacts
+#### Scenario: Success -- No Artifacts
 
 - GIVEN all e2e tests pass
 - WHEN the workflow completes
@@ -395,7 +395,7 @@ deploy/
 
 | Decision | Rationale |
 |----------|-----------|
-| Shell-based drivers as starting point | The e2e test is a shell script; shell functions provide the simplest driver abstraction without adding a new language or build step. Each driver is a single file implementing a known function interface. If the test suite grows in complexity — structured assertions, parallel execution, direct Kubernetes API client usage — migrating to a Go-based e2e framework (e.g., `go test` with client-go) is a natural follow-up. The driver interface contract is function-shape-agnostic, so the same logical abstraction applies in either language |
+| Shell-based drivers as starting point | The e2e test is a shell script; shell functions provide the simplest driver abstraction without adding a new language or build step. Each driver is a single file implementing a known function interface. If the test suite grows in complexity -- structured assertions, parallel execution, direct Kubernetes API client usage -- migrating to a Go-based e2e framework (e.g., `go test` with client-go) is a natural follow-up. The driver interface contract is function-shape-agnostic, so the same logical abstraction applies in either language |
 | `E2E_INFRA_DRIVER` is required, no auto-detection | Explicit driver selection avoids ambiguity and makes CI invocations self-documenting. Each environment sets the driver it intends to test against |
 | Tests live in `tests/e2e/`, not `components/pr-test/` | A top-level `tests/` tree is the natural home for e2e tests and their drivers. `components/pr-test/` will be deprecated in a follow-up once migration is complete |
 | Shared test utilities in `tests/e2e/lib.sh` | Pass/fail tracking, color output, and retry helpers are currently inline in `e2e-openshell.sh`. Extracting them into `lib.sh` makes them reusable across future test scripts without duplicating code |
