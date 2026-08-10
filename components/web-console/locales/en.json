@@ -307,10 +307,6 @@
     "defaultMessage": "Error:",
     "description": "Screen-reader prefix for an error message."
   },
-  "app.toggleDarkMode": {
-    "defaultMessage": "Toggle dark mode",
-    "description": "Accessible label for the dark mode toggle button."
-  },
   "app.table.clearFilters": {
     "defaultMessage": "Clear filters",
     "description": "Action that clears collection filters."
@@ -326,6 +322,14 @@
   "app.table.results": {
     "defaultMessage": "results",
     "description": "Context announced after a filtered collection result count."
+  },
+  "app.toggleDarkMode.off": {
+    "defaultMessage": "Switch to dark mode",
+    "description": "Accessible label for the color scheme toggle when light mode is active."
+  },
+  "app.toggleDarkMode.on": {
+    "defaultMessage": "Switch to light mode",
+    "description": "Accessible label for the color scheme toggle when dark mode is active."
   },
   "app.value.notAvailable": {
     "defaultMessage": "Not available",

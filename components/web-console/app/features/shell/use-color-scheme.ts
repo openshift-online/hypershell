@@ -21,7 +21,22 @@ function subscribe(onStoreChange: () => void): () => void {
     attributes: true,
     attributeFilter: ["class"],
   });
-  return () => observer.disconnect();
+
+  const mql = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSystemChange = () => {
+    try {
+      if (localStorage.getItem(STORAGE_KEY)) return;
+    } catch {
+      /* storage unavailable */
+    }
+    applyScheme(mql.matches ? "dark" : "light");
+  };
+  mql.addEventListener("change", onSystemChange);
+
+  return () => {
+    observer.disconnect();
+    mql.removeEventListener("change", onSystemChange);
+  };
 }
 
 function applyScheme(scheme: ColorScheme): void {

@@ -88,7 +88,11 @@ export function ApplicationShell() {
           <ToolbarContent>
             <ToolbarItem align={{ default: "alignEnd" }}>
               <Button
-                aria-label={intl.formatMessage(messages.toggleDarkMode)}
+                aria-label={intl.formatMessage(
+                  scheme === "dark"
+                    ? messages.switchToLightMode
+                    : messages.switchToDarkMode,
+                )}
                 icon={scheme === "dark" ? <SunIcon /> : <MoonIcon />}
                 onClick={toggleColorScheme}
                 variant="plain"
