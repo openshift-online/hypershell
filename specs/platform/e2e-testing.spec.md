@@ -197,7 +197,7 @@ The e2e test suite SHALL validate the following 6 areas, preserving the existing
 
 - GIVEN the HyperShell API is reachable (via `discover_api_host`)
 - WHEN a gateway is created via `POST /api/hypershell/v1/gateways`
-- THEN the test SHALL poll the API until the gateway phase is `Running` or `PROVISION_TIMEOUT` seconds have elapsed
+- THEN the test SHALL poll the API until the gateway phase is `Running` or `E2E_PROVISION_TIMEOUT` seconds have elapsed
 - AND a timeout SHALL be reported as a test failure
 
 #### Scenario: Infrastructure Verification
@@ -211,7 +211,7 @@ The e2e test suite SHALL validate the following 6 areas, preserving the existing
 - GIVEN the openshell CLI is connected to the gateway
 - WHEN `sandbox create --name <name>` is invoked
 - THEN a pod matching `default--<name>` SHALL appear in the gateway namespace
-- AND the pod SHALL reach `Running` state within `SANDBOX_TIMEOUT` seconds
+- AND the pod SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds
 
 ### Requirement: CI E2E Workflow
 
