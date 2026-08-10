@@ -49,7 +49,7 @@ func ReconcileGateway(
 
 	dbImage := nsConfig.Gateway.Database.Image
 	if dbImage == "" {
-		dbImage = "postgres:18"
+		dbImage = "postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
 	}
 
 	if err := reconcileDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage); err != nil {
@@ -748,7 +748,7 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 }
 
 func isRHELPostgres(image string) bool {
-	return strings.Contains(image, "rhel")
+	return strings.Contains(image, "rhel") || strings.Contains(image, "redhat.com")
 }
 
 func postgresEnvKeys(image string) (userKey, passKey, dbKey string) {
@@ -1084,6 +1084,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
+	// No namespaceSelector needed: the per-tenant Gateway places router pods in the tenant namespace alongside the workloads.
 	routerNetpol := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "networking.k8s.io/v1",

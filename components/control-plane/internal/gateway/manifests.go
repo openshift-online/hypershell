@@ -98,7 +98,7 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 	dbImage := config.Database.Image
 	if dbImage == "" {
-		dbImage = "postgres:18"
+		dbImage = "postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
 	}
 	dbStorage := config.Database.StorageSize
 	if dbStorage == "" {
@@ -138,7 +138,7 @@ func ApplyDatabaseOverrides(obj *unstructured.Unstructured, dbConfig DatabaseCon
 	}
 	dbImage := dbConfig.Image
 	if dbImage == "" {
-		dbImage = "postgres:18"
+		dbImage = "postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
 	}
 
 	userKey, passKey, dbKey := postgresEnvKeys(dbImage)
