@@ -86,6 +86,19 @@ export default tseslint.config(
     },
   },
   {
+    files: ["src/**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.property.name='safeParse']",
+          message:
+            "Integrate form schemas through a React Hook Form resolver instead of parsing again in a presentation component.",
+        },
+      ],
+    },
+  },
+  {
     files: ["src/application/**/*.ts"],
     rules: {
       "no-restricted-globals": [

@@ -12,6 +12,7 @@ import {
   TextInput,
   Title,
 } from "@patternfly/react-core";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Controller, useForm, type Control } from "react-hook-form";
@@ -33,13 +34,8 @@ interface GatewayFormValues {
   name: string;
 }
 
-const fieldNames = [
-  "clusterId",
-  "name",
-] as const satisfies readonly (keyof GatewayFormValues)[];
-
 interface GatewayTextFieldProps {
-  control: Control<GatewayFormValues>;
+  control: Control<GatewayFormValues, undefined, GatewayProvisionInput>;
   fieldId: string;
   isDisabled: boolean;
   label: string;
@@ -98,15 +94,29 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     const requiredString = z.string().trim().min(1, requiredMessage);
 
     return z.object({
-      clusterId: z.string({ error: requiredMessage }),
+      clusterId: z
+        .string({ error: requiredMessage })
+        .nullable()
+        .transform((value, context) => {
+          if (value === null) {
+            context.addIssue({ code: "custom", message: requiredMessage });
+            return z.NEVER;
+          }
+          return value;
+        }),
       name: requiredString,
     });
   }, [requiredMessage]);
-  const { control, handleSubmit, setError } = useForm<GatewayFormValues>({
+  const { control, handleSubmit } = useForm<
+    GatewayFormValues,
+    undefined,
+    GatewayProvisionInput
+  >({
     defaultValues: {
       clusterId: "",
       name: "",
     },
+    resolver: zodResolver(schema),
   });
 
   const createGateway = useMutation({
@@ -127,21 +137,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
   });
 
   const submit = handleSubmit((values) => {
-    const result = schema.safeParse(values);
-    if (!result.success) {
-      for (const issue of result.error.issues) {
-        const fieldName = issue.path[0];
-        if (fieldNames.includes(fieldName as keyof GatewayFormValues)) {
-          setError(fieldName as keyof GatewayFormValues, {
-            message: issue.message,
-            type: "validate",
-          });
-        }
-      }
-      return;
-    }
-
-    createGateway.mutate(result.data);
+    createGateway.mutate(values);
   });
 
   return (

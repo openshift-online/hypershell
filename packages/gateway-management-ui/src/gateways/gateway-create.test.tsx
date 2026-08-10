@@ -94,7 +94,7 @@ describe("GatewayCreatePage", () => {
 
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
-      "team-gateway",
+      "  team-gateway  ",
     );
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 

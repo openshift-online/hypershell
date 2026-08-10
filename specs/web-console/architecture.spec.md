@@ -310,13 +310,13 @@ Each request path SHALL have one explicit retry owner. A TanStack Query `AbortSi
 
 ### Requirement WEB-DATA-04: Forms and Runtime Validation
 
-Nontrivial forms SHALL use React Hook Form with Zod schemas and PatternFly form components. Zod SHALL validate untrusted browser/runtime shapes where compile-time TypeScript types provide no runtime guarantee. The API remains authoritative for domain rules and authorization.
+Nontrivial forms SHALL use React Hook Form with Zod schemas and PatternFly form components. A form's Zod schema SHALL integrate through the React Hook Form resolver as the single client-side schema-validation path; a successful `handleSubmit` callback SHALL consume resolver output without parsing the same values again. Zod SHALL validate untrusted browser/runtime shapes where compile-time TypeScript types provide no runtime guarantee. The API remains authoritative for domain rules and authorization.
 
 Validation SHALL occur at submit and appropriate blur/interaction boundaries rather than producing disruptive errors for every keystroke. Forms SHALL preserve user input across recoverable failures, prevent accidental duplicate submission, focus or summarize errors accessibly, and map server field and global errors without exposing sensitive details.
 
 Destructive and conflicting changes SHALL follow the interaction and recovery requirements in `standards/ui/`.
 
-**Verification:** Exercise keyboard-only entry, server/client validation disagreement, duplicate submission, network failure, version conflict, session expiry, cancellation, and successful resubmission.
+**Verification:** Exercise keyboard-only entry, server/client validation disagreement, duplicate submission, network failure, version conflict, session expiry, cancellation, and successful resubmission. Lint presentation components against direct schema `safeParse` calls and inspect form setup for a resolver.
 
 ### Requirement WEB-UI-01: PatternFly-First Presentation
 

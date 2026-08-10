@@ -1,17 +1,17 @@
 [
   {
     "filename": "pnpm-lock.yaml",
-    "line": 1417,
+    "line": 1501,
     "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
   },
   {
     "filename": "pnpm-lock.yaml",
-    "line": 1581,
+    "line": 1665,
     "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
   },
   {
     "filename": "pnpm-lock.yaml",
-    "line": 3091,
+    "line": 3175,
     "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
   }
 ]
