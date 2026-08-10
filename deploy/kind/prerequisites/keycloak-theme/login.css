@@ -1,6 +1,17 @@
-/* HyperShell Keycloak Login Theme -- light palette with interaction blue */
+/*
+ * HyperShell Keycloak Login Theme -- light palette with interaction blue.
+ * Overrides Keycloak's bundled PatternFly 5 classes with !important to ensure
+ * our values win regardless of specificity. If a future Keycloak upgrade adds
+ * competing !important declarations, these rules may need revisiting.
+ */
 
-@import url('https://fonts.googleapis.com/css2?family=Red+Hat+Text:wght@400;500;600;700&display=swap');
+@font-face {
+  font-family: 'Red Hat Text';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../fonts/RedHatText-latin.woff2") format('woff2');
+}
 
 /* Page background */
 .pf-v5-c-login,
