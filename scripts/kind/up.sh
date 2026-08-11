@@ -163,6 +163,7 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Deploying local Keycloak in 'keycloak' namespace..."
   kube create namespace keycloak --dry-run=client -o yaml | \
     kube apply -f -
+  kube apply -f deploy/base/keycloak-theme.yaml
   kube apply -f deploy/kind/prerequisites/keycloak.yaml
   info "Waiting for Keycloak..."
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s

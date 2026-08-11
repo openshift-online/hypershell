@@ -15,8 +15,8 @@
     "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
   },
   {
-    "filename": "deploy/kind/prerequisites/keycloak.yaml",
-    "line": 704,
+    "filename": "deploy/base/keycloak-theme.yaml",
+    "line": 501,
     "rationale": "Generated base64-encoded PNG image data contains an incidental byte sequence; regenerate with make keycloak-theme."
   }
 ]
