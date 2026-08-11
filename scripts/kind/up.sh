@@ -141,19 +141,6 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Deploying local Keycloak in 'keycloak' namespace..."
   kube create namespace keycloak --dry-run=client -o yaml | \
     kube apply -f -
-
-  # Generate theme ConfigMaps from source files (single source of truth).
-  theme_dir="deploy/kind/prerequisites/keycloak-theme"
-  kube create configmap keycloak-hypershell-theme -n keycloak \
-    --from-file=theme.properties="${theme_dir}/theme.properties" \
-    --from-file=login.css="${theme_dir}/login.css" \
-    --from-file=messages_en.properties="${theme_dir}/messages_en.properties" \
-    --dry-run=client -o yaml | kube apply -f -
-  kube create configmap keycloak-hypershell-theme-assets -n keycloak \
-    --from-file=hypershell-logo.png="${theme_dir}/hypershell-logo.png" \
-    --from-file=RedHatText-latin.woff2="${theme_dir}/RedHatText-latin.woff2" \
-    --dry-run=client -o yaml | kube apply -f -
-
   kube apply -f deploy/kind/prerequisites/keycloak.yaml
   info "Waiting for Keycloak..."
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
