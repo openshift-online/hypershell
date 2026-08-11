@@ -29,6 +29,9 @@ test-results/
 # Agent Package Manager cache
 apm_modules/
 
+# Claude Code working state
+.claude/
+
 # Kind swap tracking
 .kind-swaps
 

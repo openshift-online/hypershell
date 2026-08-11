@@ -174,6 +174,51 @@ KIND_KEYCLOAK_URL=https://keycloak.example.com/realms/hypershell make kind-up
 This skips the local Keycloak deployment and points the gateway OIDC issuer at
 the external URL.
 
+## OIDC Authentication (opt-in)
+
+By default, the Kind cluster runs without OIDC authentication: the API server
+disables JWT validation and the web console serves pages without requiring login.
+Enable OIDC to test the full authentication flow end-to-end:
+
+```bash
+KIND_ENABLE_OIDC=true make kind-up
+```
+
+### What changes when OIDC is enabled
+
+| Component | Default (no OIDC) | With OIDC |
+|-----------|-------------------|-----------|
+| API server | `--enable-jwt=false` | `API_ENV=development_oidc`, JWK cert URL configured |
+| Web console | No session, no login | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `SESSION_SECRET` configured |
+| Gateway seed | Fleet, cluster, release, DB only | Also creates a Gateway with OIDC config |
+
+Keycloak deploys in both modes. OIDC mode patches the API server and web console
+deployments at runtime (the base YAML manifests are unchanged).
+
+### Browser login flow
+
+1. Navigate to `https://console.hypershell.localhost`
+2. The BFF redirects to `https://console.hypershell.localhost/auth/login`
+3. The login page redirects to Keycloak for authentication
+4. Sign in with `admin`/`admin` or `developer`/`developer`
+5. Keycloak redirects back to the web console with a valid session
+
+### CLI token acquisition for curl testing
+
+Obtain an access token via Keycloak's direct access grants:
+
+```bash
+TOKEN=$(curl -s -X POST \
+  "http://keycloak.hypershell.localhost:8080/realms/hypershell/protocol/openid-connect/token" \
+  -d "grant_type=password" \
+  -d "client_id=hypershell-frontend" \
+  -d "username=admin" \
+  -d "password=admin" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+curl -s -H "Authorization: Bearer ${TOKEN}" \
+  https://api.hypershell.localhost/api/hypershell/v1/fleets
+```
+
 ## Private Registry Pull Secret
 
 If your baseline images live in a private registry, provide a pull secret:
@@ -220,6 +265,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
 | `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
 | `KEYCLOAK_OIDC_ISSUER` | `http://keycloak.hypershell.localhost:8080/realms/hypershell` | OIDC issuer URL |
+| `KIND_ENABLE_OIDC` | (unset) | Set to `true` to enable OIDC authentication across all components |
 | `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |

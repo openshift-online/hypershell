@@ -111,3 +111,14 @@ info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
 info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}"
 info "Keycloak HTTP: http://${KEYCLOAK_HOSTNAME}:8080"
 info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"
+echo ""
+
+header "OIDC"
+if oidc_enabled; then
+  info "OIDC: enabled"
+  info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
+  info "Login:        https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/login"
+  info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+else
+  info "OIDC: disabled (set KIND_ENABLE_OIDC=true to enable)"
+fi

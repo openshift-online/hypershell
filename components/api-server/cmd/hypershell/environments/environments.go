@@ -24,9 +24,12 @@ func init() {
 	env.SetEnvironmentImpls(EnvironmentImpls(env))
 }
 
+const DevelopmentOidcEnv = "development_oidc"
+
 func EnvironmentImpls(env *pkgenv.Env) map[string]pkgenv.EnvironmentImpl {
 	return map[string]pkgenv.EnvironmentImpl{
 		pkgenv.DevelopmentEnv:        &DevEnvImpl{Env: env},
+		DevelopmentOidcEnv:           &DevOidcEnvImpl{Env: env},
 		pkgenv.UnitTestingEnv:        &UnitTestingEnvImpl{Env: env},
 		pkgenv.IntegrationTestingEnv: &IntegrationTestingEnvImpl{Env: env},
 		pkgenv.ProductionEnv:         &ProductionEnvImpl{Env: env},

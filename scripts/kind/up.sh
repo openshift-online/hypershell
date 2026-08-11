@@ -219,6 +219,40 @@ if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
 fi
 echo ""
 
+# --- OIDC configuration (opt-in) ---
+if oidc_enabled; then
+  header "OIDC Configuration"
+
+  if ! is_swapped api-server; then
+    info "Patching API server for OIDC..."
+    kube set env deployment/hypershell-api-server -n "${KIND_NAMESPACE}" -c api-server \
+      API_ENV=development_oidc
+    kube patch deployment hypershell-api-server -n "${KIND_NAMESPACE}" --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/command/-","value":"--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"}]'
+    success "API server patched for OIDC"
+  fi
+
+  info "Creating OIDC session secret..."
+  SESSION_SECRET=$(openssl rand -hex 32)
+  kube create secret generic hypershell-oidc-session \
+    -n "${KIND_NAMESPACE}" \
+    --from-literal=session-secret="${SESSION_SECRET}" \
+    --dry-run=client -o yaml | kube apply -f -
+  success "OIDC session secret created"
+
+  if ! is_swapped web-console; then
+    info "Patching web console for OIDC..."
+    kube set env deployment/hypershell-web-console -n "${KIND_NAMESPACE}" -c web-console \
+      OIDC_ISSUER="${KEYCLOAK_OIDC_ISSUER}" \
+      OIDC_CLIENT_ID="${KEYCLOAK_OIDC_CLIENT_ID}"
+    kube patch deployment hypershell-web-console -n "${KIND_NAMESPACE}" --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"SESSION_SECRET","valueFrom":{"secretKeyRef":{"name":"hypershell-oidc-session","key":"session-secret"}}}}]'
+    success "Web console patched for OIDC"
+  fi
+
+  echo ""
+fi
+
 # --- Certificates and networking ---
 header "TLS & Networking"
 info "Setting up TLS certificates..."
@@ -382,6 +416,22 @@ if [[ -z "${seed_failed}" ]]; then
   fi
 fi
 
+if [[ -z "${seed_failed}" ]] && oidc_enabled; then
+  info "Creating Gateway with OIDC..."
+  OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+  GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
+    "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"namespace\":\"openshell-dev\",\"oidc\":\"${OIDC_JSON}\"}")
+  GW_HTTP=$(echo "${GW_RAW}" | tail -1)
+  GW_RESP=$(echo "${GW_RAW}" | sed '$d')
+  GATEWAY_ID=$(extract_id "${GW_RESP}")
+
+  if [[ -z "${GATEWAY_ID}" ]]; then
+    warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
+  else
+    success "Gateway created with OIDC: ${GATEWAY_ID}"
+  fi
+fi
+
 if [[ -n "${seed_failed}" ]]; then
   warn "Automatic seeding incomplete - create resources manually after API server is ready"
 fi
@@ -444,6 +494,14 @@ else
     info "To use full Gateway routing, run: cloud-provider-kind --enable-lb-port-mapping"
     info "Then: make kind-fix-ports"
   fi
+fi
+
+if oidc_enabled; then
+  echo ""
+  info "OIDC Authentication: ENABLED"
+  info "Keycloak:            https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX:-} (admin/admin)"
+  info "Login:               https://${CONSOLE_HOSTNAME}${PORT_SUFFIX:-}/auth/login"
+  info "Test users:          admin/admin (admins + users), developer/developer (users only)"
 fi
 
 echo ""
