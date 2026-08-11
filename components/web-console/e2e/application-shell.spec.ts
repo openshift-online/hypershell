@@ -453,6 +453,7 @@ test("provisions a gateway on an existing managed cluster", async ({
     fleet_id: "",
     name: "team-gateway",
     release_id: "",
+    route: '{"enabled":true}',
   });
 });
 

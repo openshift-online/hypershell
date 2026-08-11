@@ -273,7 +273,7 @@ describe("gateway API operations adapter", () => {
     expect(gatewayApi.list).toHaveBeenCalledWith(
       expect.objectContaining({
         search:
-          "name ilike '%my\\_cluster\\%\\\\west''s%' or cluster_id ilike '%my\\_cluster\\%\\\\west''s%' or status ilike '%my\\_cluster\\%\\\\west''s%' or external_dns ilike '%my\\_cluster\\%\\\\west''s%'",
+          "name ilike '%my\\_cluster\\%\\\\west''s%' or cluster_id ilike '%my\\_cluster\\%\\\\west''s%' or status ilike '%my\\_cluster\\%\\\\west''s%' or route_address ilike '%my\\_cluster\\%\\\\west''s%' or external_dns ilike '%my\\_cluster\\%\\\\west''s%'",
       }),
       { signal: undefined },
     );
@@ -309,10 +309,30 @@ describe("gateway API operations adapter", () => {
         orderBy: "status desc",
         page: 2,
         search:
-          "name ilike '%team''s gateway%' or cluster_id ilike '%team''s gateway%' or status ilike '%team''s gateway%' or external_dns ilike '%team''s gateway%'",
+          "name ilike '%team''s gateway%' or cluster_id ilike '%team''s gateway%' or status ilike '%team''s gateway%' or route_address ilike '%team''s gateway%' or external_dns ilike '%team''s gateway%'",
         size: 20,
       },
       { signal: abortController.signal },
+    );
+  });
+
+  it("sorts displayed route endpoints by their authoritative field", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "",
+        sortDirection: "asc",
+        sortField: "endpoint",
+      },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: "route_address asc" }),
+      { signal: undefined },
     );
   });
 

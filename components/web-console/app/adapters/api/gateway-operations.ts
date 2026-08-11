@@ -34,7 +34,7 @@ const placementPageSize = defaultGatewayListRequest.size;
 const gatewaySortFields = {
   cluster: "cluster_id",
   created: "created_at",
-  endpoint: "external_dns",
+  endpoint: "route_address",
   name: "name",
   status: "status",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
@@ -58,7 +58,7 @@ function gatewaySearch(value: string): string | undefined {
     return undefined;
   }
   const literal = escapeIlikeLiteral(query);
-  return ["name", "cluster_id", "status", "external_dns"]
+  return ["name", "cluster_id", "status", "route_address", "external_dns"]
     .map((field) => `${field} ilike '%${literal}%'`)
     .join(" or ");
 }

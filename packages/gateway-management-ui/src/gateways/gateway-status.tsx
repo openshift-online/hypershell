@@ -7,11 +7,18 @@ import {
   UnknownIcon,
 } from "@patternfly/react-icons";
 
-import { gatewayStatusAppearance } from "./gateway-connections";
+import {
+  type GatewayStatusAppearance,
+  gatewayStatusAppearance,
+} from "./gateway-connections";
 import styles from "./gateway-status.module.css";
 
-function GatewayStatusIcon({ status }: { status: string }) {
-  switch (gatewayStatusAppearance(status)) {
+function GatewayStatusIcon({
+  appearance,
+}: {
+  appearance: GatewayStatusAppearance;
+}) {
+  switch (appearance) {
     case "success":
       return (
         <Icon isInline status="success">
@@ -48,9 +55,17 @@ function GatewayStatusIcon({ status }: { status: string }) {
 }
 
 export function GatewayStatus({ status }: { status: string }) {
+  const appearance = gatewayStatusAppearance(status);
+
   return (
-    <span className={styles.status}>
-      <GatewayStatusIcon status={status} />
+    <span
+      className={
+        appearance === "unknown"
+          ? [styles.status, styles.unknown].join(" ")
+          : styles.status
+      }
+    >
+      <GatewayStatusIcon appearance={appearance} />
       <span>{status}</span>
     </span>
   );

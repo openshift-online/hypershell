@@ -17,6 +17,7 @@ const gatewayPollingStates = new Set([
   "reconciling",
   "updating",
 ]);
+const gatewayFailedLifecycleStates = new Set(["error", "failed"]);
 
 export function gatewayNeedsStatusPolling(
   gateway: Pick<GatewayRecord, "phase" | "status">,
@@ -86,9 +87,15 @@ export function toGatewayConnection(
   hubClusterName: string,
 ): GatewayConnection {
   const clusterId = gateway.clusterId.trim();
-  const status = [gateway.status, gateway.phase].find(
-    (value) => value !== undefined && value.trim().length > 0,
-  );
+  const phase = gateway.phase?.trim() ?? "";
+  const healthStatus = gateway.status?.trim() ?? "";
+  const normalizedPhase = phase.toLocaleLowerCase();
+  const status =
+    phase &&
+    (gatewayPollingStates.has(normalizedPhase) ||
+      gatewayFailedLifecycleStates.has(normalizedPhase))
+      ? phase
+      : healthStatus || phase;
 
   return {
     ...(clusterId ? { clusterId } : {}),
@@ -101,6 +108,6 @@ export function toGatewayConnection(
     ...(gateway.oidcAudience ? { oidcAudience: gateway.oidcAudience } : {}),
     ...(gateway.oidcClientId ? { oidcClientId: gateway.oidcClientId } : {}),
     ...(gateway.oidcIssuer ? { oidcIssuer: gateway.oidcIssuer } : {}),
-    status: status ?? "Unknown",
+    status: status || "Unknown",
   };
 }

@@ -4,3 +4,7 @@
   gap: var(--pf-t--global--spacer--sm);
   white-space: nowrap;
 }
+
+.unknown {
+  color: var(--pf-t--global--color--nonstatus--gray--default);
+}

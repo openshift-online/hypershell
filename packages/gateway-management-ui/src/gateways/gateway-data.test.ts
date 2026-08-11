@@ -76,6 +76,27 @@ describe("gateway presentation data", () => {
     expect(gatewayNeedsStatusPolling(gateway({ phase: "Failed" }))).toBe(false);
   });
 
+  it("presents transitional and failed lifecycle phases before health", () => {
+    expect(
+      toGatewayConnection(
+        gateway({ phase: "Provisioning", status: "Ready" }),
+        "Hub cluster",
+      ).status,
+    ).toBe("Provisioning");
+    expect(
+      toGatewayConnection(
+        gateway({ phase: "Failed", status: "Ready" }),
+        "Hub cluster",
+      ).status,
+    ).toBe("Failed");
+    expect(
+      toGatewayConnection(
+        gateway({ phase: "Running", status: "Degraded" }),
+        "Hub cluster",
+      ).status,
+    ).toBe("Degraded");
+  });
+
   it("keeps a returned cluster identifier for name resolution only", () => {
     expect(
       toGatewayConnection(
