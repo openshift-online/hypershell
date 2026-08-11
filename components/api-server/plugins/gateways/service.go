@@ -77,13 +77,7 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 	return gateway, nil
 }
 
-const defaultRouteConfig = `{"enabled":true}`
-
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
-	if gateway.Route == nil || *gateway.Route == "" {
-		r := defaultRouteConfig
-		gateway.Route = &r
-	}
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleCreateError("Gateway", err)

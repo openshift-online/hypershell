@@ -418,6 +418,7 @@ describe("gateway API operations adapter", () => {
         fleet_id: "",
         name: "team-gateway",
         release_id: "",
+        route: '{"enabled":true}',
       },
       { signal: undefined },
     );

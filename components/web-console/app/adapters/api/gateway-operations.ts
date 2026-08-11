@@ -293,6 +293,7 @@ export function createGatewayControlPlaneAdapter(
               fleet_id: "",
               name: input.name,
               release_id: "",
+              route: JSON.stringify({ enabled: true }),
             },
             { signal: context.signal },
           ),

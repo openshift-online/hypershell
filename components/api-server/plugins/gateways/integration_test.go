@@ -101,7 +101,7 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 }
 
-func TestGatewayPostDefaultsRouteEnabled(t *testing.T) {
+func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
@@ -118,7 +118,7 @@ func TestGatewayPostDefaultsRouteEnabled(t *testing.T) {
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	Expect(gatewayOutput.GetRoute()).To(Equal(`{"enabled":true}`))
+	Expect(gatewayOutput.GetRoute()).To(BeEmpty())
 }
 
 func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
