@@ -260,15 +260,13 @@ export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
 
-# Build kind and cloud-provider-kind with the patched kind library.
+# Build cloud-provider-kind with the patched kind library.
 # cloud-provider-kind v0.11.1 bundles kind v0.32.0 which has a podman 6+
 # ListClusters bug (kubernetes-sigs/kind#4231).  We clone cloud-provider-kind,
-# replace the kind dependency, and build both binaries into ./bin/.
+# replace the kind dependency, and build the binary into ./bin/.
 .PHONY: kind-prereqs
 kind-prereqs:
 	@mkdir -p bin
-	@echo "==> Building kind@$(KIND_VERSION) -> bin/kind"
-	@GOBIN=$(CURDIR)/bin go install sigs.k8s.io/kind@$(KIND_VERSION)
 	@echo "==> Building cloud-provider-kind@$(CLOUD_PROVIDER_KIND_VERSION) with kind@$(KIND_VERSION) -> bin/cloud-provider-kind"
 	@tmpdir=$$(mktemp -d) && \
 	  git clone --depth 1 --branch $(CLOUD_PROVIDER_KIND_VERSION) \
@@ -278,7 +276,7 @@ kind-prereqs:
 	  go mod tidy && \
 	  CGO_ENABLED=0 go build -o $(CURDIR)/bin/cloud-provider-kind . && \
 	  rm -rf "$$tmpdir"
-	@echo "==> Done — binaries in ./bin/"
+	@echo "==> Done — binary in ./bin/cloud-provider-kind"
 
 .PHONY: kind-up
 kind-up:

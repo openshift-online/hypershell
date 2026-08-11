@@ -34,7 +34,7 @@ if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
   kind_ver="$(kind version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)"
   if [[ "${kind_ver}" == "v0.32.0" ]]; then
     warn "kind ${kind_ver} is incompatible with podman 6+ (kubernetes-sigs/kind#4231)"
-    info "Building patched kind and cloud-provider-kind into ./bin/..."
+    info "Building patched cloud-provider-kind into ./bin/..."
     make -C "${REPO_ROOT}" kind-prereqs
     export PATH="${REPO_ROOT}/bin:${PATH}"
   fi
@@ -97,30 +97,39 @@ echo ""
 
 # --- Verify and start cloud-provider-kind ---
 header "cloud-provider-kind"
+CPK_RUNNING=false
 if ! command -v cloud-provider-kind >/dev/null 2>&1; then
-  error "cloud-provider-kind not found in PATH"
-  info "Install via: brew install cloud-provider-kind"
-  info "         or: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
-  exit 1
-fi
-
-if ! pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
   if [[ "${HAVE_SUDO}" == "true" ]]; then
-    info "Starting cloud-provider-kind..."
+    error "cloud-provider-kind not found in PATH"
+    info "Install via: brew install cloud-provider-kind"
+    info "         or: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
+    exit 1
+  else
+    warn "cloud-provider-kind not found - will use kubectl port-forward instead"
+  fi
+elif pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+  warn "cloud-provider-kind already running"
+  CPK_RUNNING=true
+else
+  info "Starting cloud-provider-kind..."
+  if nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
+     sleep 2 && pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+    CPK_RUNNING=true
+    success "cloud-provider-kind started (without sudo)"
+  elif [[ "${HAVE_SUDO}" == "true" ]]; then
+    info "Retrying with sudo..."
     sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
     sleep 2
     if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-      success "cloud-provider-kind started"
+      CPK_RUNNING=true
+      success "cloud-provider-kind started (with sudo)"
     else
       error "cloud-provider-kind failed to start - check /tmp/cloud-provider-kind.log"
       exit 1
     fi
   else
-    warn "Skipping cloud-provider-kind (no sudo) - Gateway routing will not work"
-    warn "Start manually: sudo nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &"
+    warn "cloud-provider-kind failed without sudo - will use kubectl port-forward instead"
   fi
-else
-  warn "cloud-provider-kind already running"
 fi
 echo ""
 
