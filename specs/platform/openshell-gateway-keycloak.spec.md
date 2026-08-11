@@ -4,13 +4,20 @@
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
 **Related:** `openshell-gateway-oidc.spec.md` - OIDC configuration injection into gateway.toml; `security/security.spec.md` - secret management and isolation; `data-model.spec.md` - Gateway kind definition; `web-console/architecture.spec.md` - gateway visibility
+**Depends on:** RBAC specification (forthcoming) — User and RoleBinding resources
 **Upstream:** [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/)
 
 ---
 
 ## Purpose
 
-This specification defines automated per-gateway Keycloak OIDC client provisioning. When a gateway is created, the API server validates that the requested `admin_users` exist in Keycloak and persists the Gateway. The control plane then provisions a dedicated OIDC client in Keycloak with client-scoped roles and protocol mappers, assigns the admin role to each user in `admin_users`, and populates the gateway's OIDC configuration. This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims, and users can only access gateways where they hold a role.
+This specification defines automated per-gateway Keycloak OIDC client provisioning. Keycloak integration has two distinct lifecycles:
+
+1. **Client lifecycle** — When a gateway is created, the control plane provisions a dedicated OIDC client in Keycloak with client-scoped roles and protocol mappers, and populates the gateway's OIDC configuration. When a gateway is deleted, the control plane deletes the Keycloak client. This lifecycle is tied to Gateway ADDED/DELETED events.
+
+2. **Role assignment lifecycle** — When a User is bound to a Gateway via a RoleBinding (e.g., `admin` or `user`), the control plane assigns the corresponding Keycloak client role to that user. When a RoleBinding is removed, the control plane removes the role assignment. This lifecycle is driven by RoleBinding events, not Gateway events.
+
+This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims. Visibility and access control are RBAC concerns — the RBAC system determines which users can see and operate on which gateways, and this spec defines how those RBAC decisions are projected into Keycloak role assignments.
 
 ---
 
@@ -19,31 +26,51 @@ This specification defines automated per-gateway Keycloak OIDC client provisioni
 ### Provisioning Flow
 
 ```
-Caller (UI, hsctl, CI pipeline, curl)
-    |  POST /api/hypershell/v1/gateways
-    |  Body includes: name, admin_users (required, >= 1 Keycloak username)
-    v
-API Server
-    |  1. Validates admin_users (non-empty)
-    |  2. Validates each username in admin_users exists in Keycloak (fail fast)
-    |  3. Persists Gateway with admin_users (oidc field empty at this point)
-    |  4. Emits gRPC watch event
-    v
-Control Plane - GatewayReconciler
-    |  1. Receives Gateway ADDED event
-    |  2. Provisions Keycloak via Admin REST API:
-    |     a. Creates OIDC client (clientId = gateway name)
-    |     b. Creates client roles (openshell-admin, openshell-user)
-    |     c. Creates protocol mappers (audience, sub, client-roles)
-    |     d. Assigns openshell-admin role to each user in admin_users
-    |  3. Populates Gateway oidc config (PATCH via API or internal state)
-    |  4. Injects OIDC section into gateway.toml
-    |  5. Deploys gateway K8s resources
-    v
-Gateway Pod
-    |  Validates JWTs against the provisioned Keycloak client
-    v
-Authorized Access (admin/user roles scoped to this gateway only)
+Gateway Lifecycle (Gateway ADDED/DELETED events):
+
+    Caller (UI, hsctl, CI pipeline, curl)
+        |  POST /api/hypershell/v1/gateways
+        |  Body includes: name (OIDC config and role assignments are NOT part of the create request)
+        v
+    API Server
+        |  1. Persists Gateway (oidc field empty at this point)
+        |  2. Emits gRPC watch event
+        v
+    Control Plane - GatewayReconciler
+        |  1. Receives Gateway ADDED event
+        |  2. Provisions Keycloak via Admin REST API:
+        |     a. Creates OIDC client (clientId = gateway name)
+        |     b. Creates client roles (openshell-admin, openshell-user)
+        |     c. Creates protocol mappers (audience, sub, client-roles)
+        |  3. Populates Gateway oidc config (PATCH via API or internal state)
+        |  4. Injects OIDC section into gateway.toml
+        |  5. Deploys gateway K8s resources
+        v
+    Gateway Pod
+        |  Validates JWTs against the provisioned Keycloak client
+        v
+    Keycloak client ready (no users have roles yet)
+
+
+Role Assignment Lifecycle (RoleBinding ADDED/DELETED events):
+
+    Caller (UI, hsctl, CI pipeline, curl)
+        |  POST /api/hypershell/v1/role_bindings
+        |  Body includes: user, gateway, role (admin or user)
+        v
+    API Server
+        |  1. Validates User exists in RBAC (and optionally in Keycloak)
+        |  2. Persists RoleBinding
+        |  3. Emits gRPC watch event
+        v
+    Control Plane - GatewayReconciler (or RoleBindingReconciler)
+        |  1. Receives RoleBinding ADDED event
+        |  2. Looks up the User's Keycloak identity
+        |  3. Assigns the corresponding Keycloak client role:
+        |     - RoleBinding role "admin" → openshell-admin client role
+        |     - RoleBinding role "user"  → openshell-user client role
+        v
+    User can now obtain tokens with the assigned role for this gateway
 ```
 
 ### Keycloak Service Account
@@ -58,38 +85,67 @@ HyperShell Namespace
     |   +-- client-secret: <service account secret>
     |
     +-- API Server Pod
-    |   +-- Reads Secret -> validates admin_users exist in Keycloak (read-only)
+    |   +-- Reads Secret -> validates User exists in Keycloak (read-only, optional fail-fast)
     |
     +-- Control Plane Pod
         +-- Reads Secret -> provisions Keycloak clients, roles, mappers (read-write)
+        +-- Reads Secret -> assigns/removes Keycloak client roles on RoleBinding events (read-write)
 ```
 
 ### Per-Gateway Isolation Model
 
 ```
-User A creates "gw-alpha"            User B creates "gw-beta"
-    admin_users = ["user-a"]              admin_users = ["user-b"]
-    KC client: gw-alpha                   KC client: gw-beta
-    admin role -> user-a                  admin role -> user-b
-                                          |
-    GET /gateways                         GET /gateways
-    Returns: [gw-alpha]                   Returns: [gw-beta]
-                                          |
-    GET /gateways/{gw-beta-id}            GET /gateways/{gw-alpha-id}
-    Returns: 404                          Returns: 404
+User A creates "gw-alpha"              User B creates "gw-beta"
+    KC client: gw-alpha                     KC client: gw-beta
+    (no role assignments yet)               (no role assignments yet)
 
-CI Pipeline creates "gw-shared"
-    admin_users = ["user-a", "user-b"]
-    KC client: gw-shared
-    admin role -> user-a, user-b
+RoleBinding: user-a → gw-alpha (admin)  RoleBinding: user-b → gw-beta (admin)
+    admin role → user-a                     admin role → user-b
 
-    user-a GET /gateways -> [gw-alpha, gw-shared]
-    user-b GET /gateways -> [gw-beta, gw-shared]
+    GET /gateways                           GET /gateways
+    Returns: [gw-alpha]                     Returns: [gw-beta]
+    (RBAC filters by RoleBinding)           (RBAC filters by RoleBinding)
+
+RoleBinding: user-a → gw-shared (admin)
+RoleBinding: user-b → gw-shared (admin)
+    admin role → user-a, user-b
+
+    user-a GET /gateways → [gw-alpha, gw-shared]
+    user-b GET /gateways → [gw-beta, gw-shared]
 ```
 
 Each gateway's Keycloak client has `fullScopeAllowed = false`, preventing role leakage across gateways. A token obtained for `gw-alpha` contains only `gw-alpha`'s roles and audience — never `gw-beta`'s.
 
-Visibility is scoped by `admin_users` membership — a user sees a gateway if and only if they appear in its `admin_users` list. This decouples visibility from the caller's identity, enabling programmatic creation (CI, `hsctl apply`, automation) where the caller is not the intended gateway admin.
+Gateway visibility is an RBAC concern — a user sees a gateway if and only if they have a RoleBinding to it. This decouples visibility from gateway creation, enabling programmatic creation (CI, `hsctl apply`, automation) where the creator is not necessarily the intended gateway admin.
+
+---
+
+## RBAC Integration Contract
+
+This specification depends on a forthcoming RBAC specification that defines User and RoleBinding resources. The RBAC spec SHALL provide the following contract for Keycloak integration:
+
+### Required Resources
+
+| Resource | Purpose |
+|---|---|
+| **User** | Represents an identity in HyperShell. SHALL include a Keycloak username or identifier that the control plane can use to look up the user in Keycloak for role assignment. |
+| **RoleBinding** | Binds a User to a Gateway with a specific role (`admin` or `user`). SHALL be a first-class HyperShell resource with its own gRPC watch events. |
+
+### Required Events
+
+The RBAC system SHALL emit gRPC watch events for RoleBinding changes:
+
+| Event | Keycloak Action |
+|---|---|
+| RoleBinding ADDED (role = `admin`) | Assign `openshell-admin` client role to the User on the Gateway's Keycloak client |
+| RoleBinding ADDED (role = `user`) | Assign `openshell-user` client role to the User on the Gateway's Keycloak client |
+| RoleBinding DELETED | Remove the corresponding client role from the User on the Gateway's Keycloak client |
+
+### Required Behavior
+
+- **Visibility:** The API server SHALL use RoleBindings to scope gateway visibility. A user sees a gateway if and only if they have a RoleBinding to it (any role).
+- **User validation:** The API server SHOULD validate that Users referenced in RoleBindings exist in Keycloak at creation time (fail-fast). This prevents the control plane from encountering missing users during reconciliation.
+- **Default RoleBinding:** The UI SHOULD auto-create a RoleBinding for the authenticated user when they provision a gateway, so the creator has admin access by default. This is a UI/API convenience, not a hard requirement — programmatic callers manage RoleBindings explicitly.
 
 ---
 
@@ -110,8 +166,8 @@ The Secret SHALL contain the following keys:
 
 Both components SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. Each component SHOULD cache and refresh the service account token independently.
 
-- **API server** uses the Secret for read-only operations: validating that `admin_users` usernames exist in Keycloak at gateway creation time.
-- **Control plane** uses the Secret for read-write operations: provisioning Keycloak clients, roles, mappers, and assigning roles during gateway reconciliation.
+- **API server** uses the Secret for read-only operations: validating that Users exist in Keycloak when RoleBindings are created (optional fail-fast).
+- **Control plane** uses the Secret for read-write operations: provisioning Keycloak clients, roles, mappers during gateway reconciliation, and assigning/removing client roles during RoleBinding reconciliation.
 
 #### Scenario: Service account credentials available
 
@@ -257,63 +313,59 @@ Maps the client's roles from `resource_access.{clientId}.roles` to a fixed `hype
 
 ---
 
-### Requirement: Admin Users Field
+### Requirement: RBAC-Driven Role Assignment
 
-The Gateway create request SHALL accept a required `admin_users` field — a list of Keycloak usernames who will receive the `openshell-admin` client role on the provisioned gateway. The list MUST contain at least one entry.
+Keycloak client role assignments SHALL be driven by RoleBinding events, not by fields on the Gateway resource. When a RoleBinding binds a User to a Gateway with a specific role, the control plane SHALL assign the corresponding Keycloak client role to that User.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `admin_users` | string[] | Yes | Keycloak usernames to assign `openshell-admin`. Must have at least one entry. |
+For each RoleBinding ADDED event, the control plane SHALL:
+1. Resolve the User's Keycloak identity (username or ID)
+2. Look up the User in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
+3. Resolve the Gateway's Keycloak client UUID
+4. Map the RoleBinding role to a Keycloak client role:
+   - `admin` → `openshell-admin`
+   - `user` → `openshell-user`
+5. Retrieve the client role UUID (`GET /admin/realms/{realm}/clients/{client-uuid}/roles?search={role-name}`)
+6. Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
 
-The `admin_users` field SHALL be persisted on the Gateway resource and included in Gateway responses.
+For each RoleBinding DELETED event, the control plane SHALL:
+1. Resolve the User's Keycloak identity and the Gateway's Keycloak client UUID
+2. Remove the corresponding client role mapping (`DELETE /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
 
-The API server SHALL validate at creation time that every username in `admin_users` exists in Keycloak (`GET /admin/realms/{realm}/users?username={username}`). If any username does not resolve, the API server SHALL reject the request with an error identifying the unresolvable username. This fail-fast validation prevents the control plane from encountering missing users during reconciliation.
+#### Scenario: Admin RoleBinding created
 
-#### Scenario: UI auto-populates admin_users
+- GIVEN a Gateway `my-gateway` with a provisioned Keycloak client
+- AND a User `user-a` exists in both HyperShell and Keycloak
+- WHEN a RoleBinding is created binding `user-a` to `my-gateway` with role `admin`
+- THEN the control plane SHALL assign the `openshell-admin` client role to `user-a` on the `my-gateway` Keycloak client
+- AND `user-a` SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]`
 
-- GIVEN an authenticated user with identity `user-a` opens the gateway provisioning form
-- WHEN the UI renders the form
-- THEN `admin_users` SHALL be pre-populated with `["user-a"]` (the authenticated user's identity)
-- AND the user MAY add or remove entries before submitting
+#### Scenario: User RoleBinding created
 
-#### Scenario: Programmatic creation with explicit admin_users
+- GIVEN a Gateway `my-gateway` with a provisioned Keycloak client
+- AND a User `user-b` exists in both HyperShell and Keycloak
+- WHEN a RoleBinding is created binding `user-b` to `my-gateway` with role `user`
+- THEN the control plane SHALL assign the `openshell-user` client role to `user-b` on the `my-gateway` Keycloak client
 
-- GIVEN a CI pipeline creates a gateway via `curl` or `hsctl`
-- WHEN the request includes `admin_users: ["user-a", "user-b"]`
-- THEN both `user-a` and `user-b` SHALL receive the `openshell-admin` role
-- AND both `user-a` and `user-b` SHALL see the gateway in their gateway list
+#### Scenario: RoleBinding deleted
 
-#### Scenario: Empty admin_users rejected
+- GIVEN `user-a` has the `openshell-admin` role on `my-gateway`'s Keycloak client via a RoleBinding
+- WHEN the RoleBinding is deleted
+- THEN the control plane SHALL remove the `openshell-admin` client role from `user-a` on the `my-gateway` Keycloak client
+- AND `user-a` SHALL no longer be able to obtain tokens with admin roles for `my-gateway`
 
-- GIVEN a gateway create request with `admin_users: []` or without `admin_users`
-- WHEN the API server validates the request
-- THEN it SHALL return a validation error
-- AND the gateway SHALL NOT be created
+#### Scenario: RoleBinding created before Keycloak client exists
 
----
+- GIVEN a RoleBinding is created binding `user-a` to `my-gateway` with role `admin`
+- AND the `my-gateway` Keycloak client has not yet been provisioned
+- THEN the control plane SHALL retry on the next reconciliation cycle
+- AND role assignment SHALL succeed once the Keycloak client is provisioned
 
-### Requirement: Admin Role Assignment
+#### Scenario: User in RoleBinding not found in Keycloak
 
-After provisioning the client, roles, and mappers, the GatewayReconciler SHALL assign the `openshell-admin` client role to every user listed in the Gateway's `admin_users` field.
-
-For each username in `admin_users`, the GatewayReconciler SHALL:
-1. Look up the user in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
-2. Retrieve the `openshell-admin` role UUID (`GET /admin/realms/{realm}/clients/{client-uuid}/roles?search=openshell-admin`)
-3. Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
-
-#### Scenario: Admin role assigned to all listed users
-
-- GIVEN the GatewayReconciler reconciles a Gateway with `admin_users: ["user-a", "user-b"]`
-- WHEN the reconciler completes Keycloak provisioning
-- THEN both `user-a` and `user-b` SHALL have the `openshell-admin` role on the gateway's client
-- AND both SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]`
-
-#### Scenario: User in admin_users not found in Keycloak at creation time
-
-- GIVEN a gateway create request with `admin_users: ["user-a", "nonexistent-user"]`
-- WHEN the API server validates the usernames against Keycloak
-- THEN the API server SHALL return an error identifying the unresolvable username
-- AND the Gateway SHALL NOT be created
+- GIVEN a RoleBinding references a User whose Keycloak identity cannot be resolved
+- WHEN the control plane attempts to assign the Keycloak client role
+- THEN it SHALL log an error identifying the unresolvable user
+- AND it SHALL retry on the next reconciliation cycle
 
 ---
 
@@ -365,38 +417,31 @@ The OIDC fields on the Gateway resource SHALL be read-only — not settable or u
 
 ### Requirement: Gateway Visibility Scoping
 
-The API server SHALL scope gateway visibility by `admin_users` membership. A user SHALL only see and operate on gateways where their username appears in the `admin_users` list. This is enforced at the API layer — the UI receives only the gateways the authenticated user is an admin of.
+Gateway visibility is an RBAC concern. The API server SHALL scope gateway visibility by RoleBinding membership — a user SHALL only see and operate on gateways where they have a RoleBinding (any role: `admin` or `user`). This is enforced at the API layer; the UI receives only the gateways the authenticated user has access to.
 
-> **Future extension:** When `openshell-user` role holders need gateway visibility, the API MAY expand scoping to include users with any Keycloak client role on the gateway. Users with `openshell-user` would see the gateway but not perform admin operations (e.g., delete, rename). This does not require schema changes — it is a query-time policy change.
+The Keycloak spec does not define the visibility query mechanism — that is the responsibility of the RBAC specification. This spec defines only the Keycloak projection: when a user has a RoleBinding to a gateway, they also have the corresponding Keycloak client role, enabling them to obtain valid tokens for that gateway.
 
-#### Scenario: List gateways returns only gateways where user is an admin
+#### Scenario: List gateways returns only gateways where user has a RoleBinding
 
-- GIVEN `gw-alpha` has `admin_users: ["user-a"]`
-- AND `gw-beta` has `admin_users: ["user-a", "user-b"]`
-- AND `gw-gamma` has `admin_users: ["user-b"]`
+- GIVEN `gw-alpha` has a RoleBinding for `user-a` (admin)
+- AND `gw-beta` has RoleBindings for `user-a` (user) and `user-b` (admin)
+- AND `gw-gamma` has a RoleBinding for `user-b` (admin) only
 - WHEN `user-a` calls `GET /api/hypershell/v1/gateways`
 - THEN the response SHALL contain `gw-alpha` and `gw-beta`
 - AND the response SHALL NOT contain `gw-gamma`
 
-#### Scenario: Get gateway where user is not an admin returns 404
+#### Scenario: Get gateway where user has no RoleBinding returns 404
 
-- GIVEN `gw-gamma` has `admin_users: ["user-b"]`
+- GIVEN `gw-gamma` has a RoleBinding for `user-b` only
 - WHEN `user-a` calls `GET /api/hypershell/v1/gateways/{gw-gamma-id}`
 - THEN the API server SHALL return 404
 - AND the response SHALL NOT reveal that the gateway exists
-
-#### Scenario: Mutate gateway where user is not an admin returns 404
-
-- GIVEN `gw-gamma` has `admin_users: ["user-b"]`
-- WHEN `user-a` calls `PATCH /api/hypershell/v1/gateways/{gw-gamma-id}` or `DELETE /api/hypershell/v1/gateways/{gw-gamma-id}`
-- THEN the API server SHALL return 404
-- AND no mutation SHALL occur
 
 ---
 
 ### Requirement: Keycloak Client Cleanup
 
-When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the corresponding Keycloak OIDC client to prevent orphaned clients in the realm. Deleting a Keycloak client automatically cascades to its roles and protocol mappers.
+When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the corresponding Keycloak OIDC client to prevent orphaned clients in the realm. Deleting a Keycloak client automatically cascades to its roles and protocol mappers. All role assignments for users on that client are also removed by Keycloak.
 
 #### Scenario: Gateway deletion cleans up Keycloak
 
@@ -404,7 +449,7 @@ When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the
 - WHEN the GatewayReconciler receives a DELETED event for the Gateway
 - THEN it SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=my-gateway`)
 - AND it SHALL delete the client (`DELETE /admin/realms/{realm}/clients/{client-uuid}`)
-- AND the client's roles and mappers SHALL be automatically removed by Keycloak
+- AND the client's roles, mappers, and user role assignments SHALL be automatically removed by Keycloak
 
 #### Scenario: Keycloak cleanup failure is non-blocking
 
@@ -417,7 +462,9 @@ When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the
 
 ### Requirement: Provisioning Atomicity
 
-Keycloak provisioning SHALL be treated as an atomic operation within the reconciliation cycle. If any provisioning step fails, the GatewayReconciler SHALL roll back all completed Keycloak steps and retry on the next reconciliation cycle.
+Keycloak client provisioning (client, roles, mappers) SHALL be treated as an atomic operation within the reconciliation cycle. If any provisioning step fails, the GatewayReconciler SHALL roll back all completed Keycloak steps and retry on the next reconciliation cycle.
+
+Role assignment (from RoleBinding events) is a separate operation and does not participate in client provisioning atomicity. Role assignment failures are retried independently on the next reconciliation cycle.
 
 #### Scenario: Mapper creation fails mid-provisioning
 
@@ -426,15 +473,6 @@ Keycloak provisioning SHALL be treated as an atomic operation within the reconci
 - THEN the reconciler SHALL delete the created client from Keycloak (cascading roles)
 - AND it SHALL log the error and retry on the next reconciliation cycle
 - AND the gateway SHALL NOT be deployed until Keycloak provisioning succeeds
-
-#### Scenario: Role assignment fails for one admin user
-
-- GIVEN the GatewayReconciler has created the client, roles, and mappers
-- AND `admin_users` contains `["user-a", "user-b"]`
-- WHEN admin role assignment succeeds for `user-a` but fails for `user-b`
-- THEN the reconciler SHALL delete the client from Keycloak (rolling back all assignments)
-- AND it SHALL log the error identifying the failed user
-- AND it SHALL retry on the next reconciliation cycle
 
 ---
 
@@ -446,11 +484,13 @@ The following resources SHALL exist in the configured Keycloak realm (as specifi
 
 2. **`gateway-roles` client scope** — A client scope containing an `oidc-usermodel-client-role-mapper` that emits `resource_access.${client_id}.roles`. This scope SHALL be included in `defaultClientScopes` for every provisioned gateway client so client roles appear in tokens.
 
-3. **User accounts** — Users listed in `admin_users` must have accounts in the Keycloak realm so the API server can validate them and the control plane can assign roles.
+3. **User accounts** — Users referenced by RoleBindings must have accounts in the Keycloak realm so the control plane can assign roles.
 
 ---
 
 ## Keycloak Admin API Call Sequence
+
+### Gateway Creation (Client Lifecycle)
 
 Complete API call sequence for gateway creation:
 
@@ -490,60 +530,48 @@ Complete API call sequence for gateway creation:
    POST /admin/realms/{realm}/clients/{client-uuid}/protocol-mappers/models
    ```
 
-7. **Get openshell-admin role UUID:**
+### RoleBinding Creation (Role Assignment)
+
+When a RoleBinding binds a User to a Gateway:
+
+1. **Get the Keycloak client role UUID:**
    ```
-   GET /admin/realms/{realm}/clients/{client-uuid}/roles?search=openshell-admin
+   GET /admin/realms/{realm}/clients/{client-uuid}/roles?search={role-name}
+   ```
+   Where `{role-name}` is `openshell-admin` or `openshell-user` based on the RoleBinding role.
+
+2. **Look up user:**
+   ```
+   GET /admin/realms/{realm}/users?username={username}
    ```
 
-8. **For each username in `admin_users`:**
+3. **Assign role:**
+   ```
+   POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}
+   [{"name": "{role-name}", "id": "{role-uuid}"}]
+   ```
 
-   a. **Look up user:**
-      ```
-      GET /admin/realms/{realm}/users?username={username}
-      ```
+### RoleBinding Deletion (Role Removal)
 
-   b. **Assign admin role:**
-      ```
-      POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}
-      [{"name": "openshell-admin", "id": "{role-uuid}"}]
-      ```
+When a RoleBinding is deleted:
 
-For gateway deletion:
+1. **Remove role mapping:**
+   ```
+   DELETE /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}
+   [{"name": "{role-name}", "id": "{role-uuid}"}]
+   ```
+
+### Gateway Deletion (Client Cleanup)
 
 1. **Look up client by clientId:**
    ```
    GET /admin/realms/{realm}/clients?clientId={gateway-name}
    ```
 
-2. **Delete client (cascades roles and mappers):**
+2. **Delete client (cascades roles, mappers, and all user role assignments):**
    ```
    DELETE /admin/realms/{realm}/clients/{client-uuid}
    ```
-
----
-
-## Data Model Changes
-
-The Gateway kind in `data-model.spec.md` SHALL include an `admin_users` field:
-
-```
-Gateway {
-    ...existing fields...
-    string[] admin_users "non-null - Keycloak usernames assigned openshell-admin on the gateway's client"
-}
-```
-
-Database migration:
-
-```sql
-ALTER TABLE gateways ADD COLUMN admin_users TEXT[] NOT NULL DEFAULT '{}';
-```
-
-The `admin_users` column SHALL be indexed (GIN) to support efficient membership queries:
-
-```sql
-CREATE INDEX idx_gateways_admin_users ON gateways USING GIN (admin_users);
-```
 
 ---
 
@@ -555,6 +583,8 @@ CREATE INDEX idx_gateways_admin_users ON gateways USING GIN (admin_users);
 | Bulk realm import does not scale | Importing a realm with thousands of clients runs as a single transaction | Use incremental Admin REST API calls for each gateway |
 | Audience resolve mapper leaks audiences | The built-in `oidc-audience-resolve-mapper` adds all clients' IDs to `aud` when `fullScopeAllowed = true` | Omit the audience-resolve mapper from the realm; use per-client audience mappers |
 | User lookup by subject | Keycloak user search uses `username`, which may differ from the OIDC `sub` claim depending on identity provider federation | Ensure Keycloak user identity attributes align with the authentication token's `sub` claim |
+| RoleBinding before Keycloak client | RoleBindings can be created before the Gateway's Keycloak client is provisioned | Control plane retries role assignment on the next reconciliation cycle |
+| Gateway deletion cascades role assignments | Deleting a Keycloak client removes all user role assignments for that client | RBAC RoleBindings remain in HyperShell; they become inert without a corresponding Keycloak client |
 
 ---
 

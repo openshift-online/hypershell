@@ -60,13 +60,13 @@ Resources are scoped to fleets via `fleet_id`. All queries MUST include fleet sc
 - WHEN the query does not include `fleet_id` filtering
 - THEN the system SHALL reject the request or apply implicit fleet scoping
 
-### Gateway Admin Isolation
+### Gateway Access Isolation
 
-Gateways are scoped to their `admin_users` list. All gateway queries MUST filter by `admin_users` membership so users can only see and operate on gateways where they are listed as an admin. See [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for provisioning and visibility details.
+Gateways are scoped by RBAC RoleBindings. All gateway queries MUST filter by RoleBinding membership so users can only see and operate on gateways where they have a RoleBinding (any role). See [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for Keycloak provisioning and visibility details.
 
 #### Scenario: Cross-User Gateway Access Prevention
 - GIVEN user A querying gateways
-- WHEN user A is not in a gateway's `admin_users` list
+- WHEN user A has no RoleBinding to a gateway
 - THEN the query SHALL NOT return that gateway
 - AND direct access by ID SHALL return 404 (not 403) to avoid revealing existence
 
