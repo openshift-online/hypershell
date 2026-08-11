@@ -266,6 +266,10 @@ export KIND_DNS_PORT
 # replace the kind dependency, and build the binary into ./bin/.
 .PHONY: kind-prereqs
 kind-prereqs:
+	@if [ -x bin/cloud-provider-kind ]; then \
+	  echo "==> bin/cloud-provider-kind already exists, skipping build"; \
+	  exit 0; \
+	fi
 	@mkdir -p bin
 	@echo "==> Building cloud-provider-kind@$(CLOUD_PROVIDER_KIND_VERSION) with kind@$(KIND_VERSION) -> bin/cloud-provider-kind"
 	@tmpdir=$$(mktemp -d) && \

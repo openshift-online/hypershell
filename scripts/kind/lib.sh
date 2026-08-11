@@ -257,8 +257,8 @@ stop_kubectl_port_forwards() {
   for pf in "${KUBECTL_PF_DIR}"/*.pid; do
     [[ -f "${pf}" ]] || continue
     kill "$(cat "${pf}")" 2>/dev/null || true
-    rm -f "${pf}"
   done
+  rm -rf "${KUBECTL_PF_DIR}"
 }
 
 # --- Port forwarding (443 → ephemeral) ---
