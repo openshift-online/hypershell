@@ -39,23 +39,9 @@ Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYC
 
 ### Gateway Resource
 
-`make kind-up` SHALL create a Gateway resource that the control plane reconciler uses to provision the full gateway stack. The Gateway resource SHALL include:
+`make kind-up` SHALL seed the prerequisite resources (Fleet, ManagedCluster, GatewayRelease, ManagedDatabase) but SHALL NOT automatically create a Gateway resource. Gateway creation is user-initiated via the REST API after the cluster is running. This keeps gateway provisioning an explicit developer action rather than a side effect of cluster setup, matching the production workflow where gateways are created on demand.
 
-```yaml
-apiVersion: hypershell.redhat.com/v1alpha1
-kind: Gateway
-name: openshell-gateway
-database:
-  image: registry.access.redhat.com/hi/postgresql:18
-serverDnsNames:
-  - openshell-gateway.hypershell-system.svc.cluster.local
-oidc:
-  issuer: http://keycloak-service:8080/realms/hypershell
-  audience: hypershell-frontend
-  roles_claim: groups
-  admin_role: hypershell-admins
-  user_role: hypershell-users
-```
+`DEVELOPMENT.md` SHALL document the curl commands to create a Gateway with OIDC configuration pointing at the local Keycloak instance.
 
 The local environment SHALL NOT deploy the gateway's PostgreSQL directly - the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)). This ensures the local environment exercises the same database provisioning path used in production. The API server's own database (`deploy/kind/postgres.yaml`) is a separate concern - it stores platform resources (fleets, gateways, etc.) and is always deployed directly by `kind-up`.
 

@@ -228,6 +228,9 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
 | `CLOUD_PROVIDER_KIND_VERSION` | `v0.11.1` | cloud-provider-kind version |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
+| `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18.4@sha256:9b19...` | Database image for Gateway; override for OSS dev |
+| `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
+| `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
 
 ## Make Targets
 
