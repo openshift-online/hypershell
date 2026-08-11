@@ -44,7 +44,7 @@ hsctl apply -k overlays/tenant-a/
     ▼
 API Server (PostgreSQL)
     │  provisions Keycloak OIDC client (see keycloak spec)
-    │  persists Gateway resource with owner and auto-populated OIDC
+    │  persists Gateway resource with admin_users and auto-populated OIDC
     │  emits gRPC watch event
     ▼
 Control Plane - GatewayReconciler (internal/reconciler/)

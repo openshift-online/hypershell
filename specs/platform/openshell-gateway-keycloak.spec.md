@@ -22,16 +22,15 @@ This specification defines automated per-gateway Keycloak OIDC client provisioni
 Caller (UI, hsctl, CI pipeline, curl)
     |  POST /api/hypershell/v1/gateways
     |  Body includes: name, admin_users (required, >= 1 Keycloak username)
-    |  Bearer token identifies the caller (owner)
     v
 API Server
-    |  1. Extracts caller identity (subject) from JWT -> owner
+    |  1. Validates admin_users (non-empty)
     |  2. Calls Keycloak Admin REST API:
     |     a. Creates OIDC client (clientId = gateway name)
     |     b. Creates client roles (openshell-admin, openshell-user)
     |     c. Creates protocol mappers (audience, sub, client-roles)
     |     d. Assigns openshell-admin role to each user in admin_users
-    |  3. Persists Gateway with owner, admin_users, and auto-populated oidc config
+    |  3. Persists Gateway with admin_users and auto-populated oidc config
     |  4. Emits gRPC watch event
     v
 Control Plane
@@ -62,32 +61,29 @@ HyperShell Namespace
 ### Per-Gateway Isolation Model
 
 ```
-User A (sub: user-a)              User B (sub: user-b)
-    |                                 |
-    +-- Creates "gw-alpha"            +-- Creates "gw-beta"
-    |   owner = "user-a"              |   owner = "user-b"
-    |   admin_users = ["user-a"]      |   admin_users = ["user-b"]
-    |   KC client: gw-alpha           |   KC client: gw-beta
-    |   admin role -> user-a          |   admin role -> user-b
-    |                                 |
-    +-- GET /gateways                 +-- GET /gateways
-    |   Returns: [gw-alpha]           |   Returns: [gw-beta]
-    |                                 |
-    +-- GET /gateways/{gw-beta-id}    +-- GET /gateways/{gw-alpha-id}
-        Returns: 404                      Returns: 404
+User A creates "gw-alpha"            User B creates "gw-beta"
+    admin_users = ["user-a"]              admin_users = ["user-b"]
+    KC client: gw-alpha                   KC client: gw-beta
+    admin role -> user-a                  admin role -> user-b
+                                          |
+    GET /gateways                         GET /gateways
+    Returns: [gw-alpha]                   Returns: [gw-beta]
+                                          |
+    GET /gateways/{gw-beta-id}            GET /gateways/{gw-alpha-id}
+    Returns: 404                          Returns: 404
 
-CI Pipeline (sub: ci-bot)
-    |
-    +-- Creates "gw-shared"
-    |   owner = "ci-bot"
-    |   admin_users = ["user-a", "user-b"]
-    |   KC client: gw-shared
-    |   admin role -> user-a, user-b
+CI Pipeline creates "gw-shared"
+    admin_users = ["user-a", "user-b"]
+    KC client: gw-shared
+    admin role -> user-a, user-b
+
+    user-a GET /gateways -> [gw-alpha, gw-shared]
+    user-b GET /gateways -> [gw-beta, gw-shared]
 ```
 
 Each gateway's Keycloak client has `fullScopeAllowed = false`, preventing role leakage across gateways. A token obtained for `gw-alpha` contains only `gw-alpha`'s roles and audience — never `gw-beta`'s.
 
-The `admin_users` field decouples role assignment from the caller's identity, enabling programmatic creation (CI, `hsctl apply`, automation) where the caller is not the intended gateway admin.
+Visibility is scoped by `admin_users` membership — a user sees a gateway if and only if they appear in its `admin_users` list. This decouples visibility from the caller's identity, enabling programmatic creation (CI, `hsctl apply`, automation) where the caller is not the intended gateway admin.
 
 ---
 
@@ -267,7 +263,7 @@ The `admin_users` field SHALL be persisted on the Gateway resource and included 
 - GIVEN a CI pipeline creates a gateway via `curl` or `hsctl`
 - WHEN the request includes `admin_users: ["user-a", "user-b"]`
 - THEN both `user-a` and `user-b` SHALL receive the `openshell-admin` role
-- AND the `owner` field SHALL be set to the CI pipeline's identity (from JWT `sub`)
+- AND both `user-a` and `user-b` SHALL see the gateway in their gateway list
 
 #### Scenario: Empty admin_users rejected
 
@@ -350,47 +346,29 @@ The OIDC fields on the Gateway resource SHALL be read-only — not settable or u
 
 ---
 
-### Requirement: Gateway Ownership
-
-Every Gateway SHALL record the identity of the user who created it. The API server SHALL extract the `sub` claim from the authenticated user's JWT and store it as the `owner` field on the Gateway resource.
-
-The Gateway `owner` field SHALL be:
-- Set automatically at creation time from the authenticated user's `sub` claim
-- Read-only — not settable or updatable via the REST or gRPC API
-- Used to scope gateway visibility and access control
-
-#### Scenario: Owner recorded at creation
-
-- GIVEN an authenticated user with subject `user-a`
-- WHEN the user creates a Gateway
-- THEN the Gateway's `owner` field SHALL be set to `user-a`
-- AND the `owner` field SHALL appear in Gateway responses
-- AND the `owner` SHALL NOT be modifiable via PATCH
-
----
-
 ### Requirement: Gateway Visibility Scoping
 
-The API server SHALL scope gateway visibility to the owning user. A user SHALL only see and operate on gateways they created. This is enforced at the API layer — the UI receives only the gateways the authenticated user owns.
+The API server SHALL scope gateway visibility by `admin_users` membership. A user SHALL only see and operate on gateways where their username appears in the `admin_users` list. This is enforced at the API layer — the UI receives only the gateways the authenticated user is an admin of.
 
-#### Scenario: List gateways returns only owned gateways
+#### Scenario: List gateways returns only gateways where user is an admin
 
-- GIVEN `user-a` owns gateways `gw-alpha` and `gw-beta`
-- AND `user-b` owns gateway `gw-gamma`
+- GIVEN `gw-alpha` has `admin_users: ["user-a"]`
+- AND `gw-beta` has `admin_users: ["user-a", "user-b"]`
+- AND `gw-gamma` has `admin_users: ["user-b"]`
 - WHEN `user-a` calls `GET /api/hypershell/v1/gateways`
 - THEN the response SHALL contain `gw-alpha` and `gw-beta`
 - AND the response SHALL NOT contain `gw-gamma`
 
-#### Scenario: Get non-owned gateway returns 404
+#### Scenario: Get gateway where user is not an admin returns 404
 
-- GIVEN `user-b` owns gateway `gw-gamma`
+- GIVEN `gw-gamma` has `admin_users: ["user-b"]`
 - WHEN `user-a` calls `GET /api/hypershell/v1/gateways/{gw-gamma-id}`
 - THEN the API server SHALL return 404
 - AND the response SHALL NOT reveal that the gateway exists
 
-#### Scenario: Mutate non-owned gateway returns 404
+#### Scenario: Mutate gateway where user is not an admin returns 404
 
-- GIVEN `user-b` owns gateway `gw-gamma`
+- GIVEN `gw-gamma` has `admin_users: ["user-b"]`
 - WHEN `user-a` calls `PATCH /api/hypershell/v1/gateways/{gw-gamma-id}` or `DELETE /api/hypershell/v1/gateways/{gw-gamma-id}`
 - THEN the API server SHALL return 404
 - AND no mutation SHALL occur
@@ -528,27 +506,25 @@ For gateway deletion:
 
 ## Data Model Changes
 
-The Gateway kind in `data-model.spec.md` SHALL include `owner` and `admin_users` fields:
+The Gateway kind in `data-model.spec.md` SHALL include an `admin_users` field:
 
 ```
 Gateway {
     ...existing fields...
-    text     owner       "non-null - subject (sub claim) of the user who created the gateway"
     string[] admin_users "non-null - Keycloak usernames assigned openshell-admin on the gateway's client"
 }
 ```
 
-Database migrations:
+Database migration:
 
 ```sql
-ALTER TABLE gateways ADD COLUMN owner TEXT NOT NULL DEFAULT '';
 ALTER TABLE gateways ADD COLUMN admin_users TEXT[] NOT NULL DEFAULT '{}';
 ```
 
-The `owner` column SHALL be indexed to support efficient owner-scoped queries:
+The `admin_users` column SHALL be indexed (GIN) to support efficient membership queries:
 
 ```sql
-CREATE INDEX idx_gateways_owner ON gateways (owner);
+CREATE INDEX idx_gateways_admin_users ON gateways USING GIN (admin_users);
 ```
 
 ---
