@@ -43,12 +43,13 @@ hsctl apply -k overlays/tenant-a/
     │  POST/PATCH each resource to API server
     ▼
 API Server (PostgreSQL)
-    │  provisions Keycloak OIDC client (see keycloak spec)
-    │  persists Gateway resource with admin_users and auto-populated OIDC
+    │  validates admin_users exist in Keycloak
+    │  persists Gateway resource with admin_users
     │  emits gRPC watch event
     ▼
 Control Plane - GatewayReconciler (internal/reconciler/)
     │  receives Gateway ADDED/MODIFIED event
+    │  provisions Keycloak OIDC client and populates oidc config (see keycloak spec)
     │  validates image, DNS names, TOML config
     │  creates the API-assigned namespace when absent
     │  applies gateway K8s manifests to that namespace

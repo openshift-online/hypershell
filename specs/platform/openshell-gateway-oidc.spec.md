@@ -11,7 +11,7 @@
 
 This specification defines per-gateway OIDC authentication for OpenShell gateways. OIDC enables CLI users and external clients to authenticate via Bearer tokens from an identity provider (e.g., Keycloak). OIDC is the sole authentication mechanism for HyperShell gateways in production.
 
-OIDC configuration is auto-provisioned by the API server when a gateway is created. The API server provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane injects the OIDC configuration into `gateway.toml` and validates it.
+OIDC configuration is auto-provisioned by the control plane when a gateway is reconciled. The GatewayReconciler provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane injects the OIDC configuration into `gateway.toml` and validates it.
 
 ---
 
@@ -34,15 +34,17 @@ Authorized (sandbox create, list, exec, etc.)
 
 ### Per-Gateway Keycloak Configuration
 
-Each gateway receives a dedicated Keycloak OIDC client provisioned automatically by the API server (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md)).
+Each gateway receives a dedicated Keycloak OIDC client provisioned automatically by the control plane (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md)).
 
 ```
-Realm:       hypershell
+Realm:       configurable via Keycloak service account secret (e.g., hypershell, hypershell-stage)
 Client:      {gateway-name} (public, PKCE, fullScopeAllowed=false)
 Audience:    {gateway-name} (matches clientId)
 Roles claim: hypershell.roles (via client-roles mapper from resource_access.{clientId}.roles)
 Roles:       openshell-admin, openshell-user (client-scoped)
 ```
+
+> **Realm naming:** The realm name is not hardcoded. Each HyperShell instance reads the realm from the `hypershell-keycloak-admin` Secret's `realm` key. Environments MAY use distinct realm names (e.g., `hypershell-int`, `hypershell-stage`, `hypershell-prod`) or share a realm name when regional Keycloak instances federate to a global instance.
 
 > **Per-gateway isolation:** Each gateway has its own Keycloak client with `fullScopeAllowed = false` and a dedicated audience. Tokens obtained for one gateway contain only that gateway's roles and audience — cross-gateway role leakage is prevented at the IdP level.
 

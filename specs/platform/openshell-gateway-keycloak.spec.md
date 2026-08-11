@@ -10,7 +10,7 @@
 
 ## Purpose
 
-This specification defines automated per-gateway Keycloak OIDC client provisioning. When a gateway is created, the API server provisions a dedicated OIDC client in Keycloak with client-scoped roles and protocol mappers, assigns the admin role to each user listed in the request's `admin_users` field, and populates the gateway's OIDC configuration. This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims, and users can only access gateways where they hold a role.
+This specification defines automated per-gateway Keycloak OIDC client provisioning. When a gateway is created, the API server validates that the requested `admin_users` exist in Keycloak and persists the Gateway. The control plane then provisions a dedicated OIDC client in Keycloak with client-scoped roles and protocol mappers, assigns the admin role to each user in `admin_users`, and populates the gateway's OIDC configuration. This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims, and users can only access gateways where they hold a role.
 
 ---
 
@@ -25,17 +25,20 @@ Caller (UI, hsctl, CI pipeline, curl)
     v
 API Server
     |  1. Validates admin_users (non-empty)
-    |  2. Calls Keycloak Admin REST API:
+    |  2. Validates each username in admin_users exists in Keycloak (fail fast)
+    |  3. Persists Gateway with admin_users (oidc field empty at this point)
+    |  4. Emits gRPC watch event
+    v
+Control Plane - GatewayReconciler
+    |  1. Receives Gateway ADDED event
+    |  2. Provisions Keycloak via Admin REST API:
     |     a. Creates OIDC client (clientId = gateway name)
     |     b. Creates client roles (openshell-admin, openshell-user)
     |     c. Creates protocol mappers (audience, sub, client-roles)
     |     d. Assigns openshell-admin role to each user in admin_users
-    |  3. Persists Gateway with admin_users and auto-populated oidc config
-    |  4. Emits gRPC watch event
-    v
-Control Plane
-    |  Receives Gateway with OIDC config already populated
-    |  Injects OIDC section into gateway.toml (existing behavior per oidc spec)
+    |  3. Populates Gateway oidc config (PATCH via API or internal state)
+    |  4. Injects OIDC section into gateway.toml
+    |  5. Deploys gateway K8s resources
     v
 Gateway Pod
     |  Validates JWTs against the provisioned Keycloak client
@@ -50,12 +53,15 @@ HyperShell Namespace
     |
     +-- Secret: hypershell-keycloak-admin
     |   +-- server-url:    https://keycloak.example.com
-    |   +-- realm:         hypershell
+    |   +-- realm:         hypershell (configurable per environment)
     |   +-- client-id:     hypershell-admin-sa
     |   +-- client-secret: <service account secret>
     |
     +-- API Server Pod
-        +-- Reads Secret -> authenticates to Keycloak Admin REST API
+    |   +-- Reads Secret -> validates admin_users exist in Keycloak (read-only)
+    |
+    +-- Control Plane Pod
+        +-- Reads Secret -> provisions Keycloak clients, roles, mappers (read-write)
 ```
 
 ### Per-Gateway Isolation Model
@@ -91,38 +97,49 @@ Visibility is scoped by `admin_users` membership — a user sees a gateway if an
 
 ### Requirement: Keycloak Service Account Access
 
-The API server SHALL authenticate to the Keycloak Admin REST API using a service account with admin permissions in the `hypershell` realm. The service account credentials SHALL be stored in a Kubernetes Secret named `hypershell-keycloak-admin` in the HyperShell namespace.
+Both the API server and the control plane SHALL authenticate to the Keycloak Admin REST API using a shared service account with admin permissions in the configured realm. The service account credentials SHALL be stored in a Kubernetes Secret named `hypershell-keycloak-admin` in the HyperShell namespace.
 
 The Secret SHALL contain the following keys:
 
 | Key | Description |
 |---|---|
 | `server-url` | Keycloak base URL (e.g., `https://keycloak.example.com`) |
-| `realm` | Keycloak realm name (e.g., `hypershell`) |
+| `realm` | Keycloak realm name (configurable per environment, e.g., `hypershell`, `hypershell-stage`) |
 | `client-id` | Service account client ID with realm admin permissions |
 | `client-secret` | Service account client secret |
 
-The API server SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. The API server SHOULD cache and refresh the service account token to avoid per-request token acquisition.
+Both components SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. Each component SHOULD cache and refresh the service account token independently.
+
+- **API server** uses the Secret for read-only operations: validating that `admin_users` usernames exist in Keycloak at gateway creation time.
+- **Control plane** uses the Secret for read-write operations: provisioning Keycloak clients, roles, mappers, and assigning roles during gateway reconciliation.
 
 #### Scenario: Service account credentials available
 
 - GIVEN the `hypershell-keycloak-admin` Secret exists in the HyperShell namespace
-- WHEN the API server starts
-- THEN it SHALL read the Secret and validate that all required keys are present
-- AND it SHALL verify connectivity to the Keycloak Admin REST API at startup
+- WHEN the API server and control plane start
+- THEN both SHALL read the Secret and validate that all required keys are present
+- AND both SHALL verify connectivity to the Keycloak Admin REST API at startup
 
-#### Scenario: Service account credentials missing
+#### Scenario: Service account credentials missing at API server
 
 - GIVEN the `hypershell-keycloak-admin` Secret does not exist
 - WHEN a user attempts to create a gateway
 - THEN the API server SHALL return an error indicating Keycloak integration is not configured
 - AND the gateway SHALL NOT be created
 
+#### Scenario: Service account credentials missing at control plane
+
+- GIVEN the `hypershell-keycloak-admin` Secret does not exist
+- WHEN the GatewayReconciler receives a Gateway event
+- THEN it SHALL log an error indicating Keycloak integration is not configured
+- AND it SHALL NOT deploy the gateway
+- AND it SHALL retry on the next reconciliation cycle
+
 ---
 
 ### Requirement: Per-Gateway OIDC Client Provisioning
 
-When a Gateway is created, the API server SHALL create a dedicated OIDC client in the configured Keycloak realm via the Admin REST API (`POST /admin/realms/{realm}/clients`).
+When the GatewayReconciler receives a Gateway ADDED event, it SHALL create a dedicated OIDC client in the configured Keycloak realm via the Admin REST API (`POST /admin/realms/{realm}/clients`). Keycloak provisioning occurs as part of the reconciliation loop, before deploying the gateway K8s resources.
 
 The client SHALL be created with the following properties:
 
@@ -142,11 +159,11 @@ The client SHALL be created with the following properties:
 
 The `gateway-roles` client scope is a realm prerequisite. It SHALL contain an `oidc-usermodel-client-role-mapper` that emits client roles under `resource_access.${client_id}.roles`. This scope SHALL exist in the Keycloak realm before gateways are created.
 
-#### Scenario: Create gateway provisions Keycloak client
+#### Scenario: Reconciler provisions Keycloak client
 
-- GIVEN an authenticated user with subject `user-a`
-- WHEN the user creates a Gateway named `my-gateway`
-- THEN the API server SHALL create a Keycloak client with `clientId = "my-gateway"`
+- GIVEN the GatewayReconciler receives an ADDED event for Gateway `my-gateway`
+- WHEN the reconciler provisions Keycloak
+- THEN it SHALL create a Keycloak client with `clientId = "my-gateway"`
 - AND the client SHALL have `fullScopeAllowed = false`
 - AND the client SHALL have `publicClient = true` with `pkce.code.challenge.method = S256`
 - AND the `gateway-roles` client scope SHALL be included in `defaultClientScopes`
@@ -154,15 +171,14 @@ The `gateway-roles` client scope is a realm prerequisite. It SHALL contain an `o
 #### Scenario: Duplicate client ID in Keycloak
 
 - GIVEN a Keycloak client with `clientId = "my-gateway"` already exists in the realm
-- WHEN a user attempts to create a Gateway named `my-gateway`
-- THEN the API server SHALL return a conflict error
-- AND the Gateway SHALL NOT be created
+- WHEN the GatewayReconciler attempts to create the client
+- THEN the reconciler SHALL log an error and retry on the next reconciliation cycle
 
 ---
 
 ### Requirement: Client Role Provisioning
 
-After creating the OIDC client, the API server SHALL create two client-scoped roles via the Admin REST API (`POST /admin/realms/{realm}/clients/{client-uuid}/roles`).
+After creating the OIDC client, the GatewayReconciler SHALL create two client-scoped roles via the Admin REST API (`POST /admin/realms/{realm}/clients/{client-uuid}/roles`).
 
 | Role Name | Purpose |
 |---|---|
@@ -172,7 +188,7 @@ After creating the OIDC client, the API server SHALL create two client-scoped ro
 #### Scenario: Client roles created
 
 - GIVEN a Keycloak client has been created for gateway `my-gateway`
-- WHEN the API server provisions client roles
+- WHEN the GatewayReconciler provisions client roles
 - THEN it SHALL create the `openshell-admin` role on the `my-gateway` client
 - AND it SHALL create the `openshell-user` role on the `my-gateway` client
 
@@ -180,7 +196,7 @@ After creating the OIDC client, the API server SHALL create two client-scoped ro
 
 ### Requirement: Protocol Mapper Provisioning
 
-After creating the client and roles, the API server SHALL create three protocol mappers on the OIDC client via the Admin REST API (`POST /admin/realms/{realm}/clients/{client-uuid}/protocol-mappers/models`).
+After creating the client and roles, the GatewayReconciler SHALL create three protocol mappers on the OIDC client via the Admin REST API (`POST /admin/realms/{realm}/clients/{client-uuid}/protocol-mappers/models`).
 
 #### Mapper: Audience
 
@@ -225,7 +241,7 @@ Maps the client's roles from `resource_access.{clientId}.roles` to a fixed `hype
 #### Scenario: All mappers provisioned
 
 - GIVEN a Keycloak client `my-gateway` has been created with roles
-- WHEN the API server provisions protocol mappers
+- WHEN the GatewayReconciler provisions protocol mappers
 - THEN the audience mapper SHALL set `aud` to `my-gateway` in access tokens
 - AND the sub mapper SHALL ensure `sub` is present in access tokens
 - AND the client-roles mapper SHALL map `resource_access.my-gateway.roles` to the `hypershell.roles` claim
@@ -250,6 +266,8 @@ The Gateway create request SHALL accept a required `admin_users` field — a lis
 | `admin_users` | string[] | Yes | Keycloak usernames to assign `openshell-admin`. Must have at least one entry. |
 
 The `admin_users` field SHALL be persisted on the Gateway resource and included in Gateway responses.
+
+The API server SHALL validate at creation time that every username in `admin_users` exists in Keycloak (`GET /admin/realms/{realm}/users?username={username}`). If any username does not resolve, the API server SHALL reject the request with an error identifying the unresolvable username. This fail-fast validation prevents the control plane from encountering missing users during reconciliation.
 
 #### Scenario: UI auto-populates admin_users
 
@@ -276,33 +294,32 @@ The `admin_users` field SHALL be persisted on the Gateway resource and included 
 
 ### Requirement: Admin Role Assignment
 
-After provisioning the client, roles, and mappers, the API server SHALL assign the `openshell-admin` client role to every user listed in `admin_users`.
+After provisioning the client, roles, and mappers, the GatewayReconciler SHALL assign the `openshell-admin` client role to every user listed in the Gateway's `admin_users` field.
 
-For each username in `admin_users`, the API server SHALL:
+For each username in `admin_users`, the GatewayReconciler SHALL:
 1. Look up the user in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
 2. Retrieve the `openshell-admin` role UUID (`GET /admin/realms/{realm}/clients/{client-uuid}/roles?search=openshell-admin`)
 3. Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
 
 #### Scenario: Admin role assigned to all listed users
 
-- GIVEN a gateway create request with `admin_users: ["user-a", "user-b"]`
-- WHEN the API server completes Keycloak provisioning
+- GIVEN the GatewayReconciler reconciles a Gateway with `admin_users: ["user-a", "user-b"]`
+- WHEN the reconciler completes Keycloak provisioning
 - THEN both `user-a` and `user-b` SHALL have the `openshell-admin` role on the gateway's client
 - AND both SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]`
 
-#### Scenario: User in admin_users not found in Keycloak
+#### Scenario: User in admin_users not found in Keycloak at creation time
 
 - GIVEN a gateway create request with `admin_users: ["user-a", "nonexistent-user"]`
-- WHEN the API server looks up `nonexistent-user` in Keycloak and finds no match
+- WHEN the API server validates the usernames against Keycloak
 - THEN the API server SHALL return an error identifying the unresolvable username
 - AND the Gateway SHALL NOT be created
-- AND any partially provisioned Keycloak resources SHALL be rolled back
 
 ---
 
 ### Requirement: Auto-Populated OIDC Configuration
 
-After successful Keycloak provisioning, the API server SHALL automatically populate the Gateway resource's `oidc` field with values derived from the provisioned client. The user SHALL NOT supply OIDC configuration when creating a gateway — it is system-managed.
+After successful Keycloak provisioning, the GatewayReconciler SHALL populate the Gateway resource's `oidc` field with values derived from the provisioned client and the Keycloak service account configuration. The user SHALL NOT supply OIDC configuration when creating a gateway — it is system-managed.
 
 The auto-populated OIDC values SHALL be:
 
@@ -350,6 +367,8 @@ The OIDC fields on the Gateway resource SHALL be read-only — not settable or u
 
 The API server SHALL scope gateway visibility by `admin_users` membership. A user SHALL only see and operate on gateways where their username appears in the `admin_users` list. This is enforced at the API layer — the UI receives only the gateways the authenticated user is an admin of.
 
+> **Future extension:** When `openshell-user` role holders need gateway visibility, the API MAY expand scoping to include users with any Keycloak client role on the gateway. Users with `openshell-user` would see the gateway but not perform admin operations (e.g., delete, rename). This does not require schema changes — it is a query-time policy change.
+
 #### Scenario: List gateways returns only gateways where user is an admin
 
 - GIVEN `gw-alpha` has `admin_users: ["user-a"]`
@@ -377,58 +396,57 @@ The API server SHALL scope gateway visibility by `admin_users` membership. A use
 
 ### Requirement: Keycloak Client Cleanup
 
-When a Gateway is deleted, the API server SHALL delete the corresponding Keycloak OIDC client to prevent orphaned clients in the realm. Deleting a Keycloak client automatically cascades to its roles and protocol mappers.
+When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the corresponding Keycloak OIDC client to prevent orphaned clients in the realm. Deleting a Keycloak client automatically cascades to its roles and protocol mappers.
 
 #### Scenario: Gateway deletion cleans up Keycloak
 
 - GIVEN a Gateway `my-gateway` with a corresponding Keycloak client
-- WHEN the Gateway is deleted via the API
-- THEN the API server SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=my-gateway`)
+- WHEN the GatewayReconciler receives a DELETED event for the Gateway
+- THEN it SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=my-gateway`)
 - AND it SHALL delete the client (`DELETE /admin/realms/{realm}/clients/{client-uuid}`)
 - AND the client's roles and mappers SHALL be automatically removed by Keycloak
 
 #### Scenario: Keycloak cleanup failure is non-blocking
 
-- GIVEN a Gateway deletion request
+- GIVEN the GatewayReconciler processes a Gateway DELETED event
 - WHEN the Keycloak client deletion fails (e.g., network error, Keycloak unavailable)
-- THEN the Gateway SHALL still be deleted from the API server database
-- AND the API server SHALL log an error with the orphaned `clientId` for manual cleanup
-- AND the deletion response SHALL succeed (Keycloak cleanup is best-effort on delete)
+- THEN the reconciler SHALL log an error with the orphaned `clientId` for manual cleanup
+- AND it SHALL continue processing the remaining gateway resource deletion
 
 ---
 
 ### Requirement: Provisioning Atomicity
 
-Keycloak provisioning SHALL be treated as an atomic operation during gateway creation. If any provisioning step fails, the API server SHALL roll back all completed Keycloak steps and return an error without persisting the Gateway.
+Keycloak provisioning SHALL be treated as an atomic operation within the reconciliation cycle. If any provisioning step fails, the GatewayReconciler SHALL roll back all completed Keycloak steps and retry on the next reconciliation cycle.
 
 #### Scenario: Mapper creation fails mid-provisioning
 
-- GIVEN the API server has created the Keycloak client and roles
+- GIVEN the GatewayReconciler has created the Keycloak client and roles
 - WHEN mapper creation fails
-- THEN the API server SHALL delete the created client from Keycloak (cascading roles)
-- AND the API server SHALL return an error to the user
-- AND no Gateway SHALL be persisted in PostgreSQL
+- THEN the reconciler SHALL delete the created client from Keycloak (cascading roles)
+- AND it SHALL log the error and retry on the next reconciliation cycle
+- AND the gateway SHALL NOT be deployed until Keycloak provisioning succeeds
 
 #### Scenario: Role assignment fails for one admin user
 
-- GIVEN the API server has created the client, roles, and mappers
+- GIVEN the GatewayReconciler has created the client, roles, and mappers
 - AND `admin_users` contains `["user-a", "user-b"]`
 - WHEN admin role assignment succeeds for `user-a` but fails for `user-b`
-- THEN the API server SHALL delete the client from Keycloak (rolling back all assignments)
-- AND the API server SHALL return an error identifying the failed user
-- AND no Gateway SHALL be persisted in PostgreSQL
+- THEN the reconciler SHALL delete the client from Keycloak (rolling back all assignments)
+- AND it SHALL log the error identifying the failed user
+- AND it SHALL retry on the next reconciliation cycle
 
 ---
 
 ## Keycloak Realm Prerequisites
 
-The following resources SHALL exist in the Keycloak `hypershell` realm before gateways can be created. These are configuration prerequisites — the API server does not create them.
+The following resources SHALL exist in the configured Keycloak realm (as specified by the `realm` key in the `hypershell-keycloak-admin` Secret) before gateways can be created. These are configuration prerequisites — neither the API server nor the control plane creates them.
 
 1. **Service account client** — A confidential client (e.g., `hypershell-admin-sa`) with the `realm-management` client role `realm-admin` or equivalent permissions to create clients, roles, mappers, and manage user role mappings.
 
 2. **`gateway-roles` client scope** — A client scope containing an `oidc-usermodel-client-role-mapper` that emits `resource_access.${client_id}.roles`. This scope SHALL be included in `defaultClientScopes` for every provisioned gateway client so client roles appear in tokens.
 
-3. **User accounts** — Users who create gateways must have accounts in the Keycloak realm so the API server can look them up and assign roles.
+3. **User accounts** — Users listed in `admin_users` must have accounts in the Keycloak realm so the API server can validate them and the control plane can assign roles.
 
 ---
 
