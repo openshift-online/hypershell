@@ -5,7 +5,7 @@
 # and Kind-specific conventions (HTTPRoute hostnames, GRPCRoute discovery).
 
 E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
-E2E_USING_PORT_FORWARD=""
+E2E_PF_FLAG_FILE="${TMPDIR:-/tmp}/e2e-pf-flag.$$"
 
 # discover_api_host - find the HyperShell API server URL.
 # Returns the HTTPRoute hostname or falls back to port-forward.
@@ -51,14 +51,14 @@ discover_gateway_endpoint() {
     fi
   fi
 
-  dim "  No programmed Gateway route found, falling back to port-forward"
+  dim "  No programmed Gateway route found, falling back to port-forward" >&2
   local pf_port=7443
   kubectl port-forward -n "${gw_namespace}" svc/openshell-gateway "${pf_port}:8080" >/dev/null 2>&1 &
   E2E_GW_PF_PID=$!
   sleep 3
   if kill -0 "$E2E_GW_PF_PID" 2>/dev/null; then
-    E2E_USING_PORT_FORWARD=true
-    pass "Port-forward active (localhost:${pf_port} -> openshell-gateway:8080)"
+    touch "${E2E_PF_FLAG_FILE}"
+    pass "Port-forward active (localhost:${pf_port} -> openshell-gateway:8080)" >&2
     echo "https://localhost:${pf_port}"
   else
     E2E_GW_PF_PID=""
@@ -83,7 +83,7 @@ wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
 
-  if [[ "${E2E_USING_PORT_FORWARD:-}" == "true" ]]; then
+  if [[ -f "${E2E_PF_FLAG_FILE}" ]]; then
     dim "  Skipping Gateway route check (using port-forward)"
     return 0
   fi
