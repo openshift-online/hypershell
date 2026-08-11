@@ -31,3 +31,6 @@ apm_modules/
 
 # Kind swap tracking
 .kind-swaps
+
+# Local tool binaries (built by make kind-prereqs)
+bin/
