@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-10
 **Status:** Draft
-**Parent:** `openshell-gateway.spec.md` — core gateway provisioning
-**Upstream:** [OpenShell PR #2437](https://github.com/NVIDIA/OpenShell/pull/2437) — provider credential storage drivers
+**Parent:** `openshell-gateway.spec.md` - core gateway provisioning
+**Upstream:** [OpenShell PR #2437](https://github.com/NVIDIA/OpenShell/pull/2437) - provider credential storage drivers
 
 ---
 
@@ -275,6 +275,6 @@ serverDnsNames:
 
 ## References
 
-- [OpenShell PR #2437 — Provider credential storage drivers](https://github.com/NVIDIA/OpenShell/pull/2437)
-- [OpenShell Helm Chart — Credential driver values](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell)
-- [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) — KEK provisioning (default driver)
+- [OpenShell PR #2437 - Provider credential storage drivers](https://github.com/NVIDIA/OpenShell/pull/2437)
+- [OpenShell Helm Chart - Credential driver values](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell)
+- [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) - KEK provisioning (default driver)
