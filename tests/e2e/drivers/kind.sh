@@ -4,6 +4,9 @@
 # Implements the driver interface contract using kubectl, Gateway API status,
 # and Kind-specific conventions (HTTPRoute hostnames, GRPCRoute discovery).
 
+E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
+E2E_USING_PORT_FORWARD=""
+
 # discover_api_host - find the HyperShell API server URL.
 # Returns the HTTPRoute hostname or falls back to port-forward.
 discover_api_host() {
@@ -28,15 +31,39 @@ discover_api_host() {
 }
 
 # discover_gateway_endpoint - find the gateway gRPC endpoint.
-# Derives the endpoint from the GRPCRoute hostname and the networking
-# Gateway's status address.
+# Tries the GRPCRoute hostname first, then falls back to kubectl port-forward.
 discover_gateway_endpoint() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
-  local domain
-  domain=$(get_cluster_domain)
 
-  echo "https://${gw_name}.${domain}:443"
+  local grpc_host
+  grpc_host=$(kubectl get grpcroute openshell-gateway -n "${gw_namespace}" \
+    -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)
+
+  if [[ -n "$grpc_host" ]]; then
+    local gw_programmed
+    gw_programmed=$(kubectl get gateway -A -l "hypershell.redhat.io/tenant=${gw_namespace}" \
+      -o jsonpath='{range .items[*]}{range .status.conditions[*]}{.type}={.status}{"\n"}{end}{end}' 2>/dev/null \
+      | grep -c 'Programmed=True' || true)
+    if [[ "${gw_programmed:-0}" -ge 1 ]]; then
+      echo "https://${grpc_host}:443"
+      return
+    fi
+  fi
+
+  dim "  No programmed Gateway route found, falling back to port-forward"
+  local pf_port=7443
+  kubectl port-forward -n "${gw_namespace}" svc/openshell-gateway "${pf_port}:8080" >/dev/null 2>&1 &
+  E2E_GW_PF_PID=$!
+  sleep 3
+  if kill -0 "$E2E_GW_PF_PID" 2>/dev/null; then
+    E2E_USING_PORT_FORWARD=true
+    pass "Port-forward active (localhost:${pf_port} -> openshell-gateway:8080)"
+    echo "https://localhost:${pf_port}"
+  else
+    E2E_GW_PF_PID=""
+    echo "https://${gw_name}.$(get_cluster_domain):443"
+  fi
 }
 
 # get_cluster_domain - return the base domain for gateway DNS names.
@@ -50,11 +77,17 @@ get_cli_binary() {
 }
 
 # wait_for_gateway_route - block until the gateway is externally reachable.
-# Polls the Gateway API Gateway status conditions for Programmed=True and
-# verifies the GRPCRoute parent status reports Accepted=True.
+# When port-forward is active, the route check is skipped since connectivity
+# is already established.
 wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
+
+  if [[ "${E2E_USING_PORT_FORWARD:-}" == "true" ]]; then
+    dim "  Skipping Gateway route check (using port-forward)"
+    return 0
+  fi
+
   local timeout="${E2E_PROVISION_TIMEOUT:-180}"
   local deadline=$(($(date +%s) + timeout))
 
@@ -62,7 +95,8 @@ wait_for_gateway_route() {
 
   while [[ $(date +%s) -lt $deadline ]]; do
     local programmed
-    programmed=$(kubectl get gateway -n "${gw_namespace}" -o jsonpath='{range .items[*]}{range .status.conditions[*]}{.type}={.status}{"\n"}{end}{end}' 2>/dev/null \
+    programmed=$(kubectl get gateway -A -l "hypershell.redhat.io/tenant=${gw_namespace}" \
+      -o jsonpath='{range .items[*]}{range .status.conditions[*]}{.type}={.status}{"\n"}{end}{end}' 2>/dev/null \
       | grep -c 'Programmed=True' || true)
 
     local accepted

@@ -5,6 +5,25 @@ resources:
   - prerequisites/certificates.yaml
   - prerequisites/networking-gateway.yaml
   - prerequisites/httproutes.yaml
+patches:
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: controller
+                env:
+                  - name: GATEWAY_API_GATEWAY_CLASS
+                    value: cloud-provider-kind
+                  - name: GATEWAY_API_GATEWAY_NAMESPACE
+                    value: hypershell-system
+                  - name: GATEWAY_API_BASE_DOMAIN
+                    value: gw.localhost
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest

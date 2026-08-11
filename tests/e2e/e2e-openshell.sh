@@ -75,7 +75,14 @@ GW_NAMESPACE=""
 GW_ID=""
 SANDBOX_NAME=""
 E2E_PF_PID="${E2E_PF_PID:-}"
+E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
+
+if ! command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
+  red "ERROR: openshell CLI not found (OPENSHELL_BIN=${OPENSHELL_BIN})"
+  red "Install: curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh"
+  exit 1
+fi
 
 # --- Cleanup trap ---
 
@@ -83,6 +90,10 @@ cleanup() {
   if [[ -n "${SB_CREATE_PID:-}" ]]; then
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${E2E_GW_PF_PID:-}" ]]; then
+    kill "$E2E_GW_PF_PID" 2>/dev/null || true
+    wait "$E2E_GW_PF_PID" 2>/dev/null || true
   fi
   if [[ -n "${E2E_PF_PID:-}" ]]; then
     kill "$E2E_PF_PID" 2>/dev/null || true

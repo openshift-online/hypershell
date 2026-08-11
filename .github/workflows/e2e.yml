@@ -68,6 +68,11 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
+      - name: Install openshell CLI
+        run: |
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
+          openshell version
+
       - name: Create Kind cluster
         env:
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
@@ -95,6 +100,14 @@ jobs:
           kubectl get events --sort-by=.lastTimestamp -n hypershell-system >> e2e-diagnostics/events.txt 2>&1 || true
           echo "=== All pods ===" > e2e-diagnostics/pods.txt
           kubectl get pods -A >> e2e-diagnostics/pods.txt 2>&1 || true
+          echo "=== Gateway API resources ===" > e2e-diagnostics/gateway-api.txt
+          kubectl get gateways,grpcroutes,httproutes -A -o wide >> e2e-diagnostics/gateway-api.txt 2>&1 || true
+          echo "=== Openshell namespaces ===" >> e2e-diagnostics/gateway-api.txt
+          for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
+            echo "--- $ns ---" >> e2e-diagnostics/gateway-api.txt
+            kubectl get pods,svc,deployments -n "${ns##*/}" >> e2e-diagnostics/gateway-api.txt 2>&1 || true
+            kubectl logs --all-containers --prefix -l app.kubernetes.io/name=openshell -n "${ns##*/}" --tail=50 >> e2e-diagnostics/gateway-api.txt 2>&1 || true
+          done
 
       - name: Upload diagnostics
         if: failure()
