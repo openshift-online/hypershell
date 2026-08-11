@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - prerequisites/certificates.yaml
+  - prerequisites/networking-gateway.yaml
+  - prerequisites/httproutes.yaml
+images:
+  - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
+    newTag: latest
+  - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main
+    newTag: latest
+  - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-web-console-main
+    newTag: latest

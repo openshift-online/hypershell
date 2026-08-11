@@ -1,0 +1,132 @@
+name: E2E
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect changed components
+    runs-on: ubuntu-24.04
+    outputs:
+      api_server: ${{ steps.detect.outputs.api_server }}
+      control_plane: ${{ steps.detect.outputs.control_plane }}
+      e2e: ${{ steps.detect.outputs.e2e }}
+      pr_test: ${{ steps.detect.outputs.pr_test }}
+      e2e_relevant: ${{ steps.check.outputs.e2e_relevant }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect changed components
+        id: detect
+        run: bash .github/scripts/detect-components.sh
+      - name: Check if e2e-relevant components changed
+        id: check
+        run: |
+          if [[ "${{ steps.detect.outputs.api_server }}" == "true" || \
+                "${{ steps.detect.outputs.control_plane }}" == "true" || \
+                "${{ steps.detect.outputs.e2e }}" == "true" || \
+                "${{ steps.detect.outputs.pr_test }}" == "true" ]]; then
+            echo "e2e_relevant=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "e2e_relevant=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  e2e-kind:
+    name: E2E tests (Kind)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.e2e_relevant == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/control-plane/go.mod
+          cache-dependency-path: components/control-plane/go.sum
+
+      - name: Install Kind
+        run: |
+          go install sigs.k8s.io/kind@v0.32.0
+          kind version
+
+      - name: Install cloud-provider-kind
+        run: |
+          go install sigs.k8s.io/cloud-provider-kind@v0.11.1
+          cloud-provider-kind --version || true
+
+      - name: Create Kind cluster
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+          KIND_NO_SUDO: "true"
+        run: make kind-up
+
+      - name: Run e2e tests
+        env:
+          E2E_INFRA_DRIVER: kind
+          E2E_PROVISION_TIMEOUT: "300"
+          E2E_SANDBOX_TIMEOUT: "180"
+        run: bash tests/e2e/e2e-openshell.sh
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p e2e-diagnostics
+          echo "=== Pod descriptions ===" > e2e-diagnostics/pod-describes.txt
+          kubectl describe pods -n hypershell-system >> e2e-diagnostics/pod-describes.txt 2>&1 || true
+          echo "=== Pod logs ===" > e2e-diagnostics/pod-logs.txt
+          kubectl logs --all-containers --prefix -l app.kubernetes.io/name=hypershell -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          kubectl logs --all-containers --prefix -l app=hypershell-api-server -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          kubectl logs --all-containers --prefix -l app=hypershell-controller -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          kubectl logs --all-containers --prefix -l app=hypershell-web-console -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          echo "=== Events ===" > e2e-diagnostics/events.txt
+          kubectl get events --sort-by=.lastTimestamp -n hypershell-system >> e2e-diagnostics/events.txt 2>&1 || true
+          echo "=== All pods ===" > e2e-diagnostics/pods.txt
+          kubectl get pods -A >> e2e-diagnostics/pods.txt 2>&1 || true
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6db9e3caee1cf6afa3240c6aba89a # v4.6.2
+        with:
+          name: e2e-diagnostics
+          path: e2e-diagnostics/
+          retention-days: 7
+
+  summary:
+    name: E2E CI gate
+    if: ${{ always() && !cancelled() }}
+    needs:
+      - detect-changes
+      - e2e-kind
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check e2e results
+        env:
+          DETECTION_RESULT: ${{ needs.detect-changes.result }}
+          E2E_KIND_RESULT: ${{ needs.e2e-kind.result }}
+        run: |
+          for result in "${DETECTION_RESULT}" "${E2E_KIND_RESULT}"; do
+            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
+              echo "One or more e2e jobs failed or were cancelled."
+              exit 1
+            fi
+          done
+          echo "All e2e jobs passed or were skipped."

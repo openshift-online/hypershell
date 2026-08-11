@@ -174,35 +174,56 @@ echo ""
 
 # --- Apply manifests (skip swapped components) ---
 header "Deploying Components"
-kube apply -f deploy/kind/namespace.yaml
+kube apply -f deploy/base/namespace.yaml
 
 info "Deploying API server database..."
-kube apply -f deploy/kind/postgres.yaml
+kube apply -f deploy/base/postgres.yaml
 info "Waiting for PostgreSQL..."
 kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
 success "PostgreSQL ready"
 
 if ! is_swapped api-server; then
   info "Deploying API server..."
-  kube apply -f deploy/kind/api-server.yaml
+  kube apply -f deploy/base/api-server.yaml
 else
   warn "API server is swapped - skipping manifest"
 fi
 
 if ! is_swapped control-plane; then
   info "Deploying control plane RBAC..."
-  kube apply -f deploy/kind/controller-rbac.yaml
+  kube apply -f deploy/base/controller-rbac.yaml
   info "Deploying control plane..."
-  kube apply -f deploy/kind/controller.yaml
+  kube apply -f deploy/base/controller.yaml
 else
   warn "Control plane is swapped - skipping manifest"
 fi
 
 if ! is_swapped web-console; then
   info "Deploying web console..."
-  kube apply -f deploy/kind/web-console.yaml
+  kube apply -f deploy/base/web-console.yaml
 else
   warn "Web console is swapped - skipping manifest"
+fi
+
+if [[ "${IMAGE_TAG:-latest}" != "latest" ]]; then
+  info "Overriding component images with tag: ${IMAGE_TAG}"
+  local_registry="${IMAGE_REGISTRY:-quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
+  if ! is_swapped api-server; then
+    kube set image "deployment/hypershell-api-server" \
+      "api-server=${local_registry}/hypershell-api-server-main:${IMAGE_TAG}" \
+      "migrate=${local_registry}/hypershell-api-server-main:${IMAGE_TAG}" \
+      -n "${KIND_NAMESPACE}"
+  fi
+  if ! is_swapped control-plane; then
+    kube set image "deployment/hypershell-controller" \
+      "controller=${local_registry}/hypershell-control-plane-main:${IMAGE_TAG}" \
+      -n "${KIND_NAMESPACE}"
+  fi
+  if ! is_swapped web-console; then
+    kube set image "deployment/hypershell-web-console" \
+      "web-console=${local_registry}/hypershell-web-console-main:${IMAGE_TAG}" \
+      -n "${KIND_NAMESPACE}"
+  fi
 fi
 
 if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
