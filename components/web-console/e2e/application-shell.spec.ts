@@ -167,7 +167,7 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   ).toHaveCount(0);
   await expect(
     page.getByRole("menuitem", { name: "Copy CLI connection command" }),
-  ).toHaveCount(0);
+  ).toBeVisible();
 
   await expect(
     page.getByRole("columnheader", { name: "Gateway name" }),
@@ -229,11 +229,14 @@ test("keeps connection methods on gateway details", async ({
   ).toBeVisible();
 
   const copyFields = page.getByRole("textbox");
-  await expect(copyFields).toHaveCount(1);
+  await expect(copyFields).toHaveCount(2);
   await expect(copyFields.nth(0)).toHaveValue(
     "https://gateway.example.test:443",
   );
-  await expect(page.getByText("Not available")).toBeVisible();
+  await expect(copyFields.nth(1)).toHaveValue(
+    "openshell gateway add --name openshell-gateway-test https://gateway.example.test:443",
+  );
+  await expect(page.getByText("Not available")).toHaveCount(0);
   await page
     .getByRole("button", {
       name: "Copy gateway endpoint for openshell-gateway-test",
@@ -242,6 +245,16 @@ test("keeps connection methods on gateway details", async ({
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe("https://gateway.example.test:443");
+  await page
+    .getByRole("button", {
+      name: "Copy connection command for openshell-gateway-test",
+    })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(
+      "openshell gateway add --name openshell-gateway-test https://gateway.example.test:443",
+    );
 
   await expect(
     page
