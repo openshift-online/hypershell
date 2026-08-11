@@ -62,21 +62,22 @@ ENDOFCONFIGMAPS
 whitelist="${REPO_ROOT}/.forbidden-terms-whitelist.json"
 b64_line=$(grep -n 'hypershell-logo.png:' "${KEYCLOAK_YAML}" | tail -1 | cut -d: -f1)
 if [[ -n "${b64_line}" ]] && [[ -f "${whitelist}" ]]; then
-  python3 -c "
+  python3 - "${whitelist}" "${b64_line}" <<'PYEOF'
 import json, sys
-wl = json.loads(open('${whitelist}').read())
+whitelist_path, line_num = sys.argv[1], int(sys.argv[2])
+wl = json.loads(open(whitelist_path).read())
 updated = False
 for e in wl:
     if e['filename'] == 'deploy/kind/prerequisites/keycloak.yaml':
-        e['line'] = ${b64_line}
+        e['line'] = line_num
         updated = True
         break
 if not updated:
     wl.append({'filename': 'deploy/kind/prerequisites/keycloak.yaml',
-               'line': ${b64_line},
+               'line': line_num,
                'rationale': 'Generated base64-encoded PNG image data contains an incidental byte sequence; regenerate with make keycloak-theme.'})
-open('${whitelist}', 'w').write(json.dumps(wl, indent=2) + '\n')
-"
+open(whitelist_path, 'w').write(json.dumps(wl, indent=2) + '\n')
+PYEOF
 fi
 
 echo "Regenerated theme ConfigMaps in ${KEYCLOAK_YAML##*/}"
