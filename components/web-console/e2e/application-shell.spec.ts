@@ -156,6 +156,60 @@ test("makes gateway management the primary HyperShell experience", async ({
   expect(results.violations).toEqual([]);
 });
 
+test("keeps unknown gateway status readable in every theme", async ({
+  page,
+}) => {
+  const unknownGateway = { ...gateway, status: "Future status" };
+  await page.route("**/api/hypershell/v1/gateways**", async (route) => {
+    const request = route.request();
+    if (request.method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+
+    const gatewayId = new URL(request.url()).pathname.split("/").at(-1);
+    await route.fulfill({
+      body: JSON.stringify(
+        gatewayId === "gateways"
+          ? {
+              items: [unknownGateway],
+              kind: "GatewayList",
+              page: 1,
+              size: 100,
+              total: 1,
+            }
+          : unknownGateway,
+      ),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.getByText("Future status", { exact: true })).toBeVisible();
+  let results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+
+  await page
+    .getByRole("link", { name: "openshell-gateway-test", exact: true })
+    .click();
+  await expect(
+    page.getByText("Future status", { exact: true }).first(),
+  ).toBeVisible();
+  results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await expect(page.locator("html")).toHaveClass(/pf-v6-theme-dark/u);
+  results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+
+  await page.goto("/");
+  await expect(page.getByText("Future status", { exact: true })).toBeVisible();
+  results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});
+
 test("operates gateway rows and opens provisioning", async ({ page }) => {
   await page.goto("/");
 

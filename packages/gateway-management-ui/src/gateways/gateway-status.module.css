@@ -6,5 +6,5 @@
 }
 
 .unknown {
-  color: var(--pf-t--global--color--nonstatus--gray--default);
+  color: var(--pf-t--global--text--color--subtle);
 }
