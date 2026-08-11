@@ -86,7 +86,6 @@ help:
 	@echo "    build-api-server         Build API server container image"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
-	@echo "    keycloak-theme           Regenerate Keycloak theme ConfigMaps from source"
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
@@ -142,10 +141,6 @@ build-controller:
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
 		-f components/web-console/Dockerfile .
-
-.PHONY: keycloak-theme
-keycloak-theme:
-	@scripts/generate-keycloak-theme.sh
 
 # ============================================================================
 # Policy checks
