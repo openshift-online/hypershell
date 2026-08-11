@@ -71,7 +71,6 @@ jobs:
       - name: Create Kind cluster
         env:
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
-          KIND_NO_SUDO: "true"
         run: make kind-up
 
       - name: Run e2e tests
