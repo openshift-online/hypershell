@@ -193,7 +193,7 @@ if ! is_swapped control-plane; then
   info "Deploying control plane RBAC..."
   kube apply -f deploy/kind/controller-rbac.yaml
   info "Deploying control plane..."
-  kube apply -f deploy/kind/controller.yaml
+  sed "s|__KIND_DB_IMAGE__|${KIND_DB_IMAGE}|g" deploy/kind/controller.yaml | kube apply -f -
 else
   warn "Control plane is swapped - skipping manifest"
 fi
