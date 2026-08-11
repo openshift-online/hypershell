@@ -82,6 +82,7 @@ erDiagram
         string database_id FK
         string namespace
         string owner
+        string[] admin_users
         string image
         string[] server_dns_names
         jsonb oidc
@@ -173,6 +174,7 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | Field | Type | Description |
 |---|---|---|
 | `owner` | string | Subject (`sub` claim) of the user who created the gateway. Set at creation, read-only. Used for visibility scoping |
+| `admin_users` | string[] | Keycloak usernames assigned `openshell-admin` on the gateway's OIDC client. Required on create (at least one). See keycloak spec |
 | `image` | string | Gateway container image reference (e.g., `ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default: `ghcr.io/nvidia/openshell/supervisor:0.0.101`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |

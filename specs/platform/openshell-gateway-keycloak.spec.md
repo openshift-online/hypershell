@@ -10,7 +10,7 @@
 
 ## Purpose
 
-This specification defines automated per-gateway Keycloak OIDC client provisioning. When an authenticated user creates a gateway, the API server provisions a dedicated OIDC client in Keycloak with client-scoped roles and protocol mappers, assigns the admin role to the creating user, and populates the gateway's OIDC configuration. This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims, and users can only access gateways where they hold a role.
+This specification defines automated per-gateway Keycloak OIDC client provisioning. When a gateway is created, the API server provisions a dedicated OIDC client in Keycloak with client-scoped roles and protocol mappers, assigns the admin role to each user listed in the request's `admin_users` field, and populates the gateway's OIDC configuration. This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims, and users can only access gateways where they hold a role.
 
 ---
 
@@ -19,17 +19,19 @@ This specification defines automated per-gateway Keycloak OIDC client provisioni
 ### Provisioning Flow
 
 ```
-Authenticated User
-    |  POST /api/hypershell/v1/gateways (Bearer token with user identity)
+Caller (UI, hsctl, CI pipeline, curl)
+    |  POST /api/hypershell/v1/gateways
+    |  Body includes: name, admin_users (required, >= 1 Keycloak username)
+    |  Bearer token identifies the caller (owner)
     v
 API Server
-    |  1. Extracts user identity (subject) from JWT
+    |  1. Extracts caller identity (subject) from JWT -> owner
     |  2. Calls Keycloak Admin REST API:
     |     a. Creates OIDC client (clientId = gateway name)
     |     b. Creates client roles (openshell-admin, openshell-user)
     |     c. Creates protocol mappers (audience, sub, client-roles)
-    |     d. Assigns openshell-admin role to creating user
-    |  3. Persists Gateway with owner = subject and auto-populated oidc config
+    |     d. Assigns openshell-admin role to each user in admin_users
+    |  3. Persists Gateway with owner, admin_users, and auto-populated oidc config
     |  4. Emits gRPC watch event
     v
 Control Plane
@@ -64,6 +66,7 @@ User A (sub: user-a)              User B (sub: user-b)
     |                                 |
     +-- Creates "gw-alpha"            +-- Creates "gw-beta"
     |   owner = "user-a"              |   owner = "user-b"
+    |   admin_users = ["user-a"]      |   admin_users = ["user-b"]
     |   KC client: gw-alpha           |   KC client: gw-beta
     |   admin role -> user-a          |   admin role -> user-b
     |                                 |
@@ -72,9 +75,19 @@ User A (sub: user-a)              User B (sub: user-b)
     |                                 |
     +-- GET /gateways/{gw-beta-id}    +-- GET /gateways/{gw-alpha-id}
         Returns: 404                      Returns: 404
+
+CI Pipeline (sub: ci-bot)
+    |
+    +-- Creates "gw-shared"
+    |   owner = "ci-bot"
+    |   admin_users = ["user-a", "user-b"]
+    |   KC client: gw-shared
+    |   admin role -> user-a, user-b
 ```
 
 Each gateway's Keycloak client has `fullScopeAllowed = false`, preventing role leakage across gateways. A token obtained for `gw-alpha` contains only `gw-alpha`'s roles and audience — never `gw-beta`'s.
+
+The `admin_users` field decouples role assignment from the caller's identity, enabling programmatic creation (CI, `hsctl apply`, automation) where the caller is not the intended gateway admin.
 
 ---
 
@@ -232,27 +245,60 @@ Maps the client's roles from `resource_access.{clientId}.roles` to a fixed `hype
 
 ---
 
+### Requirement: Admin Users Field
+
+The Gateway create request SHALL accept a required `admin_users` field — a list of Keycloak usernames who will receive the `openshell-admin` client role on the provisioned gateway. The list MUST contain at least one entry.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `admin_users` | string[] | Yes | Keycloak usernames to assign `openshell-admin`. Must have at least one entry. |
+
+The `admin_users` field SHALL be persisted on the Gateway resource and included in Gateway responses.
+
+#### Scenario: UI auto-populates admin_users
+
+- GIVEN an authenticated user with identity `user-a` opens the gateway provisioning form
+- WHEN the UI renders the form
+- THEN `admin_users` SHALL be pre-populated with `["user-a"]` (the authenticated user's identity)
+- AND the user MAY add or remove entries before submitting
+
+#### Scenario: Programmatic creation with explicit admin_users
+
+- GIVEN a CI pipeline creates a gateway via `curl` or `hsctl`
+- WHEN the request includes `admin_users: ["user-a", "user-b"]`
+- THEN both `user-a` and `user-b` SHALL receive the `openshell-admin` role
+- AND the `owner` field SHALL be set to the CI pipeline's identity (from JWT `sub`)
+
+#### Scenario: Empty admin_users rejected
+
+- GIVEN a gateway create request with `admin_users: []` or without `admin_users`
+- WHEN the API server validates the request
+- THEN it SHALL return a validation error
+- AND the gateway SHALL NOT be created
+
+---
+
 ### Requirement: Admin Role Assignment
 
-After provisioning the client, roles, and mappers, the API server SHALL assign the `openshell-admin` client role to the user who created the gateway. The user is identified by the `sub` claim in their authentication token.
+After provisioning the client, roles, and mappers, the API server SHALL assign the `openshell-admin` client role to every user listed in `admin_users`.
 
-The API server SHALL:
-1. Look up the user in Keycloak by subject (`GET /admin/realms/{realm}/users?username={subject}`)
+For each username in `admin_users`, the API server SHALL:
+1. Look up the user in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
 2. Retrieve the `openshell-admin` role UUID (`GET /admin/realms/{realm}/clients/{client-uuid}/roles?search=openshell-admin`)
 3. Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
 
-#### Scenario: Admin role assigned to creating user
+#### Scenario: Admin role assigned to all listed users
 
-- GIVEN user `user-a` creates a Gateway named `my-gateway`
+- GIVEN a gateway create request with `admin_users: ["user-a", "user-b"]`
 - WHEN the API server completes Keycloak provisioning
-- THEN `user-a` SHALL have the `openshell-admin` role on the `my-gateway` client
-- AND `user-a` SHALL be able to obtain a token with `hypershell.roles: ["openshell-admin"]`
+- THEN both `user-a` and `user-b` SHALL have the `openshell-admin` role on the gateway's client
+- AND both SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]`
 
-#### Scenario: User not found in Keycloak
+#### Scenario: User in admin_users not found in Keycloak
 
-- GIVEN the authenticated user's subject does not match any user in Keycloak
-- WHEN the API server attempts to assign the admin role
-- THEN the API server SHALL return an error
+- GIVEN a gateway create request with `admin_users: ["user-a", "nonexistent-user"]`
+- WHEN the API server looks up `nonexistent-user` in Keycloak and finds no match
+- THEN the API server SHALL return an error identifying the unresolvable username
 - AND the Gateway SHALL NOT be created
 - AND any partially provisioned Keycloak resources SHALL be rolled back
 
@@ -385,12 +431,13 @@ Keycloak provisioning SHALL be treated as an atomic operation during gateway cre
 - AND the API server SHALL return an error to the user
 - AND no Gateway SHALL be persisted in PostgreSQL
 
-#### Scenario: Role assignment fails after full client setup
+#### Scenario: Role assignment fails for one admin user
 
 - GIVEN the API server has created the client, roles, and mappers
-- WHEN admin role assignment to the creating user fails
-- THEN the API server SHALL delete the client from Keycloak
-- AND the API server SHALL return an error
+- AND `admin_users` contains `["user-a", "user-b"]`
+- WHEN admin role assignment succeeds for `user-a` but fails for `user-b`
+- THEN the API server SHALL delete the client from Keycloak (rolling back all assignments)
+- AND the API server SHALL return an error identifying the failed user
 - AND no Gateway SHALL be persisted in PostgreSQL
 
 ---
@@ -447,21 +494,23 @@ Complete API call sequence for gateway creation:
    POST /admin/realms/{realm}/clients/{client-uuid}/protocol-mappers/models
    ```
 
-7. **Look up creating user by subject:**
-   ```
-   GET /admin/realms/{realm}/users?username={subject}
-   ```
-
-8. **Get openshell-admin role UUID:**
+7. **Get openshell-admin role UUID:**
    ```
    GET /admin/realms/{realm}/clients/{client-uuid}/roles?search=openshell-admin
    ```
 
-9. **Assign admin role to creating user:**
-   ```
-   POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}
-   [{"name": "openshell-admin", "id": "{role-uuid}"}]
-   ```
+8. **For each username in `admin_users`:**
+
+   a. **Look up user:**
+      ```
+      GET /admin/realms/{realm}/users?username={username}
+      ```
+
+   b. **Assign admin role:**
+      ```
+      POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}
+      [{"name": "openshell-admin", "id": "{role-uuid}"}]
+      ```
 
 For gateway deletion:
 
@@ -479,19 +528,21 @@ For gateway deletion:
 
 ## Data Model Changes
 
-The Gateway kind in `data-model.spec.md` SHALL include an `owner` field:
+The Gateway kind in `data-model.spec.md` SHALL include `owner` and `admin_users` fields:
 
 ```
 Gateway {
     ...existing fields...
-    text owner "non-null - subject (sub claim) of the user who created the gateway"
+    text     owner       "non-null - subject (sub claim) of the user who created the gateway"
+    string[] admin_users "non-null - Keycloak usernames assigned openshell-admin on the gateway's client"
 }
 ```
 
-Database migration:
+Database migrations:
 
 ```sql
 ALTER TABLE gateways ADD COLUMN owner TEXT NOT NULL DEFAULT '';
+ALTER TABLE gateways ADD COLUMN admin_users TEXT[] NOT NULL DEFAULT '{}';
 ```
 
 The `owner` column SHALL be indexed to support efficient owner-scoped queries:
