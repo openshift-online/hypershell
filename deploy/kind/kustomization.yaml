@@ -5,6 +5,7 @@ resources:
   - prerequisites/certificates.yaml
   - prerequisites/networking-gateway.yaml
   - prerequisites/httproutes.yaml
+  - prerequisites/keycloak.yaml
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest
