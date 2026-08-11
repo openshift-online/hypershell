@@ -94,6 +94,16 @@ fi
 if ! pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
   if [[ "${HAVE_SUDO}" == "true" ]]; then
     info "Starting cloud-provider-kind..."
+    # When using podman on macOS, the podman machine socket belongs to the
+    # invoking user. sudo runs cloud-provider-kind as root, which cannot
+    # discover the user's socket. Export CONTAINER_HOST so podman (called
+    # internally by cloud-provider-kind) connects to the correct VM.
+    if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
+      user_socket="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || true)"
+      if [[ -n "${user_socket}" ]]; then
+        export CONTAINER_HOST="unix://${user_socket}"
+      fi
+    fi
     sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
     sleep 2
     if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
@@ -157,7 +167,7 @@ kube apply -f deploy/kind/namespace.yaml
 info "Deploying API server database..."
 kube apply -f deploy/kind/postgres.yaml
 info "Waiting for PostgreSQL..."
-kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
 success "PostgreSQL ready"
 
 if ! is_swapped api-server; then

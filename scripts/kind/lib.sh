@@ -41,7 +41,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]}")}/../.." && pwd)"
 # --- Cluster helpers ---
 
 cluster_exists() {
-  kind get clusters 2>/dev/null | grep -q "^${KIND_CLUSTER_NAME}$"
+  kind get clusters 2>/dev/null | grep -q "^${KIND_CLUSTER_NAME}$" ||
+    ${CONTAINER_ENGINE} inspect "${KIND_CLUSTER_NAME}-control-plane" >/dev/null 2>&1
 }
 
 require_cluster() {

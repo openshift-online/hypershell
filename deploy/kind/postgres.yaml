@@ -69,6 +69,11 @@ spec:
             - containerPort: 5432
               name: postgres
               protocol: TCP
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "hypershell"]
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "hypershell"]
