@@ -68,11 +68,6 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
-      - name: Install cloud-provider-kind
-        run: |
-          go install sigs.k8s.io/cloud-provider-kind@v0.11.1
-          cloud-provider-kind --version || true
-
       - name: Create Kind cluster
         env:
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
