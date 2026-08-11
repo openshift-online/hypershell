@@ -276,7 +276,7 @@ kind-prereqs:
 	  go mod tidy && \
 	  CGO_ENABLED=0 go build -o $(CURDIR)/bin/cloud-provider-kind . && \
 	  rm -rf "$$tmpdir"
-	@echo "==> Done — binary in ./bin/cloud-provider-kind"
+	@echo "==> Done - binary in ./bin/cloud-provider-kind"
 
 .PHONY: kind-up
 kind-up:
