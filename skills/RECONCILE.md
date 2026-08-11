@@ -45,9 +45,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-07
+**Last analyzed**: 2026-08-11
 **Spec corpus**: 22 specs across 4 domains (platform, web-console, standards/platform, standards/ui)
-**Codebase commit**: b83c635
+**Codebase commit**: working tree
 
 ### Coverage Summary
 
@@ -60,10 +60,10 @@ skills/
 | Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
 | Platform - Gateway OIDC | 1 | 7 | 4 | 1 | 2 | 0 | 64% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
-| Platform - Local Development | 1 | 24 | 3 | 5 | 16 | 0 | 23% |
+| Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Web Console - Architecture | 1 | 28 | 18 | 8 | 2 | 0 | 79% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **22** | **136** | **70** | **25** | **41** | **0** | **61%** |
+| **TOTAL** | **22** | **137** | **90** | **20** | **26** | **1** | **73%** |
 
 ### Spec Dependency Order
 
@@ -201,34 +201,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | R17 | Workload restart on config change (hash annotation) | Missing | Cross-cutting: also needed by TLS/OIDC | - | W7 |
 | R18 | `kindToResource` mapping for Gateway kind | Missing | Missing `"Gateway": "gateways"` entry | `reconciler.go:226-252` | W8 |
 
-### local-development.spec.md
-
-| # | Requirement | Status | Gap | Code Location | Wave |
-|---|-------------|--------|-----|---------------|------|
-| LD-1 | `make kind-up` single-command setup | Partial | Builds locally (not registry); `\|\| true` on create; no web console | `Makefile`, `api-server/Makefile` | Future |
-| LD-2 | Idempotent subsequent run | Partial | `\|\| true` instead of `kind get clusters` check | `api-server/Makefile` | Future |
-| LD-3 | Per-component local swap targets | Missing | No `kind-api-server-up`, `kind-control-plane-up`, `kind-web-console-up` | - | Future |
-| LD-4 | Per-component revert targets | Missing | No `kind-*-down` per component | - | Future |
-| LD-5 | Cluster teardown (`make kind-down`) | Present | - | `Makefile`, `api-server/Makefile` | - |
-| LD-6 | Cluster status with swap state | Partial | Shows pods/services; no swap state reporting | `Makefile` | Future |
-| LD-7 | Configurable cluster name | Present | `KIND_CLUSTER_NAME?=hypershell-dev` | `api-server/Makefile` | - |
-| LD-8 | Hostname-based service access | Present | CoreDNS wildcard DNS + pfctl/iptables port forwarding + Gateway API routing | `scripts/kind/lib.sh`, `deploy/kind/coredns/` | - |
-| LD-9 | Container engine support (Podman/Docker) | Present | Auto-detects via `CONTAINER_ENGINE` | `Makefile` | - |
-| LD-10 | Security contexts on all containers | Missing | No securityContext on any Kind manifest | `deploy/kind/*.yaml` | Future |
-| LD-11 | Swap tracking (`.kind-swaps`) | Missing | `.gitignore` entry exists; no logic | - | Future |
-| LD-12 | Developer documentation | Missing | No `DEVELOPMENT.md` | - | Future |
-| LD-13 | Hot reload support | Missing | No `KIND_HOT_RELOAD`, no `extraMounts` | - | Future |
-| LD-14 | Registry-pulled baseline images | Missing | Always builds locally | - | Future |
-| LD-15 | Red Hat hardened DB image | Missing | `postgres:13` from Docker Hub | `deploy/kind/postgres.yaml` | Future |
-| LD-16 | Gateway API CRDs | Missing | Not installed | - | Future |
-| LD-17 | cloud-provider-kind | Missing | Not started | - | Future |
-| LD-18 | cert-manager | Missing | Not installed | - | Future |
-| LD-19 | Keycloak | Missing | Not deployed | - | Future |
-| LD-20 | HyperShell Gateway resource in Kind | Missing | Not created | - | Future |
-| LD-21 | Gateway API routing (HTTPRoute, GRPCRoute) | Missing | No routing resources | - | Future |
-| LD-22 | Multiple namespace deployments | Missing | `kind-up`/`kind-down` support `KIND_NAMESPACE` but deploy-namespace.sh not yet integrated | - | Future |
-| LD-23 | Single root Makefile (deprecate component) | Partial | Root delegates to `api-server/Makefile` | `Makefile` | Future |
-| LD-24 | NodePort fallback (`KIND_USE_NODEPORT`) | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | - | - |
+### local-development.spec.md (superseded by L-table below)
 
 ### web-console/architecture.spec.md
 
@@ -271,25 +244,34 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 ### local-development.spec.md
 
-| # | Requirement | Status | Gap | Code Location | Priority |
-|---|-------------|--------|-----|---------------|----------|
-| L1 | Single-Command Setup (`kind-up`) | Present | Root Makefile + `scripts/kind/up.sh` | `Makefile`, `scripts/kind/up.sh` | P0 |
-| L2 | Per-Component Swap | Present | `swap-component.sh` implements `make kind-<component>-up/down` for api-server, control-plane, and web-console | `scripts/kind/swap-component.sh` | P1 |
-| L3 | Namespace Teardown (`kind-down`) + Cluster Teardown (`kind-teardown`) | Present | `down.sh` removes namespace; `teardown.sh` destroys cluster | `Makefile`, `scripts/kind/down.sh`, `scripts/kind/teardown.sh` | P0 |
-| L4 | Cluster Status (`kind-status`) | Present | Root Makefile + `scripts/kind/status.sh` | `Makefile`, `scripts/kind/status.sh` | P0 |
-| L5 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` in lib.sh | `scripts/kind/lib.sh` | - |
-| L6 | Hostname Routing (Gateway API) | Present | HTTPRoutes + CoreDNS wildcard DNS + pfctl/iptables port forwarding (443 → ephemeral) | `deploy/kind/prerequisites/`, `scripts/kind/lib.sh`, `deploy/kind/coredns/` | - |
-| L7 | NodePort Fallback | Dropped | Replaced by Gateway API routing + port forwarding; NodePort no longer used | - | - |
-| L8 | Gateway via REST API | Present | Fleet + Gateway seeded via curl in up.sh | `scripts/kind/up.sh` | P0 |
-| L9 | Controller RBAC | Present | ClusterRole + ClusterRoleBinding | `deploy/kind/controller-rbac.yaml` | P0 |
-| L10 | API Server Database | Present | postgres.yaml (Secret + Deployment + Service) | `deploy/kind/postgres.yaml` | P0 |
-| L11 | Hot Reload | Present | `swap-component.sh:swap_up()` web-console case scales down deployment, redirects Service → host dev server via Endpoints, runs `pnpm dev` with cleanup trap | `scripts/kind/swap-component.sh` | P2 |
-| L12 | Multi-Namespace Deployments | Missing | Not yet implemented | - | P2 |
-| L13 | Swap Tracking | Present | `lib.sh` defines `track_swap()`, `clear_swap()`, `is_swapped()` using `.kind-swaps` file; consumed by `up.sh` and `swap-component.sh` | `scripts/kind/lib.sh` | P2 |
-| L14 | Developer Documentation | Present | `DEVELOPMENT.md` created | `DEVELOPMENT.md` | P0 |
-| L15 | Container Engine Support | Present | Auto-detection (Podman preferred) | `scripts/kind/lib.sh` | - |
-| L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` + up.sh integration | `scripts/kind/build-images.sh` | - |
-| L17 | Red Hat HI Images | Partial | Spec requires HI; `KIND_DB_IMAGE` override exists but default still standard RHEL | - | P1 |
+| # | Requirement | Status | Gap | Code Location |
+|---|-------------|--------|-----|---------------|
+| L1 | Single-Command Setup (`kind-up`) | Present | Root Makefile + `scripts/kind/up.sh`; registry-pulled baseline images | `Makefile`, `scripts/kind/up.sh` |
+| L2 | Idempotent Subsequent Run | Present | `cluster_exists()` check in lib.sh; manifests reapplied idempotently | `scripts/kind/lib.sh` |
+| L3 | Per-Component Swap (up) | Present | `swap-component.sh` for api-server, control-plane, web-console; rebuilds on every call | `scripts/kind/swap-component.sh` |
+| L4 | Per-Component Revert (down) | Present | Reverts to baseline image; prints info when not swapped | `scripts/kind/swap-component.sh` |
+| L5 | Cluster Teardown (`kind-down` + `kind-teardown`) | Present | `down.sh` removes namespace; `teardown.sh` destroys cluster, stops cloud-provider-kind, DNS, port forwarding | `scripts/kind/down.sh`, `teardown.sh` |
+| L6 | Cluster Status (`kind-status`) | Present | Pods, services, swap state, DNS, port forwarding status | `scripts/kind/status.sh` |
+| L7 | Configurable Cluster Name | Present | `KIND_CLUSTER_NAME` defaults to `hypershell-dev` | `scripts/kind/lib.sh` |
+| L8 | Hostname-Based Service Access | Present | CoreDNS wildcard DNS + pfctl/iptables port forwarding + Gateway API HTTPRoutes | `deploy/kind/prerequisites/`, `scripts/kind/lib.sh` |
+| L9 | Container Engine Support | Present | Auto-detects podman/docker; podman 6+ fix via patched cloud-provider-kind | `Makefile`, `scripts/kind/lib.sh` |
+| L10 | Image Reference Consistency | Present | Makefile defines refs, exported to scripts, used in manifests | `Makefile` |
+| L11 | Security Context Compliance | Present | `runAsNonRoot`, `drop ALL`, `allowPrivilegeEscalation: false` on all containers | `deploy/kind/*.yaml` |
+| L12 | Swap Tracking (`.kind-swaps`) | Present | `track_swap()`, `clear_swap()`, `is_swapped()` functions; up.sh preserves swaps | `scripts/kind/lib.sh` |
+| L13 | Developer Documentation | Present | `DEVELOPMENT.md` with prerequisites, quickstart, env var ref, troubleshooting | `DEVELOPMENT.md` |
+| L14 | Hot Reload Support | Present | Web console: scale down, redirect Service → host Vite via Endpoints, pnpm dev with trap | `scripts/kind/swap-component.sh` |
+| L15 | Container Registry | Present | `IMAGE_REGISTRY` + `IMAGE_TAG` configurable | `Makefile` |
+| L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` builds all images from `origin/main` via git worktree | `scripts/kind/build-images.sh` |
+| L17 | Red Hat HI Images | Present | `hi/postgresql:18.4` digest-pinned; `KIND_DB_IMAGE` override for OSS contributors | `deploy/kind/postgres.yaml`, `Makefile` |
+| L18 | Gateway API CRDs | Present | Experimental channel from upstream at `GATEWAY_API_VERSION` (v1.5.1) | `scripts/kind/up.sh` |
+| L19 | cloud-provider-kind | Present | Patched build (podman 6+ fix); `--enable-lb-port-mapping`; verified in PATH | `Makefile`, `scripts/kind/up.sh` |
+| L20 | cert-manager | Present | Installed from release manifest; waits for deployments ready | `scripts/kind/up.sh` |
+| L21 | Keycloak | Present | Full realm with `hypershell-frontend`, `hypershell-provisioner`, users, custom theme; `KIND_KEYCLOAK_URL` skips | `deploy/kind/prerequisites/keycloak.yaml` |
+| L22 | Gateway Resource | Present | User-initiated via REST API; `kind-up` seeds prerequisites (Fleet, Cluster, Release, DB) but not the Gateway itself; documented in DEVELOPMENT.md | `DEVELOPMENT.md` |
+| L23 | Gateway API Routing | Present | Networking Gateway + HTTPRoutes + wildcard TLS certs via cert-manager | `deploy/kind/prerequisites/` |
+| L24 | Multi-Namespace Deployments | Missing | Manifests have hardcoded `hypershell-system`; no namespace templating or scoped HTTPRoutes | - |
+| L25 | Single Root Makefile | Present | All kind-* targets in root Makefile; component Makefiles deprecated | `Makefile` |
+| L26 | NodePort Fallback | Dropped | Replaced by Gateway API routing + port forwarding | - |
 
 ---
 
@@ -386,3 +368,4 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | 2026-08-07 | b83c635 | Full re-analysis after spec expansion | 62% | 22 specs (was 9); 165 requirements; local-dev and web-console specs added; gateway core spec detailed with 18 requirements; routing gaps surfaced |
 | 2026-08-07 | working tree | Executed Wave 5: Gateway Proto Schema + API Fields | 60% | 6 provisioning fields added to proto/OpenAPI/model/migration; CP reconciler populates GatewayConfig from proto; ExternalSecretRef added to DatabaseConfig |
 | 2026-08-07 | working tree | Executed Wave 6: Gateway Deletion + Cleanup + Route Removal | 60% | DeleteGatewayResources() with label-based cleanup; namespace cache for DELETED events; per-tenant ClusterRoleBinding; deleteGatewayAPIResources() for route disable; ownerReferences deferred |
+| 2026-08-11 | working tree | Local-dev spec reconciliation | 73% | KIND_DB_IMAGE env var wired through Makefile/lib.sh/controller.yaml; spec updated: Gateway creation is user-initiated (not automatic in kind-up); DEVELOPMENT.md env var table updated; gap table refreshed — 23/25 requirements present (was 3/24); only multi-namespace deployments remain |
