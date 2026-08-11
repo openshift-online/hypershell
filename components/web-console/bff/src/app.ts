@@ -7,6 +7,7 @@ import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 
+import { registerAuth } from "./auth.js";
 import type { ServerConfig } from "./config.js";
 
 const correlationHeader = "x-hypershell-correlation-id";
@@ -154,6 +155,54 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
     threshold: 1024,
   });
 
+  if (config.oidcIssuer) {
+    await registerAuth(app, config);
+
+    // CSRF protection: reject mutating requests whose Origin does not match
+    // the Host header. Requests without an Origin header are allowed through
+    // (non-browser clients such as curl may omit it).
+    app.addHook("onRequest", async (request, reply) => {
+      if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) {
+        const origin = request.headers.origin;
+        if (typeof origin === "string") {
+          try {
+            const originHost = new URL(origin).host;
+            const requestHost = request.headers.host;
+            if (!requestHost || originHost !== requestHost) {
+              reply.code(403);
+              reply.send({ error: "Forbidden", statusCode: 403 });
+              return;
+            }
+          } catch {
+            reply.code(403);
+            reply.send({ error: "Forbidden", statusCode: 403 });
+            return;
+          }
+        }
+      }
+    });
+
+    // Auth enforcement: redirect unauthenticated browser navigations to the
+    // login page. Health, auth, and asset endpoints remain public.
+    app.addHook("onRequest", async (request, reply) => {
+      const pathname = new URL(request.url, "http://bff.invalid").pathname;
+      if (
+        pathname.startsWith("/auth/") ||
+        pathname.startsWith("/health/") ||
+        pathname.startsWith("/assets/")
+      ) {
+        return;
+      }
+      if (request.method === "GET" && isApplicationRoute(pathname)) {
+        const accessToken = request.session.get("accessToken");
+        if (!accessToken) {
+          reply.redirect("/auth/login");
+          return;
+        }
+      }
+    });
+  }
+
   await app.register(fastifyStatic, {
     root: path.join(config.staticRoot, "assets"),
     prefix: "/assets/",
@@ -199,6 +248,13 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
       }
     }
     headers.set(correlationHeader, request.correlationId);
+
+    if (config.oidcIssuer) {
+      const accessToken = request.session.get("accessToken");
+      if (typeof accessToken === "string") {
+        headers.set("authorization", `Bearer ${accessToken}`);
+      }
+    }
 
     const controller = new AbortController();
     const timeoutReason = new Error("Upstream API request timed out");
