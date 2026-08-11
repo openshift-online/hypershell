@@ -37,6 +37,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/openshell-gateway-oidc.spec.md` | platform | OIDC authentication, gateway.toml injection | CP | openshell-gateway, openshell-gateway-tls |
 | `platform/openshell-gateway-credentials.spec.md` | platform | Credential storage drivers, KEK conditional provisioning | CP | openshell-gateway, openshell-gateway-database |
 | `platform/openshell-gateway-secret-rotation.spec.md` | platform | Secret rotation: DB password, KEK, TLS certificates | CP | openshell-gateway-database, openshell-gateway-credentials, openshell-gateway-tls |
+| `platform/openshell-gateway-keycloak.spec.md` | platform | Keycloak OIDC client provisioning, gateway ownership, visibility | API | openshell-gateway, openshell-gateway-oidc |
 | `web-console/architecture.spec.md` | web-console | Web console, BFF, browser session, UI routes | WEB, SDK, API | data-model, security, UI standards |
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |

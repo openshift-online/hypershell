@@ -1,15 +1,17 @@
 # OpenShell Gateway OIDC Specification
 
-**Date:** 2026-08-05
+**Date:** 2026-08-11
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
-**Related:** `openshell-gateway-tls.spec.md` - TLS certificate management; `openshell-gateway-routing.spec.md` - external connectivity
+**Related:** `openshell-gateway-keycloak.spec.md` - automated per-gateway Keycloak provisioning; `openshell-gateway-tls.spec.md` - TLS certificate management; `openshell-gateway-routing.spec.md` - external connectivity
 
 ---
 
 ## Purpose
 
 This specification defines per-gateway OIDC authentication for OpenShell gateways. OIDC enables CLI users and external clients to authenticate via Bearer tokens from an identity provider (e.g., Keycloak). OIDC is the sole authentication mechanism for HyperShell gateways in production.
+
+OIDC configuration is auto-provisioned by the API server when a gateway is created. The API server provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane injects the OIDC configuration into `gateway.toml` and validates it.
 
 ---
 
@@ -30,18 +32,19 @@ OpenShell Gateway
 Authorized (sandbox create, list, exec, etc.)
 ```
 
-### Verified Keycloak Configuration (ROSA)
+### Per-Gateway Keycloak Configuration
+
+Each gateway receives a dedicated Keycloak OIDC client provisioned automatically by the API server (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md)).
 
 ```
-Realm:      hypershell
-Client:     hypershell-frontend (public, standard flow + direct access grants)
-Audience:   hypershell-frontend
-Roles claim: groups (via group membership, not realm_access.roles)
-Groups:     hypershell-admins, hypershell-users
-Users:      admin (both groups), developer (hypershell-users only)
+Realm:       hypershell
+Client:      {gateway-name} (public, PKCE, fullScopeAllowed=false)
+Audience:    {gateway-name} (matches clientId)
+Roles claim: hypershell.roles (via client-roles mapper from resource_access.{clientId}.roles)
+Roles:       openshell-admin, openshell-user (client-scoped)
 ```
 
-> **Implementation note:** Keycloak exposes group membership under the `groups` claim (not `realm_access.roles`). The `roles_claim` field in the gateway config maps to wherever the IdP puts role/group information. The naming is upstream OpenShell convention.
+> **Per-gateway isolation:** Each gateway has its own Keycloak client with `fullScopeAllowed = false` and a dedicated audience. Tokens obtained for one gateway contain only that gateway's roles and audience — cross-gateway role leakage is prevented at the IdP level.
 
 ---
 
@@ -49,17 +52,17 @@ Users:      admin (both groups), developer (hypershell-users only)
 
 ### Requirement: Gateway OIDC API Fields
 
-The Gateway API resource SHALL accept an optional `oidc` object containing OIDC configuration fields. These fields map directly to the upstream OpenShell `server.oidc.*` helm values.
+The Gateway API resource SHALL have an `oidc` object containing OIDC configuration fields. These fields are auto-populated by the API server during Keycloak provisioning (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md)) and are read-only in the REST and gRPC contracts. The fields map directly to the upstream OpenShell `server.oidc.*` helm values.
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `oidc.issuer` | string | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
-| `oidc.audience` | string | No | `"openshell-cli"` | Expected `aud` claim value in JWT |
-| `oidc.jwks_ttl` | integer | No | `3600` | JWKS key cache retention in seconds |
-| `oidc.roles_claim` | string | No | `""` | Dot-delimited path to roles array in JWT claims |
-| `oidc.admin_role` | string | No | `""` | Role name conferring admin access |
-| `oidc.user_role` | string | No | `""` | Role name conferring standard user access |
-| `oidc.scopes_claim` | string | No | `""` | Dot-delimited path to scopes array in JWT claims |
+| Field | Type | Auto-Populated Value | Description |
+|---|---|---|---|
+| `oidc.issuer` | string | `{keycloak-url}/realms/{realm}` | OIDC issuer URL |
+| `oidc.audience` | string | `{gateway-name}` | Expected `aud` claim value in JWT (matches Keycloak clientId) |
+| `oidc.jwks_ttl` | integer | `3600` | JWKS key cache retention in seconds |
+| `oidc.roles_claim` | string | `"hypershell.roles"` | Dot-delimited path to roles array in JWT claims |
+| `oidc.admin_role` | string | `"openshell-admin"` | Role name conferring admin access |
+| `oidc.user_role` | string | `"openshell-user"` | Role name conferring standard user access |
+| `oidc.scopes_claim` | string | `""` | Dot-delimited path to scopes array in JWT claims |
 
 #### Scenario: Gateway with OIDC enabled via kustomize
 
@@ -121,11 +124,12 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
   allow_unauthenticated_users = false
 
   [openshell.gateway.oidc]
-  issuer      = "https://keycloak.example.com/realms/hypershell"
-  audience    = "hypershell-frontend"
-  roles_claim = "groups"
-  admin_role  = "hypershell-admins"
-  user_role   = "hypershell-users"
+  issuer        = "https://keycloak.example.com/realms/hypershell"
+  audience      = "my-gateway"
+  jwks_ttl_secs = 3600
+  roles_claim   = "hypershell.roles"
+  admin_role    = "openshell-admin"
+  user_role     = "openshell-user"
   ```
 - AND `allow_unauthenticated_users` SHALL be `false`
 

@@ -60,6 +60,16 @@ Resources are scoped to fleets via `fleet_id`. All queries MUST include fleet sc
 - WHEN the query does not include `fleet_id` filtering
 - THEN the system SHALL reject the request or apply implicit fleet scoping
 
+### Gateway Owner Isolation
+
+Gateways are scoped to their creating user via the `owner` field. All gateway queries MUST include owner scoping so users can only see and operate on gateways they created. See [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for provisioning and visibility details.
+
+#### Scenario: Cross-User Gateway Access Prevention
+- GIVEN user A querying gateways
+- WHEN user B owns a gateway
+- THEN user A's query SHALL NOT return user B's gateway
+- AND direct access by ID SHALL return 404 (not 403) to avoid revealing existence
+
 ## Security Checklist
 
 **Secrets:**
