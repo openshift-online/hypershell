@@ -128,7 +128,7 @@ func DeleteGatewayResources(
 	if opts.HasGatewayAPI {
 		namespacedResources = append(namespacedResources,
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1alpha3", Resource: "backendtlspolicies"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
 		)
 		gwGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
 		gwName := "gw-" + namespace
@@ -204,7 +204,7 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 
 	btlsGVR := schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",
-		Version:  "v1alpha3",
+		Version:  "v1",
 		Resource: "backendtlspolicies",
 	}
 	if err := dynamicClient.Resource(btlsGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
@@ -1027,7 +1027,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 
 		btlsPolicy := &unstructured.Unstructured{
 			Object: map[string]interface{}{
-				"apiVersion": "gateway.networking.k8s.io/v1alpha3",
+				"apiVersion": "gateway.networking.k8s.io/v1",
 				"kind":       "BackendTLSPolicy",
 				"metadata": map[string]interface{}{
 					"name":      "openshell-gateway",
