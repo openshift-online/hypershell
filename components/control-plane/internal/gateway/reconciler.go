@@ -128,10 +128,10 @@ func DeleteGatewayResources(
 	if opts.HasGatewayAPI {
 		namespacedResources = append(namespacedResources,
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1alpha3", Resource: "backendtlspolicies"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
 		)
 		gwGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-		gwName := truncateDNSLabel("openshell-gw-" + namespace)
+		gwName := "gw-" + namespace
 		gwNS := gatewayIngressNamespace()
 		if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil {
 			if !k8serrors.IsNotFound(err) {
@@ -181,7 +181,7 @@ func DeleteGatewayResources(
 }
 
 func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	gwName := truncateDNSLabel("openshell-gw-" + namespace)
+	gwName := "gw-" + namespace
 
 	gwGVR := schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",
@@ -204,7 +204,7 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 
 	btlsGVR := schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",
-		Version:  "v1alpha3",
+		Version:  "v1",
 		Resource: "backendtlspolicies",
 	}
 	if err := dynamicClient.Resource(btlsGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
@@ -889,11 +889,11 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
 			return nil
 		}
-		firstLabel := truncateDNSLabel("openshell-gateway-" + namespace)
+		firstLabel := "gw-" + namespace
 		hostname = fmt.Sprintf("%s.%s", firstLabel, baseDomain)
 	}
 
-	gwName := truncateDNSLabel("openshell-gw-" + namespace)
+	gwName := "gw-" + namespace
 	gwNS := gatewayIngressNamespace()
 
 	gw := &unstructured.Unstructured{
@@ -1027,7 +1027,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 
 		btlsPolicy := &unstructured.Unstructured{
 			Object: map[string]interface{}{
-				"apiVersion": "gateway.networking.k8s.io/v1alpha3",
+				"apiVersion": "gateway.networking.k8s.io/v1",
 				"kind":       "BackendTLSPolicy",
 				"metadata": map[string]interface{}{
 					"name":      "openshell-gateway",
@@ -1185,20 +1185,6 @@ func gatewayConditionsMet(gw *unstructured.Unstructured) bool {
 		}
 	}
 	return accepted && programmed
-}
-
-func truncateDNSLabel(label string) string {
-	const maxLen = 63
-	if len(label) <= maxLen {
-		return label
-	}
-
-	hash := sha256.Sum256([]byte(label))
-	suffix := hex.EncodeToString(hash[:4])
-	truncLen := maxLen - 1 - len(suffix)
-	truncated := label[:truncLen]
-	truncated = strings.TrimRight(truncated, "-")
-	return truncated + "-" + suffix
 }
 
 func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) error {

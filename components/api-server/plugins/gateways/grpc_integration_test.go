@@ -66,7 +66,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(created.Gateway.Metadata.Id).NotTo(BeEmpty())
-	Expect(created.Gateway.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{40}$`))
+	Expect(created.Gateway.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 
 	gatewayID := created.Gateway.Metadata.Id
 	gatewayNamespace := created.Gateway.Namespace

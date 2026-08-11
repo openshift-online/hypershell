@@ -65,7 +65,7 @@ func TestGatewayPost(t *testing.T) {
 	Expect(*gatewayOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
 	Expect(*gatewayOutput.Kind).To(Equal("Gateway"))
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
-	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{40}$`))
+	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
 	restyResp, err := resty.R().
@@ -98,7 +98,7 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
 	Expect(gatewayOutput.DatabaseId).To(BeEmpty())
-	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{40}$`))
+	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 }
 
 func TestGatewayPostDefaultsRouteEnabled(t *testing.T) {

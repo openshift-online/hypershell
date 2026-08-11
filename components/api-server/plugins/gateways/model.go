@@ -51,7 +51,7 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 	if err != nil {
 		return fmt.Errorf("parse generated gateway ID: %w", err)
 	}
-	d.Namespace = gatewayNamespacePrefix + hex.EncodeToString(id.Bytes())
+	d.Namespace = gatewayNamespacePrefix + hex.EncodeToString(id.Payload()[:8])
 	return nil
 }
 

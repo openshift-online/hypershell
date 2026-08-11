@@ -33,7 +33,7 @@ openshell-gateway Pod (tenant namespace)
 
 Requires:
 - OpenShift 4.22+ (GatewayClass `openshift-default`)
-- Hostname: `openshell-gateway-<tenant-namespace>.<base-domain>` (auto-derived)
+- Hostname: `gw-<tenant-namespace>.<base-domain>` (auto-derived)
 
 ### Why openshift-ingress?
 
@@ -77,7 +77,7 @@ spec:
           kubernetes.io/metadata.name: openshift-ingress
       podSelector:
         matchLabels:
-          gateway.networking.k8s.io/gateway-name: openshell-gw-<tenant-namespace>
+          gateway.networking.k8s.io/gateway-name: gw-<tenant-namespace>
     ports:
     - port: 8080
       protocol: TCP
@@ -115,11 +115,10 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 #### Scenario: Gateway with auto-assigned route host
 
 - GIVEN a Gateway with `route: {}`
-- THEN the control plane SHALL create a per-tenant Gateway API Gateway in the `openshift-ingress` namespace (named `openshell-gw-<tenant-namespace>`)
+- THEN the control plane SHALL create a per-tenant Gateway API Gateway in the `openshift-ingress` namespace (named `gw-<tenant-namespace>`)
 - AND the control plane SHALL create a GRPCRoute in the tenant namespace with a cross-namespace parentRef to the Gateway
-- AND the hostname SHALL be `openshell-gateway-<tenant-namespace>.<base-domain>`
-- AND the derived hostname's first DNS label (`openshell-gateway-<tenant-namespace>`) SHALL be validated against the 63-character DNS label limit (RFC 1123)
-- AND if the label exceeds 63 characters, the reconciler SHALL truncate the namespace portion and append a short hash suffix to ensure uniqueness (e.g., `openshell-gateway-<truncated>-<hash>`)
+- AND the hostname SHALL be `gw-<tenant-namespace>.<base-domain>`
+- AND the derived hostname's first DNS label (e.g., `gw-openshell-a1b2c3d4e5f67890` at 29 chars) SHALL be well within the 63-character DNS label limit (RFC 1123), so no truncation is needed
 
 #### Scenario: Gateway with explicit route host
 
@@ -151,7 +150,7 @@ The GatewayReconciler SHALL create a Gateway API Gateway resource in the `opensh
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: openshell-gw-<tenant-namespace>
+  name: gw-<tenant-namespace>
   namespace: openshift-ingress
   labels:
     app.kubernetes.io/name: openshell
@@ -162,7 +161,7 @@ spec:
   gatewayClassName: <GATEWAY_API_GATEWAY_CLASS>   # default: openshift-default
   listeners:
   - name: grpc
-    hostname: "openshell-gateway-<tenant-namespace>.<base-domain>"
+    hostname: "gw-<tenant-namespace>.<base-domain>"
     port: 443
     protocol: HTTPS
     tls:
@@ -199,10 +198,10 @@ metadata:
     hypershell.redhat.io/managed: "true"
 spec:
   parentRefs:
-  - name: openshell-gw-<tenant-namespace>
+  - name: gw-<tenant-namespace>
     namespace: openshift-ingress
   hostnames:
-  - openshell-gateway-<tenant-namespace>.<base-domain>
+  - gw-<tenant-namespace>.<base-domain>
   rules:
   - backendRefs:
     - name: openshell-gateway

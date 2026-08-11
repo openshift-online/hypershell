@@ -188,7 +188,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | R4 | Gateway API not available: disable + log | Present | - | `reconciler.go:76-80` | W4 ✅ |
 | R5 | `route` config field (host, enabled) | Present | - | `config.go:17-20` | W4 ✅ |
 | R6 | Auto-derived hostname convention | Partial | Extra `.hsgw.` subdomain vs spec | `reconciler.go:727-731` | W8 |
-| R7 | DNS label validation (63-char, truncation+hash) | Missing | No validation | - | W7 |
+| R7 | DNS label validation (63-char limit) | Not needed | Shortened namespace (26 chars) + `gw-` prefix keeps all derived names under 63 chars | - | - |
 | R8 | GRPCRoute provisioning | Present | - | `reconciler.go:735-769` | W4 ✅ |
 | R9 | GRPCRoute parentRefs: per-tenant Gateway | Partial | Points to shared gateway, not per-tenant | `reconciler.go:749-753` | W8 |
 | R10 | GRPCRoute managed label for cleanup | Present | Spec updated: `hypershell.redhat.io/managed` label replaces ownerReferences; cleanup via `deleteGatewayAPIResources()` | `gateway/reconciler.go` | W6 ✅ |
@@ -324,7 +324,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 7. Block gateway deployment when cert-manager is absent (not just WARN)
 8. Add SAN change detection (compare ConfigMap `server_sans` to API `serverDnsNames`)
 9. Fix router NetworkPolicy: use `podSelector` with gateway label; only create when `route` config present
-10. Add DNS label validation (63-char limit, truncation+hash) for route hostnames
+10. ~~DNS label validation~~ Not needed: shortened namespace (26 chars) + `gw-` prefix keeps all derived names under 63 chars
 11. Verify: `go build ./...`, `go vet ./...`
 
 ### Wave 8: Per-Tenant Gateway API Resources + routeAddress
@@ -337,7 +337,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 3. Create per-tenant `gateway.networking.k8s.io/v1 Gateway` resource with gatewayClassName, listener, hostname, TLS termination
 4. Copy wildcard cert Secret (`grpc-gateway-certs`) from CP namespace to tenant namespace
 5. Update GRPCRoute `parentRefs` to reference per-tenant Gateway (same namespace)
-6. Fix hostname convention: `openshell-gateway-<ns>.<base-domain>` (remove `.hsgw.` segment)
+6. Fix hostname convention: `gw-<ns>.<base-domain>` (shortened prefix)
 7. Implement routeAddress discovery: poll Gateway status for `Accepted: True` + `Programmed: True`, extract address
 8. PATCH `routeAddress` field back to API server via gRPC
 9. Verify: `go build ./...`, `go vet ./...`

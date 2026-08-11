@@ -146,7 +146,7 @@ All resources (ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, Gateway
 
 ### Requirement: Gateway Namespace Ownership
 
-The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<gateway-id-hex>`, where `gateway-id-hex` is the lowercase hexadecimal encoding of the Gateway KSUID bytes, so that it is stable, collision-preserving, and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
+The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<id-hex-8>`, where `id-hex-8` is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload, producing a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`). This is stable, collision-safe for realistic fleet sizes (~1 in 10^9 at 1M gateways), and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
 
 #### Scenario: Create Gateways Without a Namespace
 

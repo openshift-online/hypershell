@@ -25,7 +25,7 @@ func TestBeforeCreateAssignsUniqueKubernetesNamespaces(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse generated gateway ID: %v", err)
 		}
-		want := gatewayNamespacePrefix + hex.EncodeToString(id.Bytes())
+		want := gatewayNamespacePrefix + hex.EncodeToString(id.Payload()[:8])
 		if gateway.Namespace != want {
 			t.Errorf("namespace = %q, want %q", gateway.Namespace, want)
 		}
