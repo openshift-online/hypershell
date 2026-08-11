@@ -1,0 +1,478 @@
+/*
+ * HyperShell Keycloak Login Theme -- light palette with interaction blue.
+ * Overrides Keycloak's bundled PatternFly 5 classes with !important to ensure
+ * our values win regardless of specificity. If a future Keycloak upgrade adds
+ * competing !important declarations, these rules may need revisiting.
+ */
+
+@font-face {
+  font-family: 'Red Hat Text';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../fonts/RedHatText-latin.woff2") format('woff2');
+}
+
+/* Page background */
+.pf-v5-c-login,
+html.pf-v5-theme-dark .pf-v5-c-login {
+  background-color: #f2f2f2 !important;
+  background-image: none !important;
+  height: 100vh !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Kill the PatternFly grid at ALL breakpoints -- force centered single-column */
+.pf-v5-c-login__container {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 100vh !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 1rem !important;
+  box-sizing: border-box !important;
+  grid-template-columns: none !important;
+  grid-template-areas: none !important;
+}
+
+/* Header -- hide raw text from kc-header-wrapper (Keycloak 26.0 / PF5 DOM) */
+#kc-header-wrapper {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  color: transparent !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.pf-v5-c-login__header {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+  width: auto !important;
+  margin-bottom: 1.5rem !important;
+  padding: 0 !important;
+  grid-area: unset !important;
+  order: -1 !important;
+}
+
+.pf-v5-c-login__header::before {
+  content: "";
+  display: block;
+  width: 88px;
+  height: 88px;
+  background-image: url("../img/hypershell-logo.png");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  margin-bottom: 0.5rem;
+}
+
+.pf-v5-c-login__header::after {
+  content: "HyperShell";
+  display: block;
+  color: #151515;
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-family: 'Red Hat Text', system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* Login card */
+.pf-v5-c-login__main {
+  width: 100% !important;
+  max-width: 400px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  align-self: center !important;
+  background-color: #ffffff !important;
+  border: 1px solid #e0e0e0 !important;
+  border-radius: 0.625rem !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08) !important;
+  grid-area: unset !important;
+}
+
+.pf-v5-c-login__main-body {
+  background-color: transparent;
+}
+
+.pf-v5-c-login__main-header {
+  background-color: transparent;
+}
+
+/* "Sign in to your account" heading */
+.pf-v5-c-login__main-header h1,
+h1.pf-v5-c-title,
+h1.pf-v5-c-title.pf-m-3xl,
+#kc-page-title {
+  color: #151515 !important;
+  font-family: 'Red Hat Text', system-ui, -apple-system, sans-serif !important;
+}
+
+/* All form text uses Red Hat Text */
+.pf-v5-c-form,
+.pf-v5-c-form-control,
+.pf-v5-c-form-control input,
+.pf-v5-c-button {
+  font-family: 'Red Hat Text', system-ui, -apple-system, sans-serif !important;
+}
+
+/* Form inputs */
+.pf-v5-c-form-control {
+  --pf-v5-c-form-control--BorderTopColor: #e0e0e0;
+  --pf-v5-c-form-control--BorderRightColor: #e0e0e0;
+  --pf-v5-c-form-control--BorderBottomColor: #e0e0e0;
+  --pf-v5-c-form-control--BorderLeftColor: #e0e0e0;
+  --pf-v5-c-form-control--hover--BorderBottomColor: #0066cc;
+  --pf-v5-c-form-control--focus--BorderBottomColor: #0066cc;
+  --pf-v5-c-form-control--m-expanded--BorderBottomColor: #0066cc;
+  --pf-v5-c-form-control--BackgroundColor: #ffffff;
+  --pf-v5-c-form-control--Color: #151515;
+  --pf-v5-c-form-control--OutlineOffset: 0;
+  --pf-v5-c-form-control--after--BorderBottomColor: #e0e0e0;
+  --pf-v5-c-form-control--hover__after--BorderBottomColor: #0066cc;
+  --pf-v5-c-form-control--focus__after--BorderBottomColor: #0066cc;
+  background-color: #ffffff !important;
+  border-color: #e0e0e0 !important;
+  color: #151515 !important;
+}
+
+.pf-v5-c-form-control::before {
+  border-color: #e0e0e0 !important;
+}
+
+.pf-v5-c-form-control input {
+  background-color: transparent !important;
+  color: #151515 !important;
+}
+
+.pf-v5-c-form-control::after {
+  border-bottom-color: #e0e0e0 !important;
+  transition: border-bottom-color 0.2s ease;
+}
+
+.pf-v5-c-form-control:hover::after,
+.pf-v5-c-form-control:focus-within::after {
+  border-bottom-color: #0066cc !important;
+}
+
+.pf-v5-c-form-control:focus-within,
+.pf-v5-c-form-control:focus {
+  border-color: #0066cc !important;
+  outline: none !important;
+}
+
+/* Labels */
+.pf-v5-c-form__label-text {
+  color: #4d4d4d !important;
+  font-family: 'Red Hat Text', system-ui, -apple-system, sans-serif !important;
+}
+
+/* Primary button -- interaction blue */
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: #0066cc;
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: #004d99;
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: #004d99;
+  --pf-v5-c-button--m-primary--active--BackgroundColor: #004d99;
+  background-color: #0066cc !important;
+  border-color: #0066cc !important;
+  color: #ffffff !important;
+  border-radius: 50rem !important;
+  font-family: 'Red Hat Text', system-ui, -apple-system, sans-serif !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.pf-v5-c-button.pf-m-primary:hover,
+.pf-v5-c-button.pf-m-primary:focus,
+.pf-v5-c-button.pf-m-primary:active {
+  background-color: #004d99 !important;
+  border-color: #004d99 !important;
+}
+
+/* Remove the dark divider between password input and eye toggle */
+.pf-v5-c-input-group__item + .pf-v5-c-input-group__item::before {
+  border-left-color: #e0e0e0 !important;
+}
+
+.pf-v5-c-input-group {
+  --pf-v5-c-input-group--item--BorderLeftColor: #e0e0e0 !important;
+}
+
+.pf-v5-c-button.pf-m-control::before {
+  border-color: #e0e0e0 !important;
+}
+
+.pf-v5-c-button.pf-m-control {
+  border-left-color: #e0e0e0 !important;
+  --pf-v5-c-button--m-control--BackgroundColor: #ffffff;
+  --pf-v5-c-button--m-control--hover--BackgroundColor: #ffffff;
+  --pf-v5-c-button--m-control--focus--BackgroundColor: #ffffff;
+  --pf-v5-c-button--m-control--active--BackgroundColor: #ffffff;
+  --pf-v5-c-button--m-control--BorderColor: #e0e0e0;
+  --pf-v5-c-button--m-control--after--BorderBottomColor: #e0e0e0;
+  --pf-v5-c-button--m-control--hover--after--BorderBottomColor: #0066cc;
+  --pf-v5-c-button--m-control--focus--after--BorderBottomColor: #0066cc;
+  --pf-v5-c-button--m-control--active--after--BorderBottomColor: #0066cc;
+  background-color: #ffffff !important;
+  border-color: #e0e0e0 !important;
+  color: #707070 !important;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.pf-v5-c-button.pf-m-control::after {
+  border-bottom-color: #e0e0e0 !important;
+  transition: border-bottom-color 0.2s ease;
+}
+
+.pf-v5-c-button.pf-m-control:hover::after,
+.pf-v5-c-button.pf-m-control:focus::after,
+.pf-v5-c-button.pf-m-control:active::after {
+  border-bottom-color: #0066cc !important;
+}
+
+.pf-v5-c-button.pf-m-control:hover,
+.pf-v5-c-button.pf-m-control:focus,
+.pf-v5-c-button.pf-m-control:active {
+  color: #0066cc !important;
+  border-color: #0066cc !important;
+  background-color: #ffffff !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Eye icon inside password toggle */
+.pf-v5-c-button.pf-m-control i.fa-eye,
+.pf-v5-c-button.pf-m-control i.fa-eye-slash,
+.pf-v5-c-button.pf-m-control i.fas,
+.pf-v5-c-button.pf-m-control i,
+.pf-v5-c-button[data-password-toggle] i {
+  color: #707070 !important;
+  transition: color 0.2s ease;
+}
+
+.pf-v5-c-button.pf-m-control:hover i.fa-eye,
+.pf-v5-c-button.pf-m-control:hover i.fa-eye-slash,
+.pf-v5-c-button.pf-m-control:hover i.fas,
+.pf-v5-c-button.pf-m-control:hover i,
+.pf-v5-c-button.pf-m-control:focus i,
+.pf-v5-c-button[data-password-toggle]:hover i {
+  color: #0066cc !important;
+}
+
+/* Links -- interaction blue */
+.pf-v5-c-login__main-footer-links a,
+.pf-v5-c-button.pf-m-link {
+  color: #0066cc !important;
+}
+
+.pf-v5-c-button.pf-m-link:hover {
+  color: #004d99 !important;
+}
+
+/* Footer */
+.pf-v5-c-login__main-footer {
+  background-color: transparent;
+}
+
+/* Alert styling */
+.pf-v5-c-alert {
+  background-color: #ffffff !important;
+  border-color: #e0e0e0 !important;
+}
+
+.pf-v5-c-alert__title {
+  color: #151515 !important;
+}
+
+/* Checkbox */
+.pf-v5-c-check__label {
+  color: #4d4d4d !important;
+}
+
+/* Page footer */
+.pf-v5-c-login__footer {
+  text-align: center;
+  color: #707070;
+  margin-top: 0.75rem;
+  grid-area: unset !important;
+}
+
+/* Dark mode -- follow OS/browser preference, PF6 dark palette with lighter blue */
+@media (prefers-color-scheme: dark) {
+  .pf-v5-c-login,
+  html.pf-v5-theme-dark .pf-v5-c-login {
+    background-color: #1b1d21 !important;
+  }
+
+  .pf-v5-c-login__header::after {
+    color: #e0e0e0;
+  }
+
+  .pf-v5-c-login__main {
+    background-color: #292e34 !important;
+    border-color: #3c3f42 !important;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  .pf-v5-c-login__main-header h1,
+  h1.pf-v5-c-title,
+  h1.pf-v5-c-title.pf-m-3xl,
+  #kc-page-title {
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-form-control {
+    --pf-v5-c-form-control--BorderTopColor: #3c3f42;
+    --pf-v5-c-form-control--BorderRightColor: #3c3f42;
+    --pf-v5-c-form-control--BorderBottomColor: #3c3f42;
+    --pf-v5-c-form-control--BorderLeftColor: #3c3f42;
+    --pf-v5-c-form-control--BackgroundColor: #1b1d21;
+    --pf-v5-c-form-control--Color: #e0e0e0;
+    --pf-v5-c-form-control--after--BorderBottomColor: #3c3f42;
+    background-color: #1b1d21 !important;
+    border-color: #3c3f42 !important;
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-form-control::before {
+    border-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-form-control input {
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-form-control::after {
+    border-bottom-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-form__label-text {
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-input-group__item + .pf-v5-c-input-group__item::before {
+    border-left-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-input-group {
+    --pf-v5-c-input-group--item--BorderLeftColor: #3c3f42 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control::before {
+    border-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control {
+    border-left-color: #3c3f42 !important;
+    --pf-v5-c-button--m-control--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--hover--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--focus--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--active--BackgroundColor: #1b1d21;
+    --pf-v5-c-button--m-control--BorderColor: #3c3f42;
+    --pf-v5-c-button--m-control--after--BorderBottomColor: #3c3f42;
+    background-color: #1b1d21 !important;
+    border-color: #3c3f42 !important;
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control::after {
+    border-bottom-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover,
+  .pf-v5-c-button.pf-m-control:focus,
+  .pf-v5-c-button.pf-m-control:active {
+    background-color: #1b1d21 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control i.fa-eye,
+  .pf-v5-c-button.pf-m-control i.fa-eye-slash,
+  .pf-v5-c-button.pf-m-control i.fas,
+  .pf-v5-c-button.pf-m-control i,
+  .pf-v5-c-button[data-password-toggle] i {
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-form-control:hover::after,
+  .pf-v5-c-form-control:focus-within::after {
+    border-bottom-color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-form-control:focus-within,
+  .pf-v5-c-form-control:focus {
+    border-color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-button.pf-m-primary {
+    --pf-v5-c-button--m-primary--BackgroundColor: #73bcf7;
+    --pf-v5-c-button--m-primary--hover--BackgroundColor: #bee1f4;
+    --pf-v5-c-button--m-primary--focus--BackgroundColor: #bee1f4;
+    --pf-v5-c-button--m-primary--active--BackgroundColor: #bee1f4;
+    background-color: #73bcf7 !important;
+    border-color: #73bcf7 !important;
+    color: #151515 !important;
+  }
+
+  .pf-v5-c-button.pf-m-primary:hover,
+  .pf-v5-c-button.pf-m-primary:focus,
+  .pf-v5-c-button.pf-m-primary:active {
+    background-color: #bee1f4 !important;
+    border-color: #bee1f4 !important;
+    color: #151515 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover::after,
+  .pf-v5-c-button.pf-m-control:focus::after,
+  .pf-v5-c-button.pf-m-control:active::after {
+    border-bottom-color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover,
+  .pf-v5-c-button.pf-m-control:focus,
+  .pf-v5-c-button.pf-m-control:active {
+    color: #1fa7f8 !important;
+    border-color: #1fa7f8 !important;
+    background-color: #1b1d21 !important;
+  }
+
+  .pf-v5-c-button.pf-m-control:hover i.fa-eye,
+  .pf-v5-c-button.pf-m-control:hover i.fa-eye-slash,
+  .pf-v5-c-button.pf-m-control:hover i.fas,
+  .pf-v5-c-button.pf-m-control:hover i,
+  .pf-v5-c-button.pf-m-control:focus i,
+  .pf-v5-c-button[data-password-toggle]:hover i {
+    color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-login__main-footer-links a,
+  .pf-v5-c-button.pf-m-link {
+    color: #73bcf7 !important;
+  }
+
+  .pf-v5-c-button.pf-m-link:hover {
+    color: #1fa7f8 !important;
+  }
+
+  .pf-v5-c-alert {
+    background-color: #292e34 !important;
+    border-color: #3c3f42 !important;
+  }
+
+  .pf-v5-c-alert__title {
+    color: #e0e0e0 !important;
+  }
+
+  .pf-v5-c-check__label {
+    color: #a2a2a2 !important;
+  }
+
+  .pf-v5-c-login__footer {
+    color: #a2a2a2;
+  }
+}

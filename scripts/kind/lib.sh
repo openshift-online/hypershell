@@ -26,6 +26,12 @@ error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 : "${KIND_CLUSTER_NAME:=hypershell-dev}"
 : "${KIND_NAMESPACE:=hypershell-system}"
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
+REPO_ROOT="$(cd "${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]}")}/../.." && pwd)"
+
+# Prefer locally-built binaries from make kind-prereqs
+if [[ -d "${REPO_ROOT}/bin" ]]; then
+  export PATH="${REPO_ROOT}/bin:${PATH}"
+fi
 if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
   export KIND_EXPERIMENTAL_PROVIDER=podman
 fi
@@ -36,12 +42,12 @@ fi
 : "${KEYCLOAK_OIDC_AUDIENCE:=hypershell-frontend}"
 : "${KIND_DNS_PORT:=5553}"
 DNS_CONTAINER_NAME="${KIND_CLUSTER_NAME}-dns"
-REPO_ROOT="$(cd "${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]}")}/../.." && pwd)"
 
 # --- Cluster helpers ---
 
 cluster_exists() {
-  kind get clusters 2>/dev/null | grep -q "^${KIND_CLUSTER_NAME}$"
+  kind get clusters 2>/dev/null | grep -q "^${KIND_CLUSTER_NAME}$" ||
+    ${CONTAINER_ENGINE} inspect "${KIND_CLUSTER_NAME}-control-plane" >/dev/null 2>&1
 }
 
 require_cluster() {
@@ -198,6 +204,61 @@ ${existing}"
   kube rollout restart deployment/coredns -n kube-system
   kube rollout status deployment/coredns -n kube-system --timeout=60s
   success "Cluster CoreDNS patched"
+}
+
+# --- kubectl port-forward (no-sudo fallback) ---
+
+KUBECTL_PF_DIR="/tmp/hypershell-kind-${KIND_CLUSTER_NAME}-pf"
+
+kubectl_port_forwards_running() {
+  [[ -d "${KUBECTL_PF_DIR}" ]] || return 1
+  for pf in "${KUBECTL_PF_DIR}"/*.pid; do
+    [[ -f "${pf}" ]] || continue
+    kill -0 "$(cat "${pf}")" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+start_kubectl_port_forwards() {
+  stop_kubectl_port_forwards
+  mkdir -p "${KUBECTL_PF_DIR}"
+
+  info "Starting kubectl port-forwards..."
+
+  local ctx
+  ctx="$(kctx)"
+
+  nohup kubectl --context "${ctx}" port-forward svc/hypershell-api-server \
+    -n "${KIND_NAMESPACE}" 8000:8000 >"${KUBECTL_PF_DIR}/api-server.log" 2>&1 &
+  echo $! > "${KUBECTL_PF_DIR}/api-server.pid"
+
+  nohup kubectl --context "${ctx}" port-forward svc/hypershell-web-console \
+    -n "${KIND_NAMESPACE}" 3000:3000 >"${KUBECTL_PF_DIR}/web-console.log" 2>&1 &
+  echo $! > "${KUBECTL_PF_DIR}/web-console.pid"
+
+  nohup kubectl --context "${ctx}" port-forward svc/keycloak-service \
+    -n keycloak 8080:8080 >"${KUBECTL_PF_DIR}/keycloak.log" 2>&1 &
+  echo $! > "${KUBECTL_PF_DIR}/keycloak.pid"
+
+  sleep 2
+
+  for svc_name in api-server web-console keycloak; do
+    local pf="${KUBECTL_PF_DIR}/${svc_name}.pid"
+    if [[ -f "${pf}" ]] && kill -0 "$(cat "${pf}")" 2>/dev/null; then
+      success "  ${svc_name}: forwarding"
+    else
+      warn "  ${svc_name}: failed (check ${KUBECTL_PF_DIR}/${svc_name}.log)"
+    fi
+  done
+}
+
+stop_kubectl_port_forwards() {
+  if [[ ! -d "${KUBECTL_PF_DIR}" ]]; then return; fi
+  for pf in "${KUBECTL_PF_DIR}"/*.pid; do
+    [[ -f "${pf}" ]] || continue
+    kill "$(cat "${pf}")" 2>/dev/null || true
+  done
+  rm -rf "${KUBECTL_PF_DIR}"
 }
 
 # --- Port forwarding (443 → ephemeral) ---

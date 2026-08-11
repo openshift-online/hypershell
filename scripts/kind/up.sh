@@ -12,20 +12,33 @@ echo ""
 # Several steps need elevated privileges (cloud-provider-kind, DNS resolver,
 # port forwarding). Prompt once now so the rest of the script runs unattended.
 if [[ "${KIND_NO_SUDO:-}" == "true" ]]; then
-  warn "KIND_NO_SUDO=true - skipping sudo; port forwarding and DNS resolver setup will be skipped"
+  warn "KIND_NO_SUDO=true - will use kubectl port-forward if cloud-provider-kind needs sudo"
   HAVE_SUDO=false
 else
-  info "This script needs sudo for cloud-provider-kind, DNS, and port forwarding."
-  info "Set KIND_NO_SUDO=true to skip (services will use ephemeral ports)."
+  info "This script may use sudo for cloud-provider-kind, DNS resolver, and port forwarding."
+  info "Set KIND_NO_SUDO=true to skip sudo (services will use kubectl port-forward instead)."
   if sudo -v 2>/dev/null; then
     HAVE_SUDO=true
     success "sudo credentials cached"
   else
-    warn "sudo unavailable - port forwarding and DNS resolver setup will be skipped"
+    warn "sudo unavailable - will use kubectl port-forward as fallback"
     HAVE_SUDO=false
   fi
 fi
 echo ""
+
+# --- Podman + kind compatibility check ---
+# kind v0.32.0 has a ListClusters bug with podman 6+ (kubernetes-sigs/kind#4231).
+# Build patched binaries into ./bin/ automatically if needed.
+if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
+  kind_ver="$(kind version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)"
+  if [[ "${kind_ver}" == "v0.32.0" ]]; then
+    warn "kind ${kind_ver} is incompatible with podman 6+ (kubernetes-sigs/kind#4231)"
+    info "Building patched cloud-provider-kind into ./bin/..."
+    make -C "${REPO_ROOT}" kind-prereqs
+    export PATH="${REPO_ROOT}/bin:${PATH}"
+  fi
+fi
 
 # --- Cluster creation (idempotent) ---
 header "Cluster"
@@ -84,30 +97,39 @@ echo ""
 
 # --- Verify and start cloud-provider-kind ---
 header "cloud-provider-kind"
+CPK_RUNNING=false
 if ! command -v cloud-provider-kind >/dev/null 2>&1; then
-  error "cloud-provider-kind not found in PATH"
-  info "Install via: brew install cloud-provider-kind"
-  info "         or: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
-  exit 1
-fi
-
-if ! pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
   if [[ "${HAVE_SUDO}" == "true" ]]; then
-    info "Starting cloud-provider-kind..."
+    error "cloud-provider-kind not found in PATH"
+    info "Install via: brew install cloud-provider-kind"
+    info "         or: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
+    exit 1
+  else
+    warn "cloud-provider-kind not found - will use kubectl port-forward instead"
+  fi
+elif pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+  warn "cloud-provider-kind already running"
+  CPK_RUNNING=true
+else
+  info "Starting cloud-provider-kind..."
+  if nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
+     sleep 2 && pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+    CPK_RUNNING=true
+    success "cloud-provider-kind started (without sudo)"
+  elif [[ "${HAVE_SUDO}" == "true" ]]; then
+    info "Retrying with sudo..."
     sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
     sleep 2
     if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-      success "cloud-provider-kind started"
+      CPK_RUNNING=true
+      success "cloud-provider-kind started (with sudo)"
     else
       error "cloud-provider-kind failed to start - check /tmp/cloud-provider-kind.log"
       exit 1
     fi
   else
-    warn "Skipping cloud-provider-kind (no sudo) - Gateway routing will not work"
-    warn "Start manually: sudo nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &"
+    warn "cloud-provider-kind requires sudo on this system - will use kubectl port-forward instead"
   fi
-else
-  warn "cloud-provider-kind already running"
 fi
 echo ""
 
@@ -157,7 +179,7 @@ kube apply -f deploy/kind/namespace.yaml
 info "Deploying API server database..."
 kube apply -f deploy/kind/postgres.yaml
 info "Waiting for PostgreSQL..."
-kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
+kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
 success "PostgreSQL ready"
 
 if ! is_swapped api-server; then
@@ -206,51 +228,54 @@ info "Setting up Gateway API networking..."
 kube apply -f deploy/kind/prerequisites/networking-gateway.yaml
 kube apply -f deploy/kind/prerequisites/httproutes.yaml
 
-info "Waiting for networking Gateway to get an address..."
-for i in $(seq 1 30); do
-  GW_ADDR=$(kube get gateway hypershell-gw -n "${KIND_NAMESPACE}" \
-    -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
-  if [[ -n "${GW_ADDR}" ]]; then break; fi
-  if (( i % 5 == 0 )); then
-    info "Gateway not ready yet (${i}/30)... is cloud-provider-kind running?"
-  fi
-  sleep 2
-done
-
-if [[ -n "${GW_ADDR}" ]]; then
-  success "Networking Gateway address: ${GW_ADDR}"
-
-  patch_cluster_coredns "${GW_ADDR}"
-
-  # cloud-provider-kind exposes Gateways via Docker proxy containers.
-  # On macOS the container IPs are not routable, so --enable-lb-port-mapping
-  # publishes an ephemeral host port.  Discover it for the banner URLs.
-  GATEWAY_PORT=""
-  KEYCLOAK_HTTP_PORT=""
-  info "Discovering Gateway proxy port..."
-  for j in $(seq 1 15); do
-    PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
-    if [[ -n "${PROXY_CONTAINER}" ]]; then
-      GATEWAY_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
-      KEYCLOAK_HTTP_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 8080 2>/dev/null | head -1 | cut -d: -f2)
-      if [[ -n "${GATEWAY_PORT}" ]]; then break; fi
+GATEWAY_PORT=""
+KEYCLOAK_HTTP_PORT=""
+if [[ "${CPK_RUNNING}" == "true" ]]; then
+  info "Waiting for networking Gateway to get an address..."
+  for i in $(seq 1 30); do
+    GW_ADDR=$(kube get gateway hypershell-gw -n "${KIND_NAMESPACE}" \
+      -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+    if [[ -n "${GW_ADDR}" ]]; then break; fi
+    if (( i % 5 == 0 )); then
+      info "Gateway not ready yet (${i}/30)... is cloud-provider-kind running?"
     fi
     sleep 2
   done
 
-  if [[ -n "${GATEWAY_PORT}" ]]; then
-    success "Gateway HTTPS on host port ${GATEWAY_PORT}"
-    if [[ -n "${KEYCLOAK_HTTP_PORT}" ]]; then
-      success "Gateway HTTP (Keycloak) on host port ${KEYCLOAK_HTTP_PORT}"
+  if [[ -n "${GW_ADDR}" ]]; then
+    success "Networking Gateway address: ${GW_ADDR}"
+
+    patch_cluster_coredns "${GW_ADDR}"
+
+    # cloud-provider-kind exposes Gateways via Docker proxy containers.
+    # On macOS the container IPs are not routable, so --enable-lb-port-mapping
+    # publishes an ephemeral host port.  Discover it for the banner URLs.
+    info "Discovering Gateway proxy port..."
+    for j in $(seq 1 15); do
+      PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+      if [[ -n "${PROXY_CONTAINER}" ]]; then
+        GATEWAY_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
+        KEYCLOAK_HTTP_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 8080 2>/dev/null | head -1 | cut -d: -f2)
+        if [[ -n "${GATEWAY_PORT}" ]]; then break; fi
+      fi
+      sleep 2
+    done
+
+    if [[ -n "${GATEWAY_PORT}" ]]; then
+      success "Gateway HTTPS on host port ${GATEWAY_PORT}"
+      if [[ -n "${KEYCLOAK_HTTP_PORT}" ]]; then
+        success "Gateway HTTP (Keycloak) on host port ${KEYCLOAK_HTTP_PORT}"
+      fi
+      start_port_forward "${GATEWAY_PORT}" "${KEYCLOAK_HTTP_PORT:-}"
+    else
+      warn "Could not discover Gateway proxy port - check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
     fi
-    start_port_forward "${GATEWAY_PORT}" "${KEYCLOAK_HTTP_PORT:-}"
   else
-    warn "Could not discover Gateway proxy port - check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
+    warn "Gateway has no address after 60s - cloud-provider-kind may not be running"
   fi
 else
-  warn "Gateway has no address after 60s - cloud-provider-kind may not be running"
-  warn "Install: go install sigs.k8s.io/cloud-provider-kind@${CLOUD_PROVIDER_KIND_VERSION}"
-  warn "Start:   sudo nohup cloud-provider-kind >/tmp/cloud-provider-kind.log 2>&1 &"
+  info "Skipping Gateway address discovery (no cloud-provider-kind)"
+  info "Services will be accessible via kubectl port-forward"
 fi
 echo ""
 
@@ -365,6 +390,13 @@ cleanup_pf
 trap - EXIT
 echo ""
 
+# --- kubectl port-forward (no cloud-provider-kind fallback) ---
+if [[ "${CPK_RUNNING}" == "false" ]]; then
+  header "kubectl Port Forwarding"
+  start_kubectl_port_forwards
+  echo ""
+fi
+
 # --- DNS resolution ---
 header "DNS"
 start_dns
@@ -376,22 +408,42 @@ echo ""
 header "HyperShell is running!"
 echo ""
 
-PORT_SUFFIX=""
-if [[ -z "${PORT_FORWARD_ACTIVE:-}" ]] && [[ -n "${GATEWAY_PORT:-}" ]]; then
-  PORT_SUFFIX=":${GATEWAY_PORT}"
-fi
+if [[ "${CPK_RUNNING}" == "true" ]]; then
+  PORT_SUFFIX=""
+  if [[ -z "${PORT_FORWARD_ACTIVE:-}" ]] && [[ -n "${GATEWAY_PORT:-}" ]]; then
+    PORT_SUFFIX=":${GATEWAY_PORT}"
+  fi
 
-info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
-info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
-info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
+  info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
+  info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
+  info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
 
-
-if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
-  info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
-  info "Keycloak HTTP: http://${KEYCLOAK_HOSTNAME}:8080 (admin/admin)"
-  info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"
+  if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+    info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
+    info "Keycloak HTTP: http://${KEYCLOAK_HOSTNAME}:8080 (admin/admin)"
+    info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"
+  else
+    info "Keycloak:     ${KIND_KEYCLOAK_URL}"
+  fi
 else
-  info "Keycloak:     ${KIND_KEYCLOAK_URL}"
+  info "HTTP API:     http://localhost:8000"
+  info "Web Console:  http://localhost:3000"
+  info "Health:       http://localhost:8000/healthz"
+
+  if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+    info "Keycloak:     http://localhost:8080 (admin/admin)"
+    info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"
+  else
+    info "Keycloak:     ${KIND_KEYCLOAK_URL}"
+  fi
+
+  echo ""
+  warn "Running without cloud-provider-kind - no TLS or hostname-based routing."
+  warn "Services are available via kubectl port-forward on the ports above."
+  if [[ "${HAVE_SUDO}" == "false" ]]; then
+    info "To use full Gateway routing, run: cloud-provider-kind --enable-lb-port-mapping"
+    info "Then: make kind-fix-ports"
+  fi
 fi
 
 echo ""

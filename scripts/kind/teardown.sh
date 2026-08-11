@@ -14,6 +14,7 @@ if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
 fi
 
 stop_port_forward
+stop_kubectl_port_forwards
 stop_dns
 cleanup_resolver
 
