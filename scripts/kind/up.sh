@@ -244,40 +244,6 @@ if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
 fi
 echo ""
 
-# --- OIDC configuration (opt-in) ---
-if oidc_enabled; then
-  header "OIDC Configuration"
-
-  if ! is_swapped api-server; then
-    info "Patching API server for OIDC..."
-    kube set env deployment/hypershell-api-server -n "${KIND_NAMESPACE}" -c api-server \
-      API_ENV=development_oidc
-    kube patch deployment hypershell-api-server -n "${KIND_NAMESPACE}" --type=json \
-      -p '[{"op":"add","path":"/spec/template/spec/containers/0/command/-","value":"--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"}]'
-    success "API server patched for OIDC"
-  fi
-
-  info "Creating OIDC session secret..."
-  SESSION_SECRET=$(openssl rand -hex 32)
-  kube create secret generic hypershell-oidc-session \
-    -n "${KIND_NAMESPACE}" \
-    --from-literal=session-secret="${SESSION_SECRET}" \
-    --dry-run=client -o yaml | kube apply -f -
-  success "OIDC session secret created"
-
-  if ! is_swapped web-console; then
-    info "Patching web console for OIDC..."
-    kube set env deployment/hypershell-web-console -n "${KIND_NAMESPACE}" -c web-console \
-      OIDC_ISSUER="${KEYCLOAK_OIDC_ISSUER}" \
-      OIDC_CLIENT_ID="${KEYCLOAK_OIDC_CLIENT_ID}"
-    kube patch deployment hypershell-web-console -n "${KIND_NAMESPACE}" --type=json \
-      -p '[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"SESSION_SECRET","valueFrom":{"secretKeyRef":{"name":"hypershell-oidc-session","key":"session-secret"}}}}]'
-    success "Web console patched for OIDC"
-  fi
-
-  echo ""
-fi
-
 # --- Certificates and networking ---
 header "TLS & Networking"
 info "Setting up TLS certificates..."
@@ -337,6 +303,91 @@ else
   info "Services will be accessible via kubectl port-forward"
 fi
 echo ""
+
+# --- OIDC configuration (opt-in, after port discovery) ---
+if oidc_enabled; then
+  header "OIDC Configuration"
+
+  # Determine the external Keycloak OIDC issuer URL.  When running behind the
+  # Gateway API HTTPS listener the browser reaches Keycloak on the same
+  # ephemeral port as every other service.  We set KC_HOSTNAME so Keycloak
+  # generates URLs that match what the browser sees.
+  PORT_SUFFIX=""
+  if [[ -z "${PORT_FORWARD_ACTIVE:-}" ]] && [[ -n "${GATEWAY_PORT:-}" ]]; then
+    PORT_SUFFIX=":${GATEWAY_PORT}"
+  fi
+  OIDC_EXTERNAL_ISSUER="https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}/realms/hypershell"
+
+  # Route in-cluster traffic for the ephemeral port to the gateway's port 443.
+  # Pods resolve keycloak.hypershell.localhost to the gateway IP via CoreDNS,
+  # but the gateway only listens on 443 internally.  A PREROUTING rule inside
+  # the Kind node maps the ephemeral port to 443 so the OIDC issuer URL is
+  # the same for both browser and in-cluster services.
+  if [[ -n "${GATEWAY_PORT:-}" ]] && [[ -n "${GW_ADDR:-}" ]] && [[ -z "${PORT_FORWARD_ACTIVE:-}" ]]; then
+    info "Routing in-cluster port ${GATEWAY_PORT} to gateway port 443..."
+    ${CONTAINER_ENGINE} exec "${KIND_CLUSTER_NAME}-control-plane" \
+      iptables -t nat -C PREROUTING -p tcp -d "${GW_ADDR}" --dport "${GATEWAY_PORT}" \
+        -j DNAT --to-destination "${GW_ADDR}:443" 2>/dev/null || \
+    ${CONTAINER_ENGINE} exec "${KIND_CLUSTER_NAME}-control-plane" \
+      iptables -t nat -A PREROUTING -p tcp -d "${GW_ADDR}" --dport "${GATEWAY_PORT}" \
+        -j DNAT --to-destination "${GW_ADDR}:443"
+    success "In-cluster OIDC routing: ${GW_ADDR}:${GATEWAY_PORT} -> ${GW_ADDR}:443"
+  fi
+
+  if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+    info "Setting Keycloak hostname to ${OIDC_EXTERNAL_ISSUER%/realms/hypershell}..."
+    kube set env deployment/keycloak -n keycloak \
+      KC_HOSTNAME="https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}"
+    kube rollout restart deployment/keycloak -n keycloak
+    kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=120s
+    success "Keycloak configured for OIDC"
+  fi
+
+  if ! is_swapped api-server; then
+    info "Patching API server for OIDC..."
+    kube set env deployment/hypershell-api-server -n "${KIND_NAMESPACE}" -c api-server \
+      API_ENV=development_oidc
+    kube patch deployment hypershell-api-server -n "${KIND_NAMESPACE}" --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/command/-","value":"--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"}]'
+    success "API server patched for OIDC"
+  fi
+
+  info "Creating OIDC session secret..."
+  SESSION_SECRET=$(openssl rand -hex 32)
+  kube create secret generic hypershell-oidc-session \
+    -n "${KIND_NAMESPACE}" \
+    --from-literal=session-secret="${SESSION_SECRET}" \
+    --dry-run=client -o yaml | kube apply -f -
+  success "OIDC session secret created"
+
+  if ! is_swapped web-console; then
+    info "Patching web console for OIDC..."
+    kube set env deployment/hypershell-web-console -n "${KIND_NAMESPACE}" -c web-console \
+      OIDC_ISSUER="${OIDC_EXTERNAL_ISSUER}" \
+      OIDC_CLIENT_ID="${KEYCLOAK_OIDC_CLIENT_ID}" \
+      OIDC_REDIRECT_URI="https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/callback" \
+      NODE_TLS_REJECT_UNAUTHORIZED="0"
+    kube patch deployment hypershell-web-console -n "${KIND_NAMESPACE}" --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"SESSION_SECRET","valueFrom":{"secretKeyRef":{"name":"hypershell-oidc-session","key":"session-secret"}}}}]'
+    success "Web console patched for OIDC"
+  fi
+
+  if ! is_swapped control-plane; then
+    info "Patching control plane for OIDC..."
+    kube create secret generic hypershell-cp-oidc \
+      -n "${KIND_NAMESPACE}" \
+      --from-literal=client-secret=control-plane-secret \
+      --dry-run=client -o yaml | kube apply -f -
+    kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" -c controller \
+      OIDC_ISSUER="http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell" \
+      OIDC_CLIENT_ID=hypershell-control-plane
+    kube patch deployment hypershell-controller -n "${KIND_NAMESPACE}" --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"OIDC_CLIENT_SECRET","valueFrom":{"secretKeyRef":{"name":"hypershell-cp-oidc","key":"client-secret"}}}}]'
+    success "Control plane patched for OIDC"
+  fi
+
+  echo ""
+fi
 
 # --- Wait for readiness ---
 header "Readiness"
@@ -495,8 +546,6 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
 
   if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
-    info "Keycloak HTTP: http://${KEYCLOAK_HOSTNAME}:8080 (admin/admin)"
-    info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"
   else
     info "Keycloak:     ${KIND_KEYCLOAK_URL}"
   fi
@@ -522,12 +571,6 @@ else
 fi
 
 if oidc_enabled; then
-  OIDC_REDIRECT="https://${CONSOLE_HOSTNAME}${PORT_SUFFIX:-}/auth/callback"
-  if ! is_swapped web-console; then
-    kube set env deployment/hypershell-web-console -n "${KIND_NAMESPACE}" -c web-console \
-      OIDC_REDIRECT_URI="${OIDC_REDIRECT}"
-  fi
-
   echo ""
   info "OIDC Authentication: ENABLED"
   info "Keycloak:            https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX:-} (admin/admin)"
