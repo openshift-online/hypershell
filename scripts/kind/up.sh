@@ -101,8 +101,7 @@ CPK_RUNNING=false
 if ! command -v cloud-provider-kind >/dev/null 2>&1; then
   if [[ "${HAVE_SUDO}" == "true" ]]; then
     error "cloud-provider-kind not found in PATH"
-    info "Install via: brew install cloud-provider-kind"
-    info "         or: make kind-prereqs"
+    info "Install via: make kind-prereqs"
     exit 1
   else
     warn "cloud-provider-kind not found - will use kubectl port-forward instead"

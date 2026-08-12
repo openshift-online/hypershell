@@ -9,9 +9,7 @@
 # these functions start background port-forward processes that must survive
 # in the parent shell -- $() subshells kill orphaned background children.
 
-E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
 E2E_KC_PF_PID="${E2E_KC_PF_PID:-}"
-E2E_PF_FLAG_FILE="${TMPDIR:-/tmp}/e2e-pf-flag.$$"
 
 # discover_api_host - find the HyperShell API server base URL.
 # Sets _DISCOVER_API_HOST to a full URL (scheme + host). Tries the HTTPRoute
@@ -47,8 +45,8 @@ discover_api_host() {
 }
 
 # discover_gateway_endpoint - find the gateway gRPC endpoint.
-# Sets _DISCOVER_GW_ENDPOINT. Tries the GRPCRoute hostname first, then
-# falls back to kubectl port-forward.
+# Sets _DISCOVER_GW_ENDPOINT from the GRPCRoute hostname once the
+# parent Gateway is Programmed.
 discover_gateway_endpoint() {
   _DISCOVER_GW_ENDPOINT=""
   local gw_name="${1:?gateway name required}"
@@ -76,19 +74,8 @@ discover_gateway_endpoint() {
     fi
   fi
 
-  dim "  No programmed Gateway route found, falling back to port-forward"
-  local pf_port=7443
-  kubectl port-forward -n "${gw_namespace}" svc/openshell-gateway "${pf_port}:8080" >/dev/null 2>&1 &
-  E2E_GW_PF_PID=$!
-  sleep 3
-  if kill -0 "$E2E_GW_PF_PID" 2>/dev/null; then
-    touch "${E2E_PF_FLAG_FILE}"
-    pass "Port-forward active (localhost:${pf_port} -> openshell-gateway:8080)"
-    _DISCOVER_GW_ENDPOINT="https://localhost:${pf_port}"
-  else
-    E2E_GW_PF_PID=""
-    _DISCOVER_GW_ENDPOINT="https://${gw_name}.$(get_cluster_domain):443"
-  fi
+  dim "  No programmed Gateway route found for ${gw_name}"
+  return 1
 }
 
 # acquire_oidc_token - get an OIDC access token from Keycloak.
@@ -137,16 +124,9 @@ get_cli_binary() {
 }
 
 # wait_for_gateway_route - block until the gateway is externally reachable.
-# When port-forward is active, the route check is skipped since connectivity
-# is already established.
 wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
-
-  if [[ -f "${E2E_PF_FLAG_FILE}" ]]; then
-    dim "  Skipping Gateway route check (using port-forward)"
-    return 0
-  fi
 
   local timeout="${E2E_PROVISION_TIMEOUT:-180}"
   local deadline=$(($(date +%s) + timeout))

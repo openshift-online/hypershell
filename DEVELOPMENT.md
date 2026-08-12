@@ -433,9 +433,7 @@ LOCAL_IMAGES=true make kind-up
 ### cloud-provider-kind not found
 
 ```bash
-make kind-prereqs   # builds from fork with BackendTLSPolicy support
-# or
-brew install cloud-provider-kind   # upstream, lacks BackendTLSPolicy
+make kind-prereqs
 ```
 
 ### DNS resolution not working
