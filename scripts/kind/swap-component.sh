@@ -94,26 +94,27 @@ swap_up() {
       [[ -n "${alias_ip}" ]] && candidate_ips+=("${alias_ip}")
     done
 
+    # Probe reachability from inside a pod (not the node -- rootless Podman
+    # nodes can reach IPs that pods cannot).
     HOST_IP=""
     for candidate in "${candidate_ips[@]}"; do
-      if "${KIND_ENGINE:-${CONTAINER_ENGINE}}" exec "${KIND_CLUSTER_NAME}-control-plane" \
-          sh -c "cat < /dev/tcp/${candidate}/${DEV_PORT}" >/dev/null 2>&1; then
+      if kube run -n "${KIND_NAMESPACE}" --rm -i --restart=Never --image=alpine \
+          "probe-${candidate//./-}" -- sh -c "wget -qO- --timeout=2 http://${candidate}:${DEV_PORT}/ >/dev/null 2>&1" >/dev/null 2>&1; then
         HOST_IP="${candidate}"
         break
       fi
     done
-    # If nothing is listening yet (dev server not started), pick first candidate
-    # that is at least routable (TCP connect to a common port).
+    # Dev server isn't running yet -- try a known reachable port (SSH on the node).
     if [[ -z "${HOST_IP}" ]]; then
       for candidate in "${candidate_ips[@]}"; do
-        if "${KIND_ENGINE:-${CONTAINER_ENGINE}}" exec "${KIND_CLUSTER_NAME}-control-plane" \
-            sh -c "cat < /dev/tcp/${candidate}/22 || cat < /dev/tcp/${candidate}/5173" >/dev/null 2>&1; then
+        if kube run -n "${KIND_NAMESPACE}" --rm -i --restart=Never --image=alpine \
+            "probe-${candidate//./-}" -- sh -c "nc -z -w2 ${candidate} 22 2>/dev/null || nc -z -w2 ${candidate} 80 2>/dev/null" >/dev/null 2>&1; then
           HOST_IP="${candidate}"
           break
         fi
       done
     fi
-    # Last resort: use first candidate and hope for the best
+    # Last resort: use first candidate
     if [[ -z "${HOST_IP}" ]] && [[ ${#candidate_ips[@]} -gt 0 ]]; then
       HOST_IP="${candidate_ips[0]}"
     fi
