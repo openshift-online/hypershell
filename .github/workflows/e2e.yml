@@ -107,7 +107,7 @@ jobs:
 
               while [[ $elapsed -lt $POLL_TIMEOUT ]]; do
                 all_checks=$(gh api "repos/${{ github.repository }}/commits/${PR_HEAD_SHA}/check-runs" \
-                  --jq '.check_runs[] | select(.name | test("^hypershell-.*-on-pull-request$")) | {name: .name, status: .status, conclusion: .conclusion}' 2>/dev/null || true)
+                  --jq '.check_runs[] | select(.name | test("hypershell-.*-on-pull-request$")) | {name: .name, status: .status, conclusion: .conclusion}' 2>/dev/null || true)
 
                 if [[ -z "${all_checks}" ]]; then
                   echo "No Konflux checks found yet (${elapsed}s elapsed)..."
@@ -140,15 +140,15 @@ jobs:
                 cp_img="${baseline_cp}"
                 wc_img="${baseline_wc}"
 
-                if echo "${all_checks}" | jq -e 'select(.name == "hypershell-api-server-main-on-pull-request")' >/dev/null 2>&1; then
+                if echo "${all_checks}" | jq -e 'select(.name | endswith("hypershell-api-server-main-on-pull-request"))' >/dev/null 2>&1; then
                   api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
                   echo "  api-server -> ${api_img}"
                 fi
-                if echo "${all_checks}" | jq -e 'select(.name == "hypershell-control-plane-main-on-pull-request")' >/dev/null 2>&1; then
+                if echo "${all_checks}" | jq -e 'select(.name | endswith("hypershell-control-plane-main-on-pull-request"))' >/dev/null 2>&1; then
                   cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
                   echo "  control-plane -> ${cp_img}"
                 fi
-                if echo "${all_checks}" | jq -e 'select(.name == "hypershell-web-console-main-on-pull-request")' >/dev/null 2>&1; then
+                if echo "${all_checks}" | jq -e 'select(.name | endswith("hypershell-web-console-main-on-pull-request"))' >/dev/null 2>&1; then
                   wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
                   echo "  web-console -> ${wc_img}"
                 fi
