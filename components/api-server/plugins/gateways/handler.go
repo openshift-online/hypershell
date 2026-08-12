@@ -33,8 +33,13 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Body:       &gateway,
 		Validators: []handlers.Validate{},
 		Action: func() (interface{}, *errors.ServiceError) {
-			// DEBUG: intentional breakage to validate e2e CI pipeline (remove after validation)
-			return nil, errors.GeneralError("DEBUG: gateway creation intentionally disabled for e2e pipeline validation")
+			ctx := r.Context()
+			gatewayModel := ConvertGateway(gateway)
+			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
+			if err != nil {
+				return nil, err
+			}
+			return PresentGateway(gatewayModel), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
