@@ -389,7 +389,60 @@ deploy/
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
+| `E2E_ENABLE_OIDC` | `0` | Set to `1` to run OIDC-authenticated e2e variant |
 | `OPENSHELL_BIN` | `openshell` | Path to the openshell CLI binary |
+
+### Requirement: OIDC-Enabled E2E Variant
+
+The e2e test suite SHALL support an OIDC-enabled mode (`E2E_ENABLE_OIDC=1`) that validates authentication across the full stack: API server JWT validation, BFF OIDC login flow, and control plane service account authentication. This variant exercises the `KIND_ENABLE_OIDC=true` deployment path.
+
+When `E2E_ENABLE_OIDC=1`, the test suite SHALL:
+1. Authenticate API calls with a Bearer token obtained from Keycloak (instead of unauthenticated calls)
+2. Verify unauthenticated API requests are rejected with 401
+3. Verify the BFF `/auth/login` endpoint redirects to Keycloak with PKCE parameters
+4. Verify the BFF `/auth/session` endpoint returns `{ "authenticated": false }` without a session
+5. Verify the control plane's gRPC watch streams are active (no `Unauthenticated` errors in logs)
+
+The OIDC variant uses the same test areas (gateway provisioning through sandbox interaction) but authenticates all API calls. The existing unauthenticated mode (`E2E_ENABLE_OIDC=0`, default) SHALL remain unchanged.
+
+#### Scenario: OIDC API Authentication
+
+- GIVEN `E2E_ENABLE_OIDC=1`
+- AND the API server is running with `API_ENV=development_oidc`
+- WHEN the test suite acquires a token via `acquire_oidc_token`
+- THEN all subsequent API calls SHALL include `Authorization: Bearer <token>`
+
+#### Scenario: API JWT Rejection
+
+- GIVEN `E2E_ENABLE_OIDC=1`
+- WHEN an unauthenticated GET is made to `/api/hypershell/v1/gateways`
+- THEN the response SHALL be 401 Unauthorized
+
+#### Scenario: BFF OIDC Endpoints
+
+- GIVEN `E2E_ENABLE_OIDC=1`
+- WHEN `GET /auth/login` is requested from the web console
+- THEN the response SHALL be 302 with a Location header pointing to the Keycloak authorization endpoint with PKCE parameters (`code_challenge`, `code_challenge_method=S256`)
+
+#### Scenario: BFF Session Contract
+
+- GIVEN `E2E_ENABLE_OIDC=1`
+- WHEN `GET /auth/session` is requested without a session cookie
+- THEN the response SHALL contain `{ "authenticated": false }`
+
+#### Scenario: Control Plane gRPC Auth
+
+- GIVEN `E2E_ENABLE_OIDC=1`
+- WHEN the control plane logs are inspected
+- THEN there SHALL be no `Unauthenticated` gRPC errors
+- AND the OIDC token provider SHALL have initialized
+
+#### Scenario: CI OIDC Variant
+
+- GIVEN the CI e2e workflow
+- WHEN `E2E_ENABLE_OIDC=1` is configured (via workflow matrix or separate job)
+- THEN `make kind-up` SHALL be invoked with `KIND_ENABLE_OIDC=true`
+- AND the e2e test suite SHALL run with `E2E_ENABLE_OIDC=1`
 
 ## Design Decisions
 
