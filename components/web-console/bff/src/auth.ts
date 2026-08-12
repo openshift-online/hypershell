@@ -9,12 +9,10 @@ declare module "@fastify/secure-session" {
     accessToken?: string;
     email?: string;
     expiresAt?: number;
-    idToken?: string;
     name?: string;
     nonce?: string;
     pkceVerifier?: string;
     preferredUsername?: string;
-    refreshToken?: string;
     roles?: string[];
     state?: string;
     sub?: string;
@@ -135,12 +133,6 @@ export async function registerAuth(
       request.session.regenerate();
 
       request.session.set("accessToken", tokens.access_token);
-      if (tokens.id_token) {
-        request.session.set("idToken", tokens.id_token);
-      }
-      if (tokens.refresh_token) {
-        request.session.set("refreshToken", tokens.refresh_token);
-      }
       if (claims) {
         request.session.set("sub", claims.sub);
         if (typeof claims.preferred_username === "string") {
@@ -179,14 +171,11 @@ export async function registerAuth(
   });
 
   app.get("/auth/logout", async (request, reply) => {
-    const idToken = request.session.get("idToken");
     request.session.delete();
 
     const serverMetadata = oidcConfig.serverMetadata();
-    if (serverMetadata.end_session_endpoint && idToken) {
-      const params: Record<string, string> = {
-        id_token_hint: idToken,
-      };
+    if (serverMetadata.end_session_endpoint) {
+      const params: Record<string, string> = {};
       if (config.oidcPostLogoutRedirectUri) {
         params.post_logout_redirect_uri = config.oidcPostLogoutRedirectUri;
       }
