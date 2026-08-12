@@ -291,7 +291,8 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `LOCAL_IMAGES` | (unset) | Set to `true` for offline baseline builds |
 | `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
 | `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
-| `CLOUD_PROVIDER_KIND_VERSION` | `v0.11.1` | cloud-provider-kind version |
+| `CLOUD_PROVIDER_KIND_REPO` | `https://github.com/squizzi/cloud-provider-kind.git` | cloud-provider-kind git repo |
+| `CLOUD_PROVIDER_KIND_BRANCH` | `hypershell` | cloud-provider-kind branch to build |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18.4@sha256:9b19...` | Database image for Gateway; override for OSS dev |
 | `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
@@ -368,13 +369,15 @@ The gateway becomes reachable at
 port-forward needed. The control plane writes this address back to the API
 server's `route_address` field.
 
-### Why Kind requires port-forward
+### Gateway TLS in Kind
 
 The networking Gateway's `*.gw.localhost` listener uses TLS Terminate mode,
-which strips the external TLS and forwards plaintext to the backend. But
+which strips the external TLS and forwards plaintext to the backend.
 openshell-gateway pods expect TLS connections (they serve gRPC with their own
-cert-manager certificates). On OpenShift this is solved with BackendTLSPolicy
-(re-encryption), which cloud-provider-kind does not support.
+cert-manager certificates). BackendTLSPolicy instructs the gateway
+implementation to re-encrypt traffic to the backend. The `kind-prereqs` target
+builds cloud-provider-kind from a fork that adds BackendTLSPolicy support,
+so per-tenant gateways work without port-forward workarounds.
 
 ### Creating a gateway with OIDC
 
@@ -430,9 +433,9 @@ LOCAL_IMAGES=true make kind-up
 ### cloud-provider-kind not found
 
 ```bash
-brew install cloud-provider-kind
+make kind-prereqs   # builds from fork with BackendTLSPolicy support
 # or
-go install sigs.k8s.io/cloud-provider-kind@latest
+brew install cloud-provider-kind   # upstream, lacks BackendTLSPolicy
 ```
 
 ### DNS resolution not working
