@@ -1690,6 +1690,284 @@ paths:
       security:
       - Bearer: []
       summary: Update an gatewayNetwork
+  /api/hypershell/v1/roles:
+    get:
+      operationId: listRoles
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleList"
+          description: A list of roles
+        "401":
+          description: Access token is missing or invalid
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List all roles
+  /api/hypershell/v1/roles/{id}:
+    get:
+      operationId: getRole
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+          description: Role found
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Role not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: Get a role by ID
+  /api/hypershell/v1/role_bindings:
+    get:
+      operationId: listRoleBindings
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleBindingList"
+          description: A list of role bindings
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List role bindings
+    post:
+      operationId: createRoleBinding
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleBinding"
+        description: Role binding data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleBinding"
+          description: Role binding created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: Create a role binding
+  /api/hypershell/v1/role_bindings/{id}:
+    delete:
+      operationId: deleteRoleBinding
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Role binding deleted
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Role binding not found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Cannot delete last owner binding
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: Delete a role binding
+    get:
+      operationId: getRoleBinding
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleBinding"
+          description: Role binding found
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Role binding not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: Get a role binding by ID
 components:
   parameters:
     id:
@@ -2528,6 +2806,145 @@ components:
         status:
           type: string
       type: object
+    Role:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            type: string
+          display_name:
+            type: string
+          description:
+            type: string
+          permissions:
+            $ref: "#/components/schemas/Role_allOf_permissions"
+          built_in:
+            type: boolean
+        required:
+        - name
+        type: object
+      example:
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        permissions: null
+        built_in: true
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        description: description
+        id: id
+        href: href
+        display_name: display_name
+    RoleList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/Role"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          permissions: null
+          built_in: true
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          id: id
+          href: href
+          display_name: display_name
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          permissions: null
+          built_in: true
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          id: id
+          href: href
+          display_name: display_name
+    RoleBinding:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          role_id:
+            type: string
+          scope:
+            enum:
+            - global
+            - fleet
+            - gateway
+            type: string
+          user_id:
+            type: string
+          fleet_id:
+            type: string
+          gateway_id:
+            type: string
+        required:
+        - role_id
+        - scope
+        type: object
+      example:
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        role_id: role_id
+        user_id: user_id
+        kind: kind
+        scope: global
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        fleet_id: fleet_id
+        gateway_id: gateway_id
+    RoleBindingList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/RoleBinding"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          role_id: role_id
+          user_id: user_id
+          kind: kind
+          scope: global
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          fleet_id: fleet_id
+          gateway_id: gateway_id
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          role_id: role_id
+          user_id: user_id
+          kind: kind
+          scope: global
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          fleet_id: fleet_id
+          gateway_id: gateway_id
     GatewayCreateRequest:
       example:
         phase: phase
@@ -2595,6 +3012,8 @@ components:
       - fleet_id
       - name
       - release_id
+      type: object
+    Role_allOf_permissions:
       type: object
   securitySchemes:
     Bearer:

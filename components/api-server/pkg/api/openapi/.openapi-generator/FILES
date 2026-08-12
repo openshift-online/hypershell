@@ -29,6 +29,10 @@ docs/ManagedDatabase.md
 docs/ManagedDatabaseList.md
 docs/ManagedDatabasePatchRequest.md
 docs/ObjectReference.md
+docs/Role.md
+docs/RoleBinding.md
+docs/RoleBindingList.md
+docs/RoleList.md
 git_push.sh
 go.mod
 go.sum
@@ -54,6 +58,10 @@ model_managed_database.go
 model_managed_database_list.go
 model_managed_database_patch_request.go
 model_object_reference.go
+model_role.go
+model_role_binding.go
+model_role_binding_list.go
+model_role_list.go
 response.go
 test/api_default_test.go
 utils.go

@@ -50,6 +50,14 @@ paths:
     $ref: 'openapi.gatewayNetworks.yaml#/paths/~1api~1hypershell~1v1~1gateway_networks'
   /api/hypershell/v1/gateway_networks/{id}:
     $ref: 'openapi.gatewayNetworks.yaml#/paths/~1api~1hypershell~1v1~1gateway_networks~1{id}'
+  /api/hypershell/v1/roles:
+    $ref: 'openapi.roles.yaml#/paths/~1api~1hypershell~1v1~1roles'
+  /api/hypershell/v1/roles/{id}:
+    $ref: 'openapi.roles.yaml#/paths/~1api~1hypershell~1v1~1roles~1{id}'
+  /api/hypershell/v1/role_bindings:
+    $ref: 'openapi.roleBindings.yaml#/paths/~1api~1hypershell~1v1~1role_bindings'
+  /api/hypershell/v1/role_bindings/{id}:
+    $ref: 'openapi.roleBindings.yaml#/paths/~1api~1hypershell~1v1~1role_bindings~1{id}'
   # AUTO-ADD NEW PATHS
 components:
   schemas:
@@ -128,6 +136,14 @@ components:
       $ref: 'openapi.gatewayNetworks.yaml#/components/schemas/GatewayNetworkList'
     GatewayNetworkPatchRequest:
       $ref: 'openapi.gatewayNetworks.yaml#/components/schemas/GatewayNetworkPatchRequest'
+    Role:
+      $ref: 'openapi.roles.yaml#/components/schemas/Role'
+    RoleList:
+      $ref: 'openapi.roles.yaml#/components/schemas/RoleList'
+    RoleBinding:
+      $ref: 'openapi.roleBindings.yaml#/components/schemas/RoleBinding'
+    RoleBindingList:
+      $ref: 'openapi.roleBindings.yaml#/components/schemas/RoleBindingList'
     # AUTO-ADD NEW SCHEMAS
   parameters:
     id:

@@ -84,12 +84,14 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**CreateGatewayRelease**](docs/DefaultAPI.md#creategatewayrelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
 *DefaultAPI* | [**CreateManagedCluster**](docs/DefaultAPI.md#createmanagedcluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
 *DefaultAPI* | [**CreateManagedDatabase**](docs/DefaultAPI.md#createmanageddatabase) | **Post** /api/hypershell/v1/managed_databases | Create a new managedDatabase
+*DefaultAPI* | [**CreateRoleBinding**](docs/DefaultAPI.md#createrolebinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 *DefaultAPI* | [**DeleteFleet**](docs/DefaultAPI.md#deletefleet) | **Delete** /api/hypershell/v1/fleets/{id} | Delete a fleet
 *DefaultAPI* | [**DeleteGateway**](docs/DefaultAPI.md#deletegateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 *DefaultAPI* | [**DeleteGatewayNetwork**](docs/DefaultAPI.md#deletegatewaynetwork) | **Delete** /api/hypershell/v1/gateway_networks/{id} | Delete a gateway network
 *DefaultAPI* | [**DeleteGatewayRelease**](docs/DefaultAPI.md#deletegatewayrelease) | **Delete** /api/hypershell/v1/gateway_releases/{id} | Delete a gateway release
 *DefaultAPI* | [**DeleteManagedCluster**](docs/DefaultAPI.md#deletemanagedcluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
 *DefaultAPI* | [**DeleteManagedDatabase**](docs/DefaultAPI.md#deletemanageddatabase) | **Delete** /api/hypershell/v1/managed_databases/{id} | Delete a managed database
+*DefaultAPI* | [**DeleteRoleBinding**](docs/DefaultAPI.md#deleterolebinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 *DefaultAPI* | [**GetFleet**](docs/DefaultAPI.md#getfleet) | **Get** /api/hypershell/v1/fleets/{id} | Get an fleet by id
 *DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 *DefaultAPI* | [**GetGatewayNetwork**](docs/DefaultAPI.md#getgatewaynetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
@@ -97,12 +99,16 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GetManagedCluster**](docs/DefaultAPI.md#getmanagedcluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
 *DefaultAPI* | [**GetManagedDatabase**](docs/DefaultAPI.md#getmanageddatabase) | **Get** /api/hypershell/v1/managed_databases/{id} | Get an managedDatabase by id
 *DefaultAPI* | [**GetMetadata**](docs/DefaultAPI.md#getmetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
+*DefaultAPI* | [**GetRole**](docs/DefaultAPI.md#getrole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
+*DefaultAPI* | [**GetRoleBinding**](docs/DefaultAPI.md#getrolebinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 *DefaultAPI* | [**ListFleets**](docs/DefaultAPI.md#listfleets) | **Get** /api/hypershell/v1/fleets | Returns a list of fleets
 *DefaultAPI* | [**ListGatewayNetworks**](docs/DefaultAPI.md#listgatewaynetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
 *DefaultAPI* | [**ListGatewayReleases**](docs/DefaultAPI.md#listgatewayreleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 *DefaultAPI* | [**ListGateways**](docs/DefaultAPI.md#listgateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 *DefaultAPI* | [**ListManagedClusters**](docs/DefaultAPI.md#listmanagedclusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
 *DefaultAPI* | [**ListManagedDatabases**](docs/DefaultAPI.md#listmanageddatabases) | **Get** /api/hypershell/v1/managed_databases | Returns a list of managedDatabases
+*DefaultAPI* | [**ListRoleBindings**](docs/DefaultAPI.md#listrolebindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
+*DefaultAPI* | [**ListRoles**](docs/DefaultAPI.md#listroles) | **Get** /api/hypershell/v1/roles | List all roles
 *DefaultAPI* | [**UpdateFleet**](docs/DefaultAPI.md#updatefleet) | **Patch** /api/hypershell/v1/fleets/{id} | Update an fleet
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 *DefaultAPI* | [**UpdateGatewayNetwork**](docs/DefaultAPI.md#updategatewaynetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
@@ -135,6 +141,10 @@ Class | Method | HTTP request | Description
  - [ManagedDatabaseList](docs/ManagedDatabaseList.md)
  - [ManagedDatabasePatchRequest](docs/ManagedDatabasePatchRequest.md)
  - [ObjectReference](docs/ObjectReference.md)
+ - [Role](docs/Role.md)
+ - [RoleBinding](docs/RoleBinding.md)
+ - [RoleBindingList](docs/RoleBindingList.md)
+ - [RoleList](docs/RoleList.md)
 
 
 ## Documentation For Authorization

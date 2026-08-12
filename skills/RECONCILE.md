@@ -46,7 +46,7 @@ skills/
 ## Reconciliation State
 
 **Last analyzed**: 2026-08-12
-**Spec corpus**: 23 specs across 4 domains (platform, web-console, standards/platform, standards/ui)
+**Spec corpus**: 26 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
 **Codebase commit**: working tree
 
 ### Coverage Summary
@@ -64,8 +64,9 @@ skills/
 | Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
+| Security - RBAC Enforcement | 1 | 13 | 9 | 2 | 0 | 2 | 79% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **24** | **151** | **106** | **18** | **26** | **1** | **77%** |
+| **TOTAL** | **26** | **165** | **120** | **20** | **26** | **3** | **78%** |
 
 ### Spec Dependency Order
 
@@ -77,6 +78,7 @@ Layer 3:          openshell-gateway-database, openshell-gateway-tls
 Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
 Layer 5:          openshell-gateway-routing (depends on TLS for BackendTLSPolicy)
 Layer 6:          local-development (depends on all platform specs)
+Layer 1.5:        security/rbac-enforcement (depends on data-model)
 Layer 7:          web-console/architecture (depends on data-model, security, UI standards)
 ```
 
@@ -266,6 +268,24 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OI-5 | Opt-In Kind OIDC | Present | KIND_ENABLE_OIDC wired through Makefile/lib.sh/up.sh/status.sh | `scripts/kind/`, `Makefile` | OIDC ✅ |
 | OI-6 | Identity Provider Client Security | Partial | redirectUris restricted but port wildcard pattern not supported by Keycloak; needs explicit port URIs | `keycloak.yaml` | Follow-up |
 
+### rbac-enforcement.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; controlled by `RBAC_ENFORCE` env var | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-2 | Resource List Filtering | Partial | Authz middleware blocks unauthorized requests; per-query DAO filtering deferred | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go` | WR1 ✅, WR3 ✅ |
+| RBAC-4 | Bootstrap via Fleet Creation | Present | `fleetHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/fleets/handler.go`, `pkg/rbac/fleet_bootstrap.go` | WR3 ✅ |
+| RBAC-5 | Platform Admin Bootstrap | Deferred | First platform:admin created via DB migration; no CLI command by design | - | Future |
+| RBAC-6 | RoleBinding Mutation Authorization | Present | Strictly-below hierarchy enforcement on Create; advisory-locked last-owner protection on Delete | `plugins/roleBindings/service.go` | WR2 ✅, WR8 ✅ |
+| RBAC-7 | Gateway OIDC Role Bridge | Deferred | CP does not propagate RBAC role changes to gateway OIDC config | - | Future |
+| RBAC-8 | Auth-Exempt Endpoints | Present | `isExemptEndpoint` exempts POST /fleets, GET /roles, GET /roles/{id}, GET /metadata, GET /openapi | `pkg/rbac/authorization.go` | WR4 ✅, WR8 ✅ |
+| RBAC-9 | gRPC Authorization | Present | `isGRPCAuthorized` evaluates bindings against method type (Get/List/Watch=read, Create/Update=write, Delete=owner-only); lazy init via `RegisterPostAuthGRPC*Interceptor` | `pkg/rbac/grpc_interceptor.go`, `plugins/rbac/grpc_init.go` | WR6 ✅, WR8 ✅ |
+| RBAC-10 | Service Caller Bypass | Present | Authz middleware checks for service caller (ClientID-based) and bypasses RBAC | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-11 | Error Response Opacity | Present | Singleton GETs return 404 when unauthorized; mutations return generic 403 | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-12 | Production Rollout | Present | `RBAC_ENFORCE=true` env var enables enforcement; separate from framework `enable-authz` | `plugins/rbac/plugin.go` | WR4 ✅ |
+| RBAC-13 | Integration Test Coverage | Present | Unit tests: 18 authorization + 6 gRPC (pkg/rbac/). Integration tests: roles (4), roleBindings (12 including hierarchy enforcement, scope FK validation, last-owner protection) | `pkg/rbac/*_test.go`, `plugins/roles/integration_test.go`, `plugins/roleBindings/integration_test.go` | WR7 ✅, WR8 ✅ |
+
 ### e2e-openshell.sh (Test Alignment)
 
 | # | Item | Status | Gap | Line | Wave |
@@ -372,10 +392,38 @@ Created `tests/e2e/lib.sh` (shared utilities), `tests/e2e/drivers/kind.sh` (5 dr
 
 Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurrency groups, component detection (api_server, control_plane, e2e, pr_test), Kind cluster creation, e2e test execution, failure-only diagnostic artifacts, 20-min timeout, summary gate. Added `e2e` component to `.github/component-paths.json`.
 
+### Wave R1-R8: RBAC COMPLETED
+
+| Wave | Scope | Status |
+|------|-------|--------|
+| WR1 | Data Model Foundation (users, roles, roleBindings plugins, 6 built-in roles) | ✅ Complete |
+| WR2 | API Surface (handlers, presenters, routes for roles + roleBindings) | ✅ Complete |
+| WR3 | User Auto-Provisioning + Fleet Bootstrap (middleware + fleet:owner binding) | ✅ Complete |
+| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement flag) | ✅ Complete |
+| WR6 | gRPC Authorization (unary + stream interceptors with lazy init) | ✅ Complete |
+| WR7 | Integration Tests (roles: 4 tests, roleBindings: 7 tests) | ✅ Complete |
+| WR8 | Security Hardening (12 PR review findings resolved) | ✅ Complete |
+
+**Wave R1 summary:** Created `plugins/users/`, `plugins/roles/`, `plugins/roleBindings/` plugins with models, migrations, DAOs, services. Seeded 6 built-in roles with permissions JSONB and hierarchy levels (0=platform:admin, 1=fleet:owner, 2=fleet:editor/platform:viewer, 3=fleet:viewer/gateway:viewer).
+
+**Wave R2 summary:** Added OpenAPI specs (`openapi.roles.yaml`, `openapi.role_bindings.yaml`), handlers (roles: read-only List/Get; roleBindings: Create/List/Get/Delete), presenters, route registration. Updated openapi_embed_test.go operation count from 31 to 37.
+
+**Wave R3 summary:** `UserProvisioningMiddleware` upserts User from JWT claims (username, email, name) on every authenticated request. `fleetBootstrapper.CreateOwnerBinding` creates fleet:owner RoleBinding atomically in same DB transaction as fleet creation. Central `plugins/rbac/plugin.go` wires middleware on apiV1Router.
+
+**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. `RBAC_ENFORCE=true` env var controls enforcement.
+
+**Wave R6 summary:** `RBACUnaryInterceptor` and `RBACStreamInterceptor` apply same scope-aware evaluation to gRPC calls. `lazyRBACInterceptor` with `sync.Once` resolves services on first call (registered at init time via `RegisterPostAuthGRPC*Interceptor`). `provisionUserForGRPC` extracts JWT payload and provisions user before authorization.
+
+**Wave R7 summary:** Integration tests for roles (TestRoleListReturnsBuiltInRoles, TestRoleGetById, TestRoleGetNotFound, TestRoleListUnauthenticated) and roleBindings (TestRoleList, TestRoleGet, TestRoleBindingCreate, TestRoleBindingDelete, TestRoleBindingList, TestRoleBindingScopeValidation, TestFleetCreationCreatesOwnerBinding).
+
+**Wave R8 summary:** Resolved 12 PR review security findings. Blockers: (1) gRPC interceptor now evaluates bindings against method type via `isGRPCAuthorized` instead of blanket pass-through; (2) RoleBinding Create enforces strictly-below hierarchy with platform:admin exception via `validateHierarchy`. Majors: (3) `matchesFleetRole` fixed `fleet:editor` DELETE bug (`|| true` removed); (4) gateway-scoped bindings now compare `b.GatewayID` against request `gatewayID`; (5) `isExemptEndpoint` now exempts GET /roles and GET /roles/{id}; (6) gateway scope validation rejects `fleet_id` (exactly one FK); (7) last-owner protection uses `NewNonBlockingLock` advisory lock to prevent races. Verified: fleet owner bootstrap IS atomic via framework `TransactionMiddleware`. Added 24 unit tests (`pkg/rbac/`) + 5 new integration tests. All admin seeding references removed from spec and RECONCILE.md.
+
 ### Future (Deferred)
 
 | # | Item | Domain | Reason |
 |---|------|--------|--------|
+| RBAC-5 | Platform Admin Bootstrap | Security | First admin created via DB migration; no CLI by design |
+| RBAC-7 | Gateway OIDC Role Bridge | Security | Depends on CP + Keycloak integration design |
 | G2 | Shared Kustomize Library + CLI | Gateway | Architectural; needs design |
 | G17 | SSH Payload Delivery | Gateway | New feature; needs design |
 | D4 | Manual Credential Rotation | DB | Operational; not blocking |
@@ -420,4 +468,6 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 | 2026-08-11 | 049d1a8 | Gap analysis for e2e-testing.spec.md | 58% | New spec: 8 requirements (0 present, 1 partial, 7 missing); 3 waves planned (deploy restructuring, test framework, CI workflow) |
 | 2026-08-11 | working tree | Executed E2E waves W1-W3 | 75% | Deploy base/overlay restructuring, e2e test framework with Kind driver, CI e2e workflow; all 8 requirements now present |
 | 2026-08-11 | 458c359 | OIDC integration spec authored | 75% | Platform OIDC integration spec covering API JWT, BFF OIDC, IdP config, Kind opt-in |
+| 2026-08-11 | working tree | RBAC gap analysis | 63% | New spec `security/rbac-enforcement.spec.md` analyzed; 13 requirements, all missing; 7 RBAC waves planned (R1-R7); Gateway OIDC Role Bridge deferred |
+| 2026-08-11 | working tree | Executed Waves R1-R4,R6-R7: RBAC Enforcement | 72% | Full RBAC implementation: 3 new plugins (users, roles, roleBindings), user auto-provisioning middleware, fleet:owner bootstrap, scope-aware HTTP+gRPC authorization, 11 integration tests. 9 present, 2 partial (list filtering, escalation prevention), 2 deferred (admin bootstrap via DB migration, OIDC role bridge) |
 | 2026-08-12 | ed3725a | OIDC reconciliation complete | 77% | API server development_oidc env; BFF auth code flow with PKCE (22 tests); CP client_credentials TokenProvider + gRPC PerRPCCredentials; KIND_ENABLE_OIDC opt-in; Keycloak hypershell-control-plane client; verified end-to-end on Kind (8/8 checks pass) |
