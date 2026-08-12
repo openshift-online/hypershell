@@ -59,7 +59,7 @@ fi
 # shellcheck source=drivers/kind.sh
 source "$DRIVER_FILE"
 
-REQUIRED_FUNCTIONS=(discover_api_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route)
+REQUIRED_FUNCTIONS=(discover_api_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token)
 for fn in "${REQUIRED_FUNCTIONS[@]}"; do
   if ! declare -f "$fn" >/dev/null 2>&1; then
     red "ERROR: Driver '${E2E_INFRA_DRIVER}' does not implement required function: ${fn}"
@@ -91,6 +91,10 @@ cleanup() {
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
   fi
+  if [[ -n "${E2E_KC_PF_PID:-}" ]]; then
+    kill "$E2E_KC_PF_PID" 2>/dev/null || true
+    wait "$E2E_KC_PF_PID" 2>/dev/null || true
+  fi
   if [[ -n "${E2E_GW_PF_PID:-}" ]]; then
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
@@ -101,14 +105,15 @@ cleanup() {
   fi
   if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
-    curl -sk -X DELETE "https://${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
+    curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
   fi
 }
 trap cleanup EXIT
 
 # --- Discover API host via driver ---
 
-API_HOST=$(discover_api_host)
+discover_api_host
+API_HOST="${_DISCOVER_API_HOST}"
 if [[ -z "$API_HOST" ]]; then
   red "ERROR: Could not discover HyperShell API host"
   exit 1
@@ -120,16 +125,18 @@ echo ""
 bold "HyperShell OpenShell Gateway End-to-End Test"
 sep
 echo ""
-printf '  %s\n' "1. Gateway provisioning via HyperShell API"
+printf '  %s\n' "1. Gateway provisioning via HyperShell API (OIDC)"
 printf '  %s\n' "2. Gateway infrastructure verification"
-printf '  %s\n' "3. Route discovery + openshell CLI registration"
-printf '  %s\n' "4. Gateway connectivity"
-printf '  %s\n' "5. Sandbox lifecycle (create → ready)"
-printf '  %s\n' "6. Sandbox interaction"
+printf '  %s\n' "3. OIDC token acquisition"
+printf '  %s\n' "4. Route discovery + openshell CLI registration"
+printf '  %s\n' "5. Gateway connectivity"
+printf '  %s\n' "6. Sandbox lifecycle (create → ready)"
+printf '  %s\n' "7. Sandbox interaction"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
-dim  "  HyperShell API:    https://${API_HOST}"
+dim  "  HyperShell API:    ${API_HOST}"
 dim  "  Gateway name:      ${GW_NAME}"
+dim  "  OIDC issuer:       ${E2E_OIDC_ISSUER}"
 dim  "  Sandbox timeout:   ${E2E_SANDBOX_TIMEOUT}s"
 echo ""
 sep
@@ -140,8 +147,8 @@ echo ""
 bold "1. Gateway Provisioning via HyperShell API"
 echo ""
 
-show_cmd "curl -sk https://${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
-EXISTING_GW=$(curl -sk "https://${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
+show_cmd "curl -sk ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
+EXISTING_GW=$(curl -sk "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
 EXISTING_ID=$(echo "$EXISTING_GW" | python3 -c "
 import json,sys
 data = json.load(sys.stdin)
@@ -172,16 +179,28 @@ for gw in data.get('items', []):
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
-  show_cmd "curl -sk -X POST https://${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, ...}'"
-  CREATE_RESPONSE=$(curl -sk -X POST "https://${API_HOST}/api/hypershell/v1/gateways" \
+  show_cmd "curl -sk -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
+  GW_CREATE_BODY=$(python3 -c "
+import json, sys
+body = {
+    'name': '${GW_NAME}',
+    'fleet_id': 'e2e-fleet',
+    'cluster_id': 'e2e-cluster',
+    'release_id': 'e2e-release',
+    'database_id': 'e2e-db',
+    'oidc': json.dumps({
+        'issuer': '${E2E_OIDC_ISSUER}',
+        'audience': '${E2E_OIDC_CLIENT_ID}',
+        'roles_claim': 'groups',
+        'admin_role': 'hypershell-admins',
+        'user_role': 'hypershell-users'
+    })
+}
+print(json.dumps(body))
+")
+  CREATE_RESPONSE=$(curl -sk -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
-    -d "{
-      \"name\": \"${GW_NAME}\",
-      \"fleet_id\": \"e2e-fleet\",
-      \"cluster_id\": \"e2e-cluster\",
-      \"release_id\": \"e2e-release\",
-      \"database_id\": \"e2e-db\"
-    }" 2>/dev/null || true)
+    -d "${GW_CREATE_BODY}" 2>/dev/null || true)
 
   GW_ID=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
   GW_NAMESPACE=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
@@ -198,7 +217,7 @@ else
   DEADLINE=$(($(date +%s) + E2E_PROVISION_TIMEOUT))
   GW_PHASE=""
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    GW_PHASE=$(curl -sk "https://${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+    GW_PHASE=$(curl -sk "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
       python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
@@ -275,15 +294,33 @@ else
 fi
 sep
 
-# ── 3. route discovery + CLI registration ─────────────────────────────────
+# ── 3. OIDC token acquisition ─────────────────────────────────────────────
 
 echo ""
-bold "3. Route Discovery + CLI Registration"
+bold "3. OIDC Token Acquisition"
+echo ""
+
+show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER}"
+acquire_oidc_token
+OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
+if [[ -n "$OIDC_TOKEN" ]]; then
+  pass "OIDC token acquired (user: ${E2E_OIDC_USERNAME})"
+else
+  fail_test "Failed to acquire OIDC token from Keycloak"
+  exit 1
+fi
+sep
+
+# ── 4. route discovery + CLI registration ─────────────────────────────────
+
+echo ""
+bold "4. Route Discovery + CLI Registration"
 echo ""
 
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
 
-GW_ENDPOINT=$(discover_gateway_endpoint "$GW_NAME" "$GW_NAMESPACE")
+discover_gateway_endpoint "$GW_NAME" "$GW_NAMESPACE"
+GW_ENDPOINT="${_DISCOVER_GW_ENDPOINT}"
 if [[ -n "$GW_ENDPOINT" ]]; then
   pass "Gateway endpoint: ${GW_ENDPOINT}"
 else
@@ -302,31 +339,43 @@ show_cmd "${OPENSHELL_BIN} gateway remove ${GW_LOCAL_NAME}"
 "${OPENSHELL_BIN}" gateway remove "${GW_LOCAL_NAME}" 2>/dev/null || true
 mkdir -p "${GW_CONFIG_DIR}"
 
-show_cmd "# write gateway metadata (no-auth mode)"
+show_cmd "# write gateway metadata (OIDC mode)"
 python3 -c "
-import json, os
+import json
 meta = {
     'name': '${GW_LOCAL_NAME}',
     'gateway_endpoint': '${GW_ENDPOINT}',
     'is_remote': True,
     'gateway_port': 0,
-    'auth_mode': 'none'
+    'auth_mode': 'oidc',
+    'oidc_issuer': '${E2E_OIDC_ISSUER}',
+    'oidc_client_id': '${E2E_OIDC_CLIENT_ID}'
 }
 with open('${GW_CONFIG_DIR}/metadata.json', 'w') as f:
     json.dump(meta, f, indent=2)
+token = {
+    'access_token': '${OIDC_TOKEN}',
+    'issuer': '${E2E_OIDC_ISSUER}',
+    'client_id': '${E2E_OIDC_CLIENT_ID}'
+}
+with open('${GW_CONFIG_DIR}/oidc_token.json', 'w') as f:
+    json.dump(token, f, indent=2)
+import os
+os.chmod('${GW_CONFIG_DIR}/metadata.json', 0o600)
+os.chmod('${GW_CONFIG_DIR}/oidc_token.json', 0o600)
 "
 
-if [[ -f "${GW_CONFIG_DIR}/metadata.json" ]]; then
-  pass "openshell CLI registered (no-auth mode)"
+if [[ -f "${GW_CONFIG_DIR}/metadata.json" && -f "${GW_CONFIG_DIR}/oidc_token.json" ]]; then
+  pass "openshell CLI registered (OIDC mode)"
 else
   fail_test "Failed to write gateway config"
 fi
 sep
 
-# ── 4. gateway connectivity ───────────────────────────────────────────────
+# ── 5. gateway connectivity ───────────────────────────────────────────────
 
 echo ""
-bold "4. Gateway Connectivity"
+bold "5. Gateway Connectivity"
 echo ""
 
 show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} status"
@@ -345,7 +394,8 @@ while [[ $(date +%s) -lt $CONNECT_DEADLINE ]]; do
 done
 
 if [[ "$CONNECTED" == "true" ]]; then
-  GW_VERSION=$(echo "$CLEAN_STATUS" | grep -oP 'Version:\s*\K\S+' || echo "unknown")
+  GW_VERSION=$(echo "$CLEAN_STATUS" | sed -n 's/.*Version:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
+  : "${GW_VERSION:=unknown}"
   pass "Gateway connected (version: ${GW_VERSION})"
   echo "$STATUS_OUTPUT" | while IFS= read -r line; do
     dim "    $line"
@@ -358,25 +408,34 @@ else
 fi
 sep
 
-# ── 5. sandbox lifecycle ──────────────────────────────────────────────────
+# ── 6. sandbox lifecycle ──────────────────────────────────────────────────
 
 echo ""
-bold "5. Sandbox Lifecycle"
+bold "6. Sandbox Lifecycle"
 echo ""
 
 RUN_ID=$(date +%s | tail -c5)
 SANDBOX_NAME="e2e-${RUN_ID}"
-
 show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
 dim "  Creating sandbox (timeout: ${E2E_SANDBOX_TIMEOUT}s)..."
 
-OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" &>/dev/null &
+SB_CREATE_LOG=$(mktemp)
+OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" >"${SB_CREATE_LOG}" 2>&1 &
 SB_CREATE_PID=$!
 
-DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+sleep 5
+if ! kill -0 "$SB_CREATE_PID" 2>/dev/null; then
+  wait "$SB_CREATE_PID" 2>/dev/null || true
+  SB_CREATE_PID=""
+  SB_CREATE_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${SB_CREATE_LOG}" 2>/dev/null || true)
+  fail_test "Sandbox create failed immediately"
+  echo "$SB_CREATE_ERR" | while IFS= read -r line; do dim "    $line"; done
+fi
+
 SANDBOX_FOUND=false
 POD_NAME=""
 POD_STATUS=""
+DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
 while [[ $(date +%s) -lt $DEADLINE ]]; do
   SANDBOX_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${SANDBOX_NAME}" || true)
   if [[ -n "$SANDBOX_PODS" ]]; then
@@ -407,14 +466,19 @@ else
     pass "Sandbox pod created: ${POD_NAME} (${POD_STATUS})"
   else
     fail_test "Sandbox not found after ${E2E_SANDBOX_TIMEOUT}s"
+    if [[ -s "${SB_CREATE_LOG}" ]]; then
+      dim "  Sandbox create output:"
+      sed 's/\x1b\[[0-9;]*m//g' "${SB_CREATE_LOG}" | while IFS= read -r line; do dim "    $line"; done
+    fi
   fi
 fi
+rm -f "${SB_CREATE_LOG}" 2>/dev/null || true
 sep
 
-# ── 6. sandbox interaction ────────────────────────────────────────────────
+# ── 7. sandbox interaction ────────────────────────────────────────────────
 
 echo ""
-bold "6. Sandbox Interaction"
+bold "7. Sandbox Interaction"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
@@ -460,10 +524,10 @@ fi
 
 # ── cleanup ───────────────────────────────────────────────────────────────
 
-if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$SANDBOX_NAME" ]]; then
+if [[ "$E2E_SKIP_CLEANUP" != "1" && "$SANDBOX_FOUND" == "true" ]]; then
   echo ""
   dim "  Cleaning up sandbox..."
-  show_cmd "${INSECURE_ENV} ${OPENSHELL_BIN} ${GW_FLAG} sandbox delete ${SANDBOX_NAME}"
+  show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME}"
   OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
   dim "  Sandbox deleted"
 fi

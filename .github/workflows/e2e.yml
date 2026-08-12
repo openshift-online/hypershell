@@ -68,6 +68,11 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
+      - name: Install cloud-provider-kind
+        run: |
+          go install sigs.k8s.io/cloud-provider-kind@latest
+          echo "cloud-provider-kind installed at $(which cloud-provider-kind)"
+
       - name: Install openshell CLI
         run: |
           curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
@@ -100,6 +105,8 @@ jobs:
           kubectl get events --sort-by=.lastTimestamp -n hypershell-system >> e2e-diagnostics/events.txt 2>&1 || true
           echo "=== All pods ===" > e2e-diagnostics/pods.txt
           kubectl get pods -A >> e2e-diagnostics/pods.txt 2>&1 || true
+          echo "=== Keycloak logs ===" > e2e-diagnostics/keycloak-logs.txt
+          kubectl logs --all-containers --prefix -l app=keycloak -n keycloak --tail=100 >> e2e-diagnostics/keycloak-logs.txt 2>&1 || true
           echo "=== Gateway API resources ===" > e2e-diagnostics/gateway-api.txt
           kubectl get gateways,grpcroutes,httproutes -A -o wide >> e2e-diagnostics/gateway-api.txt 2>&1 || true
           echo "=== Openshell namespaces ===" >> e2e-diagnostics/gateway-api.txt

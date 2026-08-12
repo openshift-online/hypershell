@@ -90,3 +90,8 @@ retry_until() {
 : "${E2E_SKIP_CLEANUP:=0}"
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"
+: "${E2E_KEYCLOAK_NAMESPACE:=keycloak}"
+: "${E2E_OIDC_ISSUER:=http://keycloak.hypershell.localhost:8080/realms/hypershell}"
+: "${E2E_OIDC_CLIENT_ID:=hypershell-frontend}"
+: "${E2E_OIDC_USERNAME:=admin}"
+: "${E2E_OIDC_PASSWORD:=admin}"
