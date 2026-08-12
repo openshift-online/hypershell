@@ -332,9 +332,12 @@ else
   exit 1
 fi
 
-wait_for_gateway_route "$GW_NAME" "$GW_NAMESPACE" && \
-  pass "Gateway route is ready" || \
-  dim "  - Route readiness check timed out (continuing)"
+if wait_for_gateway_route "$GW_NAME" "$GW_NAMESPACE"; then
+  pass "Gateway route is ready"
+else
+  fail_test "Gateway route not ready after timeout"
+  exit 1
+fi
 
 GW_CONFIG_DIR="${HOME}/.config/openshell/gateways/${GW_LOCAL_NAME}"
 mkdir -p "${GW_CONFIG_DIR}"
