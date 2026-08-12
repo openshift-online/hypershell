@@ -46,6 +46,7 @@ GATEWAY_API_VERSION?=v1.5.1
 KIND_VERSION?=v0.32.1-0.20260811083914-7650cab268f5
 CLOUD_PROVIDER_KIND_VERSION?=v0.11.1
 CERT_MANAGER_VERSION?=v1.21.1
+AGENT_SANDBOX_VERSION?=v0.5.4
 
 # Kind config
 KIND_CONFIG=deploy/kind/kind-config.yaml
@@ -88,7 +89,6 @@ help:
 	@echo "    build-api-server         Build API server container image"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
-	@echo "    keycloak-theme           Regenerate Keycloak theme ConfigMaps from source"
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
@@ -144,10 +144,6 @@ build-controller:
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
 		-f components/web-console/Dockerfile .
-
-.PHONY: keycloak-theme
-keycloak-theme:
-	@scripts/generate-keycloak-theme.sh
 
 # ============================================================================
 # Policy checks
@@ -259,9 +255,10 @@ test-all: install-js
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
 export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
 export KIND_PULL_SECRET KIND_ENABLE_OIDC KIND_DB_IMAGE
-export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_VERSION CERT_MANAGER_VERSION
+export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_VERSION CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
+export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
 export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER

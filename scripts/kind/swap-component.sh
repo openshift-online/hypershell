@@ -154,7 +154,7 @@ EOF
       wait "${API_PF_PID}" 2>/dev/null || true
       info "Restoring in-cluster web console..."
       kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-      kube apply -f "${REPO_ROOT}/deploy/kind/web-console.yaml" || true
+      kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml" || true
       kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" || true
       info "Waiting for web console to become available..."
       kube wait --for=condition=available "deployment/${DEPLOYMENT}" \
@@ -227,7 +227,7 @@ swap_down() {
 
   if [[ "${COMPONENT}" == "web-console" ]]; then
     kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-    kube apply -f deploy/kind/web-console.yaml
+    kube apply -f deploy/base/web-console.yaml
   else
     local set_image_args=""
     for container in ${CONTAINERS}; do
