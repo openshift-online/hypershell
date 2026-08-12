@@ -94,11 +94,26 @@ jobs:
               if git diff --name-only "${base_sha}" HEAD | grep -q '^components/web-console/'; then need_konflux=true; fi
 
               if [[ "${need_konflux}" != "true" ]]; then
-                echo "No source components changed -- running with baseline images"
-                echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
-                echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
-                echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                echo "No source components changed -- using latest Konflux on-push images from main"
+                main_sha=$(git rev-parse origin/main)
+                main_tag="on-pr-${main_sha}"
+                konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${main_tag}"
+                konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${main_tag}"
+                konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${main_tag}"
+                # Fall back to baseline if Konflux images are not available
+                if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
+                  echo "  Using Konflux images from main (${main_sha:0:7})"
+                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                  echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
+                  echo "control_plane_image=${konflux_cp}" >> "${GITHUB_OUTPUT}"
+                  echo "web_console_image=${konflux_wc}" >> "${GITHUB_OUTPUT}"
+                else
+                  echo "  Konflux images not found for main -- falling back to baseline"
+                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                  echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+                  echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+                  echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                fi
                 exit 0
               fi
 
@@ -170,11 +185,23 @@ jobs:
               ;;
 
             *)
-              # push, merge_group, workflow_dispatch -- use baselines
-              echo "should_run=true" >> "${GITHUB_OUTPUT}"
-              echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
-              echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
-              echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+              # push, merge_group, workflow_dispatch -- use latest Konflux on-push images
+              push_sha="${{ github.sha }}"
+              push_tag="on-pr-${push_sha}"
+              konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${push_tag}"
+              if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
+                echo "Using Konflux on-push images (${push_sha:0:7})"
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${KONFLUX_REGISTRY}/hypershell-control-plane-main:${push_tag}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${KONFLUX_REGISTRY}/hypershell-web-console-main:${push_tag}" >> "${GITHUB_OUTPUT}"
+              else
+                echo "Konflux on-push images not found -- falling back to baseline"
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+              fi
               ;;
           esac
 
