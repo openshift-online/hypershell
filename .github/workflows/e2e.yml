@@ -82,11 +82,16 @@ jobs:
                 exit 0
               fi
 
-              # Determine which components need Konflux-built images
+              # Determine which components need Konflux-built images.
+              # detect-components uses broad paths (includes Makefile, .github/,
+              # etc.) which is correct for "should we re-run e2e" but NOT for
+              # "will Konflux build an image".  Konflux only triggers on files
+              # under components/<name>/ -- check the actual diff.
+              base_sha="${{ github.event.pull_request.base.sha }}"
               need_konflux=false
-              if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || "${wc_changed}" == "true" ]]; then
-                need_konflux=true
-              fi
+              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/api-server/'; then need_konflux=true; fi
+              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/control-plane/'; then need_konflux=true; fi
+              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/web-console/'; then need_konflux=true; fi
 
               if [[ "${need_konflux}" != "true" ]]; then
                 echo "No source components changed -- running with baseline images"
