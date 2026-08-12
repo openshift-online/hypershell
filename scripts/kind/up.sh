@@ -147,6 +147,19 @@ kube wait --for=condition=available deployment/cert-manager-webhook -n cert-mana
 success "cert-manager ready"
 echo ""
 
+# --- Install Agent Sandbox CRDs ---
+header "Agent Sandbox"
+info "Installing Agent Sandbox controller (${AGENT_SANDBOX_VERSION})..."
+if kube get namespace agent-sandbox-system >/dev/null 2>&1; then
+  warn "agent-sandbox-system namespace exists, skipping install"
+else
+  kube apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/sandbox.yaml"
+fi
+info "Waiting for agent-sandbox controller..."
+kube wait --for=condition=available deployment/agent-sandbox-controller-manager -n agent-sandbox-system --timeout=120s
+success "Agent Sandbox controller ready"
+echo ""
+
 # --- Build and load local images (offline mode) ---
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
