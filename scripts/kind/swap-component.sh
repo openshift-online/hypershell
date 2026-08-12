@@ -70,25 +70,55 @@ swap_up() {
       fi
     done
 
-    # Discover the host IP reachable from containers.
-    # Docker Desktop and Podman on macOS/Windows run containers in a Linux
-    # VM, so the bridge gateway is internal to that VM.  Both provide a
-    # special hostname that resolves to an IP routing back to the real host.
-    # On native Linux, prefer the Kind network's bridge gateway.
-    HOST_IP=""
-    if [[ "$(uname -s)" == "Linux" ]] && [[ -n "${KIND_ENGINE}" ]]; then
-      HOST_IP=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
+    # Discover a host IP reachable from inside the Kind cluster.
+    # Candidate IPs are tested by running a connectivity check from the
+    # Kind control-plane node.  In rootless Podman the Kind network bridge
+    # gateway is often unreachable from pods, so we try multiple candidates.
+    candidate_ips=()
+    if [[ -n "${KIND_ENGINE}" ]]; then
+      # Kind network bridge gateway (works with Docker, sometimes Podman)
+      gw=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
         -f '{{.NetworkSettings.Networks.kind.Gateway}}' 2>/dev/null || true)
-    fi
-    if [[ -z "${HOST_IP}" ]]; then
-      LOOKUP_ENGINE="${KIND_ENGINE:-${CONTAINER_ENGINE}}"
-      for host_alias in host.docker.internal host.containers.internal; do
-        HOST_IP=$("${LOOKUP_ENGINE}" run --rm alpine getent hosts "${host_alias}" 2>/dev/null | awk '{print $1}' || true)
-        if [[ -n "${HOST_IP}" ]]; then break; fi
+      [[ -n "${gw}" ]] && candidate_ips+=("${gw}")
+      # Docker/Podman bridge gateway (172.17.0.1 etc.)
+      for net in bridge podman; do
+        bgw=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
+          -f "{{.NetworkSettings.Networks.${net}.Gateway}}" 2>/dev/null || true)
+        [[ -n "${bgw}" ]] && candidate_ips+=("${bgw}")
       done
     fi
+    # Host-routable aliases (macOS/Windows VMs)
+    LOOKUP_ENGINE="${KIND_ENGINE:-${CONTAINER_ENGINE}}"
+    for host_alias in host.docker.internal host.containers.internal; do
+      alias_ip=$("${LOOKUP_ENGINE}" run --rm alpine getent hosts "${host_alias}" 2>/dev/null | awk '{print $1}' || true)
+      [[ -n "${alias_ip}" ]] && candidate_ips+=("${alias_ip}")
+    done
+
+    HOST_IP=""
+    for candidate in "${candidate_ips[@]}"; do
+      if "${KIND_ENGINE:-${CONTAINER_ENGINE}}" exec "${KIND_CLUSTER_NAME}-control-plane" \
+          sh -c "cat < /dev/tcp/${candidate}/${DEV_PORT}" >/dev/null 2>&1; then
+        HOST_IP="${candidate}"
+        break
+      fi
+    done
+    # If nothing is listening yet (dev server not started), pick first candidate
+    # that is at least routable (TCP connect to a common port).
     if [[ -z "${HOST_IP}" ]]; then
-      error "Could not determine host IP from Kind network"
+      for candidate in "${candidate_ips[@]}"; do
+        if "${KIND_ENGINE:-${CONTAINER_ENGINE}}" exec "${KIND_CLUSTER_NAME}-control-plane" \
+            sh -c "cat < /dev/tcp/${candidate}/22 || cat < /dev/tcp/${candidate}/5173" >/dev/null 2>&1; then
+          HOST_IP="${candidate}"
+          break
+        fi
+      done
+    fi
+    # Last resort: use first candidate and hope for the best
+    if [[ -z "${HOST_IP}" ]] && [[ ${#candidate_ips[@]} -gt 0 ]]; then
+      HOST_IP="${candidate_ips[0]}"
+    fi
+    if [[ -z "${HOST_IP}" ]]; then
+      error "Could not determine host IP reachable from Kind cluster"
       exit 1
     fi
 
