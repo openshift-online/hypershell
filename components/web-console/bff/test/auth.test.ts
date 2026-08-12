@@ -442,9 +442,9 @@ describe("web-console BFF with OIDC enabled", () => {
     });
 
     expect(response.statusCode).toBe(302);
-    const location = response.headers.location as string;
-    expect(location).toContain("/end-session");
-    expect(location).not.toContain("id_token_hint");
+    expect(response.headers.location).toBeDefined();
+    expect(response.headers.location).toContain("/end-session");
+    expect(response.headers.location).not.toContain("id_token_hint");
   });
 
   // -----------------------------------------------------------------------
