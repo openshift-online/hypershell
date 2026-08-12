@@ -59,13 +59,20 @@ discover_gateway_endpoint() {
     -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)
 
   if [[ -n "$grpc_host" ]]; then
-    local gw_programmed
-    gw_programmed=$(kubectl get gateway -A -l "hypershell.redhat.io/tenant=${gw_namespace}" \
-      -o jsonpath='{range .items[*]}{range .status.conditions[*]}{.type}={.status}{"\n"}{end}{end}' 2>/dev/null \
-      | grep -c 'Programmed=True' || true)
-    if [[ "${gw_programmed:-0}" -ge 1 ]]; then
-      _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
-      return
+    local gw_ref_name gw_ref_ns gw_programmed
+    gw_ref_name=$(kubectl get grpcroute openshell-gateway -n "${gw_namespace}" \
+      -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null || true)
+    gw_ref_ns=$(kubectl get grpcroute openshell-gateway -n "${gw_namespace}" \
+      -o jsonpath='{.spec.parentRefs[0].namespace}' 2>/dev/null || true)
+
+    if [[ -n "$gw_ref_name" && -n "$gw_ref_ns" ]]; then
+      gw_programmed=$(kubectl get gateway "${gw_ref_name}" -n "${gw_ref_ns}" \
+        -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
+        | grep -c 'Programmed=True' || true)
+      if [[ "${gw_programmed:-0}" -ge 1 ]]; then
+        _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
+        return
+      fi
     fi
   fi
 
@@ -147,10 +154,18 @@ wait_for_gateway_route() {
   dim "  Waiting for Gateway route readiness (timeout: ${timeout}s)..."
 
   while [[ $(date +%s) -lt $deadline ]]; do
-    local programmed
-    programmed=$(kubectl get gateway -A -l "hypershell.redhat.io/tenant=${gw_namespace}" \
-      -o jsonpath='{range .items[*]}{range .status.conditions[*]}{.type}={.status}{"\n"}{end}{end}' 2>/dev/null \
-      | grep -c 'Programmed=True' || true)
+    local gw_ref_name gw_ref_ns programmed
+    gw_ref_name=$(kubectl get grpcroute openshell-gateway -n "${gw_namespace}" \
+      -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null || true)
+    gw_ref_ns=$(kubectl get grpcroute openshell-gateway -n "${gw_namespace}" \
+      -o jsonpath='{.spec.parentRefs[0].namespace}' 2>/dev/null || true)
+
+    programmed=0
+    if [[ -n "$gw_ref_name" && -n "$gw_ref_ns" ]]; then
+      programmed=$(kubectl get gateway "${gw_ref_name}" -n "${gw_ref_ns}" \
+        -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
+        | grep -c 'Programmed=True' || true)
+    fi
 
     local accepted
     accepted=$(kubectl get grpcroute -n "${gw_namespace}" -o jsonpath='{range .items[*]}{range .status.parents[*]}{range .conditions[*]}{.type}={.status}{"\n"}{end}{end}{end}' 2>/dev/null \

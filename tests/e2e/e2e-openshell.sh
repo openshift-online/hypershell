@@ -194,6 +194,9 @@ body = {
         'roles_claim': 'groups',
         'admin_role': 'hypershell-admins',
         'user_role': 'hypershell-users'
+    }),
+    'route': json.dumps({
+        'enabled': True
     })
 }
 print(json.dumps(body))

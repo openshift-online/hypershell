@@ -130,15 +130,17 @@ func DeleteGatewayResources(
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
 		)
-		gwGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-		gwName := "gw-" + namespace
-		gwNS := gatewayIngressNamespace()
-		if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil {
-			if !k8serrors.IsNotFound(err) {
-				log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
+		if sharedGatewayName() == "" {
+			gwGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
+			gwName := "gw-" + namespace
+			gwNS := gatewayIngressNamespace()
+			if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil {
+				if !k8serrors.IsNotFound(err) {
+					log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
+				}
+			} else {
+				log.Printf("INFO deleted Gateway %s from %s", gwName, gwNS)
 			}
-		} else {
-			log.Printf("INFO deleted Gateway %s from %s", gwName, gwNS)
 		}
 	}
 
@@ -181,16 +183,17 @@ func DeleteGatewayResources(
 }
 
 func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	gwName := "gw-" + namespace
-
-	gwGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "gateways",
-	}
-	gwNS := gatewayIngressNamespace()
-	if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
+	if sharedGatewayName() == "" {
+		gwName := "gw-" + namespace
+		gwGVR := schema.GroupVersionResource{
+			Group:    "gateway.networking.k8s.io",
+			Version:  "v1",
+			Resource: "gateways",
+		}
+		gwNS := gatewayIngressNamespace()
+		if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
+		}
 	}
 
 	grpcRouteGVR := schema.GroupVersionResource{
@@ -874,6 +877,10 @@ func gatewayIngressNamespace() string {
 	return "openshift-ingress"
 }
 
+func sharedGatewayName() string {
+	return os.Getenv("GATEWAY_API_GATEWAY_NAME")
+}
+
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
 	routeConfig := nsConfig.Gateway.Route
@@ -893,47 +900,56 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		hostname = fmt.Sprintf("%s.%s", firstLabel, baseDomain)
 	}
 
-	gwName := "gw-" + namespace
 	gwNS := gatewayIngressNamespace()
+	var gwName string
+	var sectionName string
 
-	gw := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "gateway.networking.k8s.io/v1",
-			"kind":       "Gateway",
-			"metadata": map[string]interface{}{
-				"name":      gwName,
-				"namespace": gwNS,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-					"hypershell.redhat.io/tenant":  namespace,
+	if sharedGW := sharedGatewayName(); sharedGW != "" {
+		gwName = sharedGW
+		sectionName = "grpc"
+		log.Printf("INFO using shared Gateway %s/%s for namespace %s", gwNS, gwName, namespace)
+	} else {
+		gwName = "gw-" + namespace
+
+		gw := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "gateway.networking.k8s.io/v1",
+				"kind":       "Gateway",
+				"metadata": map[string]interface{}{
+					"name":      gwName,
+					"namespace": gwNS,
+					"labels": map[string]interface{}{
+						"app.kubernetes.io/name":       "openshell",
+						"app.kubernetes.io/component":  "gateway",
+						"app.kubernetes.io/managed-by": "hypershell-control-plane",
+						"hypershell.redhat.io/managed": "true",
+						"hypershell.redhat.io/tenant":  namespace,
+					},
 				},
-			},
-			"spec": map[string]interface{}{
-				"gatewayClassName": gatewayClassName,
-				"listeners": []interface{}{
-					map[string]interface{}{
-						"name":     "grpc",
-						"hostname": hostname,
-						"port":     int64(443),
-						"protocol": "HTTPS",
-						"tls": map[string]interface{}{
-							"mode": "Terminate",
-							"certificateRefs": []interface{}{
-								map[string]interface{}{
-									"name": "grpc-gateway-certs",
-									"kind": "Secret",
+				"spec": map[string]interface{}{
+					"gatewayClassName": gatewayClassName,
+					"listeners": []interface{}{
+						map[string]interface{}{
+							"name":     "grpc",
+							"hostname": hostname,
+							"port":     int64(443),
+							"protocol": "HTTPS",
+							"tls": map[string]interface{}{
+								"mode": "Terminate",
+								"certificateRefs": []interface{}{
+									map[string]interface{}{
+										"name": "grpc-gateway-certs",
+										"kind": "Secret",
+									},
 								},
 							},
-						},
-						"allowedRoutes": map[string]interface{}{
-							"namespaces": map[string]interface{}{
-								"from": "Selector",
-								"selector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"kubernetes.io/metadata.name": namespace,
+							"allowedRoutes": map[string]interface{}{
+								"namespaces": map[string]interface{}{
+									"from": "Selector",
+									"selector": map[string]interface{}{
+										"matchLabels": map[string]interface{}{
+											"kubernetes.io/metadata.name": namespace,
+										},
 									},
 								},
 							},
@@ -941,10 +957,18 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 					},
 				},
 			},
-		},
+		}
+		if err := reconcileResource(ctx, dynamicClient, gw); err != nil {
+			return fmt.Errorf("reconcile Gateway: %w", err)
+		}
 	}
-	if err := reconcileResource(ctx, dynamicClient, gw); err != nil {
-		return fmt.Errorf("reconcile Gateway: %w", err)
+
+	parentRef := map[string]interface{}{
+		"name":      gwName,
+		"namespace": gwNS,
+	}
+	if sectionName != "" {
+		parentRef["sectionName"] = sectionName
 	}
 
 	grpcRoute := &unstructured.Unstructured{
@@ -962,13 +986,8 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 				},
 			},
 			"spec": map[string]interface{}{
-				"parentRefs": []interface{}{
-					map[string]interface{}{
-						"name":      gwName,
-						"namespace": gwNS,
-					},
-				},
-				"hostnames": []interface{}{hostname},
+				"parentRefs": []interface{}{parentRef},
+				"hostnames":  []interface{}{hostname},
 				"rules": []interface{}{
 					map[string]interface{}{
 						"backendRefs": []interface{}{

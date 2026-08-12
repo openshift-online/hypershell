@@ -45,6 +45,8 @@ spec:
               value: "cloud-provider-kind"
             - name: GATEWAY_API_GATEWAY_NAMESPACE
               value: "hypershell-system"
+            - name: GATEWAY_API_GATEWAY_NAME
+              value: "hypershell-gw"
             - name: HYPERSHELL_DATABASE_IMAGE
               # Substituted by scripts/kind/up.sh - do not apply this file directly.
               value: "__KIND_DB_IMAGE__"
