@@ -105,6 +105,13 @@ echo ""
 
 # --- Install infrastructure prerequisites via kustomize ---
 header "Infrastructure"
+# Kubernetes 1.33+ may pre-install Gateway API CRDs whose storedVersions
+# contain API versions the experimental bundle no longer serves (e.g. v1 for
+# TCPRoute/UDPRoute).  Delete them first so the apply can re-create them
+# with the correct spec.versions.
+for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
+  kube delete crd "$crd" --ignore-not-found 2>/dev/null || true
+done
 info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox)..."
 kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure | \
   kube apply --server-side --force-conflicts -f -
