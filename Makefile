@@ -23,9 +23,9 @@ control_plane_ref=$(IMAGE_REGISTRY)/hypershell-control-plane-main:$(IMAGE_TAG)
 web_console_ref=$(IMAGE_REGISTRY)/hypershell-web-console-main:$(IMAGE_TAG)
 
 # Local dev image names
-api_server_local=hypershell:dev
-control_plane_local=hypershell-controller:dev
-web_console_local=hypershell-web-console:dev
+api_server_local=localhost/hypershell:dev
+control_plane_local=localhost/hypershell-controller:dev
+web_console_local=localhost/hypershell-web-console:dev
 
 # --- Kind cluster configuration ---
 KIND_CLUSTER_NAME?=hypershell-dev

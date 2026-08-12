@@ -92,7 +92,7 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
       },
     },
     requestTimeout: 30_000,
-    trustProxy: false,
+    trustProxy: config.nodeEnv !== "development" || !!config.oidcIssuer,
   });
 
   app.decorateRequest("correlationId", "");
