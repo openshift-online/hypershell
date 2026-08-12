@@ -522,6 +522,12 @@ else
 fi
 
 if oidc_enabled; then
+  OIDC_REDIRECT="https://${CONSOLE_HOSTNAME}${PORT_SUFFIX:-}/auth/callback"
+  if ! is_swapped web-console; then
+    kube set env deployment/hypershell-web-console -n "${KIND_NAMESPACE}" -c web-console \
+      OIDC_REDIRECT_URI="${OIDC_REDIRECT}"
+  fi
+
   echo ""
   info "OIDC Authentication: ENABLED"
   info "Keycloak:            https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX:-} (admin/admin)"

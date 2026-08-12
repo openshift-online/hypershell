@@ -120,8 +120,8 @@ data:
           "standardFlowEnabled": true,
           "directAccessGrantsEnabled": true,
           "fullScopeAllowed": true,
-          "redirectUris": ["https://console.hypershell.localhost/*", "https://console.hypershell.localhost:*/*"],
-          "webOrigins": ["https://console.hypershell.localhost", "https://console.hypershell.localhost:*"],
+          "redirectUris": ["https://console.hypershell.localhost/*", "https://console.hypershell.localhost:*"],
+          "webOrigins": ["+"],
           "defaultClientScopes": ["openid", "email", "profile"],
           "protocolMappers": [
             {
