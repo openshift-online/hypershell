@@ -156,7 +156,7 @@ else
   kube apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/sandbox.yaml"
 fi
 info "Waiting for agent-sandbox controller..."
-kube wait --for=condition=available deployment/agent-sandbox-controller-manager -n agent-sandbox-system --timeout=120s
+kube wait --for=condition=available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
 success "Agent Sandbox controller ready"
 echo ""
 
