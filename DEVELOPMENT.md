@@ -134,6 +134,7 @@ production.
 | Realm | `hypershell` |
 | Frontend client | `hypershell-frontend` (public, standard flow + direct access grants) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
+| Control plane client | `hypershell-control-plane` (confidential, service account, client_credentials) |
 | Admin user | `admin` / `admin` (role: `hypershell-admins`) |
 | Developer user | `developer` / `developer` (role: `hypershell-users`) |
 | OIDC Issuer URL | `http://keycloak.hypershell.localhost:8080/realms/hypershell` |
@@ -148,6 +149,13 @@ The networking Gateway has a dedicated HTTP listener (`http-keycloak`) on port
 complexity and means the same OIDC issuer URL works from both the host browser
 and in-cluster pods (cluster CoreDNS is patched to resolve
 `*.hypershell.localhost` to the Gateway LB IP).
+
+The control plane authenticates to the API server's gRPC endpoint using its own
+Keycloak service account (`hypershell-control-plane` client, confidential,
+`client_credentials` grant). `make kind-up` creates a `hypershell-cp-oidc`
+secret and patches the control plane deployment with `OIDC_ISSUER`,
+`OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET`. When swapped locally, export those
+variables in your shell before running the control plane binary.
 
 Port forwarding (pfctl/iptables) maps host port 8080 to the Gateway's ephemeral
 HTTP port. If port forwarding is not active (e.g. after a cluster restart),

@@ -171,6 +171,29 @@ data:
           "standardFlowEnabled": false,
           "directAccessGrantsEnabled": false,
           "secret": "provisioner-secret"
+        },
+        {
+          "clientId": "hypershell-control-plane",
+          "enabled": true,
+          "publicClient": false,
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "secret": "control-plane-secret",
+          "protocolMappers": [
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "hypershell-frontend",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            }
+          ]
         }
       ],
       "roles": {

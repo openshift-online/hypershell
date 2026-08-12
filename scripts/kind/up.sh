@@ -205,6 +205,31 @@ else
   warn "Web console is swapped - skipping manifest"
 fi
 
+# --- OIDC for control plane (service-to-service auth) ---
+if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+  header "Control Plane OIDC"
+  info "Creating control plane OIDC secret..."
+  kube create secret generic hypershell-cp-oidc \
+    --namespace "${KIND_NAMESPACE}" \
+    --from-literal=client-id=hypershell-control-plane \
+    --from-literal=client-secret=control-plane-secret \
+    --dry-run=client -o yaml | kube apply -f -
+
+  if ! is_swapped control-plane; then
+    info "Patching control plane with OIDC credentials..."
+    kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
+      OIDC_ISSUER="${KEYCLOAK_OIDC_ISSUER}" \
+      OIDC_CLIENT_ID=hypershell-control-plane \
+      --containers=controller
+    kube patch deployment/hypershell-controller -n "${KIND_NAMESPACE}" --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"OIDC_CLIENT_SECRET","valueFrom":{"secretKeyRef":{"name":"hypershell-cp-oidc","key":"client-secret"}}}}]'
+    success "Control plane OIDC configured"
+  else
+    warn "Control plane is swapped - set OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET in your local env"
+  fi
+  echo ""
+fi
+
 if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
   info "Rolling out non-swapped deployments to pick up rebuilt images..."
   for pair in "hypershell-api-server:api-server" \

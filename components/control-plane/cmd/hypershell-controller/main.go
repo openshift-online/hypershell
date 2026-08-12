@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -35,9 +36,29 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	conn, err := grpc.NewClient(cfg.GRPCServerAddr,
+	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	}
+
+	oidcIssuer := os.Getenv("OIDC_ISSUER")
+	if oidcIssuer != "" {
+		oidcClientID := os.Getenv("OIDC_CLIENT_ID")
+		if oidcClientID == "" {
+			oidcClientID = "hypershell-control-plane"
+		}
+		oidcClientSecret := os.Getenv("OIDC_CLIENT_SECRET")
+		if oidcClientSecret == "" {
+			log.Fatalf("OIDC_CLIENT_SECRET is required when OIDC_ISSUER is set")
+		}
+
+		tp := auth.NewTokenProvider(oidcIssuer, oidcClientID, oidcClientSecret)
+		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tp)))
+		log.Printf("INFO OIDC authentication enabled for gRPC connections")
+	} else {
+		log.Printf("INFO OIDC authentication disabled for gRPC connections")
+	}
+
+	conn, err := grpc.NewClient(cfg.GRPCServerAddr, dialOpts...)
 	if err != nil {
 		log.Fatalf("connecting to gRPC server: %v", err)
 	}
