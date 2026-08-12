@@ -156,10 +156,16 @@ jobs:
               # but Konflux only triggers on component source directories and
               # their .tekton pipeline files.
               base_sha="${{ github.event.pull_request.base.sha }}"
+              echo "base_sha=${base_sha}"
+              echo "--- git diff files ---"
+              git diff --name-only "${base_sha}" HEAD || true
+              echo "--- end diff ---"
               konflux_source_changed=false
-              if git diff --name-only "${base_sha}" HEAD | grep -qE \
-                  '^(components/(api-server|control-plane|web-console)/|\.tekton/hypershell-.*-pull-request\.yaml$|^Dockerfile$)'; then
+              konflux_matches=$(git diff --name-only "${base_sha}" HEAD | grep -E \
+                  '^components/(api-server|control-plane|web-console)/|^\.tekton/hypershell-.*-pull-request\.yaml$|^Dockerfile$' || true)
+              if [[ -n "${konflux_matches}" ]]; then
                 konflux_source_changed=true
+                echo "Matched Konflux paths: ${konflux_matches}"
               fi
 
               if [[ "${konflux_source_changed}" == "true" ]]; then
