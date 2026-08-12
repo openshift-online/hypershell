@@ -414,11 +414,40 @@ cleanup_pf() { kill "${PF_PID}" 2>/dev/null || true; wait "${PF_PID}" 2>/dev/nul
 trap cleanup_pf EXIT
 sleep 2
 
+# When OIDC is enabled, obtain a Bearer token for API calls.
+API_AUTH_HEADER=""
+if oidc_enabled; then
+  info "Obtaining API token from Keycloak..."
+  KC_TOKEN_URL="http://localhost:8080/realms/hypershell/protocol/openid-connect/token"
+  kube port-forward svc/keycloak-service -n keycloak 8080:8080 >/dev/null 2>&1 &
+  KC_PF_PID=$!
+  cleanup_pf_orig=$(declare -f cleanup_pf | tail -n +2)
+  cleanup_pf() { kill "${KC_PF_PID}" 2>/dev/null || true; eval "${cleanup_pf_orig}"; }
+  sleep 2
+  TOKEN_RESP=$(curl -sS -X POST "${KC_TOKEN_URL}" \
+    -d "grant_type=client_credentials" \
+    -d "client_id=hypershell-control-plane" \
+    -d "client_secret=control-plane-secret" 2>&1 || true)
+  API_TOKEN=$(echo "${TOKEN_RESP}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
+  if [[ -n "${API_TOKEN}" ]]; then
+    API_AUTH_HEADER="Authorization: Bearer ${API_TOKEN}"
+    success "API token obtained"
+  else
+    warn "Could not obtain API token: ${TOKEN_RESP:0:200}"
+  fi
+  kill "${KC_PF_PID}" 2>/dev/null || true
+fi
+
 # Helper: POST a JSON resource; prints the response body on success or failure.
 api_post() {
   local url="$1" data="$2"
+  local auth_args=()
+  if [[ -n "${API_AUTH_HEADER}" ]]; then
+    auth_args=(-H "${API_AUTH_HEADER}")
+  fi
   curl -sS -w "\n%{http_code}" -X POST "${url}" \
     -H "Content-Type: application/json" \
+    "${auth_args[@]}" \
     -d "${data}" 2>&1 || true
 }
 
