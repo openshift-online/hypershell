@@ -347,6 +347,32 @@ func deployGateway(
 	return nil
 }
 
+func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
+	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for secret %s/%s", namespace, name)
+		case <-ticker.C:
+			_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err == nil {
+				log.Printf("INFO secret %s/%s is available", namespace, name)
+				return nil
+			}
+		}
+	}
+}
+
 func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(2 * time.Second)
@@ -960,6 +986,10 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 		if err := reconcileResource(ctx, dynamicClient, gwCert); err != nil {
 			return fmt.Errorf("reconcile gateway TLS Certificate in %s: %w", gwNS, err)
+		}
+
+		if err := waitForSecret(ctx, clientset, gwNS, tlsSecretName, 60*time.Second); err != nil {
+			return fmt.Errorf("wait for gateway TLS Secret %s/%s: %w", gwNS, tlsSecretName, err)
 		}
 	}
 
