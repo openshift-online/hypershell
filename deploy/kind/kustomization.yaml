@@ -24,8 +24,8 @@ patches:
                     value: hypershell-system
                   - name: GATEWAY_API_BASE_DOMAIN
                     value: gw.localhost
-                  - name: GATEWAY_API_GATEWAY_NAME
-                    value: hypershell-gw
+                  - name: GATEWAY_API_TLS_ISSUER_NAME
+                    value: hypershell-ca-issuer
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest
