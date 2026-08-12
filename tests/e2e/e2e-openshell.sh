@@ -149,48 +149,49 @@ echo ""
 
 show_cmd "curl -sk ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
 EXISTING_GW=$(curl -sk "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
-EXISTING_ID=$(echo "$EXISTING_GW" | python3 -c "
-import json,sys
+EXISTING_ID=$(echo "$EXISTING_GW" | GW_NAME="$GW_NAME" python3 -c "
+import json, sys, os
 data = json.load(sys.stdin)
 items = data.get('items', [])
 for gw in items:
-    if gw.get('name','') == '${GW_NAME}':
+    if gw.get('name','') == os.environ['GW_NAME']:
         print(gw['id'])
         break
 " 2>/dev/null || true)
 
 if [[ -n "$EXISTING_ID" ]]; then
   GW_ID="$EXISTING_ID"
-  GW_NAMESPACE=$(echo "$EXISTING_GW" | python3 -c "
-import json,sys
+  GW_NAMESPACE=$(echo "$EXISTING_GW" | GW_ID="$GW_ID" python3 -c "
+import json, sys, os
 data = json.load(sys.stdin)
 for gw in data.get('items', []):
-    if gw.get('id','') == '${GW_ID}':
+    if gw.get('id','') == os.environ['GW_ID']:
         print(gw.get('namespace',''))
         break
 " 2>/dev/null || true)
-  GW_PHASE=$(echo "$EXISTING_GW" | python3 -c "
-import json,sys
+  GW_PHASE=$(echo "$EXISTING_GW" | GW_ID="$GW_ID" python3 -c "
+import json, sys, os
 data = json.load(sys.stdin)
 for gw in data.get('items', []):
-    if gw.get('id','') == '${GW_ID}':
+    if gw.get('id','') == os.environ['GW_ID']:
         print(gw.get('phase',''))
         break
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
   show_cmd "curl -sk -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
-  GW_CREATE_BODY=$(python3 -c "
-import json, sys
+  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+import json, os
 body = {
-    'name': '${GW_NAME}',
+    'name': os.environ['GW_NAME'],
     'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': 'e2e-db',
     'oidc': json.dumps({
-        'issuer': '${E2E_OIDC_ISSUER}',
-        'audience': '${E2E_OIDC_CLIENT_ID}',
+        'issuer': os.environ['E2E_OIDC_ISSUER'],
+        'audience': os.environ['E2E_OIDC_CLIENT_ID'],
         'roles_claim': 'groups',
         'admin_role': 'hypershell-admins',
         'user_role': 'hypershell-users'
@@ -343,29 +344,32 @@ show_cmd "${OPENSHELL_BIN} gateway remove ${GW_LOCAL_NAME}"
 mkdir -p "${GW_CONFIG_DIR}"
 
 show_cmd "# write gateway metadata (OIDC mode)"
-python3 -c "
-import json
+GW_LOCAL_NAME="$GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
+  E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
+  OIDC_TOKEN="$OIDC_TOKEN" GW_CONFIG_DIR="$GW_CONFIG_DIR" \
+  python3 -c "
+import json, os
+config_dir = os.environ['GW_CONFIG_DIR']
 meta = {
-    'name': '${GW_LOCAL_NAME}',
-    'gateway_endpoint': '${GW_ENDPOINT}',
+    'name': os.environ['GW_LOCAL_NAME'],
+    'gateway_endpoint': os.environ['GW_ENDPOINT'],
     'is_remote': True,
     'gateway_port': 0,
     'auth_mode': 'oidc',
-    'oidc_issuer': '${E2E_OIDC_ISSUER}',
-    'oidc_client_id': '${E2E_OIDC_CLIENT_ID}'
+    'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
+    'oidc_client_id': os.environ['E2E_OIDC_CLIENT_ID']
 }
-with open('${GW_CONFIG_DIR}/metadata.json', 'w') as f:
+with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
 token = {
-    'access_token': '${OIDC_TOKEN}',
-    'issuer': '${E2E_OIDC_ISSUER}',
-    'client_id': '${E2E_OIDC_CLIENT_ID}'
+    'access_token': os.environ['OIDC_TOKEN'],
+    'issuer': os.environ['E2E_OIDC_ISSUER'],
+    'client_id': os.environ['E2E_OIDC_CLIENT_ID']
 }
-with open('${GW_CONFIG_DIR}/oidc_token.json', 'w') as f:
+with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
     json.dump(token, f, indent=2)
-import os
-os.chmod('${GW_CONFIG_DIR}/metadata.json', 0o600)
-os.chmod('${GW_CONFIG_DIR}/oidc_token.json', 0o600)
+os.chmod(os.path.join(config_dir, 'metadata.json'), 0o600)
+os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
 "
 
 if [[ -f "${GW_CONFIG_DIR}/metadata.json" && -f "${GW_CONFIG_DIR}/oidc_token.json" ]]; then
