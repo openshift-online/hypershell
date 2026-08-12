@@ -89,7 +89,7 @@ jobs:
               fi
 
               if [[ "${need_konflux}" != "true" ]]; then
-                echo "No source components changed — running with baseline images"
+                echo "No source components changed -- running with baseline images"
                 echo "should_run=true" >> "${GITHUB_OUTPUT}"
                 echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
                 echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
@@ -97,10 +97,10 @@ jobs:
                 exit 0
               fi
 
-              # Source components changed — poll for Konflux builds to complete.
+              # Source components changed -- poll for Konflux builds to complete.
               # Konflux reports via GitHub Check Runs; poll until all expected
               # checks are completed (success) or we time out.
-              echo "Source components changed — waiting for Konflux builds..."
+              echo "Source components changed -- waiting for Konflux builds..."
               POLL_INTERVAL=30
               POLL_TIMEOUT=1200
               elapsed=0
@@ -125,7 +125,7 @@ jobs:
                   continue
                 fi
 
-                # All checks completed — check for failures
+                # All checks completed -- check for failures
                 failed=$(echo "${all_checks}" | jq -r 'select(.conclusion != "success") | .name' 2>/dev/null || true)
                 if [[ -n "${failed}" ]]; then
                   echo "::error::Konflux builds failed: ${failed}"
@@ -133,7 +133,7 @@ jobs:
                   exit 0
                 fi
 
-                # All Konflux checks passed — resolve per-component images
+                # All Konflux checks passed -- resolve per-component images
                 echo "All Konflux checks passed"
                 tag="on-pr-${PR_HEAD_SHA}"
                 api_img="${baseline_api}"
