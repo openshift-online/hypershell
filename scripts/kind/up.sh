@@ -362,11 +362,15 @@ if oidc_enabled; then
 
   if ! is_swapped web-console; then
     info "Patching web console for OIDC..."
+    # Remove any stale SESSION_SECRET entries before adding the secretKeyRef.
     kube set env deployment/hypershell-web-console -n "${KIND_NAMESPACE}" -c web-console \
       OIDC_ISSUER="${OIDC_EXTERNAL_ISSUER}" \
       OIDC_CLIENT_ID="${KEYCLOAK_OIDC_CLIENT_ID}" \
       OIDC_REDIRECT_URI="https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/callback" \
-      NODE_TLS_REJECT_UNAUTHORIZED="0"
+      NODE_TLS_REJECT_UNAUTHORIZED="0" \
+      SESSION_SECRET-
+    kube set env deployment/hypershell-web-console -n "${KIND_NAMESPACE}" -c web-console \
+      --from=secret/hypershell-oidc-session --keys=session-secret --prefix="" 2>/dev/null || \
     kube patch deployment hypershell-web-console -n "${KIND_NAMESPACE}" --type=json \
       -p '[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"SESSION_SECRET","valueFrom":{"secretKeyRef":{"name":"hypershell-oidc-session","key":"session-secret"}}}}]'
     success "Web console patched for OIDC"
