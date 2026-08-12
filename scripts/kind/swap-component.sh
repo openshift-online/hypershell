@@ -70,53 +70,27 @@ swap_up() {
       fi
     done
 
-    # Discover a host IP reachable from inside the Kind cluster.
-    # Candidate IPs are tested by running a connectivity check from the
-    # Kind control-plane node.  In rootless Podman the Kind network bridge
-    # gateway is often unreachable from pods, so we try multiple candidates.
-    candidate_ips=()
-    if [[ -n "${KIND_ENGINE}" ]]; then
-      # Kind network bridge gateway (works with Docker, sometimes Podman)
-      gw=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
-        -f '{{.NetworkSettings.Networks.kind.Gateway}}' 2>/dev/null || true)
-      [[ -n "${gw}" ]] && candidate_ips+=("${gw}")
-      # Docker/Podman bridge gateway (172.17.0.1 etc.)
-      for net in bridge podman; do
-        bgw=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
-          -f "{{.NetworkSettings.Networks.${net}.Gateway}}" 2>/dev/null || true)
-        [[ -n "${bgw}" ]] && candidate_ips+=("${bgw}")
-      done
-    fi
-    # Host-routable aliases (macOS/Windows VMs)
-    LOOKUP_ENGINE="${KIND_ENGINE:-${CONTAINER_ENGINE}}"
-    for host_alias in host.docker.internal host.containers.internal; do
-      alias_ip=$("${LOOKUP_ENGINE}" run --rm alpine getent hosts "${host_alias}" 2>/dev/null | awk '{print $1}' || true)
-      [[ -n "${alias_ip}" ]] && candidate_ips+=("${alias_ip}")
-    done
-
-    # Probe reachability from inside a pod (not the node -- rootless Podman
-    # nodes can reach IPs that pods cannot).
+    # Discover a host IP reachable from inside pods.
+    # On Linux, the docker0/podman0 bridge is reliably reachable from pods
+    # even in rootless Podman (the Kind network gateway is not).
+    # On macOS/Windows, use the special host.docker.internal alias.
     HOST_IP=""
-    for candidate in "${candidate_ips[@]}"; do
-      if kube run -n "${KIND_NAMESPACE}" --rm -i --restart=Never --image=alpine \
-          "probe-${candidate//./-}" -- sh -c "wget -qO- --timeout=2 http://${candidate}:${DEV_PORT}/ >/dev/null 2>&1" >/dev/null 2>&1; then
-        HOST_IP="${candidate}"
-        break
-      fi
-    done
-    # Dev server isn't running yet -- try a known reachable port (SSH on the node).
-    if [[ -z "${HOST_IP}" ]]; then
-      for candidate in "${candidate_ips[@]}"; do
-        if kube run -n "${KIND_NAMESPACE}" --rm -i --restart=Never --image=alpine \
-            "probe-${candidate//./-}" -- sh -c "nc -z -w2 ${candidate} 22 2>/dev/null || nc -z -w2 ${candidate} 80 2>/dev/null" >/dev/null 2>&1; then
-          HOST_IP="${candidate}"
-          break
-        fi
-      done
-    fi
-    # Last resort: use first candidate
-    if [[ -z "${HOST_IP}" ]] && [[ ${#candidate_ips[@]} -gt 0 ]]; then
-      HOST_IP="${candidate_ips[0]}"
+    case "$(uname -s)" in
+      Linux)
+        for iface in docker0 podman0 cni-podman0; do
+          HOST_IP=$(ip -4 addr show "${iface}" 2>/dev/null | grep -oP 'inet \K[0-9.]+' || true)
+          if [[ -n "${HOST_IP}" ]]; then break; fi
+        done
+        ;;
+      Darwin)
+        LOOKUP_ENGINE="${KIND_ENGINE:-${CONTAINER_ENGINE}}"
+        HOST_IP=$("${LOOKUP_ENGINE}" run --rm alpine getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || true)
+        ;;
+    esac
+    # Fallback: Kind network bridge gateway
+    if [[ -z "${HOST_IP}" ]] && [[ -n "${KIND_ENGINE}" ]]; then
+      HOST_IP=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
+        -f '{{.NetworkSettings.Networks.kind.Gateway}}' 2>/dev/null || true)
     fi
     if [[ -z "${HOST_IP}" ]]; then
       error "Could not determine host IP reachable from Kind cluster"
