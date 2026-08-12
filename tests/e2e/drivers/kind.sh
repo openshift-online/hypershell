@@ -7,7 +7,7 @@
 # discover_api_host and discover_gateway_endpoint set global result variables
 # (_DISCOVER_API_HOST, _DISCOVER_GW_ENDPOINT) instead of echoing, because
 # these functions start background port-forward processes that must survive
-# in the parent shell — $() subshells kill orphaned background children.
+# in the parent shell -- $() subshells kill orphaned background children.
 
 E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
 E2E_KC_PF_PID="${E2E_KC_PF_PID:-}"
