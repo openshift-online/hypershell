@@ -96,13 +96,13 @@ swap_up() {
     DEPLOY_ENV=$(kube get deployment "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" \
       -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' 2>/dev/null || true)
     for var in OIDC_ISSUER OIDC_CLIENT_ID OIDC_REDIRECT_URI OIDC_POST_LOGOUT_REDIRECT_URI NODE_TLS_REJECT_UNAUTHORIZED; do
-      val=$(echo "${DEPLOY_ENV}" | grep "^${var}=" | head -1 | cut -d= -f2-)
+      val=$(echo "${DEPLOY_ENV}" | grep "^${var}=" | head -1 | cut -d= -f2- || true)
       if [[ -n "${val}" ]]; then
         export "${var}=${val}"
       fi
     done
     # SESSION_SECRET is stored in a K8s Secret, not inline.
-    if echo "${DEPLOY_ENV}" | grep -q "^SESSION_SECRET=$"; then
+    if echo "${DEPLOY_ENV}" | grep -q "^SESSION_SECRET=" 2>/dev/null; then
       SECRET_VAL=$(kube get secret hypershell-oidc-session -n "${KIND_NAMESPACE}" \
         -o jsonpath='{.data.session-secret}' 2>/dev/null | base64 -d || true)
       if [[ -n "${SECRET_VAL}" ]]; then
