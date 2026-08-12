@@ -147,15 +147,19 @@ The BFF SHALL implement the OAuth 2.0 authorization code flow with PKCE:
 
 ### Session Cookie
 
-- Name: `__Host-hypershell` (or `hypershell` when `__Host-` prefix constraints cannot be met, e.g., local HTTP-behind-TLS-terminator setups)
+- Name: `session` (the `__Host-` prefix requires the `Set-Cookie` response to use HTTPS; the BFF receives HTTP behind the TLS-terminating gateway, so the prefix cannot be used)
 - Flags: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`
 - Encryption: `@fastify/secure-session` with sodium-based secretbox (NaCl)
-- Content: access token, refresh token, ID token claims, expiry timestamp
+- Content: access token, user claims (sub, preferred_username, email, name, roles), expiry timestamp. Refresh tokens and ID tokens are NOT stored to keep the cookie under the 4KB browser limit.
 - Login SHALL rotate the session (new cookie after authentication)
 
-### Token Refresh
+### Token Refresh (deferred)
 
-When the BFF receives a request with an expired access token but a valid refresh token, it SHALL transparently refresh the token using the IdP token endpoint, update the session cookie in the response, and proxy the request with the new access token. If the refresh token is also expired, the BFF SHALL return 401 and clear the session cookie.
+Token refresh requires storing the refresh token in the session cookie, which pushes the cookie over the 4KB browser limit. This will be addressed when cookie chunking is implemented. Until then, users are redirected to the IdP login when the access token expires.
+
+### Logout
+
+The BFF clears the session cookie and redirects to the IdP `end_session_endpoint`. The `id_token_hint` parameter is omitted because the ID token is not stored in the session (cookie size constraint). Some IdPs may show a confirmation prompt instead of logging out silently without this hint; Keycloak handles it gracefully.
 
 ### CSRF Protection
 
@@ -342,12 +346,11 @@ The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE 
 - AND set `Authorization: Bearer <access_token>` on the upstream request
 - AND proxy the response back to the browser
 
-#### Scenario: Token Refresh
+#### Scenario: Token Refresh (deferred -- requires cookie chunking)
 - GIVEN the access token has expired but the refresh token is valid
 - WHEN the browser makes an API request
-- THEN the BFF SHALL refresh the token transparently
-- AND update the session cookie in the response
-- AND proxy the request with the new access token
+- THEN the BFF SHALL redirect the user to `/auth/login` for re-authentication
+- NOTE: Transparent refresh is deferred until cookie chunking is implemented (refresh tokens exceed the 4KB cookie limit)
 
 #### Scenario: Full RP-Initiated Logout
 - GIVEN the browser has an active session
@@ -445,7 +448,7 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 | Encrypted cookies instead of server-side session store | Keeps the BFF stateless and horizontally scalable with zero infrastructure beyond what already exists. No Redis, no session table, no cleanup jobs. Cookie size is manageable with Keycloak's token payload. Revocation limitations are acceptable  -- short access token TTL + refresh rotation means a revoked user is bounced within minutes. A server-side store MAY be introduced later if revocation requirements demand it. |
 | `@fastify/secure-session` for cookie encryption | Sodium-based secretbox (NaCl) is the gold standard for symmetric encryption. The library is maintained by the Fastify team and integrates natively. `iron-session` is an alternative but adds an extra dependency outside the Fastify ecosystem. |
 | RP-initiated logout (full IdP session termination) | Clearing the cookie alone leaves the IdP session alive  -- the user could re-authenticate without credentials until TTL expires. Full logout is the expected UX for an enterprise console. One extra redirect is negligible. |
-| gRPC bypass instead of service account tokens | The control plane is a trusted in-cluster service in the same namespace. Forcing it to obtain and refresh IdP tokens adds token lifecycle complexity to the Go service with no security gain. The gRPC methods are explicitly allow-listed, not open. |
+| Control plane authenticates with its own service account | The control plane obtains JWTs via `client_credentials` grant using a dedicated `hypershell-control-plane` Keycloak client. This is the standard pattern for service-to-service auth with the rh-trex-ai framework (the JWT interceptor validates tokens on all gRPC methods). The service account is least-privilege ready for future RBAC enforcement. |
 | `KIND_ENABLE_OIDC` opt-in instead of always-on | Most contributors are not working on auth. OIDC adds login redirects, token expiry, and cookie management  -- friction for developers testing unrelated features. Opt-in keeps the default experience fast and simple. |
 | `hypershell-frontend` client reused for BFF | The client already exists with the correct audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
 | Restrict `redirectUris` from wildcard | Wildcard redirect URIs are an OAuth security anti-pattern (open redirect). Restricting to the deployment's console origin prevents authorization code interception. |
