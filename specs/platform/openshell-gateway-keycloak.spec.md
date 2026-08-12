@@ -3,8 +3,7 @@
 **Date:** 2026-08-11
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
-**Related:** `openshell-gateway-oidc.spec.md` - OIDC configuration injection into gateway.toml; `security/security.spec.md` - secret management and isolation; `data-model.spec.md` - Gateway kind definition; `web-console/architecture.spec.md` - gateway visibility
-**Depends on:** RBAC specification (forthcoming) — User and RoleBinding resources
+**Related:** `openshell-gateway-oidc.spec.md` - OIDC configuration injection into gateway.toml; `security/security.spec.md` - secret management and isolation; `data-model.spec.md` - Gateway kind definition; `web-console/architecture.spec.md` - gateway visibility; `security/rbac-enforcement.spec.md` - scope-aware RBAC model, role hierarchy, and Gateway OIDC Role Bridge
 **Upstream:** [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/)
 
 ---
@@ -15,9 +14,9 @@ This specification defines automated per-gateway Keycloak OIDC client provisioni
 
 1. **Client lifecycle** — When a gateway is created, the control plane provisions a dedicated OIDC client in Keycloak with client-scoped roles and protocol mappers, and populates the gateway's OIDC configuration. When a gateway is deleted, the control plane deletes the Keycloak client. This lifecycle is tied to Gateway ADDED/DELETED events.
 
-2. **Role assignment lifecycle** — When a User is bound to a Gateway via a RoleBinding (e.g., `admin` or `user`), the control plane assigns the corresponding Keycloak client role to that user. When a RoleBinding is removed, the control plane removes the role assignment. This lifecycle is driven by RoleBinding events, not Gateway events.
+2. **Role assignment lifecycle** — When a user's effective RBAC tier for a fleet changes (via RoleBinding creation or deletion), the control plane propagates that change to the Keycloak client roles on all gateways in that fleet. This implements the Gateway OIDC Role Bridge defined in [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md). The mapping is fleet-scoped: a `fleet:editor` binding on fleet-1 results in `openshell-admin` Keycloak client role assignments on every gateway in fleet-1.
 
-This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims. Visibility and access control are RBAC concerns — the RBAC system determines which users can see and operate on which gateways, and this spec defines how those RBAC decisions are projected into Keycloak role assignments.
+This establishes per-gateway authentication isolation: each gateway has its own audience, roles, and token claims. Visibility and access control are RBAC concerns defined in the RBAC spec — this spec defines how RBAC decisions are projected into Keycloak role assignments so that users who connect to gateways directly via the `openshell` CLI receive the same access level as in the management plane.
 
 ---
 
@@ -30,11 +29,12 @@ Gateway Lifecycle (Gateway ADDED/DELETED events):
 
     Caller (UI, hsctl, CI pipeline, curl)
         |  POST /api/hypershell/v1/gateways
-        |  Body includes: name (OIDC config and role assignments are NOT part of the create request)
+        |  Body includes: name, fleet_id (OIDC config is NOT part of the create request)
         v
     API Server
-        |  1. Persists Gateway (oidc field empty at this point)
-        |  2. Emits gRPC watch event
+        |  1. Authorizes via RBAC (caller must have gateway create permission on the fleet)
+        |  2. Persists Gateway with fleet_id (oidc field empty at this point)
+        |  3. Emits gRPC watch event
         v
     Control Plane - GatewayReconciler
         |  1. Receives Gateway ADDED event
@@ -43,34 +43,42 @@ Gateway Lifecycle (Gateway ADDED/DELETED events):
         |     b. Creates client roles (openshell-admin, openshell-user)
         |     c. Creates protocol mappers (audience, sub, client-roles)
         |  3. Populates Gateway oidc config (PATCH via API or internal state)
-        |  4. Injects OIDC section into gateway.toml
-        |  5. Deploys gateway K8s resources
+        |  4. Resolves existing RoleBindings for the gateway's fleet and assigns
+        |     Keycloak client roles to all users with fleet-level bindings
+        |  5. Injects OIDC section into gateway.toml
+        |  6. Deploys gateway K8s resources
         v
     Gateway Pod
         |  Validates JWTs against the provisioned Keycloak client
         v
-    Keycloak client ready (no users have roles yet)
+    Authorized Access (admin/user roles scoped to this gateway only)
 
 
-Role Assignment Lifecycle (RoleBinding ADDED/DELETED events):
+OIDC Role Bridge (RoleBinding ADDED/DELETED events):
 
-    Caller (UI, hsctl, CI pipeline, curl)
+    Caller (UI, hsctl, admin)
         |  POST /api/hypershell/v1/role_bindings
-        |  Body includes: user, gateway, role (admin or user)
+        |  Body: { role_id, scope, user_id, fleet_id }
         v
     API Server
-        |  1. Validates User exists in RBAC (and optionally in Keycloak)
+        |  1. Authorizes (caller must have RBAC grant permission)
         |  2. Persists RoleBinding
         |  3. Emits gRPC watch event
         v
-    Control Plane - GatewayReconciler (or RoleBindingReconciler)
-        |  1. Receives RoleBinding ADDED event
-        |  2. Looks up the User's Keycloak identity
-        |  3. Assigns the corresponding Keycloak client role:
-        |     - RoleBinding role "admin" → openshell-admin client role
-        |     - RoleBinding role "user"  → openshell-user client role
+    Control Plane
+        |  1. Receives RoleBinding ADDED/DELETED event
+        |  2. Resolves the RBAC role to a Keycloak client role:
+        |     - platform:admin, fleet:owner, fleet:editor → openshell-admin
+        |     - platform:viewer, fleet:viewer, gateway:viewer → openshell-user
+        |  3. Resolves the affected gateways:
+        |     - scope=global  → all gateways
+        |     - scope=fleet   → all gateways in that fleet
+        |     - scope=gateway → that specific gateway
+        |  4. For each affected gateway's Keycloak client:
+        |     - ADDED:   assigns the Keycloak client role to the user
+        |     - DELETED: removes the Keycloak client role from the user
         v
-    User can now obtain tokens with the assigned role for this gateway
+    User can now obtain tokens with the assigned role for affected gateways
 ```
 
 ### Keycloak Service Account
@@ -85,7 +93,7 @@ HyperShell Namespace
     |   +-- client-secret: <service account secret>
     |
     +-- API Server Pod
-    |   +-- Reads Secret -> validates User exists in Keycloak (read-only, optional fail-fast)
+    |   +-- Reads Secret (optional, for future user validation at RoleBinding creation)
     |
     +-- Control Plane Pod
         +-- Reads Secret -> provisions Keycloak clients, roles, mappers (read-write)
@@ -95,57 +103,63 @@ HyperShell Namespace
 ### Per-Gateway Isolation Model
 
 ```
-User A creates "gw-alpha"              User B creates "gw-beta"
-    KC client: gw-alpha                     KC client: gw-beta
-    (no role assignments yet)               (no role assignments yet)
+Fleet "production" contains gw-alpha and gw-shared
+Fleet "staging" contains gw-beta
 
-RoleBinding: user-a → gw-alpha (admin)  RoleBinding: user-b → gw-beta (admin)
-    admin role → user-a                     admin role → user-b
+user-a creates fleet "production" → auto fleet:owner binding
+    KC clients: gw-alpha, gw-shared
+    openshell-admin → user-a (on both, via fleet:owner)
 
-    GET /gateways                           GET /gateways
-    Returns: [gw-alpha]                     Returns: [gw-beta]
-    (RBAC filters by RoleBinding)           (RBAC filters by RoleBinding)
+fleet:owner user-a grants fleet:editor to user-b on "production"
+    openshell-admin → user-b (on both gw-alpha and gw-shared)
 
-RoleBinding: user-a → gw-shared (admin)
-RoleBinding: user-b → gw-shared (admin)
-    admin role → user-a, user-b
+user-c creates fleet "staging" → auto fleet:owner binding
+    KC client: gw-beta
+    openshell-admin → user-c
 
-    user-a GET /gateways → [gw-alpha, gw-shared]
-    user-b GET /gateways → [gw-beta, gw-shared]
+    user-a GET /gateways → [gw-alpha, gw-shared]   (fleet:owner on production)
+    user-b GET /gateways → [gw-alpha, gw-shared]   (fleet:editor on production)
+    user-c GET /gateways → [gw-beta]                (fleet:owner on staging)
+
+platform:admin sees all gateways across all fleets
+gateway:viewer on gw-alpha sees only gw-alpha
 ```
 
 Each gateway's Keycloak client has `fullScopeAllowed = false`, preventing role leakage across gateways. A token obtained for `gw-alpha` contains only `gw-alpha`'s roles and audience — never `gw-beta`'s.
 
-Gateway visibility is an RBAC concern — a user sees a gateway if and only if they have a RoleBinding to it. This decouples visibility from gateway creation, enabling programmatic creation (CI, `hsctl apply`, automation) where the creator is not necessarily the intended gateway admin.
+Gateway visibility is an RBAC concern — a user sees gateways in fleets where they have a RoleBinding. The RBAC spec defines scope-aware list filtering; this spec defines only the Keycloak projection that enables gateway-level token validation.
 
 ---
 
-## RBAC Integration Contract
+## RBAC Role Bridge
 
-This specification depends on a forthcoming RBAC specification that defines User and RoleBinding resources. The RBAC spec SHALL provide the following contract for Keycloak integration:
+This specification implements the **Gateway OIDC Role Bridge** defined in [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md). The bridge ensures that users who connect to gateways directly via the `openshell` CLI receive the same access level as in the HyperShell management plane.
 
-### Required Resources
+### Role Mapping
 
-| Resource | Purpose |
-|---|---|
-| **User** | Represents an identity in HyperShell. SHALL include a Keycloak username or identifier that the control plane can use to look up the user in Keycloak for role assignment. |
-| **RoleBinding** | Binds a User to a Gateway with a specific role (`admin` or `user`). SHALL be a first-class HyperShell resource with its own gRPC watch events. |
+The control plane maps HyperShell RBAC roles to per-gateway Keycloak client roles:
 
-### Required Events
+| HyperShell Role | Keycloak Client Role | Scope |
+|---|---|---|
+| `platform:admin` | `openshell-admin` | All gateways across all fleets |
+| `fleet:owner` | `openshell-admin` | All gateways in the bound fleet |
+| `fleet:editor` | `openshell-admin` | All gateways in the bound fleet |
+| `platform:viewer` | `openshell-user` | All gateways across all fleets |
+| `fleet:viewer` | `openshell-user` | All gateways in the bound fleet |
+| `gateway:viewer` | `openshell-user` | The specific bound gateway |
 
-The RBAC system SHALL emit gRPC watch events for RoleBinding changes:
+### Effective Role Resolution
 
-| Event | Keycloak Action |
-|---|---|
-| RoleBinding ADDED (role = `admin`) | Assign `openshell-admin` client role to the User on the Gateway's Keycloak client |
-| RoleBinding ADDED (role = `user`) | Assign `openshell-user` client role to the User on the Gateway's Keycloak client |
-| RoleBinding DELETED | Remove the corresponding client role from the User on the Gateway's Keycloak client |
+When a user has multiple RoleBindings that cover the same gateway, the **highest-privilege** Keycloak client role wins. A user with both `fleet:viewer` (→ `openshell-user`) and `fleet:editor` (→ `openshell-admin`) on the same fleet SHALL have the `openshell-admin` client role on that fleet's gateways.
 
-### Required Behavior
+### Cascade Behavior
 
-- **Visibility:** The API server SHALL use RoleBindings to scope gateway visibility. A user sees a gateway if and only if they have a RoleBinding to it (any role).
-- **User validation:** The API server SHOULD validate that Users referenced in RoleBindings exist in Keycloak at creation time (fail-fast). This prevents the control plane from encountering missing users during reconciliation.
-- **Default RoleBinding:** The UI SHOULD auto-create a RoleBinding for the authenticated user when they provision a gateway, so the creator has admin access by default. This is a UI/API convenience, not a hard requirement — programmatic callers manage RoleBindings explicitly.
+Role assignment cascades through the fleet hierarchy:
+
+- **RoleBinding created/deleted for a fleet** → the control plane resolves all gateways in that fleet and assigns/removes the Keycloak client role on each gateway's Keycloak client.
+- **Gateway created in a fleet** → the control plane resolves all RoleBindings for that fleet and assigns the appropriate Keycloak client roles to each user.
+- **Gateway deleted** → Keycloak client deletion cascades all role assignments automatically (see Client Cleanup requirement).
+- **Global-scoped RoleBinding** → the control plane resolves all gateways across all fleets.
 
 ---
 
@@ -166,22 +180,14 @@ The Secret SHALL contain the following keys:
 
 Both components SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. Each component SHOULD cache and refresh the service account token independently.
 
-- **API server** uses the Secret for read-only operations: validating that Users exist in Keycloak when RoleBindings are created (optional fail-fast).
-- **Control plane** uses the Secret for read-write operations: provisioning Keycloak clients, roles, mappers during gateway reconciliation, and assigning/removing client roles during RoleBinding reconciliation.
+- **Control plane** uses the Secret for read-write operations: provisioning Keycloak clients, roles, mappers during gateway reconciliation, and assigning/removing client roles during the OIDC Role Bridge.
 
 #### Scenario: Service account credentials available
 
 - GIVEN the `hypershell-keycloak-admin` Secret exists in the HyperShell namespace
-- WHEN the API server and control plane start
-- THEN both SHALL read the Secret and validate that all required keys are present
-- AND both SHALL verify connectivity to the Keycloak Admin REST API at startup
-
-#### Scenario: Service account credentials missing at API server
-
-- GIVEN the `hypershell-keycloak-admin` Secret does not exist
-- WHEN a user attempts to create a gateway
-- THEN the API server SHALL return an error indicating Keycloak integration is not configured
-- AND the gateway SHALL NOT be created
+- WHEN the control plane starts
+- THEN it SHALL read the Secret and validate that all required keys are present
+- AND it SHALL verify connectivity to the Keycloak Admin REST API at startup
 
 #### Scenario: Service account credentials missing at control plane
 
@@ -215,6 +221,8 @@ The client SHALL be created with the following properties:
 
 The `gateway-roles` client scope is a realm prerequisite. It SHALL contain an `oidc-usermodel-client-role-mapper` that emits client roles under `resource_access.${client_id}.roles`. This scope SHALL exist in the Keycloak realm before gateways are created.
 
+After creating the client, the GatewayReconciler SHALL resolve all existing RoleBindings that cover the new gateway (fleet-scoped bindings for the gateway's fleet, plus global-scoped bindings) and assign the corresponding Keycloak client roles to each user. This ensures that users with pre-existing fleet access receive Keycloak roles on newly created gateways.
+
 #### Scenario: Reconciler provisions Keycloak client
 
 - GIVEN the GatewayReconciler receives an ADDED event for Gateway `my-gateway`
@@ -223,6 +231,14 @@ The `gateway-roles` client scope is a realm prerequisite. It SHALL contain an `o
 - AND the client SHALL have `fullScopeAllowed = false`
 - AND the client SHALL have `publicClient = true` with `pkce.code.challenge.method = S256`
 - AND the `gateway-roles` client scope SHALL be included in `defaultClientScopes`
+
+#### Scenario: Existing fleet users receive roles on new gateway
+
+- GIVEN user-a has `fleet:editor` on fleet-1
+- AND user-b has `fleet:viewer` on fleet-1
+- WHEN a new Gateway `gw-new` is created in fleet-1
+- THEN the GatewayReconciler SHALL assign `openshell-admin` to user-a on the `gw-new` client
+- AND it SHALL assign `openshell-user` to user-b on the `gw-new` client
 
 #### Scenario: Duplicate client ID in Keycloak
 
@@ -307,58 +323,85 @@ Maps the client's roles from `resource_access.{clientId}.roles` to a fixed `hype
 - GIVEN user `user-a` has the `openshell-admin` role on client `my-gateway`
 - WHEN `user-a` obtains a token using `client_id = my-gateway`
 - THEN the access token SHALL contain `aud: "my-gateway"`
-- AND the access token SHALL contain `sub: "user-a"`
+- AND the access token SHALL contain `sub: "user-a-sub-id"`
 - AND the access token SHALL contain `hypershell.roles: ["openshell-admin"]`
 - AND the access token SHALL NOT contain roles from any other gateway's client
 
 ---
 
-### Requirement: RBAC-Driven Role Assignment
+### Requirement: RBAC-Driven Keycloak Role Assignment (OIDC Role Bridge)
 
-Keycloak client role assignments SHALL be driven by RoleBinding events, not by fields on the Gateway resource. When a RoleBinding binds a User to a Gateway with a specific role, the control plane SHALL assign the corresponding Keycloak client role to that User.
+Keycloak client role assignments SHALL be driven by RoleBinding events, implementing the Gateway OIDC Role Bridge defined in [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md). The control plane SHALL assign or remove Keycloak client roles when RoleBindings are created or deleted, using the role mapping and scope resolution defined in the RBAC Role Bridge section above.
+
+#### RoleBinding ADDED
 
 For each RoleBinding ADDED event, the control plane SHALL:
-1. Resolve the User's Keycloak identity (username or ID)
-2. Look up the User in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
-3. Resolve the Gateway's Keycloak client UUID
-4. Map the RoleBinding role to a Keycloak client role:
-   - `admin` → `openshell-admin`
-   - `user` → `openshell-user`
-5. Retrieve the client role UUID (`GET /admin/realms/{realm}/clients/{client-uuid}/roles?search={role-name}`)
-6. Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
+1. Map the HyperShell role to a Keycloak client role (`openshell-admin` or `openshell-user`)
+2. Resolve the affected gateways based on scope:
+   - `scope=global` → all gateways across all fleets
+   - `scope=fleet` → all gateways with `fleet_id` matching the binding's `fleet_id`
+   - `scope=gateway` → the single gateway matching the binding's `gateway_id`
+3. Resolve the User's Keycloak identity (the `username` from the User record, which is populated from the JWT `preferred_username` claim at auto-provisioning time)
+4. Look up the user in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
+5. For each affected gateway's Keycloak client:
+   - Retrieve the client role UUID
+   - Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
+
+#### RoleBinding DELETED
 
 For each RoleBinding DELETED event, the control plane SHALL:
-1. Resolve the User's Keycloak identity and the Gateway's Keycloak client UUID
-2. Remove the corresponding client role mapping (`DELETE /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
+1. Resolve the affected gateways (same scope logic as ADDED)
+2. Check whether the user has any remaining RoleBindings that cover each gateway
+3. If the user still has a binding that maps to the same or higher Keycloak role, take no action on that gateway
+4. Otherwise, remove the Keycloak client role mapping (`DELETE /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
 
-#### Scenario: Admin RoleBinding created
+#### Scenario: Fleet editor receives admin role on all fleet gateways
 
-- GIVEN a Gateway `my-gateway` with a provisioned Keycloak client
+- GIVEN fleet-1 contains gateways `gw-alpha` and `gw-beta`
 - AND a User `user-a` exists in both HyperShell and Keycloak
-- WHEN a RoleBinding is created binding `user-a` to `my-gateway` with role `admin`
-- THEN the control plane SHALL assign the `openshell-admin` client role to `user-a` on the `my-gateway` Keycloak client
-- AND `user-a` SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]`
+- WHEN a RoleBinding is created: `role=fleet:editor`, `scope=fleet`, `fleet_id=fleet-1`, `user_id=user-a`
+- THEN the control plane SHALL assign `openshell-admin` to `user-a` on both `gw-alpha` and `gw-beta` Keycloak clients
+- AND `user-a` SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]` for either gateway
 
-#### Scenario: User RoleBinding created
+#### Scenario: Fleet viewer receives user role on all fleet gateways
 
-- GIVEN a Gateway `my-gateway` with a provisioned Keycloak client
+- GIVEN fleet-1 contains gateway `gw-alpha`
 - AND a User `user-b` exists in both HyperShell and Keycloak
-- WHEN a RoleBinding is created binding `user-b` to `my-gateway` with role `user`
-- THEN the control plane SHALL assign the `openshell-user` client role to `user-b` on the `my-gateway` Keycloak client
+- WHEN a RoleBinding is created: `role=fleet:viewer`, `scope=fleet`, `fleet_id=fleet-1`, `user_id=user-b`
+- THEN the control plane SHALL assign `openshell-user` to `user-b` on the `gw-alpha` Keycloak client
 
-#### Scenario: RoleBinding deleted
+#### Scenario: Gateway viewer receives user role on one gateway
 
-- GIVEN `user-a` has the `openshell-admin` role on `my-gateway`'s Keycloak client via a RoleBinding
-- WHEN the RoleBinding is deleted
-- THEN the control plane SHALL remove the `openshell-admin` client role from `user-a` on the `my-gateway` Keycloak client
-- AND `user-a` SHALL no longer be able to obtain tokens with admin roles for `my-gateway`
+- GIVEN gateway `gw-alpha` exists with a provisioned Keycloak client
+- WHEN a RoleBinding is created: `role=gateway:viewer`, `scope=gateway`, `gateway_id=gw-alpha`, `user_id=user-c`
+- THEN the control plane SHALL assign `openshell-user` to `user-c` on the `gw-alpha` Keycloak client only
+
+#### Scenario: Platform admin receives admin role on all gateways
+
+- GIVEN gateways exist across multiple fleets
+- WHEN a RoleBinding is created: `role=platform:admin`, `scope=global`, `user_id=user-d`
+- THEN the control plane SHALL assign `openshell-admin` to `user-d` on every gateway's Keycloak client
+
+#### Scenario: RoleBinding deletion with remaining coverage
+
+- GIVEN user-a has `fleet:editor` (→ `openshell-admin`) on fleet-1
+- AND user-a also has `fleet:viewer` (→ `openshell-user`) on fleet-1
+- WHEN the `fleet:editor` RoleBinding is deleted
+- THEN the control plane SHALL downgrade user-a to `openshell-user` on fleet-1's gateways
+- AND user-a SHALL NOT lose Keycloak roles entirely (the viewer binding still covers them)
+
+#### Scenario: RoleBinding deletion with no remaining coverage
+
+- GIVEN user-a has only `fleet:viewer` (→ `openshell-user`) on fleet-1
+- WHEN the `fleet:viewer` RoleBinding is deleted
+- THEN the control plane SHALL remove `openshell-user` from user-a on all fleet-1 gateways
 
 #### Scenario: RoleBinding created before Keycloak client exists
 
-- GIVEN a RoleBinding is created binding `user-a` to `my-gateway` with role `admin`
-- AND the `my-gateway` Keycloak client has not yet been provisioned
-- THEN the control plane SHALL retry on the next reconciliation cycle
-- AND role assignment SHALL succeed once the Keycloak client is provisioned
+- GIVEN fleet-1 has no gateways yet
+- WHEN a RoleBinding is created: `role=fleet:editor`, `scope=fleet`, `fleet_id=fleet-1`
+- THEN no Keycloak role assignments occur (no gateways to assign to)
+- AND when a gateway is later created in fleet-1, the GatewayReconciler SHALL resolve this binding and assign `openshell-admin`
 
 #### Scenario: User in RoleBinding not found in Keycloak
 
@@ -417,23 +460,23 @@ The OIDC fields on the Gateway resource SHALL be read-only — not settable or u
 
 ### Requirement: Gateway Visibility Scoping
 
-Gateway visibility is an RBAC concern. The API server SHALL scope gateway visibility by RoleBinding membership — a user SHALL only see and operate on gateways where they have a RoleBinding (any role: `admin` or `user`). This is enforced at the API layer; the UI receives only the gateways the authenticated user has access to.
+Gateway visibility is defined by the RBAC spec's scope-aware list filtering. The API server SHALL return only gateways within fleets where the caller has a RoleBinding. This is enforced at the API layer by the RBAC authorization middleware; the UI receives only the gateways the authenticated user has access to.
 
-The Keycloak spec does not define the visibility query mechanism — that is the responsibility of the RBAC specification. This spec defines only the Keycloak projection: when a user has a RoleBinding to a gateway, they also have the corresponding Keycloak client role, enabling them to obtain valid tokens for that gateway.
+This keycloak spec does not define the visibility query mechanism — that is the responsibility of [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md). This spec defines only the Keycloak projection: when a user has a RoleBinding that covers a gateway (via fleet scope, gateway scope, or global scope), they also have the corresponding Keycloak client role, enabling them to obtain valid tokens for that gateway.
 
-#### Scenario: List gateways returns only gateways where user has a RoleBinding
+#### Scenario: List gateways returns only gateways in accessible fleets
 
-- GIVEN `gw-alpha` has a RoleBinding for `user-a` (admin)
-- AND `gw-beta` has RoleBindings for `user-a` (user) and `user-b` (admin)
-- AND `gw-gamma` has a RoleBinding for `user-b` (admin) only
+- GIVEN `gw-alpha` belongs to fleet-1, user-a has `fleet:editor` on fleet-1
+- AND `gw-beta` belongs to fleet-2, user-a has no binding on fleet-2
 - WHEN `user-a` calls `GET /api/hypershell/v1/gateways`
-- THEN the response SHALL contain `gw-alpha` and `gw-beta`
-- AND the response SHALL NOT contain `gw-gamma`
+- THEN the response SHALL contain `gw-alpha`
+- AND the response SHALL NOT contain `gw-beta`
 
-#### Scenario: Get gateway where user has no RoleBinding returns 404
+#### Scenario: Get gateway in inaccessible fleet returns 404
 
-- GIVEN `gw-gamma` has a RoleBinding for `user-b` only
-- WHEN `user-a` calls `GET /api/hypershell/v1/gateways/{gw-gamma-id}`
+- GIVEN `gw-beta` belongs to fleet-2
+- AND user-a has no RoleBinding covering fleet-2
+- WHEN `user-a` calls `GET /api/hypershell/v1/gateways/{gw-beta-id}`
 - THEN the API server SHALL return 404
 - AND the response SHALL NOT reveal that the gateway exists
 
@@ -441,7 +484,7 @@ The Keycloak spec does not define the visibility query mechanism — that is the
 
 ### Requirement: Keycloak Client Cleanup
 
-When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the corresponding Keycloak OIDC client to prevent orphaned clients in the realm. Deleting a Keycloak client automatically cascades to its roles and protocol mappers. All role assignments for users on that client are also removed by Keycloak.
+When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the corresponding Keycloak OIDC client to prevent orphaned clients in the realm. Deleting a Keycloak client automatically cascades to its roles, protocol mappers, and all user role assignments on that client.
 
 #### Scenario: Gateway deletion cleans up Keycloak
 
@@ -464,7 +507,7 @@ When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the
 
 Keycloak client provisioning (client, roles, mappers) SHALL be treated as an atomic operation within the reconciliation cycle. If any provisioning step fails, the GatewayReconciler SHALL roll back all completed Keycloak steps and retry on the next reconciliation cycle.
 
-Role assignment (from RoleBinding events) is a separate operation and does not participate in client provisioning atomicity. Role assignment failures are retried independently on the next reconciliation cycle.
+OIDC Role Bridge operations (from RoleBinding events) are separate from client provisioning and do not participate in its atomicity. Role assignment failures are retried independently on the next reconciliation cycle.
 
 #### Scenario: Mapper creation fails mid-provisioning
 
@@ -484,7 +527,7 @@ The following resources SHALL exist in the configured Keycloak realm (as specifi
 
 2. **`gateway-roles` client scope** — A client scope containing an `oidc-usermodel-client-role-mapper` that emits `resource_access.${client_id}.roles`. This scope SHALL be included in `defaultClientScopes` for every provisioned gateway client so client roles appear in tokens.
 
-3. **User accounts** — Users referenced by RoleBindings must have accounts in the Keycloak realm so the control plane can assign roles.
+3. **User accounts** — Users referenced by RoleBindings must have accounts in the Keycloak realm so the control plane can assign roles. Since HyperShell auto-provisions User records from JWT claims (see RBAC spec), Keycloak user accounts are expected to exist as a precondition of authentication.
 
 ---
 
@@ -530,30 +573,37 @@ Complete API call sequence for gateway creation:
    POST /admin/realms/{realm}/clients/{client-uuid}/protocol-mappers/models
    ```
 
-### RoleBinding Creation (Role Assignment)
+7. **Resolve existing fleet RoleBindings and assign Keycloak roles** (see RoleBinding Creation below for per-user sequence)
 
-When a RoleBinding binds a User to a Gateway:
+### RoleBinding Creation (OIDC Role Bridge)
 
-1. **Get the Keycloak client role UUID:**
+When a RoleBinding is created, for each affected gateway:
+
+1. **Get the Keycloak client UUID for the gateway:**
+   ```
+   GET /admin/realms/{realm}/clients?clientId={gateway-name}
+   ```
+
+2. **Get the Keycloak client role UUID:**
    ```
    GET /admin/realms/{realm}/clients/{client-uuid}/roles?search={role-name}
    ```
-   Where `{role-name}` is `openshell-admin` or `openshell-user` based on the RoleBinding role.
+   Where `{role-name}` is `openshell-admin` or `openshell-user` based on the role mapping.
 
-2. **Look up user:**
+3. **Look up user:**
    ```
    GET /admin/realms/{realm}/users?username={username}
    ```
 
-3. **Assign role:**
+4. **Assign role:**
    ```
    POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}
    [{"name": "{role-name}", "id": "{role-uuid}"}]
    ```
 
-### RoleBinding Deletion (Role Removal)
+### RoleBinding Deletion (OIDC Role Bridge)
 
-When a RoleBinding is deleted:
+When a RoleBinding is deleted, for each affected gateway (after checking no remaining coverage):
 
 1. **Remove role mapping:**
    ```
@@ -582,9 +632,11 @@ When a RoleBinding is deleted:
 | `fullScopeAllowed` defaults to `true` | Leaks every client's roles into every token, breaking per-gateway isolation | Always set `fullScopeAllowed = false` explicitly at client creation |
 | Bulk realm import does not scale | Importing a realm with thousands of clients runs as a single transaction | Use incremental Admin REST API calls for each gateway |
 | Audience resolve mapper leaks audiences | The built-in `oidc-audience-resolve-mapper` adds all clients' IDs to `aud` when `fullScopeAllowed = true` | Omit the audience-resolve mapper from the realm; use per-client audience mappers |
-| User lookup by subject | Keycloak user search uses `username`, which may differ from the OIDC `sub` claim depending on identity provider federation | Ensure Keycloak user identity attributes align with the authentication token's `sub` claim |
-| RoleBinding before Keycloak client | RoleBindings can be created before the Gateway's Keycloak client is provisioned | Control plane retries role assignment on the next reconciliation cycle |
-| Gateway deletion cascades role assignments | Deleting a Keycloak client removes all user role assignments for that client | RBAC RoleBindings remain in HyperShell; they become inert without a corresponding Keycloak client |
+| User lookup by subject | Keycloak user search uses `username`, which may differ from the OIDC `sub` claim depending on identity provider federation | The RBAC spec auto-provisions Users from `preferred_username`; ensure this matches the Keycloak username |
+| Fleet-scoped RoleBinding fans out to many gateways | A fleet with N gateways requires N Keycloak API calls per RoleBinding event | Batch or parallelize role assignments; consider caching client UUIDs |
+| Gateway created before RoleBinding event processed | Race between Gateway ADDED and RoleBinding ADDED for the fleet | GatewayReconciler resolves existing fleet RoleBindings at client creation time |
+| RoleBinding deletion requires coverage check | Removing one binding may leave the user covered by another | Resolve all remaining bindings for the user+gateway before removing the Keycloak role |
+| Gateway deletion cascades role assignments | Deleting a Keycloak client removes all user role assignments for that client | RBAC RoleBindings remain in HyperShell; they cover future gateways in the same fleet |
 
 ---
 

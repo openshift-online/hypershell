@@ -62,11 +62,11 @@ Resources are scoped to fleets via `fleet_id`. All queries MUST include fleet sc
 
 ### Gateway Access Isolation
 
-Gateways are scoped by RBAC RoleBindings. All gateway queries MUST filter by RoleBinding membership so users can only see and operate on gateways where they have a RoleBinding (any role). See [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for Keycloak provisioning and visibility details.
+Gateways are scoped by RBAC RoleBindings at fleet, gateway, or global scope. All gateway queries MUST filter by the caller's RoleBindings so users can only see and operate on gateways within fleets (or specific gateways) where they have a binding. See [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md) for the scope-aware RBAC model and [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge.
 
 #### Scenario: Cross-User Gateway Access Prevention
 - GIVEN user A querying gateways
-- WHEN user A has no RoleBinding to a gateway
+- WHEN user A has no RoleBinding covering a gateway's fleet
 - THEN the query SHALL NOT return that gateway
 - AND direct access by ID SHALL return 404 (not 403) to avoid revealing existence
 
