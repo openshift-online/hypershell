@@ -16,7 +16,7 @@
   },
   {
     "filename": "deploy/kind/prerequisites/keycloak.yaml",
-    "line": 704,
+    "line": 710,
     "rationale": "Generated base64-encoded PNG image data contains an incidental byte sequence; regenerate with make keycloak-theme."
   }
 ]
