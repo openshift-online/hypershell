@@ -211,7 +211,7 @@ The client SHALL be created with the following properties:
 | `name` | Gateway name | Display name in Keycloak admin console |
 | `publicClient` | `true` | PKCE flow, no client secret required |
 | `standardFlowEnabled` | `true` | Authorization code flow for browser/CLI |
-| `directAccessGrantsEnabled` | `true` | Resource owner password grant for automation |
+| `directAccessGrantsEnabled` | `true` | Resource owner password grant for non-interactive CI pipelines that cannot use browser-based PKCE flow |
 | `fullScopeAllowed` | `false` | **CRITICAL** — prevents cross-gateway role leakage |
 | `redirectUris` | `["http://127.0.0.1:*", "http://localhost:*"]` | CLI callback URIs |
 | `attributes.pkce.code.challenge.method` | `S256` | PKCE challenge method |
@@ -426,6 +426,7 @@ The auto-populated OIDC values SHALL be:
 | `roles_claim` | `hypershell.roles` | Fixed claim path from client-roles mapper |
 | `admin_role` | `openshell-admin` | Fixed role name |
 | `user_role` | `openshell-user` | Fixed role name |
+| `scopes_claim` | `""` | Default empty — upstream gateway configuration field |
 
 The OIDC fields on the Gateway resource SHALL be read-only — not settable or updatable via the REST or gRPC API. The control plane SHALL inject these values into `gateway.toml` using the existing OIDC injection behavior defined in `openshell-gateway-oidc.spec.md`.
 

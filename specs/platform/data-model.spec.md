@@ -5,21 +5,21 @@
 
 ## Overview
 
-The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers. The model is organized around sectors:
+The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers. The model is organized around fleets:
 
-- **Sector** - top-level organizational unit. Groups clusters, databases, releases, gateways, and networks. All resources belong to exactly one sector via `sector_id`.
-- **ManagedCluster** - a Kubernetes cluster registered into a sector. Tracks provider, region, API server URL, and a kubeconfig secret reference.
-- **ManagedDatabase** - a database instance provisioned for a sector. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
-- **GatewayRelease** - a versioned container image for gateway deployments within a sector. Supports rollout strategies with canary percent/duration controls.
+- **Fleet** - top-level organizational unit. Groups clusters, databases, releases, gateways, and networks. All resources belong to exactly one fleet via `fleet_id`.
+- **ManagedCluster** - a Kubernetes cluster registered into a fleet. Tracks provider, region, API server URL, and a kubeconfig secret reference.
+- **ManagedDatabase** - a database instance provisioned for a fleet. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
+- **GatewayRelease** - a versioned container image for gateway deployments within a fleet. Supports rollout strategies with canary percent/duration controls.
 - **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
-- **GatewayNetwork** - defines network connectivity topology between gateways in a sector. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
+- **GatewayNetwork** - defines network connectivity topology between gateways in a fleet. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
 
 ## Entity Relationship Diagram
 
 ```mermaid
 erDiagram
 
-    Sector {
+    Fleet {
         string ID PK
         string name
         string description
@@ -32,7 +32,7 @@ erDiagram
     ManagedCluster {
         string ID PK
         string name
-        string sector_id FK
+        string fleet_id FK
         string provider
         string region
         string kubeconfig_secret
@@ -46,7 +46,7 @@ erDiagram
     ManagedDatabase {
         string ID PK
         string name
-        string sector_id FK
+        string fleet_id FK
         string provider
         string region
         string engine
@@ -62,7 +62,7 @@ erDiagram
     GatewayRelease {
         string ID PK
         string name
-        string sector_id FK
+        string fleet_id FK
         string image
         string rollout_strategy
         int canary_percent
@@ -76,7 +76,7 @@ erDiagram
     Gateway {
         string ID PK
         string name
-        string sector_id FK
+        string fleet_id FK
         string cluster_id FK
         string release_id FK
         string database_id FK
@@ -100,7 +100,7 @@ erDiagram
     GatewayNetwork {
         string ID PK
         string name
-        string sector_id FK
+        string fleet_id FK
         string topology
         string tunnel_mode
         string hub_gateway_id FK
@@ -110,11 +110,11 @@ erDiagram
         time deleted_at
     }
 
-    Sector ||--o{ ManagedCluster : "owns"
-    Sector ||--o{ ManagedDatabase : "owns"
-    Sector ||--o{ GatewayRelease : "owns"
-    Sector ||--o{ Gateway : "owns"
-    Sector ||--o{ GatewayNetwork : "owns"
+    Fleet ||--o{ ManagedCluster : "owns"
+    Fleet ||--o{ ManagedDatabase : "owns"
+    Fleet ||--o{ GatewayRelease : "owns"
+    Fleet ||--o{ Gateway : "owns"
+    Fleet ||--o{ GatewayNetwork : "owns"
 
     ManagedCluster ||--o{ Gateway : "hosts"
     GatewayRelease ||--o{ Gateway : "deployed_as"
@@ -124,24 +124,24 @@ erDiagram
 
 ## Requirements
 
-### Requirement: Sector Lifecycle
+### Requirement: Fleet Lifecycle
 
-The system SHALL support creating, reading, updating, and deleting Sectors. A Sector SHALL have a unique name, optional description, and a status field.
+The system SHALL support creating, reading, updating, and deleting Fleets. A Fleet SHALL have a unique name, optional description, and a status field.
 
-#### Scenario: Create Sector
-- GIVEN a valid sector name
-- WHEN a POST request is made to `/api/hypershell/v1/sectors`
-- THEN a new Sector is created with a KSUID
-- AND the response includes the created Sector
+#### Scenario: Create Fleet
+- GIVEN a valid fleet name
+- WHEN a POST request is made to `/api/hypershell/v1/fleets`
+- THEN a new Fleet is created with a KSUID
+- AND the response includes the created Fleet
 
-### Requirement: Sector-Scoped Resources
+### Requirement: Fleet-Scoped Resources
 
-All resources (ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, GatewayNetwork) SHALL belong to exactly one Sector via `sector_id`.
+All resources (ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, GatewayNetwork) SHALL belong to exactly one Fleet via `fleet_id`.
 
-#### Scenario: Create Gateway with Sector Reference
-- GIVEN a valid sector_id, cluster_id, release_id, and database_id
+#### Scenario: Create Gateway with Fleet Reference
+- GIVEN a valid fleet_id, cluster_id, release_id, and database_id
 - WHEN a POST request is made to `/api/hypershell/v1/gateways`
-- THEN a new Gateway is created within the specified sector
+- THEN a new Gateway is created within the specified fleet
 - AND the Gateway references valid cluster, release, and database resources
 
 ### Requirement: Gateway Namespace Ownership
@@ -203,7 +203,7 @@ A GatewayRelease SHALL support canary deployment via `rollout_strategy`, `canary
 
 ### Requirement: Network Topology
 
-A GatewayNetwork SHALL define how gateways within a sector communicate. The `topology` field indicates the network shape and `tunnel_mode` the encapsulation method.
+A GatewayNetwork SHALL define how gateways within a fleet communicate. The `topology` field indicates the network shape and `tunnel_mode` the encapsulation method.
 
 #### Scenario: Hub-and-Spoke Network
 - GIVEN a GatewayNetwork with `topology: hub-spoke` and a `hub_gateway_id`
@@ -216,8 +216,8 @@ All routes under `/api/hypershell/v1/`:
 
 | Method | Path | Operation |
 |--------|------|-----------|
-| GET/POST | `/sectors` | List/Create |
-| GET/PATCH/DELETE | `/sectors/{id}` | Get/Update/Delete |
+| GET/POST | `/fleets` | List/Create |
+| GET/PATCH/DELETE | `/fleets/{id}` | Get/Update/Delete |
 | GET/POST | `/gateways` | List/Create |
 | GET/PATCH/DELETE | `/gateways/{id}` | Get/Update/Delete |
 | GET/POST | `/gateway_networks` | List/Create |
@@ -234,7 +234,7 @@ All routes under `/api/hypershell/v1/`:
 | Decision | Rationale |
 |----------|-----------|
 | KSUID for all IDs | Sortable, globally unique, no coordination required |
-| Sector as top-level scope | Natural tenant boundary for multi-team environments |
+| Fleet as top-level scope | Natural tenant boundary for multi-team environments |
 | Separate Release from Gateway | Decouples versioning from deployment; enables canary and rollback |
 | GatewayNetwork as explicit entity | Makes network topology declarative and auditable |
 | Secret references (not inline secrets) | Keeps secrets in K8s Secrets, not in the database |
