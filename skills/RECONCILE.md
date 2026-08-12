@@ -61,10 +61,11 @@ skills/
 | Platform - Gateway OIDC | 1 | 7 | 4 | 1 | 2 | 0 | 64% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
-| Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
+| Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
+| Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **23** | **143** | **98** | **18** | **26** | **1** | **76%** |
+| **TOTAL** | **24** | **151** | **106** | **18** | **26** | **1** | **77%** |
 
 ### Spec Dependency Order
 
@@ -237,6 +238,23 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | WEB-SEC-01 | Browser security headers | Present | - | `bff/src/app.ts` (helmet) | - |
 | WEB-OBS-01 | Web performance signals | Partial | `web-vitals` declared; wiring TBD | `domain-probes/` | - |
 
+### e2e-testing.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| E2E-1 | Infra Driver Abstraction | Present | tests/e2e/ with driver selection via E2E_INFRA_DRIVER | `tests/e2e/e2e-openshell.sh` | E2E-W2 ✅ |
+| E2E-2a | discover_api_host (Kind) | Present | HTTPRoute lookup + port-forward fallback | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2b | discover_gateway_endpoint (Kind) | Present | GRPCRoute hostname + domain | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2c | get_cluster_domain (Kind) | Present | Returns gw.localhost | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2d | get_cli_binary (Kind) | Present | Returns kubectl | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2e | wait_for_gateway_route (Kind) | Present | Polls Gateway Programmed + GRPCRoute Accepted | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-3 | E2E Test Suite Coverage (6 areas) | Present | Infra-agnostic version in tests/e2e/ | `tests/e2e/e2e-openshell.sh` | E2E-W2 ✅ |
+| E2E-4 | CI E2E Workflow | Present | GitHub Actions workflow with detect-changes, Kind cluster, summary gate | `.github/workflows/e2e.yml` | E2E-W3 ✅ |
+| E2E-5 | Konflux Image Consumption | Present | IMAGE_TAG override in up.sh via kubectl set image; Konflux digest wiring is follow-up | `scripts/kind/up.sh` | E2E-W1 ✅ |
+| E2E-6 | CI Artifact Collection | Present | Pod logs, events, describes uploaded on failure only | `.github/workflows/e2e.yml` | E2E-W3 ✅ |
+| E2E-7 | Deploy Base/Overlay Structure | Present | deploy/base/ + deploy/kind/ overlay + deploy/openshift/ stub | `deploy/base/`, `deploy/kind/kustomization.yaml` | E2E-W1 ✅ |
+| E2E-8 | Backward Compatibility | Present | make kind-up unchanged; IMAGE_TAG now overrides initial deploy images | `scripts/kind/up.sh` | E2E-W1 ✅ |
+
 ### oidc-integration.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
@@ -336,6 +354,24 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 8. PATCH `routeAddress` field back to API server via gRPC
 9. Verify: `go build ./...`, `go vet ./...`
 
+### Wave E2E-W1: Deploy Base/Overlay + Image Overrides ✅
+
+**Scope:** E2E-5, E2E-7, E2E-8 | **Status:** Complete
+
+Moved shared manifests to `deploy/base/`, created kustomize overlays for Kind and OpenShift, added IMAGE_TAG override support in `up.sh`, verified `kustomize build` for all overlays.
+
+### Wave E2E-W2: E2E Test Framework + Kind Driver ✅
+
+**Scope:** E2E-1, E2E-2a-e, E2E-3 | **Status:** Complete
+
+Created `tests/e2e/lib.sh` (shared utilities), `tests/e2e/drivers/kind.sh` (5 driver functions), `tests/e2e/e2e-openshell.sh` (infra-agnostic test adapted from `components/pr-test/e2e-openshell.sh`). Driver validation at startup with available driver listing.
+
+### Wave E2E-W3: CI E2E Workflow ✅
+
+**Scope:** E2E-4, E2E-5, E2E-6 | **Status:** Complete
+
+Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurrency groups, component detection (api_server, control_plane, e2e, pr_test), Kind cluster creation, e2e test execution, failure-only diagnostic artifacts, 20-min timeout, summary gate. Added `e2e` component to `.github/component-paths.json`.
+
 ### Future (Deferred)
 
 | # | Item | Domain | Reason |
@@ -381,5 +417,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | 2026-08-07 | working tree | Executed Wave 5: Gateway Proto Schema + API Fields | 60% | 6 provisioning fields added to proto/OpenAPI/model/migration; CP reconciler populates GatewayConfig from proto; ExternalSecretRef added to DatabaseConfig |
 | 2026-08-07 | working tree | Executed Wave 6: Gateway Deletion + Cleanup + Route Removal | 60% | DeleteGatewayResources() with label-based cleanup; namespace cache for DELETED events; per-tenant ClusterRoleBinding; deleteGatewayAPIResources() for route disable; ownerReferences deferred |
 | 2026-08-11 | working tree | Local-dev spec reconciliation | 73% | KIND_DB_IMAGE env var wired through Makefile/lib.sh/controller.yaml; spec updated: Gateway creation is user-initiated (not automatic in kind-up); DEVELOPMENT.md env var table updated; gap table refreshed - 23/25 requirements present (was 3/24); only multi-namespace deployments remain |
-| 2026-08-11 | 458c359 | OIDC integration spec authored | 73% | Platform OIDC integration spec covering API JWT, BFF OIDC, IdP config, Kind opt-in |
-| 2026-08-12 | ed3725a | OIDC reconciliation complete | 76% | API server development_oidc env; BFF auth code flow with PKCE (22 tests); CP client_credentials TokenProvider + gRPC PerRPCCredentials; KIND_ENABLE_OIDC opt-in; Keycloak hypershell-control-plane client; verified end-to-end on Kind (8/8 checks pass) |
+| 2026-08-11 | 049d1a8 | Gap analysis for e2e-testing.spec.md | 58% | New spec: 8 requirements (0 present, 1 partial, 7 missing); 3 waves planned (deploy restructuring, test framework, CI workflow) |
+| 2026-08-11 | working tree | Executed E2E waves W1-W3 | 75% | Deploy base/overlay restructuring, e2e test framework with Kind driver, CI e2e workflow; all 8 requirements now present |
+| 2026-08-11 | 458c359 | OIDC integration spec authored | 75% | Platform OIDC integration spec covering API JWT, BFF OIDC, IdP config, Kind opt-in |
+| 2026-08-12 | ed3725a | OIDC reconciliation complete | 77% | API server development_oidc env; BFF auth code flow with PKCE (22 tests); CP client_credentials TokenProvider + gRPC PerRPCCredentials; KIND_ENABLE_OIDC opt-in; Keycloak hypershell-control-plane client; verified end-to-end on Kind (8/8 checks pass) |

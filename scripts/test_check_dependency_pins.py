@@ -57,6 +57,15 @@ class DependencyPinTest(unittest.TestCase):
             self.manifest_violations("quay.io/example/hypershell:dev"),
         )
 
+    def test_allows_project_image(self):
+        self.assertEqual(
+            [],
+            self.manifest_violations(
+                "quay.io/redhat-services-prod/hcm-eng-prod-tenant/"
+                "hypershell-main/hypershell-api-server-main:latest"
+            ),
+        )
+
     def test_allows_digest_pinned_external_image(self):
         self.assertEqual(
             [],

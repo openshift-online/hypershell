@@ -73,10 +73,15 @@ def main() -> int:
                 f"{directory}/**"
             )
 
-        if not isinstance(lint_job, str) or not re.fullmatch(
+        if lint_job is None:
+            pass
+        elif not isinstance(lint_job, str) or not re.fullmatch(
             r"[a-z][a-z0-9-]*", lint_job or ""
         ):
-            errors.append(f"detector entry {component!r} requires a valid lint_job")
+            errors.append(f"detector entry {component!r} has an invalid lint_job")
+            continue
+
+        if lint_job is None:
             continue
 
         required_patterns = {
@@ -95,7 +100,8 @@ def main() -> int:
     for directory in sorted(source_directories - registrations.keys()):
         errors.append(f"{directory} is not registered for component-aware CI")
     for directory in sorted(registrations.keys() - source_directories):
-        errors.append(f"registered component directory {directory} does not exist")
+        if not (ROOT / directory).is_dir():
+            errors.append(f"registered component directory {directory} does not exist")
 
     if errors:
         print("CI component registration is incomplete:")

@@ -57,6 +57,18 @@
       ".github/workflows/lint.yml"
     ]
   },
+  "e2e": {
+    "directory": "tests/e2e",
+    "paths": [
+      "tests/e2e/**",
+      "deploy/base/**",
+      "deploy/kind/**",
+      "scripts/kind/**",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/e2e.yml"
+    ]
+  },
   "pr_test": {
     "directory": "components/pr-test",
     "lint_job": "lint-pr-test",

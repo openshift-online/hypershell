@@ -147,6 +147,19 @@ kube wait --for=condition=available deployment/cert-manager-webhook -n cert-mana
 success "cert-manager ready"
 echo ""
 
+# --- Install Agent Sandbox CRDs ---
+header "Agent Sandbox"
+info "Installing Agent Sandbox controller (${AGENT_SANDBOX_VERSION})..."
+if kube get namespace agent-sandbox-system >/dev/null 2>&1; then
+  warn "agent-sandbox-system namespace exists, skipping install"
+else
+  kube apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/sandbox.yaml"
+fi
+info "Waiting for agent-sandbox controller..."
+kube wait --for=condition=available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
+success "Agent Sandbox controller ready"
+echo ""
+
 # --- Build and load local images (offline mode) ---
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
@@ -163,6 +176,7 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Deploying local Keycloak in 'keycloak' namespace..."
   kube create namespace keycloak --dry-run=client -o yaml | \
     kube apply -f -
+  kustomize build deploy/base/keycloak-theme | kube apply -f -
   kube apply -f deploy/kind/prerequisites/keycloak.yaml
   info "Waiting for Keycloak..."
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
@@ -172,37 +186,76 @@ else
 fi
 echo ""
 
-# --- Apply manifests (skip swapped components) ---
+# --- Apply manifests via kustomize (scale down swapped components) ---
 header "Deploying Components"
-kube apply -f deploy/kind/namespace.yaml
+info "Rendering Kind manifests via kustomize build..."
+kustomize build deploy/kind | sed "s|__KIND_DB_IMAGE__|${KIND_DB_IMAGE}|g" | kube apply -f -
 
-info "Deploying API server database..."
-kube apply -f deploy/kind/postgres.yaml
 info "Waiting for PostgreSQL..."
 kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
 success "PostgreSQL ready"
 
+# The controller's gRPC watch streams must connect to a running API server.
+# With simultaneous deployment the controller may start before the API server
+# is ready, fail the first connection, and sit in a 16s backoff -- missing
+# any gateway events created during that window.  Wait for the API server
+# first, then restart the controller so it connects immediately.
 if ! is_swapped api-server; then
-  info "Deploying API server..."
-  kube apply -f deploy/kind/api-server.yaml
-else
-  warn "API server is swapped - skipping manifest"
+  info "Waiting for API server..."
+  kube wait --for=condition=available deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
 fi
-
 if ! is_swapped control-plane; then
-  info "Deploying control plane RBAC..."
-  kube apply -f deploy/kind/controller-rbac.yaml
-  info "Deploying control plane..."
-  sed "s|__KIND_DB_IMAGE__|${KIND_DB_IMAGE}|g" deploy/kind/controller.yaml | kube apply -f -
-else
-  warn "Control plane is swapped - skipping manifest"
+  info "Restarting control plane to establish watch streams..."
+  kube rollout restart deployment/hypershell-controller -n "${KIND_NAMESPACE}"
+  kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 fi
 
-if ! is_swapped web-console; then
-  info "Deploying web console..."
-  kube apply -f deploy/kind/web-console.yaml
-else
-  warn "Web console is swapped - skipping manifest"
+if is_swapped api-server; then
+  warn "API server is swapped -- scaling to zero"
+  kube scale deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --replicas=0
+fi
+
+if is_swapped control-plane; then
+  warn "Control plane is swapped -- scaling to zero"
+  kube scale deployment/hypershell-controller -n "${KIND_NAMESPACE}" --replicas=0
+fi
+
+if is_swapped web-console; then
+  warn "Web console is swapped -- scaling to zero"
+  kube scale deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --replicas=0
+fi
+
+local_registry="${IMAGE_REGISTRY:-quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
+_api_img="${API_SERVER_IMAGE:-}"
+_cp_img="${CONTROL_PLANE_IMAGE:-}"
+_wc_img="${WEB_CONSOLE_IMAGE:-}"
+if [[ "${IMAGE_TAG:-latest}" != "latest" ]]; then
+  : "${_api_img:=${local_registry}/hypershell-api-server-main:${IMAGE_TAG}}"
+  : "${_cp_img:=${local_registry}/hypershell-control-plane-main:${IMAGE_TAG}}"
+  : "${_wc_img:=${local_registry}/hypershell-web-console-main:${IMAGE_TAG}}"
+fi
+
+if [[ -n "${_api_img}" || -n "${_cp_img}" || -n "${_wc_img}" ]]; then
+  info "Overriding component images..."
+  if [[ -n "${_api_img}" ]] && ! is_swapped api-server; then
+    info "  api-server  -> ${_api_img}"
+    kube set image "deployment/hypershell-api-server" \
+      "api-server=${_api_img}" \
+      "migrate=${_api_img}" \
+      -n "${KIND_NAMESPACE}"
+  fi
+  if [[ -n "${_cp_img}" ]] && ! is_swapped control-plane; then
+    info "  controller  -> ${_cp_img}"
+    kube set image "deployment/hypershell-controller" \
+      "controller=${_cp_img}" \
+      -n "${KIND_NAMESPACE}"
+  fi
+  if [[ -n "${_wc_img}" ]] && ! is_swapped web-console; then
+    info "  web-console -> ${_wc_img}"
+    kube set image "deployment/hypershell-web-console" \
+      "web-console=${_wc_img}" \
+      -n "${KIND_NAMESPACE}"
+  fi
 fi
 
 
@@ -220,14 +273,8 @@ if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
 fi
 echo ""
 
-# --- Certificates and networking ---
+# --- Gateway address discovery ---
 header "TLS & Networking"
-info "Setting up TLS certificates..."
-kube apply -f deploy/kind/prerequisites/certificates.yaml
-
-info "Setting up Gateway API networking..."
-kube apply -f deploy/kind/prerequisites/networking-gateway.yaml
-kube apply -f deploy/kind/prerequisites/httproutes.yaml
 
 GATEWAY_PORT=""
 KEYCLOAK_HTTP_PORT=""
