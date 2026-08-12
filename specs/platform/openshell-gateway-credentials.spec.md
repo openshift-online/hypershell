@@ -11,7 +11,7 @@
 
 OpenShell gateways store provider credentials (API keys, tokens, secrets) on behalf of users. Upstream OpenShell v0.0.101 introduced pluggable credential storage drivers: an encrypted database store (default), a Kubernetes Secrets backend, and a HashiCorp Vault backend. HyperShell currently provisions only the default encrypted DB driver (KEK Secret + TOML config). This specification defines how the GatewayReconciler SHALL support per-gateway selection of an external credential storage driver, including the required API fields, TOML configuration, RBAC, and deployment changes.
 
-Credential rotation (KEK re-encryption, DB password rotation) is out of scope and will be addressed in a separate specification.
+Credential rotation (KEK re-encryption, DB password rotation) is out of scope and is addressed in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
 
 ---
 
