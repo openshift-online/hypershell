@@ -161,6 +161,12 @@ EOF
     # Let pnpm receive SIGINT from the terminal; bash stays alive to run cleanup.
     trap : INT TERM HUP
 
+    if lsof -i ":${DEV_PORT}" >/dev/null 2>&1; then
+      error "Port ${DEV_PORT} is already in use. Kill the process and try again:"
+      error "  kill \$(lsof -ti :${DEV_PORT})"
+      exit 1
+    fi
+
     echo ""
     success "Web Console: https://${CONSOLE_HOSTNAME}"
     info "To use rebuild-and-replace instead: KIND_HOT_RELOAD=false make kind-web-console-up"
@@ -172,7 +178,7 @@ EOF
       pnpm --filter @openshift-online/hypershell-sdk build && \
       pnpm --filter @openshift-online/hypershell-domain-probes build && \
       pnpm --filter @openshift-online/hypershell-gateway-management-ui build && \
-      DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev 2>/dev/null) || true
+      DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev) || true
     exit 0
   fi
 
