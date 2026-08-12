@@ -11,6 +11,8 @@ subjects:
     name: hypershell-controller
     namespace: hypershell-system
 ---
+# Sandbox pods require the privileged SCC for container-in-container
+# execution (see specs/platform/openshell-gateway.spec.md §OpenShift).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

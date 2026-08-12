@@ -2,7 +2,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../base
-  - infrastructure/gatewayclass.yaml
   - certificates.yaml
   - networkpolicies.yaml
   - route.yaml
@@ -25,8 +24,10 @@ patches:
                   - name: GATEWAY_API_GATEWAY_NAMESPACE
                     value: openshift-ingress
                   - name: GATEWAY_API_BASE_DOMAIN
+                    # OVERRIDE: set to your cluster's wildcard domain
                     value: apps.example.com
                   - name: GATEWAY_API_TLS_ISSUER_NAME
                     value: hypershell-ca-issuer
                   - name: HYPERSHELL_DATABASE_IMAGE
-                    value: "registry.redhat.io/rhel9/postgresql-16:latest"
+                    # TODO: pin with @sha256: digest (requires registry.redhat.io auth to resolve)
+                    value: "registry.redhat.io/rhel9/postgresql-16:1-82"
