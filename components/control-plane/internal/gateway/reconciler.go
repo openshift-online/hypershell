@@ -996,6 +996,12 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 							},
 						},
 						"allowedRoutes": map[string]interface{}{
+							"kinds": []interface{}{
+								map[string]interface{}{
+									"group": "gateway.networking.k8s.io",
+									"kind":  "GRPCRoute",
+								},
+							},
 							"namespaces": map[string]interface{}{
 								"from": "Selector",
 								"selector": map[string]interface{}{
