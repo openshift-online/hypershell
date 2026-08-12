@@ -1,6 +1,8 @@
 name: E2E
 
 on:
+  check_run:
+    types: [completed]
   pull_request:
   push:
     branches:
@@ -12,45 +14,170 @@ on:
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
-  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number || github.ref }}
   cancel-in-progress: true
 
+env:
+  KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
+  BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+  KONFLUX_CHECKS: >-
+    hypershell-api-server-main-on-pull-request
+    hypershell-control-plane-main-on-pull-request
+    hypershell-web-console-main-on-pull-request
+
 jobs:
-  detect-changes:
-    name: Detect changed components
+  resolve-images:
+    name: Resolve component images
     runs-on: ubuntu-24.04
     outputs:
-      api_server: ${{ steps.detect.outputs.api_server }}
-      control_plane: ${{ steps.detect.outputs.control_plane }}
-      e2e: ${{ steps.detect.outputs.e2e }}
-      pr_test: ${{ steps.detect.outputs.pr_test }}
-      e2e_relevant: ${{ steps.check.outputs.e2e_relevant }}
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      api_server_image: ${{ steps.resolve.outputs.api_server_image }}
+      control_plane_image: ${{ steps.resolve.outputs.control_plane_image }}
+      web_console_image: ${{ steps.resolve.outputs.web_console_image }}
     steps:
       - name: Check out repository
+        if: github.event_name != 'check_run'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
       - name: Detect changed components
         id: detect
+        if: github.event_name == 'pull_request'
         run: bash .github/scripts/detect-components.sh
-      - name: Check if e2e-relevant components changed
-        id: check
+
+      - name: Resolve images
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          CHECK_NAME: ${{ github.event.check_run.name }}
+          CHECK_CONCLUSION: ${{ github.event.check_run.conclusion }}
+          CHECK_HEAD_SHA: ${{ github.event.check_run.head_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number }}
+          DETECT_API_SERVER: ${{ steps.detect.outputs.api_server }}
+          DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
+          DETECT_WEB_CONSOLE: ${{ steps.detect.outputs.web_console }}
+          DETECT_E2E: ${{ steps.detect.outputs.e2e }}
+          DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
         run: |
-          if [[ "${{ steps.detect.outputs.api_server }}" == "true" || \
-                "${{ steps.detect.outputs.control_plane }}" == "true" || \
-                "${{ steps.detect.outputs.e2e }}" == "true" || \
-                "${{ steps.detect.outputs.pr_test }}" == "true" ]]; then
-            echo "e2e_relevant=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "e2e_relevant=false" >> "${GITHUB_OUTPUT}"
-          fi
+          baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
+          baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
+          baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
+
+          case "${EVENT_NAME}" in
+            check_run)
+              # Only react to Konflux check completions
+              is_konflux=false
+              for name in ${KONFLUX_CHECKS}; do
+                if [[ "${CHECK_NAME}" == "${name}" ]]; then
+                  is_konflux=true
+                  break
+                fi
+              done
+              if [[ "${is_konflux}" != "true" ]]; then
+                echo "Ignoring non-Konflux check: ${CHECK_NAME}"
+                echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              if [[ "${CHECK_CONCLUSION}" != "success" ]]; then
+                echo "Konflux check ${CHECK_NAME} concluded with: ${CHECK_CONCLUSION}"
+                echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              # Query all check runs for this SHA to see which Konflux checks exist
+              all_checks=$(gh api "repos/${{ github.repository }}/commits/${CHECK_HEAD_SHA}/check-runs" \
+                --jq '.check_runs[] | select(.name | test("^hypershell-.*-on-pull-request$")) | {name: .name, status: .status, conclusion: .conclusion}')
+
+              # Check if any Konflux builds are still running
+              pending=$(echo "${all_checks}" | jq -r 'select(.status != "completed") | .name' 2>/dev/null || true)
+              if [[ -n "${pending}" ]]; then
+                echo "Waiting for Konflux checks to complete: ${pending}"
+                echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              # Check for any failures
+              failed=$(echo "${all_checks}" | jq -r 'select(.conclusion != "success") | .name' 2>/dev/null || true)
+              if [[ -n "${failed}" ]]; then
+                echo "Konflux checks failed: ${failed}"
+                echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              # All relevant Konflux checks passed -- resolve per-component images
+              tag="on-pr-${CHECK_HEAD_SHA}"
+              api_img="${baseline_api}"
+              cp_img="${baseline_cp}"
+              wc_img="${baseline_wc}"
+
+              if echo "${all_checks}" | jq -e 'select(.name == "hypershell-api-server-main-on-pull-request")' >/dev/null 2>&1; then
+                api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+              fi
+              if echo "${all_checks}" | jq -e 'select(.name == "hypershell-control-plane-main-on-pull-request")' >/dev/null 2>&1; then
+                cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+              fi
+              if echo "${all_checks}" | jq -e 'select(.name == "hypershell-web-console-main-on-pull-request")' >/dev/null 2>&1; then
+                wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+              fi
+
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
+              ;;
+
+            pull_request)
+              api_changed="${DETECT_API_SERVER:-false}"
+              cp_changed="${DETECT_CONTROL_PLANE:-false}"
+              wc_changed="${DETECT_WEB_CONSOLE:-false}"
+              e2e_changed="${DETECT_E2E:-false}"
+              pr_test_changed="${DETECT_PR_TEST:-false}"
+
+              e2e_relevant=false
+              if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || \
+                    "${e2e_changed}" == "true" || "${pr_test_changed}" == "true" ]]; then
+                e2e_relevant=true
+              fi
+
+              if [[ "${e2e_relevant}" != "true" ]]; then
+                echo "No e2e-relevant components changed"
+                echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              # If any Konflux-built component changed, defer to check_run trigger
+              if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || "${wc_changed}" == "true" ]]; then
+                echo "Konflux components changed -- deferring to check_run trigger"
+                echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              # Only e2e/deploy/pr_test changed -- run with baseline images
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+              ;;
+
+            *)
+              # push, merge_group, workflow_dispatch -- use baselines
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+              ;;
+          esac
 
   e2e-kind:
     name: E2E tests (Kind)
-    needs: detect-changes
-    if: needs.detect-changes.outputs.e2e_relevant == 'true'
+    needs: resolve-images
+    if: needs.resolve-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -68,11 +195,6 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
-      - name: Install cloud-provider-kind
-        run: |
-          go install sigs.k8s.io/cloud-provider-kind@latest
-          echo "cloud-provider-kind installed at $(which cloud-provider-kind)"
-
       - name: Install openshell CLI
         run: |
           curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
@@ -80,7 +202,9 @@ jobs:
 
       - name: Create Kind cluster
         env:
-          IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+          API_SERVER_IMAGE: ${{ needs.resolve-images.outputs.api_server_image }}
+          CONTROL_PLANE_IMAGE: ${{ needs.resolve-images.outputs.control_plane_image }}
+          WEB_CONSOLE_IMAGE: ${{ needs.resolve-images.outputs.web_console_image }}
         run: make kind-up
 
       - name: Run e2e tests
@@ -128,16 +252,16 @@ jobs:
     name: E2E CI gate
     if: ${{ always() && !cancelled() }}
     needs:
-      - detect-changes
+      - resolve-images
       - e2e-kind
     runs-on: ubuntu-24.04
     steps:
       - name: Check e2e results
         env:
-          DETECTION_RESULT: ${{ needs.detect-changes.result }}
+          RESOLVE_RESULT: ${{ needs.resolve-images.result }}
           E2E_KIND_RESULT: ${{ needs.e2e-kind.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${E2E_KIND_RESULT}"; do
+          for result in "${RESOLVE_RESULT}" "${E2E_KIND_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more e2e jobs failed or were cancelled."
               exit 1

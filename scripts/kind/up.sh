@@ -219,23 +219,35 @@ else
   warn "Web console is swapped - skipping manifest"
 fi
 
+local_registry="${IMAGE_REGISTRY:-quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
+_api_img="${API_SERVER_IMAGE:-}"
+_cp_img="${CONTROL_PLANE_IMAGE:-}"
+_wc_img="${WEB_CONSOLE_IMAGE:-}"
 if [[ "${IMAGE_TAG:-latest}" != "latest" ]]; then
-  info "Overriding component images with tag: ${IMAGE_TAG}"
-  local_registry="${IMAGE_REGISTRY:-quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
-  if ! is_swapped api-server; then
+  : "${_api_img:=${local_registry}/hypershell-api-server-main:${IMAGE_TAG}}"
+  : "${_cp_img:=${local_registry}/hypershell-control-plane-main:${IMAGE_TAG}}"
+  : "${_wc_img:=${local_registry}/hypershell-web-console-main:${IMAGE_TAG}}"
+fi
+
+if [[ -n "${_api_img}" || -n "${_cp_img}" || -n "${_wc_img}" ]]; then
+  info "Overriding component images..."
+  if [[ -n "${_api_img}" ]] && ! is_swapped api-server; then
+    info "  api-server  -> ${_api_img}"
     kube set image "deployment/hypershell-api-server" \
-      "api-server=${local_registry}/hypershell-api-server-main:${IMAGE_TAG}" \
-      "migrate=${local_registry}/hypershell-api-server-main:${IMAGE_TAG}" \
+      "api-server=${_api_img}" \
+      "migrate=${_api_img}" \
       -n "${KIND_NAMESPACE}"
   fi
-  if ! is_swapped control-plane; then
+  if [[ -n "${_cp_img}" ]] && ! is_swapped control-plane; then
+    info "  controller  -> ${_cp_img}"
     kube set image "deployment/hypershell-controller" \
-      "controller=${local_registry}/hypershell-control-plane-main:${IMAGE_TAG}" \
+      "controller=${_cp_img}" \
       -n "${KIND_NAMESPACE}"
   fi
-  if ! is_swapped web-console; then
+  if [[ -n "${_wc_img}" ]] && ! is_swapped web-console; then
+    info "  web-console -> ${_wc_img}"
     kube set image "deployment/hypershell-web-console" \
-      "web-console=${local_registry}/hypershell-web-console-main:${IMAGE_TAG}" \
+      "web-console=${_wc_img}" \
       -n "${KIND_NAMESPACE}"
   fi
 fi
