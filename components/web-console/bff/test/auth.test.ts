@@ -429,7 +429,7 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(session.json()).toEqual({ authenticated: false });
   });
 
-  it("redirects /auth/logout to / when no id_token is stored", async () => {
+  it("redirects /auth/logout to IdP end_session_endpoint without id_token_hint", async () => {
     const session = app.createSecureSession({
       accessToken: "test-access-token",
     });
@@ -442,7 +442,9 @@ describe("web-console BFF with OIDC enabled", () => {
     });
 
     expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe("/");
+    const location = response.headers.location as string;
+    expect(location).toContain("/end-session");
+    expect(location).not.toContain("id_token_hint");
   });
 
   // -----------------------------------------------------------------------
