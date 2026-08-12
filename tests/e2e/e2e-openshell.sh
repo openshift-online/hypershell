@@ -142,6 +142,71 @@ dim  "  Sandbox timeout:   ${E2E_SANDBOX_TIMEOUT}s"
 echo ""
 sep
 
+# ── 0. OIDC authentication verification ──────────────────────────────────
+
+echo ""
+bold "0. OIDC Authentication Verification"
+echo ""
+
+# Acquire a token for authenticated API calls
+acquire_oidc_token
+if [[ -n "${_OIDC_ACCESS_TOKEN}" ]]; then
+  _API_AUTH_HEADER="Authorization: Bearer ${_OIDC_ACCESS_TOKEN}"
+  pass "OIDC token acquired for API authentication"
+else
+  fail_test "Could not acquire OIDC token for API authentication"
+  exit 1
+fi
+
+# Verify: unauthenticated API requests return 401
+show_cmd "curl -sk -o /dev/null -w '%{http_code}' ${API_HOST}/api/hypershell/v1/gateways (no auth)"
+UNAUTH_STATUS=$(curl -sk -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
+if [[ "$UNAUTH_STATUS" == "401" ]]; then
+  pass "API server rejects unauthenticated requests (401)"
+else
+  fail_test "Expected 401 for unauthenticated request, got ${UNAUTH_STATUS}"
+fi
+
+# Verify: authenticated API requests return 200
+show_cmd "curl -sk -H 'Authorization: Bearer ...' ${API_HOST}/api/hypershell/v1/gateways"
+AUTH_STATUS=$(api_curl -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
+if [[ "$AUTH_STATUS" == "200" ]]; then
+  pass "API server accepts authenticated requests (200)"
+else
+  fail_test "Expected 200 for authenticated request, got ${AUTH_STATUS}"
+fi
+
+# Verify: BFF /auth/session returns unauthenticated
+CONSOLE_HOST="${API_HOST/api./console.}"
+show_cmd "curl -sk ${CONSOLE_HOST}/auth/session"
+SESSION_RESP=$(curl -sk "${CONSOLE_HOST}/auth/session" 2>/dev/null || true)
+SESSION_AUTH=$(echo "${SESSION_RESP}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('authenticated',''))" 2>/dev/null || true)
+if [[ "$SESSION_AUTH" == "False" ]]; then
+  pass "BFF /auth/session returns authenticated: false"
+else
+  fail_test "Expected authenticated: false from /auth/session, got: ${SESSION_RESP:0:100}"
+fi
+
+# Verify: BFF /auth/login redirects to Keycloak with PKCE
+show_cmd "curl -sk -o /dev/null -w '%{redirect_url}' ${CONSOLE_HOST}/auth/login"
+LOGIN_REDIRECT=$(curl -sk -o /dev/null -w '%{redirect_url}' "${CONSOLE_HOST}/auth/login" 2>/dev/null || true)
+if echo "${LOGIN_REDIRECT}" | grep -q 'code_challenge_method=S256'; then
+  pass "BFF /auth/login redirects to IdP with PKCE"
+else
+  fail_test "Expected PKCE redirect from /auth/login, got: ${LOGIN_REDIRECT:0:100}"
+fi
+
+# Verify: control plane gRPC streams are healthy
+show_cmd "kubectl logs -l app=hypershell-controller --tail=20 | grep Unauthenticated"
+CP_UNAUTH=$(${CLI} logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=50 2>/dev/null | grep -c 'Unauthenticated' || true)
+if [[ "$CP_UNAUTH" == "0" ]]; then
+  pass "Control plane gRPC streams: no Unauthenticated errors"
+else
+  fail_test "Control plane has ${CP_UNAUTH} Unauthenticated gRPC errors"
+fi
+
+sep
+
 # ── 1. infrastructure validation ──────────────────────────────────────────
 
 echo ""
