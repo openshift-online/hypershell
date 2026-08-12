@@ -323,19 +323,19 @@ echo ""
 
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
 
+if wait_for_gateway_route "$GW_NAME" "$GW_NAMESPACE"; then
+  pass "Gateway route is ready"
+else
+  fail_test "Gateway route not ready after timeout"
+  exit 1
+fi
+
 discover_gateway_endpoint "$GW_NAME" "$GW_NAMESPACE"
 GW_ENDPOINT="${_DISCOVER_GW_ENDPOINT}"
 if [[ -n "$GW_ENDPOINT" ]]; then
   pass "Gateway endpoint: ${GW_ENDPOINT}"
 else
   fail_test "Could not discover gateway endpoint"
-  exit 1
-fi
-
-if wait_for_gateway_route "$GW_NAME" "$GW_NAMESPACE"; then
-  pass "Gateway route is ready"
-else
-  fail_test "Gateway route not ready after timeout"
   exit 1
 fi
 
