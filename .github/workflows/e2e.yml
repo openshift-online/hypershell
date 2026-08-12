@@ -151,14 +151,24 @@ jobs:
                 exit 0
               fi
 
-              # If any Konflux-built component changed, defer to check_run trigger
-              if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || "${wc_changed}" == "true" ]]; then
-                echo "Konflux components changed -- deferring to check_run trigger"
+              # Check if Konflux will actually build images for this PR.
+              # detect-components.sh uses broad path lists (includes Makefile),
+              # but Konflux only triggers on component source directories and
+              # their .tekton pipeline files.
+              base_sha="${{ github.event.pull_request.base.sha }}"
+              konflux_source_changed=false
+              if git diff --name-only "${base_sha}" HEAD | grep -qE \
+                  '^(components/(api-server|control-plane|web-console)/|\.tekton/hypershell-.*-pull-request\.yaml$|^Dockerfile$)'; then
+                konflux_source_changed=true
+              fi
+
+              if [[ "${konflux_source_changed}" == "true" ]]; then
+                echo "Konflux source paths changed -- deferring to check_run trigger"
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
 
-              # Only e2e/deploy/pr_test changed -- run with baseline images
+              # No Konflux builds expected -- run with baseline images
               echo "should_run=true" >> "${GITHUB_OUTPUT}"
               echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
               echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
