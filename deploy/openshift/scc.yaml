@@ -10,3 +10,16 @@ subjects:
   - kind: ServiceAccount
     name: hypershell-controller
     namespace: hypershell-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hypershell-sandbox-scc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+  - kind: ServiceAccount
+    name: openshell-gateway-sandbox
+    namespace: hypershell-system

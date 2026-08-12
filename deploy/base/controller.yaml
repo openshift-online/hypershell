@@ -41,11 +41,6 @@ spec:
               value: "hypershell-system"
             - name: HYPERSHELL_LOG_LEVEL
               value: "info"
-            - name: GATEWAY_API_BASE_DOMAIN
-              value: "hypershell.localhost"
-            - name: HYPERSHELL_DATABASE_IMAGE
-              # Substituted by scripts/kind/up.sh - do not apply this file directly.
-              value: "__KIND_DB_IMAGE__"
           resources:
             requests:
               cpu: 100m

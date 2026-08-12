@@ -2,5 +2,31 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../base
+  - infrastructure/gatewayclass.yaml
+  - certificates.yaml
+  - networkpolicies.yaml
   - route.yaml
   - scc.yaml
+patches:
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: controller
+                env:
+                  - name: GATEWAY_API_GATEWAY_CLASS
+                    value: openshift-default
+                  - name: GATEWAY_API_GATEWAY_NAMESPACE
+                    value: openshift-ingress
+                  - name: GATEWAY_API_BASE_DOMAIN
+                    value: apps.example.com
+                  - name: GATEWAY_API_TLS_ISSUER_NAME
+                    value: hypershell-ca-issuer
+                  - name: HYPERSHELL_DATABASE_IMAGE
+                    value: "registry.redhat.io/rhel9/postgresql-16:latest"

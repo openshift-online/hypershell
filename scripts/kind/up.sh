@@ -66,35 +66,6 @@ for i in $(seq 1 15); do
 done
 echo ""
 
-# --- Create namespace ---
-header "Namespace"
-kube create namespace "${KIND_NAMESPACE}" --dry-run=client -o yaml | \
-  kube apply -f -
-
-if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
-  info "Applying pull secret from ${KIND_PULL_SECRET}..."
-  kube apply -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}"
-  SECRET_NAME=$(kube get -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
-  if [[ -n "${SECRET_NAME}" ]]; then
-    info "Waiting for default ServiceAccount in ${KIND_NAMESPACE}..."
-    for i in $(seq 1 30); do
-      if kube get serviceaccount default -n "${KIND_NAMESPACE}" >/dev/null 2>&1; then break; fi
-      sleep 1
-    done
-    info "Patching default ServiceAccount with imagePullSecrets..."
-    kube patch serviceaccount default -n "${KIND_NAMESPACE}" \
-      -p "{\"imagePullSecrets\":[{\"name\":\"${SECRET_NAME}\"}]}"
-  fi
-fi
-echo ""
-
-# --- Install Gateway API CRDs ---
-header "Gateway API CRDs"
-info "Installing Gateway API CRDs (${GATEWAY_API_VERSION}, experimental channel)..."
-kube apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
-success "Gateway API CRDs installed"
-echo ""
-
 # --- Verify and start cloud-provider-kind ---
 header "cloud-provider-kind"
 CPK_RUNNING=false
@@ -133,31 +104,17 @@ else
 fi
 echo ""
 
-# --- Install cert-manager ---
-header "cert-manager"
-info "Installing cert-manager ${CERT_MANAGER_VERSION}..."
-if kube get namespace cert-manager >/dev/null 2>&1; then
-  warn "cert-manager namespace exists, skipping install"
-else
-  kube apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
-fi
+# --- Install infrastructure prerequisites via kustomize ---
+header "Infrastructure"
+info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox)..."
+kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure | \
+  kube apply --server-side --force-conflicts -f -
 info "Waiting for cert-manager..."
 kube wait --for=condition=available deployment/cert-manager -n cert-manager --timeout=120s
 kube wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=120s
-success "cert-manager ready"
-echo ""
-
-# --- Install Agent Sandbox CRDs ---
-header "Agent Sandbox"
-info "Installing Agent Sandbox controller (${AGENT_SANDBOX_VERSION})..."
-if kube get namespace agent-sandbox-system >/dev/null 2>&1; then
-  warn "agent-sandbox-system namespace exists, skipping install"
-else
-  kube apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/sandbox.yaml"
-fi
 info "Waiting for agent-sandbox controller..."
 kube wait --for=condition=available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
-success "Agent Sandbox controller ready"
+success "Infrastructure ready"
 echo ""
 
 # --- Build and load local images (offline mode) ---
@@ -170,30 +127,41 @@ if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   echo ""
 fi
 
-# --- Deploy Keycloak (cluster-wide, one instance shared by all namespaces) ---
-header "Keycloak"
-if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
-  info "Deploying local Keycloak in 'keycloak' namespace..."
-  kube create namespace keycloak --dry-run=client -o yaml | \
+# --- Apply pull secret (if configured) ---
+if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
+  header "Pull Secret"
+  kube create namespace "${KIND_NAMESPACE}" --dry-run=client -o yaml | \
     kube apply -f -
-  kustomize build deploy/base/keycloak-theme | kube apply -f -
-  kube apply -f deploy/kind/prerequisites/keycloak.yaml
-  info "Waiting for Keycloak..."
-  kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
-  success "Keycloak ready"
-else
-  warn "Using external Keycloak: ${KIND_KEYCLOAK_URL}"
+  info "Applying pull secret from ${KIND_PULL_SECRET}..."
+  kube apply -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}"
+  SECRET_NAME=$(kube get -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
+  if [[ -n "${SECRET_NAME}" ]]; then
+    info "Waiting for default ServiceAccount in ${KIND_NAMESPACE}..."
+    for i in $(seq 1 30); do
+      if kube get serviceaccount default -n "${KIND_NAMESPACE}" >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
+    info "Patching default ServiceAccount with imagePullSecrets..."
+    kube patch serviceaccount default -n "${KIND_NAMESPACE}" \
+      -p "{\"imagePullSecrets\":[{\"name\":\"${SECRET_NAME}\"}]}"
+  fi
+  echo ""
 fi
-echo ""
 
-# --- Apply manifests via kustomize (scale down swapped components) ---
+# --- Deploy all components via kustomize ---
 header "Deploying Components"
-info "Rendering Kind manifests via kustomize build..."
-kustomize build deploy/kind | sed "s|__KIND_DB_IMAGE__|${KIND_DB_IMAGE}|g" | kube apply -f -
+info "Applying Kind manifests via kustomize..."
+kustomize build deploy/kind | kube apply -f -
 
 info "Waiting for PostgreSQL..."
 kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
 success "PostgreSQL ready"
+
+if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+  info "Waiting for Keycloak..."
+  kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
+  success "Keycloak ready"
+fi
 
 # The controller's gRPC watch streams must connect to a running API server.
 # With simultaneous deployment the controller may start before the API server
@@ -474,7 +442,7 @@ api_post() {
   fi
   curl -sS -w "\n%{http_code}" -X POST "${url}" \
     -H "Content-Type: application/json" \
-    "${auth_args[@]}" \
+    ${auth_args[@]+"${auth_args[@]}"} \
     -d "${data}" 2>&1 || true
 }
 

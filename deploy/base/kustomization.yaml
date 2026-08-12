@@ -7,4 +7,6 @@ resources:
   - controller.yaml
   - controller-rbac.yaml
   - web-console.yaml
-  - keycloak-theme
+  - certificates/
+  - keycloak/
+  - networkpolicies.yaml

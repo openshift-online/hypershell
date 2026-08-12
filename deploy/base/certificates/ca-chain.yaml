@@ -1,0 +1,33 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: hypershell-selfsigned
+  namespace: hypershell-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hypershell-ca
+  namespace: hypershell-system
+spec:
+  isCA: true
+  commonName: hypershell-ca
+  secretName: hypershell-ca-secret
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: hypershell-selfsigned
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: hypershell-ca-issuer
+  namespace: hypershell-system
+spec:
+  ca:
+    secretName: hypershell-ca-secret
