@@ -211,6 +211,17 @@ deployments at runtime (the base YAML manifests are unchanged).
 4. Sign in with `admin`/`admin` or `developer`/`developer`
 5. Keycloak redirects back to the web console with a valid session
 
+### Hot reload and OIDC
+
+Web console hot reload (`make kind-web-console-up`) runs the Vite dev server
+directly on the host for fast iteration. This mode does **not** start the BFF,
+so OIDC authentication is unavailable during hot reload. Use the image-based
+swap when testing OIDC:
+
+```bash
+KIND_HOT_RELOAD=false make kind-web-console-up
+```
+
 ### CLI token acquisition for curl testing
 
 Obtain an access token via Keycloak's direct access grants:
