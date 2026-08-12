@@ -36,7 +36,7 @@ KIND_KEYCLOAK_URL?=
 LOCAL_IMAGES?=
 KIND_PULL_SECRET?=
 KIND_ENABLE_OIDC?=
-KIND_DB_IMAGE?=registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
+
 
 # Prerequisite versions
 GATEWAY_API_VERSION?=v1.5.1

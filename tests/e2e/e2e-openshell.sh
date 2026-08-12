@@ -125,13 +125,14 @@ echo ""
 bold "HyperShell OpenShell Gateway End-to-End Test"
 sep
 echo ""
-printf '  %s\n' "1. Gateway provisioning via HyperShell API (OIDC)"
-printf '  %s\n' "2. Gateway infrastructure verification"
-printf '  %s\n' "3. OIDC token acquisition"
-printf '  %s\n' "4. Route discovery + openshell CLI registration"
-printf '  %s\n' "5. Gateway connectivity"
-printf '  %s\n' "6. Sandbox lifecycle (create → ready)"
-printf '  %s\n' "7. Sandbox interaction"
+printf '  %s\n' "1. Infrastructure validation"
+printf '  %s\n' "2. Gateway provisioning via HyperShell API (OIDC)"
+printf '  %s\n' "3. Gateway infrastructure verification"
+printf '  %s\n' "4. OIDC token acquisition"
+printf '  %s\n' "5. Route discovery + openshell CLI registration"
+printf '  %s\n' "6. Gateway connectivity"
+printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
+printf '  %s\n' "8. Sandbox interaction"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  HyperShell API:    ${API_HOST}"
@@ -141,10 +142,90 @@ dim  "  Sandbox timeout:   ${E2E_SANDBOX_TIMEOUT}s"
 echo ""
 sep
 
-# ── 1. gateway provisioning ────────────────────────────────────────────────
+# ── 1. infrastructure validation ──────────────────────────────────────────
 
 echo ""
-bold "1. Gateway Provisioning via HyperShell API"
+bold "1. Infrastructure Validation"
+echo ""
+
+INFRA_NAMESPACE="${E2E_HS_NAMESPACE}"
+
+show_cmd "$CLI get deployment cert-manager -n cert-manager"
+CM_REPLICAS=$($CLI get deployment cert-manager -n cert-manager -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [[ "${CM_REPLICAS:-0}" -ge 1 ]]; then
+  pass "cert-manager is ready"
+else
+  fail_test "cert-manager is not ready (readyReplicas=${CM_REPLICAS:-0})"
+fi
+
+show_cmd "$CLI get deployment cert-manager-webhook -n cert-manager"
+CMW_REPLICAS=$($CLI get deployment cert-manager-webhook -n cert-manager -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [[ "${CMW_REPLICAS:-0}" -ge 1 ]]; then
+  pass "cert-manager-webhook is ready"
+else
+  fail_test "cert-manager-webhook is not ready (readyReplicas=${CMW_REPLICAS:-0})"
+fi
+
+show_cmd "$CLI get deployment agent-sandbox-controller -n agent-sandbox-system"
+AS_REPLICAS=$($CLI get deployment agent-sandbox-controller -n agent-sandbox-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [[ "${AS_REPLICAS:-0}" -ge 1 ]]; then
+  pass "agent-sandbox controller is ready"
+else
+  fail_test "agent-sandbox controller is not ready (readyReplicas=${AS_REPLICAS:-0})"
+fi
+
+show_cmd "$CLI get crd gateways.gateway.networking.k8s.io"
+if $CLI get crd gateways.gateway.networking.k8s.io &>/dev/null; then
+  pass "Gateway API CRDs installed"
+else
+  fail_test "Gateway API CRDs not found"
+fi
+
+show_cmd "$CLI get issuer hypershell-selfsigned -n $INFRA_NAMESPACE"
+SS_READY=$($CLI get issuer hypershell-selfsigned -n "$INFRA_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+if [[ "$SS_READY" == "True" ]]; then
+  pass "CA selfsigned Issuer is ready"
+else
+  fail_test "CA selfsigned Issuer is not ready (status=${SS_READY:-unknown})"
+fi
+
+show_cmd "$CLI get certificate hypershell-ca -n $INFRA_NAMESPACE"
+CA_READY=$($CLI get certificate hypershell-ca -n "$INFRA_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+if [[ "$CA_READY" == "True" ]]; then
+  pass "CA Certificate issued"
+else
+  fail_test "CA Certificate not ready (status=${CA_READY:-unknown})"
+fi
+
+show_cmd "$CLI get issuer hypershell-ca-issuer -n $INFRA_NAMESPACE"
+CAI_READY=$($CLI get issuer hypershell-ca-issuer -n "$INFRA_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+if [[ "$CAI_READY" == "True" ]]; then
+  pass "CA Issuer is ready"
+else
+  fail_test "CA Issuer is not ready (status=${CAI_READY:-unknown})"
+fi
+
+show_cmd "$CLI get deployment keycloak -n $E2E_KEYCLOAK_NAMESPACE"
+KC_REPLICAS=$($CLI get deployment keycloak -n "$E2E_KEYCLOAK_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [[ "${KC_REPLICAS:-0}" -ge 1 ]]; then
+  pass "Keycloak is ready"
+else
+  fail_test "Keycloak is not ready (readyReplicas=${KC_REPLICAS:-0})"
+fi
+
+show_cmd "$CLI get networkpolicy -n $INFRA_NAMESPACE"
+NP_COUNT=$($CLI get networkpolicy -n "$INFRA_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${NP_COUNT:-0}" -ge 4 ]]; then
+  pass "NetworkPolicies present (${NP_COUNT} found)"
+else
+  fail_test "Expected at least 4 NetworkPolicies, found ${NP_COUNT:-0}"
+fi
+sep
+
+# ── 2. gateway provisioning ────────────────────────────────────────────────
+
+echo ""
+bold "2. Gateway Provisioning via HyperShell API"
 echo ""
 
 show_cmd "curl -sk ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
@@ -245,10 +326,10 @@ fi
 dim "  Gateway namespace: ${GW_NAMESPACE}"
 sep
 
-# ── 2. gateway infrastructure ──────────────────────────────────────────────
+# ── 3. gateway infrastructure ──────────────────────────────────────────────
 
 echo ""
-bold "2. Gateway Infrastructure"
+bold "3. Gateway Infrastructure"
 echo ""
 
 show_cmd "$CLI get deployment openshell-gateway -n $GW_NAMESPACE"
@@ -296,12 +377,95 @@ if [[ "${CERTGEN_STATUS:-0}" -ge 1 ]]; then
 else
   dim "  - Certgen job status: ${CERTGEN_STATUS:-unknown}"
 fi
+
+show_cmd "$CLI get deployment openshell-gateway-db -n $GW_NAMESPACE"
+if $CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" &>/dev/null; then
+  dim "  Waiting for database pod to be ready (up to 120s)..."
+  DB_READY=0
+  DB_READY_DEADLINE=$(($(date +%s) + 120))
+  while [[ $(date +%s) -lt $DB_READY_DEADLINE ]]; do
+    DB_READY=$($CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+    if [[ "${DB_READY:-0}" -ge 1 ]]; then
+      break
+    fi
+    sleep 5
+  done
+  DB_IMAGE=$($CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo unknown)
+  if [[ "${DB_READY:-0}" -ge 1 ]]; then
+    pass "Database pod ready ($DB_IMAGE)"
+  else
+    fail_test "Database pod not ready after 120s (${DB_READY:-0} replicas)"
+  fi
+else
+  fail_test "Database Deployment not found in $GW_NAMESPACE"
+fi
+
+show_cmd "$CLI get service openshell-gateway-db -n $GW_NAMESPACE"
+DB_SVC=$($CLI get service openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+if [[ -n "$DB_SVC" ]]; then
+  pass "Database service: ${DB_SVC}:5432"
+else
+  fail_test "Database service not found"
+fi
+
+show_cmd "$CLI get pvc openshell-gateway-db-data -n $GW_NAMESPACE"
+PVC_PHASE=$($CLI get pvc openshell-gateway-db-data -n "$GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+if [[ "$PVC_PHASE" == "Bound" ]]; then
+  pass "Database PVC bound"
+else
+  fail_test "Database PVC not bound (phase=${PVC_PHASE:-unknown})"
+fi
+
+show_cmd "$CLI get secret openshell-gateway-db-credentials -n $GW_NAMESPACE"
+if $CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" &>/dev/null; then
+  pass "Database credentials secret exists"
+else
+  fail_test "Database credentials secret not found"
+fi
+
+show_cmd "$CLI get secret openshell-client-tls -n $GW_NAMESPACE"
+if $CLI get secret openshell-client-tls -n "$GW_NAMESPACE" &>/dev/null; then
+  pass "Client TLS secret exists"
+else
+  fail_test "Client TLS secret not found"
+fi
+
+show_cmd "$CLI get configmap openshell-gateway-config -n $GW_NAMESPACE"
+if $CLI get configmap openshell-gateway-config -n "$GW_NAMESPACE" &>/dev/null; then
+  pass "Gateway config ConfigMap exists"
+else
+  fail_test "Gateway config ConfigMap not found"
+fi
+
+show_cmd "$CLI get certificate openshell-ca -n $GW_NAMESPACE"
+GW_CA_READY=$($CLI get certificate openshell-ca -n "$GW_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+if [[ "$GW_CA_READY" == "True" ]]; then
+  pass "Gateway CA certificate issued"
+else
+  fail_test "Gateway CA certificate not ready (status=${GW_CA_READY:-unknown})"
+fi
+
+show_cmd "$CLI get certificate openshell-server -n $GW_NAMESPACE"
+GW_SRV_READY=$($CLI get certificate openshell-server -n "$GW_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+if [[ "$GW_SRV_READY" == "True" ]]; then
+  pass "Gateway server certificate issued"
+else
+  fail_test "Gateway server certificate not ready (status=${GW_SRV_READY:-unknown})"
+fi
+
+show_cmd "$CLI get networkpolicy -n $GW_NAMESPACE"
+GW_NP_COUNT=$($CLI get networkpolicy -n "$GW_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${GW_NP_COUNT:-0}" -ge 3 ]]; then
+  pass "Gateway NetworkPolicies present (${GW_NP_COUNT} found)"
+else
+  fail_test "Expected at least 3 gateway NetworkPolicies, found ${GW_NP_COUNT:-0}"
+fi
 sep
 
-# ── 3. OIDC token acquisition ─────────────────────────────────────────────
+# ── 4. OIDC token acquisition ─────────────────────────────────────────────
 
 echo ""
-bold "3. OIDC Token Acquisition"
+bold "4. OIDC Token Acquisition"
 echo ""
 
 show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER}"
@@ -315,10 +479,10 @@ else
 fi
 sep
 
-# ── 4. route discovery + CLI registration ─────────────────────────────────
+# ── 5. route discovery + CLI registration ─────────────────────────────────
 
 echo ""
-bold "4. Route Discovery + CLI Registration"
+bold "5. Route Discovery + CLI Registration"
 echo ""
 
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
@@ -382,10 +546,10 @@ else
 fi
 sep
 
-# ── 5. gateway connectivity ───────────────────────────────────────────────
+# ── 6. gateway connectivity ───────────────────────────────────────────────
 
 echo ""
-bold "5. Gateway Connectivity"
+bold "6. Gateway Connectivity"
 echo ""
 
 show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} status"
@@ -418,10 +582,10 @@ else
 fi
 sep
 
-# ── 6. sandbox lifecycle ──────────────────────────────────────────────────
+# ── 7. sandbox lifecycle ──────────────────────────────────────────────────
 
 echo ""
-bold "6. Sandbox Lifecycle"
+bold "7. Sandbox Lifecycle"
 echo ""
 
 RUN_ID=$(date +%s | tail -c5)
@@ -485,10 +649,10 @@ fi
 rm -f "${SB_CREATE_LOG}" 2>/dev/null || true
 sep
 
-# ── 7. sandbox interaction ────────────────────────────────────────────────
+# ── 8. sandbox interaction ────────────────────────────────────────────────
 
 echo ""
-bold "7. Sandbox Interaction"
+bold "8. Sandbox Interaction"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"

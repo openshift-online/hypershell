@@ -2,9 +2,9 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../base
-  - prerequisites/certificates.yaml
-  - prerequisites/networking-gateway.yaml
-  - prerequisites/httproutes.yaml
+  - certificates.yaml
+  - gateway.yaml
+  - httproutes.yaml
 patches:
   - patch: |
       apiVersion: apps/v1
@@ -26,6 +26,8 @@ patches:
                     value: gw.localhost
                   - name: GATEWAY_API_TLS_ISSUER_NAME
                     value: hypershell-ca-issuer
+                  - name: HYPERSHELL_DATABASE_IMAGE
+                    value: "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest
