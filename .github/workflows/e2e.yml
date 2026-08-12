@@ -58,6 +58,7 @@ jobs:
           CHECK_CONCLUSION: ${{ github.event.check_run.conclusion }}
           CHECK_HEAD_SHA: ${{ github.event.check_run.head_sha }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           DETECT_API_SERVER: ${{ steps.detect.outputs.api_server }}
           DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
           DETECT_WEB_CONSOLE: ${{ steps.detect.outputs.web_console }}
@@ -151,25 +152,16 @@ jobs:
                 exit 0
               fi
 
-              # Check if Konflux will actually build images for this PR.
-              # detect-components.sh uses broad path lists (includes Makefile),
-              # but Konflux only triggers on component source directories and
-              # their .tekton pipeline files.
-              base_sha="${{ github.event.pull_request.base.sha }}"
-              echo "base_sha=${base_sha}"
-              echo "--- git diff files ---"
-              git diff --name-only "${base_sha}" HEAD || true
-              echo "--- end diff ---"
-              konflux_source_changed=false
-              konflux_matches=$(git diff --name-only "${base_sha}" HEAD | grep -E \
-                  '^components/(api-server|control-plane|web-console)/|^\.tekton/hypershell-.*-pull-request\.yaml$|^Dockerfile$' || true)
-              if [[ -n "${konflux_matches}" ]]; then
-                konflux_source_changed=true
-                echo "Matched Konflux paths: ${konflux_matches}"
-              fi
+              # Check if Konflux is building images for this PR by querying
+              # the GitHub Checks API for the PR head SHA. This is more
+              # reliable than path-matching because it reflects what Konflux
+              # actually decided to build.
+              konflux_count=$(gh api "repos/${{ github.repository }}/commits/${PR_HEAD_SHA}/check-runs" \
+                --jq '[.check_runs[] | select(.name | test("^hypershell-.*-on-pull-request$"))] | length')
+              echo "Konflux checks found for ${PR_HEAD_SHA}: ${konflux_count}"
 
-              if [[ "${konflux_source_changed}" == "true" ]]; then
-                echo "Konflux source paths changed -- deferring to check_run trigger"
+              if [[ "${konflux_count}" -gt 0 ]]; then
+                echo "Konflux builds in progress -- deferring to check_run trigger"
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
