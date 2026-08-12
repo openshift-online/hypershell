@@ -230,9 +230,9 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 			Version:  "v1",
 			Resource: "certificates",
 		}
-		tlsSecretName := gatewayTLSSecretName()
-		if err := dynamicClient.Resource(certGVR).Namespace(gwNS).Delete(ctx, tlsSecretName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete gateway TLS Certificate %s from %s: %v", tlsSecretName, gwNS, err)
+		tlsCertName := gatewayTLSSecretName() + "-" + namespace
+		if err := dynamicClient.Resource(certGVR).Namespace(gwNS).Delete(ctx, tlsCertName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete gateway TLS Certificate %s from %s: %v", tlsCertName, gwNS, err)
 		}
 	}
 
@@ -928,7 +928,8 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 
 	gwName := "gw-" + namespace
 	gwNS := gatewayIngressNamespace()
-	tlsSecretName := gatewayTLSSecretName()
+	tlsCertName := gatewayTLSSecretName() + "-" + namespace
+	tlsSecretName := tlsCertName
 
 	if opts.HasCertManager {
 		gwCert := &unstructured.Unstructured{
@@ -936,7 +937,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 				"apiVersion": "cert-manager.io/v1",
 				"kind":       "Certificate",
 				"metadata": map[string]interface{}{
-					"name":      tlsSecretName,
+					"name":      tlsCertName,
 					"namespace": gwNS,
 					"labels": map[string]interface{}{
 						"app.kubernetes.io/name":       "openshell",
@@ -958,7 +959,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			},
 		}
 		if err := reconcileResource(ctx, dynamicClient, gwCert); err != nil {
-			log.Printf("WARN failed to reconcile gateway TLS certificate in %s: %v", gwNS, err)
+			return fmt.Errorf("reconcile gateway TLS Certificate in %s: %w", gwNS, err)
 		}
 	}
 

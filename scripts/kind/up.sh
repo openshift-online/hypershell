@@ -186,37 +186,28 @@ else
 fi
 echo ""
 
-# --- Apply manifests (skip swapped components) ---
+# --- Apply manifests via kustomize (scale down swapped components) ---
 header "Deploying Components"
-kube apply -f deploy/base/namespace.yaml
+info "Rendering Kind manifests via kustomize build..."
+kustomize build deploy/kind | sed "s|__KIND_DB_IMAGE__|${KIND_DB_IMAGE}|g" | kube apply -f -
 
-info "Deploying API server database..."
-kube apply -f deploy/base/postgres.yaml
 info "Waiting for PostgreSQL..."
 kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
 success "PostgreSQL ready"
 
-if ! is_swapped api-server; then
-  info "Deploying API server..."
-  kube apply -f deploy/base/api-server.yaml
-else
-  warn "API server is swapped - skipping manifest"
+if is_swapped api-server; then
+  warn "API server is swapped -- scaling to zero"
+  kube scale deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --replicas=0
 fi
 
-if ! is_swapped control-plane; then
-  info "Deploying control plane RBAC..."
-  kube apply -f deploy/base/controller-rbac.yaml
-  info "Deploying control plane..."
-  sed "s|__KIND_DB_IMAGE__|${KIND_DB_IMAGE}|g" deploy/kind/controller.yaml | kube apply -f -
-else
-  warn "Control plane is swapped - skipping manifest"
+if is_swapped control-plane; then
+  warn "Control plane is swapped -- scaling to zero"
+  kube scale deployment/hypershell-controller -n "${KIND_NAMESPACE}" --replicas=0
 fi
 
-if ! is_swapped web-console; then
-  info "Deploying web console..."
-  kube apply -f deploy/base/web-console.yaml
-else
-  warn "Web console is swapped - skipping manifest"
+if is_swapped web-console; then
+  warn "Web console is swapped -- scaling to zero"
+  kube scale deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --replicas=0
 fi
 
 local_registry="${IMAGE_REGISTRY:-quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
@@ -266,14 +257,8 @@ if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
 fi
 echo ""
 
-# --- Certificates and networking ---
+# --- Gateway address discovery ---
 header "TLS & Networking"
-info "Setting up TLS certificates..."
-kube apply -f deploy/kind/prerequisites/certificates.yaml
-
-info "Setting up Gateway API networking..."
-kube apply -f deploy/kind/prerequisites/networking-gateway.yaml
-kube apply -f deploy/kind/prerequisites/httproutes.yaml
 
 GATEWAY_PORT=""
 KEYCLOAK_HTTP_PORT=""
