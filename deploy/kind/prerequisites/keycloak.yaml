@@ -207,12 +207,9 @@ data:
           "username": "admin",
           "firstName": "Admin",
           "lastName": "User",
-          "email": "admin@hypershell.localhost",
-          "enabled": true,
           "email": "admin@hypershell.local",
           "emailVerified": true,
-          "firstName": "Admin",
-          "lastName": "User",
+          "enabled": true,
           "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
           "realmRoles": ["hypershell-admins", "hypershell-users"]
         },
@@ -220,12 +217,9 @@ data:
           "username": "developer",
           "firstName": "Developer",
           "lastName": "User",
-          "email": "developer@hypershell.localhost",
-          "enabled": true,
           "email": "developer@hypershell.local",
           "emailVerified": true,
-          "firstName": "Developer",
-          "lastName": "User",
+          "enabled": true,
           "credentials": [{ "type": "password", "value": "developer", "temporary": false }],
           "realmRoles": ["hypershell-users"]
         }
