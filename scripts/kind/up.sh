@@ -195,6 +195,21 @@ info "Waiting for PostgreSQL..."
 kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
 success "PostgreSQL ready"
 
+# The controller's gRPC watch streams must connect to a running API server.
+# With simultaneous deployment the controller may start before the API server
+# is ready, fail the first connection, and sit in a 16s backoff -- missing
+# any gateway events created during that window.  Wait for the API server
+# first, then restart the controller so it connects immediately.
+if ! is_swapped api-server; then
+  info "Waiting for API server..."
+  kube wait --for=condition=available deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
+fi
+if ! is_swapped control-plane; then
+  info "Restarting control plane to establish watch streams..."
+  kube rollout restart deployment/hypershell-controller -n "${KIND_NAMESPACE}"
+  kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
+fi
+
 if is_swapped api-server; then
   warn "API server is swapped -- scaling to zero"
   kube scale deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --replicas=0
