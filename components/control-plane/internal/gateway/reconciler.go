@@ -375,7 +375,6 @@ func deployGateway(
 	return nil
 }
 
-
 func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
 	watchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -1092,7 +1091,6 @@ func gatewayIngressName() string {
 	}
 	return ""
 }
-
 
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
