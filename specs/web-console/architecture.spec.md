@@ -336,7 +336,7 @@ React components SHALL be implemented semantically and tested through user-obser
 
 ### Requirement WEB-UI-03: Gateway Connection Experience
 
-The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, creation date, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. When the gateway table reflows into its narrow responsive presentation, each row's actions trigger SHALL remain in the top-end corner rather than become a trailing content row. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The full CLI command SHALL appear as a read-only PatternFly Clipboard Copy value in the resource description list rather than as a page-header action. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows.
+The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, creation date, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. When the gateway table reflows into its narrow responsive presentation, each row's actions trigger SHALL remain in the top-end corner rather than become a trailing content row. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The gateway detail page SHALL organize these capabilities into the connection-forward tabbed experience defined in `WEB-UI-05`: the login CLI command SHALL appear as a read-only PatternFly Clipboard Copy value within the Connection tab's login step rather than as a page-header action, and the operational description list SHALL appear under the Details tab. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows, and the Open gateway console action SHALL remain a header action.
 
 Gateway renaming SHALL use the existing `PATCH /gateways/{id}` contract and send only the trimmed `name` field. Both rename entry points SHALL use the same required-field validation, prevent unchanged or duplicate submission, preserve user input with recovery guidance on failure, update gateway detail and breadcrumb cache state, invalidate the collection, and provide visible success feedback.
 
@@ -401,6 +401,54 @@ Managed-cluster search SHALL execute at the API through the gateway application 
 - WHEN the gateway details render
 - THEN the Cluster value SHALL show the managed cluster's name
 - AND it SHALL NOT show the managed cluster identifier
+
+### Requirement WEB-UI-05: Gateway Detail Connection Walkthrough
+
+The gateway detail page SHALL present a connection-forward experience. The page header SHALL retain the gateway name, inline status, the Open gateway console action, and the rename/delete Actions dropdown defined in `WEB-UI-03`. Below the header, the page SHALL use a PatternFly Tabs component with two tabs: a default-selected `Connection` tab and a `Details` tab. The selected tab SHALL be encoded in validated URL state per `WEB-DATA-02` so the tab is shareable and survives refresh, and an unrecognized tab value SHALL fall back to `Connection`.
+
+The `Details` tab SHALL contain the existing gateway description list (status, cluster, endpoint, CLI connection command, namespace, release identifier, and managed-database identifier), using the same values, loading, unavailable, and placement-resolution behavior required elsewhere in this specification.
+
+The `Connection` tab SHALL guide the user through three ordered steps using an accessible ordered structure with a visible label and description for each step:
+
+1. **Log in to the gateway.** The step SHALL present the `openshell gateway add` command produced from the authorized gateway response as a read-only PatternFly Clipboard Copy value, using the same command construction, shell-argument encoding, and missing-value handling required by `WEB-UI-03`. When required connection values are absent, the step SHALL explain that login is unavailable rather than present an incomplete command.
+
+2. **Add a Claude on Vertex AI provider.** The step SHALL present, as its primary read-only Clipboard Copy value, one `openshell provider create` command for the `google-vertex-ai` provider that reads credentials and configuration from the user's own environment rather than requiring hand-edited secrets. An expandable details disclosure SHALL document the Application Default Credentials prerequisite, the environment variables the command reads, the command that routes a Claude model through the provider, and the sandbox routing caveats, including reaching Vertex through `inference.local` and not setting `CLAUDE_CODE_USE_VERTEX` inside the sandbox. The step SHALL NOT display, request, or persist Google Cloud credentials, service-account keys, project identifiers, or access tokens in the browser.
+
+3. **Create a sandbox.** The step SHALL present an `openshell sandbox create` command that names a sandbox, attaches the provider from step 2, and launches the agent, as a read-only Clipboard Copy value.
+
+Every Clipboard Copy control SHALL have a localized accessible name and visible success feedback, and each command SHALL remain usable at narrow viewport widths without causing page-level horizontal overflow. Step commands other than the login command describe the OpenShell CLI workflow and SHALL NOT be presented as authorized live values from the HyperShell API; user- or environment-specific values the console cannot supply SHALL be shown as clearly editable placeholders or read from the user's own environment by the CLI. The provider and sandbox steps SHALL NOT issue HyperShell API requests.
+
+**Verification:** Open a gateway detail page and confirm the `Connection` tab is selected by default, the header retains the console, rename, and delete actions, and the `Details` tab renders the former description list unchanged. Switch tabs and confirm the selection is encoded in the URL, restored on refresh, and defaults to `Connection` for an unrecognized value. Copy each step command and verify visible success feedback and accessible names. Feed a gateway with connection values absent and confirm step 1 reports login as unavailable without a partial command. Inspect the composed page and confirm the provider and sandbox steps issue no HyperShell API requests and expose no Google Cloud credentials, and that step 2's expandable details document the ADC prerequisite, environment variables, inference routing command, and the `inference.local` / `CLAUDE_CODE_USE_VERTEX` caveats. Exercise keyboard, screen-reader, zoom, and narrow-viewport behavior for the tabs and each step.
+
+#### Scenario: Connection Tab Is the Default
+
+- GIVEN an authenticated user opens a gateway detail page
+- WHEN the page renders
+- THEN the `Connection` tab SHALL be selected
+- AND the three ordered connection steps SHALL be visible
+- AND the operational description list SHALL be available under the `Details` tab
+
+#### Scenario: Login Command Uses Authorized Values
+
+- GIVEN a gateway whose response includes endpoint and OIDC connection values
+- WHEN the `Connection` tab renders the login step
+- THEN the `openshell gateway add` command SHALL contain those values encoded as safe shell arguments
+- AND copying it SHALL produce visible success feedback
+
+#### Scenario: Provider Step Reads the Environment
+
+- GIVEN the user has configured Application Default Credentials
+- WHEN the user copies the provider step command
+- THEN the command SHALL create the `google-vertex-ai` provider from the user's environment
+- AND the browser SHALL NOT display or transmit Google Cloud credentials
+- AND the expandable details SHALL document the ADC prerequisite, required environment variables, model routing, and sandbox routing caveats
+
+#### Scenario: Missing Connection Values
+
+- GIVEN a gateway whose endpoint or OIDC values are absent
+- WHEN the `Connection` tab renders the login step
+- THEN the step SHALL explain that gateway login is unavailable
+- AND it SHALL NOT present an incomplete `openshell gateway add` command
 
 ### Requirement WEB-I18N-01: Localization from First Implementation
 
