@@ -485,8 +485,10 @@ fi
 if [[ -z "${seed_failed}" ]]; then
   info "Creating Gateway with OIDC..."
   OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+  # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
+  # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
   GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
-    "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"namespace\":\"openshell-dev\",\"oidc\":\"${OIDC_JSON}\"}")
+    "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${OIDC_JSON}\"}")
   GW_HTTP=$(echo "${GW_RAW}" | tail -1)
   GW_RESP=$(echo "${GW_RAW}" | sed '$d')
   GATEWAY_ID=$(extract_id "${GW_RESP}")

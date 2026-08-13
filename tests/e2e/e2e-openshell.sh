@@ -364,13 +364,31 @@ print(json.dumps(body))
     -H "Content-Type: application/json" \
     -d "${GW_CREATE_BODY}" 2>/dev/null || true)
 
-  GW_ID=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-  GW_NAMESPACE=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
+  # A successful create returns kind="Gateway" with a ksuid id. A failure returns
+  # kind="Error" with a numeric id (e.g. "9"=ErrorGeneral/500, "17"=malformed/400).
+  # Detect the error case explicitly: otherwise the error object's id is mistaken
+  # for a gateway id and the provisioning poll spins on a nonexistent gateway until
+  # timeout, masking the real api-server failure.
+  IFS=$'\t' read -r CREATE_KIND CREATE_F1 CREATE_F2 <<< "$(echo "$CREATE_RESPONSE" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('PARSE\t\t'); sys.exit(0)
+if d.get('kind') == 'Error':
+    print('ERROR\t%s\t%s' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
+print('OK\t%s\t%s' % (d.get('id', ''), d.get('namespace', '')))
+" 2>/dev/null)" || true
 
-  if [[ -n "$GW_ID" ]]; then
+  if [[ "$CREATE_KIND" == "OK" && -n "$CREATE_F1" ]]; then
+    GW_ID="$CREATE_F1"
+    GW_NAMESPACE="$CREATE_F2"
     pass "Gateway created: ${GW_NAME} (${GW_ID})"
   else
     fail_test "Failed to create gateway"
+    if [[ "$CREATE_KIND" == "ERROR" ]]; then
+      dim "    api-server error ${CREATE_F1}: ${CREATE_F2}"
+    fi
     dim "    ${CREATE_RESPONSE:0:300}"
     exit 1
   fi
@@ -391,7 +409,10 @@ print(json.dumps(body))
   if [[ "$GW_PHASE" == "Running" ]]; then
     pass "Gateway provisioned and running"
   else
-    fail_test "Gateway not running after ${E2E_PROVISION_TIMEOUT}s (phase=${GW_PHASE})"
+    fail_test "Gateway not running after ${E2E_PROVISION_TIMEOUT}s (phase=${GW_PHASE:-unknown})"
+    dim "    last gateway state:"
+    api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null \
+      | python3 -m json.tool 2>/dev/null | sed 's/^/      /' || true
     exit 1
   fi
 fi
