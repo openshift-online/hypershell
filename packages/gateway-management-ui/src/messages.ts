@@ -76,6 +76,102 @@ export const messages = defineMessages({
     defaultMessage: "Region: {region}",
     description: "Region context that distinguishes a managed cluster option.",
   },
+  connectionLoginDescription: {
+    id: "app.gateway.connection.login.description",
+    defaultMessage: "Authenticate the OpenShell CLI to this gateway.",
+    description: "Supporting text for the gateway login connection step.",
+  },
+  connectionLoginTitle: {
+    id: "app.gateway.connection.login.title",
+    defaultMessage: "Log in to the gateway",
+    description: "Title for the first gateway connection step.",
+  },
+  connectionLoginUnavailable: {
+    id: "app.gateway.connection.login.unavailable",
+    defaultMessage:
+      "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
+    description:
+      "Shown in the login step when the gateway lacks required connection values.",
+  },
+  connectionProviderAdcDescription: {
+    id: "app.gateway.connection.provider.adc.description",
+    defaultMessage:
+      "Run this once so the gateway can obtain your Google Cloud credentials.",
+    description:
+      "Explains the Application Default Credentials prerequisite command.",
+  },
+  connectionProviderAdcTitle: {
+    id: "app.gateway.connection.provider.adc.title",
+    defaultMessage: "Configure Application Default Credentials",
+    description: "Title for the ADC prerequisite within the provider step.",
+  },
+  connectionProviderCaveat: {
+    id: "app.gateway.connection.provider.caveat",
+    defaultMessage:
+      "Inside the sandbox, reach Vertex AI through inference.local. Do not set CLAUDE_CODE_USE_VERTEX=1, which makes Claude Code bypass the gateway and fail Google Cloud credential discovery.",
+    description: "Sandbox routing caveat shown in the provider step details.",
+  },
+  connectionProviderDescription: {
+    id: "app.gateway.connection.provider.description",
+    defaultMessage:
+      "Register Claude on Google Vertex AI using credentials pulled from your environment. No key is entered in the browser.",
+    description: "Supporting text for the add-provider connection step.",
+  },
+  connectionProviderDetailsToggle: {
+    id: "app.gateway.connection.provider.detailsToggle",
+    defaultMessage: "Prerequisites and options",
+    description:
+      "Toggle label for the expandable provider prerequisites and options.",
+  },
+  connectionProviderFromEnvDescription: {
+    id: "app.gateway.connection.provider.fromEnv.description",
+    defaultMessage:
+      "Reads the credential plus VERTEX_AI_PROJECT_ID and VERTEX_AI_REGION from your shell. These OpenShell variables differ from Claude Code's ANTHROPIC_VERTEX_PROJECT_ID and CLOUD_ML_REGION.",
+    description:
+      "Explains the environment-variable alternative for creating the provider.",
+  },
+  connectionProviderFromEnvTitle: {
+    id: "app.gateway.connection.provider.fromEnv.title",
+    defaultMessage: "Or create the provider from environment variables",
+    description:
+      "Title for the environment-variable alternative in the provider step.",
+  },
+  connectionProviderRoutingDescription: {
+    id: "app.gateway.connection.provider.routing.description",
+    defaultMessage: "Replace {model} with a Vertex Claude model ID.",
+    description: "Explains the model-routing command in the provider step.",
+  },
+  connectionProviderRoutingTitle: {
+    id: "app.gateway.connection.provider.routing.title",
+    defaultMessage: "Route a Claude model through the provider",
+    description: "Title for the model-routing command in the provider step.",
+  },
+  connectionProviderTitle: {
+    id: "app.gateway.connection.provider.title",
+    defaultMessage: "Add a Claude on Vertex AI provider",
+    description: "Title for the second gateway connection step.",
+  },
+  connectionSandboxDescription: {
+    id: "app.gateway.connection.sandbox.description",
+    defaultMessage:
+      "Start a sandbox that runs Claude through this gateway. Replace {sandbox} with a name.",
+    description: "Supporting text for the create-sandbox connection step.",
+  },
+  connectionSandboxTitle: {
+    id: "app.gateway.connection.sandbox.title",
+    defaultMessage: "Create a sandbox",
+    description: "Title for the third gateway connection step.",
+  },
+  connectionTab: {
+    id: "app.gateway.connection.tab",
+    defaultMessage: "Connection",
+    description: "Label for the default gateway detail Connection tab.",
+  },
+  connectionTabsLabel: {
+    id: "app.gateway.connection.tabsLabel",
+    defaultMessage: "Gateway connection and details",
+    description: "Accessible label for the gateway detail tabs.",
+  },
   copied: {
     id: "app.clipboard.copied",
     defaultMessage: "Copied",
@@ -85,6 +181,11 @@ export const messages = defineMessages({
     id: "app.clipboard.copy",
     defaultMessage: "Copy",
     description: "Tooltip for a button that copies text to the clipboard.",
+  },
+  copyAdcLoginCommand: {
+    id: "app.gateway.connection.copyAdcLoginCommand",
+    defaultMessage: "Copy the credentials login command",
+    description: "Accessible label for copying the ADC login command.",
   },
   copyCliConnectionCommand: {
     id: "app.gateway.copyCliConnectionCommand",
@@ -102,6 +203,27 @@ export const messages = defineMessages({
     defaultMessage: "Copy gateway endpoint for {gatewayName}",
     description:
       "Accessible label for copying a specific gateway's network endpoint.",
+  },
+  copyInferenceCommand: {
+    id: "app.gateway.connection.copyInferenceCommand",
+    defaultMessage: "Copy the model-routing command",
+    description: "Accessible label for copying the model-routing command.",
+  },
+  copyProviderCommand: {
+    id: "app.gateway.connection.copyProviderCommand",
+    defaultMessage: "Copy the add-provider command",
+    description: "Accessible label for copying the add-provider command.",
+  },
+  copyProviderFromExistingCommand: {
+    id: "app.gateway.connection.copyProviderFromExistingCommand",
+    defaultMessage: "Copy the environment-based add-provider command",
+    description:
+      "Accessible label for copying the environment-based add-provider command.",
+  },
+  copySandboxCommand: {
+    id: "app.gateway.connection.copySandboxCommand",
+    defaultMessage: "Copy the create-sandbox command",
+    description: "Accessible label for copying the create-sandbox command.",
   },
   created: {
     id: "app.table.column.created",
@@ -128,6 +250,11 @@ export const messages = defineMessages({
     id: "app.gateway.delete.pending",
     defaultMessage: "Deleting gateway",
     description: "Accessible progress text while a gateway is being deleted.",
+  },
+  detailsTab: {
+    id: "app.gateway.detailsTab",
+    defaultMessage: "Details",
+    description: "Label for the gateway detail Details tab.",
   },
   error: {
     id: "app.status.error",

@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildGatewayAddCommand,
+  buildInferenceSetCommand,
+  buildProviderCreateCommand,
+  buildProviderFromExistingCommand,
+  buildSandboxCreateCommand,
   gatewayStatusAppearance,
+  inferenceModelPlaceholder,
+  sandboxNamePlaceholder,
+  vertexClaudeProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
 
@@ -61,6 +68,36 @@ describe("gateway connections", () => {
     expect(
       buildGatewayAddCommand({ ...gateway, endpoint: undefined }),
     ).toBeUndefined();
+  });
+
+  it("builds the Vertex AI provider command pulling ADC and gcloud project", () => {
+    expect(buildProviderCreateCommand()).toBe(
+      `openshell provider create --name ${vertexClaudeProviderName} --type google-vertex-ai --from-gcloud-adc --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
+    );
+  });
+
+  it("builds the environment-only provider command", () => {
+    expect(buildProviderFromExistingCommand()).toBe(
+      `openshell provider create --name ${vertexClaudeProviderName} --type google-vertex-ai --from-existing`,
+    );
+  });
+
+  it("routes a Claude model through the provider with a substitutable default", () => {
+    expect(buildInferenceSetCommand()).toBe(
+      `openshell inference set --provider ${vertexClaudeProviderName} --model ${inferenceModelPlaceholder}`,
+    );
+    expect(buildInferenceSetCommand("claude-sonnet-4-6")).toContain(
+      "--model claude-sonnet-4-6",
+    );
+  });
+
+  it("creates a sandbox that attaches the provider and launches claude", () => {
+    expect(buildSandboxCreateCommand()).toBe(
+      `openshell sandbox create --name ${sandboxNamePlaceholder} --provider ${vertexClaudeProviderName} -- claude`,
+    );
+    expect(buildSandboxCreateCommand("demo")).toBe(
+      `openshell sandbox create --name demo --provider ${vertexClaudeProviderName} -- claude`,
+    );
   });
 
   it.each([
