@@ -394,6 +394,66 @@ func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespa
 	return fmt.Errorf("watch closed for secret %s/%s before it appeared", namespace, name)
 }
 
+// GatewayDeploymentName is the name of the primary gateway workload Deployment
+// whose readiness gates the Gateway `Running` phase.
+const GatewayDeploymentName = "openshell-gateway"
+
+// DeploymentReadiness performs a single, non-blocking check of a Deployment's
+// readiness. It returns ready=true when ready replicas meet or exceed desired
+// replicas. When the Deployment is not ready, reason carries a short
+// human-readable descriptor (e.g. "1/2 replicas ready" or "deployment not
+// found") suitable for the Gateway `status` field.
+func DeploymentReadiness(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string) (ready bool, reason string, err error) {
+	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, "deployment not found", nil
+		}
+		return false, "", fmt.Errorf("get deployment %s/%s: %w", namespace, name, err)
+	}
+
+	desired := int32(1)
+	if deploy.Spec.Replicas != nil {
+		desired = *deploy.Spec.Replicas
+	}
+	if deploy.Status.ReadyReplicas >= desired {
+		return true, "", nil
+	}
+	return false, fmt.Sprintf("%d/%d replicas ready", deploy.Status.ReadyReplicas, desired), nil
+}
+
+// WaitForGatewayReady blocks until the openshell-gateway Deployment reaches
+// readiness or the timeout elapses. It returns ready=true on readiness, or
+// ready=false with the last observed reason when the provisioning readiness
+// window expires without the workload becoming ready.
+func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, namespace string, timeout time.Duration) (bool, string) {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	lastReason := "not ready"
+	for {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err().Error()
+		case <-deadline:
+			return false, lastReason
+		case <-ticker.C:
+			ready, reason, err := DeploymentReadiness(ctx, clientset, namespace, GatewayDeploymentName)
+			if err != nil {
+				lastReason = err.Error()
+				continue
+			}
+			if ready {
+				return true, ""
+			}
+			if reason != "" {
+				lastReason = reason
+			}
+		}
+	}
+}
+
 func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(2 * time.Second)

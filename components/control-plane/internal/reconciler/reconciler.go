@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
@@ -191,10 +192,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	if event.Type == watcher.EventDeleted {
-		namespace := gw.Namespace
-		if namespace == "" {
-			namespace = fmt.Sprintf("openshell-%s", gw.Name)
-		}
+		namespace := gatewayNamespace(gw)
 
 		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
 		opts := gateway.ReconcileOpts{
@@ -213,15 +211,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	log.Printf("INFO reconciling Gateway %s name=%s namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
 
-	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning") {
+	// The phase gate prevents redundant re-provisioning (re-applying manifests)
+	// of a Gateway that has already been acted upon. Running, Provisioning, and
+	// Degraded gateways are owned by the continuous health reconciler, which
+	// keeps their phase synchronized with workload health via a separate path
+	// that this gate does not suppress. See openshell-gateway-health.spec.md.
+	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
 		log.Printf("DEBUG gateway %s phase=%s, skipping reconciliation", event.ResourceID, *gw.Phase)
 		return nil
 	}
 
-	namespace := gw.Namespace
-	if namespace == "" {
-		namespace = fmt.Sprintf("openshell-%s", gw.Name)
-	}
+	namespace := gatewayNamespace(gw)
 
 	dnsNames := gw.ServerDnsNames
 	if len(dnsNames) == 0 {
@@ -314,9 +314,29 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 	}
 
-	r.updateGatewayPhase(ctx, event.ResourceID, "Running")
-	log.Printf("INFO gateway %s provisioned in namespace %s", gw.Name, namespace)
+	// Manifests are applied, but the gateway is not Running until its workload
+	// is observed Ready. Wait within the provisioning readiness window: on
+	// readiness set Running; otherwise set Degraded and record why. The
+	// continuous health reconciler keeps the phase synchronized thereafter.
+	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
+	if ready {
+		r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
+		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
+	} else {
+		r.updateGatewayHealth(ctx, event.ResourceID, "Degraded", reason)
+		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
+	}
 	return nil
+}
+
+// gatewayNamespace returns the Kubernetes namespace for a Gateway, deriving the
+// conventional `openshell-<name>` namespace when the resource does not carry an
+// explicit one.
+func gatewayNamespace(gw *pb.Gateway) string {
+	if gw.GetNamespace() != "" {
+		return gw.GetNamespace()
+	}
+	return fmt.Sprintf("openshell-%s", gw.GetName())
 }
 
 // resolveDefaultGatewayOIDC builds the default gateway OIDC configuration from
@@ -364,6 +384,21 @@ func (r *GatewayReconciler) updateGatewayOIDC(ctx context.Context, gatewayID str
 	})
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s oidc: %v", gatewayID, err)
+	}
+}
+
+// updateGatewayHealth sets the Gateway `phase` and `status` together in a single
+// gRPC update so the console and CLI observe a consistent lifecycle state and
+// health descriptor.
+func (r *GatewayReconciler) updateGatewayHealth(ctx context.Context, gatewayID, phase, status string) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:     gatewayID,
+		Phase:  &phase,
+		Status: &status,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update gateway %s health to %s (%s): %v", gatewayID, phase, status, err)
 	}
 }
 

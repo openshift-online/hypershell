@@ -118,7 +118,7 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
-	errCh := make(chan error, 6)
+	errCh := make(chan error, 7)
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
@@ -128,6 +128,17 @@ func main() {
 	go func() { errCh <- watcher.WatchGatewayNetworks(ctx, conn, networkReconciler) }()
 
 	log.Printf("INFO all 6 watch streams launched")
+
+	// The continuous gateway health reconciler keeps each Gateway's phase and
+	// status synchronized with observed workload health (Running <-> Degraded).
+	// It requires an in-cluster Kubernetes client to observe Deployments.
+	if clientset != nil {
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, conn)
+		go func() { errCh <- healthReconciler.Run(ctx) }()
+		log.Printf("INFO gateway health reconciler launched")
+	} else {
+		log.Printf("WARN no kubernetes client available, gateway health reconciliation disabled")
+	}
 
 	watchErr := <-errCh
 	cancel()
