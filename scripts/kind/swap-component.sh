@@ -138,8 +138,34 @@ subsets:
         port: ${DEV_PORT}
 EOF
 
-    info "Port-forwarding API server to localhost:8000..."
-    kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
+    # The console's /api proxy targets localhost:8000, so the API server must be
+    # running before (and while) we forward. If a prior `kind-up` parked it at
+    # zero replicas, forwarding to the endpoint-less service yields ECONNREFUSED;
+    # forwarding while its pod is mid-rollout yields "socket hang up".
+    api_replicas="$(kube get deployment hypershell-api-server -n "${KIND_NAMESPACE}" \
+      -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+    if [[ "${api_replicas:-0}" -lt 1 ]]; then
+      warn "API server is scaled to ${api_replicas:-0} replicas -- the console cannot load data."
+      warn "Start it first in another terminal: make kind-api-server-up"
+    else
+      info "Waiting for API server to be ready before forwarding..."
+      kube rollout status deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s || \
+        warn "API server did not become ready; data may fail to load until it does."
+    fi
+
+    # Self-healing port-forward: a single `kubectl port-forward` dies when its
+    # target pod is replaced (rollout, restart, eviction), silently breaking the
+    # console's /api proxy. Run it in a loop that reconnects until asked to stop.
+    info "Port-forwarding API server to localhost:8000 (self-healing)..."
+    API_PF_STOPFILE="/tmp/hypershell-api-pf-$$.stop"
+    rm -f "${API_PF_STOPFILE}"
+    (
+      while [[ ! -f "${API_PF_STOPFILE}" ]]; do
+        kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 || true
+        [[ -f "${API_PF_STOPFILE}" ]] && break
+        sleep 1
+      done
+    ) &
     API_PF_PID=$!
 
     track_swap "${COMPONENT}"
@@ -150,8 +176,14 @@ EOF
       _cleaned=true
       echo ""
       info "Stopping hot reload..."
+      # Signal the reconnect loop to stop, kill it, then reap any port-forward
+      # child it may have orphaned (killing the loop's shell does not stop the
+      # kubectl process it spawned).
+      touch "${API_PF_STOPFILE}" 2>/dev/null || true
       kill "${API_PF_PID}" 2>/dev/null || true
       wait "${API_PF_PID}" 2>/dev/null || true
+      pkill -f "port-forward svc/hypershell-api-server -n ${KIND_NAMESPACE} 8000:8000" 2>/dev/null || true
+      rm -f "${API_PF_STOPFILE}" 2>/dev/null || true
       info "Restoring in-cluster web console..."
       kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
       kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml" || true
