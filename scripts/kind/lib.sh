@@ -42,6 +42,7 @@ fi
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${KEYCLOAK_OIDC_AUDIENCE:=hypershell-frontend}"
 : "${KIND_DNS_PORT:=5553}"
+: "${CPK_LOG:=/tmp/cloud-provider-kind.log}"
 DNS_CONTAINER_NAME="${KIND_CLUSTER_NAME}-dns"
 
 # --- Cluster helpers ---
