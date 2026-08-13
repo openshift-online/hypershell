@@ -6,7 +6,16 @@ targets:
 - claude
 dependencies:
   apm:
-  - OpenShift-Fleet/agentic-sdlc#7995f9bacb12392234ee89ef380aa65f455ba4ea
+  - OpenShift-Fleet/agentic-sdlc
+  # Prodsec secure-development skills (selected individually)
+  - RedHatProductSecurity/prodsec-skills/module/skills/go-security
+  - RedHatProductSecurity/prodsec-skills/module/skills/tls-compliance
+  - RedHatProductSecurity/prodsec-skills/module/skills/database-security
+  - RedHatProductSecurity/prodsec-skills/module/skills/react-security
+  - RedHatProductSecurity/prodsec-skills/module/skills/helm-chart-security
+  - RedHatProductSecurity/prodsec-skills/module/skills/linux-capabilities
   mcp: []
 includes: auto
-scripts: {}
+scripts:
+  install: "scripts/apm-install.sh"
+  audit: "apm audit && skillspector scan . --no-llm --baseline .skillspector-baseline.yaml"

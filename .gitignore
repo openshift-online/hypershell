@@ -28,6 +28,9 @@ test-results/
 
 # Agent Package Manager cache
 apm_modules/
+.claude/agents
+.claude/commands
+.claude/skills
 
 # Kind swap tracking
 .kind-swaps

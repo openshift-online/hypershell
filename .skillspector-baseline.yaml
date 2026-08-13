@@ -1,0 +1,91 @@
+# SkillSpector baseline — suppress findings outside skill directories
+# and false positives within skill directories.
+version: 2
+rules:
+# --- Directory exclusions (not agent skills) ---
+- path: "apm_modules/*"
+  reason: "Upstream dependencies — audited separately by package maintainers"
+- path: "components/*"
+  reason: "Application source code — not agent skills"
+- path: "deploy/*"
+  reason: "Deployment manifests — not agent skills"
+- path: "scripts/*"
+  reason: "Build/CI scripts — not agent skills"
+- path: "specs/*"
+  reason: "Specification documents — not agent skills"
+- path: "security-audit/*"
+  reason: "Security audit artifacts — not agent skills"
+- path: ".threat-model-state/*"
+  reason: "Threat model working state — not agent skills"
+- path: "DEVELOPMENT.md"
+  reason: "Project documentation — not an agent skill"
+- path: "LICENSE"
+  reason: "License file — not an agent skill"
+- path: "Makefile"
+  reason: "Build file — not an agent skill"
+- path: "apm.lock.yaml"
+  reason: "Lockfile — not an agent skill"
+
+# --- False positives in skill/command scripts ---
+
+# AST4: All subprocess calls use shell=False with explicit arg lists
+# calling gh/git CLIs — the safe pattern the rule recommends.
+- id: "AST4"
+  path: "*pr-hygiene/scripts/*"
+  reason: "subprocess.run with shell=False and hardcoded gh/git arg lists — no user-controlled input"
+- id: "AST4"
+  path: "*pr-review/scripts/*"
+  reason: "subprocess.run with shell=False and hardcoded gh/git arg lists — no user-controlled input"
+
+# AS3: Standard APM @claude/skills/ cross-references, not skill enumeration.
+- id: "AS3"
+  path: "*commands/finish-work.md"
+  reason: "Standard APM skill reference syntax (@claude/skills/...), not enumeration"
+- id: "AS3"
+  path: "*commands/start-work.md"
+  reason: "Standard APM skill reference syntax (@claude/skills/...), not enumeration"
+- id: "AS3"
+  path: "*scored-code-review/SKILL.md"
+  reason: "Deprecation stub referencing replacement skill path, not enumeration"
+
+# E2: Reads GH_TOKEN/GH_TOKEN_<org> for gh CLI auth — never logs values.
+- id: "E2"
+  path: "*pr-hygiene/scripts/pr-hygiene.py"
+  reason: "Standard GitHub CLI token resolution for multi-org scanning — values never logged"
+
+# EA2: Guide-only skill (presents commands, user executes) and Jira
+# issue creation (the skill's purpose, with user confirmation).
+- id: "EA2"
+  path: "*acm-release/SKILL.md"
+  reason: "Guide-only skill — presents commands for user to run, never executes them"
+- id: "EA2"
+  path: "*jira-log/SKILL.md"
+  reason: "Creating Jira issues is the skill's purpose — user confirmation built into workflow"
+
+# MP3: Coverage table documenting local-dev capabilities, not memory manipulation.
+- id: "MP3"
+  path: "skills/RECONCILE.md"
+  reason: "Spec coverage table documenting dev-cluster features — no memory manipulation"
+
+# PE3: Gap table mentioning kubeconfig as future architecture need, not credential access.
+- id: "PE3"
+  path: "skills/RECONCILE.md"
+  reason: "Architecture gap table referencing kubeconfig as future work — no credential access"
+
+# RA2: Writing a TUI keybinding config file — standard editor setup.
+- id: "RA2"
+  path: "*opencode-setup/SKILL.md"
+  reason: "Writes tui.json keybinding config — standard editor setup, not session persistence"
+
+# TM3: --tls-verify=false for OpenShift internal registry with self-signed certs
+# on dev clusters — documented standard practice.
+- id: "TM3"
+  path: "*deploy-cluster/SKILL.md"
+  reason: "OpenShift internal registry uses self-signed certs on dev clusters — documented practice"
+
+# P1: Documentation describing kernel-level BPF capability, not an instruction override.
+- id: "P1"
+  path: "*linux-capabilities/SKILL.md"
+  reason: "Reference documentation describing Linux capability behavior — not an agent instruction override"
+
+fingerprints: []
