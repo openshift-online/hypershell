@@ -261,7 +261,7 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
   show_cmd "curl -sk -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
-  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER_INTERNAL="$E2E_OIDC_ISSUER_INTERNAL" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
 import json, os
 body = {
@@ -271,7 +271,7 @@ body = {
     'release_id': 'e2e-release',
     'database_id': 'e2e-db',
     'oidc': json.dumps({
-        'issuer': os.environ['E2E_OIDC_ISSUER'],
+        'issuer': os.environ['E2E_OIDC_ISSUER_INTERNAL'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
         'roles_claim': 'groups',
         'admin_role': 'hypershell-admins',
@@ -349,6 +349,22 @@ if $CLI get deployment openshell-gateway -n "$GW_NAMESPACE" &>/dev/null; then
     pass "Gateway pod ready ($GW_IMAGE)"
   else
     fail_test "Gateway pod not ready after 90s (${GW_READY:-0} replicas)"
+    dim "  --- gateway diagnostics ($GW_NAMESPACE) ---"
+    dim "  Image: $GW_IMAGE"
+    dim "  Pods:"
+    $CLI get pods -n "$GW_NAMESPACE" -o wide 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    dim "  Events:"
+    $CLI get events --sort-by=.lastTimestamp -n "$GW_NAMESPACE" 2>&1 | tail -20 | while IFS= read -r line; do dim "    $line"; done
+    for pod in $($CLI get pods -n "$GW_NAMESPACE" -l app.kubernetes.io/component=gateway -o name 2>/dev/null); do
+      dim "  Logs ${pod}:"
+      $CLI logs "${pod}" --all-containers --tail=40 -n "$GW_NAMESPACE" 2>&1 | while IFS= read -r line; do dim "    $line"; done
+      dim "  Previous logs ${pod}:"
+      $CLI logs "${pod}" --all-containers --previous --tail=40 -n "$GW_NAMESPACE" 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    done
+    dim "  Describe:"
+    $CLI describe pods -l app.kubernetes.io/component=gateway -n "$GW_NAMESPACE" 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    dim "  ConfigMap:"
+    $CLI get configmap openshell-gateway-config -n "$GW_NAMESPACE" -o yaml 2>&1 | while IFS= read -r line; do dim "    $line"; done
   fi
 else
   fail_test "Gateway Deployment not found in $GW_NAMESPACE"

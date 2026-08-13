@@ -38,6 +38,7 @@ fi
 : "${GATEWAY_IMAGE:=ghcr.io/nvidia/openshell/gateway:0.0.101}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KEYCLOAK_OIDC_ISSUER:=http://${KEYCLOAK_HOSTNAME}:8080/realms/hypershell}"
+: "${KEYCLOAK_OIDC_ISSUER_INTERNAL:=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${KEYCLOAK_OIDC_AUDIENCE:=hypershell-frontend}"
 : "${KIND_DNS_PORT:=5553}"
