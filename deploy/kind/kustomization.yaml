@@ -89,7 +89,7 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
-  # --- Keycloak: HTTPS hostname via gateway ---
+  # --- Keycloak: HTTPS hostname via gateway + backchannel dynamic issuer ---
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -104,6 +104,8 @@ patches:
                 env:
                   - name: KC_HOSTNAME
                     value: "https://keycloak.hypershell.localhost"
+                  - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+                    value: "true"
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest
