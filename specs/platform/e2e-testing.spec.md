@@ -428,6 +428,50 @@ deploy/
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
 | `OPENSHELL_BIN` | `openshell` | Path to the openshell CLI binary |
 
+### Requirement: OIDC Authentication in E2E Tests
+
+The e2e test suite SHALL run with OIDC authentication enabled. The CI workflow SHALL deploy the Kind cluster with `KIND_ENABLE_OIDC=true`. All API calls SHALL be authenticated with a Bearer token obtained from Keycloak. This ensures e2e tests exercise the same authentication path as production.
+
+The test suite SHALL verify OIDC integration as part of its standard flow:
+1. Acquire a token from Keycloak and authenticate all API calls
+2. Verify unauthenticated API requests are rejected with 401
+3. Verify the BFF `/auth/login` endpoint redirects to Keycloak with PKCE parameters
+4. Verify the BFF `/auth/session` endpoint returns `{ "authenticated": false }` without a session
+5. Verify the control plane's gRPC watch streams are active (no `Unauthenticated` errors in logs)
+
+#### Scenario: API JWT Rejection
+
+- GIVEN the API server is running with `API_ENV=development_oidc`
+- WHEN an unauthenticated GET is made to `/api/hypershell/v1/gateways`
+- THEN the response SHALL be 401 Unauthorized
+
+#### Scenario: Authenticated API Calls
+
+- GIVEN a valid OIDC token has been acquired via `acquire_oidc_token`
+- WHEN API calls are made with `Authorization: Bearer <token>`
+- THEN the API server SHALL accept the requests
+
+#### Scenario: BFF OIDC Endpoints
+
+- WHEN `GET /auth/login` is requested from the web console
+- THEN the response SHALL be 302 with a Location header pointing to the Keycloak authorization endpoint with PKCE parameters (`code_challenge`, `code_challenge_method=S256`)
+
+#### Scenario: BFF Session Contract
+
+- WHEN `GET /auth/session` is requested without a session cookie
+- THEN the response SHALL contain `{ "authenticated": false }`
+
+#### Scenario: Control Plane gRPC Auth
+
+- WHEN the control plane logs are inspected
+- THEN there SHALL be no `Unauthenticated` gRPC errors
+
+#### Scenario: CI Deployment
+
+- GIVEN the CI e2e workflow
+- WHEN the Kind cluster is created
+- THEN `make kind-up` SHALL be invoked with `KIND_ENABLE_OIDC=true`
+
 ## Design Decisions
 
 | Decision | Rationale |
