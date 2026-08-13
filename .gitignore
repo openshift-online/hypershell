@@ -43,3 +43,6 @@ scripts/sdk-generator/sdk-generator
 scripts/cli-generator/cli-generator
 components/api-server/hypershell
 components/cli/hypershell
+GAP_ANALYSIS.md
+RECONCILE_COMPLETE.md
+loop.txt
