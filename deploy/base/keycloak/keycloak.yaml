@@ -46,16 +46,26 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 512Mi
+              memory: 768Mi
             limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: 9000
+            failureThreshold: 30
+            periodSeconds: 5
           readinessProbe:
             httpGet:
               path: /health/ready
               port: 9000
-            initialDelaySeconds: 30
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 9000
+            periodSeconds: 15
           volumeMounts:
             - name: realm-config
               mountPath: /opt/keycloak/data/import

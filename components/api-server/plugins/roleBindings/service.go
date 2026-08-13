@@ -73,7 +73,13 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 		SourceID:  rb.ID,
 		EventType: api.CreateEventType,
 	})
-	return evErr
+	// events.Create returns a concrete *errors.ServiceError. Returning it
+	// directly would box a typed nil into the error interface, making the
+	// result non-nil even on success. Convert explicitly.
+	if evErr != nil {
+		return evErr
+	}
+	return nil
 }
 
 func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error {

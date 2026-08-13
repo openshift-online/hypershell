@@ -35,8 +35,6 @@ KIND_HOST_MOUNT_PATH?=$(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 KIND_KEYCLOAK_URL?=
 LOCAL_IMAGES?=
 KIND_PULL_SECRET?=
-KIND_ENABLE_OIDC?=
-
 
 # Prerequisite versions
 GATEWAY_API_VERSION?=v1.5.1
@@ -74,7 +72,7 @@ help:
 	@echo "  Local Development (Kind)"
 	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
 	@echo ""
-	@echo "    kind-up                  Create cluster + deploy all components (KIND_ENABLE_OIDC=true for OIDC)"
+	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
@@ -256,7 +254,7 @@ test-all: install-js
 
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
 export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
-export KIND_PULL_SECRET KIND_ENABLE_OIDC KIND_DB_IMAGE
+export KIND_PULL_SECRET KIND_DB_IMAGE
 export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref

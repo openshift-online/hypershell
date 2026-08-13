@@ -5,7 +5,9 @@ resources:
   - certificates.yaml
   - gateway.yaml
   - httproutes.yaml
+  - oidc-secrets.yaml
 patches:
+  # --- Controller: Kind env vars + OIDC ---
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -30,6 +32,107 @@ patches:
                     value: hypershell-ca-issuer
                   - name: HYPERSHELL_DATABASE_IMAGE
                     value: "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
+                  - name: OIDC_ISSUER
+                    value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
+                  - name: OIDC_CLIENT_ID
+                    value: "hypershell-control-plane"
+                  - name: OIDC_TOKEN_ENDPOINT
+                    value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/token"
+                  - name: OIDC_CLIENT_SECRET
+                    valueFrom:
+                      secretKeyRef:
+                        name: hypershell-cp-oidc
+                        key: client-secret
+  # --- Web console: OIDC ---
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-web-console
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: web-console
+                env:
+                  - name: OIDC_ISSUER
+                    value: "http://keycloak.hypershell.localhost:8080/realms/hypershell"
+                  - name: OIDC_CLIENT_ID
+                    value: "hypershell-frontend"
+                  - name: OIDC_REDIRECT_URI
+                    value: "https://console.hypershell.localhost/auth/callback"
+                  # local-dev-only: lets the web console BFF trust Kind's
+                  # self-signed cert-manager CA. Never set this in deploy/base
+                  # or deploy/openshift.
+                  - name: NODE_TLS_REJECT_UNAUTHORIZED
+                    value: "0"
+                  - name: SESSION_SECRET
+                    valueFrom:
+                      secretKeyRef:
+                        name: hypershell-oidc-session
+                        key: session-secret
+  # --- API server: enable JWT + JWK cert URL + bypass paths ---
+  # Appending --enable-jwt=true is index-independent: --enable-jwt is a pflag
+  # BoolVar, and repeated single-value flags are last-value-wins, so the
+  # appended true overrides the base --enable-jwt=false no matter where it sits
+  # in deploy/base/api-server.yaml's command array.
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+      namespace: hypershell-system
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--enable-jwt=true"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+  # --- API server: select the development_oidc environment ---
+  # The binary's default `development` environment force-disables JWT in its
+  # OverrideConfig, which overrides the --enable-jwt=true flag above. The
+  # `development_oidc` environment leaves JWT driven by flags, so JWT
+  # enforcement and JWKS loading from Keycloak actually take effect.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-api-server
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api-server
+                env:
+                  - name: API_ENV
+                    value: "development_oidc"
+  # --- Keycloak: fixed HTTP issuer reachable in-cluster and from host ---
+  # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
+  # requiring config.issuer == discovery.issuer == token.iss, so the issuer
+  # must be a single URL reachable over plain HTTP both in-cluster (via CoreDNS
+  # -> Keycloak ClusterIP) and from the host (via the gateway LB :8080).
+  # This value matches E2E_OIDC_ISSUER and the seeded gateway OIDC issuer.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: keycloak
+        namespace: keycloak
+      spec:
+        template:
+          spec:
+            containers:
+              - name: keycloak
+                env:
+                  - name: KC_HOSTNAME
+                    value: "http://keycloak.hypershell.localhost:8080"
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest

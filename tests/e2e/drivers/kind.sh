@@ -113,6 +113,14 @@ acquire_oidc_token() {
   fi
 }
 
+# api_curl - curl wrapper that adds the OIDC bearer token acquired by
+# acquire_oidc_token. Mirrors the flags used for unauthenticated calls
+# (-s silent, -k insecure for the gateway's self-signed cert) and forwards any
+# additional arguments to curl.
+api_curl() {
+  curl -sk -H "Authorization: Bearer ${_OIDC_ACCESS_TOKEN}" "$@"
+}
+
 # get_cluster_domain - return the base domain for gateway DNS names.
 get_cluster_domain() {
   echo "gw.localhost"

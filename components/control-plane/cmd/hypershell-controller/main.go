@@ -52,6 +52,10 @@ func main() {
 		}
 
 		tp := auth.NewTokenProvider(oidcIssuer, oidcClientID, oidcClientSecret)
+		if endpoint := os.Getenv("OIDC_TOKEN_ENDPOINT"); endpoint != "" {
+			tp.SetTokenEndpoint(endpoint)
+			log.Printf("INFO using explicit OIDC token endpoint: %s", endpoint)
+		}
 		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tp)))
 		log.Printf("INFO OIDC authentication enabled for gRPC connections")
 	} else {

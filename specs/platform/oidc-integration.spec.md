@@ -221,39 +221,24 @@ The `hypershell-provisioner` client is a confidential service account used for a
 
 ### Local Kind Development
 
-OIDC in the Kind cluster is opt-in via `KIND_ENABLE_OIDC=true`. Default is off.
+OIDC is always enabled in the Kind cluster. `make kind-up` configures all components for OIDC authentication automatically.
 
-#### Environment Variable
+#### Behavior
 
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `KIND_ENABLE_OIDC` | (unset  -- OIDC off) | Set to `true` to enable OIDC across API server, web console BFF, and gateway |
+`make kind-up` SHALL:
 
-#### Behavior When Enabled
-
-`make kind-up` with `KIND_ENABLE_OIDC=true` SHALL:
-
-1. Deploy the API server with `API_ENV=development_oidc` and `--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs`
+1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
 2. Deploy the web console BFF with:
-   - `OIDC_ISSUER=http://keycloak.hypershell.localhost:8080/realms/hypershell`
+   - `OIDC_ISSUER=https://keycloak.hypershell.localhost/realms/hypershell`
    - `OIDC_CLIENT_ID=hypershell-frontend`
    - `SESSION_SECRET` generated via `openssl rand -hex 32` during `kind-up` and stored in a Kubernetes Secret
 3. Create the gateway resource with OIDC configuration per `local-development.spec.md`
-4. Print OIDC-specific connection information in the banner:
+4. Print OIDC connection information in the banner:
    ```
-   OIDC Authentication: ENABLED
-   Keycloak:            https://keycloak.hypershell.localhost (admin/admin)
-   Login:               https://console.hypershell.localhost/auth/login
-   Test users:          admin/admin (admins + users), developer/developer (users only)
+   Keycloak:     https://keycloak.hypershell.localhost (admin/admin)
+   Login:        https://console.hypershell.localhost/auth/login
+   Test users:   admin/admin (admins + users), developer/developer (users only)
    ```
-
-#### Behavior When Disabled (Default)
-
-`make kind-up` without `KIND_ENABLE_OIDC` SHALL behave exactly as today:
-- API server: `development` environment, JWT disabled
-- Web console BFF: no OIDC env vars, no-auth proxy mode
-- Gateway: no OIDC configuration
-- Banner: no OIDC section
 
 #### Keycloak Client Configuration (Kind)
 
@@ -268,21 +253,8 @@ The ephemeral port variant (`console.hypershell.localhost:*`) covers Kind setups
 
 #### CLI Output
 
-When `KIND_ENABLE_OIDC=true`:
 - The `kind-up` banner SHALL include the OIDC section shown above
-- `make kind-status` SHALL report whether OIDC is active and show the Keycloak URL and test credentials
-
-When OIDC is off:
-- `kind-status` SHALL include a hint: `OIDC: disabled (set KIND_ENABLE_OIDC=true to enable)`
-
-#### Documentation
-
-`DEVELOPMENT.md` SHALL document:
-- How to enable OIDC: `KIND_ENABLE_OIDC=true make kind-up`
-- What changes when OIDC is enabled
-- How to log in via the browser (navigate to console, redirected to Keycloak)
-- How to obtain a token for CLI/curl testing
-- Troubleshooting OIDC issues (token expiry, JWKS discovery, cookie problems)
+- `make kind-status` SHALL report OIDC as active and show the Keycloak URL and test credentials
 
 ---
 
@@ -403,28 +375,18 @@ The BFF SHALL expose a session resource per WEB-AUTH-03.
 - WHEN the browser requests `GET /auth/session`
 - THEN the response SHALL contain `{ "authenticated": false }`
 
-### Requirement: Opt-In Kind OIDC
+### Requirement: Kind OIDC Always-On
 
-OIDC in the local Kind cluster SHALL be opt-in via `KIND_ENABLE_OIDC=true`.
+OIDC in the local Kind cluster SHALL always be enabled. `make kind-up` configures all components for OIDC authentication automatically.
 
-#### Scenario: OIDC Enabled
-- GIVEN `KIND_ENABLE_OIDC=true`
+#### Scenario: OIDC Configured on kind-up
 - WHEN a developer runs `make kind-up`
 - THEN the API server SHALL use `API_ENV=development_oidc`
 - AND the BFF SHALL be configured with OIDC env vars
 - AND the gateway SHALL be created with OIDC configuration
 - AND the banner SHALL display OIDC connection information
 
-#### Scenario: OIDC Disabled (Default)
-- GIVEN `KIND_ENABLE_OIDC` is not set
-- WHEN a developer runs `make kind-up`
-- THEN the API server SHALL use `API_ENV=development`
-- AND the BFF SHALL run in no-auth mode
-- AND the gateway SHALL not have OIDC configuration
-- AND `kind-status` SHALL show a hint about enabling OIDC
-
 #### Scenario: OIDC Status Reporting
-- GIVEN a Kind cluster is running with `KIND_ENABLE_OIDC=true`
 - WHEN a developer runs `make kind-status`
 - THEN the output SHALL show OIDC as active
 - AND display the IdP URL and test user credentials
@@ -449,7 +411,7 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 | `@fastify/secure-session` for cookie encryption | Sodium-based secretbox (NaCl) is the gold standard for symmetric encryption. The library is maintained by the Fastify team and integrates natively. `iron-session` is an alternative but adds an extra dependency outside the Fastify ecosystem. |
 | RP-initiated logout (full IdP session termination) | Clearing the cookie alone leaves the IdP session alive  -- the user could re-authenticate without credentials until TTL expires. Full logout is the expected UX for an enterprise console. One extra redirect is negligible. |
 | Control plane authenticates with its own service account | The control plane obtains JWTs via `client_credentials` grant using a dedicated `hypershell-control-plane` Keycloak client. This is the standard pattern for service-to-service auth with the rh-trex-ai framework (the JWT interceptor validates tokens on all gRPC methods). The service account is least-privilege ready for future RBAC enforcement. |
-| `KIND_ENABLE_OIDC` opt-in instead of always-on | Most contributors are not working on auth. OIDC adds login redirects, token expiry, and cookie management  -- friction for developers testing unrelated features. Opt-in keeps the default experience fast and simple. |
+| OIDC always-on in Kind | OIDC is the only supported authentication method. Running without it masks integration issues and diverges from production. |
 | `hypershell-frontend` client reused for BFF | The client already exists with the correct audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
 | Restrict `redirectUris` from wildcard | Wildcard redirect URIs are an OAuth security anti-pattern (open redirect). Restricting to the deployment's console origin prevents authorization code interception. |
 | `directAccessGrantsEnabled` retained | Password grant is used by CLI tooling and curl-based testing in local dev. Disabling it would break the documented CLI authentication flow in `openshell-gateway-oidc.spec.md`. |

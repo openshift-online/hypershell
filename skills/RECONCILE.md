@@ -265,7 +265,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OI-2 | BFF OIDC Authorization Code Flow | Present | Auth code + PKCE, encrypted cookies, token refresh, RP-initiated logout | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
 | OI-3 | BFF Session Security | Present | @fastify/secure-session, CSRF Origin validation, session rotation | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
 | OI-4 | BFF Browser Session Contract | Present | GET /auth/session with identity, roles, expiry; no tokens | `bff/src/auth.ts` | OIDC ✅ |
-| OI-5 | Opt-In Kind OIDC | Present | KIND_ENABLE_OIDC wired through Makefile/lib.sh/up.sh/status.sh | `scripts/kind/`, `Makefile` | OIDC ✅ |
+| OI-5 | Kind OIDC Always-On | Present | OIDC enabled unconditionally in kind-up; KIND_ENABLE_OIDC removed | `scripts/kind/`, `Makefile` | OIDC ✅ |
 | OI-6 | Identity Provider Client Security | Partial | redirectUris restricted but port wildcard pattern not supported by Keycloak; needs explicit port URIs | `keycloak.yaml` | Follow-up |
 
 ### rbac-enforcement.spec.md
@@ -471,3 +471,4 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 | 2026-08-11 | working tree | RBAC gap analysis | 63% | New spec `security/rbac-enforcement.spec.md` analyzed; 13 requirements, all missing; 7 RBAC waves planned (R1-R7); Gateway OIDC Role Bridge deferred |
 | 2026-08-11 | working tree | Executed Waves R1-R4,R6-R7: RBAC Enforcement | 72% | Full RBAC implementation: 3 new plugins (users, roles, roleBindings), user auto-provisioning middleware, fleet:owner bootstrap, scope-aware HTTP+gRPC authorization, 11 integration tests. 9 present, 2 partial (list filtering, escalation prevention), 2 deferred (admin bootstrap via DB migration, OIDC role bridge) |
 | 2026-08-12 | ed3725a | OIDC reconciliation complete | 77% | API server development_oidc env; BFF auth code flow with PKCE (22 tests); CP client_credentials TokenProvider + gRPC PerRPCCredentials; KIND_ENABLE_OIDC opt-in; Keycloak hypershell-control-plane client; verified end-to-end on Kind (8/8 checks pass) |
+| 2026-08-12 | working tree | OIDC always-on + Keycloak stability | 77% | Removed KIND_ENABLE_OIDC toggle; OIDC unconditional in kind-up; Keycloak memory 1Gi→2Gi + startup/liveness probes |
