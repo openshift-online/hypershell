@@ -6,8 +6,8 @@ kind: Kustomization
 # This is deploy/openshift MINUS the bundled postgres and keycloak:
 #   - The platform database is provided by the CloudNativePG operator per env
 #     (the consuming overlay supplies the `hypershell-db` Secret).
-#   - Keycloak is deployed per env as a separate unit that remote-refs
-#     deploy/base/keycloak (its own namespace).
+#   - Keycloak is deployed once per cluster as a separate unit (deploy/keycloak,
+#     built on deploy/base/keycloak, in its own namespace) and shared by envs.
 #
 # It inherits everything from deploy/openshift (route, scc, networkpolicies,
 # certificates, controller gateway defaults) and removes only the bundled DB and
@@ -42,7 +42,7 @@ patches:
       metadata:
         name: hypershell-db
         namespace: hypershell-system
-  # --- remove bundled keycloak (deployed per env as its own unit) ---
+  # --- remove bundled keycloak (deployed once per cluster as its own unit; see deploy/keycloak) ---
   - patch: |
       $patch: delete
       apiVersion: v1
