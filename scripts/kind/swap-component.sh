@@ -207,10 +207,26 @@ EOF
   done
   # shellcheck disable=SC2086
   kube set image "deployment/${DEPLOYMENT}" ${set_image_args} -n "${KIND_NAMESPACE}"
+
+  # A prior `kind-up` may have parked this deployment at zero replicas (it scales
+  # swapped components down). `set image`/`rollout restart` do not restore the
+  # replica count, and `wait --for=condition=available` passes instantly on a
+  # zero-replica deployment -- yielding a false success with no running pods.
+  # Ensure at least one replica before rolling out.
+  local desired_replicas
+  desired_replicas="$(kube get deployment "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+  if [[ "${desired_replicas:-0}" -lt 1 ]]; then
+    info "Scaling ${COMPONENT} up from ${desired_replicas:-0} to 1 replica..."
+    kube scale "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --replicas=1
+  fi
+
   kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}"
 
   info "Waiting for ${COMPONENT}..."
-  kube wait --for=condition=available "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
+  # `rollout status` requires updated replicas to actually become available, so
+  # it fails (rather than passing trivially) if no pods come up.
+  kube rollout status "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
   track_swap "${COMPONENT}"
   success "${COMPONENT} swapped to local build."
 }
