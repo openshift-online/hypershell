@@ -27,18 +27,13 @@ else
 fi
 echo ""
 
-# --- Podman + kind compatibility check ---
-# kind v0.32.0 has a ListClusters bug with podman 6+ (kubernetes-sigs/kind#4231).
-# Build patched binaries into ./bin/ automatically if needed.
-if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
-  kind_ver="$(kind version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)"
-  if [[ "${kind_ver}" == "v0.32.0" ]]; then
-    warn "kind ${kind_ver} is incompatible with podman 6+ (kubernetes-sigs/kind#4231)"
-    info "Building patched cloud-provider-kind into ./bin/..."
-    make -C "${REPO_ROOT}" kind-prereqs
-    export PATH="${REPO_ROOT}/bin:${PATH}"
-  fi
-fi
+# --- Build cloud-provider-kind from fork ---
+# The fork (squizzi/cloud-provider-kind branch hypershell) adds BackendTLSPolicy
+# support (TLS re-encryption) and HTTP/2 protocol options for GRPCRoute backends.
+# Build once into ./bin/ and prepend to PATH so up.sh always finds it.
+info "Ensuring cloud-provider-kind is built from fork..."
+make -C "${REPO_ROOT}" kind-prereqs
+export PATH="${REPO_ROOT}/bin:${PATH}"
 
 # --- Cluster creation (idempotent) ---
 header "Cluster"
