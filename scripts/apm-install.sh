@@ -25,7 +25,7 @@ if ! command -v apm &>/dev/null; then
       curl -fsSL https://aka.ms/apm-unix | bash
       ;;
     *)
-      echo "ERROR: unsupported OS '$OS' — install APM manually: https://microsoft.github.io/apm/" >&2
+      echo "ERROR: unsupported OS '$OS' - install APM manually: https://microsoft.github.io/apm/" >&2
       exit 1
       ;;
   esac
@@ -54,7 +54,7 @@ BASELINE_FLAG=()
 if [[ -f "$BASELINE" ]]; then
   BASELINE_FLAG=(--baseline "$BASELINE")
 else
-  echo "WARNING: baseline file not found at $BASELINE — running without suppression" >&2
+  echo "WARNING: baseline file not found at $BASELINE - running without suppression" >&2
 fi
 
 SCAN_OUT=$(mktemp "${TMPDIR:-/tmp}/skillspector-XXXXXX.json")
@@ -77,7 +77,7 @@ severe = [i for i in issues if i.get('severity') in ('HIGH', 'CRITICAL')]
 
 if not severe:
     suppressed = data.get('suppressed_count', 0)
-    print(f'Security scan passed — no HIGH or CRITICAL findings. ({suppressed} suppressed by baseline)')
+    print(f'Security scan passed - no HIGH or CRITICAL findings. ({suppressed} suppressed by baseline)')
     sys.exit(0)
 
 print()
@@ -91,7 +91,7 @@ for i in severe:
     f = loc.get('file', '?')
     line = loc.get('start_line', '?')
     pattern = i.get('pattern', '')
-    print(f'  {sev}: {rid} in {f}:{line} — {pattern}')
+    print(f'  {sev}: {rid} in {f}:{line} - {pattern}')
 print()
 print('Review these findings and either fix them or add to .skillspector-baseline.yaml')
 sys.exit(1)

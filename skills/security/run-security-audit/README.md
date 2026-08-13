@@ -2,7 +2,7 @@
 
 Run a comprehensive security audit on this codebase using the
 [ai-security-harness](https://gitlab.cee.redhat.com/hybrid-platforms-sec/ai-security-harness)
-methodology. The skill bootstraps the harness repo on demand — no manual
+methodology. The skill bootstraps the harness repo on demand - no manual
 setup beyond the prerequisites below.
 
 ## Prerequisites
@@ -22,7 +22,7 @@ The PAT needs `read_repository` scope on the
 
 ### Model recommendation
 
-The harness audit skills are rated **mythos-class** — they require a strong
+The harness audit skills are rated **mythos-class** - they require a strong
 reasoning model to follow the multi-framework methodology accurately.
 Claude Opus or equivalent is recommended. Lighter models will produce
 lower-quality findings and may skip methodology steps.
@@ -56,26 +56,26 @@ scanners in the report metadata.
 
 ## What it does
 
-1. **Bootstraps the harness** — clones (or updates) `ai-security-harness`
+1. **Bootstraps the harness** - clones (or updates) `ai-security-harness`
    to `apm_modules/hybrid-platforms-sec/ai-security-harness/` (already
    gitignored) and installs its Python dependencies.
 
-2. **Checks pre-scanner tools** — reports availability of optional
+2. **Checks pre-scanner tools** - reports availability of optional
    scanners and records each as ran/skipped in the report.
 
-3. **Runs the threat model** (`full` or `threat-model` mode) — reads the
+3. **Runs the threat model** (`full` or `threat-model` mode) - reads the
    codebase and produces a structured threat model covering attack
    surfaces, trust boundaries, and threat rankings. Output:
    `security-audit/<repo>-threat-model.md`.
 
-4. **Runs the secure code audit** (`full` or `code-audit` mode) — applies
+4. **Runs the secure code audit** (`full` or `code-audit` mode) - applies
    the multi-framework methodology (OWASP ASVS v5.0, OWASP Kubernetes
    Top 10, CIS Kubernetes Benchmark, DISA STIG, SLSA, OpenSSF Scorecard,
    PEACH tenant isolation) with available pre-scanners. Default is
    dual-pass for higher recall. Output:
    `security-audit/<repo>-security-audit.json` and `.md`.
 
-5. **Validates and renders** — runs the harness validation scripts on the
+5. **Validates and renders** - runs the harness validation scripts on the
    JSON report and renders a human-readable Markdown companion.
 
 Reports are written to `security-audit/` in the repo root.
