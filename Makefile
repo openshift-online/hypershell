@@ -92,6 +92,7 @@ help:
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
+	@echo "    e2e                      Run E2E tests locally (requires Kind cluster)"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
 	@echo "    lint-control-plane       Lint control plane (gofmt, go vet, golangci-lint)"
@@ -326,3 +327,17 @@ kind-web-console-up:
 .PHONY: kind-web-console-down
 kind-web-console-down:
 	@scripts/kind/swap-component.sh down web-console
+
+# ============================================================================
+# E2E Tests
+# ============================================================================
+
+.PHONY: e2e
+e2e:
+	@echo ""
+	@echo "==> Running E2E tests (Kind)"
+	@echo ""
+	@E2E_INFRA_DRIVER=kind \
+		E2E_PROVISION_TIMEOUT=300 \
+		E2E_SANDBOX_TIMEOUT=180 \
+		bash tests/e2e/e2e-openshell.sh

@@ -129,10 +129,10 @@ echo ""
 bold "HyperShell OpenShell Gateway End-to-End Test"
 sep
 echo ""
-printf '  %s\n' "1. Infrastructure validation"
+printf '  %s\n' "1. Infrastructure validation + OIDC verification"
 printf '  %s\n' "2. Gateway provisioning via HyperShell API (OIDC)"
 printf '  %s\n' "3. Gateway infrastructure verification"
-printf '  %s\n' "4. OIDC token acquisition"
+printf '  %s\n' "4. OIDC token acquisition + CA certificate setup"
 printf '  %s\n' "5. Route discovery + openshell CLI registration"
 printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
@@ -149,10 +149,10 @@ dim  "  Sandbox timeout:   ${E2E_SANDBOX_TIMEOUT}s"
 echo ""
 sep
 
-# ── 0. OIDC authentication verification ──────────────────────────────────
+# ── 1. infrastructure validation + OIDC verification ─────────────────────
 
 echo ""
-bold "0. OIDC Authentication Verification"
+bold "1. Infrastructure Validation + OIDC Verification"
 echo ""
 
 # Acquire a token for authenticated API calls
@@ -211,14 +211,6 @@ if [[ "$CP_UNAUTH" == "0" ]]; then
 else
   fail_test "Control plane has ${CP_UNAUTH} Unauthenticated gRPC errors"
 fi
-
-sep
-
-# ── 1. infrastructure validation ──────────────────────────────────────────
-
-echo ""
-bold "1. Infrastructure Validation"
-echo ""
 
 INFRA_NAMESPACE="${E2E_HS_NAMESPACE}"
 
@@ -349,7 +341,7 @@ body = {
     'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-db',
+    'database_id': 'e2e-database',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -579,10 +571,10 @@ else
 fi
 sep
 
-# ── 4. OIDC token acquisition ─────────────────────────────────────────────
+# ── 4. OIDC token acquisition + CA certificate setup ─────────────────────
 
 echo ""
-bold "4. OIDC Token Acquisition"
+bold "4. OIDC Token Acquisition + CA Certificate Setup"
 echo ""
 
 show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER}"
@@ -592,6 +584,18 @@ if [[ -n "$OIDC_TOKEN" ]]; then
   pass "OIDC token acquired (user: ${E2E_OIDC_USERNAME})"
 else
   fail_test "Failed to acquire OIDC token from Keycloak"
+  exit 1
+fi
+
+
+show_cmd "$CLI get secret hypershell-ca-secret -n $E2E_HS_NAMESPACE -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/e2e-hypershell-ca.crt"
+$CLI get secret hypershell-ca-secret -n "$E2E_HS_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > /tmp/e2e-hypershell-ca.crt
+if [[ -s /tmp/e2e-hypershell-ca.crt ]]; then
+  export SSL_CERT_FILE=/tmp/e2e-hypershell-ca.crt
+  pass "CA certificate extracted and SSL_CERT_FILE set"
+  dim "    CA: /tmp/e2e-hypershell-ca.crt"
+else
+  fail_test "Failed to extract CA certificate"
   exit 1
 fi
 sep

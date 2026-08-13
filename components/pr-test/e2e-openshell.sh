@@ -108,6 +108,7 @@ echo ""
 printf '  %s\n' "1. Gateway provisioning via HyperShell API (OIDC)"
 printf '  %s\n' "2. Gateway infrastructure verification"
 printf '  %s\n' "3. OIDC token acquisition"
+printf '  %s\n' "3a. CA certificate setup"
 printf '  %s\n' "4. Route discovery + openshell CLI registration"
 printf '  %s\n' "5. Gateway connectivity"
 printf '  %s\n' "6. Sandbox lifecycle (create → ready)"
@@ -298,6 +299,24 @@ else
   fail_test "Failed to acquire OIDC token from Keycloak"
   TOKEN_ERR=$(echo "$OIDC_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','unknown'))" 2>/dev/null || echo 'no response')
   dim "    ${TOKEN_ERR}"
+  exit 1
+fi
+sep
+
+# ── 3a. extract and trust the cluster CA ──────────────────────────────────
+
+echo ""
+bold "3a. CA Certificate Setup"
+echo ""
+
+show_cmd "$CLI get secret hypershell-ca-secret -n $HS_NAMESPACE -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/e2e-hypershell-ca.crt"
+$CLI get secret hypershell-ca-secret -n "$HS_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > /tmp/e2e-hypershell-ca.crt
+if [[ -s /tmp/e2e-hypershell-ca.crt ]]; then
+  export SSL_CERT_FILE=/tmp/e2e-hypershell-ca.crt
+  pass "CA certificate extracted and SSL_CERT_FILE set"
+  dim "    CA: /tmp/e2e-hypershell-ca.crt"
+else
+  fail_test "Failed to extract CA certificate"
   exit 1
 fi
 sep
