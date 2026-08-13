@@ -105,7 +105,11 @@ cleanup() {
   fi
   if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
-    curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
+    # JWT is enforced, so the DELETE needs a bearer token. The token acquired
+    # earlier may have expired during provisioning, so refresh best-effort before
+    # deleting; cleanup is non-fatal, so ignore failures.
+    acquire_oidc_token 2>/dev/null || true
+    api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -293,8 +297,16 @@ echo ""
 bold "2. Gateway Provisioning via HyperShell API"
 echo ""
 
-show_cmd "curl -sk ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
-EXISTING_GW=$(curl -sk "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
+# JWT enforcement means every gateway CRUD call below needs a bearer token.
+# Refresh the token here so the full Keycloak access-token lifetime covers the
+# create plus the provisioning poll (up to E2E_PROVISION_TIMEOUT seconds).
+if ! acquire_oidc_token; then
+  fail_test "Could not acquire OIDC token for gateway provisioning"
+  exit 1
+fi
+
+show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
+EXISTING_GW=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
 EXISTING_ID=$(echo "$EXISTING_GW" | GW_NAME="$GW_NAME" python3 -c "
 import json, sys, os
 data = json.load(sys.stdin)
@@ -325,7 +337,7 @@ for gw in data.get('items', []):
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
-  show_cmd "curl -sk -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
 import json, os
@@ -348,7 +360,7 @@ body = {
 }
 print(json.dumps(body))
 ")
-  CREATE_RESPONSE=$(curl -sk -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+  CREATE_RESPONSE=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
     -d "${GW_CREATE_BODY}" 2>/dev/null || true)
 
@@ -367,7 +379,7 @@ print(json.dumps(body))
   DEADLINE=$(($(date +%s) + E2E_PROVISION_TIMEOUT))
   GW_PHASE=""
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    GW_PHASE=$(curl -sk "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+    GW_PHASE=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
       python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
