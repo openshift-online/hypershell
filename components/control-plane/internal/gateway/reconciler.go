@@ -936,6 +936,7 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 
 	oidcConfig := OIDCConfig{
 		Issuer:     kc.Issuer(),
+		ClientID:   gatewayName,
 		Audience:   gatewayName,
 		JwksTTL:    3600,
 		RolesClaim: "hypershell.roles",

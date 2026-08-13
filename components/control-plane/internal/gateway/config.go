@@ -55,7 +55,12 @@ type RouteConfig struct {
 }
 
 type OIDCConfig struct {
-	Issuer      string `yaml:"issuer" json:"issuer,omitempty"`
+	Issuer string `yaml:"issuer" json:"issuer,omitempty"`
+	// ClientID is client-facing metadata (the per-gateway Keycloak clientId, equal
+	// to the gateway name) that the console and CLI need for `openshell gateway
+	// add`. It is surfaced on the Gateway resource but not written to gateway.toml,
+	// since the gateway server validates issuer and audience, not client id.
+	ClientID    string `yaml:"client_id" json:"client_id,omitempty"`
 	Audience    string `yaml:"audience" json:"audience,omitempty"`
 	JwksTTL     int    `yaml:"jwks_ttl" json:"jwks_ttl,omitempty"`
 	RolesClaim  string `yaml:"roles_claim" json:"roles_claim,omitempty"`
