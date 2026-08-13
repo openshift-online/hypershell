@@ -46,6 +46,24 @@ else
 fi
 echo ""
 
+header "Gateway API"
+GW_STATUS=$(kube get gateway -n "${KIND_NAMESPACE}" 2>/dev/null || true)
+if [[ -n "${GW_STATUS}" ]]; then
+  echo "${GW_STATUS}"
+else
+  warn "No Gateway resources found"
+fi
+GRPC_ROUTES=$(kube get grpcroutes -A 2>/dev/null || true)
+if [[ -n "${GRPC_ROUTES}" ]]; then
+  echo ""
+  echo "${GRPC_ROUTES}"
+fi
+BTLS_POLICIES=$(kube get backendtlspolicies -A --no-headers 2>/dev/null || true)
+if [[ -n "${BTLS_POLICIES}" ]]; then
+  info "BackendTLSPolicies: $(echo "${BTLS_POLICIES}" | wc -l | tr -d ' ') configured"
+fi
+echo ""
+
 header "DNS"
 if dns_container_running 2>/dev/null; then
   info "CoreDNS: running (${DNS_CONTAINER_NAME} on port ${KIND_DNS_PORT})"
@@ -111,3 +129,14 @@ info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
 info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}"
 info "Keycloak HTTP: http://${KEYCLOAK_HOSTNAME}:8080"
 info "OIDC Issuer:  ${KEYCLOAK_OIDC_ISSUER}"
+echo ""
+
+header "OIDC"
+if oidc_enabled; then
+  info "OIDC: enabled"
+  info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
+  info "Login:        https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/login"
+  info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+else
+  info "OIDC: disabled (set KIND_ENABLE_OIDC=true to enable)"
+fi

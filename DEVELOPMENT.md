@@ -134,6 +134,7 @@ production.
 | Realm | `hypershell` |
 | Frontend client | `hypershell-frontend` (public, standard flow + direct access grants) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
+| Control plane client | `hypershell-control-plane` (confidential, service account, client_credentials) |
 | Admin user | `admin` / `admin` (role: `hypershell-admins`) |
 | Developer user | `developer` / `developer` (role: `hypershell-users`) |
 | OIDC Issuer URL | `http://keycloak.hypershell.localhost:8080/realms/hypershell` |
@@ -148,6 +149,13 @@ The networking Gateway has a dedicated HTTP listener (`http-keycloak`) on port
 complexity and means the same OIDC issuer URL works from both the host browser
 and in-cluster pods (cluster CoreDNS is patched to resolve
 `*.hypershell.localhost` to the Gateway LB IP).
+
+The control plane authenticates to the API server's gRPC endpoint using its own
+Keycloak service account (`hypershell-control-plane` client, confidential,
+`client_credentials` grant). `make kind-up` creates a `hypershell-cp-oidc`
+secret and patches the control plane deployment with `OIDC_ISSUER`,
+`OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET`. When swapped locally, export those
+variables in your shell before running the control plane binary.
 
 Port forwarding (pfctl/iptables) maps host port 8080 to the Gateway's ephemeral
 HTTP port. If port forwarding is not active (e.g. after a cluster restart),
@@ -173,6 +181,62 @@ KIND_KEYCLOAK_URL=https://keycloak.example.com/realms/hypershell make kind-up
 
 This skips the local Keycloak deployment and points the gateway OIDC issuer at
 the external URL.
+
+## OIDC Authentication (opt-in)
+
+By default, the Kind cluster runs without OIDC authentication: the API server
+disables JWT validation and the web console serves pages without requiring login.
+Enable OIDC to test the full authentication flow end-to-end:
+
+```bash
+KIND_ENABLE_OIDC=true make kind-up
+```
+
+### What changes when OIDC is enabled
+
+| Component | Default (no OIDC) | With OIDC |
+|-----------|-------------------|-----------|
+| API server | `--enable-jwt=false` | `API_ENV=development_oidc`, JWK cert URL configured |
+| Web console | No session, no login | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `SESSION_SECRET` configured |
+| Gateway seed | Fleet, cluster, release, DB only | Also creates a Gateway with OIDC config |
+
+Keycloak deploys in both modes. OIDC mode patches the API server and web console
+deployments at runtime (the base YAML manifests are unchanged).
+
+### Browser login flow
+
+1. Navigate to `https://console.hypershell.localhost`
+2. The BFF redirects to `https://console.hypershell.localhost/auth/login`
+3. The login page redirects to Keycloak for authentication
+4. Sign in with `admin`/`admin` or `developer`/`developer`
+5. Keycloak redirects back to the web console with a valid session
+
+### Hot reload and OIDC
+
+Web console hot reload (`make kind-web-console-up`) runs the Vite dev server
+directly on the host for fast iteration. This mode does **not** start the BFF,
+so OIDC authentication is unavailable during hot reload. Use the image-based
+swap when testing OIDC:
+
+```bash
+KIND_HOT_RELOAD=false make kind-web-console-up
+```
+
+### CLI token acquisition for curl testing
+
+Obtain an access token via Keycloak's direct access grants:
+
+```bash
+TOKEN=$(curl -s -X POST \
+  "http://keycloak.hypershell.localhost:8080/realms/hypershell/protocol/openid-connect/token" \
+  -d "grant_type=password" \
+  -d "client_id=hypershell-frontend" \
+  -d "username=admin" \
+  -d "password=admin" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+curl -s -H "Authorization: Bearer ${TOKEN}" \
+  https://api.hypershell.localhost/api/hypershell/v1/fleets
+```
 
 ## Private Registry Pull Secret
 
@@ -220,13 +284,15 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
 | `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
 | `KEYCLOAK_OIDC_ISSUER` | `http://keycloak.hypershell.localhost:8080/realms/hypershell` | OIDC issuer URL |
+| `KIND_ENABLE_OIDC` | (unset) | Set to `true` to enable OIDC authentication across all components |
 | `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
 | `LOCAL_IMAGES` | (unset) | Set to `true` for offline baseline builds |
 | `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
 | `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
-| `CLOUD_PROVIDER_KIND_VERSION` | `v0.11.1` | cloud-provider-kind version |
+| `CLOUD_PROVIDER_KIND_REPO` | `https://github.com/squizzi/cloud-provider-kind.git` | cloud-provider-kind git repo |
+| `CLOUD_PROVIDER_KIND_BRANCH` | `hypershell` | cloud-provider-kind branch to build |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18.4@sha256:9b19...` | Database image for Gateway; override for OSS dev |
 | `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
@@ -303,13 +369,15 @@ The gateway becomes reachable at
 port-forward needed. The control plane writes this address back to the API
 server's `route_address` field.
 
-### Why Kind requires port-forward
+### Gateway TLS in Kind
 
 The networking Gateway's `*.gw.localhost` listener uses TLS Terminate mode,
-which strips the external TLS and forwards plaintext to the backend. But
+which strips the external TLS and forwards plaintext to the backend.
 openshell-gateway pods expect TLS connections (they serve gRPC with their own
-cert-manager certificates). On OpenShift this is solved with BackendTLSPolicy
-(re-encryption), which cloud-provider-kind does not support.
+cert-manager certificates). BackendTLSPolicy instructs the gateway
+implementation to re-encrypt traffic to the backend. The `kind-prereqs` target
+builds cloud-provider-kind from a fork that adds BackendTLSPolicy support,
+so per-tenant gateways work without port-forward workarounds.
 
 ### Creating a gateway with OIDC
 
@@ -365,9 +433,7 @@ LOCAL_IMAGES=true make kind-up
 ### cloud-provider-kind not found
 
 ```bash
-brew install cloud-provider-kind
-# or
-go install sigs.k8s.io/cloud-provider-kind@latest
+make kind-prereqs
 ```
 
 ### DNS resolution not working

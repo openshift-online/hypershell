@@ -23,9 +23,9 @@ control_plane_ref=$(IMAGE_REGISTRY)/hypershell-control-plane-main:$(IMAGE_TAG)
 web_console_ref=$(IMAGE_REGISTRY)/hypershell-web-console-main:$(IMAGE_TAG)
 
 # Local dev image names
-api_server_local=hypershell:dev
-control_plane_local=hypershell-controller:dev
-web_console_local=hypershell-web-console:dev
+api_server_local=localhost/hypershell:dev
+control_plane_local=localhost/hypershell-controller:dev
+web_console_local=localhost/hypershell-web-console:dev
 
 # --- Kind cluster configuration ---
 KIND_CLUSTER_NAME?=hypershell-dev
@@ -35,7 +35,8 @@ KIND_HOST_MOUNT_PATH?=$(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 KIND_KEYCLOAK_URL?=
 LOCAL_IMAGES?=
 KIND_PULL_SECRET?=
-KIND_DB_IMAGE?=registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
+KIND_ENABLE_OIDC?=
+
 
 # Prerequisite versions
 GATEWAY_API_VERSION?=v1.5.1
@@ -43,8 +44,11 @@ GATEWAY_API_VERSION?=v1.5.1
 # Pin to a main commit that includes the fix (kubernetes-sigs/kind#4203) until
 # the next kind release ships it.  go install uses Go pseudo-versions.
 KIND_VERSION?=v0.32.1-0.20260811083914-7650cab268f5
-CLOUD_PROVIDER_KIND_VERSION?=v0.11.1
+# Build from fork with BackendTLSPolicy support until upstreamed.
+CLOUD_PROVIDER_KIND_REPO?=https://github.com/squizzi/cloud-provider-kind.git
+CLOUD_PROVIDER_KIND_BRANCH?=hypershell
 CERT_MANAGER_VERSION?=v1.21.1
+AGENT_SANDBOX_VERSION?=v0.5.4
 
 # Kind config
 KIND_CONFIG=deploy/kind/kind-config.yaml
@@ -70,7 +74,7 @@ help:
 	@echo "  Local Development (Kind)"
 	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
 	@echo ""
-	@echo "    kind-up                  Create cluster + deploy all components"
+	@echo "    kind-up                  Create cluster + deploy all components (KIND_ENABLE_OIDC=true for OIDC)"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
@@ -87,7 +91,6 @@ help:
 	@echo "    build-api-server         Build API server container image"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
-	@echo "    keycloak-theme           Regenerate Keycloak theme ConfigMaps from source"
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
@@ -147,10 +150,6 @@ build-controller:
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
 		-f components/web-console/Dockerfile .
-
-.PHONY: keycloak-theme
-keycloak-theme:
-	@scripts/generate-keycloak-theme.sh
 
 # ============================================================================
 # Policy checks
@@ -273,19 +272,19 @@ test-all: install-js
 
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
 export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
-export KIND_PULL_SECRET KIND_DB_IMAGE
-export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_VERSION CERT_MANAGER_VERSION
+export KIND_PULL_SECRET KIND_ENABLE_OIDC KIND_DB_IMAGE
+export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
+export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
 export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
 
-# Build cloud-provider-kind with the patched kind library.
-# cloud-provider-kind v0.11.1 bundles kind v0.32.0 which has a podman 6+
-# ListClusters bug (kubernetes-sigs/kind#4231).  We clone cloud-provider-kind,
-# replace the kind dependency, and build the binary into ./bin/.
+# Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
+# (TLS re-encryption to backends).  The fork also bundles the podman 6+ kind
+# fix, so no go mod replace is needed.
 .PHONY: kind-prereqs
 kind-prereqs:
 	@if [ -x bin/cloud-provider-kind ]; then \
@@ -293,13 +292,11 @@ kind-prereqs:
 	  exit 0; \
 	fi
 	@mkdir -p bin
-	@echo "==> Building cloud-provider-kind@$(CLOUD_PROVIDER_KIND_VERSION) with kind@$(KIND_VERSION) -> bin/cloud-provider-kind"
+	@echo "==> Building cloud-provider-kind@$(CLOUD_PROVIDER_KIND_BRANCH) -> bin/cloud-provider-kind"
 	@tmpdir=$$(mktemp -d) && \
-	  git clone --depth 1 --branch $(CLOUD_PROVIDER_KIND_VERSION) \
-	    https://github.com/kubernetes-sigs/cloud-provider-kind.git "$$tmpdir" && \
+	  git clone --depth 1 --branch $(CLOUD_PROVIDER_KIND_BRANCH) \
+	    $(CLOUD_PROVIDER_KIND_REPO) "$$tmpdir" && \
 	  cd "$$tmpdir" && \
-	  go mod edit -replace sigs.k8s.io/kind=sigs.k8s.io/kind@$(KIND_VERSION) && \
-	  go mod tidy && \
 	  CGO_ENABLED=0 go build -o $(CURDIR)/bin/cloud-provider-kind . && \
 	  rm -rf "$$tmpdir"
 	@echo "==> Done - binary in ./bin/cloud-provider-kind"

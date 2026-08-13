@@ -102,6 +102,8 @@ The GatewayReconciler SHALL support manual database credential rotation for secu
 - Expected downtime: ~30-60 seconds during gateway restart (acceptable for incident response)
 - Automatic rotation is not supported initially; it can be added based on operational requirements
 
+The full rotation design (procedure, failure handling, config-hash coverage) is specified in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
+
 ---
 
 ### Requirement: Gateway Workload Type

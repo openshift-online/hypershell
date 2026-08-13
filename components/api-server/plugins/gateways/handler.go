@@ -1,29 +1,37 @@
 package gateways
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/pkg/handlers"
 	"github.com/openshift-online/rh-trex-ai/pkg/services"
 )
 
+type OwnerBindingCreator interface {
+	CreateOwnerBinding(ctx context.Context, userID string, gatewayID string) error
+}
+
 var _ handlers.RestHandler = gatewayHandler{}
 
 type gatewayHandler struct {
-	gateway GatewayService
-	generic services.GenericService
+	gateway      GatewayService
+	generic      services.GenericService
+	ownerBinding OwnerBindingCreator
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator) *gatewayHandler {
 	return &gatewayHandler{
-		gateway: gateway,
-		generic: generic,
+		gateway:      gateway,
+		generic:      generic,
+		ownerBinding: ownerBinding,
 	}
 }
 
@@ -39,6 +47,14 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
+
+			userID := rbac.GetUserIDFromContext(ctx)
+			if userID != "" && h.ownerBinding != nil {
+				if bindErr := h.ownerBinding.CreateOwnerBinding(ctx, userID, gatewayModel.ID); bindErr != nil {
+					return nil, errors.GeneralError("failed to create owner binding: %s", bindErr)
+				}
+			}
+
 			return PresentGateway(gatewayModel), nil
 		},
 		ErrorHandler: handlers.HandleError,

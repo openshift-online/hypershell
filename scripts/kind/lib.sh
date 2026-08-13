@@ -40,9 +40,13 @@ fi
 : "${KEYCLOAK_OIDC_ISSUER:=http://${KEYCLOAK_HOSTNAME}:8080/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${KEYCLOAK_OIDC_AUDIENCE:=hypershell-frontend}"
+: "${KIND_ENABLE_OIDC:=}"
 : "${KIND_DNS_PORT:=5553}"
-: "${KIND_DB_IMAGE:=registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09}"
 DNS_CONTAINER_NAME="${KIND_CLUSTER_NAME}-dns"
+
+oidc_enabled() {
+  [[ "${KIND_ENABLE_OIDC}" == "true" ]]
+}
 
 # --- Cluster helpers ---
 

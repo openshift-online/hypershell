@@ -1,0 +1,194 @@
+# NEW ENDPOINT START
+paths:
+  /api/hypershell/v1/role_bindings:
+    get:
+      summary: List role bindings
+      operationId: listRoleBindings
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: A list of role bindings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleBindingList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    post:
+      summary: Create a role binding
+      operationId: createRoleBinding
+      requestBody:
+        description: Role binding data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleBinding'
+      responses:
+        '201':
+          description: Role binding created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleBinding'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/v1/role_bindings/{id}:
+    get:
+      summary: Get a role binding by ID
+      operationId: getRoleBinding
+      responses:
+        '200':
+          description: Role binding found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleBinding'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: Role binding not found
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      summary: Delete a role binding
+      operationId: deleteRoleBinding
+      responses:
+        '204':
+          description: Role binding deleted
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: Role binding not found
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '409':
+          description: Cannot delete last owner binding
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+# NEW ENDPOINT END
+components:
+  schemas:
+    # NEW SCHEMA START
+    RoleBinding:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - role_id
+            - scope
+          properties:
+            role_id:
+              type: string
+            scope:
+              type: string
+              enum:
+                - global
+                - fleet
+                - gateway
+            user_id:
+              type: string
+            fleet_id:
+              type: string
+            gateway_id:
+              type: string
+    # NEW SCHEMA END
+    # NEW SCHEMA START
+    RoleBindingList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/RoleBinding'
+    # NEW SCHEMA END
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

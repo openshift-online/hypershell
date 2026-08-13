@@ -7,6 +7,8 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -49,7 +51,12 @@ func init() {
 
 	pkgserver.RegisterRoutes("gateways", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices))
+		var ownerBinding OwnerBindingCreator
+		rbService := roleBindings.Service(envServices)
+		if rbService != nil {
+			ownerBinding = rbac.NewGatewayBootstrapper(rbService)
+		}
+		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices), ownerBinding)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)

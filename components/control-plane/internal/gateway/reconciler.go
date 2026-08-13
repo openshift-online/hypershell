@@ -130,15 +130,17 @@ func DeleteGatewayResources(
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
 		)
-		gwGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-		gwName := "gw-" + namespace
-		gwNS := gatewayIngressNamespace()
-		if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil {
-			if !k8serrors.IsNotFound(err) {
-				log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
+		if gatewayIngressName() == "" {
+			gwGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
+			gwName := "gw-" + namespace
+			gwNS := gatewayIngressNamespace()
+			if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil {
+				if !k8serrors.IsNotFound(err) {
+					log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
+				}
+			} else {
+				log.Printf("INFO deleted Gateway %s from %s", gwName, gwNS)
 			}
-		} else {
-			log.Printf("INFO deleted Gateway %s from %s", gwName, gwNS)
 		}
 	}
 
@@ -222,6 +224,18 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 	}
 	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		log.Printf("WARN failed to delete router NetworkPolicy: %v", err)
+	}
+
+	if opts.HasCertManager {
+		certGVR := schema.GroupVersionResource{
+			Group:    "cert-manager.io",
+			Version:  "v1",
+			Resource: "certificates",
+		}
+		tlsCertName := gatewayTLSSecretName() + "-" + namespace
+		if err := dynamicClient.Resource(certGVR).Namespace(gwNS).Delete(ctx, tlsCertName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete gateway TLS Certificate %s from %s: %v", tlsCertName, gwNS, err)
+		}
 	}
 
 	if opts.UpdateRouteAddress != nil {
@@ -333,6 +347,32 @@ func deployGateway(
 	}
 
 	return nil
+}
+
+func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
+	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for secret %s/%s", namespace, name)
+		case <-ticker.C:
+			_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err == nil {
+				log.Printf("INFO secret %s/%s is available", namespace, name)
+				return nil
+			}
+		}
+	}
 }
 
 func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
@@ -874,6 +914,34 @@ func gatewayIngressNamespace() string {
 	return "openshift-ingress"
 }
 
+func gatewayTLSSecretName() string {
+	if name := os.Getenv("GATEWAY_API_TLS_SECRET_NAME"); name != "" {
+		return name
+	}
+	return "grpc-gateway-certs"
+}
+
+func gatewayIngressName() string {
+	if name := os.Getenv("GATEWAY_API_GATEWAY_NAME"); name != "" {
+		return name
+	}
+	return ""
+}
+
+func gatewayTLSIssuerName() string {
+	if name := os.Getenv("GATEWAY_API_TLS_ISSUER_NAME"); name != "" {
+		return name
+	}
+	return "openshell-ca-issuer"
+}
+
+func gatewayTLSIssuerKind() string {
+	if kind := os.Getenv("GATEWAY_API_TLS_ISSUER_KIND"); kind != "" {
+		return kind
+	}
+	return "Issuer"
+}
+
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
 	routeConfig := nsConfig.Gateway.Route
@@ -893,47 +961,99 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		hostname = fmt.Sprintf("%s.%s", firstLabel, baseDomain)
 	}
 
-	gwName := "gw-" + namespace
 	gwNS := gatewayIngressNamespace()
+	sharedGwName := gatewayIngressName()
+	gwName := "gw-" + namespace
+	if sharedGwName != "" {
+		gwName = sharedGwName
+		log.Printf("INFO using shared Gateway %s/%s for tenant %s", gwNS, sharedGwName, namespace)
+	}
 
-	gw := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "gateway.networking.k8s.io/v1",
-			"kind":       "Gateway",
-			"metadata": map[string]interface{}{
-				"name":      gwName,
-				"namespace": gwNS,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-					"hypershell.redhat.io/tenant":  namespace,
+	if sharedGwName == "" {
+		tlsCertName := gatewayTLSSecretName() + "-" + namespace
+		tlsSecretName := tlsCertName
+
+		if opts.HasCertManager {
+			gwCert := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "cert-manager.io/v1",
+					"kind":       "Certificate",
+					"metadata": map[string]interface{}{
+						"name":      tlsCertName,
+						"namespace": gwNS,
+						"labels": map[string]interface{}{
+							"app.kubernetes.io/name":       "openshell",
+							"app.kubernetes.io/component":  "gateway",
+							"app.kubernetes.io/managed-by": "hypershell-control-plane",
+							"hypershell.redhat.io/managed": "true",
+							"hypershell.redhat.io/tenant":  namespace,
+						},
+					},
+					"spec": map[string]interface{}{
+						"secretName": tlsSecretName,
+						"dnsNames":   []interface{}{hostname},
+						"issuerRef": map[string]interface{}{
+							"name":  gatewayTLSIssuerName(),
+							"kind":  gatewayTLSIssuerKind(),
+							"group": "cert-manager.io",
+						},
+					},
 				},
-			},
-			"spec": map[string]interface{}{
-				"gatewayClassName": gatewayClassName,
-				"listeners": []interface{}{
-					map[string]interface{}{
-						"name":     "grpc",
-						"hostname": hostname,
-						"port":     int64(443),
-						"protocol": "HTTPS",
-						"tls": map[string]interface{}{
-							"mode": "Terminate",
-							"certificateRefs": []interface{}{
-								map[string]interface{}{
-									"name": "grpc-gateway-certs",
-									"kind": "Secret",
+			}
+			if err := reconcileResource(ctx, dynamicClient, gwCert); err != nil {
+				return fmt.Errorf("reconcile gateway TLS Certificate in %s: %w", gwNS, err)
+			}
+
+			if err := waitForSecret(ctx, clientset, gwNS, tlsSecretName, 60*time.Second); err != nil {
+				return fmt.Errorf("wait for gateway TLS Secret %s/%s: %w", gwNS, tlsSecretName, err)
+			}
+		}
+
+		gw := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "gateway.networking.k8s.io/v1",
+				"kind":       "Gateway",
+				"metadata": map[string]interface{}{
+					"name":      gwName,
+					"namespace": gwNS,
+					"labels": map[string]interface{}{
+						"app.kubernetes.io/name":       "openshell",
+						"app.kubernetes.io/component":  "gateway",
+						"app.kubernetes.io/managed-by": "hypershell-control-plane",
+						"hypershell.redhat.io/managed": "true",
+						"hypershell.redhat.io/tenant":  namespace,
+					},
+				},
+				"spec": map[string]interface{}{
+					"gatewayClassName": gatewayClassName,
+					"listeners": []interface{}{
+						map[string]interface{}{
+							"name":     "grpc",
+							"hostname": hostname,
+							"port":     int64(443),
+							"protocol": "HTTPS",
+							"tls": map[string]interface{}{
+								"mode": "Terminate",
+								"certificateRefs": []interface{}{
+									map[string]interface{}{
+										"name": tlsSecretName,
+										"kind": "Secret",
+									},
 								},
 							},
-						},
-						"allowedRoutes": map[string]interface{}{
-							"namespaces": map[string]interface{}{
-								"from": "Selector",
-								"selector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"kubernetes.io/metadata.name": namespace,
+							"allowedRoutes": map[string]interface{}{
+								"kinds": []interface{}{
+									map[string]interface{}{
+										"group": "gateway.networking.k8s.io",
+										"kind":  "GRPCRoute",
+									},
+								},
+								"namespaces": map[string]interface{}{
+									"from": "Selector",
+									"selector": map[string]interface{}{
+										"matchLabels": map[string]interface{}{
+											"kubernetes.io/metadata.name": namespace,
+										},
 									},
 								},
 							},
@@ -941,10 +1061,18 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 					},
 				},
 			},
-		},
+		}
+		if err := reconcileResource(ctx, dynamicClient, gw); err != nil {
+			return fmt.Errorf("reconcile Gateway: %w", err)
+		}
 	}
-	if err := reconcileResource(ctx, dynamicClient, gw); err != nil {
-		return fmt.Errorf("reconcile Gateway: %w", err)
+
+	parentRef := map[string]interface{}{
+		"name":      gwName,
+		"namespace": gwNS,
+	}
+	if sharedGwName != "" {
+		parentRef["sectionName"] = "grpc"
 	}
 
 	grpcRoute := &unstructured.Unstructured{
@@ -962,13 +1090,8 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 				},
 			},
 			"spec": map[string]interface{}{
-				"parentRefs": []interface{}{
-					map[string]interface{}{
-						"name":      gwName,
-						"namespace": gwNS,
-					},
-				},
-				"hostnames": []interface{}{hostname},
+				"parentRefs": []interface{}{parentRef},
+				"hostnames":  []interface{}{hostname},
 				"rules": []interface{}{
 					map[string]interface{}{
 						"backendRefs": []interface{}{
@@ -1065,7 +1188,45 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
-	// Router pods live in openshift-ingress, not the tenant namespace, so namespaceSelector is required.
+	// Build ingress rules for router/proxy → gateway traffic.
+	// On OpenShift, router pods live in the gateway namespace and can be
+	// selected by pod+namespace labels.  With cloud-provider-kind (shared
+	// gateway mode) the Envoy proxy runs outside the cluster, so traffic
+	// enters via the node, so no pod selector will match.  In that case,
+	// allow any source on the gateway ports.
+	var ingressFrom []interface{}
+	if sharedGwName == "" {
+		ingressFrom = []interface{}{
+			map[string]interface{}{
+				"namespaceSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"kubernetes.io/metadata.name": gwNS,
+					},
+				},
+				"podSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"gateway.networking.k8s.io/gateway-name": gwName,
+					},
+				},
+			},
+		}
+	}
+	ingressRule := map[string]interface{}{
+		"ports": []interface{}{
+			map[string]interface{}{
+				"port":     int64(8080),
+				"protocol": "TCP",
+			},
+			map[string]interface{}{
+				"port":     int64(8081),
+				"protocol": "TCP",
+			},
+		},
+	}
+	if len(ingressFrom) > 0 {
+		ingressRule["from"] = ingressFrom
+	}
+
 	routerNetpol := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "networking.k8s.io/v1",
@@ -1088,34 +1249,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 					},
 				},
 				"policyTypes": []interface{}{"Ingress"},
-				"ingress": []interface{}{
-					map[string]interface{}{
-						"from": []interface{}{
-							map[string]interface{}{
-								"namespaceSelector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"kubernetes.io/metadata.name": gwNS,
-									},
-								},
-								"podSelector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"gateway.networking.k8s.io/gateway-name": gwName,
-									},
-								},
-							},
-						},
-						"ports": []interface{}{
-							map[string]interface{}{
-								"port":     int64(8080),
-								"protocol": "TCP",
-							},
-							map[string]interface{}{
-								"port":     int64(8081),
-								"protocol": "TCP",
-							},
-						},
-					},
-				},
+				"ingress":     []interface{}{ingressRule},
 			},
 		},
 	}

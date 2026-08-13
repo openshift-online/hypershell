@@ -77,6 +77,7 @@ describe("web-console BFF", () => {
       logLevel: "silent",
       nodeEnv: "test",
       port: 8080,
+      sessionTtlSeconds: 28_800,
       staticRoot,
     };
     app = await buildApp(config);

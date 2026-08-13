@@ -12,6 +12,10 @@ Data model, API, control plane, gateway lifecycle, fleet management.
 
 Web-console architecture, technology choices, browser/server boundaries, and delivery requirements.
 
+### [Security](security/)
+
+RBAC enforcement, authentication, authorization.
+
 ### [Standards](standards/)
 
 Cross-cutting engineering constraints by component.
@@ -31,11 +35,15 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/openshell-gateway-tls.spec.md` | platform | cert-manager, TLS certificates, SAN management | CP | openshell-gateway |
 | `platform/openshell-gateway-routing.spec.md` | platform | GRPCRoute, BackendTLSPolicy, NetworkPolicy | CP | openshell-gateway, openshell-gateway-tls |
 | `platform/openshell-gateway-oidc.spec.md` | platform | OIDC authentication, gateway.toml injection | CP | openshell-gateway, openshell-gateway-tls |
+| `platform/openshell-gateway-credentials.spec.md` | platform | Credential storage drivers, KEK conditional provisioning | CP | openshell-gateway, openshell-gateway-database |
+| `platform/openshell-gateway-secret-rotation.spec.md` | platform | Secret rotation: DB password, KEK, TLS certificates | CP | openshell-gateway-database, openshell-gateway-credentials, openshell-gateway-tls |
 | `web-console/architecture.spec.md` | web-console | Web console, BFF, browser session, UI routes | WEB, SDK, API | data-model, security, UI standards |
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
+| `security/rbac-enforcement.spec.md` | security | User, Role, RoleBinding, RBAC middleware | API | data-model |
 | `standards/security/security.spec.md` | standards | - | ALL | - |
 | `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |
+| `platform/oidc-integration.spec.md` | platform | API JWT validation, BFF OIDC session, IdP client config, Kind opt-in | API, WEB, CP | local-development, openshell-gateway-oidc, web-console/architecture |
 | `platform/e2e-testing.spec.md` | platform | Infra drivers, e2e test suite, CI workflow, deploy overlays | ALL | local-development, control-plane, openshell-gateway-routing |
 | `standards/ui/foundations.spec.md` | standards | UI foundations | WEB | - |
 | `standards/ui/brand-color.spec.md` | standards | Red Hat brand color | WEB | foundations, accessibility |

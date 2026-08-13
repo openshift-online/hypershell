@@ -20,6 +20,7 @@
   "dependencies": {
     "@fastify/compress": "9.1.0",
     "@fastify/helmet": "13.1.0",
+    "@fastify/secure-session": "8.3.0",
     "@fastify/static": "10.1.2",
     "fastify": "5.10.0",
     "openid-client": "6.8.4",

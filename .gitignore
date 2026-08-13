@@ -32,6 +32,9 @@ apm_modules/
 .claude/commands
 .claude/skills
 
+# Claude Code working state
+.claude/
+
 # Kind swap tracking
 .kind-swaps
 

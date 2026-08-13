@@ -45,8 +45,8 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-11
-**Spec corpus**: 22 specs across 4 domains (platform, web-console, standards/platform, standards/ui)
+**Last analyzed**: 2026-08-12
+**Spec corpus**: 26 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
 **Codebase commit**: working tree
 
 ### Coverage Summary
@@ -61,9 +61,12 @@ skills/
 | Platform - Gateway OIDC | 1 | 7 | 4 | 1 | 2 | 0 | 64% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
-| Web Console - Architecture | 1 | 28 | 18 | 8 | 2 | 0 | 79% |
+| Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
+| Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
+| Security - RBAC Enforcement | 1 | 13 | 9 | 2 | 0 | 2 | 79% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **22** | **137** | **90** | **20** | **26** | **1** | **73%** |
+| **TOTAL** | **26** | **165** | **120** | **20** | **26** | **3** | **78%** |
 
 ### Spec Dependency Order
 
@@ -75,6 +78,7 @@ Layer 3:          openshell-gateway-database, openshell-gateway-tls
 Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
 Layer 5:          openshell-gateway-routing (depends on TLS for BackendTLSPolicy)
 Layer 6:          local-development (depends on all platform specs)
+Layer 1.5:        security/rbac-enforcement (depends on data-model)
 Layer 7:          web-console/architecture (depends on data-model, security, UI standards)
 ```
 
@@ -216,9 +220,9 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | WEB-PKG-04 | Reusable gateway management UI package | Present | - | `packages/gateway-management-ui/` | - |
 | WEB-SDK-01 | Browser-compatible SDK | Present | - | `components/sdk-typescript/` | - |
 | WEB-AUTH-00 | No-auth dev mode | Present | - | `vite.config.ts` | - |
-| WEB-AUTH-01 | OIDC BFF | Partial | `openid-client` declared; endpoints not implemented | `bff/src/app.ts` | Future |
-| WEB-AUTH-02 | Session + CSRF protection | Missing | No session management | - | Future |
-| WEB-AUTH-03 | Browser session contract | Missing | No session resource endpoint | - | Future |
+| WEB-AUTH-01 | OIDC BFF | Present | Auth code flow with PKCE via openid-client v6; /auth/login, /auth/callback, /auth/logout, /auth/session endpoints; proxy injects Bearer token | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
+| WEB-AUTH-02 | Session + CSRF protection | Present | @fastify/secure-session encrypted cookies; Origin header CSRF validation on mutating requests; session rotation on login | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
+| WEB-AUTH-03 | Browser session contract | Present | GET /auth/session returns display identity, roles, expiry; no tokens exposed | `bff/src/auth.ts` | OIDC ✅ |
 | WEB-BFF-01 | Same-origin static + API BFF | Present | - | `bff/src/app.ts` | - |
 | WEB-DATA-01 | Server-state ownership (TanStack Query) | Present | - | `root.tsx`, `gateway-data.ts` | - |
 | WEB-DATA-02 | URL and local state | Partial | Routes encode ID; pagination/search TBD | `routes.ts` | - |
@@ -235,6 +239,52 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | WEB-DEPLOY-02 | Assets + runtime config | Present | - | `vite.config.ts`, `bff/src/config.ts` | - |
 | WEB-SEC-01 | Browser security headers | Present | - | `bff/src/app.ts` (helmet) | - |
 | WEB-OBS-01 | Web performance signals | Partial | `web-vitals` declared; wiring TBD | `domain-probes/` | - |
+
+### e2e-testing.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| E2E-1 | Infra Driver Abstraction | Present | tests/e2e/ with driver selection via E2E_INFRA_DRIVER | `tests/e2e/e2e-openshell.sh` | E2E-W2 ✅ |
+| E2E-2a | discover_api_host (Kind) | Present | HTTPRoute lookup + port-forward fallback | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2b | discover_gateway_endpoint (Kind) | Present | GRPCRoute hostname + domain | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2c | get_cluster_domain (Kind) | Present | Returns gw.localhost | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2d | get_cli_binary (Kind) | Present | Returns kubectl | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-2e | wait_for_gateway_route (Kind) | Present | Polls Gateway Programmed + GRPCRoute Accepted | `tests/e2e/drivers/kind.sh` | E2E-W2 ✅ |
+| E2E-3 | E2E Test Suite Coverage (6 areas) | Present | Infra-agnostic version in tests/e2e/ | `tests/e2e/e2e-openshell.sh` | E2E-W2 ✅ |
+| E2E-4 | CI E2E Workflow | Present | GitHub Actions workflow with detect-changes, Kind cluster, summary gate | `.github/workflows/e2e.yml` | E2E-W3 ✅ |
+| E2E-5 | Konflux Image Consumption | Present | IMAGE_TAG override in up.sh via kubectl set image; Konflux digest wiring is follow-up | `scripts/kind/up.sh` | E2E-W1 ✅ |
+| E2E-6 | CI Artifact Collection | Present | Pod logs, events, describes uploaded on failure only | `.github/workflows/e2e.yml` | E2E-W3 ✅ |
+| E2E-7 | Deploy Base/Overlay Structure | Present | deploy/base/ + deploy/kind/ overlay + deploy/openshift/ stub | `deploy/base/`, `deploy/kind/kustomization.yaml` | E2E-W1 ✅ |
+| E2E-8 | Backward Compatibility | Present | make kind-up unchanged; IMAGE_TAG now overrides initial deploy images | `scripts/kind/up.sh` | E2E-W1 ✅ |
+
+### oidc-integration.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| OI-1 | API Server JWT Validation (`development_oidc` env) | Present | New environment with JWT enabled, JWKS config, gRPC bypass methods | `environments/e_development_oidc.go`, `environments.go` | OIDC ✅ |
+| OI-2 | BFF OIDC Authorization Code Flow | Present | Auth code + PKCE, encrypted cookies, token refresh, RP-initiated logout | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
+| OI-3 | BFF Session Security | Present | @fastify/secure-session, CSRF Origin validation, session rotation | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
+| OI-4 | BFF Browser Session Contract | Present | GET /auth/session with identity, roles, expiry; no tokens | `bff/src/auth.ts` | OIDC ✅ |
+| OI-5 | Opt-In Kind OIDC | Present | KIND_ENABLE_OIDC wired through Makefile/lib.sh/up.sh/status.sh | `scripts/kind/`, `Makefile` | OIDC ✅ |
+| OI-6 | Identity Provider Client Security | Partial | redirectUris restricted but port wildcard pattern not supported by Keycloak; needs explicit port URIs | `keycloak.yaml` | Follow-up |
+
+### rbac-enforcement.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; controlled by `RBAC_ENFORCE` env var | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-2 | Resource List Filtering | Partial | Authz middleware blocks unauthorized requests; per-query DAO filtering deferred | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go` | WR1 ✅, WR3 ✅ |
+| RBAC-4 | Bootstrap via Fleet Creation | Present | `fleetHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/fleets/handler.go`, `pkg/rbac/fleet_bootstrap.go` | WR3 ✅ |
+| RBAC-5 | Platform Admin Bootstrap | Deferred | First platform:admin created via DB migration; no CLI command by design | - | Future |
+| RBAC-6 | RoleBinding Mutation Authorization | Present | Strictly-below hierarchy enforcement on Create; advisory-locked last-owner protection on Delete | `plugins/roleBindings/service.go` | WR2 ✅, WR8 ✅ |
+| RBAC-7 | Gateway OIDC Role Bridge | Deferred | CP does not propagate RBAC role changes to gateway OIDC config | - | Future |
+| RBAC-8 | Auth-Exempt Endpoints | Present | `isExemptEndpoint` exempts POST /fleets, GET /roles, GET /roles/{id}, GET /metadata, GET /openapi | `pkg/rbac/authorization.go` | WR4 ✅, WR8 ✅ |
+| RBAC-9 | gRPC Authorization | Present | `isGRPCAuthorized` evaluates bindings against method type (Get/List/Watch=read, Create/Update=write, Delete=owner-only); lazy init via `RegisterPostAuthGRPC*Interceptor` | `pkg/rbac/grpc_interceptor.go`, `plugins/rbac/grpc_init.go` | WR6 ✅, WR8 ✅ |
+| RBAC-10 | Service Caller Bypass | Present | Authz middleware checks for service caller (ClientID-based) and bypasses RBAC | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-11 | Error Response Opacity | Present | Singleton GETs return 404 when unauthorized; mutations return generic 403 | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-12 | Production Rollout | Present | `RBAC_ENFORCE=true` env var enables enforcement; separate from framework `enable-authz` | `plugins/rbac/plugin.go` | WR4 ✅ |
+| RBAC-13 | Integration Test Coverage | Present | Unit tests: 18 authorization + 6 gRPC (pkg/rbac/). Integration tests: roles (4), roleBindings (12 including hierarchy enforcement, scope FK validation, last-owner protection) | `pkg/rbac/*_test.go`, `plugins/roles/integration_test.go`, `plugins/roleBindings/integration_test.go` | WR7 ✅, WR8 ✅ |
 
 ### e2e-openshell.sh (Test Alignment)
 
@@ -324,10 +374,56 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 8. PATCH `routeAddress` field back to API server via gRPC
 9. Verify: `go build ./...`, `go vet ./...`
 
+### Wave E2E-W1: Deploy Base/Overlay + Image Overrides ✅
+
+**Scope:** E2E-5, E2E-7, E2E-8 | **Status:** Complete
+
+Moved shared manifests to `deploy/base/`, created kustomize overlays for Kind and OpenShift, added IMAGE_TAG override support in `up.sh`, verified `kustomize build` for all overlays.
+
+### Wave E2E-W2: E2E Test Framework + Kind Driver ✅
+
+**Scope:** E2E-1, E2E-2a-e, E2E-3 | **Status:** Complete
+
+Created `tests/e2e/lib.sh` (shared utilities), `tests/e2e/drivers/kind.sh` (5 driver functions), `tests/e2e/e2e-openshell.sh` (infra-agnostic test adapted from `components/pr-test/e2e-openshell.sh`). Driver validation at startup with available driver listing.
+
+### Wave E2E-W3: CI E2E Workflow ✅
+
+**Scope:** E2E-4, E2E-5, E2E-6 | **Status:** Complete
+
+Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurrency groups, component detection (api_server, control_plane, e2e, pr_test), Kind cluster creation, e2e test execution, failure-only diagnostic artifacts, 20-min timeout, summary gate. Added `e2e` component to `.github/component-paths.json`.
+
+### Wave R1-R8: RBAC COMPLETED
+
+| Wave | Scope | Status |
+|------|-------|--------|
+| WR1 | Data Model Foundation (users, roles, roleBindings plugins, 6 built-in roles) | ✅ Complete |
+| WR2 | API Surface (handlers, presenters, routes for roles + roleBindings) | ✅ Complete |
+| WR3 | User Auto-Provisioning + Fleet Bootstrap (middleware + fleet:owner binding) | ✅ Complete |
+| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement flag) | ✅ Complete |
+| WR6 | gRPC Authorization (unary + stream interceptors with lazy init) | ✅ Complete |
+| WR7 | Integration Tests (roles: 4 tests, roleBindings: 7 tests) | ✅ Complete |
+| WR8 | Security Hardening (12 PR review findings resolved) | ✅ Complete |
+
+**Wave R1 summary:** Created `plugins/users/`, `plugins/roles/`, `plugins/roleBindings/` plugins with models, migrations, DAOs, services. Seeded 6 built-in roles with permissions JSONB and hierarchy levels (0=platform:admin, 1=fleet:owner, 2=fleet:editor/platform:viewer, 3=fleet:viewer/gateway:viewer).
+
+**Wave R2 summary:** Added OpenAPI specs (`openapi.roles.yaml`, `openapi.role_bindings.yaml`), handlers (roles: read-only List/Get; roleBindings: Create/List/Get/Delete), presenters, route registration. Updated openapi_embed_test.go operation count from 31 to 37.
+
+**Wave R3 summary:** `UserProvisioningMiddleware` upserts User from JWT claims (username, email, name) on every authenticated request. `fleetBootstrapper.CreateOwnerBinding` creates fleet:owner RoleBinding atomically in same DB transaction as fleet creation. Central `plugins/rbac/plugin.go` wires middleware on apiV1Router.
+
+**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. `RBAC_ENFORCE=true` env var controls enforcement.
+
+**Wave R6 summary:** `RBACUnaryInterceptor` and `RBACStreamInterceptor` apply same scope-aware evaluation to gRPC calls. `lazyRBACInterceptor` with `sync.Once` resolves services on first call (registered at init time via `RegisterPostAuthGRPC*Interceptor`). `provisionUserForGRPC` extracts JWT payload and provisions user before authorization.
+
+**Wave R7 summary:** Integration tests for roles (TestRoleListReturnsBuiltInRoles, TestRoleGetById, TestRoleGetNotFound, TestRoleListUnauthenticated) and roleBindings (TestRoleList, TestRoleGet, TestRoleBindingCreate, TestRoleBindingDelete, TestRoleBindingList, TestRoleBindingScopeValidation, TestFleetCreationCreatesOwnerBinding).
+
+**Wave R8 summary:** Resolved 12 PR review security findings. Blockers: (1) gRPC interceptor now evaluates bindings against method type via `isGRPCAuthorized` instead of blanket pass-through; (2) RoleBinding Create enforces strictly-below hierarchy with platform:admin exception via `validateHierarchy`. Majors: (3) `matchesFleetRole` fixed `fleet:editor` DELETE bug (`|| true` removed); (4) gateway-scoped bindings now compare `b.GatewayID` against request `gatewayID`; (5) `isExemptEndpoint` now exempts GET /roles and GET /roles/{id}; (6) gateway scope validation rejects `fleet_id` (exactly one FK); (7) last-owner protection uses `NewNonBlockingLock` advisory lock to prevent races. Verified: fleet owner bootstrap IS atomic via framework `TransactionMiddleware`. Added 24 unit tests (`pkg/rbac/`) + 5 new integration tests. All admin seeding references removed from spec and RECONCILE.md.
+
 ### Future (Deferred)
 
 | # | Item | Domain | Reason |
 |---|------|--------|--------|
+| RBAC-5 | Platform Admin Bootstrap | Security | First admin created via DB migration; no CLI by design |
+| RBAC-7 | Gateway OIDC Role Bridge | Security | Depends on CP + Keycloak integration design |
 | G2 | Shared Kustomize Library + CLI | Gateway | Architectural; needs design |
 | G17 | SSH Payload Delivery | Gateway | New feature; needs design |
 | D4 | Manual Credential Rotation | DB | Operational; not blocking |
@@ -341,7 +437,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
 | CP-5 | Multi-cluster client pool | CP | Architecture: per-cluster kubeconfig |
 | LD-* | Local development (most items) | Local Dev | Spec recently authored; MVP first |
-| WEB-AUTH-* | OIDC BFF + session + CSRF | Web Console | After no-auth dev mode |
+| WEB-AUTH-* | OIDC BFF + session + CSRF | Web Console | Implemented in OIDC wave; 3 minor follow-ups remain |
 
 ### Cross-Cutting Findings
 
@@ -369,3 +465,9 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | 2026-08-07 | working tree | Executed Wave 5: Gateway Proto Schema + API Fields | 60% | 6 provisioning fields added to proto/OpenAPI/model/migration; CP reconciler populates GatewayConfig from proto; ExternalSecretRef added to DatabaseConfig |
 | 2026-08-07 | working tree | Executed Wave 6: Gateway Deletion + Cleanup + Route Removal | 60% | DeleteGatewayResources() with label-based cleanup; namespace cache for DELETED events; per-tenant ClusterRoleBinding; deleteGatewayAPIResources() for route disable; ownerReferences deferred |
 | 2026-08-11 | working tree | Local-dev spec reconciliation | 73% | KIND_DB_IMAGE env var wired through Makefile/lib.sh/controller.yaml; spec updated: Gateway creation is user-initiated (not automatic in kind-up); DEVELOPMENT.md env var table updated; gap table refreshed - 23/25 requirements present (was 3/24); only multi-namespace deployments remain |
+| 2026-08-11 | 049d1a8 | Gap analysis for e2e-testing.spec.md | 58% | New spec: 8 requirements (0 present, 1 partial, 7 missing); 3 waves planned (deploy restructuring, test framework, CI workflow) |
+| 2026-08-11 | working tree | Executed E2E waves W1-W3 | 75% | Deploy base/overlay restructuring, e2e test framework with Kind driver, CI e2e workflow; all 8 requirements now present |
+| 2026-08-11 | 458c359 | OIDC integration spec authored | 75% | Platform OIDC integration spec covering API JWT, BFF OIDC, IdP config, Kind opt-in |
+| 2026-08-11 | working tree | RBAC gap analysis | 63% | New spec `security/rbac-enforcement.spec.md` analyzed; 13 requirements, all missing; 7 RBAC waves planned (R1-R7); Gateway OIDC Role Bridge deferred |
+| 2026-08-11 | working tree | Executed Waves R1-R4,R6-R7: RBAC Enforcement | 72% | Full RBAC implementation: 3 new plugins (users, roles, roleBindings), user auto-provisioning middleware, fleet:owner bootstrap, scope-aware HTTP+gRPC authorization, 11 integration tests. 9 present, 2 partial (list filtering, escalation prevention), 2 deferred (admin bootstrap via DB migration, OIDC role bridge) |
+| 2026-08-12 | ed3725a | OIDC reconciliation complete | 77% | API server development_oidc env; BFF auth code flow with PKCE (22 tests); CP client_credentials TokenProvider + gRPC PerRPCCredentials; KIND_ENABLE_OIDC opt-in; Keycloak hypershell-control-plane client; verified end-to-end on Kind (8/8 checks pass) |

@@ -28,7 +28,7 @@ EXACT_NPM_VERSION_RE = re.compile(
 )
 ALLOWLIST_PATH = "dependency-age-allowlist.json"
 TOOLS_PATH = "dependency-age-tools.json"
-EXCLUDED_PARTS = {".git", "generated", "node_modules", "tmp", "vendor"}
+EXCLUDED_PARTS = {".claude", ".git", "generated", "node_modules", "tmp", "vendor"}
 
 
 def parse_time(value):

@@ -1,0 +1,83 @@
+package roleBindings
+
+import (
+	"context"
+
+	"gorm.io/gorm/clause"
+
+	"github.com/openshift-online/rh-trex-ai/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/pkg/db"
+)
+
+type RoleBindingDao interface {
+	Get(ctx context.Context, id string) (*RoleBinding, error)
+	Create(ctx context.Context, rb *RoleBinding) (*RoleBinding, error)
+	Delete(ctx context.Context, id string) error
+	FindByUserID(ctx context.Context, userID string) (RoleBindingList, error)
+	FindByIDs(ctx context.Context, ids []string) (RoleBindingList, error)
+	All(ctx context.Context) (RoleBindingList, error)
+}
+
+var _ RoleBindingDao = &sqlRoleBindingDao{}
+
+type sqlRoleBindingDao struct {
+	sessionFactory *db.SessionFactory
+}
+
+func NewRoleBindingDao(sessionFactory *db.SessionFactory) RoleBindingDao {
+	return &sqlRoleBindingDao{sessionFactory: sessionFactory}
+}
+
+func (d *sqlRoleBindingDao) Get(ctx context.Context, id string) (*RoleBinding, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var rb RoleBinding
+	if err := g2.Take(&rb, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &rb, nil
+}
+
+func (d *sqlRoleBindingDao) Create(ctx context.Context, rb *RoleBinding) (*RoleBinding, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	if err := g2.Omit(clause.Associations).Create(rb).Error; err != nil {
+		db.MarkForRollback(ctx, err)
+		return nil, err
+	}
+	return rb, nil
+}
+
+func (d *sqlRoleBindingDao) Delete(ctx context.Context, id string) error {
+	g2 := (*d.sessionFactory).New(ctx)
+	if err := g2.Omit(clause.Associations).Delete(&RoleBinding{Meta: api.Meta{ID: id}}).Error; err != nil {
+		db.MarkForRollback(ctx, err)
+		return err
+	}
+	return nil
+}
+
+func (d *sqlRoleBindingDao) FindByUserID(ctx context.Context, userID string) (RoleBindingList, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	bindings := RoleBindingList{}
+	if err := g2.Where("user_id = ?", userID).Find(&bindings).Error; err != nil {
+		return nil, err
+	}
+	return bindings, nil
+}
+
+func (d *sqlRoleBindingDao) FindByIDs(ctx context.Context, ids []string) (RoleBindingList, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	bindings := RoleBindingList{}
+	if err := g2.Where("id in (?)", ids).Find(&bindings).Error; err != nil {
+		return nil, err
+	}
+	return bindings, nil
+}
+
+func (d *sqlRoleBindingDao) All(ctx context.Context) (RoleBindingList, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	bindings := RoleBindingList{}
+	if err := g2.Find(&bindings).Error; err != nil {
+		return nil, err
+	}
+	return bindings, nil
+}

@@ -70,26 +70,52 @@ swap_up() {
       fi
     done
 
-    # Discover the host IP reachable from containers.
-    # Docker Desktop and Podman on macOS/Windows run containers in a Linux
-    # VM, so the bridge gateway is internal to that VM.  Both provide a
-    # special hostname that resolves to an IP routing back to the real host.
-    # On native Linux, prefer the Kind network's bridge gateway.
+    # Discover a host IP reachable from inside pods.
+    # On Linux, the docker0/podman0 bridge is reliably reachable from pods
+    # even in rootless Podman (the Kind network gateway is not).
+    # On macOS/Windows, use the special host.docker.internal alias.
     HOST_IP=""
-    if [[ "$(uname -s)" == "Linux" ]] && [[ -n "${KIND_ENGINE}" ]]; then
+    case "$(uname -s)" in
+      Linux)
+        for iface in docker0 podman0 cni-podman0; do
+          HOST_IP=$(ip -4 addr show "${iface}" 2>/dev/null | grep -oP 'inet \K[0-9.]+' || true)
+          if [[ -n "${HOST_IP}" ]]; then break; fi
+        done
+        ;;
+      Darwin)
+        LOOKUP_ENGINE="${KIND_ENGINE:-${CONTAINER_ENGINE}}"
+        HOST_IP=$("${LOOKUP_ENGINE}" run --rm alpine getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || true)
+        ;;
+    esac
+    # Fallback: Kind network bridge gateway
+    if [[ -z "${HOST_IP}" ]] && [[ -n "${KIND_ENGINE}" ]]; then
       HOST_IP=$("${KIND_ENGINE}" inspect "${KIND_CLUSTER_NAME}-control-plane" \
         -f '{{.NetworkSettings.Networks.kind.Gateway}}' 2>/dev/null || true)
     fi
     if [[ -z "${HOST_IP}" ]]; then
-      LOOKUP_ENGINE="${KIND_ENGINE:-${CONTAINER_ENGINE}}"
-      for host_alias in host.docker.internal host.containers.internal; do
-        HOST_IP=$("${LOOKUP_ENGINE}" run --rm alpine getent hosts "${host_alias}" 2>/dev/null | awk '{print $1}' || true)
-        if [[ -n "${HOST_IP}" ]]; then break; fi
-      done
-    fi
-    if [[ -z "${HOST_IP}" ]]; then
-      error "Could not determine host IP from Kind network"
+      error "Could not determine host IP reachable from Kind cluster"
       exit 1
+    fi
+
+    # Pull OIDC env vars from the deployment so the local dev server has them.
+    DEPLOY_ENV=$(kube get deployment "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" \
+      -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' 2>/dev/null || true)
+    for var in OIDC_ISSUER OIDC_CLIENT_ID OIDC_REDIRECT_URI OIDC_POST_LOGOUT_REDIRECT_URI NODE_TLS_REJECT_UNAUTHORIZED; do
+      val=$(echo "${DEPLOY_ENV}" | grep "^${var}=" | head -1 | cut -d= -f2- || true)
+      if [[ -n "${val}" ]]; then
+        export "${var}=${val}"
+      fi
+    done
+    # SESSION_SECRET is stored in a K8s Secret, not inline.
+    if echo "${DEPLOY_ENV}" | grep -q "^SESSION_SECRET=" 2>/dev/null; then
+      SECRET_VAL=$(kube get secret hypershell-oidc-session -n "${KIND_NAMESPACE}" \
+        -o jsonpath='{.data.session-secret}' 2>/dev/null | base64 -d || true)
+      if [[ -n "${SECRET_VAL}" ]]; then
+        export SESSION_SECRET="${SECRET_VAL}"
+      fi
+    fi
+    if [[ -n "${OIDC_ISSUER:-}" ]]; then
+      info "OIDC env vars loaded from deployment"
     fi
 
     info "Scaling down in-cluster web console..."
@@ -128,7 +154,7 @@ EOF
       wait "${API_PF_PID}" 2>/dev/null || true
       info "Restoring in-cluster web console..."
       kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-      kube apply -f "${REPO_ROOT}/deploy/kind/web-console.yaml" || true
+      kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml" || true
       kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" || true
       info "Waiting for web console to become available..."
       kube wait --for=condition=available "deployment/${DEPLOYMENT}" \
@@ -139,6 +165,12 @@ EOF
     trap cleanup_hot_reload EXIT
     # Let pnpm receive SIGINT from the terminal; bash stays alive to run cleanup.
     trap : INT TERM HUP
+
+    if lsof -i ":${DEV_PORT}" >/dev/null 2>&1; then
+      error "Port ${DEV_PORT} is already in use. Kill the process and try again:"
+      error "  kill \$(lsof -ti :${DEV_PORT})"
+      exit 1
+    fi
 
     echo ""
     success "Web Console: https://${CONSOLE_HOSTNAME}"
@@ -151,7 +183,7 @@ EOF
       pnpm --filter @openshift-online/hypershell-sdk build && \
       pnpm --filter @openshift-online/hypershell-domain-probes build && \
       pnpm --filter @openshift-online/hypershell-gateway-management-ui build && \
-      DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev 2>/dev/null) || true
+      DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev) || true
     exit 0
   fi
 
@@ -195,7 +227,7 @@ swap_down() {
 
   if [[ "${COMPONENT}" == "web-console" ]]; then
     kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-    kube apply -f deploy/kind/web-console.yaml
+    kube apply -f deploy/base/web-console.yaml
   else
     local set_image_args=""
     for container in ${CONTAINERS}; do

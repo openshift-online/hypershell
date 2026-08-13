@@ -1,0 +1,274 @@
+name: E2E
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
+  BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+  KONFLUX_CHECKS: >-
+    hypershell-api-server-main-on-pull-request
+    hypershell-control-plane-main-on-pull-request
+    hypershell-web-console-main-on-pull-request
+
+jobs:
+  resolve-images:
+    name: Resolve component images
+    runs-on: ubuntu-24.04
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      api_server_image: ${{ steps.resolve.outputs.api_server_image }}
+      control_plane_image: ${{ steps.resolve.outputs.control_plane_image }}
+      web_console_image: ${{ steps.resolve.outputs.web_console_image }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed components
+        id: detect
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/detect-components.sh
+
+      - name: Resolve images
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DETECT_API_SERVER: ${{ steps.detect.outputs.api_server }}
+          DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
+          DETECT_WEB_CONSOLE: ${{ steps.detect.outputs.web_console }}
+          DETECT_E2E: ${{ steps.detect.outputs.e2e }}
+          DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
+        run: |
+          baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
+          baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
+          baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
+
+          case "${EVENT_NAME}" in
+            pull_request)
+              api_changed="${DETECT_API_SERVER:-false}"
+              cp_changed="${DETECT_CONTROL_PLANE:-false}"
+              wc_changed="${DETECT_WEB_CONSOLE:-false}"
+              e2e_changed="${DETECT_E2E:-false}"
+              pr_test_changed="${DETECT_PR_TEST:-false}"
+
+              e2e_relevant=false
+              if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || \
+                    "${e2e_changed}" == "true" || "${pr_test_changed}" == "true" ]]; then
+                e2e_relevant=true
+              fi
+
+              if [[ "${e2e_relevant}" != "true" ]]; then
+                echo "No e2e-relevant components changed"
+                echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              # Determine which components need Konflux-built images.
+              # detect-components uses broad paths (includes Makefile, .github/,
+              # etc.) which is correct for "should we re-run e2e" but NOT for
+              # "will Konflux build an image".  Konflux only triggers on files
+              # under components/<name>/ -- check the actual diff.
+              base_sha="${{ github.event.pull_request.base.sha }}"
+              need_konflux=false
+              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/api-server/'; then need_konflux=true; fi
+              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/control-plane/'; then need_konflux=true; fi
+              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/web-console/'; then need_konflux=true; fi
+
+              if [[ "${need_konflux}" != "true" ]]; then
+                echo "No source components changed -- running with baseline images"
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+
+              # Source components changed -- poll for Konflux builds to complete.
+              # Konflux reports via GitHub Check Runs; poll until all expected
+              # checks are completed (success) or we time out.
+              echo "Source components changed -- waiting for Konflux builds..."
+              POLL_INTERVAL=30
+              POLL_TIMEOUT=1200
+              elapsed=0
+
+              while [[ $elapsed -lt $POLL_TIMEOUT ]]; do
+                all_checks=$(gh api "repos/${{ github.repository }}/commits/${PR_HEAD_SHA}/check-runs" \
+                  --jq '.check_runs[] | select(.name | test("hypershell-.*-on-pull-request$")) | {name: .name, status: .status, conclusion: .conclusion}' 2>/dev/null || true)
+
+                if [[ -z "${all_checks}" ]]; then
+                  echo "No Konflux checks found yet (${elapsed}s elapsed)..."
+                  sleep "${POLL_INTERVAL}"
+                  elapsed=$((elapsed + POLL_INTERVAL))
+                  continue
+                fi
+
+                # Check for any still-running checks
+                pending=$(echo "${all_checks}" | jq -r 'select(.status != "completed") | .name' 2>/dev/null || true)
+                if [[ -n "${pending}" ]]; then
+                  echo "Konflux checks still running (${elapsed}s): ${pending}"
+                  sleep "${POLL_INTERVAL}"
+                  elapsed=$((elapsed + POLL_INTERVAL))
+                  continue
+                fi
+
+                # All checks completed -- check for failures
+                failed=$(echo "${all_checks}" | jq -r 'select(.conclusion != "success") | .name' 2>/dev/null || true)
+                if [[ -n "${failed}" ]]; then
+                  echo "::error::Konflux builds failed: ${failed}"
+                  echo "should_run=false" >> "${GITHUB_OUTPUT}"
+                  exit 0
+                fi
+
+                # All Konflux checks passed -- resolve per-component images
+                echo "All Konflux checks passed"
+                tag="on-pr-${PR_HEAD_SHA}"
+                api_img="${baseline_api}"
+                cp_img="${baseline_cp}"
+                wc_img="${baseline_wc}"
+
+                if echo "${all_checks}" | jq -e 'select(.name | endswith("hypershell-api-server-main-on-pull-request"))' >/dev/null 2>&1; then
+                  api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+                  echo "  api-server -> ${api_img}"
+                fi
+                if echo "${all_checks}" | jq -e 'select(.name | endswith("hypershell-control-plane-main-on-pull-request"))' >/dev/null 2>&1; then
+                  cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+                  echo "  control-plane -> ${cp_img}"
+                fi
+                if echo "${all_checks}" | jq -e 'select(.name | endswith("hypershell-web-console-main-on-pull-request"))' >/dev/null 2>&1; then
+                  wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+                  echo "  web-console -> ${wc_img}"
+                fi
+
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
+                exit 0
+              done
+
+              echo "::error::Timed out waiting for Konflux builds (${POLL_TIMEOUT}s)"
+              echo "should_run=false" >> "${GITHUB_OUTPUT}"
+              ;;
+
+            *)
+              # push, merge_group, workflow_dispatch -- use baselines
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+              ;;
+          esac
+
+  e2e-kind:
+    name: E2E tests (Kind)
+    needs: resolve-images
+    if: needs.resolve-images.outputs.should_run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/control-plane/go.mod
+          cache-dependency-path: components/control-plane/go.sum
+
+      - name: Install Kind
+        run: |
+          go install sigs.k8s.io/kind@v0.32.0
+          kind version
+
+      - name: Install openshell CLI
+        run: |
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
+          openshell --version
+
+      - name: Create Kind cluster
+        env:
+          API_SERVER_IMAGE: ${{ needs.resolve-images.outputs.api_server_image }}
+          CONTROL_PLANE_IMAGE: ${{ needs.resolve-images.outputs.control_plane_image }}
+          WEB_CONSOLE_IMAGE: ${{ needs.resolve-images.outputs.web_console_image }}
+        run: make kind-up
+
+      - name: Run e2e tests
+        env:
+          E2E_INFRA_DRIVER: kind
+          E2E_PROVISION_TIMEOUT: "300"
+          E2E_SANDBOX_TIMEOUT: "180"
+        run: bash tests/e2e/e2e-openshell.sh
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p e2e-diagnostics
+          echo "=== Pod descriptions ===" > e2e-diagnostics/pod-describes.txt
+          kubectl describe pods -n hypershell-system >> e2e-diagnostics/pod-describes.txt 2>&1 || true
+          echo "=== Pod logs ===" > e2e-diagnostics/pod-logs.txt
+          kubectl logs --all-containers --prefix -l app.kubernetes.io/name=hypershell -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          kubectl logs --all-containers --prefix -l app=hypershell-api-server -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          kubectl logs --all-containers --prefix -l app=hypershell-controller -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          kubectl logs --all-containers --prefix -l app=hypershell-web-console -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
+          echo "=== Events ===" > e2e-diagnostics/events.txt
+          kubectl get events --sort-by=.lastTimestamp -n hypershell-system >> e2e-diagnostics/events.txt 2>&1 || true
+          echo "=== All pods ===" > e2e-diagnostics/pods.txt
+          kubectl get pods -A >> e2e-diagnostics/pods.txt 2>&1 || true
+          echo "=== Keycloak logs ===" > e2e-diagnostics/keycloak-logs.txt
+          kubectl logs --all-containers --prefix -l app=keycloak -n keycloak --tail=100 >> e2e-diagnostics/keycloak-logs.txt 2>&1 || true
+          echo "=== Gateway API resources ===" > e2e-diagnostics/gateway-api.txt
+          kubectl get gateways,grpcroutes,httproutes -A -o wide >> e2e-diagnostics/gateway-api.txt 2>&1 || true
+          echo "=== Openshell namespaces ===" >> e2e-diagnostics/gateway-api.txt
+          for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
+            echo "--- $ns ---" >> e2e-diagnostics/gateway-api.txt
+            kubectl get pods,svc,deployments -n "${ns##*/}" >> e2e-diagnostics/gateway-api.txt 2>&1 || true
+            kubectl logs --all-containers --prefix -l app.kubernetes.io/name=openshell -n "${ns##*/}" --tail=50 >> e2e-diagnostics/gateway-api.txt 2>&1 || true
+          done
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-diagnostics
+          path: e2e-diagnostics/
+          retention-days: 7
+
+  summary:
+    name: E2E CI gate
+    if: ${{ always() && !cancelled() }}
+    needs:
+      - resolve-images
+      - e2e-kind
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check e2e results
+        env:
+          RESOLVE_RESULT: ${{ needs.resolve-images.result }}
+          E2E_KIND_RESULT: ${{ needs.e2e-kind.result }}
+        run: |
+          for result in "${RESOLVE_RESULT}" "${E2E_KIND_RESULT}"; do
+            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
+              echo "One or more e2e jobs failed or were cancelled."
+              exit 1
+            fi
+          done
+          echo "All e2e jobs passed or were skipped."
