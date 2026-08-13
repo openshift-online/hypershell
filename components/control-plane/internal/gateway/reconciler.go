@@ -1188,7 +1188,45 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
-	// Router pods live in openshift-ingress, not the tenant namespace, so namespaceSelector is required.
+	// Build ingress rules for router/proxy → gateway traffic.
+	// On OpenShift, router pods live in the gateway namespace and can be
+	// selected by pod+namespace labels.  With cloud-provider-kind (shared
+	// gateway mode) the Envoy proxy runs outside the cluster, so traffic
+	// enters via the node, so no pod selector will match.  In that case,
+	// allow any source on the gateway ports.
+	var ingressFrom []interface{}
+	if sharedGwName == "" {
+		ingressFrom = []interface{}{
+			map[string]interface{}{
+				"namespaceSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"kubernetes.io/metadata.name": gwNS,
+					},
+				},
+				"podSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"gateway.networking.k8s.io/gateway-name": gwName,
+					},
+				},
+			},
+		}
+	}
+	ingressRule := map[string]interface{}{
+		"ports": []interface{}{
+			map[string]interface{}{
+				"port":     int64(8080),
+				"protocol": "TCP",
+			},
+			map[string]interface{}{
+				"port":     int64(8081),
+				"protocol": "TCP",
+			},
+		},
+	}
+	if len(ingressFrom) > 0 {
+		ingressRule["from"] = ingressFrom
+	}
+
 	routerNetpol := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "networking.k8s.io/v1",
@@ -1211,34 +1249,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 					},
 				},
 				"policyTypes": []interface{}{"Ingress"},
-				"ingress": []interface{}{
-					map[string]interface{}{
-						"from": []interface{}{
-							map[string]interface{}{
-								"namespaceSelector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"kubernetes.io/metadata.name": gwNS,
-									},
-								},
-								"podSelector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"gateway.networking.k8s.io/gateway-name": gwName,
-									},
-								},
-							},
-						},
-						"ports": []interface{}{
-							map[string]interface{}{
-								"port":     int64(8080),
-								"protocol": "TCP",
-							},
-							map[string]interface{}{
-								"port":     int64(8081),
-								"protocol": "TCP",
-							},
-						},
-					},
-				},
+				"ingress":     []interface{}{ingressRule},
 			},
 		},
 	}
