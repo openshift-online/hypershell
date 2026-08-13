@@ -2541,7 +2541,9 @@ components:
             readOnly: true
             type: string
           oidc:
-            description: JSON-encoded OIDC authentication configuration
+            description: JSON-encoded OIDC authentication configuration (auto-populated
+              by Keycloak provisioning)
+            readOnly: true
             type: string
           route:
             description: JSON-encoded route configuration

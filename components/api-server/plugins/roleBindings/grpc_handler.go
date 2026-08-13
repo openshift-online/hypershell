@@ -68,7 +68,7 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 					continue
 				}
 			} else {
-				var svcErr interface{ Error() string }
+				var svcErr *errors.ServiceError
 				rb, svcErr = h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
 					glog.Warningf("WatchRoleBindings: failed to load role binding %s: %v", evt.SourceID, svcErr)

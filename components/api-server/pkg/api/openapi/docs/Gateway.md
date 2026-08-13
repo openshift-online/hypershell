@@ -24,7 +24,7 @@ Name | Type | Description | Notes
 **SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
-**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional] 
+**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
 

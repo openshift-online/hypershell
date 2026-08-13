@@ -212,7 +212,7 @@ func (c *Client) createClient(ctx context.Context, gatewayName string) (string, 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusConflict {
 		return "", fmt.Errorf("keycloak client %s already exists", gatewayName)
@@ -360,7 +360,7 @@ func (c *Client) ensureToken(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -391,7 +391,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 

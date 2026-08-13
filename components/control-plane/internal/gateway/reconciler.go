@@ -937,7 +937,7 @@ func rotateDatabaseCredentials(ctx context.Context, clientset *kubernetes.Client
 	if err != nil {
 		return fmt.Errorf("open database connection for rotation: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD %s", pq.QuoteIdentifier(dbUser), pq.QuoteLiteral(newPassword))); err != nil {
 		return fmt.Errorf("ALTER ROLE during credential rotation: %w", err)

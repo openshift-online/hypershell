@@ -47,7 +47,7 @@ type Gateway struct {
 	ServerDnsNames []string `json:"server_dns_names,omitempty"`
 	// External route address populated by the control plane
 	RouteAddress *string `json:"route_address,omitempty"`
-	// JSON-encoded OIDC authentication configuration
+	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
 	Route *string `json:"route,omitempty"`
