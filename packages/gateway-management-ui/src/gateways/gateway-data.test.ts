@@ -67,6 +67,9 @@ describe("gateway presentation data", () => {
     expect(gatewayNeedsStatusPolling(gateway({ status: "Updating" }))).toBe(
       true,
     );
+    expect(gatewayNeedsStatusPolling(gateway({ phase: "Degraded" }))).toBe(
+      true,
+    );
   });
 
   it("stops lifecycle polling for terminal gateway states", () => {
