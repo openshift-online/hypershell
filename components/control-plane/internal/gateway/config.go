@@ -55,7 +55,11 @@ type RouteConfig struct {
 }
 
 type OIDCConfig struct {
-	Issuer      string `yaml:"issuer" json:"issuer,omitempty"`
+	Issuer string `yaml:"issuer" json:"issuer,omitempty"`
+	// ClientID is client-facing metadata (the identifier CLI users present to
+	// the IdP). It is surfaced by the console in the connection command and is
+	// not written to the gateway server config.
+	ClientID    string `yaml:"client_id" json:"client_id,omitempty"`
 	Audience    string `yaml:"audience" json:"audience,omitempty"`
 	JwksTTL     int    `yaml:"jwks_ttl" json:"jwks_ttl,omitempty"`
 	RolesClaim  string `yaml:"roles_claim" json:"roles_claim,omitempty"`

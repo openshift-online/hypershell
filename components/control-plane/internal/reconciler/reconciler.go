@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -258,6 +259,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gwConfig.OIDC = oidcConfig
 	}
 
+	// When a gateway is created without OIDC and the platform has an issuer
+	// configured, default its OIDC so it is authenticated and the console/CLI
+	// receive the issuer, client ID, and audience. The default is persisted back
+	// to the Gateway below so clients can read it.
+	defaultedOIDC := false
+	if gwConfig.OIDC.Issuer == "" {
+		if oidcDefault, ok := resolveDefaultGatewayOIDC(); ok {
+			gwConfig.OIDC = oidcDefault
+			defaultedOIDC = true
+		}
+	}
+
 	if gw.Route != nil && *gw.Route != "" {
 		var routeConfig gateway.RouteConfig
 		if err := json.Unmarshal([]byte(*gw.Route), &routeConfig); err != nil {
@@ -290,6 +303,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
 
+	// Persist the defaulted OIDC after the phase is set so the resulting update
+	// event is ignored by the phase gate rather than triggering re-reconciliation.
+	if defaultedOIDC {
+		r.updateGatewayOIDC(ctx, event.ResourceID, gwConfig.OIDC)
+	}
+
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
 		r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
 		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
@@ -298,6 +317,54 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	r.updateGatewayPhase(ctx, event.ResourceID, "Running")
 	log.Printf("INFO gateway %s provisioned in namespace %s", gw.Name, namespace)
 	return nil
+}
+
+// resolveDefaultGatewayOIDC builds the default gateway OIDC configuration from
+// control-plane environment. It returns false when no platform issuer is
+// configured, in which case gateways remain unauthenticated.
+func resolveDefaultGatewayOIDC() (gateway.OIDCConfig, bool) {
+	issuer := os.Getenv("GATEWAY_OIDC_ISSUER")
+	if issuer == "" {
+		issuer = os.Getenv("OIDC_ISSUER")
+	}
+	if issuer == "" {
+		return gateway.OIDCConfig{}, false
+	}
+
+	clientID := os.Getenv("GATEWAY_OIDC_CLIENT_ID")
+	if clientID == "" {
+		clientID = "openshell-cli"
+	}
+	audience := os.Getenv("GATEWAY_OIDC_AUDIENCE")
+	if audience == "" {
+		audience = "openshell-cli"
+	}
+
+	return gateway.OIDCConfig{
+		Issuer:   issuer,
+		ClientID: clientID,
+		Audience: audience,
+	}, true
+}
+
+// updateGatewayOIDC persists an OIDC configuration onto the Gateway resource via
+// gRPC so the console and CLI can read the issuer, client ID, and audience.
+func (r *GatewayReconciler) updateGatewayOIDC(ctx context.Context, gatewayID string, oidc gateway.OIDCConfig) {
+	data, err := json.Marshal(oidc)
+	if err != nil {
+		log.Printf("WARN failed to marshal default oidc for gateway %s: %v", gatewayID, err)
+		return
+	}
+	oidcJSON := string(data)
+
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	_, err = client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:   gatewayID,
+		Oidc: &oidcJSON,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update gateway %s oidc: %v", gatewayID, err)
+	}
 }
 
 func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID string, phase string) {

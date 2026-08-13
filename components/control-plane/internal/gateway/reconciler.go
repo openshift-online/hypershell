@@ -980,6 +980,19 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		hostname = fmt.Sprintf("%s.%s", firstLabel, baseDomain)
 	}
 
+	// Publish the deterministic route address immediately. The hostname is known
+	// before the per-tenant Gateway reports Accepted/Programmed, so the connection
+	// command is available to the CLI and console while the gateway finishes
+	// provisioning. Readiness is reflected separately by the Gateway phase.
+	if opts.UpdateRouteAddress != nil {
+		routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
+		if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+			log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+		} else {
+			log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+		}
+	}
+
 	gwNS := gatewayIngressNamespace()
 	sharedGwName := gatewayIngressName()
 	gwName := "gw-" + namespace
@@ -1276,68 +1289,11 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
 	}
 
-	// R15/R16: Check Gateway status conditions and publish routeAddress once
-	// the per-tenant Gateway reports Accepted+Programmed.
-	if opts.UpdateRouteAddress != nil {
-		gwGVR := schema.GroupVersionResource{
-			Group:    "gateway.networking.k8s.io",
-			Version:  "v1",
-			Resource: "gateways",
-		}
-		gwObj, err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Get(ctx, gwName, metav1.GetOptions{})
-		if err != nil {
-			log.Printf("WARN failed to get Gateway status for routeAddress discovery: %v", err)
-		} else if gatewayConditionsMet(gwObj) {
-			routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
-			if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-				log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
-			} else {
-				log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
-			}
-		} else {
-			log.Printf("DEBUG Gateway not yet ready in %s, deferring routeAddress update", namespace)
-		}
-	}
+	// The route address is published deterministically at the top of this
+	// function, so no readiness-gated discovery is required here.
 
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
 	return nil
-}
-
-// gatewayConditionsMet returns true when the Gateway API Gateway resource
-// reports both Accepted: True and Programmed: True status conditions.
-func gatewayConditionsMet(gw *unstructured.Unstructured) bool {
-	generation, _, _ := unstructured.NestedInt64(gw.Object, "metadata", "generation")
-	conditions, found, _ := unstructured.NestedSlice(gw.Object, "status", "conditions")
-	if !found {
-		return false
-	}
-	accepted := false
-	programmed := false
-	for _, c := range conditions {
-		cond, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		var obsGen int64
-		switch v := cond["observedGeneration"].(type) {
-		case int64:
-			obsGen = v
-		case float64:
-			obsGen = int64(v)
-		}
-		if obsGen < generation {
-			continue
-		}
-		condType, _ := cond["type"].(string)
-		condStatus, _ := cond["status"].(string)
-		if condType == "Accepted" && condStatus == "True" {
-			accepted = true
-		}
-		if condType == "Programmed" && condStatus == "True" {
-			programmed = true
-		}
-	}
-	return accepted && programmed
 }
 
 func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) error {
