@@ -37,10 +37,12 @@ patches:
                   - name: OIDC_CLIENT_ID
                     value: "hypershell-control-plane"
                   # Client-facing gateway OIDC issuer (pod, console, CLI). Must
-                  # equal Keycloak KC_HOSTNAME so the token `iss` validates, and be
-                  # reachable both in-cluster (CoreDNS -> gateway) and from the host.
+                  # equal Keycloak KC_HOSTNAME so the token `iss` validates. The
+                  # gateway pod reaches it in-cluster (CoreDNS -> gateway, TLS via
+                  # the trusted-CA bundle); the host reaches it on 443. Keep this in
+                  # sync with the keycloak KC_HOSTNAME value.
                   - name: GATEWAY_OIDC_ISSUER_URL
-                    value: "http://keycloak.hypershell.localhost:8080/realms/hypershell"
+                    value: "https://keycloak.hypershell.localhost/realms/hypershell"
                   - name: OIDC_TOKEN_ENDPOINT
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/token"
                   - name: OIDC_CLIENT_SECRET
