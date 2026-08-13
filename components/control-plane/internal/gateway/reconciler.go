@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -14,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/lib/pq"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -58,6 +62,12 @@ func ReconcileGateway(
 		return fmt.Errorf("reconcile database credentials in %s: %w", nsConfig.Name, err)
 	}
 
+	if opts.RotateDBCredentials != "" {
+		if err := rotateDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage, opts.RotateDBCredentials); err != nil {
+			return fmt.Errorf("rotate database credentials in %s: %w", nsConfig.Name, err)
+		}
+	}
+
 	if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
 		return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
 	}
@@ -68,6 +78,12 @@ func ReconcileGateway(
 		}
 	} else {
 		return fmt.Errorf("cert-manager is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
+	}
+
+	if opts.Keycloak != nil {
+		if err := reconcileKeycloakClient(ctx, opts, nsConfig); err != nil {
+			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
@@ -178,6 +194,14 @@ func DeleteGatewayResources(
 		}
 	} else {
 		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
+	}
+
+	if opts.KeycloakClient != nil && opts.GatewayName != "" {
+		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, opts.GatewayName); err != nil {
+			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", opts.GatewayName, err)
+		} else {
+			log.Printf("INFO deleted keycloak client %s", opts.GatewayName)
+		}
 	}
 
 	log.Printf("INFO gateway resources cleaned up from namespace %s", namespace)
@@ -572,20 +596,22 @@ func applyConfigHashAnnotation(ctx context.Context, clientset *kubernetes.Client
 		return
 	}
 
-	tlsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
-	if err == nil {
-		keys := make([]string, 0, len(tlsSecret.Data))
-		for k := range tlsSecret.Data {
-			keys = append(keys, k)
+	for _, secretName := range []string{"openshell-server-tls", "openshell-gateway-db-credentials"} {
+		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if err == nil {
+			keys := make([]string, 0, len(secret.Data))
+			for k := range secret.Data {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				h.Write([]byte(k))
+				h.Write(secret.Data[k])
+			}
+		} else if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN skipping config-hash annotation in %s: failed to get Secret %s: %v", namespace, secretName, err)
+			return
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			h.Write([]byte(k))
-			h.Write(tlsSecret.Data[k])
-		}
-	} else if !k8serrors.IsNotFound(err) {
-		log.Printf("WARN skipping config-hash annotation in %s: failed to get Secret: %v", namespace, err)
-		return
 	}
 
 	hashStr := hex.EncodeToString(h.Sum(nil))
@@ -824,6 +850,118 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 	}
 
 	log.Printf("INFO created database credentials secret %s in %s (password length=%d)", secretName, namespace, len(password))
+	return nil
+}
+
+func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig NamespaceConfig) error {
+	kc := keycloak.NewClient(
+		opts.Keycloak.ServerURL,
+		opts.Keycloak.Realm,
+		opts.Keycloak.ClientID,
+		opts.Keycloak.ClientSecret,
+	)
+
+	gatewayName := opts.GatewayName
+	if gatewayName == "" {
+		return fmt.Errorf("gateway name is required for keycloak provisioning")
+	}
+
+	existingUUID, err := kc.GetClientUUID(ctx, gatewayName)
+	if err != nil {
+		return fmt.Errorf("check existing keycloak client: %w", err)
+	}
+
+	if existingUUID != "" {
+		log.Printf("DEBUG keycloak client %s already exists (uuid=%s), skipping provisioning", gatewayName, existingUUID)
+	} else {
+		clientUUID, err := kc.ProvisionGatewayClient(ctx, gatewayName)
+		if err != nil {
+			return fmt.Errorf("provision keycloak client %s: %w", gatewayName, err)
+		}
+		log.Printf("INFO provisioned keycloak client %s (uuid=%s)", gatewayName, clientUUID)
+	}
+
+	oidcConfig := OIDCConfig{
+		Issuer:     kc.Issuer(),
+		Audience:   gatewayName,
+		JwksTTL:    3600,
+		RolesClaim: "hypershell.roles",
+		AdminRole:  "openshell-admin",
+		UserRole:   "openshell-user",
+	}
+	nsConfig.Gateway.OIDC = oidcConfig
+
+	if opts.UpdateOIDC != nil {
+		oidcJSON, err := json.Marshal(oidcConfig)
+		if err != nil {
+			return fmt.Errorf("marshal oidc config: %w", err)
+		}
+		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
+			log.Printf("WARN failed to persist oidc config for %s: %v", gatewayName, err)
+		}
+	}
+
+	return nil
+}
+
+func rotateDatabaseCredentials(ctx context.Context, clientset *kubernetes.Clientset, namespace string, dbImage string, rotateTimestamp string) error {
+	secretName := "openshell-gateway-db-credentials"
+	existing, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get database credentials secret for rotation: %w", err)
+	}
+
+	lastRotation := existing.Annotations["hypershell.redhat.io/last-db-rotation"]
+	if lastRotation == rotateTimestamp {
+		log.Printf("DEBUG database credentials in %s already rotated at %s, skipping", namespace, rotateTimestamp)
+		return nil
+	}
+
+	passwordBytes := make([]byte, 32)
+	if _, err := rand.Read(passwordBytes); err != nil {
+		return fmt.Errorf("generate new database password: %w", err)
+	}
+	newPassword := hex.EncodeToString(passwordBytes)
+
+	userKey, passKey, _ := postgresEnvKeys(dbImage)
+	dbUser := string(existing.Data[userKey])
+	if dbUser == "" {
+		dbUser = "openshell"
+	}
+
+	dbHost := fmt.Sprintf("openshell-gateway-db.%s.svc.cluster.local", namespace)
+	connStr := fmt.Sprintf("postgresql://%s:%s@%s:5432/openshell?sslmode=disable&connect_timeout=10",
+		dbUser, url.QueryEscape(string(existing.Data[passKey])), dbHost)
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("open database connection for rotation: %w", err)
+	}
+	defer db.Close()
+
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD '%s'", dbUser, newPassword)); err != nil {
+		return fmt.Errorf("ALTER ROLE during credential rotation: %w", err)
+	}
+	log.Printf("INFO executed ALTER ROLE for user %s in %s", dbUser, namespace)
+
+	dbName := "openshell"
+	_, dbKey, _ := postgresEnvKeys(dbImage)
+	_ = dbKey
+	dbURL := fmt.Sprintf("postgresql://%s:%s@openshell-gateway-db:5432/%s?sslmode=disable",
+		dbUser, url.QueryEscape(newPassword), dbName)
+
+	existing.Data[passKey] = []byte(newPassword)
+	existing.Data["url"] = []byte(dbURL)
+	if existing.Annotations == nil {
+		existing.Annotations = make(map[string]string)
+	}
+	existing.Annotations["hypershell.redhat.io/last-db-rotation"] = rotateTimestamp
+
+	if _, err := clientset.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update database credentials secret after rotation: %w", err)
+	}
+
+	log.Printf("INFO rotated database credentials in %s (timestamp=%s)", namespace, rotateTimestamp)
 	return nil
 }
 

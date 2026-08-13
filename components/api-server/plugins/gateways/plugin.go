@@ -1,6 +1,7 @@
 package gateways
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -52,11 +53,19 @@ func init() {
 	pkgserver.RegisterRoutes("gateways", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
 		var ownerBinding OwnerBindingCreator
+		var visibilityFilter GatewayVisibilityFilter
 		rbService := roleBindings.Service(envServices)
 		if rbService != nil {
 			ownerBinding = rbac.NewGatewayBootstrapper(rbService)
+			visibilityFilter = rbac.NewGatewayVisibilityFilter(func(ctx context.Context, userID string) ([]string, error) {
+				ids, svcErr := rbService.FindGatewayIDsByUserID(ctx, userID)
+				if svcErr != nil {
+					return nil, svcErr
+				}
+				return ids, nil
+			})
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices), ownerBinding)
+		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices), ownerBinding, visibilityFilter)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)

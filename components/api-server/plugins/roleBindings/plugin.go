@@ -4,7 +4,9 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
@@ -71,6 +73,19 @@ func init() {
 				api.DeleteEventType: {rbService.OnDelete},
 			},
 		})
+	})
+
+	pkgserver.RegisterGRPCService("roleBindings", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
+		envServices := services.(*environments.Services)
+		rbService := Service(envServices)
+		roleService := roles.Service(envServices)
+		brokerFunc := func() *pkgserver.EventBroker {
+			if obj := envServices.GetService("EventBroker"); obj != nil {
+				return obj.(*pkgserver.EventBroker)
+			}
+			return nil
+		}
+		pb.RegisterRoleBindingServiceServer(grpcServer, NewRoleBindingGRPCHandler(rbService, roleService, brokerFunc))
 	})
 
 	presenters.RegisterPath(RoleBinding{}, "role_bindings")

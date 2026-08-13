@@ -11,10 +11,12 @@ import (
 
 type RoleBindingDao interface {
 	Get(ctx context.Context, id string) (*RoleBinding, error)
+	GetUnscoped(ctx context.Context, id string) (*RoleBinding, error)
 	Create(ctx context.Context, rb *RoleBinding) (*RoleBinding, error)
 	Delete(ctx context.Context, id string) error
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, error)
 	FindByIDs(ctx context.Context, ids []string) (RoleBindingList, error)
+	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, error)
 	All(ctx context.Context) (RoleBindingList, error)
 }
 
@@ -55,6 +57,15 @@ func (d *sqlRoleBindingDao) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (d *sqlRoleBindingDao) GetUnscoped(ctx context.Context, id string) (*RoleBinding, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var rb RoleBinding
+	if err := g2.Unscoped().Take(&rb, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &rb, nil
+}
+
 func (d *sqlRoleBindingDao) FindByUserID(ctx context.Context, userID string) (RoleBindingList, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	bindings := RoleBindingList{}
@@ -71,6 +82,18 @@ func (d *sqlRoleBindingDao) FindByIDs(ctx context.Context, ids []string) (RoleBi
 		return nil, err
 	}
 	return bindings, nil
+}
+
+func (d *sqlRoleBindingDao) FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var gatewayIDs []string
+	if err := g2.Model(&RoleBinding{}).
+		Where("user_id = ? AND gateway_id IS NOT NULL", userID).
+		Distinct("gateway_id").
+		Pluck("gateway_id", &gatewayIDs).Error; err != nil {
+		return nil, err
+	}
+	return gatewayIDs, nil
 }
 
 func (d *sqlRoleBindingDao) All(ctx context.Context) (RoleBindingList, error) {

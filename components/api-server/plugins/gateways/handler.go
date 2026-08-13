@@ -19,19 +19,25 @@ type OwnerBindingCreator interface {
 	CreateOwnerBinding(ctx context.Context, userID string, gatewayID string) error
 }
 
+type GatewayVisibilityFilter interface {
+	AccessibleGatewayIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 var _ handlers.RestHandler = gatewayHandler{}
 
 type gatewayHandler struct {
-	gateway      GatewayService
-	generic      services.GenericService
-	ownerBinding OwnerBindingCreator
+	gateway          GatewayService
+	generic          services.GenericService
+	ownerBinding     OwnerBindingCreator
+	visibilityFilter GatewayVisibilityFilter
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter) *gatewayHandler {
 	return &gatewayHandler{
-		gateway:      gateway,
-		generic:      generic,
-		ownerBinding: ownerBinding,
+		gateway:          gateway,
+		generic:          generic,
+		ownerBinding:     ownerBinding,
+		visibilityFilter: visibilityFilter,
 	}
 }
 
@@ -151,10 +157,30 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
+
+			userID := rbac.GetUserIDFromContext(ctx)
+			if userID != "" && h.visibilityFilter != nil {
+				accessibleIDs, filterErr := h.visibilityFilter.AccessibleGatewayIDs(ctx, userID)
+				if filterErr != nil {
+					return nil, errors.GeneralError("failed to check gateway access: %s", filterErr)
+				}
+				allowed := make(map[string]bool, len(accessibleIDs))
+				for _, id := range accessibleIDs {
+					allowed[id] = true
+				}
+				filtered := gateways[:0]
+				for _, gw := range gateways {
+					if allowed[gw.ID] {
+						filtered = append(filtered, gw)
+					}
+				}
+				gateways = filtered
+			}
+
 			kindStr := "GatewayList"
 			pageVal := int32(paging.Page)
 			sizeVal := int32(paging.Size)
-			totalVal := int32(paging.Total)
+			totalVal := int32(len(gateways))
 			gatewayList := openapi.GatewayList{
 				Kind:  &kindStr,
 				Page:  &pageVal,

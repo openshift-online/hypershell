@@ -9,6 +9,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -136,6 +137,8 @@ type GatewayReconciler struct {
 	hasGatewayAPI         bool
 	manifestsDir          string
 	controlPlaneNamespace string
+	keycloakClient        *keycloak.Client
+	keycloakConfig        *gateway.KeycloakConfig
 }
 
 func NewGatewayReconciler(
@@ -144,6 +147,7 @@ func NewGatewayReconciler(
 	grpcConn *grpc.ClientConn,
 	manifestsDir string,
 	controlPlaneNamespace string,
+	keycloakConfig *gateway.KeycloakConfig,
 ) (*GatewayReconciler, error) {
 	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
 	if err != nil {
@@ -153,7 +157,20 @@ func NewGatewayReconciler(
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v", len(manifests), isOpenShift, hasCertManager, hasGatewayAPI)
+
+	var kcClient *keycloak.Client
+	if keycloakConfig != nil {
+		kcClient = keycloak.NewClient(
+			keycloakConfig.ServerURL,
+			keycloakConfig.Realm,
+			keycloakConfig.ClientID,
+			keycloakConfig.ClientSecret,
+		)
+		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
+	}
+
+	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v keycloak=%v",
+		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, kcClient != nil)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -166,6 +183,8 @@ func NewGatewayReconciler(
 		hasGatewayAPI:         hasGatewayAPI,
 		manifestsDir:          manifestsDir,
 		controlPlaneNamespace: controlPlaneNamespace,
+		keycloakClient:        kcClient,
+		keycloakConfig:        keycloakConfig,
 	}, nil
 }
 
@@ -201,6 +220,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			HasCertManager:        r.hasCertManager,
 			HasGatewayAPI:         r.hasGatewayAPI,
 			ControlPlaneNamespace: r.controlPlaneNamespace,
+			KeycloakClient:        r.keycloakClient,
+			GatewayName:           gw.Name,
 		}
 		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts); err != nil {
 			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
@@ -286,6 +307,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
 		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
+		Keycloak:              r.keycloakConfig,
+		KeycloakClient:        r.keycloakClient,
+		GatewayName:           gw.Name,
+		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
@@ -329,6 +354,20 @@ func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID st
 		return fmt.Errorf("update gateway %s route_address to %s: %w", gatewayID, routeAddress, err)
 	}
 	return nil
+}
+
+func (r *GatewayReconciler) makeOIDCUpdater(gatewayID string) func(ctx context.Context, oidcJSON string) error {
+	return func(ctx context.Context, oidcJSON string) error {
+		client := pb.NewGatewayServiceClient(r.grpcConn)
+		_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+			Id:   gatewayID,
+			Oidc: &oidcJSON,
+		})
+		if err != nil {
+			return fmt.Errorf("update gateway %s oidc: %w", gatewayID, err)
+		}
+		return nil
+	}
 }
 
 type StubGatewayReconciler struct{}
