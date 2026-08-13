@@ -128,6 +128,34 @@ When no platform issuer is resolved (both `GATEWAY_OIDC_ISSUER` and `OIDC_ISSUER
 
 ---
 
+### Requirement: Shared CLI Client with Per-Gateway Audience
+
+The interactive CLI SHALL authenticate through a single, fleet-wide public OIDC client (`openshell-cli`), not a client per gateway. This client identifies the CLI application and SHALL use the OAuth 2.0 device authorization grant and/or a loopback redirect (`http://127.0.0.1:<port>`) with PKCE. A per-gateway CLI client SHALL NOT be created: client identity denotes the requesting application, not the target resource, and a public client holds no secret whose isolation a per-gateway client could add.
+
+Token scoping to a specific gateway SHALL be expressed through the audience (`aud`), not the client. Each gateway is a distinct resource: a gateway SHALL validate its own `oidc.audience`, and once per-gateway audiences are in effect a token minted for one gateway's audience SHALL NOT be accepted by another gateway. The downstream Keycloak broker (the client holding `manage-clients`, see `local-development.spec.md`) SHALL manage the per-gateway resource clients or audience mappers that let the shared `openshell-cli` client obtain a token scoped to the target gateway.
+
+During the initial single-tenant increment (see `web-console/architecture.spec.md`), all gateways share one trust domain and a shared audience MAY be used; the shared `openshell-cli` client applies unchanged. Before a multi-tenant deployment, each gateway SHALL be assigned a distinct audience so gateway tokens are not replayable across gateways. The CLI client SHALL remain shared in both models.
+
+The reconciler's default OIDC configuration (see "Default OIDC Configuration from Platform Config") SHALL set `client_id` to the shared `openshell-cli` client. It SHALL default `audience` to the shared value during the single-tenant increment, and to a value unique to the gateway once per-gateway audience infrastructure exists.
+
+**Verification:** Inspect the realm for a single `openshell-cli` public client with device and/or loopback grants and confirm no per-gateway CLI client exists. Obtain a token through the CLI client and confirm the target gateway validates it. In the multi-tenant configuration, obtain a token audienced to gateway A and confirm gateway B rejects it while gateway A accepts it.
+
+#### Scenario: One CLI Client for the Fleet
+
+- GIVEN multiple provisioned gateways
+- WHEN the CLI authenticates a user for any of them
+- THEN it SHALL use the single `openshell-cli` public client
+- AND no gateway-specific CLI client SHALL be required
+
+#### Scenario: Per-Gateway Audience Isolation
+
+- GIVEN gateways A and B each with a distinct `oidc.audience`
+- WHEN the CLI obtains a token audienced to gateway A
+- THEN gateway A SHALL accept the token
+- AND gateway B SHALL reject it as an audience mismatch
+
+---
+
 ### Requirement: OIDC Role Validation
 
 When OIDC role-based access control is configured, both `admin_role` and `user_role` MUST be set, or both MUST be empty. Setting only one is not supported per the upstream OpenShell constraint.
