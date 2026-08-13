@@ -183,10 +183,25 @@ func injectPGDATA(obj *unstructured.Unstructured, mountPath string) {
 		}
 
 		envList, _, _ := unstructured.NestedSlice(container, "env")
-		envList = append(envList, map[string]interface{}{
-			"name":  "PGDATA",
-			"value": pgdataValue,
-		})
+		upserted := false
+		for j, e := range envList {
+			entry, ok := e.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if entry["name"] == "PGDATA" {
+				entry["value"] = pgdataValue
+				envList[j] = entry
+				upserted = true
+				break
+			}
+		}
+		if !upserted {
+			envList = append(envList, map[string]interface{}{
+				"name":  "PGDATA",
+				"value": pgdataValue,
+			})
+		}
 		container["env"] = envList
 		containers[i] = container
 	}
