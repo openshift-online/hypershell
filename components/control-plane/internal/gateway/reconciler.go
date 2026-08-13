@@ -943,6 +943,14 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 		AdminRole:  "openshell-admin",
 		UserRole:   "openshell-user",
 	}
+	// The Keycloak Admin API server URL must be reachable in-cluster, but the
+	// gateway's client-facing issuer (consumed by the gateway pod, console, and
+	// CLI) may need to be a separately reachable URL. When GATEWAY_OIDC_ISSUER_URL
+	// is set it overrides the admin-derived issuer; it MUST equal Keycloak's
+	// KC_HOSTNAME so the token `iss` claim validates. Unset preserves 98's default.
+	if issuerURL := os.Getenv("GATEWAY_OIDC_ISSUER_URL"); issuerURL != "" {
+		oidcConfig.Issuer = issuerURL
+	}
 	nsConfig.Gateway.OIDC = oidcConfig
 
 	if opts.UpdateOIDC != nil {
