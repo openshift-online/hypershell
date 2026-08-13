@@ -251,9 +251,19 @@ jobs:
           {
             kubectl get gateways,grpcroutes,httproutes -A -o wide 2>&1 || true
             for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
+              ns_name="${ns##*/}"
               echo "--- $ns ---"
-              kubectl get pods,svc,deployments -n "${ns##*/}" 2>&1 || true
-              kubectl logs --all-containers --prefix --tail=50 -l app.kubernetes.io/name=openshell -n "${ns##*/}" 2>&1 || true
+              kubectl get pods,svc,deployments -n "${ns_name}" 2>&1 || true
+              echo "--- pod descriptions ($ns_name) ---"
+              kubectl describe pods -n "${ns_name}" 2>&1 || true
+              echo "--- events ($ns_name) ---"
+              kubectl get events --sort-by=.lastTimestamp -n "${ns_name}" 2>&1 || true
+              for pod in $(kubectl get pods -n "${ns_name}" -o name 2>/dev/null); do
+                echo "--- logs ${pod} ($ns_name) ---"
+                kubectl logs "${pod}" --all-containers --tail=80 -n "${ns_name}" 2>&1 || true
+                echo "--- previous logs ${pod} ($ns_name) ---"
+                kubectl logs "${pod}" --all-containers --previous --tail=80 -n "${ns_name}" 2>&1 || true
+              done
             done
           } | tee e2e-diagnostics/gateway-api.txt
           echo "::endgroup::"
