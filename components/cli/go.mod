@@ -9,6 +9,7 @@ require (
 	github.com/spf13/pflag v1.0.6
 	gitlab.com/c0b/go-ordered-json v0.0.0-20171130231205-49bbdab258c2
 	golang.org/x/term v0.28.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

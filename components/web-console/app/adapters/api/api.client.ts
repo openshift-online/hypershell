@@ -16,6 +16,7 @@ export function createCorrelatedFetch(
 export function createApiClient(correlationId: string): SDKClient {
   return new SDKClient({
     baseUrl: "",
+    credentials: "same-origin",
     fetch: createCorrelatedFetch(correlationId),
   });
 }

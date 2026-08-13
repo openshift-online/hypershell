@@ -25,17 +25,14 @@ export class SDKClient {
   readonly roles: RoleAPI;
   readonly roleBindings: RoleBindingAPI;
 
-  constructor(config: SDKClientConfig) {
-    if (!config.baseUrl) {
-      throw new Error('baseUrl is required');
-    }
+  constructor(config: SDKClientConfig = {}) {
     if (config.token !== undefined && config.getToken !== undefined) {
       throw new Error('token and getToken are mutually exclusive');
     }
 
     this.config = {
       ...config,
-      baseUrl: config.baseUrl.replace(/\/+$/, ''),
+      baseUrl: (config.baseUrl ?? '').replace(/\/+$/, ''),
     };
 
     this.fleets = new FleetAPI(this.config);
