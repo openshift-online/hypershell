@@ -28,7 +28,12 @@ const gateway: GatewayConnection = {
 describe("gateway connections", () => {
   it("builds the documented OpenShell connection command", () => {
     expect(buildGatewayAddCommand(gateway)).toBe(
-      "openshell gateway add --name gateway-1 --oidc-issuer https://issuer.example.test/realms/openshell --oidc-client-id openshell-cli --oidc-audience openshell-cli https://gateway.example.test:443",
+      `openshell gateway add \\
+  --name gateway-1 \\
+  --oidc-issuer https://issuer.example.test/realms/openshell \\
+  --oidc-client-id openshell-cli \\
+  --oidc-audience openshell-cli \\
+  https://gateway.example.test:443`,
     );
   });
 
@@ -52,7 +57,9 @@ describe("gateway connections", () => {
     };
 
     expect(buildGatewayAddCommand(noAuth)).toBe(
-      "openshell gateway add --name gateway-1 https://gateway.example.test:443",
+      `openshell gateway add \\
+  --name gateway-1 \\
+  https://gateway.example.test:443`,
     );
   });
 
@@ -60,7 +67,9 @@ describe("gateway connections", () => {
     expect(
       buildGatewayAddCommand({ ...gateway, oidcClientId: undefined }),
     ).toBe(
-      "openshell gateway add --name gateway-1 https://gateway.example.test:443",
+      `openshell gateway add \\
+  --name gateway-1 \\
+  https://gateway.example.test:443`,
     );
   });
 
@@ -72,19 +81,28 @@ describe("gateway connections", () => {
 
   it("builds the Vertex AI provider command pulling ADC and gcloud project", () => {
     expect(buildProviderCreateCommand()).toBe(
-      `openshell provider create --name ${vertexClaudeProviderName} --type google-vertex-ai --from-gcloud-adc --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
+      `openshell provider create \\
+  --name ${vertexClaudeProviderName} \\
+  --type google-vertex-ai \\
+  --from-gcloud-adc \\
+  --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
     );
   });
 
   it("builds the environment-only provider command", () => {
     expect(buildProviderFromExistingCommand()).toBe(
-      `openshell provider create --name ${vertexClaudeProviderName} --type google-vertex-ai --from-existing`,
+      `openshell provider create \\
+  --name ${vertexClaudeProviderName} \\
+  --type google-vertex-ai \\
+  --from-existing`,
     );
   });
 
   it("routes a Claude model through the provider with a substitutable default", () => {
     expect(buildInferenceSetCommand()).toBe(
-      `openshell inference set --provider ${vertexClaudeProviderName} --model ${inferenceModelPlaceholder}`,
+      `openshell inference set \\
+  --provider ${vertexClaudeProviderName} \\
+  --model ${inferenceModelPlaceholder}`,
     );
     expect(buildInferenceSetCommand("claude-sonnet-4-6")).toContain(
       "--model claude-sonnet-4-6",
@@ -93,10 +111,16 @@ describe("gateway connections", () => {
 
   it("creates a sandbox that attaches the provider and launches claude", () => {
     expect(buildSandboxCreateCommand()).toBe(
-      `openshell sandbox create --name ${sandboxNamePlaceholder} --provider ${vertexClaudeProviderName} -- claude`,
+      `openshell sandbox create \\
+  --name ${sandboxNamePlaceholder} \\
+  --provider ${vertexClaudeProviderName} \\
+  -- claude`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
-      `openshell sandbox create --name demo --provider ${vertexClaudeProviderName} -- claude`,
+      `openshell sandbox create \\
+  --name demo \\
+  --provider ${vertexClaudeProviderName} \\
+  -- claude`,
     );
   });
 
