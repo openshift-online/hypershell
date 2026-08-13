@@ -375,17 +375,13 @@ func deployGateway(
 	return nil
 }
 
+
 func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
 	watchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	fieldSelector := fields.OneTermEqualSelector("metadata.name", name).String()
 
-	// List-then-watch, re-established on early channel close. The apiserver can
-	// end a watch (connection reset, restart, LB blip) before the deadline; a
-	// closed ResultChan is not terminal, so we re-list (to pick up a fresh
-	// ResourceVersion and catch a secret that appeared during the gap) and
-	// re-watch until watchCtx is actually done.
 	for {
 		list, err := clientset.CoreV1().Secrets(namespace).List(watchCtx, metav1.ListOptions{
 			FieldSelector: fieldSelector,
@@ -425,8 +421,6 @@ func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespa
 			return nil
 		}
 
-		// ResultChan closed. If the deadline elapsed, report timeout; otherwise
-		// the watch ended early -- loop to re-establish it.
 		if watchCtx.Err() != nil {
 			return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
 		}
@@ -1099,19 +1093,6 @@ func gatewayIngressName() string {
 	return ""
 }
 
-func gatewayTLSIssuerName() string {
-	if name := os.Getenv("GATEWAY_API_TLS_ISSUER_NAME"); name != "" {
-		return name
-	}
-	return "openshell-ca-issuer"
-}
-
-func gatewayTLSIssuerKind() string {
-	if kind := os.Getenv("GATEWAY_API_TLS_ISSUER_KIND"); kind != "" {
-		return kind
-	}
-	return "Issuer"
-}
 
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
@@ -1141,44 +1122,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 
 	if sharedGwName == "" {
-		tlsCertName := gatewayTLSSecretName() + "-" + namespace
-		tlsSecretName := tlsCertName
-
-		if opts.HasCertManager {
-			gwCert := &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"apiVersion": "cert-manager.io/v1",
-					"kind":       "Certificate",
-					"metadata": map[string]interface{}{
-						"name":      tlsCertName,
-						"namespace": gwNS,
-						"labels": map[string]interface{}{
-							"app.kubernetes.io/name":       "openshell",
-							"app.kubernetes.io/component":  "gateway",
-							"app.kubernetes.io/managed-by": "hypershell-control-plane",
-							"hypershell.redhat.io/managed": "true",
-							"hypershell.redhat.io/tenant":  namespace,
-						},
-					},
-					"spec": map[string]interface{}{
-						"secretName": tlsSecretName,
-						"dnsNames":   []interface{}{hostname},
-						"issuerRef": map[string]interface{}{
-							"name":  gatewayTLSIssuerName(),
-							"kind":  gatewayTLSIssuerKind(),
-							"group": "cert-manager.io",
-						},
-					},
-				},
-			}
-			if err := reconcileResource(ctx, dynamicClient, gwCert); err != nil {
-				return fmt.Errorf("reconcile gateway TLS Certificate in %s: %w", gwNS, err)
-			}
-
-			if err := waitForSecret(ctx, clientset, gwNS, tlsSecretName, 60*time.Second); err != nil {
-				return fmt.Errorf("wait for gateway TLS Secret %s/%s: %w", gwNS, tlsSecretName, err)
-			}
-		}
+		tlsSecretName := gatewayTLSSecretName()
 
 		gw := &unstructured.Unstructured{
 			Object: map[string]interface{}{
@@ -1278,6 +1222,10 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 	if err := reconcileResource(ctx, dynamicClient, grpcRoute); err != nil {
 		return fmt.Errorf("reconcile GRPCRoute: %w", err)
+	}
+
+	if err := waitForSecret(ctx, clientset, namespace, "openshell-server-tls", 60*time.Second); err != nil {
+		return fmt.Errorf("wait for server TLS secret in %s: %w", namespace, err)
 	}
 
 	caData := ""
