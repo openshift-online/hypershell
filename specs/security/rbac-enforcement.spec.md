@@ -102,9 +102,9 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 | Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping |
 |------|----------|-------------|-------------|-------------------|
-| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell:admin` on own gateways |
-| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell:admin` on that gateway |
-| `gateway:viewer` | read (one gateway) | read only | -- | `openshell:user` on that gateway |
+| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways |
+| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway |
+| `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway |
 
 ### OpenShell Role Bridge
 
@@ -113,8 +113,8 @@ configuration maps HyperShell roles to OpenShell roles:
 
 | HyperShell Role | OpenShell Role |
 |-----------------|----------------|
-| `gateway:owner` | `openshell:admin` |
-| `gateway:viewer` | `openshell:user` |
+| `gateway:owner` | `openshell-admin` |
+| `gateway:viewer` | `openshell-user` |
 
 ---
 
@@ -346,4 +346,4 @@ Integration tests SHALL exercise RBAC enforcement with the new three-role model.
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
 | Fleet is not a security boundary | Fleet is an organizational grouping. RBAC operates at platform level (creator) and gateway level (owner/viewer). |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
-| OpenShell role bridge | `gateway:owner` maps to `openshell:admin`, `gateway:viewer` maps to `openshell:user`. Ensures consistent access via CLI. |
+| OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
