@@ -21,10 +21,10 @@ type Client struct {
 	clientID     string
 	clientSecret string
 
-	mu            sync.Mutex
-	token         string
-	tokenExpiry   time.Time
-	httpClient    *http.Client
+	mu          sync.Mutex
+	token       string
+	tokenExpiry time.Time
+	httpClient  *http.Client
 }
 
 // NewClient creates a Keycloak Admin REST API client that authenticates
@@ -257,12 +257,12 @@ func (c *Client) createProtocolMappers(ctx context.Context, clientUUID, gatewayN
 			"protocol":       "openid-connect",
 			"protocolMapper": "oidc-usermodel-client-role-mapper",
 			"config": map[string]string{
-				"claim.name":                             "hypershell.roles",
-				"multivalued":                            "true",
-				"jsonType.label":                         "String",
-				"id.token.claim":                         "true",
-				"access.token.claim":                     "true",
-				"usermodel.clientRoleMapping.clientId":    gatewayName,
+				"claim.name":                           "hypershell.roles",
+				"multivalued":                          "true",
+				"jsonType.label":                       "String",
+				"id.token.claim":                       "true",
+				"access.token.claim":                   "true",
+				"usermodel.clientRoleMapping.clientId": gatewayName,
 			},
 		},
 	}
