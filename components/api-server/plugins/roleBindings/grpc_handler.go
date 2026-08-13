@@ -65,6 +65,7 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 				rb, unscopedErr = h.service.GetUnscoped(ctx, evt.SourceID)
 				if unscopedErr != nil {
 					glog.Warningf("WatchRoleBindings: failed to load deleted role binding %s: %v", evt.SourceID, unscopedErr)
+					continue
 				}
 			} else {
 				var svcErr interface{ Error() string }

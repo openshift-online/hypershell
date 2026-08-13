@@ -207,9 +207,20 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 }
 
 func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.ServiceError {
-	_, svcErr := s.Get(ctx, id)
+	rb, svcErr := s.Get(ctx, id)
 	if svcErr != nil {
 		return svcErr
+	}
+
+	role, roleErr := s.roleDao.Get(ctx, rb.RoleID)
+	if roleErr != nil {
+		return errors.Validation("invalid role_id: role not found")
+	}
+
+	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayViewer {
+		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
+			return err
+		}
 	}
 
 	if err := s.rbDao.Delete(ctx, id); err != nil {
