@@ -36,6 +36,8 @@ patches:
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID
                     value: "hypershell-control-plane"
+                  - name: OIDC_TOKEN_ENDPOINT
+                    value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/token"
                   - name: OIDC_CLIENT_SECRET
                     valueFrom:
                       secretKeyRef:
