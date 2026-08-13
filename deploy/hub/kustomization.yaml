@@ -1,0 +1,86 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# App-only OpenShift base for the GitOps fleet hub (bootstrap-hyperfleet).
+#
+# This is deploy/openshift MINUS the bundled postgres and keycloak:
+#   - The platform database is provided by the CloudNativePG operator per env
+#     (the consuming overlay supplies the `hypershell-db` Secret).
+#   - Keycloak is deployed per env as a separate unit that remote-refs
+#     deploy/base/keycloak (its own namespace).
+#
+# It inherits everything from deploy/openshift (route, scc, networkpolicies,
+# certificates, controller gateway defaults) and removes only the bundled DB and
+# keycloak, so it stays in lockstep with the OpenShift overlay.
+#
+# NOT meant to be applied standalone: the consuming overlay must provide a
+# `hypershell-db` Secret (db.host/db.name/db.user/db.password) and set the
+# per-env namespace, namePrefix, images, GATEWAY_API_BASE_DOMAIN and SSO config.
+resources:
+  - ../openshift
+
+patches:
+  # --- remove bundled postgres (replaced by CloudNativePG per env) ---
+  - patch: |
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-postgres
+        namespace: hypershell-system
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: hypershell-postgres
+        namespace: hypershell-system
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: hypershell-db
+        namespace: hypershell-system
+  # --- remove bundled keycloak (deployed per env as its own unit) ---
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: keycloak
+  - patch: |
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: keycloak
+        namespace: keycloak
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: keycloak-service
+        namespace: keycloak
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: keycloak-realm
+        namespace: keycloak
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: keycloak-hypershell-theme
+        namespace: keycloak
+  - patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: keycloak-hypershell-theme-assets
+        namespace: keycloak
