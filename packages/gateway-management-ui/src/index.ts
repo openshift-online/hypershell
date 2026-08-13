@@ -54,6 +54,8 @@ export type { GatewayConnection } from "./gateways/gateway-connections";
 export {
   GatewayPage,
   GatewaysPage,
+  toGatewayDetailTab,
+  type GatewayDetailTab,
   type GatewayPageProps,
   type GatewaysPageProps,
 } from "./pages/gateway-pages";

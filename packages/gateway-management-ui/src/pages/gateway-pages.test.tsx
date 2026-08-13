@@ -151,12 +151,6 @@ describe("gateway shell pages", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByDisplayValue("https://gateway.example.com:443"),
-    ).toBeTruthy();
-    expect(screen.getByText("release-1")).toBeTruthy();
-    expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
-    expect(screen.getByText("Hub cluster")).toBeTruthy();
-    expect(
       screen.getByRole("link", {
         name: "Open console for Team gateway in a new tab",
       }),
@@ -164,10 +158,23 @@ describe("gateway shell pages", () => {
     expect(screen.queryByRole("button", { name: "Connect with the CLI" })).toBe(
       null,
     );
-    expect(screen.getByText("CLI connection", { exact: true })).toBeTruthy();
+    // Connection is the default tab and leads with the login command.
+    expect(
+      screen.getByRole("tab", { name: "Connection", selected: true }),
+    ).toBeTruthy();
     expect(
       screen.getByDisplayValue(/openshell gateway add --name 'Team gateway'/u),
     ).toBeTruthy();
+
+    // Operational configuration lives behind the Details tab.
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    expect(
+      screen.getByDisplayValue("https://gateway.example.com:443"),
+    ).toBeTruthy();
+    expect(screen.getByText("release-1")).toBeTruthy();
+    expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
+    expect(screen.getByText("Hub cluster")).toBeTruthy();
+    expect(screen.getByText("CLI connection", { exact: true })).toBeTruthy();
 
     renameGatewayMock.mockResolvedValue(
       gatewayResponse("gateway-1", "Renamed team gateway"),
@@ -234,9 +241,6 @@ describe("gateway shell pages", () => {
     ));
 
     expect(
-      screen.getByDisplayValue("https://gateway.example.com:443"),
-    ).toBeTruthy();
-    expect(
       screen.queryByRole("link", {
         name: "Open console for Team gateway in a new tab",
       }),
@@ -246,6 +250,100 @@ describe("gateway shell pages", () => {
         "openshell gateway add --name 'Team gateway' https://gateway.example.com:443",
       ),
     ).toBeTruthy();
+  });
+
+  it("walks through gateway connection with provider and sandbox commands", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          clusterId: "",
+          consoleUrl: "https://console.example.test",
+          databaseId: "database-1",
+          externalDns: "gateway.example.com",
+          id: "gateway-1",
+          name: "Team gateway",
+          namespace: "openshell",
+          oidcAudience: "openshell-cli",
+          oidcClientId: "openshell-cli",
+          oidcIssuer: "https://issuer.example.test/realms/openshell",
+          phase: "",
+          releaseId: "release-1",
+          status: "Ready",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Log in to the gateway" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "Add a Claude on Vertex AI provider",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Create a sandbox" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByDisplayValue(
+        /openshell provider create .* --from-gcloud-adc/u,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByDisplayValue(/openshell sandbox create .* -- claude/u),
+    ).toBeTruthy();
+
+    // Prerequisites and options are revealed on demand.
+    await user.click(
+      screen.getByRole("button", { name: "Prerequisites and options" }),
+    );
+    expect(
+      screen.getByDisplayValue("gcloud auth application-default login"),
+    ).toBeTruthy();
+    expect(
+      screen.getByDisplayValue(/openshell inference set .* --model/u),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Do not set CLAUDE_CODE_USE_VERTEX=1/u),
+    ).toBeTruthy();
+  });
+
+  it("reports gateway login as unavailable without an endpoint", () => {
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          externalDns: "",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(
+      screen.getByText(
+        "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
+  });
+
+  it("encodes the active tab through its host", async () => {
+    const user = userEvent.setup();
+    const onTabChange = vi.fn();
+    renderPage(() => (
+      <GatewayPage
+        activeTab="connection"
+        gateway={gatewayResponse("gateway-1", "Team gateway")}
+        gatewayId="gateway-1"
+        onTabChange={onTabChange}
+      />
+    ));
+
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    expect(onTabChange).toHaveBeenCalledWith("details");
   });
 
   it("polls gateway details until its lifecycle reaches a terminal state", async () => {
@@ -285,6 +383,7 @@ describe("gateway shell pages", () => {
   });
 
   it("resolves the managed-cluster name on gateway details", async () => {
+    const user = userEvent.setup();
     renderPage(() => (
       <GatewayPage
         gateway={{
@@ -295,6 +394,7 @@ describe("gateway shell pages", () => {
       />
     ));
 
+    await user.click(screen.getByRole("tab", { name: "Details" }));
     expect(await screen.findByText("Cluster East")).toBeTruthy();
     expect(screen.queryByText("cluster-east")).toBeNull();
     expect(getGatewayPlacementMock).toHaveBeenCalledWith(
@@ -324,6 +424,7 @@ describe("gateway shell pages", () => {
       />
     ));
 
+    await user.click(screen.getByRole("tab", { name: "Details" }));
     await user.click(await screen.findByRole("button", { name: "Retry" }));
 
     expect(await screen.findByText("Cluster East")).toBeTruthy();

@@ -271,8 +271,6 @@ test("keeps connection methods on gateway details", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
   ).toBeFocused();
-  await expect(page.getByText("Cluster East", { exact: true })).toBeVisible();
-  await expect(page.getByText("cluster-east", { exact: true })).toHaveCount(0);
   await expect(
     page.getByRole("link", {
       name: "Open console for openshell-gateway-test in a new tab",
@@ -282,23 +280,19 @@ test("keeps connection methods on gateway details", async ({
     page.getByRole("button", { name: "Actions", exact: true }),
   ).toBeVisible();
 
-  const copyFields = page.getByRole("textbox");
-  await expect(copyFields).toHaveCount(2);
-  await expect(copyFields.nth(0)).toHaveValue(
-    "https://gateway.example.test:443",
-  );
-  await expect(copyFields.nth(1)).toHaveValue(
-    "openshell gateway add --name openshell-gateway-test https://gateway.example.test:443",
-  );
-  await expect(page.getByText("Not available")).toHaveCount(0);
-  await page
-    .getByRole("button", {
-      name: "Copy gateway endpoint for openshell-gateway-test",
-    })
-    .click();
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe("https://gateway.example.test:443");
+  // Connection is the default tab and walks through login, provider, and sandbox.
+  await expect(
+    page.getByRole("tab", { name: "Connection", selected: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Log in to the gateway" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy the add-provider command" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy the create-sandbox command" }),
+  ).toBeVisible();
   await page
     .getByRole("button", {
       name: "Copy connection command for openshell-gateway-test",
@@ -309,6 +303,20 @@ test("keeps connection methods on gateway details", async ({
     .toBe(
       "openshell gateway add --name openshell-gateway-test https://gateway.example.test:443",
     );
+
+  // Operational configuration and copyable values live under the Details tab.
+  await page.getByRole("tab", { name: "Details" }).click();
+  await expect(page.getByText("Cluster East", { exact: true })).toBeVisible();
+  await expect(page.getByText("cluster-east", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Not available")).toHaveCount(0);
+  await page
+    .getByRole("button", {
+      name: "Copy gateway endpoint for openshell-gateway-test",
+    })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe("https://gateway.example.test:443");
 
   await expect(
     page
@@ -498,9 +506,19 @@ test("provisions a gateway on an existing managed cluster", async ({
       .getByRole("navigation", { name: "Breadcrumb" })
       .getByText("team-gateway"),
   ).toBeVisible();
+  // Connection is the default tab; login is unavailable without an endpoint.
+  await expect(
+    page.getByRole("tab", { name: "Connection", selected: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
+    ),
+  ).toBeVisible();
+  // Operational values remain under the Details tab.
+  await page.getByRole("tab", { name: "Details" }).click();
   await expect(page.getByText("CLI connection", { exact: true })).toBeVisible();
   await expect(page.getByText("Not available")).toHaveCount(2);
-  await expect(page.getByRole("textbox")).toHaveCount(0);
   expect(requestBody).toEqual({
     cluster_id: "cluster-east",
     database_id: "",

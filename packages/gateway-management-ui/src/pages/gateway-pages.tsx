@@ -10,6 +10,9 @@ import {
   Flex,
   FlexItem,
   PageSection,
+  Tab,
+  Tabs,
+  TabTitleText,
   Title,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -28,6 +31,7 @@ import {
   buildGatewayAddCommand,
   type GatewayConnection,
 } from "../gateways/gateway-connections";
+import { GatewayConnectionSteps } from "../gateways/gateway-connection-steps";
 import {
   GatewayCliCopy,
   GatewayDetailHeader,
@@ -469,19 +473,48 @@ export function GatewaysPage({
   );
 }
 
+export type GatewayDetailTab = "connection" | "details";
+
+const gatewayDetailTabs: readonly GatewayDetailTab[] = [
+  "connection",
+  "details",
+];
+
+/** Normalizes an arbitrary tab value, defaulting unknown values to Connection. */
+export function toGatewayDetailTab(
+  value: string | null | undefined,
+): GatewayDetailTab {
+  return value && (gatewayDetailTabs as readonly string[]).includes(value)
+    ? (value as GatewayDetailTab)
+    : "connection";
+}
+
 export interface GatewayPageProps {
+  activeTab?: GatewayDetailTab;
   gateway?: GatewayRecord;
   gatewayId: string;
   onDeleted?: (gatewayName: string) => Promise<void> | void;
+  onTabChange?: (tab: GatewayDetailTab) => void;
 }
 
 export function GatewayPage({
+  activeTab,
   gateway,
   gatewayId,
   onDeleted,
+  onTabChange,
 }: GatewayPageProps) {
   const intl = useIntl();
   const { gateways, navigation } = useGatewayUi();
+  const [localTab, setLocalTab] = useState<GatewayDetailTab>("connection");
+  const currentTab = activeTab ?? localTab;
+  const changeTab = (tab: GatewayDetailTab) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setLocalTab(tab);
+    }
+  };
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const gatewayQuery = useQuery({
     enabled: gateway === undefined && gatewayId.length > 0,
@@ -535,72 +568,100 @@ export function GatewayPage({
         />
       </PageSection>
       <PageSection hasBodyWrapper={false} isFilled variant="secondary">
-        <DescriptionList isHorizontal>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.status} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              <GatewayStatus status={connection.status} />
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.cluster} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              <GatewayDetailClusterName gateway={connection} />
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.gatewayEndpoint} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {connection.endpoint ? (
-                <GatewayEndpointCopy gateway={connection} />
-              ) : (
-                <FormattedMessage {...messages.notAvailable} />
-              )}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.cliConnection} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {buildGatewayAddCommand(connection) ? (
-                <GatewayCliCopy gateway={connection} />
-              ) : (
-                <FormattedMessage {...messages.notAvailable} />
-              )}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.namespace} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {visibleGateway.namespace}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.gatewayReleaseId} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {visibleGateway.releaseId}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.managedDatabaseId} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {visibleGateway.databaseId}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-        </DescriptionList>
+        <Tabs
+          activeKey={currentTab}
+          aria-label={intl.formatMessage(messages.connectionTabsLabel)}
+          mountOnEnter
+          onSelect={(_event, eventKey) => {
+            changeTab(toGatewayDetailTab(String(eventKey)));
+          }}
+        >
+          <Tab
+            eventKey="connection"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.connectionTab} />
+              </TabTitleText>
+            }
+          >
+            <GatewayConnectionSteps gateway={connection} />
+          </Tab>
+          <Tab
+            eventKey="details"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.detailsTab} />
+              </TabTitleText>
+            }
+          >
+            <DescriptionList isHorizontal>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.status} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  <GatewayStatus status={connection.status} />
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.cluster} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  <GatewayDetailClusterName gateway={connection} />
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.gatewayEndpoint} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  {connection.endpoint ? (
+                    <GatewayEndpointCopy gateway={connection} />
+                  ) : (
+                    <FormattedMessage {...messages.notAvailable} />
+                  )}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.cliConnection} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  {buildGatewayAddCommand(connection) ? (
+                    <GatewayCliCopy gateway={connection} />
+                  ) : (
+                    <FormattedMessage {...messages.notAvailable} />
+                  )}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.namespace} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  {visibleGateway.namespace}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.gatewayReleaseId} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  {visibleGateway.releaseId}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.managedDatabaseId} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  {visibleGateway.databaseId}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            </DescriptionList>
+          </Tab>
+        </Tabs>
       </PageSection>
     </>
   );
