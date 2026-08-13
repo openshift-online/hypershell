@@ -89,6 +89,25 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+  # --- API server: select the development_oidc environment ---
+  # The binary's default `development` environment force-disables JWT in its
+  # OverrideConfig, which overrides the --enable-jwt=true flag above. The
+  # `development_oidc` environment leaves JWT driven by flags, so JWT
+  # enforcement and JWKS loading from Keycloak actually take effect.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-api-server
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api-server
+                env:
+                  - name: API_ENV
+                    value: "development_oidc"
   # --- Keycloak: fixed HTTP issuer reachable in-cluster and from host ---
   # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
   # requiring config.issuer == discovery.issuer == token.iss, so the issuer

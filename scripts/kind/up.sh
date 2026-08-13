@@ -176,6 +176,15 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   success "Keycloak ready"
 fi
 
+# The API server enforces JWT and loads Keycloak's JWKS at startup. If it
+# started before Keycloak was serving keys it is stuck in CrashLoopBackoff;
+# restart it now that Keycloak is ready so a fresh pod (with no backoff delay)
+# comes up on the first try instead of waiting out the backoff timer.
+if ! is_swapped api-server; then
+  info "Restarting API server now that Keycloak serves JWKS..."
+  kube rollout restart deployment/hypershell-api-server -n "${KIND_NAMESPACE}"
+fi
+
 # The controller's gRPC watch streams must connect to a running API server.
 # With simultaneous deployment the controller may start before the API server
 # is ready, fail the first connection, and sit in a 16s backoff -- missing
