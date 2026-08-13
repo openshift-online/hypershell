@@ -37,3 +37,9 @@ apm_modules/
 
 # Local tool binaries (built by make kind-prereqs)
 bin/
+
+# Generator build artifacts
+scripts/sdk-generator/sdk-generator
+scripts/cli-generator/cli-generator
+components/api-server/hypershell
+components/cli/hypershell

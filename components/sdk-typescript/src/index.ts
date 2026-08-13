@@ -37,3 +37,4 @@ export { RoleAPI } from './role_api.js';
 export type { RoleBinding, RoleBindingList, RoleBindingCreateRequest, RoleBindingPatchRequest } from './role_binding.js';
 export { RoleBindingBuilder, RoleBindingPatchBuilder } from './role_binding.js';
 export { RoleBindingAPI } from './role_binding_api.js';
+

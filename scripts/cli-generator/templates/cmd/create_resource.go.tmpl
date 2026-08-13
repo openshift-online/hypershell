@@ -1,0 +1,114 @@
+package {{.Resource.NameLower}}
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	"{{.Module}}/pkg/config"
+	"{{.Module}}/pkg/connection"
+	"{{.Module}}/pkg/dump"
+	"{{.Module}}/pkg/urls"
+)
+
+var args struct {
+{{- range .Resource.WritableFields}}
+	{{.Name | camelCase}} {{.GoType}}
+{{- end}}
+	bodyFile string
+}
+
+var Cmd = &cobra.Command{
+	Use:   "{{.Resource.NameLower}} [flags]",
+	Short: "Create a {{.Resource.NameLower}}",
+	Long: "Create a new {{.Resource.NameLower}}.\n\n" +
+		"Examples:\n" +
+		"  {{$.Binary}} create {{.Resource.NameLower}} {{range .Resource.WritableFields}}--{{.FlagName}} <value> {{end}}\n" +
+		"  {{$.Binary}} create {{.Resource.NameLower}} --body request.json",
+	Args: cobra.NoArgs,
+	RunE: run,
+}
+
+func init() {
+	fs := Cmd.Flags()
+{{- range .Resource.WritableFields}}
+{{- if eq .GoType "string"}}
+	fs.StringVar(&args.{{.Name | camelCase}}, "{{.FlagName}}", "", "{{.Name}} value.")
+{{- else if eq .GoType "int"}}
+	fs.IntVar(&args.{{.Name | camelCase}}, "{{.FlagName}}", 0, "{{.Name}} value.")
+{{- else if eq .GoType "bool"}}
+	fs.BoolVar(&args.{{.Name | camelCase}}, "{{.FlagName}}", false, "{{.Name}} value.")
+{{- else if eq .GoType "float64"}}
+	fs.Float64Var(&args.{{.Name | camelCase}}, "{{.FlagName}}", 0, "{{.Name}} value.")
+{{- end}}
+{{- end}}
+	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
+}
+
+func run(cmd *cobra.Command, argv []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	conn, err := connection.NewConnection().Config(cfg).Build()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	var body []byte
+
+	if args.bodyFile != "" {
+		body, err = os.ReadFile(args.bodyFile)
+		if err != nil {
+			return fmt.Errorf("can't read body file: %v", err)
+		}
+	} else {
+		request := map[string]interface{}{}
+{{- range .Resource.WritableFields}}
+{{- if eq .GoType "string"}}
+		if args.{{.Name | camelCase}} != "" {
+			request["{{.Name}}"] = args.{{.Name | camelCase}}
+		}
+{{- else if eq .GoType "int"}}
+		if args.{{.Name | camelCase}} != 0 {
+			request["{{.Name}}"] = args.{{.Name | camelCase}}
+		}
+{{- else if eq .GoType "bool"}}
+		if args.{{.Name | camelCase}} {
+			request["{{.Name}}"] = args.{{.Name | camelCase}}
+		}
+{{- else if eq .GoType "float64"}}
+		if args.{{.Name | camelCase}} != 0 {
+			request["{{.Name}}"] = args.{{.Name | camelCase}}
+		}
+{{- end}}
+{{- end}}
+		body, err = json.Marshal(request)
+		if err != nil {
+			return fmt.Errorf("can't marshal request: %v", err)
+		}
+	}
+
+	resp, err := conn.Post(urls.{{.Resource.Plural}}Path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("can't create {{.Resource.NameLower}}: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("can't read response: %v", err)
+	}
+
+	if resp.StatusCode != 201 && resp.StatusCode != 200 {
+		return fmt.Errorf("API returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return dump.Pretty(os.Stdout, respBody)
+}

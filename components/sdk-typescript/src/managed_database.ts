@@ -160,3 +160,4 @@ export class ManagedDatabasePatchBuilder {
     return this.data as ManagedDatabasePatchRequest;
   }
 }
+

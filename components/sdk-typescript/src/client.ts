@@ -25,14 +25,17 @@ export class SDKClient {
   readonly roles: RoleAPI;
   readonly roleBindings: RoleBindingAPI;
 
-  constructor(config: SDKClientConfig = {}) {
+  constructor(config: SDKClientConfig) {
+    if (!config.baseUrl) {
+      throw new Error('baseUrl is required');
+    }
     if (config.token !== undefined && config.getToken !== undefined) {
       throw new Error('token and getToken are mutually exclusive');
     }
 
     this.config = {
       ...config,
-      baseUrl: (config.baseUrl ?? '').replace(/\/+$/, ''),
+      baseUrl: config.baseUrl.replace(/\/+$/, ''),
     };
 
     this.fleets = new FleetAPI(this.config);
@@ -45,4 +48,17 @@ export class SDKClient {
     this.roleBindings = new RoleBindingAPI(this.config);
   }
 
+  static fromEnv(): SDKClient {
+    const env = (typeof globalThis !== 'undefined' && 'process' in globalThis
+      ? (globalThis as Record<string, unknown>).process as { env: Record<string, string | undefined> }
+      : { env: {} as Record<string, string | undefined> }).env;
+    const baseUrl = env.API_URL || 'https://localhost:8000';
+    const token = env.API_TOKEN;
+
+    if (!token) {
+      throw new Error('API_TOKEN environment variable is required');
+    }
+
+    return new SDKClient({ baseUrl, token });
+  }
 }

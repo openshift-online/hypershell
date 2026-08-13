@@ -159,6 +159,9 @@ export class GatewayBuilder {
     if (!this.data['name']) {
       throw new Error('name is required');
     }
+    if (!this.data['namespace']) {
+      throw new Error('namespace is required');
+    }
     if (!this.data['release_id']) {
       throw new Error('release_id is required');
     }
@@ -259,3 +262,4 @@ export class GatewayPatchBuilder {
     return this.data as GatewayPatchRequest;
   }
 }
+

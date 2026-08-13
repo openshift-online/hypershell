@@ -87,6 +87,7 @@ help:
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
 	@echo "    build-api-server         Build API server container image"
+	@echo "    build-cli                Build CLI binary"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
 	@echo ""
@@ -94,6 +95,7 @@ help:
 	@echo "    test-all                 Run all test suites"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
+	@echo "    lint-cli                 Lint CLI (gofmt, go vet, golangci-lint)"
 	@echo "    lint-control-plane       Lint control plane (gofmt, go vet, golangci-lint)"
 	@echo "    lint-sdk-typescript      Lint TypeScript SDK"
 	@echo "    lint-gateway-management-ui  Lint gateway management UI package"
@@ -139,6 +141,10 @@ build-api-server:
 build-controller:
 	$(CONTAINER_ENGINE) build -t $(control_plane_local) \
 		-f components/control-plane/Dockerfile .
+
+.PHONY: build-cli
+build-cli:
+	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hypershell ./cmd/hypershell
 
 .PHONY: build-web-console
 build-web-console:
@@ -207,6 +213,17 @@ lint-api-server:
 	cd components/api-server && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
 	cd components/api-server && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
+.PHONY: lint-cli
+lint-cli:
+	@unformatted="$$(gofmt -l components/cli)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following CLI files are not formatted:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	cd components/cli && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
+	cd components/cli && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+
 .PHONY: lint-control-plane
 lint-control-plane:
 	@unformatted="$$(gofmt -l components/control-plane)"; \
@@ -234,7 +251,7 @@ lint-web-console: install-js
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check
 
 .PHONY: lint
-lint: check install-js lint-api-server lint-control-plane lint-sdk-typescript lint-gateway-management-ui lint-web-console
+lint: check install-js lint-api-server lint-cli lint-control-plane lint-sdk-typescript lint-gateway-management-ui lint-web-console
 
 # ============================================================================
 # Test targets

@@ -137,3 +137,4 @@ export class ManagedClusterPatchBuilder {
     return this.data as ManagedClusterPatchRequest;
   }
 }
+

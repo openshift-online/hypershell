@@ -44,13 +44,11 @@ export class {{.Resource.Name}}Builder {
 {{end}}{{end}}
   build(): {{.Resource.Name}}CreateRequest {
 {{- range .Resource.Fields}}
-{{- if isWritable .}}
 {{- if .Required}}
 {{- if eq .TSType "string"}}
     if (!this.data['{{.Name}}']) {
       throw new Error('{{.Name}} is required');
     }
-{{- end}}
 {{- end}}
 {{- end}}
 {{- end}}

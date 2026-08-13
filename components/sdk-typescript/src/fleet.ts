@@ -76,3 +76,4 @@ export class FleetPatchBuilder {
     return this.data as FleetPatchRequest;
   }
 }
+

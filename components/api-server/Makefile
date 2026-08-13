@@ -3,8 +3,13 @@ CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
 POSTGRES_IMAGE=postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
 OPENAPI_SPEC=$(abspath openapi/openapi.yaml)
 SDK_GENERATOR_DIR=$(abspath ../../scripts/sdk-generator)
+CLI_GENERATOR_DIR=$(abspath ../../scripts/cli-generator)
 SDK_TYPESCRIPT_DIR=$(abspath ../sdk-typescript)
+SDK_GO_DIR=$(abspath ../sdk-go)
+CLI_DIR=$(abspath ../cli)
 SDK_API_PREFIX=/api/hypershell/v1
+SDK_GO_MODULE=github.com/openshift-online/hypershell/components/sdk-go
+CLI_MODULE=github.com/openshift-online/hypershell/components/cli
 
 # Version information for ldflags
 git_sha:=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -52,9 +57,30 @@ generate:
 	$(CONTAINER_ENGINE) cp $$id:/local/pkg/api/openapi ./pkg/api/openapi && \
 	$(CONTAINER_ENGINE) rm $$id
 
-.PHONY: generate-sdk generate-sdk-ts generate-sdk-typescript
-generate-sdk: generate-sdk-ts
+.PHONY: generate-sdk generate-sdk-ts generate-sdk-typescript generate-sdk-go generate-cli
+generate-sdk: generate-sdk-ts generate-sdk-go
 generate-sdk-typescript: generate-sdk-ts
+
+generate-sdk-go:
+	test -f "$(SDK_GENERATOR_DIR)/go.mod"
+	rm -rf "$(SDK_GO_DIR)/types" "$(SDK_GO_DIR)/client"
+	cd "$(SDK_GENERATOR_DIR)" && GOWORK=off go run . \
+		--spec "$(OPENAPI_SPEC)" \
+		--go-out "$(SDK_GO_DIR)" \
+		--api-prefix "$(SDK_API_PREFIX)" \
+		--project hypershell \
+		--module "$(SDK_GO_MODULE)"
+
+generate-cli:
+	test -f "$(CLI_GENERATOR_DIR)/go.mod"
+	rm -rf "$(CLI_DIR)/cmd" "$(CLI_DIR)/pkg"
+	cd "$(CLI_GENERATOR_DIR)" && GOWORK=off go run . \
+		--spec "$(OPENAPI_SPEC)" \
+		--out "$(CLI_DIR)" \
+		--binary hypershell \
+		--project hypershell \
+		--api-prefix "$(SDK_API_PREFIX)" \
+		--module "$(CLI_MODULE)"
 
 generate-sdk-ts:
 	test -f "$(SDK_GENERATOR_DIR)/go.mod"

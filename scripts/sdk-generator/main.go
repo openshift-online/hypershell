@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"flag"
 	"fmt"
@@ -9,11 +8,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -67,7 +65,7 @@ func main() {
 	header := GeneratedHeader{
 		SpecPath:  *specPath,
 		SpecHash:  specHash,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Timestamp: generationTimestamp(),
 	}
 
 	fmt.Printf("Parsed %d resources from %s\n", len(spec.Resources), *specPath)
@@ -348,13 +346,13 @@ func loadTemplate(path string) (*template.Template, error) {
 }
 
 func executeTemplate(tmpl *template.Template, outPath string, data interface{}) error {
-	var rendered bytes.Buffer
-	if err := tmpl.Execute(&rendered, data); err != nil {
+	f, err := os.Create(outPath)
+	if err != nil {
 		return err
 	}
+	defer f.Close()
 
-	contents := strings.TrimRight(rendered.String(), "\n") + "\n"
-	return os.WriteFile(outPath, []byte(contents), 0644)
+	return tmpl.Execute(f, data)
 }
 
 func computeSpecHash(specPath string) (string, error) {
@@ -410,22 +408,15 @@ func getTemplateDir() string {
 }
 
 func inferAPIPrefix(specPath string) string {
-	data, err := os.ReadFile(specPath)
-	if err != nil {
-		return "/api/v1"
-	}
-	var doc openAPIDoc
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return "/api/v1"
-	}
+	return inferAPIPrefixFromIR(specPath)
+}
 
-	for pathKey := range doc.Paths {
-		if strings.HasPrefix(pathKey, "/api/") {
-			parts := strings.Split(pathKey, "/")
-			if len(parts) >= 4 {
-				return "/" + parts[1] + "/" + parts[2] + "/" + parts[3]
-			}
+func generationTimestamp() string {
+	if epoch := os.Getenv("SOURCE_DATE_EPOCH"); epoch != "" {
+		seconds, err := strconv.ParseInt(epoch, 10, 64)
+		if err == nil {
+			return time.Unix(seconds, 0).UTC().Format(time.RFC3339)
 		}
 	}
-	return "/api/v1"
+	return time.Unix(0, 0).UTC().Format(time.RFC3339)
 }
