@@ -6,14 +6,14 @@ import (
 
 type AccessibleGatewayIDsFunc func(ctx context.Context, userID string) ([]string, error)
 
-type gatewayVisibilityFilter struct {
+type GatewayVisibilityFilter struct {
 	fn AccessibleGatewayIDsFunc
 }
 
-func NewGatewayVisibilityFilter(fn AccessibleGatewayIDsFunc) *gatewayVisibilityFilter {
-	return &gatewayVisibilityFilter{fn: fn}
+func NewGatewayVisibilityFilter(fn AccessibleGatewayIDsFunc) *GatewayVisibilityFilter {
+	return &GatewayVisibilityFilter{fn: fn}
 }
 
-func (f *gatewayVisibilityFilter) AccessibleGatewayIDs(ctx context.Context, userID string) ([]string, error) {
+func (f *GatewayVisibilityFilter) AccessibleGatewayIDs(ctx context.Context, userID string) ([]string, error) {
 	return f.fn(ctx, userID)
 }

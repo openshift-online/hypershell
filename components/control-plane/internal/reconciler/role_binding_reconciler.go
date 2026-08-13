@@ -9,6 +9,7 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
+	"google.golang.org/grpc"
 )
 
 var keycloakRoleMap = map[string]string{
@@ -20,12 +21,14 @@ type RoleBindingReconciler struct {
 	mu             sync.Mutex
 	active         map[string]struct{}
 	keycloakClient *keycloak.Client
+	grpcConn       *grpc.ClientConn
 }
 
-func NewRoleBindingReconciler(keycloakClient *keycloak.Client) *RoleBindingReconciler {
+func NewRoleBindingReconciler(keycloakClient *keycloak.Client, grpcConn *grpc.ClientConn) *RoleBindingReconciler {
 	return &RoleBindingReconciler{
 		active:         make(map[string]struct{}),
 		keycloakClient: keycloakClient,
+		grpcConn:       grpcConn,
 	}
 }
 
@@ -71,7 +74,10 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		return nil
 	}
 
-	gatewayName := *rb.GatewayId
+	gatewayName, err := r.resolveGatewayName(ctx, *rb.GatewayId)
+	if err != nil {
+		return fmt.Errorf("resolve gateway name for role binding %s: %w", event.ResourceID, err)
+	}
 
 	switch event.Type {
 	case watcher.EventCreated, watcher.EventUpdated:
@@ -88,4 +94,13 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 	}
 
 	return nil
+}
+
+func (r *RoleBindingReconciler) resolveGatewayName(ctx context.Context, gatewayID string) (string, error) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	resp, err := client.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
+	if err != nil {
+		return "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
+	}
+	return resp.GetGateway().GetName(), nil
 }

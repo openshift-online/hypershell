@@ -7,8 +7,10 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/pkg/server/grpcutil"
 )
@@ -17,11 +19,12 @@ type roleBindingGRPCHandler struct {
 	pb.UnimplementedRoleBindingServiceServer
 	service     RoleBindingService
 	roleService roles.RoleService
+	userService users.UserService
 	brokerFunc  func() *pkgserver.EventBroker
 }
 
-func NewRoleBindingGRPCHandler(svc RoleBindingService, roleService roles.RoleService, brokerFunc func() *pkgserver.EventBroker) pb.RoleBindingServiceServer {
-	return &roleBindingGRPCHandler{service: svc, roleService: roleService, brokerFunc: brokerFunc}
+func NewRoleBindingGRPCHandler(svc RoleBindingService, roleService roles.RoleService, userService users.UserService, brokerFunc func() *pkgserver.EventBroker) pb.RoleBindingServiceServer {
+	return &roleBindingGRPCHandler{service: svc, roleService: roleService, userService: userService, brokerFunc: brokerFunc}
 }
 
 func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequest, stream grpc.ServerStreamingServer[pb.WatchRoleBindingsResponse]) error {
@@ -58,7 +61,11 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 
 			var rb *RoleBinding
 			if evt.EventType == api.DeleteEventType {
-				rb, _ = h.service.GetUnscoped(ctx, evt.SourceID)
+				var unscopedErr *errors.ServiceError
+				rb, unscopedErr = h.service.GetUnscoped(ctx, evt.SourceID)
+				if unscopedErr != nil {
+					glog.Warningf("WatchRoleBindings: failed to load deleted role binding %s: %v", evt.SourceID, unscopedErr)
+				}
 			} else {
 				var svcErr interface{ Error() string }
 				rb, svcErr = h.service.Get(ctx, evt.SourceID)
@@ -76,7 +83,14 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 						roleName = role.Name
 					}
 				}
-				watchEvent.RoleBinding = roleBindingToProto(rb, roleName)
+				username := ""
+				if rb.UserID != nil && h.userService != nil {
+					user, userErr := h.userService.Get(ctx, *rb.UserID)
+					if userErr == nil {
+						username = user.Username
+					}
+				}
+				watchEvent.RoleBinding = roleBindingToProto(rb, roleName, username)
 			}
 
 			if err := stream.Send(watchEvent); err != nil {

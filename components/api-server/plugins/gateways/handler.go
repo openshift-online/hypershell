@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -152,11 +153,6 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
 			listArgs := services.NewListArguments(r.URL.Query())
-			var gateways []Gateway
-			paging, err := h.generic.List(ctx, "id", listArgs, &gateways)
-			if err != nil {
-				return nil, err
-			}
 
 			userID := rbac.GetUserIDFromContext(ctx)
 			if userID != "" && h.visibilityFilter != nil {
@@ -164,23 +160,37 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 				if filterErr != nil {
 					return nil, errors.GeneralError("failed to check gateway access: %s", filterErr)
 				}
-				allowed := make(map[string]bool, len(accessibleIDs))
-				for _, id := range accessibleIDs {
-					allowed[id] = true
+				if len(accessibleIDs) == 0 {
+					kindStr := "GatewayList"
+					pageVal := int32(listArgs.Page)
+					sizeVal := int32(0)
+					totalVal := int32(0)
+					return openapi.GatewayList{
+						Kind:  &kindStr,
+						Page:  &pageVal,
+						Size:  &sizeVal,
+						Total: &totalVal,
+						Items: []openapi.Gateway{},
+					}, nil
 				}
-				filtered := gateways[:0]
-				for _, gw := range gateways {
-					if allowed[gw.ID] {
-						filtered = append(filtered, gw)
-					}
+				idFilter := visibilitySearchFilter(accessibleIDs)
+				if listArgs.Search != "" {
+					listArgs.Search = "(" + listArgs.Search + ") and " + idFilter
+				} else {
+					listArgs.Search = idFilter
 				}
-				gateways = filtered
+			}
+
+			var gateways []Gateway
+			paging, err := h.generic.List(ctx, "id", listArgs, &gateways)
+			if err != nil {
+				return nil, err
 			}
 
 			kindStr := "GatewayList"
 			pageVal := int32(paging.Page)
 			sizeVal := int32(paging.Size)
-			totalVal := int32(len(gateways))
+			totalVal := int32(paging.Total)
 			gatewayList := openapi.GatewayList{
 				Kind:  &kindStr,
 				Page:  &pageVal,
@@ -205,6 +215,14 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handlers.HandleList(w, r, cfg)
+}
+
+func visibilitySearchFilter(ids []string) string {
+	quoted := make([]string, len(ids))
+	for i, id := range ids {
+		quoted[i] = "'" + id + "'"
+	}
+	return "id in (" + strings.Join(quoted, ",") + ")"
 }
 
 func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {

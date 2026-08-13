@@ -131,7 +131,7 @@ func main() {
 			keycloakConfig.ClientID,
 			keycloakConfig.ClientSecret,
 		)
-		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient)
+		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn)
 		log.Printf("INFO role binding reconciler enabled with keycloak integration")
 	}
 

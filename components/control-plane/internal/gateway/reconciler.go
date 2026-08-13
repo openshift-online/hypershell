@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -939,14 +939,12 @@ func rotateDatabaseCredentials(ctx context.Context, clientset *kubernetes.Client
 	}
 	defer db.Close()
 
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD '%s'", dbUser, newPassword)); err != nil {
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD %s", pq.QuoteIdentifier(dbUser), pq.QuoteLiteral(newPassword))); err != nil {
 		return fmt.Errorf("ALTER ROLE during credential rotation: %w", err)
 	}
 	log.Printf("INFO executed ALTER ROLE for user %s in %s", dbUser, namespace)
 
 	dbName := "openshell"
-	_, dbKey, _ := postgresEnvKeys(dbImage)
-	_ = dbKey
 	dbURL := fmt.Sprintf("postgresql://%s:%s@openshell-gateway-db:5432/%s?sslmode=disable",
 		dbUser, url.QueryEscape(newPassword), dbName)
 

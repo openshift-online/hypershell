@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -79,13 +80,14 @@ func init() {
 		envServices := services.(*environments.Services)
 		rbService := Service(envServices)
 		roleService := roles.Service(envServices)
+		userService := users.Service(envServices)
 		brokerFunc := func() *pkgserver.EventBroker {
 			if obj := envServices.GetService("EventBroker"); obj != nil {
 				return obj.(*pkgserver.EventBroker)
 			}
 			return nil
 		}
-		pb.RegisterRoleBindingServiceServer(grpcServer, NewRoleBindingGRPCHandler(rbService, roleService, brokerFunc))
+		pb.RegisterRoleBindingServiceServer(grpcServer, NewRoleBindingGRPCHandler(rbService, roleService, userService, brokerFunc))
 	})
 
 	presenters.RegisterPath(RoleBinding{}, "role_bindings")

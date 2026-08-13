@@ -5,7 +5,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func roleBindingToProto(rb *RoleBinding, roleName string) *pb.RoleBinding {
+func roleBindingToProto(rb *RoleBinding, roleName string, username string) *pb.RoleBinding {
 	p := &pb.RoleBinding{
 		Metadata: &pb.ObjectReference{
 			Id:        rb.ID,
@@ -18,14 +18,11 @@ func roleBindingToProto(rb *RoleBinding, roleName string) *pb.RoleBinding {
 		Scope:    rb.Scope,
 		UserId:   rb.UserID,
 		RoleName: roleName,
+		Username: username,
 	}
 
 	if rb.GatewayID != nil {
 		p.GatewayId = rb.GatewayID
-	}
-
-	if rb.UserID != nil {
-		p.Username = *rb.UserID
 	}
 
 	return p
