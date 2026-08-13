@@ -44,7 +44,7 @@ export function buildGatewayAddCommand(
 
   parts.push(shellArgument(gateway.endpoint));
 
-  return parts.join(" ");
+  return parts.join(" \\\n  ");
 }
 
 /**
@@ -74,7 +74,7 @@ export function buildProviderCreateCommand(): string {
     "--type google-vertex-ai",
     "--from-gcloud-adc",
     `--config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
-  ].join(" ");
+  ].join(" \\\n  ");
 }
 
 /**
@@ -88,7 +88,7 @@ export function buildProviderFromExistingCommand(): string {
     `--name ${vertexClaudeProviderName}`,
     "--type google-vertex-ai",
     "--from-existing",
-  ].join(" ");
+  ].join(" \\\n  ");
 }
 
 /**
@@ -98,7 +98,11 @@ export function buildProviderFromExistingCommand(): string {
 export function buildInferenceSetCommand(
   model: string = inferenceModelPlaceholder,
 ): string {
-  return `openshell inference set --provider ${vertexClaudeProviderName} --model ${model}`;
+  return [
+    "openshell inference set",
+    `--provider ${vertexClaudeProviderName}`,
+    `--model ${model}`,
+  ].join(" \\\n  ");
 }
 
 /**
@@ -108,7 +112,12 @@ export function buildInferenceSetCommand(
 export function buildSandboxCreateCommand(
   sandboxName: string = sandboxNamePlaceholder,
 ): string {
-  return `openshell sandbox create --name ${sandboxName} --provider ${vertexClaudeProviderName} -- claude`;
+  return [
+    "openshell sandbox create",
+    `--name ${sandboxName}`,
+    `--provider ${vertexClaudeProviderName}`,
+    "-- claude",
+  ].join(" \\\n  ");
 }
 
 export type GatewayStatusAppearance =

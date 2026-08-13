@@ -1,10 +1,13 @@
 import {
-  ClipboardCopy,
+  ClipboardCopyButton,
+  CodeBlock,
+  CodeBlockAction,
+  CodeBlockCode,
   Content,
   ExpandableSection,
   Title,
 } from "@patternfly/react-core";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useIntl } from "react-intl";
 
 import { messages } from "../messages";
@@ -29,17 +32,38 @@ function CommandCopy({
   command: string;
 }) {
   const intl = useIntl();
+  const id = useId();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(command);
+    setCopied(true);
+  };
 
   return (
-    <ClipboardCopy
-      clickTip={intl.formatMessage(messages.copied)}
-      copyAriaLabel={ariaLabel}
-      hoverTip={intl.formatMessage(messages.copy)}
-      isCode
-      isReadOnly
+    <CodeBlock
+      actions={
+        <CodeBlockAction>
+          <ClipboardCopyButton
+            aria-label={ariaLabel}
+            exitDelay={copied ? 1500 : 600}
+            id={`${id}-copy-button`}
+            maxWidth="110px"
+            onClick={handleCopy}
+            onTooltipHidden={() => {
+              setCopied(false);
+            }}
+            variant="plain"
+          >
+            {copied
+              ? intl.formatMessage(messages.copied)
+              : intl.formatMessage(messages.copy)}
+          </ClipboardCopyButton>
+        </CodeBlockAction>
+      }
     >
-      {command}
-    </ClipboardCopy>
+      <CodeBlockCode id={id}>{command}</CodeBlockCode>
+    </CodeBlock>
   );
 }
 

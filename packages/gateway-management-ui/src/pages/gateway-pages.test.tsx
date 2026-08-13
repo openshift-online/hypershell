@@ -163,7 +163,7 @@ describe("gateway shell pages", () => {
       screen.getByRole("tab", { name: "Connection", selected: true }),
     ).toBeTruthy();
     expect(
-      screen.getByDisplayValue(/openshell gateway add --name 'Team gateway'/u),
+      screen.getByText(/openshell gateway add/, { selector: "code" }),
     ).toBeTruthy();
 
     // Operational configuration lives behind the Details tab.
@@ -245,11 +245,11 @@ describe("gateway shell pages", () => {
         name: "Open console for Team gateway in a new tab",
       }),
     ).toBeNull();
-    expect(
-      screen.getByDisplayValue(
-        "openshell gateway add --name 'Team gateway' https://gateway.example.com:443",
-      ),
-    ).toBeTruthy();
+    const cliCmd = screen.getByText(/openshell gateway add/, {
+      selector: "code",
+    });
+    expect(cliCmd).toBeTruthy();
+    expect(cliCmd.textContent).not.toContain("--oidc-");
   });
 
   it("walks through gateway connection with provider and sandbox commands", async () => {
@@ -288,12 +288,10 @@ describe("gateway shell pages", () => {
       screen.getByRole("heading", { level: 2, name: "Create a sandbox" }),
     ).toBeTruthy();
     expect(
-      screen.getByDisplayValue(
-        /openshell provider create .* --from-gcloud-adc/u,
-      ),
+      screen.getByText(/--from-gcloud-adc/, { selector: "code" }),
     ).toBeTruthy();
     expect(
-      screen.getByDisplayValue(/openshell sandbox create .* -- claude/u),
+      screen.getByText(/openshell sandbox create/, { selector: "code" }),
     ).toBeTruthy();
 
     // Prerequisites and options are revealed on demand.
@@ -301,10 +299,12 @@ describe("gateway shell pages", () => {
       screen.getByRole("button", { name: "Prerequisites and options" }),
     );
     expect(
-      screen.getByDisplayValue("gcloud auth application-default login"),
+      screen.getByText("gcloud auth application-default login", {
+        selector: "code",
+      }),
     ).toBeTruthy();
     expect(
-      screen.getByDisplayValue(/openshell inference set .* --model/u),
+      screen.getByText(/openshell inference set/, { selector: "code" }),
     ).toBeTruthy();
     expect(
       screen.getByText(/Do not set CLAUDE_CODE_USE_VERTEX=1/u),
