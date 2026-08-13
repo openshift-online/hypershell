@@ -54,12 +54,15 @@ The Gateway API resource SHALL accept an optional `oidc` object containing OIDC 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oidc.issuer` | string | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
+| `oidc.client_id` | string | No | `"openshell-cli"` | Client identifier CLI users present to the IdP; client-facing metadata surfaced by the console, not written to `gateway.toml` server config |
 | `oidc.audience` | string | No | `"openshell-cli"` | Expected `aud` claim value in JWT |
 | `oidc.jwks_ttl` | integer | No | `3600` | JWKS key cache retention in seconds |
 | `oidc.roles_claim` | string | No | `""` | Dot-delimited path to roles array in JWT claims |
 | `oidc.admin_role` | string | No | `""` | Role name conferring admin access |
 | `oidc.user_role` | string | No | `""` | Role name conferring standard user access |
 | `oidc.scopes_claim` | string | No | `""` | Dot-delimited path to scopes array in JWT claims |
+
+The `oidc.issuer`, `oidc.audience`, `oidc.jwks_ttl`, `oidc.roles_claim`, `oidc.admin_role`, `oidc.user_role`, and `oidc.scopes_claim` fields map directly to the upstream OpenShell `server.oidc.*` helm values. `oidc.client_id` is client-facing metadata: the gateway validates `issuer` and `audience`, while CLI users need `client_id` to obtain a token. The console presents `issuer`, `client_id`, and `audience` in the `openshell gateway add` command.
 
 #### Scenario: Gateway with OIDC enabled via kustomize
 
@@ -82,12 +85,44 @@ The Gateway API resource SHALL accept an optional `oidc` object containing OIDC 
 - THEN the API server SHALL persist the Gateway with OIDC configuration
 - AND the GatewayReconciler SHALL generate a `gateway.toml` containing the `[openshell.gateway.oidc]` section
 
-#### Scenario: Gateway without OIDC (default)
+#### Scenario: Gateway without OIDC and without platform config
 
 - GIVEN a Gateway resource with no `oidc` field
+- AND no platform OIDC issuer is configured on the control plane
 - WHEN the GatewayReconciler reconciles
 - THEN `gateway.toml` SHALL NOT contain an `[openshell.gateway.oidc]` section
 - AND `allow_unauthenticated_users` SHALL remain `true`
+
+---
+
+### Requirement: Default OIDC Configuration from Platform Config
+
+When a Gateway is created without OIDC configuration (empty `oidc.issuer`) and the control plane has a platform OIDC issuer configured, the GatewayReconciler SHALL default the Gateway's `oidc` to the platform issuer with client-facing `client_id` and `audience`, persist the defaulted `oidc` back to the Gateway resource via the API server, and use it to configure the gateway. This makes OIDC the default authentication mode and gives the console and CLI the issuer, client ID, and audience needed to connect. A Gateway that already specifies a non-empty `oidc.issuer` SHALL be left unchanged.
+
+The default values are resolved from control-plane configuration:
+
+| Variable | Default | Description |
+|---|---|---|
+| `GATEWAY_OIDC_ISSUER` | value of `OIDC_ISSUER` | Issuer URL used to default a gateway's OIDC configuration |
+| `GATEWAY_OIDC_CLIENT_ID` | `openshell-cli` | Client identifier surfaced to CLI users |
+| `GATEWAY_OIDC_AUDIENCE` | `openshell-cli` | Expected `aud` claim value |
+
+When no platform issuer is resolved (both `GATEWAY_OIDC_ISSUER` and `OIDC_ISSUER` are empty), the reconciler SHALL leave the Gateway unauthenticated as before.
+
+#### Scenario: Gateway without OIDC but with platform issuer
+
+- GIVEN a Gateway resource with no `oidc` field
+- AND the control plane has `OIDC_ISSUER` set to `https://keycloak.example.com/realms/hypershell`
+- WHEN the GatewayReconciler reconciles
+- THEN it SHALL persist `oidc` on the Gateway with issuer `https://keycloak.example.com/realms/hypershell`, `client_id` `openshell-cli`, and `audience` `openshell-cli`
+- AND `gateway.toml` SHALL contain the `[openshell.gateway.oidc]` section with `allow_unauthenticated_users = false`
+- AND the console `openshell gateway add` command SHALL include the issuer, client ID, and audience
+
+#### Scenario: Gateway with explicit OIDC is not overridden
+
+- GIVEN a Gateway resource whose `oidc.issuer` is already set
+- WHEN the GatewayReconciler reconciles
+- THEN the reconciler SHALL NOT replace the existing `oidc` configuration with platform defaults
 
 ---
 
