@@ -336,6 +336,11 @@ fi
 
 if [[ -n "${PORT_SUFFIX}" ]]; then
   warn "Port forwarding not active - overriding OIDC URLs with port suffix ${PORT_SUFFIX}"
+  warn "Caveat: gateway OIDC validation expects the canonical issuer"
+  warn "  http://${KEYCLOAK_HOSTNAME}:8080 that the gateway is seeded with. On this"
+  warn "  fallback path Keycloak mints tokens with a port-suffixed issuer, which"
+  warn "  will not match, so gateway token validation will fail. Use port"
+  warn "  forwarding (the default) for end-to-end gateway OIDC."
 
   if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
     kube set env deployment/keycloak -n keycloak \

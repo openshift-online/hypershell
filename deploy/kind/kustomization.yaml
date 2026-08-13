@@ -62,6 +62,9 @@ patches:
                     value: "hypershell-frontend"
                   - name: OIDC_REDIRECT_URI
                     value: "https://console.hypershell.localhost/auth/callback"
+                  # local-dev-only: lets the web console BFF trust Kind's
+                  # self-signed cert-manager CA. Never set this in deploy/base
+                  # or deploy/openshift.
                   - name: NODE_TLS_REJECT_UNAUTHORIZED
                     value: "0"
                   - name: SESSION_SECRET
@@ -70,15 +73,17 @@ patches:
                         name: hypershell-oidc-session
                         key: session-secret
   # --- API server: enable JWT + JWK cert URL + bypass paths ---
-  # Index 6 = --enable-jwt=false in deploy/base/api-server.yaml.
-  # If the base command array changes, update this index.
+  # Appending --enable-jwt=true is index-independent: --enable-jwt is a pflag
+  # BoolVar, and repeated single-value flags are last-value-wins, so the
+  # appended true overrides the base --enable-jwt=false no matter where it sits
+  # in deploy/base/api-server.yaml's command array.
   - target:
       kind: Deployment
       name: hypershell-api-server
       namespace: hypershell-system
     patch: |
-      - op: replace
-        path: /spec/template/spec/containers/0/command/6
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
         value: "--enable-jwt=true"
       - op: add
         path: /spec/template/spec/containers/0/command/-

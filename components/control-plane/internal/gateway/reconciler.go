@@ -352,46 +352,62 @@ func deployGateway(
 }
 
 func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
-	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		return nil
-	}
-
 	watchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	fieldSelector := fields.OneTermEqualSelector("metadata.name", name).String()
 
-	list, err := clientset.CoreV1().Secrets(namespace).List(watchCtx, metav1.ListOptions{
-		FieldSelector: fieldSelector,
-	})
-	if err != nil {
-		return fmt.Errorf("list secret %s/%s: %w", namespace, name, err)
-	}
-	if len(list.Items) > 0 {
-		return nil
-	}
+	// List-then-watch, re-established on early channel close. The apiserver can
+	// end a watch (connection reset, restart, LB blip) before the deadline; a
+	// closed ResultChan is not terminal, so we re-list (to pick up a fresh
+	// ResourceVersion and catch a secret that appeared during the gap) and
+	// re-watch until watchCtx is actually done.
+	for {
+		list, err := clientset.CoreV1().Secrets(namespace).List(watchCtx, metav1.ListOptions{
+			FieldSelector: fieldSelector,
+		})
+		if err != nil {
+			if watchCtx.Err() != nil {
+				return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+			}
+			return fmt.Errorf("list secret %s/%s: %w", namespace, name, err)
+		}
+		if len(list.Items) > 0 {
+			return nil
+		}
 
-	watcher, err := clientset.CoreV1().Secrets(namespace).Watch(watchCtx, metav1.ListOptions{
-		FieldSelector:   fieldSelector,
-		ResourceVersion: list.ResourceVersion,
-	})
-	if err != nil {
-		return fmt.Errorf("watch secret %s/%s: %w", namespace, name, err)
-	}
-	defer watcher.Stop()
+		watcher, err := clientset.CoreV1().Secrets(namespace).Watch(watchCtx, metav1.ListOptions{
+			FieldSelector:   fieldSelector,
+			ResourceVersion: list.ResourceVersion,
+		})
+		if err != nil {
+			if watchCtx.Err() != nil {
+				return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+			}
+			return fmt.Errorf("watch secret %s/%s: %w", namespace, name, err)
+		}
 
-	for event := range watcher.ResultChan() {
-		if event.Type == watch.Added || event.Type == watch.Modified {
+		appeared := false
+		for event := range watcher.ResultChan() {
+			if event.Type == watch.Added || event.Type == watch.Modified {
+				appeared = true
+				break
+			}
+		}
+		watcher.Stop()
+
+		if appeared {
 			log.Printf("INFO secret %s/%s is available", namespace, name)
 			return nil
 		}
-	}
 
-	if watchCtx.Err() != nil {
-		return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+		// ResultChan closed. If the deadline elapsed, report timeout; otherwise
+		// the watch ended early -- loop to re-establish it.
+		if watchCtx.Err() != nil {
+			return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+		}
+		log.Printf("INFO watch for secret %s/%s closed early; re-establishing", namespace, name)
 	}
-	return fmt.Errorf("watch closed for secret %s/%s before it appeared", namespace, name)
 }
 
 func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
