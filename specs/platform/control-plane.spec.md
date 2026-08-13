@@ -49,6 +49,7 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation |
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
+| [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) | Phase lifecycle, workload-readiness gating, continuous health reconciliation |
 
 ### Config
 
@@ -80,7 +81,7 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
   - Gateway Deployment, Service, ServiceAccounts, Roles, RoleBindings, ConfigMap, NetworkPolicies
   - GRPCRoute and BackendTLSPolicy (when `route` field is set) - see [routing spec](./openshell-gateway-routing.spec.md)
   - OIDC configuration in gateway.toml (when `oidc.issuer` is set) - see [OIDC spec](./openshell-gateway-oidc.spec.md)
-- AND update the Gateway's `phase` to reflect provisioning status
+- AND set the Gateway's `phase` to `Provisioning` while applying manifests, and to `Running` only after the `openshell-gateway` Deployment is observed Ready - see [health spec](./openshell-gateway-health.spec.md)
 
 ### Requirement: Resource Cleanup
 
@@ -94,13 +95,14 @@ When a Gateway is deleted, the control plane SHALL clean up all associated Kuber
 
 ### Requirement: Status Synchronization
 
-The control plane SHALL periodically update the `status` field of resources in the API server to reflect actual cluster state.
+The control plane SHALL continuously reconcile the `phase` and `status` fields of Gateway resources in the API server to reflect actual cluster state, even after a Gateway has reached `Running`. The phase gate that prevents redundant re-provisioning SHALL NOT suppress these health updates. Full lifecycle semantics are defined in the [health spec](./openshell-gateway-health.spec.md).
 
 #### Scenario: Gateway Health Check
-- GIVEN a running Gateway on a managed cluster
-- WHEN the control plane checks its health
+- GIVEN a Gateway with `phase` `Running` on a managed cluster
+- WHEN the control plane observes its `openshell-gateway` Deployment health
 - THEN it SHALL update the Gateway's `status` in the API server
-- AND set `phase` to "Degraded" if the workload is unhealthy
+- AND set `phase` to `Degraded` when ready replicas fall below desired
+- AND set `phase` back to `Running` when the workload recovers
 
 ## Design Decisions
 
