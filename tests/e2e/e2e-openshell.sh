@@ -137,11 +137,14 @@ printf '  %s\n' "5. Route discovery + openshell CLI registration"
 printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
 printf '  %s\n' "8. Sandbox interaction"
+printf '  %s\n' "9. Developer user RBAC verification"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  HyperShell API:    ${API_HOST}"
 dim  "  Gateway name:      ${GW_NAME}"
 dim  "  OIDC issuer:       ${E2E_OIDC_ISSUER}"
+dim  "  Admin user:        ${E2E_OIDC_USERNAME}"
+dim  "  Developer user:    ${E2E_DEV_USERNAME}"
 dim  "  Sandbox timeout:   ${E2E_SANDBOX_TIMEOUT}s"
 echo ""
 sep
@@ -666,13 +669,13 @@ echo ""
 bold "6. Gateway Connectivity"
 echo ""
 
-show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} status"
+show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} status"
 dim "  Waiting for route connectivity (up to 60s)..."
 CONNECT_DEADLINE=$(($(date +%s) + 60))
 STATUS_OUTPUT=""
 CONNECTED=false
 while [[ $(date +%s) -lt $CONNECT_DEADLINE ]]; do
-  STATUS_OUTPUT=$(OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" status 2>&1 || true)
+  STATUS_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" status 2>&1 || true)
   CLEAN_STATUS=$(echo "$STATUS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
   if echo "$CLEAN_STATUS" | grep -qi "Connected"; then
     CONNECTED=true
@@ -704,11 +707,11 @@ echo ""
 
 RUN_ID=$(date +%s | tail -c5)
 SANDBOX_NAME="e2e-${RUN_ID}"
-show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
+show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
 dim "  Creating sandbox (timeout: ${E2E_SANDBOX_TIMEOUT}s)..."
 
 SB_CREATE_LOG=$(mktemp)
-OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" >"${SB_CREATE_LOG}" 2>&1 &
+"${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" >"${SB_CREATE_LOG}" 2>&1 &
 SB_CREATE_PID=$!
 
 sleep 5
@@ -770,10 +773,9 @@ bold "8. Sandbox Interaction"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
-INSECURE_ENV="OPENSHELL_GATEWAY_INSECURE=true"
 
-show_cmd "${INSECURE_ENV} ${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
-if SB_EXEC_OUTPUT=$(OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
+show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
+if SB_EXEC_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
   CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
   if [[ -n "$CLEAN_EXEC" ]]; then
     pass "Sandbox exec: command executed inside sandbox"
@@ -789,8 +791,8 @@ else
   dim "    ${SB_EXEC_OUTPUT:0:200}"
 fi
 
-show_cmd "${INSECURE_ENV} ${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
-if SB_LS_OUTPUT=$(OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
+show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
+if SB_LS_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
   CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
   if [[ -n "$CLEAN_LS" ]]; then
     pass "Sandbox workspace: /workspace directory listing"
@@ -815,9 +817,131 @@ fi
 if [[ "$E2E_SKIP_CLEANUP" != "1" && "$SANDBOX_FOUND" == "true" ]]; then
   echo ""
   dim "  Cleaning up sandbox..."
-  show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME}"
-  OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
+  show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME}"
+  "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
   dim "  Sandbox deleted"
+fi
+sep
+
+# ── 9. developer user RBAC verification ──────────────────────────────────
+
+echo ""
+bold "9. Developer User RBAC Verification"
+echo ""
+
+show_cmd "# acquire OIDC token for developer user"
+acquire_oidc_token "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD"
+DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
+if [[ -n "$DEV_TOKEN" ]]; then
+  pass "Developer OIDC token acquired (user: ${E2E_DEV_USERNAME})"
+else
+  fail_test "Failed to acquire developer OIDC token"
+fi
+
+if [[ -n "$DEV_TOKEN" ]]; then
+  DEV_GW_LOCAL_NAME="${GW_LOCAL_NAME}-dev"
+  DEV_CONFIG_DIR="${HOME}/.config/openshell/gateways/${DEV_GW_LOCAL_NAME}"
+  mkdir -p "${DEV_CONFIG_DIR}"
+
+  "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
+  mkdir -p "${DEV_CONFIG_DIR}"
+
+  show_cmd "# register gateway as developer user"
+  DEV_GW_LOCAL_NAME="$DEV_GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
+    E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
+    DEV_TOKEN="$DEV_TOKEN" DEV_CONFIG_DIR="$DEV_CONFIG_DIR" \
+    python3 -c "
+import json, os
+config_dir = os.environ['DEV_CONFIG_DIR']
+meta = {
+    'name': os.environ['DEV_GW_LOCAL_NAME'],
+    'gateway_endpoint': os.environ['GW_ENDPOINT'],
+    'is_remote': True,
+    'gateway_port': 0,
+    'auth_mode': 'oidc',
+    'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
+    'oidc_client_id': os.environ['E2E_OIDC_CLIENT_ID']
+}
+with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
+    json.dump(meta, f, indent=2)
+token = {
+    'access_token': os.environ['DEV_TOKEN'],
+    'issuer': os.environ['E2E_OIDC_ISSUER'],
+    'client_id': os.environ['E2E_OIDC_CLIENT_ID']
+}
+with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
+    json.dump(token, f, indent=2)
+os.chmod(os.path.join(config_dir, 'metadata.json'), 0o600)
+os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
+"
+
+  if [[ -f "${DEV_CONFIG_DIR}/metadata.json" && -f "${DEV_CONFIG_DIR}/oidc_token.json" ]]; then
+    pass "Developer gateway registered (OIDC mode)"
+  else
+    fail_test "Failed to write developer gateway config"
+  fi
+
+  show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} status"
+  DEV_STATUS=$("${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" status 2>&1 || true)
+  DEV_CLEAN=$(echo "$DEV_STATUS" | sed 's/\x1b\[[0-9;]*m//g')
+  if echo "$DEV_CLEAN" | grep -qi "Connected"; then
+    pass "Developer user: gateway connected"
+  else
+    fail_test "Developer user: gateway not reachable"
+    echo "$DEV_STATUS" | while IFS= read -r line; do dim "    $line"; done
+  fi
+
+  DEV_SANDBOX="e2e-dev-$(date +%s | tail -c5)"
+  show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} sandbox create --name ${DEV_SANDBOX}"
+  dim "  Creating developer sandbox (timeout: ${E2E_SANDBOX_TIMEOUT}s)..."
+
+  DEV_SB_LOG=$(mktemp)
+  "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox create --name "${DEV_SANDBOX}" >"${DEV_SB_LOG}" 2>&1 &
+  DEV_SB_PID=$!
+
+  DEV_SB_FOUND=false
+  DEV_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $DEV_DEADLINE ]]; do
+    DEV_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${DEV_SANDBOX}" || true)
+    if [[ -n "$DEV_PODS" ]]; then
+      DEV_POD_STATUS=$(echo "$DEV_PODS" | awk '{print $3}' | head -1)
+      if [[ "$DEV_POD_STATUS" == "Running" ]]; then
+        DEV_SB_FOUND=true
+        break
+      fi
+    fi
+    sleep 5
+  done
+
+  kill "$DEV_SB_PID" 2>/dev/null || true
+  wait "$DEV_SB_PID" 2>/dev/null || true
+
+  if [[ "$DEV_SB_FOUND" == "true" ]]; then
+    pass "Developer user: sandbox created"
+
+    show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} sandbox exec -n ${DEV_SANDBOX} -- uname -a"
+    if DEV_EXEC=$("${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox exec -n "${DEV_SANDBOX}" -- uname -a 2>&1); then
+      DEV_EXEC_CLEAN=$(echo "$DEV_EXEC" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
+      if [[ -n "$DEV_EXEC_CLEAN" ]]; then
+        pass "Developer user: sandbox exec succeeded"
+      else
+        fail_test "Developer user: sandbox exec returned no output"
+      fi
+    else
+      fail_test "Developer user: sandbox exec failed"
+      dim "    ${DEV_EXEC:0:200}"
+    fi
+  else
+    fail_test "Developer user: sandbox not created after ${E2E_SANDBOX_TIMEOUT}s"
+  fi
+
+  if [[ "$E2E_SKIP_CLEANUP" != "1" && "$DEV_SB_FOUND" == "true" ]]; then
+    dim "  Cleaning up developer sandbox..."
+    "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
+  fi
+  rm -f "${DEV_SB_LOG}" 2>/dev/null || true
+
+  "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
 fi
 sep
 

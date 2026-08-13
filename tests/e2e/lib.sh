@@ -96,3 +96,5 @@ retry_until() {
 : "${E2E_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${E2E_OIDC_USERNAME:=admin}"
 : "${E2E_OIDC_PASSWORD:=admin}"
+: "${E2E_DEV_USERNAME:=developer}"
+: "${E2E_DEV_PASSWORD:=developer}"
