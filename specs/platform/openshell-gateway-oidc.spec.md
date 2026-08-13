@@ -109,6 +109,8 @@ The default values are resolved from control-plane configuration:
 
 When no platform issuer is resolved (both `GATEWAY_OIDC_ISSUER` and `OIDC_ISSUER` are empty), the reconciler SHALL leave the Gateway unauthenticated as before.
 
+`GATEWAY_OIDC_ISSUER` is the client-facing issuer and SHALL be the issuer URL reachable by the CLI and console (the external route), which may differ from the control plane's own `OIDC_ISSUER` used only for its in-cluster service-to-service authentication. Deployments SHALL set `GATEWAY_OIDC_ISSUER` explicitly rather than rely on the `OIDC_ISSUER` fallback whenever the control plane's issuer is an in-cluster address that external clients cannot resolve. The issuer SHALL be reachable both from outside the cluster (for CLI discovery and token acquisition) and from the gateway pod (for JWKS retrieval); when it is served by a non-public CA, the gateway SHALL be given that CA per `standards`-consistent trust configuration so JWKS retrieval succeeds.
+
 #### Scenario: Gateway without OIDC but with platform issuer
 
 - GIVEN a Gateway resource with no `oidc` field
