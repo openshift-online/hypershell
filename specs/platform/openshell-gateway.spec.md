@@ -43,13 +43,13 @@ hsctl apply -k overlays/tenant-a/
     │  POST/PATCH each resource to API server
     ▼
 API Server (PostgreSQL)
-    │  authorizes via RBAC (caller must have create permission on the fleet)
-    │  persists Gateway resource with fleet_id
+    │  authorizes via RBAC (caller must have gateway:creator role)
+    │  persists Gateway resource with fleet_id, auto-provisions gateway:owner RoleBinding for the creator
     │  emits gRPC watch event
     ▼
 Control Plane - GatewayReconciler (internal/reconciler/)
     │  receives Gateway ADDED/MODIFIED event
-    │  provisions Keycloak OIDC client, assigns fleet users via OIDC Role Bridge (see keycloak spec)
+    │  provisions Keycloak OIDC client, assigns gateway:owner via OIDC Role Bridge (see keycloak spec)
     │  validates image, DNS names, TOML config
     │  creates the API-assigned namespace when absent
     │  applies gateway K8s manifests to that namespace
