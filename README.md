@@ -148,7 +148,7 @@ kubectl -n hypershell create secret generic hypershell-keycloak-admin \
   --from-literal=client-secret="$CLIENT_SECRET"
 ```
 
-If you need to rotate the client secret or update any value, delete and recreate the Secret then restart the control plane pod — the Secret is read once at startup.
+If you need to rotate the client secret or update any value, delete and recreate the Secret then restart the control plane pod -- the Secret is read once at startup.
 
 ```shell
 kubectl -n hypershell delete secret hypershell-keycloak-admin
