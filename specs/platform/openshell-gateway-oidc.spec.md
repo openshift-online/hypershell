@@ -46,7 +46,7 @@ Roles:       openshell-admin, openshell-user (client-scoped)
 
 > **Realm naming:** The realm name is not hardcoded. Each HyperShell instance reads the realm from the `hypershell-keycloak-admin` Secret's `realm` key. Environments MAY use distinct realm names (e.g., `hypershell-int`, `hypershell-stage`, `hypershell-prod`) or share a realm name when regional Keycloak instances federate to a global instance.
 
-> **Per-gateway isolation:** Each gateway has its own Keycloak client with `fullScopeAllowed = false` and a dedicated audience. Tokens obtained for one gateway contain only that gateway's roles and audience — cross-gateway role leakage is prevented at the IdP level.
+> **Per-gateway isolation:** Each gateway has its own Keycloak client with `fullScopeAllowed = false` and a dedicated audience. Tokens obtained for one gateway contain only that gateway's roles and audience -- cross-gateway role leakage is prevented at the IdP level.
 
 ---
 
@@ -86,7 +86,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 
 ### Requirement: OIDC Role Validation
 
-The auto-provisioned OIDC configuration always sets both `admin_role` and `user_role` to fixed values (`openshell-admin` and `openshell-user`). The upstream OpenShell gateway requires both to be set or both empty — setting only one is not supported. Since the control plane always populates both, this constraint is satisfied by construction.
+The auto-provisioned OIDC configuration always sets both `admin_role` and `user_role` to fixed values (`openshell-admin` and `openshell-user`). The upstream OpenShell gateway requires both to be set or both empty -- setting only one is not supported. Since the control plane always populates both, this constraint is satisfied by construction.
 
 #### Scenario: Auto-provisioned roles are always complete
 
