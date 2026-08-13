@@ -57,7 +57,7 @@ patches:
               - name: web-console
                 env:
                   - name: OIDC_ISSUER
-                    value: "https://keycloak.hypershell.localhost/realms/hypershell"
+                    value: "http://keycloak.hypershell.localhost:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID
                     value: "hypershell-frontend"
                   - name: OIDC_REDIRECT_URI
@@ -89,7 +89,12 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
-  # --- Keycloak: HTTPS hostname via gateway + backchannel dynamic issuer ---
+  # --- Keycloak: fixed HTTP issuer reachable in-cluster and from host ---
+  # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
+  # requiring config.issuer == discovery.issuer == token.iss, so the issuer
+  # must be a single URL reachable over plain HTTP both in-cluster (via CoreDNS
+  # -> Keycloak ClusterIP) and from the host (via the gateway LB :8080).
+  # This value matches E2E_OIDC_ISSUER and the seeded gateway OIDC issuer.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -103,9 +108,7 @@ patches:
               - name: keycloak
                 env:
                   - name: KC_HOSTNAME
-                    value: "https://keycloak.hypershell.localhost"
-                  - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
-                    value: "true"
+                    value: "http://keycloak.hypershell.localhost:8080"
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest

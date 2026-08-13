@@ -261,7 +261,7 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
   show_cmd "curl -sk -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
-  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER_INTERNAL="$E2E_OIDC_ISSUER_INTERNAL" \
+  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
 import json, os
 body = {
@@ -271,7 +271,7 @@ body = {
     'release_id': 'e2e-release',
     'database_id': 'e2e-db',
     'oidc': json.dumps({
-        'issuer': os.environ['E2E_OIDC_ISSUER_INTERNAL'],
+        'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
         'roles_claim': 'groups',
         'admin_role': 'hypershell-admins',
