@@ -45,16 +45,17 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-12
-**Spec corpus**: 26 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
+**Last analyzed**: 2026-08-13
+**Spec corpus**: 27 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
 **Codebase commit**: working tree
 
 ### Coverage Summary
 
 | Domain | Specs | Requirements | Present | Partial | Missing | Deferred | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|----------|
-| Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
-| Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
+| Platform - Data Model | 1 | 12 | 12 | 0 | 0 | 0 | 100% |
+| Platform - Control Plane | 1 | 13 | 10 | 0 | 3 | 0 | 77% |
+| Platform - Gateway Health | 1 | 4 | 4 | 0 | 0 | 0 | 100% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
 | Platform - Gateway DB | 1 | 9 | 5 | 0 | 4 | 0 | 56% |
 | Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
@@ -66,7 +67,7 @@ skills/
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 9 | 2 | 0 | 2 | 79% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **26** | **165** | **120** | **20** | **26** | **3** | **78%** |
+| **TOTAL** | **27** | **169** | **127** | **18** | **25** | **3** | **79%** |
 
 ### Spec Dependency Order
 
@@ -98,7 +99,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | DM-3d | Gateway field: `route` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3e | Gateway field: `route_address` (read-only) | Present | Added to model, OpenAPI (readOnly), proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3f | Gateway field: `database` (JSONB) | Present | Added to model, OpenAPI, proto, migration; CP struct has `externalSecretRef` | `plugins/gateways/model.go` | W5 ✅ |
-| DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
+| DM-4 | Gateway phase + status fields | Present | `phase` and `status` both written by CP (provisioning path + health loop) | `plugins/gateways/model.go` | HW1 ✅ |
 | DM-5 | Canary release strategy fields | Present | Fields exist; no logic implements canary | `plugins/gatewayReleases/model.go` | Future |
 | DM-6 | Network topology fields | Present | Fields exist; reconciler is a stub | `plugins/gatewayNetworks/model.go` | Future |
 | DM-7 | API endpoints (all 6 resources) | Present | - | `plugins/*/` | - |
@@ -115,11 +116,20 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | CP-2e | OIDC config injection | Present | - | `ApplyConfigOverrides()` | - |
 | CP-2f | Network mesh reconciliation | Missing | Stub: only logs | `reconciler.go:279-295` | Future |
 | CP-2g | Canary release rollout | Missing | Stub: only logs | `reconciler.go:99-124` | Future |
-| CP-2h | Update resource status/phase | Partial | Only updates `phase`, not `status` | `updateGatewayPhase()` | Future |
+| CP-2h | Update resource status/phase | Present | `updateGatewayHealth()` sets `phase`+`status`; health loop keeps them synced | `updateGatewayHealth()`, `health.go` | HW1 ✅ |
 | CP-2i | Read provisioning fields from proto | Present | GatewayReconciler populates GatewayConfig from proto fields via JSON unmarshal | `reconciler.go:248-280` | W5 ✅ |
 | CP-3 | Delete K8s resources on Gateway deletion | Present | Label-based deletion of all namespaced resources + per-tenant ClusterRoleBinding | `gateway/reconciler.go:DeleteGatewayResources()` | W6 ✅ |
-| CP-4 | Status synchronization / health checks | Missing | No periodic health polling | - | Future |
+| CP-4 | Status synchronization / health checks | Present | `GatewayHealthReconciler` polls `openshell-gateway` Deployment every 30s, flips Running<->Degraded | `reconciler/health.go` | HW1 ✅ |
 | CP-5 | Multi-cluster client pool | Missing | Single in-cluster client for all gateways | `main.go:58-68` | Future |
+
+### openshell-gateway-health.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GH-1 | Phase Reflects Workload Readiness | Present | Provisioning path waits for `openshell-gateway` Deployment ready before Running; sets Degraded (with reason in `status`) when the readiness window expires; Failed on apply error | `reconciler/reconciler.go`, `gateway/reconciler.go:WaitForGatewayReady` | HW1 ✅ |
+| GH-2 | Continuous Gateway Health Reconciliation | Present | `GatewayHealthReconciler` polls every 30s, flips Running<->Degraded and updates `status` | `reconciler/health.go` | HW1 ✅ |
+| GH-3 | Health Reconciliation Not Suppressed By Phase | Present | Health loop is a separate path from the provisioning phase gate; gate now also skips re-provisioning Degraded gateways while the loop owns their health | `reconciler/reconciler.go`, `reconciler/health.go` | HW1 ✅ |
+| GH-4 | Console Reflects Recoverable States | Present | `degraded` added to `gatewayPollingStates` so Degraded gateways keep polling | `packages/gateway-management-ui/src/gateways/gateway-data.ts` | HW2 ✅ |
 
 ### openshell-gateway.spec.md (Core)
 
@@ -374,6 +384,26 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 8. PATCH `routeAddress` field back to API server via gRPC
 9. Verify: `go build ./...`, `go vet ./...`
 
+### Wave HW1: Gateway Phase Reflects Workload Health (CP) ✅
+
+**Scope:** GH-1, GH-2, GH-3, CP-2h, CP-4, DM-4 | **Status:** Complete
+
+1. Added `gateway.GatewayDeploymentName`, `DeploymentReadiness()` (single check), and `WaitForGatewayReady()` (bounded window) to `gateway/reconciler.go`.
+2. Provisioning path (`reconciler.go` Handle) no longer sets Running on apply success; it waits for the `openshell-gateway` Deployment within the readiness window, then sets Running (ready) or Degraded with the reason in `status` (not ready). Failed remains on apply error.
+3. Added `updateGatewayHealth()` to set `phase`+`status` together.
+4. Added `GatewayHealthReconciler` (`reconciler/health.go`): lists gateways every 30s, checks `openshell-gateway` Deployment readiness, flips Running<->Degraded and updates `status`. Skips Pending/Failed and not-yet-created Deployments.
+5. Extended the provisioning phase gate to also skip re-provisioning Degraded gateways (health loop owns their lifecycle); the loop is a separate path so health updates are never suppressed.
+6. Wired the health reconciler as a 7th goroutine in `main.go` (only when an in-cluster client is available).
+7. Verified: `go build ./...`, `go vet ./...`.
+
+### Wave HW2: Console Reflects Recoverable States (UI) ✅
+
+**Scope:** GH-4 | **Status:** Complete
+
+1. Added `degraded` to `gatewayPollingStates` in `packages/gateway-management-ui/src/gateways/gateway-data.ts` so Degraded gateways keep polling until they settle into Running or Failed.
+2. Added a test asserting `gatewayNeedsStatusPolling` returns true for `phase: "Degraded"`.
+3. Verified: `pnpm --filter @openshift-online/hypershell-gateway-management-ui check` (92 tests pass).
+
 ### Wave E2E-W1: Deploy Base/Overlay + Image Overrides ✅
 
 **Scope:** E2E-5, E2E-7, E2E-8 | **Status:** Complete
@@ -431,10 +461,8 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 | D7 | Gateway Deletion Protection | DB | API server validation |
 | D8 | `externalSecretRef` (Phase 2) | DB | Intentionally deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
-| DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
 | DM-5 | Canary release logic | Data Model | GatewayReleaseReconciler is stub |
 | DM-6 | Network mesh logic | Data Model | GatewayNetworkReconciler is stub |
-| CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
 | CP-5 | Multi-cluster client pool | CP | Architecture: per-cluster kubeconfig |
 | LD-* | Local development (most items) | Local Dev | Spec recently authored; MVP first |
 | WEB-AUTH-* | OIDC BFF + session + CSRF | Web Console | Implemented in OIDC wave; 3 minor follow-ups remain |
@@ -472,3 +500,4 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 | 2026-08-11 | working tree | Executed Waves R1-R4,R6-R7: RBAC Enforcement | 72% | Full RBAC implementation: 3 new plugins (users, roles, roleBindings), user auto-provisioning middleware, fleet:owner bootstrap, scope-aware HTTP+gRPC authorization, 11 integration tests. 9 present, 2 partial (list filtering, escalation prevention), 2 deferred (admin bootstrap via DB migration, OIDC role bridge) |
 | 2026-08-12 | ed3725a | OIDC reconciliation complete | 77% | API server development_oidc env; BFF auth code flow with PKCE (22 tests); CP client_credentials TokenProvider + gRPC PerRPCCredentials; KIND_ENABLE_OIDC opt-in; Keycloak hypershell-control-plane client; verified end-to-end on Kind (8/8 checks pass) |
 | 2026-08-12 | working tree | OIDC always-on + Keycloak stability | 77% | Removed KIND_ENABLE_OIDC toggle; OIDC unconditional in kind-up; Keycloak memory 1Gi→2Gi + startup/liveness probes |
+| 2026-08-13 | working tree | Gateway phase reflects workload health (HW1-HW2) | 79% | New spec `openshell-gateway-health.spec.md` (4 reqs). CP: phase gated on `openshell-gateway` Deployment readiness (Running only when ready, Degraded on crashloop/window expiry), `GatewayHealthReconciler` 30s loop flips Running<->Degraded + writes `status`, phase gate no longer suppresses health updates. UI: `degraded` added to polling states. Closes CP-2h, CP-4, DM-4 |
