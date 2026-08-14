@@ -50,9 +50,9 @@ This is the **desired state**. Everything else is measured against it.
 
 Compare the spec against the current state of the code. Check all three directions for every Kind:
 
-1. Spec ERD → `model.go` — spec says field exists; is it in the model?
-2. `model.go` → Spec ERD — model has a field; is it documented in the spec?
-3. OpenAPI `required[]` → Spec ERD — OpenAPI marks it required; does the spec agree?
+1. Spec ERD → `model.go` - spec says field exists; is it in the model?
+2. `model.go` → Spec ERD - model has a field; is it documented in the spec?
+3. OpenAPI `required[]` → Spec ERD - OpenAPI marks it required; does the spec agree?
 
 | Component | What to check |
 |-----------|---------------|
@@ -200,7 +200,7 @@ Template files:
 
 ### Common Pitfalls
 
-- **Nested resource base path (TS):** Generator uses first path segment as base — wrong for nested resources like `/fleets/{fleet_id}/gateways`. May need hand-crafted extensions.
+- **Nested resource base path (TS):** Generator uses first path segment as base - wrong for nested resources like `/fleets/{fleet_id}/gateways`. May need hand-crafted extensions.
 - **Required fields:** OpenAPI `required[]` must match spec ERD exactly
 - **Generated variable names:** Ensure route path params match handler `mux.Vars()` keys
 - **CLI output formats:** Always support `-o json` for scriptability

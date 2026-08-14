@@ -325,7 +325,7 @@ The `hypershell` CLI mirrors the REST API 1-for-1. Every REST operation has a co
 | Config get | `hypershell config get <key>` | ✅ implemented |
 | Config set | `hypershell config set <key> <value>` | ✅ implemented |
 
-### `hypershell apply` — Declarative Fleet Management
+### `hypershell apply` - Declarative Fleet Management
 
 `hypershell apply` reconciles Fleets, Gateways, and infrastructure from declarative YAML files, mirroring `kubectl apply` semantics.
 
@@ -340,7 +340,7 @@ The `hypershell` CLI mirrors the REST API 1-for-1. Every REST operation has a co
 | `ManagedCluster` | `name`, `fleet_id`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | 🔲 planned |
 | `ManagedDatabase` | `name`, `fleet_id`, `provider`, `region`, `engine`, `engine_version`, `instance_class`, `connection_secret` | 🔲 planned |
 
-#### `-f` — File or Directory
+#### `-f` - File or Directory
 
 ```sh
 hypershell apply -f <file>               # apply a single YAML file
@@ -355,7 +355,7 @@ Apply behavior per resource:
 - **Gateway**: if a gateway with matching `name` and `fleet_id` exists, `PATCH` it. Otherwise, `POST` to create it.
 - Similar upsert logic for all other resource types.
 
-Output (default — one line per resource):
+Output (default - one line per resource):
 
 ```
 fleet/production configured
@@ -366,7 +366,7 @@ managedCluster/eks-us-east-1 unchanged
 
 With `-o json`: JSON array of all applied resources.
 
-#### `-k` — Kustomize Directory
+#### `-k` - Kustomize Directory
 
 ```sh
 hypershell apply -k <dir>                # build kustomization in <dir> and apply the result
