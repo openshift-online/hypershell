@@ -187,6 +187,11 @@ test("keeps unknown gateway status readable in every theme", async ({
 
   await page.goto("/");
   await expect(page.getByText("Future status", { exact: true })).toBeVisible();
+  // Wait for the level-one heading before running axe: it renders a beat after
+  // route content, and axe's page-has-heading-one rule flakes without it.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
+  ).toBeVisible();
   let results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 
@@ -196,16 +201,25 @@ test("keeps unknown gateway status readable in every theme", async ({
   await expect(
     page.getByText("Future status", { exact: true }).first(),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
+  ).toBeVisible();
   results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 
   await page.getByRole("button", { name: "Switch to dark mode" }).click();
   await expect(page.locator("html")).toHaveClass(/pf-v6-theme-dark/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
+  ).toBeVisible();
   results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 
   await page.goto("/");
   await expect(page.getByText("Future status", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
+  ).toBeVisible();
   results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
