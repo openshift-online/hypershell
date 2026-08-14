@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -112,7 +113,8 @@ func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gat
 
 // assignClientRoleWithRetry retries AssignClientRole to handle the race where
 // the RoleBinding event arrives before the Gateway reconciler has finished
-// provisioning the Keycloak client.
+// provisioning the Keycloak client. Only ClientNotFoundError is retried;
+// permanent failures (bad user, auth error) are returned immediately.
 func (r *RoleBindingReconciler) assignClientRoleWithRetry(ctx context.Context, kcClientID, username, kcRole string) error {
 	const maxAttempts = 10
 	backoff := 2 * time.Second
@@ -124,12 +126,17 @@ func (r *RoleBindingReconciler) assignClientRoleWithRetry(ctx context.Context, k
 			return nil
 		}
 
+		var notFound *keycloak.ClientNotFoundError
+		if !errors.As(lastErr, &notFound) {
+			return lastErr
+		}
+
 		if attempt == maxAttempts {
 			break
 		}
 
-		log.Printf("INFO keycloak role assignment attempt %d/%d failed for %s on %s (retrying in %v): %v",
-			attempt, maxAttempts, username, kcClientID, backoff, lastErr)
+		log.Printf("INFO keycloak role assignment attempt %d/%d: client %s not yet provisioned (retrying in %v)",
+			attempt, maxAttempts, kcClientID, backoff)
 
 		select {
 		case <-ctx.Done():

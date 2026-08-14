@@ -64,6 +64,17 @@ type keycloakUser struct {
 	Username string `json:"username"`
 }
 
+// ClientNotFoundError is returned when a Keycloak client lookup finds no
+// matching clientId. The RoleBindingReconciler uses this to distinguish the
+// expected race (client not yet provisioned) from permanent failures.
+type ClientNotFoundError struct {
+	ClientID string
+}
+
+func (e *ClientNotFoundError) Error() string {
+	return fmt.Sprintf("keycloak client %s not found", e.ClientID)
+}
+
 // ProvisionGatewayClient creates a Keycloak OIDC client for a gateway with
 // roles and protocol mappers. Returns the Keycloak-internal client UUID.
 func (c *Client) ProvisionGatewayClient(ctx context.Context, gatewayName string) (string, error) {
@@ -127,7 +138,7 @@ func (c *Client) AssignClientRole(ctx context.Context, gatewayName, username, ro
 		return fmt.Errorf("get client UUID for %s: %w", gatewayName, err)
 	}
 	if clientUUID == "" {
-		return fmt.Errorf("keycloak client %s not found", gatewayName)
+		return &ClientNotFoundError{ClientID: gatewayName}
 	}
 	log.Printf("INFO keycloak: resolved client %s to uuid=%s", gatewayName, clientUUID)
 
