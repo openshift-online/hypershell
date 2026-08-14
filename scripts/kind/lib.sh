@@ -219,6 +219,47 @@ ${existing}"
   success "Cluster CoreDNS patched"
 }
 
+# --- cloud-provider-kind SHA tracking ---
+
+# The expected commit is written to bin/.cloud-provider-kind.sha by
+# `make kind-prereqs`; CPK_SHA_MARKER records the commit of the instance that is
+# actually running. up.sh compares the two to decide whether a restart is needed:
+# cloud-provider-kind republishes the gateway LB on new random host ports every
+# time it restarts, so we only pay that port churn when the pinned build has
+# genuinely changed. A missing running-marker biases toward restart so the
+# pinned build is always guaranteed.
+CPK_SHA_FILE="${REPO_ROOT}/bin/.cloud-provider-kind.sha"
+CPK_SHA_MARKER="/tmp/hypershell-kind-${KIND_CLUSTER_NAME}-cpk.sha"
+
+# Expected (built) SHA: prefer the marker written by kind-prereqs; fall back to
+# the binary's own stamped vcs.revision so this works even if the marker is
+# missing (e.g. a binary built by an older Makefile). Always returns 0 (prints
+# empty when unknown) so callers under `set -e` don't abort on a lookup miss.
+cpk_expected_sha() {
+  if [[ -f "${CPK_SHA_FILE}" ]]; then
+    tr -d '[:space:]' < "${CPK_SHA_FILE}"
+    return 0
+  fi
+  local bin
+  bin="$(command -v cloud-provider-kind 2>/dev/null || echo "${REPO_ROOT}/bin/cloud-provider-kind")"
+  if [[ -x "${bin}" ]]; then
+    go version -m "${bin}" 2>/dev/null |
+      awk -F= '/[[:space:]]vcs.revision=/{print $2}' | tr -d '[:space:]'
+  fi
+  return 0
+}
+
+# Running SHA: the commit recorded when the live instance was last started.
+# Always returns 0 (empty output when no marker) for the same reason.
+cpk_running_sha() {
+  [[ -f "${CPK_SHA_MARKER}" ]] && tr -d '[:space:]' < "${CPK_SHA_MARKER}"
+  return 0
+}
+
+record_cpk_sha() {
+  printf '%s\n' "$1" > "${CPK_SHA_MARKER}"
+}
+
 # --- kubectl port-forward (no-sudo fallback) ---
 
 KUBECTL_PF_DIR="/tmp/hypershell-kind-${KIND_CLUSTER_NAME}-pf"
