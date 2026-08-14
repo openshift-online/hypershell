@@ -20,8 +20,6 @@ patches:
             containers:
               - name: controller
                 env:
-                  - name: GATEWAY_API_GATEWAY_CLASS
-                    value: cloud-provider-kind
                   - name: GATEWAY_API_GATEWAY_NAMESPACE
                     value: hypershell-system
                   - name: GATEWAY_API_BASE_DOMAIN

@@ -86,48 +86,15 @@ openshell-gateway Pod
 
 The following resources must exist on the cluster before the GatewayReconciler can operate. They are configuration prerequisites - the control plane does not create them.
 
-1. **GatewayClass** - A GatewayClass matching `GATEWAY_API_GATEWAY_CLASS` (default: `openshift-default`). Must be created by an administrator. Referenced by per-tenant Gateway resources. On Kind clusters, use `cloud-provider-kind`.
-2. **Wildcard TLS Secret (`grpc-gateway-certs`)** - The cluster's wildcard certificate for `*.<base-domain>`, stored as a Secret named `grpc-gateway-certs` in the HyperShell control plane namespace. The GatewayReconciler copies it into each tenant namespace for per-tenant Gateway TLS termination (see "Gateway Ingress TLS Certificate" below). An administrator must provision this Secret before any gateway can be exposed externally.
+1. **GatewayClass** - A GatewayClass matching the cluster's Gateway API controller (e.g. `openshift-default` on OpenShift, `cloud-provider-kind` on Kind). Must be created by an administrator.
+2. **Gateway** - A shared Gateway resource with a wildcard TLS certificate (e.g. `*.openshell.example.com`), provisioned by an administrator. The `GATEWAY_API_GATEWAY_NAME` env var must be set to its name. See `deploy/openshift/infrastructure/GATEWAY-SETUP.md` for setup instructions including cert-manager configuration.
 3. **cert-manager** - Required for TLS certificate lifecycle management. See [TLS spec](./openshell-gateway-tls.spec.md) and the "TLS Certificate Management via cert-manager" requirement below.
 
 ### Per-Tenant Route Resources (Managed by Control Plane)
 
-For each gateway with `route` configuration, the control plane creates Gateway API resources across two namespaces:
+For each gateway with `route` configuration, the control plane creates Gateway API resources in the tenant namespace that attach to the shared admin-provisioned Gateway:
 
-1. **Gateway** -- A dedicated Gateway resource per openshell gateway, created in `openshift-ingress` (so the ingress operator auto-creates a DNSRecord pointing the hostname to the Gateway's ELB):
-   ```yaml
-   apiVersion: gateway.networking.k8s.io/v1
-   kind: Gateway
-   metadata:
-     name: gw-<tenant-namespace>
-     namespace: openshift-ingress
-     labels:
-       app.kubernetes.io/name: openshell
-       app.kubernetes.io/component: gateway
-       app.kubernetes.io/managed-by: hypershell-control-plane
-       hypershell.redhat.io/tenant: <tenant-namespace>
-   spec:
-     gatewayClassName: <GATEWAY_API_GATEWAY_CLASS>   # default: openshift-default
-     listeners:
-     - name: grpc
-       hostname: "gw-<tenant-namespace>.<base-domain>"
-       port: 443
-       protocol: HTTPS
-       tls:
-         mode: Terminate
-         certificateRefs:
-         - name: grpc-gateway-certs
-           kind: Secret
-       allowedRoutes:
-         namespaces:
-           from: Selector
-           selector:
-             matchLabels:
-               kubernetes.io/metadata.name: <tenant-namespace>
-   ```
-   The `<base-domain>` is read from `ingresses.config.openshift.io/cluster` `.spec.domain` (e.g., `apps-crc.testing`). Each tenant gets its own Gateway with a hostname scoped to the tenant namespace. The `grpc-gateway-certs` Secret must exist in `openshift-ingress` (see "Gateway Ingress TLS Certificate" below).
-
-2. **GRPCRoute** -- In the tenant namespace, with a cross-namespace parentRef to the Gateway in `openshift-ingress`:
+1. **GRPCRoute** -- In the tenant namespace, with a cross-namespace parentRef to the shared Gateway:
    ```yaml
    apiVersion: gateway.networking.k8s.io/v1
    kind: GRPCRoute
@@ -136,8 +103,9 @@ For each gateway with `route` configuration, the control plane creates Gateway A
      namespace: <tenant-namespace>
    spec:
      parentRefs:
-     - name: gw-<tenant-namespace>
-       namespace: openshift-ingress
+     - name: <GATEWAY_API_GATEWAY_NAME>
+       namespace: <GATEWAY_API_GATEWAY_NAMESPACE>
+       sectionName: grpc
      hostnames:
      - gw-<tenant-namespace>.<base-domain>
      rules:
@@ -145,6 +113,7 @@ For each gateway with `route` configuration, the control plane creates Gateway A
        - name: openshell-gateway
          port: 8080
    ```
+   The explicit hostname ensures each tenant's GRPCRoute only matches its own subdomain under the wildcard Gateway listener.
 
 3. **BackendTLSPolicy** - Enables TLS verification from the Gateway to the pod:
    ```yaml
@@ -842,8 +811,9 @@ Control Plane
 
 | Variable | Default | Description |
 |---|---|---|
-| `GATEWAY_API_BASE_DOMAIN` | auto-detected | Cluster base domain for hostname generation (read from `ingresses.config.openshift.io/cluster` `.spec.domain`) |
-| `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources (e.g., `cloud-provider-kind` for Kind clusters) |
+| `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
+| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
+| `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
 
 ### Example: Full Gateway Configuration
 

@@ -19,13 +19,14 @@ patches:
             containers:
               - name: controller
                 env:
-                  - name: GATEWAY_API_GATEWAY_CLASS
-                    value: openshift-default
+                  - name: GATEWAY_API_GATEWAY_NAME
+                    # OVERRIDE: set to the name of the pre-existing Gateway resource
+                    value: openshell-grpc-gateway
                   - name: GATEWAY_API_GATEWAY_NAMESPACE
                     value: openshift-ingress
                   - name: GATEWAY_API_BASE_DOMAIN
-                    # OVERRIDE: set to your cluster's wildcard domain
-                    value: apps.example.com
+                    # OVERRIDE: set to your wildcard domain (e.g. openshell.stage.example.com)
+                    value: openshell.stage.example.com
                   - name: GATEWAY_API_TLS_ISSUER_NAME
                     value: hypershell-ca-issuer
                   - name: HYPERSHELL_DATABASE_IMAGE
