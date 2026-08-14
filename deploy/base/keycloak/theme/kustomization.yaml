@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Standalone base for the hypershell Keycloak login theme.
+#
+# Emits ONLY the two theme ConfigMaps (text + binary assets) and nothing else --
+# no namespace, no Keycloak Deployment. This lets consumers that manage Keycloak
+# a different way (e.g. the RHBK operator via a Keycloak CR) pull just the theme
+# as a remote Kustomize ref and mount it into their own pod, without inheriting
+# the ephemeral start-dev Keycloak in ../ (deploy/base/keycloak).
+#
+# Names are hash-suffix-free (disableNameSuffixHash) so the mounting pod can
+# reference them by stable name. The consumer supplies the namespace.
+configMapGenerator:
+  - name: keycloak-hypershell-theme
+    options:
+      disableNameSuffixHash: true
+    files:
+      - theme.properties
+      - login.css
+      - messages_en.properties
+  - name: keycloak-hypershell-theme-assets
+    options:
+      disableNameSuffixHash: true
+    files:
+      - hypershell-logo.png
+      - RedHatText-latin.woff2
