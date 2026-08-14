@@ -221,7 +221,7 @@ The control plane SHALL create a BackendTLSPolicy to enable TLS verification fro
 - Create BackendTLSPolicy targeting `openshell-gateway` Service
 - Validation hostname: `openshell-gateway.<namespace>.svc.cluster.local`
 
-**Note:** BackendTLSPolicy only handles server certificate validation (the ingress proxy verifies the gateway pod's certificate). It does NOT support the proxy presenting a client certificate to the backend. Therefore, when routing is enabled the gateway's `client_ca_path` must be stripped from the config — see `openshell-gateway-tls.spec.md` § Client Certificate Verification Conditional on Routing.
+**Note:** BackendTLSPolicy only handles server certificate validation (the ingress proxy verifies the gateway pod's certificate). It does NOT support the proxy presenting a client certificate to the backend. Therefore, when routing is enabled the gateway's `client_ca_path` must be stripped from the config -- see `openshell-gateway-tls.spec.md` § Client Certificate Verification Conditional on Routing.
 
 ---
 
@@ -295,7 +295,7 @@ The `openshift-ingress` Role is deployed via `controller-gateway-rbac.yaml` in t
 | TLS handshake: 0 bytes read, immediate EOF | NetworkPolicy blocking Gateway API proxy → gateway | Create `openshell-gateway-allow-router` |
 | grpcurl hangs but openssl s_client works | grpcurl blocked by NetworkPolicy | Check pod labels match `gateway.networking.k8s.io/gateway-name` selector |
 | `hsctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` to the Gateway resource |
-| `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway config has `client_ca_path` (mTLS) but ingress proxy cannot present client certs | Verify `route.enabled` is true — the reconciler strips `client_ca_path` when routing is enabled (see TLS spec) |
+| `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway config has `client_ca_path` (mTLS) but ingress proxy cannot present client certs | Verify `route.enabled` is true -- the reconciler strips `client_ca_path` when routing is enabled (see TLS spec) |
 
 ---
 

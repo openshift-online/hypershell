@@ -112,7 +112,7 @@ The gateway config template includes a `client_ca_path` setting under `[openshel
 - WHEN the GatewayReconciler applies config overrides
 - THEN it SHALL remove the `client_ca_path` setting from `gateway.toml`
 - AND it SHALL remove the `tls-client-ca` volume and volume mount from the Deployment
-- BECAUSE the Gateway API ingress proxy (Envoy) terminates external TLS and re-connects to the backend via BackendTLSPolicy, which only handles server certificate validation — the proxy cannot present a client certificate, so requiring one causes "peer sent no certificates" connection resets
+- BECAUSE the Gateway API ingress proxy (Envoy) terminates external TLS and re-connects to the backend via BackendTLSPolicy, which only handles server certificate validation -- the proxy cannot present a client certificate, so requiring one causes "peer sent no certificates" connection resets
 
 #### Scenario: Gateway without routing (direct access)
 
