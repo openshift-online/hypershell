@@ -397,6 +397,9 @@ print('OK\t%s\t%s' % (d.get('id', ''), d.get('namespace', '')))
   DEADLINE=$(($(date +%s) + E2E_PROVISION_TIMEOUT))
   GW_PHASE=""
   while [[ $(date +%s) -lt $DEADLINE ]]; do
+    # Refresh the OIDC token each poll: provisioning can outlast the access
+    # token lifetime, and api_curl reads _OIDC_ACCESS_TOKEN on every call.
+    acquire_oidc_token 2>/dev/null || true
     GW_PHASE=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
       python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
     if [[ "$GW_PHASE" == "Running" ]]; then
