@@ -272,7 +272,8 @@ components:
               description: External route address populated by the control plane
             oidc:
               type: string
-              description: JSON-encoded OIDC authentication configuration
+              readOnly: true
+              description: JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
             route:
               type: string
               description: JSON-encoded route configuration

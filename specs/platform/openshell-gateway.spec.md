@@ -17,6 +17,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy, route discovery |
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | PostgreSQL provisioning, credential security, manual rotation, deletion protection |
 | [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (encrypted DB, Kubernetes Secrets, Vault), RBAC, TOML generation |
+| [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) | Automated per-gateway Keycloak OIDC client provisioning, RBAC-driven role assignment, visibility scoping |
 
 ---
 
@@ -27,6 +28,7 @@ The control plane SHALL provision and reconcile OpenShell gateway deployments in
 This specification covers core gateway provisioning. OIDC, TLS, routing, and database concerns are defined in dedicated sub-specs (see table above).
 
 - **Core Provisioning** - Gateway as API resource, GatewayReconciler, shared kustomize library, manifest templating, config validation, kustomize overlays, gateway deployment resources, failure handling
+- **Keycloak Integration** - Automated per-gateway OIDC client provisioning, RBAC-driven role assignment, visibility scoping (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md))
 - **OpenShift-Specific** - SCC bindings, security context adjustments
 
 ---
@@ -41,11 +43,13 @@ hsctl apply -k overlays/tenant-a/
     │  POST/PATCH each resource to API server
     ▼
 API Server (PostgreSQL)
-    │  persists Gateway resource
+    │  authorizes via RBAC (caller must have gateway:creator role)
+    │  persists Gateway resource with fleet_id, auto-provisions gateway:owner RoleBinding for the creator
     │  emits gRPC watch event
     ▼
 Control Plane - GatewayReconciler (internal/reconciler/)
     │  receives Gateway ADDED/MODIFIED event
+    │  provisions Keycloak OIDC client, assigns gateway:owner via OIDC Role Bridge (see keycloak spec)
     │  validates image, DNS names, TOML config
     │  creates the API-assigned namespace when absent
     │  applies gateway K8s manifests to that namespace

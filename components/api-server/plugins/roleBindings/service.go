@@ -14,11 +14,13 @@ import (
 
 type RoleBindingService interface {
 	Get(ctx context.Context, id string) (*RoleBinding, *errors.ServiceError)
+	GetUnscoped(ctx context.Context, id string) (*RoleBinding, *errors.ServiceError)
 	Create(ctx context.Context, rb *RoleBinding) (*RoleBinding, *errors.ServiceError)
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error
 	FindBindingsByUserID(ctx context.Context, userID string) ([]rbac.BindingSummary, error)
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, *errors.ServiceError)
+	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, *errors.ServiceError)
 	All(ctx context.Context) (RoleBindingList, *errors.ServiceError)
 	FindByIDs(ctx context.Context, ids []string) (RoleBindingList, *errors.ServiceError)
 	SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error
@@ -155,6 +157,14 @@ func (s *sqlRoleBindingService) Get(ctx context.Context, id string) (*RoleBindin
 	return rb, nil
 }
 
+func (s *sqlRoleBindingService) GetUnscoped(ctx context.Context, id string) (*RoleBinding, *errors.ServiceError) {
+	rb, err := s.rbDao.GetUnscoped(ctx, id)
+	if err != nil {
+		return nil, services.HandleGetError("RoleBinding", "id", id, err)
+	}
+	return rb, nil
+}
+
 func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*RoleBinding, *errors.ServiceError) {
 	if err := s.validateScope(rb); err != nil {
 		return nil, err
@@ -197,9 +207,20 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 }
 
 func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.ServiceError {
-	_, svcErr := s.Get(ctx, id)
+	rb, svcErr := s.Get(ctx, id)
 	if svcErr != nil {
 		return svcErr
+	}
+
+	role, roleErr := s.roleDao.Get(ctx, rb.RoleID)
+	if roleErr != nil {
+		return errors.Validation("invalid role_id: role not found")
+	}
+
+	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayViewer {
+		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
+			return err
+		}
 	}
 
 	if err := s.rbDao.Delete(ctx, id); err != nil {
@@ -261,6 +282,14 @@ func (s *sqlRoleBindingService) FindByUserID(ctx context.Context, userID string)
 		return nil, errors.GeneralError("Unable to get role bindings: %s", err)
 	}
 	return bindings, nil
+}
+
+func (s *sqlRoleBindingService) FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, *errors.ServiceError) {
+	ids, err := s.rbDao.FindGatewayIDsByUserID(ctx, userID)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to get gateway IDs for user: %s", err)
+	}
+	return ids, nil
 }
 
 func (s *sqlRoleBindingService) All(ctx context.Context) (RoleBindingList, *errors.ServiceError) {

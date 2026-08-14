@@ -107,6 +107,9 @@ header "Infrastructure"
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
   kube delete crd "$crd" --ignore-not-found 2>/dev/null || true
 done
+for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
+  kube wait --for=delete crd/"$crd" --timeout=30s 2>/dev/null || true
+done
 info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox)..."
 kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure | \
   kube apply --server-side --force-conflicts -f -

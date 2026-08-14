@@ -75,6 +75,15 @@ type DatabaseConfig struct {
 // is provided by the top-level reconciler which owns the gRPC connection.
 type RouteAddressUpdater func(ctx context.Context, routeAddress string) error
 
+// KeycloakConfig holds Keycloak Admin REST API connection parameters read
+// from the hypershell-keycloak-admin Secret in the control-plane namespace.
+type KeycloakConfig struct {
+	ServerURL    string
+	Realm        string
+	ClientID     string
+	ClientSecret string
+}
+
 type ReconcileOpts struct {
 	IsOpenShift           bool
 	HasCertManager        bool
@@ -87,4 +96,23 @@ type ReconcileOpts struct {
 	// UpdateRouteAddress is an optional callback that PATCHes the route_address
 	// field on the API-server Gateway.  Nil means no update will be attempted.
 	UpdateRouteAddress RouteAddressUpdater
+	// RotateDBCredentials is the value of the hypershell.redhat.io/rotate-db-credentials
+	// annotation on the Gateway resource. Empty means no rotation requested.
+	RotateDBCredentials string
+	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
+	// Keycloak integration is not configured.
+	Keycloak *KeycloakConfig
+	// UpdateOIDC is an optional callback that PATCHes the oidc field on the
+	// API-server Gateway via gRPC.
+	UpdateOIDC func(ctx context.Context, oidcJSON string) error
+	// GatewayName is the user-visible name of the gateway being reconciled.
+	GatewayName string
+	// KeycloakClient is a Keycloak Admin REST API client for cleanup operations.
+	// Used during gateway deletion to remove the Keycloak OIDC client.
+	KeycloakClient KeycloakClientAPI
+}
+
+// KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.
+type KeycloakClientAPI interface {
+	DeleteGatewayClient(ctx context.Context, gatewayName string) error
 }

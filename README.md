@@ -68,6 +68,101 @@ If the gateway needs to interact with an OIDC issuer (e.g., Keycloak) that uses 
 kubectl -n hypershell create configmap gateway-trusted-ca --from-file=ca-bundle.crt=/path/to/ca.crt
 ```
 
+### Keycloak OIDC client provisioning (`hypershell-keycloak-admin`)
+
+The control plane provisions an OIDC client in Keycloak for each gateway it reconciles. It authenticates to Keycloak using a confidential client whose credentials are read from a Secret named `hypershell-keycloak-admin` in the control plane namespace (default: `hypershell`). If this Secret is absent at startup, Keycloak integration is silently disabled for the lifetime of that pod.
+
+#### 1. Create a realm
+
+Log in to the Keycloak Admin Console and create a realm for HyperShell (e.g., `hypershell`), or use an existing realm. You can also do this via the REST API:
+
+```shell
+KEYCLOAK_URL="https://keycloak.example.com"
+ADMIN_TOKEN=$(curl -s -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=admin-cli&username=admin&password=<admin-password>&grant_type=password" \
+  | jq -r '.access_token')
+
+curl -s -X POST "$KEYCLOAK_URL/admin/realms" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"realm": "hypershell", "enabled": true, "displayName": "HyperShell"}'
+```
+
+#### 2. Create a confidential client
+
+Create a client named `hypershell-control-plane` in the realm. It must use service-account authentication (no standard or direct-grant flows):
+
+```shell
+curl -s -X POST "$KEYCLOAK_URL/admin/realms/hypershell/clients" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clientId": "hypershell-control-plane",
+    "name": "HyperShell Control Plane",
+    "enabled": true,
+    "clientAuthenticatorType": "client-secret",
+    "serviceAccountsEnabled": true,
+    "standardFlowEnabled": false,
+    "directAccessGrantsEnabled": false,
+    "publicClient": false
+  }'
+```
+
+#### 3. Grant realm-management roles to the service account
+
+The control plane needs `manage-clients`, `manage-users`, and `view-users` from the built-in `realm-management` client so it can create and delete gateway OIDC clients:
+
+```shell
+# Retrieve IDs
+CLIENT_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients?clientId=hypershell-control-plane" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.[0].id')
+SA_USER_ID=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients/$CLIENT_UUID/service-account-user" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.id')
+RM_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients?clientId=realm-management" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.[0].id')
+
+# Fetch the three role objects and assign them
+ROLES=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients/$RM_UUID/roles" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | jq '[.[] | select(.name | IN("manage-clients","manage-users","view-users"))]')
+
+curl -s -X POST "$KEYCLOAK_URL/admin/realms/hypershell/users/$SA_USER_ID/role-mappings/clients/$RM_UUID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$ROLES"
+```
+
+#### 4. Create the Secret
+
+Retrieve the generated client secret and create the Kubernetes Secret in the control plane namespace:
+
+```shell
+CLIENT_SECRET=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients/$CLIENT_UUID/client-secret" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.value')
+
+kubectl -n hypershell create secret generic hypershell-keycloak-admin \
+  --from-literal=server-url="$KEYCLOAK_URL/" \
+  --from-literal=realm="hypershell" \
+  --from-literal=client-id="hypershell-control-plane" \
+  --from-literal=client-secret="$CLIENT_SECRET"
+```
+
+If you need to rotate the client secret or update any value, delete and recreate the Secret then restart the control plane pod -- the Secret is read once at startup.
+
+```shell
+kubectl -n hypershell delete secret hypershell-keycloak-admin
+# recreate with updated values, then:
+kubectl -n hypershell rollout restart deployment/hypershell-control-plane
+```
+
+Confirm the control plane picked up the configuration:
+
+```shell
+kubectl -n hypershell logs deployment/hypershell-control-plane | grep -i keycloak
+# Expected: INFO keycloak integration enabled: server=... realm=hypershell
+```
+
 ### Base domain (`GATEWAY_API_BASE_DOMAIN`)
 
 The control plane requires `GATEWAY_API_BASE_DOMAIN` to derive GRPCRoute hostnames for tenant gateways. Without it, GRPCRoute creation is skipped and gateways will not be externally reachable.
