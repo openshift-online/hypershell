@@ -227,14 +227,73 @@ The control plane SHALL create a BackendTLSPolicy to enable TLS verification fro
 
 ### Requirement: Route Address Discovery
 
-The GatewayReconciler SHALL derive the external route address from the GRPCRoute hostname and PATCH it into the Gateway's `routeAddress` field via the API server as soon as the hostname is derived during reconciliation. The route address is deterministic (`grpcs://<hostname>:443`, where `<hostname>` is derived from the namespace and `GATEWAY_API_BASE_DOMAIN`), so it is known before the per-tenant Gateway reports readiness. The reconciler SHALL NOT wait for `Accepted`/`Programmed` conditions before publishing it.
+The GatewayReconciler SHALL obtain the external route address through the Gateway
+Exposure port (see § Gateway Exposure Port) and PATCH it into the Gateway's
+`routeAddress` field via the API server. For the Gateway API adapter the address
+is deterministic (`grpcs://<hostname>:443`, where `<hostname>` is derived from
+the namespace and `GATEWAY_API_BASE_DOMAIN`), so the adapter MAY resolve and
+publish it as soon as the hostname is derived, before the per-tenant Gateway
+reports readiness.
 
-- Format: `grpcs://<hostname>:443`
-- Published during the reconciliation that creates the Gateway API resources, using the same deterministic hostname as the GRPCRoute
-- Stored in the Gateway API resource for CLI and console consumption so the connection command is available while the gateway finishes provisioning
-- Readiness to serve traffic is reflected separately by the Gateway `phase` (`Provisioning` → `Running`), not by the presence of `routeAddress`
+- Format (Gateway API adapter): `grpcs://<hostname>:443`
+- Published during the reconciliation that creates the exposure resources, using the same deterministic hostname as the GRPCRoute
+- Stored in the Gateway resource for CLI and console consumption
+- The `routeAddress` field records *where* the gateway will be reachable; it does **not** by itself assert readiness. Readiness to serve traffic is reflected by the Gateway `phase` reaching `Running`, which for a routed gateway now additionally requires the exposure to be observed Ready (see [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) § Phase Reflects Workload and Route Readiness). The console and CLI SHALL NOT present the gateway as ready to connect until `phase` is `Running`, even though `routeAddress` may be populated earlier.
 - `hsctl get gateways` displays the routeAddress
-- If the hostname cannot be derived (for example `GATEWAY_API_BASE_DOMAIN` is unset), the `routeAddress` SHALL remain empty
+- If the address cannot be resolved (for example `GATEWAY_API_BASE_DOMAIN` is unset), the `routeAddress` SHALL remain empty
+
+### Requirement: Gateway Exposure Port
+
+External exposure of a gateway - both **resolving the route address/URL** and
+**observing readiness** - SHALL be accessed through an application-owned port so
+the reconciler and health loop are decoupled from any single exposure backend.
+The Gateway API implementation SHALL be one adapter behind this port; additional
+adapters (e.g. OpenShift `Route`, passthrough `Route`) are expected and SHALL be
+addable without changing the reconciler or health-reconciliation logic.
+
+The port SHALL expose at least:
+
+- **Address resolution** - given a gateway and its route configuration, return
+  the external route address (e.g. `grpcs://<host>:443`), or empty if it cannot
+  be resolved.
+- **Readiness observation** - given a gateway, return whether its external
+  exposure is currently Ready, along with a short human-readable reason when it
+  is not. For the Gateway API adapter, Ready is defined as the per-tenant
+  Gateway API `Gateway` reporting condition `Programmed=True` with a non-empty
+  `.status.addresses`.
+
+The reconciler and `GatewayHealthReconciler` SHALL depend only on the port's
+address and readiness results, never on Gateway API types directly. The Gateway
+API adapter SHALL read the per-tenant `Gateway` object's status using the typed
+`sigs.k8s.io/gateway-api` client.
+
+> **Scope note:** provisioning of the backend-specific resources (Gateway,
+> GRPCRoute, BackendTLSPolicy, NetworkPolicy for the Gateway API adapter) MAY
+> also move behind this port as adapters are added; at minimum, address
+> resolution and readiness observation SHALL be behind it.
+
+#### Scenario: Gateway API adapter reports not-ready before Programmed
+
+- GIVEN a routed Gateway whose per-tenant Gateway API `Gateway` reports
+  `Programmed=False` or has an empty `.status.addresses`
+- WHEN the reconciler queries readiness through the Gateway Exposure port
+- THEN the port SHALL report the exposure as not Ready
+- AND SHALL provide a reason (e.g. "gateway not programmed")
+
+#### Scenario: Gateway API adapter reports ready when programmed
+
+- GIVEN a routed Gateway whose per-tenant Gateway API `Gateway` reports
+  `Programmed=True` with a non-empty `.status.addresses`
+- WHEN the reconciler queries readiness through the Gateway Exposure port
+- THEN the port SHALL report the exposure as Ready
+
+#### Scenario: New exposure backend added without touching the reconciler
+
+- GIVEN a future OpenShift `Route`-based exposure adapter implementing the
+  Gateway Exposure port
+- WHEN it is registered as the active adapter
+- THEN the reconciler and health-reconciliation logic SHALL consume its address
+  and readiness results without code changes to their phase-decision logic
 
 ---
 
@@ -245,6 +304,17 @@ The GatewayReconciler SHALL derive the external route address from the GRPCRoute
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Cluster base domain for hostname generation (read from `ingresses.config.openshift.io/cluster` `.spec.domain`) |
 | `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources (e.g., `cloud-provider-kind` for Kind clusters) |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where per-tenant Gateway API Gateway resources are created. On OpenShift, the ingress operator only auto-creates DNSRecord CRs for Gateways in `openshift-ingress` |
+
+### Requirement: Gateway Exposure Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `GATEWAY_ROUTE_READY_TIMEOUT` | `10m` | Grace window a routed gateway's external exposure may remain not-Ready (e.g. Gateway API `Programmed=False` / no address, while a cloud load balancer provisions) after the Deployment is Ready, before the control plane transitions the `phase` to `Degraded`. Load balancer provisioning commonly exceeds the Deployment readiness window, so this is deliberately longer than the provisioning Deployment-readiness wait. |
+
+The grace window governs only the `Provisioning → Degraded` transition for
+exposure that never becomes Ready; it is not a hard deadline that stops
+observation. The control plane SHALL keep observing the exposure after the window
+elapses, so a gateway that eventually becomes programmed returns to `Running`.
 
 ---
 
@@ -295,6 +365,7 @@ The `openshift-ingress` Role is deployed via `controller-gateway-rbac.yaml` in t
 | TLS handshake: 0 bytes read, immediate EOF | NetworkPolicy blocking Gateway API proxy → gateway | Create `openshell-gateway-allow-router` |
 | grpcurl hangs but openssl s_client works | grpcurl blocked by NetworkPolicy | Check pod labels match `gateway.networking.k8s.io/gateway-name` selector |
 | `hsctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` to the Gateway resource |
+| Gateway pods Ready but phase stuck `Provisioning`, then `Degraded` after the grace window | Per-tenant Gateway API `Gateway` reports `Programmed=False` / no ADDRESS (cloud LB not provisioned, DNS/quota failure) | `oc get gateway -n openshift-ingress gw-<ns> -o wide`; inspect `.status.conditions` and events on the Gateway / its ELB |
 | `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway config has `client_ca_path` (mTLS) but ingress proxy cannot present client certs | Verify `route.enabled` is true -- the reconciler strips `client_ca_path` when routing is enabled (see TLS spec) |
 
 ---
