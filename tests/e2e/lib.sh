@@ -87,10 +87,6 @@ retry_until() {
 : "${E2E_GATEWAY_NAME:=e2e-gw}"
 : "${E2E_SANDBOX_TIMEOUT:=120}"
 : "${E2E_PROVISION_TIMEOUT:=180}"
-# Negative RBAC checks (e.g. a read-only user denied sandbox creation) resolve
-# immediately at the gateway authz layer, so they use a short window rather than
-# the full sandbox provisioning timeout.
-: "${E2E_RBAC_DENY_TIMEOUT:=30}"
 : "${E2E_SKIP_CLEANUP:=0}"
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"

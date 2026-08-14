@@ -895,23 +895,27 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
     echo "$DEV_STATUS" | while IFS= read -r line; do dim "    $line"; done
   fi
 
-  # RBAC boundary (negative assertion): the developer maps to the openshell-user
-  # tier, which is read-only per specs/security/rbac-enforcement.spec.md
-  # (gateway:viewer -> openshell-user). Privileged/workspace operations such as
-  # sandbox creation MUST be denied for a user with no workspace membership.
-  # SUCCESS here would mean RBAC is NOT enforced, so we assert the denial.
+  # RBAC boundary for the openshell-user tier. The developer maps to
+  # gateway:viewer -> openshell-user per specs/security/rbac-enforcement.spec.md.
+  # This tier is a legitimate *user* of a gateway it can reach: it MAY create
+  # sandboxes (openshell-user is authorized for sandbox create/list/exec per
+  # specs/platform/openshell-gateway-oidc.spec.md), but it is NOT a
+  # gateway:creator, so it MUST NOT be able to create gateways via the HyperShell
+  # API. We assert both halves: the allowed operation succeeds and the denied
+  # operation returns 403.
+
+  # ── positive assertion: openshell-user MAY create a sandbox ──
   DEV_SANDBOX="e2e-dev-$(date +%s | tail -c5)"
   show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} sandbox create --name ${DEV_SANDBOX}"
-  dim "  Expecting RBAC denial (developer is read-only, not a workspace member)..."
+  dim "  Expecting success (openshell-user is a gateway user; sandbox create is allowed)..."
 
   DEV_SB_LOG=$(mktemp)
   "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox create --name "${DEV_SANDBOX}" >"${DEV_SB_LOG}" 2>&1 &
   DEV_SB_PID=$!
 
-  # The denial is an immediate authz decision (latency ~0), so poll a short
-  # window for either the CLI to exit or -- if RBAC is broken -- a pod to appear.
+  # sandbox create blocks (interactive), so background it and poll for the pod.
   DEV_POD_CREATED=false
-  DEV_DEADLINE=$(($(date +%s) + E2E_RBAC_DENY_TIMEOUT))
+  DEV_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
   while [[ $(date +%s) -lt $DEV_DEADLINE ]]; do
     if $CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -qi "default--${DEV_SANDBOX}"; then
       DEV_POD_CREATED=true
@@ -920,7 +924,7 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
     if ! kill -0 "$DEV_SB_PID" 2>/dev/null; then
       break
     fi
-    sleep 2
+    sleep 5
   done
 
   kill "$DEV_SB_PID" 2>/dev/null || true
@@ -930,18 +934,72 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
   rm -f "${DEV_SB_LOG}" 2>/dev/null || true
 
   if [[ "$DEV_POD_CREATED" == "true" ]]; then
-    # A read-only user managed to create a sandbox -> RBAC is not enforced.
-    fail_test "Developer user: RBAC not enforced -- read-only user created a sandbox"
+    pass "Developer user: sandbox create allowed (openshell-user)"
     "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
-  elif echo "$DEV_SB_ERR" | grep -qiE "permissiondenied|permission denied|not a member of workspace|not authorized|unauthorized|forbidden|denied"; then
-    pass "Developer user: sandbox create correctly denied (PermissionDenied)"
+  elif echo "$DEV_SB_ERR" | grep -qiE "permissiondenied|permission denied|not authorized|unauthorized|forbidden|denied"; then
+    # A gateway user was denied a sandbox -> the openshell-user tier is misconfigured.
+    fail_test "Developer user: sandbox create denied -- openshell-user should be allowed to create sandboxes"
     dim "    ${DEV_SB_ERR:0:200}"
   else
-    # Neither denied nor created -- surface the output so infra failures are not
-    # silently mistaken for a successful RBAC denial.
-    fail_test "Developer user: sandbox create did not return the expected RBAC denial"
+    # Neither created nor a recognizable denial -- surface output so infra
+    # failures are not mistaken for an authz result.
+    fail_test "Developer user: sandbox not created within ${E2E_SANDBOX_TIMEOUT}s"
     dim "    ${DEV_SB_ERR:0:200}"
   fi
+
+  # ── negative assertion: openshell-user may NOT create a gateway ──
+  # gateway:viewer lacks the platform-scoped gateway:creator role, so
+  # POST /gateways MUST be rejected with 403 (rbac-enforcement.spec.md scenario
+  # "User without creator role cannot create gateways"). SUCCESS here would mean
+  # RBAC is NOT enforced.
+  DEV_GW_CREATE_NAME="e2e-dev-gw-$(date +%s | tail -c5)"
+  DEV_GW_BODY=$(GW_NAME="$DEV_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+import json, os
+body = {
+    'name': os.environ['GW_NAME'],
+    'fleet_id': 'e2e-fleet',
+    'cluster_id': 'e2e-cluster',
+    'release_id': 'e2e-release',
+    'database_id': 'e2e-database',
+    'oidc': json.dumps({
+        'issuer': os.environ['E2E_OIDC_ISSUER'],
+        'audience': os.environ['E2E_OIDC_CLIENT_ID'],
+        'roles_claim': 'groups',
+        'admin_role': 'hypershell-admins',
+        'user_role': 'hypershell-users'
+    }),
+    'route': json.dumps({'enabled': True})
+}
+print(json.dumps(body))
+")
+  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 403"
+  dim "  Expecting 403 Forbidden (developer lacks gateway:creator)..."
+
+  DEV_GW_RESP_FILE=$(mktemp)
+  DEV_GW_STATUS=$(curl -sk -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
+    -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+    -H "Authorization: Bearer ${DEV_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "${DEV_GW_BODY}" 2>/dev/null || true)
+  DEV_GW_RESP=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_GW_RESP_FILE}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
+
+  if [[ "$DEV_GW_STATUS" == "403" ]]; then
+    pass "Developer user: gateway create correctly denied (403 Forbidden)"
+  elif [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
+    fail_test "Developer user: RBAC not enforced -- non-creator created a gateway (HTTP ${DEV_GW_STATUS})"
+    # A gateway was wrongly created; the creator auto-owns it, so delete it as the
+    # developer to avoid leaking test state.
+    DEV_BAD_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+    if [[ -n "$DEV_BAD_GW_ID" ]]; then
+      curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_BAD_GW_ID}" \
+        -H "Authorization: Bearer ${DEV_TOKEN}" &>/dev/null || true
+    fi
+  else
+    fail_test "Developer user: gateway create did not return 403 (got HTTP ${DEV_GW_STATUS:-none})"
+    dim "    ${DEV_GW_RESP:0:200}"
+  fi
+  rm -f "${DEV_GW_RESP_FILE}" 2>/dev/null || true
 
   "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
 fi
