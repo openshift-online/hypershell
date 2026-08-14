@@ -229,6 +229,14 @@ data:
           "enabled": true,
           "credentials": [{ "type": "password", "value": "developer", "temporary": false }],
           "realmRoles": ["hypershell-users"]
+        },
+        {
+          "username": "service-account-hypershell-provisioner",
+          "enabled": true,
+          "serviceAccountClientId": "hypershell-provisioner",
+          "clientRoles": {
+            "realm-management": ["manage-clients", "manage-users"]
+          }
         }
       ],
       "clientScopeMappings": {

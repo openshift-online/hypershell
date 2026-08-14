@@ -225,13 +225,14 @@ The control plane SHALL create a BackendTLSPolicy to enable TLS verification fro
 
 ### Requirement: Route Address Discovery
 
-The GatewayReconciler SHALL derive the external route address from the GRPCRoute hostname and PATCH it into the Gateway's `routeAddress` field via the API server, but only after the Gateway is ready to serve traffic.
+The GatewayReconciler SHALL derive the external route address from the GRPCRoute hostname and PATCH it into the Gateway's `routeAddress` field via the API server as soon as the hostname is derived during reconciliation. The route address is deterministic (`grpcs://<hostname>:443`, where `<hostname>` is derived from the namespace and `GATEWAY_API_BASE_DOMAIN`), so it is known before the per-tenant Gateway reports readiness. The reconciler SHALL NOT wait for `Accepted`/`Programmed` conditions before publishing it.
 
-- The reconciler SHALL wait for the per-tenant Gateway API Gateway to report `Accepted: True` and `Programmed: True` status conditions before publishing the `routeAddress`
 - Format: `grpcs://<hostname>:443`
-- Stored in the Gateway API resource for CLI consumption
+- Published during the reconciliation that creates the Gateway API resources, using the same deterministic hostname as the GRPCRoute
+- Stored in the Gateway API resource for CLI and console consumption so the connection command is available while the gateway finishes provisioning
+- Readiness to serve traffic is reflected separately by the Gateway `phase` (`Provisioning` → `Running`), not by the presence of `routeAddress`
 - `hsctl get gateways` displays the routeAddress
-- If the Gateway conditions are not yet met, the `routeAddress` SHALL remain empty until they are satisfied on a subsequent reconciliation cycle
+- If the hostname cannot be derived (for example `GATEWAY_API_BASE_DOMAIN` is unset), the `routeAddress` SHALL remain empty
 
 ---
 

@@ -64,6 +64,57 @@ echo ""
 # --- Verify and start cloud-provider-kind ---
 header "cloud-provider-kind"
 CPK_RUNNING=false
+
+# Returns 0 if a running cloud-provider-kind can still enumerate the kind
+# cluster, 1 if it is stuck. A stale runtime connection makes the daemon spin
+# on "failed to list clusters" so it never assigns LoadBalancer/Gateway
+# addresses - reusing such an instance silently breaks networking.
+cpk_healthy() {
+  # The daemon lists clusters via the same container engine we use here; if the
+  # CLI cannot, neither can the daemon.
+  ${CONTAINER_ENGINE} ps -a --filter label=io.x-k8s.kind.cluster >/dev/null 2>&1 || return 1
+  # A recent, unrecovered list failure at the tail of the log is the signature.
+  if [[ -f "${CPK_LOG}" ]] && tail -n 5 "${CPK_LOG}" 2>/dev/null | grep -q "failed to list clusters"; then
+    return 1
+  fi
+  return 0
+}
+
+start_cpk() {
+  # Remove orphaned proxy containers before launching. A fresh daemon binds its
+  # xDS server to a new port; proxies left over from a prior daemon keep
+  # pointing at the dead xDS port and serve stale config (e.g. old Service
+  # ClusterIPs), which surfaces as 503s through the Gateway. Deleting them forces
+  # a clean rebuild against the current cluster.
+  local stale
+  stale=$(${CONTAINER_ENGINE} ps -aq --filter "name=kindccm" 2>/dev/null || true)
+  if [[ -n "${stale}" ]]; then
+    info "Removing stale cloud-provider-kind proxy containers..."
+    # shellcheck disable=SC2086
+    ${CONTAINER_ENGINE} rm -f ${stale} >/dev/null 2>&1 || true
+  fi
+
+  info "Starting cloud-provider-kind..."
+  if nohup cloud-provider-kind --enable-lb-port-mapping >"${CPK_LOG}" 2>&1 &
+     sleep 2 && pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+    CPK_RUNNING=true
+    success "cloud-provider-kind started (without sudo)"
+  elif [[ "${HAVE_SUDO}" == "true" ]]; then
+    info "Retrying with sudo..."
+    sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >"${CPK_LOG}" 2>&1 &
+    sleep 2
+    if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+      CPK_RUNNING=true
+      success "cloud-provider-kind started (with sudo)"
+    else
+      error "cloud-provider-kind failed to start - check ${CPK_LOG}"
+      exit 1
+    fi
+  else
+    warn "cloud-provider-kind requires sudo on this system - will use kubectl port-forward instead"
+  fi
+}
+
 if ! command -v cloud-provider-kind >/dev/null 2>&1; then
   if [[ "${HAVE_SUDO}" == "true" ]]; then
     error "cloud-provider-kind not found in PATH"
@@ -73,28 +124,19 @@ if ! command -v cloud-provider-kind >/dev/null 2>&1; then
     warn "cloud-provider-kind not found - will use kubectl port-forward instead"
   fi
 elif pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-  warn "cloud-provider-kind already running"
-  CPK_RUNNING=true
-else
-  info "Starting cloud-provider-kind..."
-  if nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
-     sleep 2 && pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
+  if cpk_healthy; then
+    warn "cloud-provider-kind already running"
     CPK_RUNNING=true
-    success "cloud-provider-kind started (without sudo)"
-  elif [[ "${HAVE_SUDO}" == "true" ]]; then
-    info "Retrying with sudo..."
-    sudo -E nohup cloud-provider-kind --enable-lb-port-mapping >/tmp/cloud-provider-kind.log 2>&1 &
-    sleep 2
-    if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-      CPK_RUNNING=true
-      success "cloud-provider-kind started (with sudo)"
-    else
-      error "cloud-provider-kind failed to start - check /tmp/cloud-provider-kind.log"
-      exit 1
-    fi
   else
-    warn "cloud-provider-kind requires sudo on this system - will use kubectl port-forward instead"
+    warn "cloud-provider-kind already running but unhealthy (cannot list clusters) - restarting"
+    info "  See ${CPK_LOG} for the underlying error"
+    pkill -f "cloud-provider-kind" 2>/dev/null || true
+    [[ "${HAVE_SUDO}" == "true" ]] && sudo pkill -f "cloud-provider-kind" 2>/dev/null || true
+    sleep 2
+    start_cpk
   fi
+else
+  start_cpk
 fi
 echo ""
 
@@ -312,7 +354,11 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
       warn "Could not discover Gateway proxy port - check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
     fi
   else
-    warn "Gateway has no address after 60s - cloud-provider-kind may not be running"
+    warn "Gateway has no address after 60s - cloud-provider-kind is not assigning addresses"
+    if [[ -f "${CPK_LOG}" ]]; then
+      warn "Recent cloud-provider-kind log (${CPK_LOG}):"
+      tail -n 10 "${CPK_LOG}" 2>/dev/null | sed 's/^/      /' || true
+    fi
   fi
 else
   info "Skipping Gateway address discovery (no cloud-provider-kind)"
