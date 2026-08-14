@@ -141,4 +141,3 @@ type ReconcileOpts struct {
 type KeycloakClientAPI interface {
 	DeleteGatewayClient(ctx context.Context, gatewayName string) error
 }
-
