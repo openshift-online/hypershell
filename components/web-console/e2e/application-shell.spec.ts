@@ -12,7 +12,7 @@ const gateway = {
   kind: "Gateway",
   name: "openshell-gateway-test",
   namespace: "openshell",
-  phase: "",
+  phase: "Running",
   release_id: "release-1",
   service_type: "",
   status: "Ready",
@@ -196,6 +196,11 @@ test("keeps unknown gateway status readable in every theme", async ({
   await expect(
     page.getByText("Future status", { exact: true }).first(),
   ).toBeVisible();
+  // Wait for the details page's level-one heading before scanning: axe flags a
+  // missing h1 if it runs while the route is still rendering.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
+  ).toBeFocused();
   results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 
@@ -515,7 +520,7 @@ test("provisions a gateway on an existing managed cluster", async ({
   ).toBeVisible();
   await expect(
     page.getByRole("status", {
-      name: "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
+      name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     }),
   ).toBeVisible();
   // Operational values remain under the Details tab; the endpoint is unavailable.
