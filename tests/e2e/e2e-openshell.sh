@@ -895,19 +895,69 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
     echo "$DEV_STATUS" | while IFS= read -r line; do dim "    $line"; done
   fi
 
-  # RBAC boundary for the openshell-user tier. The developer maps to
-  # gateway:viewer -> openshell-user per specs/security/rbac-enforcement.spec.md.
-  # This tier is a legitimate *user* of a gateway it can reach: it MAY create
-  # sandboxes (openshell-user is authorized for sandbox create/list/exec per
-  # specs/platform/openshell-gateway-oidc.spec.md), but it is NOT a
-  # gateway:creator, so it MUST NOT be able to create gateways via the HyperShell
-  # API. We assert both halves: the allowed operation succeeds and the denied
-  # operation returns 403.
+  # RBAC boundary for the standard-user tier. The developer's OIDC token carries
+  # the "hypershell-users" group, which the gateway maps to its user_role -- a
+  # standard OpenShell user, not an admin. Two independent authorization systems
+  # apply, and we assert both:
+  #   1. OpenShell gateway authz: a user_role principal MAY create sandboxes, but
+  #      only in a workspace where it holds an explicit membership record. The
+  #      OIDC role alone does NOT confer workspace access and membership is not
+  #      claim-derived, so a Platform Admin must first add the developer as a
+  #      'user' member of the target workspace (upstream model; see OpenShell
+  #      manage-workspaces docs and e2e/rust/tests/oidc_pkce.rs prepare_workspace).
+  #      The admin has implicit access to 'default', so it can create sandboxes
+  #      there without a membership record; the developer cannot until granted one.
+  #   2. HyperShell API RBAC: the developer lacks the platform-scoped
+  #      gateway:creator role, so POST /gateways MUST be rejected with 403
+  #      (rbac-enforcement.spec.md "User without creator role cannot create
+  #      gateways"). Asserted after the sandbox check.
 
-  # ── positive assertion: openshell-user MAY create a sandbox ──
+  # ── admin grants the developer 'user' membership on the 'default' workspace ──
+  # Resolve the subject the gateway checks membership against. `whoami` reports the
+  # gateway-validated identity; fall back to decoding the JWT `sub` claim if the
+  # CLI predates `whoami`.
+  DEV_SUBJECT=$("${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" whoami --output json 2>/dev/null \
+    | python3 -c "import json,sys
+try:
+    print(json.load(sys.stdin).get('subject','') or '')
+except Exception:
+    pass" 2>/dev/null || true)
+  if [[ -z "$DEV_SUBJECT" ]]; then
+    DEV_SUBJECT=$(DEV_TOKEN="$DEV_TOKEN" python3 -c "
+import os, json, base64
+try:
+    part = os.environ['DEV_TOKEN'].split('.')[1]
+    part += '=' * (-len(part) % 4)
+    print(json.loads(base64.urlsafe_b64decode(part)).get('sub','') or '')
+except Exception:
+    pass" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$DEV_SUBJECT" ]]; then
+    fail_test "Developer user: could not resolve OIDC subject for workspace membership"
+  else
+    show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} workspace member add --workspace default --subject ${DEV_SUBJECT} --role user"
+    dim "  Admin grants developer 'user' membership on 'default' (OpenShell requires an explicit membership record; OIDC user role alone does not confer workspace access)..."
+    DEV_MEMBER_LOG=$(mktemp)
+    if "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" workspace member add \
+        --workspace default --subject "${DEV_SUBJECT}" --role user >"${DEV_MEMBER_LOG}" 2>&1; then
+      pass "Developer granted 'user' membership on 'default' workspace"
+    else
+      DEV_MEMBER_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_MEMBER_LOG}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
+      if echo "$DEV_MEMBER_ERR" | grep -qiE "already|exists"; then
+        pass "Developer already a 'user' member of 'default' workspace"
+      else
+        fail_test "Developer user: failed to grant workspace membership (admin)"
+        dim "    ${DEV_MEMBER_ERR:0:200}"
+      fi
+    fi
+    rm -f "${DEV_MEMBER_LOG}" 2>/dev/null || true
+  fi
+
+  # ── positive assertion: a workspace member with user_role MAY create a sandbox ──
   DEV_SANDBOX="e2e-dev-$(date +%s | tail -c5)"
   show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} sandbox create --name ${DEV_SANDBOX}"
-  dim "  Expecting success (openshell-user is a gateway user; sandbox create is allowed)..."
+  dim "  Expecting success (developer is now a 'user' member of 'default'; sandbox create is allowed)..."
 
   DEV_SB_LOG=$(mktemp)
   "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox create --name "${DEV_SANDBOX}" >"${DEV_SB_LOG}" 2>&1 &
@@ -934,11 +984,12 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
   rm -f "${DEV_SB_LOG}" 2>/dev/null || true
 
   if [[ "$DEV_POD_CREATED" == "true" ]]; then
-    pass "Developer user: sandbox create allowed (openshell-user)"
+    pass "Developer user: sandbox create allowed (user_role member of 'default')"
     "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
-  elif echo "$DEV_SB_ERR" | grep -qiE "permissiondenied|permission denied|not authorized|unauthorized|forbidden|denied"; then
-    # A gateway user was denied a sandbox -> the openshell-user tier is misconfigured.
-    fail_test "Developer user: sandbox create denied -- openshell-user should be allowed to create sandboxes"
+  elif echo "$DEV_SB_ERR" | grep -qiE "not a member|permissiondenied|permission denied|not authorized|unauthorized|forbidden|denied"; then
+    # A granted workspace member was still denied -> membership grant or user_role
+    # mapping is misconfigured.
+    fail_test "Developer user: sandbox create denied -- a 'user' member of 'default' should be allowed to create sandboxes"
     dim "    ${DEV_SB_ERR:0:200}"
   else
     # Neither created nor a recognizable denial -- surface output so infra
