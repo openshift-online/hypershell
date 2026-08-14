@@ -56,9 +56,6 @@ export const vertexClaudeProviderName = "vertex-claude";
 /** Placeholder a user replaces with their sandbox name. */
 export const sandboxNamePlaceholder = "<sandbox-name>";
 
-/** Placeholder a user replaces with a GCP region (e.g. us-east5). */
-export const vertexRegionPlaceholder = "<gcp-region>";
-
 /** One-time prerequisite that writes Application Default Credentials locally. */
 export const gcloudAdcLoginCommand = "gcloud auth application-default login";
 
@@ -74,7 +71,7 @@ export function buildProviderCreateCommand(): string {
     "--type google-vertex-ai",
     "--from-gcloud-adc",
     `--config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
-    `--config VERTEX_AI_REGION=${vertexRegionPlaceholder}`,
+    "--config VERTEX_AI_REGION=global",
   ].join(" \\\n  ");
 }
 
@@ -103,6 +100,7 @@ export function buildSandboxCreateCommand(
     "openshell sandbox create",
     `--name ${sandboxName}`,
     `--provider ${vertexClaudeProviderName}`,
+    "--no-auto-providers",
     "-- claude",
   ].join(" \\\n  ");
 }

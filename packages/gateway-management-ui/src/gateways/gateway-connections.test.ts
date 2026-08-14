@@ -7,7 +7,6 @@ import {
   buildSandboxCreateCommand,
   gatewayStatusAppearance,
   sandboxNamePlaceholder,
-  vertexRegionPlaceholder,
   vertexClaudeProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
@@ -85,7 +84,7 @@ describe("gateway connections", () => {
   --type google-vertex-ai \\
   --from-gcloud-adc \\
   --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)" \\
-  --config VERTEX_AI_REGION=${vertexRegionPlaceholder}`,
+  --config VERTEX_AI_REGION=global`,
     );
   });
 
@@ -103,12 +102,14 @@ describe("gateway connections", () => {
       `openshell sandbox create \\
   --name ${sandboxNamePlaceholder} \\
   --provider ${vertexClaudeProviderName} \\
+  --no-auto-providers \\
   -- claude`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
       `openshell sandbox create \\
   --name demo \\
   --provider ${vertexClaudeProviderName} \\
+  --no-auto-providers \\
   -- claude`,
     );
   });
