@@ -895,55 +895,53 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
     echo "$DEV_STATUS" | while IFS= read -r line; do dim "    $line"; done
   fi
 
+  # RBAC boundary (negative assertion): the developer maps to the openshell-user
+  # tier, which is read-only per specs/security/rbac-enforcement.spec.md
+  # (gateway:viewer -> openshell-user). Privileged/workspace operations such as
+  # sandbox creation MUST be denied for a user with no workspace membership.
+  # SUCCESS here would mean RBAC is NOT enforced, so we assert the denial.
   DEV_SANDBOX="e2e-dev-$(date +%s | tail -c5)"
   show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} sandbox create --name ${DEV_SANDBOX}"
-  dim "  Creating developer sandbox (timeout: ${E2E_SANDBOX_TIMEOUT}s)..."
+  dim "  Expecting RBAC denial (developer is read-only, not a workspace member)..."
 
   DEV_SB_LOG=$(mktemp)
   "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox create --name "${DEV_SANDBOX}" >"${DEV_SB_LOG}" 2>&1 &
   DEV_SB_PID=$!
 
-  DEV_SB_FOUND=false
-  DEV_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  # The denial is an immediate authz decision (latency ~0), so poll a short
+  # window for either the CLI to exit or -- if RBAC is broken -- a pod to appear.
+  DEV_POD_CREATED=false
+  DEV_DEADLINE=$(($(date +%s) + E2E_RBAC_DENY_TIMEOUT))
   while [[ $(date +%s) -lt $DEV_DEADLINE ]]; do
-    DEV_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${DEV_SANDBOX}" || true)
-    if [[ -n "$DEV_PODS" ]]; then
-      DEV_POD_STATUS=$(echo "$DEV_PODS" | awk '{print $3}' | head -1)
-      if [[ "$DEV_POD_STATUS" == "Running" ]]; then
-        DEV_SB_FOUND=true
-        break
-      fi
+    if $CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -qi "default--${DEV_SANDBOX}"; then
+      DEV_POD_CREATED=true
+      break
     fi
-    sleep 5
+    if ! kill -0 "$DEV_SB_PID" 2>/dev/null; then
+      break
+    fi
+    sleep 2
   done
 
   kill "$DEV_SB_PID" 2>/dev/null || true
   wait "$DEV_SB_PID" 2>/dev/null || true
 
-  if [[ "$DEV_SB_FOUND" == "true" ]]; then
-    pass "Developer user: sandbox created"
-
-    show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} sandbox exec -n ${DEV_SANDBOX} -- uname -a"
-    if DEV_EXEC=$("${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox exec -n "${DEV_SANDBOX}" -- uname -a 2>&1); then
-      DEV_EXEC_CLEAN=$(echo "$DEV_EXEC" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
-      if [[ -n "$DEV_EXEC_CLEAN" ]]; then
-        pass "Developer user: sandbox exec succeeded"
-      else
-        fail_test "Developer user: sandbox exec returned no output"
-      fi
-    else
-      fail_test "Developer user: sandbox exec failed"
-      dim "    ${DEV_EXEC:0:200}"
-    fi
-  else
-    fail_test "Developer user: sandbox not created after ${E2E_SANDBOX_TIMEOUT}s"
-  fi
-
-  if [[ "$E2E_SKIP_CLEANUP" != "1" && "$DEV_SB_FOUND" == "true" ]]; then
-    dim "  Cleaning up developer sandbox..."
-    "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
-  fi
+  DEV_SB_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
   rm -f "${DEV_SB_LOG}" 2>/dev/null || true
+
+  if [[ "$DEV_POD_CREATED" == "true" ]]; then
+    # A read-only user managed to create a sandbox -> RBAC is not enforced.
+    fail_test "Developer user: RBAC not enforced -- read-only user created a sandbox"
+    "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
+  elif echo "$DEV_SB_ERR" | grep -qiE "permissiondenied|permission denied|not a member of workspace|not authorized|unauthorized|forbidden|denied"; then
+    pass "Developer user: sandbox create correctly denied (PermissionDenied)"
+    dim "    ${DEV_SB_ERR:0:200}"
+  else
+    # Neither denied nor created -- surface the output so infra failures are not
+    # silently mistaken for a successful RBAC denial.
+    fail_test "Developer user: sandbox create did not return the expected RBAC denial"
+    dim "    ${DEV_SB_ERR:0:200}"
+  fi
 
   "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
 fi

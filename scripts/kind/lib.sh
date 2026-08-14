@@ -335,6 +335,12 @@ rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 8080 -> 127.0.0.1 port
 }
 
 stop_port_forward() {
+  # Tearing down rules needs the same privileges as adding them. Skip when we
+  # have no sudo (HAVE_SUDO defaults to true for callers like port-forward.sh
+  # that don't set it) so up.sh's no-sudo path never blocks on a password prompt.
+  if [[ "${HAVE_SUDO:-true}" == "false" ]]; then
+    return
+  fi
   case "$(uname -s)" in
     Darwin)
       sudo pfctl -a "${PF_ANCHOR}" -F all 2>/dev/null || true
