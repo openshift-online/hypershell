@@ -244,6 +244,11 @@ jobs:
           E2E_INFRA_DRIVER: kind
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "180"
+          # Force plain, non-graphical output from the openshell CLI. Off a TTY
+          # its miette-style renderer wraps long diagnostics with a box-drawing
+          # gutter (│) at an assumed 80-col width, which garbles captured logs.
+          TERM: dumb
+          NO_COLOR: "1"
         run: bash tests/e2e/e2e-openshell.sh
 
       - name: Collect diagnostics

@@ -18,6 +18,14 @@ if [[ -z "${NO_COLOR:-}" ]] && [[ -t 1 ]]; then
   _NC='\033[0m'
 else
   _BOLD='' _GREEN='' _RED='' _DIM='' _CYAN='' _ORANGE='' _NC=''
+  # Non-interactive (CI, piped, or NO_COLOR set): force child CLIs into plain
+  # mode too. In particular the openshell CLI renders diagnostics with a
+  # miette-style graphical handler that, off a TTY, assumes an 80-column width
+  # and wraps long errors with a box-drawing gutter (e.g. "... the specified │
+  # operation"). Exporting NO_COLOR and TERM=dumb makes those renderers emit
+  # flat, single-stream text so captured logs stay clean and greppable.
+  export NO_COLOR=1
+  export TERM=dumb
 fi
 
 bold()   { printf "${_BOLD}%s${_NC}\n" "$*"; }
