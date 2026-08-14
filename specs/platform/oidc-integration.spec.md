@@ -181,7 +181,7 @@ An invalid, expired, or unrefreshable session SHALL NOT surface as a generic app
 - **Browser navigations.** A GET for an application route without a usable session SHALL 302 to `/auth/login`, which 302s to the IdP. `/auth/login` SHALL accept an optional `return_to` value, validate that it is a same-origin absolute path (no scheme, host, or protocol-relative `//` form), store it in the login session, and redirect to it after a successful callback.
 - **API (fetch) requests.** Because a cross-origin 302 cannot drive a `fetch`, the BFF SHALL return the 401 re-authentication signal described in API Proxy Changes. The browser API transport SHALL detect this signal and perform a full-page navigation to `login_url`, preserving the current route as `return_to`. No generic error, retry banner, or permission-denied message SHALL be shown for an authentication failure.
 - **Distinct from authorization.** A 403 from the API (genuine RBAC denial) SHALL remain a "denied" state and SHALL NOT trigger re-authentication. Only authentication failures (missing, expired, or revoked session) route to the IdP.
-- **Observability.** The transport SHALL publish a typed session-expiry fact through the domain probe fan-out before redirecting; it SHALL NOT write raw console or telemetry calls.
+- **Observability.** The transport SHALL NOT write raw console output or ad-hoc telemetry for an authentication failure; it MAY publish a typed session-expiry fact through the domain probe fan-out before redirecting.
 
 ### CSRF Protection
 
@@ -399,6 +399,28 @@ The BFF SHALL expose a session resource per WEB-AUTH-03.
 - GIVEN the browser has no session
 - WHEN the browser requests `GET /auth/session`
 - THEN the response SHALL contain `{ "authenticated": false }`
+
+### Requirement: Browser Identity and Sign-Out
+
+The console SHALL display the authenticated user's identity in the masthead and provide a sign-out control that performs full RP-initiated logout. Identity SHALL come from the `/auth/session` resource; the browser SHALL NOT read tokens.
+
+#### Scenario: Authenticated Identity in the Masthead
+- GIVEN an authenticated session
+- WHEN the console shell renders
+- THEN the masthead SHALL show an identity menu labeled with the user's display name from `/auth/session`
+- AND no token SHALL be exposed to the browser
+
+#### Scenario: Sign Out Performs Full Logout
+- GIVEN the user opens the identity menu
+- WHEN the user selects sign out
+- THEN the browser SHALL navigate to `/auth/logout`
+- AND the BFF SHALL clear both session cookies and redirect to the IdP `end_session_endpoint` with `id_token_hint`
+- AND the IdP session SHALL be terminated
+
+#### Scenario: No Identity Menu When Unauthenticated
+- GIVEN no session, or the BFF running in no-auth mode
+- WHEN the console shell renders
+- THEN no identity menu SHALL be shown
 
 ### Requirement: Silent Token Refresh and Rotation
 
