@@ -25,6 +25,8 @@ rules:
   reason: "Build file - not an agent skill"
 - path: "apm.lock.yaml"
   reason: "Lockfile - not an agent skill"
+- path: ".skillspector-reports/*"
+  reason: "Local SkillSpector scan output - not source code"
 
 # --- False positives in skill/command scripts ---
 
@@ -87,5 +89,22 @@ rules:
 - id: "P1"
   path: "*linux-capabilities/SKILL.md"
   reason: "Reference documentation describing Linux capability behavior - not an agent instruction override"
+
+# --- E2E test and CI false positives (not agent skills) ---
+
+# E2: E2E test writes OIDC token from env into local openshell config (chmod 600).
+- id: "E2"
+  path: "tests/e2e/e2e-openshell.sh"
+  reason: "E2E test harness - intentional OIDC token setup for openshell CLI, not env harvesting"
+
+# PE3: E2E Kind driver acquires test credentials from local Keycloak.
+- id: "PE3"
+  path: "tests/e2e/drivers/kind.sh"
+  reason: "E2E test harness - password grant against isolated Kind Keycloak with test credentials"
+
+# TM2: CI installs upstream openshell CLI via documented install script.
+- id: "TM2"
+  path: ".github/workflows/e2e.yml"
+  reason: "Accepted CI tradeoff - curl|sh installs OpenShell from upstream for e2e validation"
 
 fingerprints: []

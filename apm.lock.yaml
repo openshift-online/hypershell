@@ -1,11 +1,12 @@
 lockfile_version: '1'
-generated_at: '2026-08-13T03:34:14.868923+00:00'
+generated_at: '2026-08-14T18:42:40.227384+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: openshift-fleet/agentic-sdlc
   name: ocp-fleet-agentic-sdlc
   host: github.com
   resolved_commit: b04b1171f6100062c2edf7b89ee2ab871a6a3e9b
+  resolved_ref: b04b1171f6100062c2edf7b89ee2ab871a6a3e9b
   version: 1.0.35
   package_type: marketplace_plugin
   deployed_files:
@@ -253,6 +254,7 @@ dependencies:
   name: database-security
   host: github.com
   resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
   version: unknown
   virtual_path: module/skills/database-security
   is_virtual: true
@@ -267,6 +269,7 @@ dependencies:
   name: go-security
   host: github.com
   resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
   version: unknown
   virtual_path: module/skills/go-security
   is_virtual: true
@@ -281,6 +284,7 @@ dependencies:
   name: helm-chart-security
   host: github.com
   resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
   version: unknown
   virtual_path: module/skills/helm-chart-security
   is_virtual: true
@@ -295,6 +299,7 @@ dependencies:
   name: linux-capabilities
   host: github.com
   resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
   version: unknown
   virtual_path: module/skills/linux-capabilities
   is_virtual: true
@@ -309,6 +314,7 @@ dependencies:
   name: react-security
   host: github.com
   resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
   version: unknown
   virtual_path: module/skills/react-security
   is_virtual: true
@@ -323,6 +329,7 @@ dependencies:
   name: tls-compliance
   host: github.com
   resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
   version: unknown
   virtual_path: module/skills/tls-compliance
   is_virtual: true

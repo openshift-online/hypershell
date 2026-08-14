@@ -41,6 +41,7 @@ apm_modules/
 # Security audit / threat-model working artifacts
 security-audit/
 .threat-model-state/
+.skillspector-reports/
 
 # Local tool binaries (built by make kind-prereqs)
 bin/

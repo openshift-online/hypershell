@@ -27,13 +27,22 @@ reasoning model to follow the multi-framework methodology accurately.
 Claude Opus or equivalent is recommended. Lighter models will produce
 lower-quality findings and may skip methodology steps.
 
-### Optional pre-scanner tools
+### Required tools
+
+| Tool | Purpose |
+|---|---|
+| `git` | Bootstrap and update the ai-security-harness repo |
+| `python3` | Harness validation, rendering, and scanner scripts |
+| `pip` (or `pip3`, or `uv`) | Install harness Python dependencies |
+
+### Optional tools
 
 These are not required but significantly improve audit quality when
 available on `PATH`:
 
 | Tool | What it adds |
 |---|---|
+| `uv` | Faster alternative for installing harness Python dependencies |
 | `opengrep` | Semantic code pattern matching with the harness rule pack |
 | `gitleaks` | Secret and credential detection including git history |
 | `osv-scanner` | Multi-ecosystem dependency CVE scanning |
@@ -41,8 +50,24 @@ available on `PATH`:
 | `tokei` (or `cloc`/`scc`) | Accurate lines-of-code measurement |
 | `syft` + `grype` | SBOM generation and known-CVE dependency scanning |
 
-The skill reports which tools are available at startup and records skipped
-scanners in the report metadata.
+At startup the skill prints a prerequisite checklist:
+
+```
+pre-requisites ---
+✅ git
+✅ python3
+✅ pip
+⚠️ uv
+✅ opengrep
+⚠️ gitleaks
+```
+
+- ✅ installed
+- ❌ required but not installed - **the skill stops here**
+- ⚠️ optional but not installed
+
+If any required tool is missing, the skill stops and asks you to install it
+before continuing. Skipped optional scanners are recorded in the report metadata.
 
 ## Usage
 
@@ -60,8 +85,8 @@ scanners in the report metadata.
    to `apm_modules/hybrid-platforms-sec/ai-security-harness/` (already
    gitignored) and installs its Python dependencies.
 
-2. **Checks pre-scanner tools** - reports availability of optional
-   scanners and records each as ran/skipped in the report.
+2. **Checks prerequisites** - reports required and optional tool
+   availability, then records skipped scanners in the report.
 
 3. **Runs the threat model** (`full` or `threat-model` mode) - reads the
    codebase and produces a structured threat model covering attack
