@@ -28,6 +28,9 @@ spec:
           - name: hypershell-gw-tls
             kind: Secret
       allowedRoutes:
+        kinds:
+          - group: gateway.networking.k8s.io
+            kind: GRPCRoute
         namespaces:
           from: All
     - name: http-keycloak
