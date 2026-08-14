@@ -53,11 +53,11 @@ export function buildGatewayAddCommand(
  */
 export const vertexClaudeProviderName = "vertex-claude";
 
-/** Placeholder a user replaces with a Vertex Claude model ID. */
-export const inferenceModelPlaceholder = "<claude-model>";
-
 /** Placeholder a user replaces with their sandbox name. */
 export const sandboxNamePlaceholder = "<sandbox-name>";
+
+/** Placeholder a user replaces with a GCP region (e.g. us-east5). */
+export const vertexRegionPlaceholder = "<gcp-region>";
 
 /** One-time prerequisite that writes Application Default Credentials locally. */
 export const gcloudAdcLoginCommand = "gcloud auth application-default login";
@@ -74,6 +74,7 @@ export function buildProviderCreateCommand(): string {
     "--type google-vertex-ai",
     "--from-gcloud-adc",
     `--config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
+    `--config VERTEX_AI_REGION=${vertexRegionPlaceholder}`,
   ].join(" \\\n  ");
 }
 
@@ -88,20 +89,6 @@ export function buildProviderFromExistingCommand(): string {
     `--name ${vertexClaudeProviderName}`,
     "--type google-vertex-ai",
     "--from-existing",
-  ].join(" \\\n  ");
-}
-
-/**
- * Routes a Claude model through the Vertex AI provider. The model is a template
- * value the user substitutes before running, so it is not shell-escaped here.
- */
-export function buildInferenceSetCommand(
-  model: string = inferenceModelPlaceholder,
-): string {
-  return [
-    "openshell inference set",
-    `--provider ${vertexClaudeProviderName}`,
-    `--model ${model}`,
   ].join(" \\\n  ");
 }
 
@@ -129,6 +116,7 @@ export function gatewayStatusAppearance(
   switch (status.trim().toLocaleLowerCase()) {
     case "active":
     case "available":
+    case "healthy":
     case "ready":
     case "running":
     case "succeeded":

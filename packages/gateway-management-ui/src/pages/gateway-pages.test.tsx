@@ -174,8 +174,6 @@ describe("gateway shell pages", () => {
     expect(screen.getByText("release-1")).toBeTruthy();
     expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
     expect(screen.getByText("Hub cluster")).toBeTruthy();
-    expect(screen.getByText("CLI connection", { exact: true })).toBeTruthy();
-
     renameGatewayMock.mockResolvedValue(
       gatewayResponse("gateway-1", "Renamed team gateway"),
     );
@@ -304,9 +302,6 @@ describe("gateway shell pages", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/openshell inference set/, { selector: "code" }),
-    ).toBeTruthy();
-    expect(
       screen.getByText(/Do not set CLAUDE_CODE_USE_VERTEX=1/u),
     ).toBeTruthy();
   });
@@ -323,9 +318,9 @@ describe("gateway shell pages", () => {
     ));
 
     expect(
-      screen.getByText(
-        "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
-      ),
+      screen.getByRole("status", {
+        name: "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
+      }),
     ).toBeTruthy();
     expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
   });

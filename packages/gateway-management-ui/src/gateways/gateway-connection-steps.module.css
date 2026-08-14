@@ -21,8 +21,33 @@
 }
 
 .steps :global(.pf-v6-c-code-block) {
-  background-color: var(--pf-t--global--background--color--secondary--default);
+  position: relative;
+  background-color: var(--pf-t--global--background--color--primary--default);
   border: var(--pf-t--global--border--width--box--default) solid
     var(--pf-t--global--border--color--default);
   border-radius: var(--pf-t--global--border--radius--medium);
+}
+
+.steps :global(.pf-v6-c-code-block__header) {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  border-block-end: 0;
+  background-color: transparent;
+  padding: var(--pf-t--global--spacer--xs);
+  z-index: 1;
+}
+
+.steps :global(.pf-v6-c-code-block__content) {
+  padding-inline-end: 3rem;
+}
+.commandPending {
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: var(--pf-t--global--border--width--box--default) solid
+    var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--medium);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+  padding: var(--pf-t--global--spacer--md);
 }

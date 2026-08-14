@@ -76,11 +76,6 @@ export const messages = defineMessages({
     defaultMessage: "Region: {region}",
     description: "Region context that distinguishes a managed cluster option.",
   },
-  connectionLoginDescription: {
-    id: "app.gateway.connection.login.description",
-    defaultMessage: "Authenticate the OpenShell CLI to this gateway.",
-    description: "Supporting text for the gateway login connection step.",
-  },
   connectionLoginTitle: {
     id: "app.gateway.connection.login.title",
     defaultMessage: "Log in to the gateway",
@@ -93,13 +88,6 @@ export const messages = defineMessages({
     description:
       "Shown in the login step when the gateway lacks required connection values.",
   },
-  connectionProviderAdcDescription: {
-    id: "app.gateway.connection.provider.adc.description",
-    defaultMessage:
-      "Run this once so the gateway can obtain your Google Cloud credentials.",
-    description:
-      "Explains the Application Default Credentials prerequisite command.",
-  },
   connectionProviderAdcTitle: {
     id: "app.gateway.connection.provider.adc.title",
     defaultMessage: "Configure Application Default Credentials",
@@ -110,12 +98,6 @@ export const messages = defineMessages({
     defaultMessage:
       "Inside the sandbox, reach Vertex AI through inference.local. Do not set CLAUDE_CODE_USE_VERTEX=1, which makes Claude Code bypass the gateway and fail Google Cloud credential discovery.",
     description: "Sandbox routing caveat shown in the provider step details.",
-  },
-  connectionProviderDescription: {
-    id: "app.gateway.connection.provider.description",
-    defaultMessage:
-      "Register Claude on Google Vertex AI using credentials pulled from your environment. No key is entered in the browser.",
-    description: "Supporting text for the add-provider connection step.",
   },
   connectionProviderDetailsToggle: {
     id: "app.gateway.connection.provider.detailsToggle",
@@ -132,7 +114,7 @@ export const messages = defineMessages({
   },
   connectionProviderFromEnvTitle: {
     id: "app.gateway.connection.provider.fromEnv.title",
-    defaultMessage: "Or create the provider from environment variables",
+    defaultMessage: "From environment variables",
     description:
       "Title for the environment-variable alternative in the provider step.",
   },
@@ -140,11 +122,6 @@ export const messages = defineMessages({
     id: "app.gateway.connection.provider.routing.description",
     defaultMessage: "Replace {model} with a Vertex Claude model ID.",
     description: "Explains the model-routing command in the provider step.",
-  },
-  connectionProviderRoutingTitle: {
-    id: "app.gateway.connection.provider.routing.title",
-    defaultMessage: "Route a Claude model through the provider",
-    description: "Title for the model-routing command in the provider step.",
   },
   connectionProviderTitle: {
     id: "app.gateway.connection.provider.title",
@@ -203,11 +180,6 @@ export const messages = defineMessages({
     defaultMessage: "Copy gateway endpoint for {gatewayName}",
     description:
       "Accessible label for copying a specific gateway's network endpoint.",
-  },
-  copyInferenceCommand: {
-    id: "app.gateway.connection.copyInferenceCommand",
-    defaultMessage: "Copy the model-routing command",
-    description: "Accessible label for copying the model-routing command.",
   },
   copyProviderCommand: {
     id: "app.gateway.connection.copyProviderCommand",
@@ -285,12 +257,6 @@ export const messages = defineMessages({
     id: "app.gateway.delete.error.body",
     defaultMessage: "No changes were made. Try again.",
     description: "Recovery guidance when gateway deletion fails.",
-  },
-  gatewayDescription: {
-    id: "app.page.gateway.description",
-    defaultMessage:
-      "Review this gateway's configuration and operational status.",
-    description: "Supporting text on the gateway detail page.",
   },
   gatewayDetailsTitle: {
     id: "app.page.gatewayDetails.title",

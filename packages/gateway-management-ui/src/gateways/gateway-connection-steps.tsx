@@ -5,6 +5,7 @@ import {
   CodeBlockCode,
   Content,
   ExpandableSection,
+  Skeleton,
   Title,
 } from "@patternfly/react-core";
 import { type ReactNode, useId, useState } from "react";
@@ -12,13 +13,10 @@ import { useIntl } from "react-intl";
 
 import { messages } from "../messages";
 import {
-  buildInferenceSetCommand,
   buildProviderCreateCommand,
   buildProviderFromExistingCommand,
   buildSandboxCreateCommand,
   gcloudAdcLoginCommand,
-  inferenceModelPlaceholder,
-  sandboxNamePlaceholder,
   type GatewayConnection,
 } from "./gateway-connections";
 import { GatewayCliCopy } from "./gateway-detail-header";
@@ -73,7 +71,7 @@ function ConnectionStep({
   title,
 }: {
   children: ReactNode;
-  description: string;
+  description?: string;
   title: string;
 }) {
   return (
@@ -81,7 +79,7 @@ function ConnectionStep({
       <Title headingLevel="h2" size="lg">
         {title}
       </Title>
-      <Content component="p">{description}</Content>
+      {description && <Content component="p">{description}</Content>}
       {children}
     </li>
   );
@@ -95,7 +93,7 @@ function ProviderStepDetail({
 }: {
   ariaLabel: string;
   command: string;
-  description: string;
+  description?: string;
   title: string;
 }) {
   return (
@@ -103,7 +101,7 @@ function ProviderStepDetail({
       <Title headingLevel="h3" size="md">
         {title}
       </Title>
-      <Content component="p">{description}</Content>
+      {description && <Content component="p">{description}</Content>}
       <CommandCopy ariaLabel={ariaLabel} command={command} />
     </div>
   );
@@ -120,21 +118,25 @@ export function GatewayConnectionSteps({
 
   return (
     <ol className={styles.steps}>
-      <ConnectionStep
-        description={intl.formatMessage(messages.connectionLoginDescription)}
-        title={intl.formatMessage(messages.connectionLoginTitle)}
-      >
+      <ConnectionStep title={intl.formatMessage(messages.connectionLoginTitle)}>
         {loginCommand ? (
           <GatewayCliCopy gateway={gateway} />
         ) : (
-          <Content component="p">
-            {intl.formatMessage(messages.connectionLoginUnavailable)}
-          </Content>
+          <div
+            aria-label={intl.formatMessage(messages.connectionLoginUnavailable)}
+            className={styles.commandPending}
+            role="status"
+          >
+            <Skeleton width="52%" />
+            <Skeleton width="38%" />
+            <Skeleton width="72%" />
+            <Skeleton width="35%" />
+            <Skeleton width="58%" />
+          </div>
         )}
       </ConnectionStep>
 
       <ConnectionStep
-        description={intl.formatMessage(messages.connectionProviderDescription)}
         title={intl.formatMessage(messages.connectionProviderTitle)}
       >
         <CommandCopy
@@ -153,9 +155,6 @@ export function GatewayConnectionSteps({
           <ProviderStepDetail
             ariaLabel={intl.formatMessage(messages.copyAdcLoginCommand)}
             command={gcloudAdcLoginCommand}
-            description={intl.formatMessage(
-              messages.connectionProviderAdcDescription,
-            )}
             title={intl.formatMessage(messages.connectionProviderAdcTitle)}
           />
           <ProviderStepDetail
@@ -168,15 +167,6 @@ export function GatewayConnectionSteps({
             )}
             title={intl.formatMessage(messages.connectionProviderFromEnvTitle)}
           />
-          <ProviderStepDetail
-            ariaLabel={intl.formatMessage(messages.copyInferenceCommand)}
-            command={buildInferenceSetCommand()}
-            description={intl.formatMessage(
-              messages.connectionProviderRoutingDescription,
-              { model: inferenceModelPlaceholder },
-            )}
-            title={intl.formatMessage(messages.connectionProviderRoutingTitle)}
-          />
           <Content component="p">
             {intl.formatMessage(messages.connectionProviderCaveat)}
           </Content>
@@ -184,9 +174,6 @@ export function GatewayConnectionSteps({
       </ConnectionStep>
 
       <ConnectionStep
-        description={intl.formatMessage(messages.connectionSandboxDescription, {
-          sandbox: sandboxNamePlaceholder,
-        })}
         title={intl.formatMessage(messages.connectionSandboxTitle)}
       >
         <CommandCopy

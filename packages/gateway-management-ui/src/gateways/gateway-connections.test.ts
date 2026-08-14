@@ -2,13 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildGatewayAddCommand,
-  buildInferenceSetCommand,
   buildProviderCreateCommand,
   buildProviderFromExistingCommand,
   buildSandboxCreateCommand,
   gatewayStatusAppearance,
-  inferenceModelPlaceholder,
   sandboxNamePlaceholder,
+  vertexRegionPlaceholder,
   vertexClaudeProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
@@ -85,7 +84,8 @@ describe("gateway connections", () => {
   --name ${vertexClaudeProviderName} \\
   --type google-vertex-ai \\
   --from-gcloud-adc \\
-  --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
+  --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)" \\
+  --config VERTEX_AI_REGION=${vertexRegionPlaceholder}`,
     );
   });
 
@@ -95,17 +95,6 @@ describe("gateway connections", () => {
   --name ${vertexClaudeProviderName} \\
   --type google-vertex-ai \\
   --from-existing`,
-    );
-  });
-
-  it("routes a Claude model through the provider with a substitutable default", () => {
-    expect(buildInferenceSetCommand()).toBe(
-      `openshell inference set \\
-  --provider ${vertexClaudeProviderName} \\
-  --model ${inferenceModelPlaceholder}`,
-    );
-    expect(buildInferenceSetCommand("claude-sonnet-4-6")).toContain(
-      "--model claude-sonnet-4-6",
     );
   });
 
@@ -125,6 +114,7 @@ describe("gateway connections", () => {
   });
 
   it.each([
+    ["Healthy", "success"],
     ["Ready", "success"],
     ["Running", "success"],
     ["Failed", "danger"],

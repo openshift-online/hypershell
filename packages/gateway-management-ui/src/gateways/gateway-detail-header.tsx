@@ -212,7 +212,7 @@ export function GatewayDetailHeader({
   onDeleted,
   onRenamed,
 }: {
-  description: ReactNode;
+  description?: ReactNode;
   gateway: GatewayConnection;
   onDeleted: () => void;
   onRenamed: (gatewayName: string) => void;
@@ -234,9 +234,7 @@ export function GatewayDetailHeader({
             <GatewayStatus status={gateway.status} />
           </FlexItem>
         </Flex>
-        <Content>
-          <p>{description}</p>
-        </Content>
+        <Content>{description && <p>{description}</p>}</Content>
       </FlexItem>
       <FlexItem>
         <GatewayDetailActions

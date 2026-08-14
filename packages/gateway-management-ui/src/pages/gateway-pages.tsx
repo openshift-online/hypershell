@@ -27,13 +27,9 @@ import {
   type GatewaySortField,
 } from "../application/gateway-types";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
-import {
-  buildGatewayAddCommand,
-  type GatewayConnection,
-} from "../gateways/gateway-connections";
+import { type GatewayConnection } from "../gateways/gateway-connections";
 import { GatewayConnectionSteps } from "../gateways/gateway-connection-steps";
 import {
-  GatewayCliCopy,
   GatewayDetailHeader,
   GatewayEndpointCopy,
 } from "../gateways/gateway-detail-header";
@@ -553,7 +549,6 @@ export function GatewayPage({
       />
       <PageSection hasBodyWrapper={false}>
         <GatewayDetailHeader
-          description={<FormattedMessage {...messages.gatewayDescription} />}
           gateway={connection}
           onDeleted={() => {
             if (onDeleted) {
@@ -617,19 +612,9 @@ export function GatewayPage({
                 </DescriptionListTerm>
                 <DescriptionListDescription>
                   {connection.endpoint ? (
-                    <GatewayEndpointCopy gateway={connection} />
-                  ) : (
-                    <FormattedMessage {...messages.notAvailable} />
-                  )}
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.cliConnection} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  {buildGatewayAddCommand(connection) ? (
-                    <GatewayCliCopy gateway={connection} />
+                    <div className={styles.endpointCopy}>
+                      <GatewayEndpointCopy gateway={connection} />
+                    </div>
                   ) : (
                     <FormattedMessage {...messages.notAvailable} />
                   )}
