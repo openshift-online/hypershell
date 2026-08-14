@@ -204,11 +204,12 @@ func DeleteGatewayResources(
 		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
 	}
 
-	if opts.KeycloakClient != nil && opts.GatewayName != "" {
-		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, opts.GatewayName); err != nil {
-			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", opts.GatewayName, err)
+	if opts.KeycloakClient != nil && opts.GatewayName != "" && opts.GatewayID != "" {
+		kcClientID := KeycloakClientID(opts.GatewayName, opts.GatewayID)
+		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
+			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
 		} else {
-			log.Printf("INFO deleted keycloak client %s", opts.GatewayName)
+			log.Printf("INFO deleted keycloak client %s", kcClientID)
 		}
 	}
 
@@ -922,6 +923,9 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 }
 
 func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig NamespaceConfig) error {
+	log.Printf("INFO keycloak: starting client reconciliation for gateway %s (id=%s) server=%s realm=%s",
+		opts.GatewayName, opts.GatewayID, opts.Keycloak.ServerURL, opts.Keycloak.Realm)
+
 	kc := keycloak.NewClient(
 		opts.Keycloak.ServerURL,
 		opts.Keycloak.Realm,
@@ -929,30 +933,37 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 		opts.Keycloak.ClientSecret,
 	)
 
-	gatewayName := opts.GatewayName
-	if gatewayName == "" {
+	if opts.GatewayName == "" {
 		return fmt.Errorf("gateway name is required for keycloak provisioning")
 	}
+	if opts.GatewayID == "" {
+		return fmt.Errorf("gateway id is required for keycloak provisioning")
+	}
 
-	existingUUID, err := kc.GetClientUUID(ctx, gatewayName)
+	kcClientID := KeycloakClientID(opts.GatewayName, opts.GatewayID)
+	log.Printf("INFO keycloak: resolved client id %s for gateway %s", kcClientID, opts.GatewayName)
+
+	log.Printf("INFO keycloak: checking if client %s already exists", kcClientID)
+	existingUUID, err := kc.GetClientUUID(ctx, kcClientID)
 	if err != nil {
 		return fmt.Errorf("check existing keycloak client: %w", err)
 	}
 
 	if existingUUID != "" {
-		log.Printf("DEBUG keycloak client %s already exists (uuid=%s), skipping provisioning", gatewayName, existingUUID)
+		log.Printf("INFO keycloak: client %s already exists (uuid=%s), skipping provisioning", kcClientID, existingUUID)
 	} else {
-		clientUUID, err := kc.ProvisionGatewayClient(ctx, gatewayName)
+		log.Printf("INFO keycloak: provisioning new client %s", kcClientID)
+		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)
 		if err != nil {
-			return fmt.Errorf("provision keycloak client %s: %w", gatewayName, err)
+			return fmt.Errorf("provision keycloak client %s: %w", kcClientID, err)
 		}
-		log.Printf("INFO provisioned keycloak client %s (uuid=%s)", gatewayName, clientUUID)
+		log.Printf("INFO keycloak: provisioned client %s (uuid=%s)", kcClientID, clientUUID)
 	}
 
 	oidcConfig := OIDCConfig{
 		Issuer:     kc.Issuer(),
-		ClientID:   gatewayName,
-		Audience:   gatewayName,
+		ClientID:   kcClientID,
+		Audience:   kcClientID,
 		JwksTTL:    3600,
 		RolesClaim: "hypershell.roles",
 		AdminRole:  "openshell-admin",
@@ -964,8 +975,11 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 	// is set it overrides the admin-derived issuer; it MUST equal Keycloak's
 	// KC_HOSTNAME so the token `iss` claim validates. Unset preserves 98's default.
 	if issuerURL := os.Getenv("GATEWAY_OIDC_ISSUER_URL"); issuerURL != "" {
+		log.Printf("INFO keycloak: overriding issuer URL with GATEWAY_OIDC_ISSUER_URL=%s", issuerURL)
 		oidcConfig.Issuer = issuerURL
 	}
+	log.Printf("INFO keycloak: oidc config for %s: issuer=%s audience=%s roles_claim=%s",
+		kcClientID, oidcConfig.Issuer, oidcConfig.Audience, oidcConfig.RolesClaim)
 	nsConfig.Gateway.OIDC = oidcConfig
 
 	if opts.UpdateOIDC != nil {
@@ -974,10 +988,13 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 			return fmt.Errorf("marshal oidc config: %w", err)
 		}
 		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
-			log.Printf("WARN failed to persist oidc config for %s: %v", gatewayName, err)
+			log.Printf("WARN keycloak: failed to persist oidc config for %s: %v", kcClientID, err)
+		} else {
+			log.Printf("INFO keycloak: persisted oidc config for %s to api-server", kcClientID)
 		}
 	}
 
+	log.Printf("INFO keycloak: client reconciliation complete for %s", kcClientID)
 	return nil
 }
 

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
@@ -74,33 +76,70 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		return nil
 	}
 
-	gatewayName, err := r.resolveGatewayName(ctx, *rb.GatewayId)
+	kcClientID, err := r.resolveKeycloakClientID(ctx, *rb.GatewayId)
 	if err != nil {
-		return fmt.Errorf("resolve gateway name for role binding %s: %w", event.ResourceID, err)
+		return fmt.Errorf("resolve keycloak client id for role binding %s: %w", event.ResourceID, err)
 	}
 
 	switch event.Type {
 	case watcher.EventCreated, watcher.EventUpdated:
-		log.Printf("INFO assigning keycloak role %s to user %s on gateway %s", kcRole, username, gatewayName)
-		if err := r.keycloakClient.AssignClientRole(ctx, gatewayName, username, kcRole); err != nil {
-			return fmt.Errorf("assign keycloak role %s to user %s on gateway %s: %w", kcRole, username, gatewayName, err)
+		log.Printf("INFO assigning keycloak role %s to user %s on client %s", kcRole, username, kcClientID)
+		if err := r.assignClientRoleWithRetry(ctx, kcClientID, username, kcRole); err != nil {
+			return fmt.Errorf("assign keycloak role %s to user %s on client %s: %w", kcRole, username, kcClientID, err)
 		}
 
 	case watcher.EventDeleted:
-		log.Printf("INFO removing keycloak role %s from user %s on gateway %s", kcRole, username, gatewayName)
-		if err := r.keycloakClient.RemoveClientRole(ctx, gatewayName, username, kcRole); err != nil {
-			return fmt.Errorf("remove keycloak role %s from user %s on gateway %s: %w", kcRole, username, gatewayName, err)
+		log.Printf("INFO removing keycloak role %s from user %s on client %s", kcRole, username, kcClientID)
+		if err := r.keycloakClient.RemoveClientRole(ctx, kcClientID, username, kcRole); err != nil {
+			return fmt.Errorf("remove keycloak role %s from user %s on client %s: %w", kcRole, username, kcClientID, err)
 		}
 	}
 
 	return nil
 }
 
-func (r *RoleBindingReconciler) resolveGatewayName(ctx context.Context, gatewayID string) (string, error) {
+// resolveKeycloakClientID looks up the gateway by ID and returns the Keycloak
+// clientId (name-id format) that matches the client provisioned during gateway
+// reconciliation.
+func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gatewayID string) (string, error) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	resp, err := client.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
 	if err != nil {
 		return "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
-	return resp.GetGateway().GetName(), nil
+	return gateway.KeycloakClientID(resp.GetGateway().GetName(), gatewayID), nil
+}
+
+// assignClientRoleWithRetry retries AssignClientRole to handle the race where
+// the RoleBinding event arrives before the Gateway reconciler has finished
+// provisioning the Keycloak client.
+func (r *RoleBindingReconciler) assignClientRoleWithRetry(ctx context.Context, kcClientID, username, kcRole string) error {
+	const maxAttempts = 10
+	backoff := 2 * time.Second
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = r.keycloakClient.AssignClientRole(ctx, kcClientID, username, kcRole)
+		if lastErr == nil {
+			return nil
+		}
+
+		if attempt == maxAttempts {
+			break
+		}
+
+		log.Printf("INFO keycloak role assignment attempt %d/%d failed for %s on %s (retrying in %v): %v",
+			attempt, maxAttempts, username, kcClientID, backoff, lastErr)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > 30*time.Second {
+			backoff = 30 * time.Second
+		}
+	}
+	return lastErr
 }

@@ -221,6 +221,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			HasGatewayAPI:         r.hasGatewayAPI,
 			ControlPlaneNamespace: r.controlPlaneNamespace,
 			KeycloakClient:        r.keycloakClient,
+			GatewayID:             event.ResourceID,
 			GatewayName:           gw.Name,
 		}
 		var credentialNamespaces []string
