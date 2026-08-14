@@ -74,6 +74,7 @@ export function buildProviderCreateCommand(): string {
     "--type google-vertex-ai",
     "--from-gcloud-adc",
     `--config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
+    "--config VERTEX_AI_REGION=global",
   ].join(" \\\n  ");
 }
 
@@ -116,6 +117,7 @@ export function buildSandboxCreateCommand(
     "openshell sandbox create",
     `--name ${sandboxName}`,
     `--provider ${vertexClaudeProviderName}`,
+    "--no-auto-providers",
     "-- claude",
   ].join(" \\\n  ");
 }
