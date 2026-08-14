@@ -87,11 +87,20 @@ jobs:
               # etc.) which is correct for "should we re-run e2e" but NOT for
               # "will Konflux build an image".  Konflux only triggers on files
               # under components/<name>/ -- check the actual diff.
+              #
+              # Use a three-dot (merge-base) diff: "${base_sha}...HEAD" compares
+              # HEAD against the point where this PR forked from the base branch.
+              # A two-dot "${base_sha} HEAD" diff would also report component
+              # changes that landed on the base branch *after* this PR forked,
+              # misattributing them to the PR -- then we would wait the full
+              # timeout for a Konflux build that only ever runs for files this PR
+              # actually touched, and skip e2e.
               base_sha="${{ github.event.pull_request.base.sha }}"
+              changed_files="$(git diff --name-only "${base_sha}...HEAD")"
               need_konflux=false
-              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/api-server/'; then need_konflux=true; fi
-              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/control-plane/'; then need_konflux=true; fi
-              if git diff --name-only "${base_sha}" HEAD | grep -q '^components/web-console/'; then need_konflux=true; fi
+              if grep -q '^components/api-server/'    <<<"${changed_files}"; then need_konflux=true; fi
+              if grep -q '^components/control-plane/' <<<"${changed_files}"; then need_konflux=true; fi
+              if grep -q '^components/web-console/'   <<<"${changed_files}"; then need_konflux=true; fi
 
               if [[ "${need_konflux}" != "true" ]]; then
                 echo "No source components changed -- using latest Konflux on-push images from main"
