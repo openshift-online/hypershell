@@ -1247,7 +1247,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 
 	gwName := gatewayIngressName()
 	if gwName == "" {
-		log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required — set it to the name of a pre-existing Gateway resource")
+		log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
 		return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required")
 	}
 	gwNS := gatewayIngressNamespace()

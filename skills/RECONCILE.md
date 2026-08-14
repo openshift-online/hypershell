@@ -397,7 +397,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 **Scope:** G18, R3, R6, R9, R12, R13, R15, R16, R18
 **Dependency:** Wave 5, Wave 6
 
-1. Require `GATEWAY_API_GATEWAY_NAME` env var — controller fails if unset
+1. Require `GATEWAY_API_GATEWAY_NAME` env var -- controller fails if unset
 2. GRPCRoute parentRef uses cross-namespace reference to the shared Gateway with `sectionName: grpc`
 3. Fix hostname convention: `gw-<ns>.<base-domain>` (shortened prefix)
 4. Derive routeAddress deterministically from hostname, PATCH to API server via gRPC

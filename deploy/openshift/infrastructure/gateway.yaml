@@ -1,6 +1,6 @@
 # Pre-requisite Gateway resource for OpenShell GRPCRoutes.
 #
-# The control plane does NOT create Gateway resources — an administrator
+# The control plane does NOT create Gateway resources -- an administrator
 # provisions this as cluster infrastructure, similar to a GatewayClass.
 # All tenant GRPCRoutes attach to this shared Gateway.
 #
