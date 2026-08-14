@@ -30,6 +30,7 @@ import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
 import { useColorScheme } from "./use-color-scheme";
 import { useRouteHeadingFocus } from "./route-focus";
+import { UserMenu } from "./user-menu";
 import styles from "./application-shell.module.css";
 
 export function ApplicationShell() {
@@ -97,6 +98,9 @@ export function ApplicationShell() {
                 onClick={toggleColorScheme}
                 variant="plain"
               />
+            </ToolbarItem>
+            <ToolbarItem>
+              <UserMenu />
             </ToolbarItem>
           </ToolbarContent>
         </Toolbar>

@@ -1,4 +1,8 @@
 {
+  "app.account": {
+    "defaultMessage": "Account",
+    "description": "Fallback label for the identity menu when no name is known."
+  },
   "app.action.cancel": {
     "defaultMessage": "Cancel",
     "description": "Action that leaves a form without submitting it."
@@ -298,6 +302,10 @@
   "app.hello.title": {
     "defaultMessage": "Hello world",
     "description": "Main heading on the initial web-console landing page."
+  },
+  "app.logout": {
+    "defaultMessage": "Log out",
+    "description": "Sign-out action in the masthead identity menu."
   },
   "app.nav.gateways": {
     "defaultMessage": "OpenShell Gateways",
