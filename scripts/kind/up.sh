@@ -20,6 +20,14 @@ else
   if sudo -v 2>/dev/null; then
     HAVE_SUDO=true
     success "sudo credentials cached"
+    # Keep the sudo timestamp fresh for the whole run. make kind-up spends
+    # several minutes building images and waiting on rollouts before it reaches
+    # the pfctl port-forward and DNS resolver steps; without this the default
+    # 5-minute sudo timeout expires first, those sudo calls fail silently (they
+    # are guarded with `|| warn`), and port forwarding is left unconfigured.
+    # The loop refreshes every 50s and exits on its own once this script ($$)
+    # is gone, so no EXIT trap (which the seeding step below rebinds) is needed.
+    ( while kill -0 "$$" 2>/dev/null; do sudo -n -v 2>/dev/null || exit; sleep 50; done ) &
   else
     warn "sudo unavailable - will use kubectl port-forward as fallback"
     HAVE_SUDO=false
@@ -98,6 +106,7 @@ start_cpk() {
   if nohup cloud-provider-kind --enable-lb-port-mapping >"${CPK_LOG}" 2>&1 &
      sleep 2 && pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
     CPK_RUNNING=true
+    record_cpk_sha "$(cpk_expected_sha)"
     success "cloud-provider-kind started (without sudo)"
   elif [[ "${HAVE_SUDO}" == "true" ]]; then
     info "Retrying with sudo..."
@@ -105,6 +114,7 @@ start_cpk() {
     sleep 2
     if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
       CPK_RUNNING=true
+      record_cpk_sha "$(cpk_expected_sha)"
       success "cloud-provider-kind started (with sudo)"
     else
       error "cloud-provider-kind failed to start - check ${CPK_LOG}"
@@ -124,16 +134,38 @@ if ! command -v cloud-provider-kind >/dev/null 2>&1; then
     warn "cloud-provider-kind not found - will use kubectl port-forward instead"
   fi
 elif pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
-  if cpk_healthy; then
-    warn "cloud-provider-kind already running"
-    CPK_RUNNING=true
-  else
+  # A cloud-provider-kind is already running. Restarting it republishes the
+  # gateway LoadBalancer on NEW random host ports (docker `--publish 443/tcp`
+  # with no fixed host port), which invalidates the pfctl rules, cluster
+  # CoreDNS, and in-cluster DNAT pinned to the old ports and breaks access on
+  # https://localhost:443. So restart only when we must: the pinned build has
+  # changed (the running commit differs from the SHA `make kind-prereqs` just
+  # built), the daemon is wedged (cannot list clusters), or the user forces it
+  # with KIND_RESTART_CPK=true. Otherwise reuse the instance and keep its ports
+  # stable. A missing/unknown running-marker counts as a mismatch, biasing
+  # toward a restart so the pinned build is guaranteed.
+  EXPECTED_SHA="$(cpk_expected_sha)"
+  RUNNING_SHA="$(cpk_running_sha)"
+  needs_restart=true
+  if [[ "${KIND_RESTART_CPK:-}" == "true" ]]; then
+    info "KIND_RESTART_CPK=true - restarting cloud-provider-kind..."
+  elif [[ "${RUNNING_SHA}" != "${EXPECTED_SHA}" ]]; then
+    info "cloud-provider-kind is ${RUNNING_SHA:-unknown}, pinned build is ${EXPECTED_SHA:-unknown} - restarting to pick it up..."
+  elif ! cpk_healthy; then
     warn "cloud-provider-kind already running but unhealthy (cannot list clusters) - restarting"
     info "  See ${CPK_LOG} for the underlying error"
+  else
+    needs_restart=false
+  fi
+  if [[ "${needs_restart}" == "true" ]]; then
     pkill -f "cloud-provider-kind" 2>/dev/null || true
     [[ "${HAVE_SUDO}" == "true" ]] && sudo pkill -f "cloud-provider-kind" 2>/dev/null || true
     sleep 2
     start_cpk
+  else
+    info "Reusing cloud-provider-kind (rev ${RUNNING_SHA:-unknown}) - up to date, keeps LB ports stable"
+    info "Set KIND_RESTART_CPK=true to force a restart."
+    CPK_RUNNING=true
   fi
 else
   start_cpk
@@ -245,18 +277,8 @@ if ! is_swapped control-plane; then
   kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 fi
 
-if is_swapped api-server; then
-  warn "API server is swapped -- scaling to zero"
-  kube scale deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --replicas=0
-fi
-
-if is_swapped control-plane; then
-  warn "Control plane is swapped -- scaling to zero"
-  kube scale deployment/hypershell-controller -n "${KIND_NAMESPACE}" --replicas=0
-fi
-
 if is_swapped web-console; then
-  warn "Web console is swapped -- scaling to zero"
+  warn "Web console is swapped -- scaling to zero (runs locally via npm)"
   kube scale deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --replicas=0
 fi
 
@@ -349,6 +371,11 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
       if [[ -n "${KEYCLOAK_HTTP_PORT}" ]]; then
         success "Gateway HTTP (Keycloak) on host port ${KEYCLOAK_HTTP_PORT}"
       fi
+      # Flush any stale rules from a previous run (which may have pinned a
+      # different ephemeral port) before installing the current mapping, so the
+      # port-forward always reflects the live proxy container. Matches the
+      # stop-then-start sequence in port-forward.sh (make kind-fix-ports).
+      stop_port_forward
       start_port_forward "${GATEWAY_PORT}" "${KEYCLOAK_HTTP_PORT:-}"
     else
       warn "Could not discover Gateway proxy port - check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"

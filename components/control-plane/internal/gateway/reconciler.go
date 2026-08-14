@@ -157,18 +157,6 @@ func DeleteGatewayResources(
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
 		)
-		if gatewayIngressName() == "" {
-			gwGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-			gwName := "gw-" + namespace
-			gwNS := gatewayIngressNamespace()
-			if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil {
-				if !k8serrors.IsNotFound(err) {
-					log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
-				}
-			} else {
-				log.Printf("INFO deleted Gateway %s from %s", gwName, gwNS)
-			}
-		}
 	}
 
 	for _, gvr := range namespacedResources {
@@ -205,12 +193,11 @@ func DeleteGatewayResources(
 		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
 	}
 
-	if opts.KeycloakClient != nil && opts.GatewayName != "" && opts.GatewayID != "" {
-		kcClientID := KeycloakClientID(opts.GatewayName, opts.GatewayID)
-		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
-			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+	if opts.KeycloakClient != nil && opts.GatewayName != "" {
+		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, opts.GatewayName); err != nil {
+			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", opts.GatewayName, err)
 		} else {
-			log.Printf("INFO deleted keycloak client %s", kcClientID)
+			log.Printf("INFO deleted keycloak client %s", opts.GatewayName)
 		}
 	}
 
@@ -226,18 +213,6 @@ func DeleteGatewayResources(
 }
 
 func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	gwName := "gw-" + namespace
-
-	gwGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "gateways",
-	}
-	gwNS := gatewayIngressNamespace()
-	if err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Delete(ctx, gwName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete Gateway %s from %s: %v", gwName, gwNS, err)
-	}
-
 	grpcRouteGVR := schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",
 		Version:  "v1",
@@ -267,18 +242,6 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 	}
 	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		log.Printf("WARN failed to delete router NetworkPolicy: %v", err)
-	}
-
-	if opts.HasCertManager {
-		certGVR := schema.GroupVersionResource{
-			Group:    "cert-manager.io",
-			Version:  "v1",
-			Resource: "certificates",
-		}
-		tlsCertName := gatewayTLSSecretName() + "-" + namespace
-		if err := dynamicClient.Resource(certGVR).Namespace(gwNS).Delete(ctx, tlsCertName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete gateway TLS Certificate %s from %s: %v", tlsCertName, gwNS, err)
-		}
 	}
 
 	if opts.UpdateRouteAddress != nil {
@@ -924,9 +887,6 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 }
 
 func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig NamespaceConfig) error {
-	log.Printf("INFO keycloak: starting client reconciliation for gateway %s (id=%s) server=%s realm=%s",
-		opts.GatewayName, opts.GatewayID, opts.Keycloak.ServerURL, opts.Keycloak.Realm)
-
 	kc := keycloak.NewClient(
 		opts.Keycloak.ServerURL,
 		opts.Keycloak.Realm,
@@ -934,37 +894,30 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 		opts.Keycloak.ClientSecret,
 	)
 
-	if opts.GatewayName == "" {
+	gatewayName := opts.GatewayName
+	if gatewayName == "" {
 		return fmt.Errorf("gateway name is required for keycloak provisioning")
 	}
-	if opts.GatewayID == "" {
-		return fmt.Errorf("gateway id is required for keycloak provisioning")
-	}
 
-	kcClientID := KeycloakClientID(opts.GatewayName, opts.GatewayID)
-	log.Printf("INFO keycloak: resolved client id %s for gateway %s", kcClientID, opts.GatewayName)
-
-	log.Printf("INFO keycloak: checking if client %s already exists", kcClientID)
-	existingUUID, err := kc.GetClientUUID(ctx, kcClientID)
+	existingUUID, err := kc.GetClientUUID(ctx, gatewayName)
 	if err != nil {
 		return fmt.Errorf("check existing keycloak client: %w", err)
 	}
 
 	if existingUUID != "" {
-		log.Printf("INFO keycloak: client %s already exists (uuid=%s), skipping provisioning", kcClientID, existingUUID)
+		log.Printf("INFO keycloak client %s already exists (uuid=%s), skipping provisioning", gatewayName, existingUUID)
 	} else {
-		log.Printf("INFO keycloak: provisioning new client %s", kcClientID)
-		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)
+		clientUUID, err := kc.ProvisionGatewayClient(ctx, gatewayName)
 		if err != nil {
-			return fmt.Errorf("provision keycloak client %s: %w", kcClientID, err)
+			return fmt.Errorf("provision keycloak client %s: %w", gatewayName, err)
 		}
-		log.Printf("INFO keycloak: provisioned client %s (uuid=%s)", kcClientID, clientUUID)
+		log.Printf("INFO provisioned keycloak client %s (uuid=%s)", gatewayName, clientUUID)
 	}
 
 	oidcConfig := OIDCConfig{
 		Issuer:     kc.Issuer(),
-		ClientID:   kcClientID,
-		Audience:   kcClientID,
+		ClientID:   gatewayName,
+		Audience:   gatewayName,
 		JwksTTL:    3600,
 		RolesClaim: "hypershell.roles",
 		AdminRole:  "openshell-admin",
@@ -976,11 +929,8 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 	// is set it overrides the admin-derived issuer; it MUST equal Keycloak's
 	// KC_HOSTNAME so the token `iss` claim validates. Unset preserves 98's default.
 	if issuerURL := os.Getenv("GATEWAY_OIDC_ISSUER_URL"); issuerURL != "" {
-		log.Printf("INFO keycloak: overriding issuer URL with GATEWAY_OIDC_ISSUER_URL=%s", issuerURL)
 		oidcConfig.Issuer = issuerURL
 	}
-	log.Printf("INFO keycloak: oidc config for %s: issuer=%s audience=%s roles_claim=%s",
-		kcClientID, oidcConfig.Issuer, oidcConfig.Audience, oidcConfig.RolesClaim)
 	nsConfig.Gateway.OIDC = oidcConfig
 
 	if opts.UpdateOIDC != nil {
@@ -989,13 +939,10 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 			return fmt.Errorf("marshal oidc config: %w", err)
 		}
 		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
-			log.Printf("WARN keycloak: failed to persist oidc config for %s: %v", kcClientID, err)
-		} else {
-			log.Printf("INFO keycloak: persisted oidc config for %s to api-server", kcClientID)
+			log.Printf("WARN failed to persist oidc config for %s: %v", gatewayName, err)
 		}
 	}
 
-	log.Printf("INFO keycloak: client reconciliation complete for %s", kcClientID)
 	return nil
 }
 
@@ -1288,13 +1235,6 @@ func gatewayIngressNamespace() string {
 	return "openshift-ingress"
 }
 
-func gatewayTLSSecretName() string {
-	if name := os.Getenv("GATEWAY_API_TLS_SECRET_NAME"); name != "" {
-		return name
-	}
-	return "grpc-gateway-certs"
-}
-
 func gatewayIngressName() string {
 	if name := os.Getenv("GATEWAY_API_GATEWAY_NAME"); name != "" {
 		return name
@@ -1306,13 +1246,16 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	namespace := nsConfig.Name
 	routeConfig := nsConfig.Gateway.Route
 
-	gatewayClassName := os.Getenv("GATEWAY_API_GATEWAY_CLASS")
-	if gatewayClassName == "" {
-		gatewayClassName = "openshift-default"
+	gwName := gatewayIngressName()
+	if gwName == "" {
+		log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
+		return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required")
 	}
+	gwNS := gatewayIngressNamespace()
+
 	// Derive the external hostname through the Gateway Exposure adapter's shared
-	// helper so the hostname baked into the Gateway/GRPCRoute resources cannot
-	// drift from the address published through the port.
+	// helper so the hostname baked into the GRPCRoute cannot drift from the
+	// address published through the port.
 	hostname, ok := exposure.DeriveGatewayAPIHost(namespace, routeConfig.Host)
 	if !ok {
 		log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
@@ -1320,10 +1263,10 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 
 	// Publish the deterministic route address through the Gateway Exposure port.
-	// The hostname is known before the per-tenant Gateway reports Accepted/
-	// Programmed, so the connection command is available to the CLI and console
-	// while the gateway finishes provisioning. Readiness is reflected separately
-	// by the Gateway phase.
+	// The hostname is known before the shared Gateway reports Accepted/Programmed,
+	// so the connection command is available to the CLI and console while the
+	// gateway finishes provisioning. Readiness is reflected separately by the
+	// Gateway phase.
 	if opts.Exposure != nil && opts.UpdateRouteAddress != nil {
 		routeAddress, err := opts.Exposure.ResolveAddress(ctx, exposure.Request{Namespace: namespace, Host: routeConfig.Host})
 		if err != nil {
@@ -1337,81 +1280,12 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
-	gwNS := gatewayIngressNamespace()
-	sharedGwName := gatewayIngressName()
-	gwName := "gw-" + namespace
-	if sharedGwName != "" {
-		gwName = sharedGwName
-		log.Printf("INFO using shared Gateway %s/%s for tenant %s", gwNS, sharedGwName, namespace)
-	}
-
-	if sharedGwName == "" {
-		tlsSecretName := gatewayTLSSecretName()
-
-		gw := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "gateway.networking.k8s.io/v1",
-				"kind":       "Gateway",
-				"metadata": map[string]interface{}{
-					"name":      gwName,
-					"namespace": gwNS,
-					"labels": map[string]interface{}{
-						"app.kubernetes.io/name":       "openshell",
-						"app.kubernetes.io/component":  "gateway",
-						"app.kubernetes.io/managed-by": "hypershell-control-plane",
-						"hypershell.redhat.io/managed": "true",
-						"hypershell.redhat.io/tenant":  namespace,
-					},
-				},
-				"spec": map[string]interface{}{
-					"gatewayClassName": gatewayClassName,
-					"listeners": []interface{}{
-						map[string]interface{}{
-							"name":     "grpc",
-							"hostname": hostname,
-							"port":     int64(443),
-							"protocol": "HTTPS",
-							"tls": map[string]interface{}{
-								"mode": "Terminate",
-								"certificateRefs": []interface{}{
-									map[string]interface{}{
-										"name": tlsSecretName,
-										"kind": "Secret",
-									},
-								},
-							},
-							"allowedRoutes": map[string]interface{}{
-								"kinds": []interface{}{
-									map[string]interface{}{
-										"group": "gateway.networking.k8s.io",
-										"kind":  "GRPCRoute",
-									},
-								},
-								"namespaces": map[string]interface{}{
-									"from": "Selector",
-									"selector": map[string]interface{}{
-										"matchLabels": map[string]interface{}{
-											"kubernetes.io/metadata.name": namespace,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-		if err := reconcileResource(ctx, dynamicClient, gw); err != nil {
-			return fmt.Errorf("reconcile Gateway: %w", err)
-		}
-	}
+	log.Printf("INFO using Gateway %s/%s for tenant %s", gwNS, gwName, namespace)
 
 	parentRef := map[string]interface{}{
-		"name":      gwName,
-		"namespace": gwNS,
-	}
-	if sharedGwName != "" {
-		parentRef["sectionName"] = "grpc"
+		"name":        gwName,
+		"namespace":   gwNS,
+		"sectionName": "grpc",
 	}
 
 	grpcRoute := &unstructured.Unstructured{
@@ -1532,28 +1406,8 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 
 	// Build ingress rules for router/proxy → gateway traffic.
-	// On OpenShift, router pods live in the gateway namespace and can be
-	// selected by pod+namespace labels.  With cloud-provider-kind (shared
-	// gateway mode) the Envoy proxy runs outside the cluster, so traffic
-	// enters via the node, so no pod selector will match.  In that case,
-	// allow any source on the gateway ports.
-	var ingressFrom []interface{}
-	if sharedGwName == "" {
-		ingressFrom = []interface{}{
-			map[string]interface{}{
-				"namespaceSelector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
-						"kubernetes.io/metadata.name": gwNS,
-					},
-				},
-				"podSelector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
-						"gateway.networking.k8s.io/gateway-name": gwName,
-					},
-				},
-			},
-		}
-	}
+	// Restrict source to the namespace hosting the shared Gateway so only the
+	// admin-provisioned proxy can reach the gateway ports.
 	ingressRule := map[string]interface{}{
 		"ports": []interface{}{
 			map[string]interface{}{
@@ -1565,9 +1419,15 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 				"protocol": "TCP",
 			},
 		},
-	}
-	if len(ingressFrom) > 0 {
-		ingressRule["from"] = ingressFrom
+		"from": []interface{}{
+			map[string]interface{}{
+				"namespaceSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"kubernetes.io/metadata.name": gwNS,
+					},
+				},
+			},
+		},
 	}
 
 	routerNetpol := &unstructured.Unstructured{

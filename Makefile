@@ -42,9 +42,20 @@ GATEWAY_API_VERSION?=v1.5.1
 # Pin to a main commit that includes the fix (kubernetes-sigs/kind#4203) until
 # the next kind release ships it.  go install uses Go pseudo-versions.
 KIND_VERSION?=v0.32.1-0.20260811083914-7650cab268f5
-# Build from fork with BackendTLSPolicy support until upstreamed.
+# Build from fork with BackendTLSPolicy support until upstreamed. Pin an exact
+# commit (mirrors the KIND_VERSION pseudo-version pin above) so every developer
+# builds the same deterministic binary instead of tracking the moving branch
+# tip. CLOUD_PROVIDER_KIND_REF is the tip of branch `hypershell` at pin time;
+# bump it when the fork advances. The binary auto-stamps this commit as
+# vcs.revision, which kind-prereqs uses to skip rebuilds that are already current.
 CLOUD_PROVIDER_KIND_REPO?=https://github.com/squizzi/cloud-provider-kind.git
-CLOUD_PROVIDER_KIND_BRANCH?=hypershell
+CLOUD_PROVIDER_KIND_REF?=3c357b5abae48a38c38d5fe5c04680cb9c7cff99
+# Optional testing override: build from a branch tip (or any git ref) instead of
+# the pinned REF, e.g. `CLOUD_PROVIDER_KIND_BRANCH=my-experiment make kind-up`.
+# Empty by default so normal builds stay deterministic and idempotent-by-SHA.
+# When set, kind-prereqs always rebuilds from that ref and records the commit it
+# actually resolved to, so up.sh restarts to pick up a moved branch tip.
+CLOUD_PROVIDER_KIND_BRANCH?=
 CERT_MANAGER_VERSION?=v1.21.1
 AGENT_SANDBOX_VERSION?=v0.5.4
 
@@ -92,6 +103,7 @@ help:
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
+	@echo "    e2e                      Run E2E tests locally (requires Kind cluster)"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
 	@echo "    lint-control-plane       Lint control plane (gofmt, go vet, golangci-lint)"
@@ -255,7 +267,7 @@ test-all: install-js
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
 export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
 export KIND_PULL_SECRET KIND_DB_IMAGE
-export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
+export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
@@ -267,21 +279,45 @@ export KIND_DNS_PORT
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
 # (TLS re-encryption to backends).  The fork also bundles the podman 6+ kind
 # fix, so no go mod replace is needed.
+#
+# Idempotent by commit: the Go binary auto-stamps its source revision, so we
+# compare the on-disk vcs.revision against the pinned CLOUD_PROVIDER_KIND_REF and
+# only rebuild when it is missing or out of date. The pinned commit is fetched
+# directly (GitHub allows fetch-by-SHA), guaranteeing a deterministic build.
+# bin/.cloud-provider-kind.sha records the built commit so up.sh can decide
+# whether a running cloud-provider-kind needs restarting -- without invoking go.
 .PHONY: kind-prereqs
 kind-prereqs:
-	@if [ -x bin/cloud-provider-kind ]; then \
-	  echo "==> bin/cloud-provider-kind already exists, skipping build"; \
-	  exit 0; \
-	fi
 	@mkdir -p bin
-	@echo "==> Building cloud-provider-kind@$(CLOUD_PROVIDER_KIND_BRANCH) -> bin/cloud-provider-kind"
-	@tmpdir=$$(mktemp -d) && \
-	  git clone --depth 1 --branch $(CLOUD_PROVIDER_KIND_BRANCH) \
-	    $(CLOUD_PROVIDER_KIND_REPO) "$$tmpdir" && \
-	  cd "$$tmpdir" && \
-	  CGO_ENABLED=0 go build -o $(CURDIR)/bin/cloud-provider-kind . && \
-	  rm -rf "$$tmpdir"
-	@echo "==> Done - binary in ./bin/cloud-provider-kind"
+	@ref="$(CLOUD_PROVIDER_KIND_REF)"; \
+	branch="$(CLOUD_PROVIDER_KIND_BRANCH)"; \
+	if [ -n "$$branch" ]; then \
+	  fetchref="$$branch"; \
+	  echo "==> Building cloud-provider-kind from ref '$$branch' (CLOUD_PROVIDER_KIND_BRANCH override) -> bin/cloud-provider-kind"; \
+	else \
+	  fetchref="$$ref"; \
+	  if [ -x bin/cloud-provider-kind ]; then \
+	    ondisk="$$(go version -m bin/cloud-provider-kind 2>/dev/null | awk -F= '/[[:space:]]vcs.revision=/{print $$2}')"; \
+	    if [ "$$ondisk" = "$$ref" ]; then \
+	      echo "==> bin/cloud-provider-kind already at $$ref, skipping build"; \
+	      printf '%s\n' "$$ref" > bin/.cloud-provider-kind.sha; \
+	      exit 0; \
+	    fi; \
+	    echo "==> bin/cloud-provider-kind is $${ondisk:-unknown}, rebuilding at $$ref"; \
+	  else \
+	    echo "==> Building cloud-provider-kind@$$ref -> bin/cloud-provider-kind"; \
+	  fi; \
+	fi; \
+	tmpdir=$$(mktemp -d) && \
+	  git init -q "$$tmpdir" && \
+	  git -C "$$tmpdir" remote add origin $(CLOUD_PROVIDER_KIND_REPO) && \
+	  git -C "$$tmpdir" fetch -q --depth 1 origin "$$fetchref" && \
+	  git -C "$$tmpdir" -c advice.detachedHead=false checkout -q FETCH_HEAD && \
+	  built="$$(git -C "$$tmpdir" rev-parse HEAD)" && \
+	  ( cd "$$tmpdir" && CGO_ENABLED=0 go build -o $(CURDIR)/bin/cloud-provider-kind . ) && \
+	  rm -rf "$$tmpdir" && \
+	  printf '%s\n' "$$built" > bin/.cloud-provider-kind.sha && \
+	  echo "==> Done - binary in ./bin/cloud-provider-kind ($$built)"
 
 .PHONY: kind-up
 kind-up:
@@ -326,3 +362,17 @@ kind-web-console-up:
 .PHONY: kind-web-console-down
 kind-web-console-down:
 	@scripts/kind/swap-component.sh down web-console
+
+# ============================================================================
+# E2E Tests
+# ============================================================================
+
+.PHONY: e2e
+e2e:
+	@echo ""
+	@echo "==> Running E2E tests (Kind)"
+	@echo ""
+	@E2E_INFRA_DRIVER=kind \
+		E2E_PROVISION_TIMEOUT=300 \
+		E2E_SANDBOX_TIMEOUT=180 \
+		bash tests/e2e/e2e-openshell.sh

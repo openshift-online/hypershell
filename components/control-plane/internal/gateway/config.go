@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
@@ -147,11 +146,4 @@ type ReconcileOpts struct {
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.
 type KeycloakClientAPI interface {
 	DeleteGatewayClient(ctx context.Context, gatewayName string) error
-}
-
-// KeycloakClientID returns the Keycloak clientId for a gateway, combining the
-// user-visible name with the unique resource ID to prevent name clashes across
-// gateways that share a name.
-func KeycloakClientID(name, id string) string {
-	return fmt.Sprintf("%s-%s", name, id)
 }

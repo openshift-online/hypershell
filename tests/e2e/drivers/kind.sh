@@ -80,8 +80,12 @@ discover_gateway_endpoint() {
 
 # acquire_oidc_token - get an OIDC access token from Keycloak.
 # Sets _OIDC_ACCESS_TOKEN via resource-owner password grant.
+# Usage: acquire_oidc_token [username] [password]
+#   Falls back to E2E_OIDC_USERNAME / E2E_OIDC_PASSWORD when not provided.
 acquire_oidc_token() {
   _OIDC_ACCESS_TOKEN=""
+  local username="${1:-${E2E_OIDC_USERNAME}}"
+  local password="${2:-${E2E_OIDC_PASSWORD}}"
   local kc_pf_port=18080
 
   if curl -s --connect-timeout 2 "http://localhost:${kc_pf_port}/health/ready" &>/dev/null; then
@@ -101,8 +105,8 @@ acquire_oidc_token() {
   response=$(curl -s -X POST "${token_endpoint}" \
     -d "grant_type=password" \
     -d "client_id=${E2E_OIDC_CLIENT_ID}" \
-    -d "username=${E2E_OIDC_USERNAME}" \
-    -d "password=${E2E_OIDC_PASSWORD}" 2>/dev/null || true)
+    -d "username=${username}" \
+    -d "password=${password}" 2>/dev/null || true)
 
   _OIDC_ACCESS_TOKEN=$(echo "$response" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
 

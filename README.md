@@ -26,39 +26,13 @@ The [Gateway API](https://gateway-api.sigs.k8s.io/) CRDs must be installed if ex
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/latest/download/standard-install.yaml
 ```
 
-### GatewayClass
+### Shared Gateway
 
-A GatewayClass must exist on the cluster for per-tenant Gateway resources to reference. On OpenShift, the `openshift-default` GatewayClass is provided automatically. On other clusters (e.g., Kind with [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind)), install the appropriate GatewayClass for your ingress controller.
+A pre-existing Gateway resource must be provisioned by an administrator before the control plane can create tenant GRPCRoutes. The Gateway should use a wildcard hostname and a cert-manager-issued wildcard TLS certificate. All tenant GRPCRoutes attach to this shared Gateway.
 
-The GatewayClass name is configurable via the `GATEWAY_API_GATEWAY_CLASS` environment variable (default: `openshift-default`).
+See `deploy/openshift/infrastructure/GATEWAY-SETUP.md` for step-by-step setup instructions including cert-manager configuration.
 
-### TLS certificate Secret (`grpc-gateway-certs`)
-
-A wildcard TLS Secret named `grpc-gateway-certs` must be present in the `openshift-ingress` namespace. Per-tenant Gateway API Gateway resources are created in `openshift-ingress` and reference this Secret for HTTPS termination. The ingress operator auto-creates DNS records for Gateways in this namespace, which is why the Gateway (and the cert) live here.
-
-The Secret must contain `tls.crt` and `tls.key` entries covering all tenant hostnames under the base domain (e.g., `*.apps.<cluster>.<domain>`).
-
-```shell
-kubectl -n openshift-ingress create secret tls grpc-gateway-certs \
-  --cert=/path/to/wildcard.crt \
-  --key=/path/to/wildcard.key
-```
-
-On OpenShift, if you want gateways to share the same FQDN base as the cluster's other ingresses (e.g., `*.apps.<cluster>.<domain>`), you can copy the cluster's default wildcard certificate. The Ingress Operator already stores it in `openshift-ingress`:
-
-```shell
-# Find the default ingress certificate Secret name
-oc get ingresscontroller default -n openshift-ingress-operator \
-  -o jsonpath='{.spec.defaultCertificate.name}'
-
-# If no custom cert is set, the operator generates one automatically:
-oc get secret -n openshift-ingress -l app=router --no-headers -o name
-
-# Copy it within openshift-ingress under the name grpc-gateway-certs
-oc get secret <secret-name> -n openshift-ingress -o json \
-  | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.labels) | .metadata.name = "grpc-gateway-certs"' \
-  | oc apply -n openshift-ingress -f -
-```
+The Gateway name is configured via the `GATEWAY_API_GATEWAY_NAME` environment variable (required).
 
 ### Trusted CA bundle (optional)
 
@@ -189,7 +163,7 @@ Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the
 | `HYPERSHELL_GRPC_SERVER_ADDR` | `localhost:9000` | gRPC address of the API server |
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | HTTP address of the API server |
 | `HYPERSHELL_NAMESPACE` | `hypershell` | Namespace the control plane runs in (used for trusted CA bundle source) |
-| `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources |
-| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where per-tenant Gateway API Gateway resources are created |
-| `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for auto-derived hostnames (e.g., `apps.cluster.example.com`) |
+| `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
+| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
+| `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
 | `GATEWAY_MANIFESTS_DIR` | `/manifests/gateway` | Path to gateway manifest templates |
