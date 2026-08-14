@@ -84,9 +84,9 @@ export const messages = defineMessages({
   connectionLoginUnavailable: {
     id: "app.gateway.connection.login.unavailable",
     defaultMessage:
-      "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
+      "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     description:
-      "Shown in the login step when the gateway lacks required connection values.",
+      "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
   },
   connectionProviderAdcTitle: {
     id: "app.gateway.connection.provider.adc.title",

@@ -17,6 +17,7 @@ import {
   buildProviderFromExistingCommand,
   buildSandboxCreateCommand,
   gcloudAdcLoginCommand,
+  isGatewayReadyToConnect,
   type GatewayConnection,
 } from "./gateway-connections";
 import { GatewayCliCopy } from "./gateway-detail-header";
@@ -114,12 +115,12 @@ export function GatewayConnectionSteps({
 }) {
   const intl = useIntl();
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
-  const loginCommand = gateway.endpoint;
+  const readyToConnect = isGatewayReadyToConnect(gateway);
 
   return (
     <ol className={styles.steps}>
       <ConnectionStep title={intl.formatMessage(messages.connectionLoginTitle)}>
-        {loginCommand ? (
+        {readyToConnect ? (
           <GatewayCliCopy gateway={gateway} />
         ) : (
           <div

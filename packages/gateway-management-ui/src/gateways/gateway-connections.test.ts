@@ -6,6 +6,7 @@ import {
   buildProviderFromExistingCommand,
   buildSandboxCreateCommand,
   gatewayStatusAppearance,
+  isGatewayReadyToConnect,
   sandboxNamePlaceholder,
   vertexClaudeProviderName,
   type GatewayConnection,
@@ -20,7 +21,8 @@ const gateway: GatewayConnection = {
   oidcAudience: "openshell-cli",
   oidcClientId: "openshell-cli",
   oidcIssuer: "https://issuer.example.test/realms/openshell",
-  status: "Ready",
+  phase: "Running",
+  status: "Running",
 };
 
 describe("gateway connections", () => {
@@ -75,6 +77,33 @@ describe("gateway connections", () => {
     expect(
       buildGatewayAddCommand({ ...gateway, endpoint: undefined }),
     ).toBeUndefined();
+  });
+
+  it("does not construct a command until the phase is Running", () => {
+    // A populated endpoint (route address) may exist while the gateway is still
+    // provisioning; the command is withheld until phase reaches Running.
+    for (const phase of ["Provisioning", "Pending", "Degraded", "Failed", ""]) {
+      expect(buildGatewayAddCommand({ ...gateway, phase })).toBeUndefined();
+    }
+    expect(
+      buildGatewayAddCommand({ ...gateway, phase: undefined }),
+    ).toBeUndefined();
+  });
+
+  it("reports readiness only when phase is Running and an endpoint exists", () => {
+    expect(isGatewayReadyToConnect(gateway)).toBe(true);
+    expect(isGatewayReadyToConnect({ ...gateway, phase: "running" })).toBe(
+      true,
+    );
+    expect(isGatewayReadyToConnect({ ...gateway, phase: "Provisioning" })).toBe(
+      false,
+    );
+    expect(isGatewayReadyToConnect({ ...gateway, phase: undefined })).toBe(
+      false,
+    );
+    expect(isGatewayReadyToConnect({ ...gateway, endpoint: undefined })).toBe(
+      false,
+    );
   });
 
   it("builds the Vertex AI provider command pulling ADC and gcloud project", () => {

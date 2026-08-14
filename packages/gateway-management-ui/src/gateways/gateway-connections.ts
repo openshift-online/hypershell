@@ -9,7 +9,26 @@ export interface GatewayConnection {
   oidcAudience?: string;
   oidcClientId?: string;
   oidcIssuer?: string;
+  phase?: string;
   status: string;
+}
+
+/**
+ * Whether the gateway should be presented as ready to connect. A published
+ * `endpoint` (route address) records *where* the gateway will be reachable but
+ * does not by itself assert readiness: the endpoint may be populated while the
+ * gateway is still `Provisioning` and not yet programmed/routable. The control
+ * plane only advances `phase` to `Running` once the workload and, for routed
+ * gateways, the external exposure are observed Ready, so `phase === "Running"`
+ * is the single readiness gate for surfacing the connection command. See
+ * specs/platform/openshell-gateway-health.spec.md § Connection Command Surfaced
+ * Only When Ready.
+ */
+export function isGatewayReadyToConnect(gateway: GatewayConnection): boolean {
+  return (
+    gateway.phase?.trim().toLocaleLowerCase() === "running" &&
+    Boolean(gateway.endpoint)
+  );
 }
 
 const safeShellArgument = /^[A-Za-z0-9_./:@%+=,-]+$/;
@@ -25,7 +44,7 @@ function shellArgument(value: string) {
 export function buildGatewayAddCommand(
   gateway: GatewayConnection,
 ): string | undefined {
-  if (!gateway.endpoint) {
+  if (!isGatewayReadyToConnect(gateway) || !gateway.endpoint) {
     return undefined;
   }
 

@@ -25,6 +25,7 @@ const previewGateway: GatewayConnection = {
   oidcAudience: "openshell-cli",
   oidcClientId: "openshell-cli",
   oidcIssuer: "https://issuer.example.test/realms/openshell",
+  phase: "Running",
   status: "Ready",
 };
 const previewGateways = [previewGateway] as const;
@@ -72,7 +73,7 @@ function gatewayResponse(id: string, name: string) {
     id,
     name,
     namespace: "openshell",
-    phase: "",
+    phase: "Running",
     releaseId: "release-1",
     status: "Ready",
   };
@@ -137,7 +138,7 @@ describe("gateway shell pages", () => {
           oidcAudience: "openshell-cli",
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
-          phase: "",
+          phase: "Running",
           releaseId: "release-1",
           status: "Ready",
         }}
@@ -265,7 +266,7 @@ describe("gateway shell pages", () => {
           oidcAudience: "openshell-cli",
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
-          phase: "",
+          phase: "Running",
           releaseId: "release-1",
           status: "Ready",
         }}
@@ -319,10 +320,34 @@ describe("gateway shell pages", () => {
 
     expect(
       screen.getByRole("status", {
-        name: "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
+        name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
       }),
     ).toBeTruthy();
     expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
+  });
+
+  it("withholds the connection command while the gateway is provisioning", () => {
+    // The route address may already be published while the gateway is still
+    // provisioning; the command must not surface until phase is Running.
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          phase: "Provisioning",
+          status: "",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(
+      screen.getByRole("status", {
+        name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/openshell gateway add/u, { selector: "code" }),
+    ).toBeNull();
   });
 
   it("encodes the active tab through its host", async () => {

@@ -109,6 +109,7 @@ export function toGatewayConnection(
     ...(gateway.oidcAudience ? { oidcAudience: gateway.oidcAudience } : {}),
     ...(gateway.oidcClientId ? { oidcClientId: gateway.oidcClientId } : {}),
     ...(gateway.oidcIssuer ? { oidcIssuer: gateway.oidcIssuer } : {}),
+    ...(phase ? { phase } : {}),
     status: status || "Unknown",
   };
 }
