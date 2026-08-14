@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"fmt"
 	"os"
 )
 
@@ -143,9 +142,3 @@ type KeycloakClientAPI interface {
 	DeleteGatewayClient(ctx context.Context, gatewayName string) error
 }
 
-// KeycloakClientID returns the Keycloak clientId for a gateway, combining the
-// user-visible name with the unique resource ID to prevent name clashes across
-// gateways that share a name.
-func KeycloakClientID(name, id string) string {
-	return fmt.Sprintf("%s-%s", name, id)
-}

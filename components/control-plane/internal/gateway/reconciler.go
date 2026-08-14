@@ -904,7 +904,7 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig N
 	}
 
 	if existingUUID != "" {
-		log.Printf("DEBUG keycloak client %s already exists (uuid=%s), skipping provisioning", gatewayName, existingUUID)
+		log.Printf("INFO keycloak client %s already exists (uuid=%s), skipping provisioning", gatewayName, existingUUID)
 	} else {
 		clientUUID, err := kc.ProvisionGatewayClient(ctx, gatewayName)
 		if err != nil {
@@ -1398,8 +1398,8 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 
 	// Build ingress rules for router/proxy → gateway traffic.
-	// The Gateway is admin-provisioned infrastructure, so the proxy may run
-	// outside the cluster (e.g. cloud LB). Allow any source on the gateway ports.
+	// Restrict source to the namespace hosting the shared Gateway so only the
+	// admin-provisioned proxy can reach the gateway ports.
 	ingressRule := map[string]interface{}{
 		"ports": []interface{}{
 			map[string]interface{}{
@@ -1409,6 +1409,15 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			map[string]interface{}{
 				"port":     int64(8081),
 				"protocol": "TCP",
+			},
+		},
+		"from": []interface{}{
+			map[string]interface{}{
+				"namespaceSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"kubernetes.io/metadata.name": gwNS,
+					},
+				},
 			},
 		},
 	}
