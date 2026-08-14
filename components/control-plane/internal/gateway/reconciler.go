@@ -88,7 +88,7 @@ func ReconcileGateway(
 	}
 
 	if opts.Keycloak != nil {
-		if err := reconcileKeycloakClient(ctx, opts, nsConfig); err != nil {
+		if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
 			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
 		}
 	}
@@ -885,7 +885,7 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 	return nil
 }
 
-func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig NamespaceConfig) error {
+func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *NamespaceConfig) error {
 	kc := keycloak.NewClient(
 		opts.Keycloak.ServerURL,
 		opts.Keycloak.Realm,
