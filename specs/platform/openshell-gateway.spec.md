@@ -71,9 +71,9 @@ The PlatformReconciler performs GitOps continuous sync from git repositories. It
 External Client (openshell CLI)
     │  TLS/HTTP2 (ALPN-negotiated)
     ▼
-Per-Tenant Gateway (OpenShift gateway controller / Envoy)
-    │  Terminates TLS, negotiates HTTP/2 via ALPN
-    │  GRPCRoute matches on hostname, forwards to backendRef
+Shared Gateway (admin-provisioned, openshift-ingress namespace)
+    │  Terminates TLS with wildcard cert, negotiates HTTP/2 via ALPN
+    │  GRPCRoute (in tenant namespace) matches on hostname, forwards to backendRef
     │  BackendTLSPolicy: re-encrypts to pod, verifies cert via CA
     ▼
 openshell-gateway Service (ClusterIP :8080)
@@ -149,22 +149,20 @@ For each gateway with `route` configuration, the control plane creates Gateway A
 
 ### Gateway Ingress TLS Certificate
 
-The per-tenant Gateway listener terminates external TLS using the cluster's wildcard certificate for `*.<base-domain>`. This certificate is stored as a Secret named `grpc-gateway-certs` in the `openshift-ingress` namespace, where all Gateway resources are created.
+The shared Gateway terminates external TLS using a wildcard certificate for `*.<base-domain>`, issued by cert-manager. An administrator provisions the Gateway and its cert-manager Certificate as cluster infrastructure (see `deploy/openshift/infrastructure/GATEWAY-SETUP.md`).
 
-- **Location:** Secret `grpc-gateway-certs` in the `openshift-ingress` namespace
-- The Secret is a cluster prerequisite -- it must be created before any gateway can be exposed externally (see README)
-- All per-tenant Gateways in `openshift-ingress` reference the same Secret
-- The wildcard private key is NOT copied into tenant namespaces -- it stays in `openshift-ingress`
+- **Location:** cert-manager Certificate and Secret in the Gateway namespace (`GATEWAY_API_GATEWAY_NAMESPACE`, default `openshift-ingress`)
+- The Certificate is an admin prerequisite -- it must be created alongside the shared Gateway before any tenant can be exposed externally
+- All tenant GRPCRoutes attach to the single shared Gateway, which serves the wildcard certificate
+- The wildcard private key stays in the Gateway namespace (an admin-only namespace) -- tenant namespace principals cannot access it
 
-This avoids per-tenant certificate issuance for the ingress listener - the `gw-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate.
-
-> **Security improvement:** Unlike the previous approach that copied the wildcard private key into each tenant namespace, the key now stays in `openshift-ingress` (an admin-only namespace). Tenant namespace principals cannot extract the wildcard key.
+This avoids per-tenant certificate issuance for the ingress listener -- the `gw-<tenant-namespace>.<base-domain>` hostname is covered by the wildcard certificate. The control plane does not create or manage the Gateway-level TLS; it only creates per-tenant route resources (GRPCRoute, BackendTLSPolicy) that attach to the shared Gateway.
 
 ### Route TLS Strategy
 
 The Gateway API approach uses HTTPS on the listener and BackendTLSPolicy for re-encryption:
 
-1. **Client to Gateway.** The per-tenant Gateway listener uses HTTPS (port 443) with a TLS certificate for `gw-<tenant-namespace>.<base-domain>`. Clients connect via `https://` and HTTP/2 is negotiated through ALPN during the TLS handshake.
+1. **Client to Gateway.** The shared Gateway listener uses HTTPS (port 443) with a wildcard TLS certificate for `*.<base-domain>`. Clients connect via `https://` and HTTP/2 is negotiated through ALPN during the TLS handshake.
 2. **Gateway to Pod.** BackendTLSPolicy instructs the Gateway to establish a TLS connection to the backend pod, verifying the pod's certificate against the CA in the `openshell-backend-ca` ConfigMap. The pod's TLS remains enabled (no `disableTls` needed). BackendTLSPolicy requires OpenShift 4.22+.
 3. **Fallback.** If BackendTLSPolicy is not supported by the cluster's gateway controller, the control plane SHALL skip BackendTLSPolicy creation and log a warning. The gateway pod's TLS configuration would need to be disabled manually in this case.
 
@@ -176,7 +174,7 @@ Examples:
 - `gw-openshell-a1b2c3d4e5f67890.apps-crc.testing`
 - `gw-openshell-b9c8d7e6f5a43210.apps.cluster.example.com`
 
-The `gw-` prefix produces a hostname that is a subdomain of `<base-domain>`. With the shortened 26-character namespace, the first DNS label (e.g., `gw-openshell-a1b2c3d4e5f67890` at 29 chars) is well within the 63-character DNS label limit, eliminating the need for truncation and hash suffixes. The cluster's existing wildcard certificate for `*.<base-domain>` covers all per-tenant Gateway listeners without requiring per-tenant certificate issuance.
+The `gw-` prefix produces a hostname that is a subdomain of `<base-domain>`. With the shortened 26-character namespace, the first DNS label (e.g., `gw-openshell-a1b2c3d4e5f67890` at 29 chars) is well within the 63-character DNS label limit, eliminating the need for truncation and hash suffixes. The shared Gateway's wildcard certificate for `*.<base-domain>` covers all tenant hostnames without requiring per-tenant certificate issuance.
 
 ---
 

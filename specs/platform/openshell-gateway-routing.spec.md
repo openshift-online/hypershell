@@ -49,7 +49,7 @@ The GatewayReconciler creates `openshell-gateway-allow-sandbox-v2` which allows 
 
 - GIVEN an OpenShell gateway exposed via GRPCRoute
 - AND the gateway namespace has NetworkPolicies applied
-- WHEN an external client connects via the per-tenant Gateway
+- WHEN an external client connects via the shared Gateway
 - THEN Gateway API proxy pods (Envoy, running in `openshift-ingress`) must reach the gateway pod on port 8080
 - AND without the proxy NetworkPolicy, the TLS handshake hangs with zero bytes read
 
@@ -67,14 +67,18 @@ spec:
       app.kubernetes.io/instance: openshell-gateway
       app.kubernetes.io/name: openshell
   ingress:
-  - ports:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: <GATEWAY_API_GATEWAY_NAMESPACE>
+    ports:
     - port: 8080
       protocol: TCP
     - port: 8081
       protocol: TCP
 ```
 
-> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule allows traffic from any source on the gateway ports, since the admin-provisioned Gateway proxy may run outside the cluster (e.g. a cloud load balancer).
+> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule restricts source traffic to the namespace hosting the shared Gateway (`GATEWAY_API_GATEWAY_NAMESPACE`, default `openshift-ingress`), so only the admin-provisioned proxy can reach the gateway ports.
 
 ---
 
