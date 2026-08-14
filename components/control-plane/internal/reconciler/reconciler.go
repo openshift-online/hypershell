@@ -11,6 +11,7 @@ import (
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -142,6 +143,7 @@ type GatewayReconciler struct {
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
+	exposure              exposure.Port
 }
 
 func NewGatewayReconciler(
@@ -151,6 +153,7 @@ func NewGatewayReconciler(
 	manifestsDir string,
 	controlPlaneNamespace string,
 	keycloakConfig *gateway.KeycloakConfig,
+	exposurePort exposure.Port,
 ) (*GatewayReconciler, error) {
 	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
 	if err != nil {
@@ -188,6 +191,7 @@ func NewGatewayReconciler(
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
 		keycloakConfig:        keycloakConfig,
+		exposure:              exposurePort,
 	}, nil
 }
 
@@ -335,6 +339,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		KeycloakClient:        r.keycloakClient,
 		GatewayName:           gw.Name,
 		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
+		Exposure:              r.exposure,
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
@@ -344,19 +349,42 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 	}
 
-	// Manifests are applied, but the gateway is not Running until its workload
-	// is observed Ready. Wait within the provisioning readiness window: on
-	// readiness set Running; otherwise set Degraded and record why. The
-	// continuous health reconciler keeps the phase synchronized thereafter.
+	// Manifests are applied, but the gateway is not Running until its workload is
+	// observed Ready. Wait within the provisioning readiness window; if the
+	// Deployment never becomes ready, set Degraded and record why.
 	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
-	if ready {
-		r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
-		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
-	} else {
+	if !ready {
 		r.updateGatewayHealth(ctx, event.ResourceID, "Degraded", reason)
 		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
+		return nil
+	}
+
+	// The Deployment is Ready. A routed gateway is not Running until its external
+	// exposure is also observed Ready, so leave it at Provisioning and let the
+	// continuous health reconciler promote it to Running once the exposure is
+	// programmed (or move it to Degraded after the route-readiness grace window).
+	// A non-routed gateway - or any gateway on a cluster without the exposure
+	// port - is Running on Deployment readiness alone. See
+	// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
+	if r.exposure != nil && isRoutedGateway(gw) {
+		r.updateGatewayHealth(ctx, event.ResourceID, "Provisioning", "Deployment ready; awaiting route readiness")
+		log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
+	} else {
+		r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
+		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
 	}
 	return nil
+}
+
+// isRoutedGateway reports whether a Gateway declares external route exposure
+// (a non-empty `route` configuration), and therefore requires its external
+// exposure to be observed Ready before it can be reported Running.
+func isRoutedGateway(gw *pb.Gateway) bool {
+	if gw.Route == nil {
+		return false
+	}
+	route := strings.TrimSpace(*gw.Route)
+	return route != "" && route != "null"
 }
 
 // gatewayNamespace returns the Kubernetes namespace for a Gateway, deriving the

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1309,27 +1310,30 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	if gatewayClassName == "" {
 		gatewayClassName = "openshift-default"
 	}
-	hostname := routeConfig.Host
-	if hostname == "" {
-		baseDomain := os.Getenv("GATEWAY_API_BASE_DOMAIN")
-		if baseDomain == "" {
-			log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
-			return nil
-		}
-		firstLabel := "gw-" + namespace
-		hostname = fmt.Sprintf("%s.%s", firstLabel, baseDomain)
+	// Derive the external hostname through the Gateway Exposure adapter's shared
+	// helper so the hostname baked into the Gateway/GRPCRoute resources cannot
+	// drift from the address published through the port.
+	hostname, ok := exposure.DeriveGatewayAPIHost(namespace, routeConfig.Host)
+	if !ok {
+		log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
+		return nil
 	}
 
-	// Publish the deterministic route address immediately. The hostname is known
-	// before the per-tenant Gateway reports Accepted/Programmed, so the connection
-	// command is available to the CLI and console while the gateway finishes
-	// provisioning. Readiness is reflected separately by the Gateway phase.
-	if opts.UpdateRouteAddress != nil {
-		routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
-		if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-			log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
-		} else {
-			log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+	// Publish the deterministic route address through the Gateway Exposure port.
+	// The hostname is known before the per-tenant Gateway reports Accepted/
+	// Programmed, so the connection command is available to the CLI and console
+	// while the gateway finishes provisioning. Readiness is reflected separately
+	// by the Gateway phase.
+	if opts.Exposure != nil && opts.UpdateRouteAddress != nil {
+		routeAddress, err := opts.Exposure.ResolveAddress(ctx, exposure.Request{Namespace: namespace, Host: routeConfig.Host})
+		if err != nil {
+			log.Printf("WARN failed to resolve routeAddress for gateway in %s: %v", namespace, err)
+		} else if routeAddress != "" {
+			if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+				log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+			} else {
+				log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+			}
 		}
 	}
 

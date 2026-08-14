@@ -18,12 +18,14 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
 const defaultManifestsDir = "/manifests/gateway"
@@ -96,6 +98,21 @@ func main() {
 		}
 	}
 
+	// The Gateway Exposure port decouples route address resolution and readiness
+	// observation from the concrete exposure backend. The Gateway API adapter is
+	// enabled only when the cluster supports the Gateway API; on clusters without
+	// it the port stays nil and routed gateways are gated on Deployment readiness
+	// alone. See specs/platform/openshell-gateway-routing.spec.md.
+	var exposurePort exposure.Port
+	if clientset != nil && k8sConfig != nil && gateway.DetectGatewayAPI(clientset) {
+		gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
+		if gwErr != nil {
+			log.Fatalf("creating gateway-api client: %v", gwErr)
+		}
+		exposurePort = exposure.NewGatewayAPIExposure(gwClient)
+		log.Printf("INFO gateway exposure port enabled (gateway-api adapter)")
+	}
+
 	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
 	databaseReconciler := reconciler.NewManagedDatabaseReconciler()
@@ -138,7 +155,7 @@ func main() {
 	var gatewayReconciler watcher.Handler[*pb.Gateway]
 
 	if clientset != nil && dynamicClient != nil {
-		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir, cfg.Namespace, keycloakConfig)
+		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir, cfg.Namespace, keycloakConfig, exposurePort)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
 			gatewayReconciler = reconciler.NewStubGatewayReconciler()
@@ -173,7 +190,7 @@ func main() {
 	// status synchronized with observed workload health (Running <-> Degraded).
 	// It requires an in-cluster Kubernetes client to observe Deployments.
 	if clientset != nil {
-		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, conn)
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, conn, exposurePort)
 		go func() { errCh <- healthReconciler.Run(ctx) }()
 		log.Printf("INFO gateway health reconciler launched")
 	} else {
