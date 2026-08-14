@@ -1,10 +1,12 @@
 package reconciler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -221,7 +223,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			KeycloakClient:        r.keycloakClient,
 			GatewayName:           gw.Name,
 		}
-		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts); err != nil {
+		var credentialNamespaces []string
+		if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
+			if strings.Contains(*gw.CredentialDriver, "kubernetes_secrets") {
+				var credCfg gateway.CredentialDriverConfig
+				if err := json.Unmarshal([]byte(*gw.CredentialDriver), &credCfg); err == nil {
+					if credCfg.KubernetesSecrets != nil && credCfg.KubernetesSecrets.Namespace != "" {
+						credentialNamespaces = append(credentialNamespaces, credCfg.KubernetesSecrets.Namespace)
+					}
+				}
+			}
+		}
+		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
 			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
 		}
 		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
@@ -293,6 +306,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			return fmt.Errorf("invalid database config for gateway %s: %w", gw.Name, err)
 		}
 		gwConfig.Database = dbConfig
+	}
+
+	if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
+		var credDriverConfig gateway.CredentialDriverConfig
+		decoder := json.NewDecoder(bytes.NewReader([]byte(*gw.CredentialDriver)))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&credDriverConfig); err != nil {
+			return fmt.Errorf("invalid credential driver config for gateway %s: %w", gw.Name, err)
+		}
+		gwConfig.CredentialDriver = &credDriverConfig
 	}
 
 	nsConfig := gateway.NamespaceConfig{

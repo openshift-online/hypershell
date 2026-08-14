@@ -68,8 +68,15 @@ func ReconcileGateway(
 		}
 	}
 
-	if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
-		return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
+	if nsConfig.Gateway.CredentialDriver == nil {
+		if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
+			return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
+		}
+		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
+	} else {
+		if err := reconcileCredentialDriverResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
+			return fmt.Errorf("reconcile credential driver resources in %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	if opts.HasCertManager {
@@ -120,6 +127,7 @@ func DeleteGatewayResources(
 	clientset *kubernetes.Clientset,
 	namespace string,
 	opts ReconcileOpts,
+	credentialNamespaces ...string,
 ) error {
 	labelSelector := "hypershell.redhat.io/managed=true"
 
@@ -201,6 +209,13 @@ func DeleteGatewayResources(
 			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", opts.GatewayName, err)
 		} else {
 			log.Printf("INFO deleted keycloak client %s", opts.GatewayName)
+		}
+	}
+
+	for _, credNS := range credentialNamespaces {
+		if credNS != "" && credNS != namespace {
+			deleteCredentialSecretsRBAC(ctx, dynamicClient, credNS)
+			log.Printf("INFO cleaned up credential RBAC from namespace %s", credNS)
 		}
 	}
 
@@ -342,7 +357,7 @@ func deployGateway(
 				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
 			}
 
-			if err := ApplyConfigOverrides(obj, nsConfig.Gateway); err != nil {
+			if err := ApplyConfigOverrides(obj, nsConfig.Gateway, nsConfig.Name); err != nil {
 				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
 			}
 
@@ -1091,6 +1106,114 @@ func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset
 	}
 
 	log.Printf("INFO created credential KEK secret %s in %s", secretName, namespace)
+	return nil
+}
+
+func reconcileCredentialDriverResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
+	nsConfig NamespaceConfig,
+) error {
+	driver := nsConfig.Gateway.CredentialDriver
+	if driver.Type == "kubernetes-secrets" {
+		credNS := nsConfig.Name
+		if driver.KubernetesSecrets != nil && driver.KubernetesSecrets.Namespace != "" {
+			credNS = driver.KubernetesSecrets.Namespace
+		}
+		if err := reconcileCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name, credNS); err != nil {
+			return fmt.Errorf("reconcile credential secrets RBAC: %w", err)
+		}
+	} else {
+		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
+	}
+	return nil
+}
+
+func deleteCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Interface, namespace string) {
+	roleGVR := schema.GroupVersionResource{
+		Group:    "rbac.authorization.k8s.io",
+		Version:  "v1",
+		Resource: "roles",
+	}
+	roleBindingGVR := schema.GroupVersionResource{
+		Group:    "rbac.authorization.k8s.io",
+		Version:  "v1",
+		Resource: "rolebindings",
+	}
+
+	name := "openshell-gateway-credential-secrets"
+	if err := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete credential secrets RoleBinding in %s: %v", namespace, err)
+	}
+	if err := dynamicClient.Resource(roleGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete credential secrets Role in %s: %v", namespace, err)
+	}
+}
+
+func reconcileCredentialSecretsRBAC(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	gatewayNamespace, credentialNamespace string,
+) error {
+	managedLabels := map[string]interface{}{
+		"app.kubernetes.io/name":       "openshell",
+		"app.kubernetes.io/component":  "gateway",
+		"app.kubernetes.io/managed-by": "hypershell-control-plane",
+		"hypershell.redhat.io/managed": "true",
+	}
+
+	role := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1",
+			"kind":       "Role",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-credential-secrets",
+				"namespace": credentialNamespace,
+				"labels":    managedLabels,
+			},
+			"rules": []interface{}{
+				map[string]interface{}{
+					"apiGroups": []interface{}{""},
+					"resources": []interface{}{"secrets"},
+					"verbs":     []interface{}{"get", "create", "patch", "delete"},
+				},
+			},
+		},
+	}
+
+	roleBinding := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1",
+			"kind":       "RoleBinding",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-credential-secrets",
+				"namespace": credentialNamespace,
+				"labels":    managedLabels,
+			},
+			"roleRef": map[string]interface{}{
+				"apiGroup": "rbac.authorization.k8s.io",
+				"kind":     "Role",
+				"name":     "openshell-gateway-credential-secrets",
+			},
+			"subjects": []interface{}{
+				map[string]interface{}{
+					"kind":      "ServiceAccount",
+					"name":      "openshell-gateway",
+					"namespace": gatewayNamespace,
+				},
+			},
+		},
+	}
+
+	if err := reconcileResource(ctx, dynamicClient, role); err != nil {
+		return fmt.Errorf("reconcile credential secrets Role: %w", err)
+	}
+	if err := reconcileResource(ctx, dynamicClient, roleBinding); err != nil {
+		return fmt.Errorf("reconcile credential secrets RoleBinding: %w", err)
+	}
+
+	log.Printf("INFO reconciled credential secrets RBAC in %s for gateway in %s", credentialNamespace, gatewayNamespace)
 	return nil
 }
 

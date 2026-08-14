@@ -40,13 +40,33 @@ type NamespaceConfig struct {
 }
 
 type GatewayConfig struct {
-	Image           string         `yaml:"image"`
-	SupervisorImage string         `yaml:"supervisorImage"`
-	ServerDnsNames  []string       `yaml:"serverDnsNames"`
-	ExternalDns     string         `yaml:"externalDns"`
-	Database        DatabaseConfig `yaml:"database"`
-	OIDC            OIDCConfig     `yaml:"oidc"`
-	Route           RouteConfig    `yaml:"route"`
+	Image            string                  `yaml:"image"`
+	SupervisorImage  string                  `yaml:"supervisorImage"`
+	ServerDnsNames   []string                `yaml:"serverDnsNames"`
+	ExternalDns      string                  `yaml:"externalDns"`
+	Database         DatabaseConfig          `yaml:"database"`
+	OIDC             OIDCConfig              `yaml:"oidc"`
+	Route            RouteConfig             `yaml:"route"`
+	CredentialDriver *CredentialDriverConfig `yaml:"credentialDriver"`
+}
+
+type CredentialDriverConfig struct {
+	Type              string                   `yaml:"type" json:"type"`
+	KubernetesSecrets *KubernetesSecretsConfig `yaml:"kubernetes_secrets,omitempty" json:"kubernetes_secrets,omitempty"`
+	Vault             *VaultCredentialConfig   `yaml:"vault,omitempty" json:"vault,omitempty"`
+}
+
+type KubernetesSecretsConfig struct {
+	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+}
+
+type VaultCredentialConfig struct {
+	Address             string `yaml:"address" json:"address"`
+	Mount               string `yaml:"mount,omitempty" json:"mount,omitempty"`
+	AuthMethod          string `yaml:"auth_method,omitempty" json:"auth_method,omitempty"`
+	Role                string `yaml:"role" json:"role"`
+	KubernetesAuthMount string `yaml:"kubernetes_auth_mount,omitempty" json:"kubernetes_auth_mount,omitempty"`
+	TimeoutSecs         int    `yaml:"timeout_secs,omitempty" json:"timeout_secs,omitempty"`
 }
 
 type RouteConfig struct {

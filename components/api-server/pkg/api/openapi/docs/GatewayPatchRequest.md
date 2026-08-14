@@ -21,6 +21,7 @@ Name | Type | Description | Notes
 **Oidc** | Pointer to **string** |  | [optional] 
 **Route** | Pointer to **string** |  | [optional] 
 **DatabaseConfig** | Pointer to **string** |  | [optional] 
+**CredentialDriver** | Pointer to **string** |  | [optional] 
 
 ## Methods
 
@@ -465,6 +466,31 @@ SetDatabaseConfig sets DatabaseConfig field to given value.
 `func (o *GatewayPatchRequest) HasDatabaseConfig() bool`
 
 HasDatabaseConfig returns a boolean if a field has been set.
+
+### GetCredentialDriver
+
+`func (o *GatewayPatchRequest) GetCredentialDriver() string`
+
+GetCredentialDriver returns the CredentialDriver field if non-nil, zero value otherwise.
+
+### GetCredentialDriverOk
+
+`func (o *GatewayPatchRequest) GetCredentialDriverOk() (*string, bool)`
+
+GetCredentialDriverOk returns a tuple with the CredentialDriver field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCredentialDriver
+
+`func (o *GatewayPatchRequest) SetCredentialDriver(v string)`
+
+SetCredentialDriver sets CredentialDriver field to given value.
+
+### HasCredentialDriver
+
+`func (o *GatewayPatchRequest) HasCredentialDriver() bool`
+
+HasCredentialDriver returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

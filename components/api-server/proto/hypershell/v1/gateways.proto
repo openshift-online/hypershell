@@ -26,6 +26,7 @@ message Gateway {
   optional string oidc = 16;
   optional string route = 17;
   optional string database_config = 18;
+  optional string credential_driver = 20;
 }
 
 message CreateGatewayRequest {
@@ -45,6 +46,7 @@ message CreateGatewayRequest {
   optional string oidc = 14;
   optional string route = 15;
   optional string database_config = 16;
+  optional string credential_driver = 17;
 }
 
 message CreateGatewayResponse {
@@ -78,6 +80,7 @@ message UpdateGatewayRequest {
   optional string oidc = 16;
   optional string route = 17;
   optional string database_config = 18;
+  optional string credential_driver = 19;
 }
 
 message UpdateGatewayResponse {

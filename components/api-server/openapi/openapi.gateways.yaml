@@ -280,6 +280,9 @@ components:
             database_config:
               type: string
               description: JSON-encoded database provisioning configuration
+            credential_driver:
+              type: string
+              description: JSON-encoded credential storage driver configuration
     GatewayCreateRequest:
       type: object
       required:
@@ -329,6 +332,9 @@ components:
         database_config:
           type: string
           description: JSON-encoded database provisioning configuration
+        credential_driver:
+          type: string
+          description: JSON-encoded credential storage driver configuration
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END
@@ -380,6 +386,8 @@ components:
         route:
           type: string
         database_config:
+          type: string
+        credential_driver:
           type: string
   parameters:
       id:
