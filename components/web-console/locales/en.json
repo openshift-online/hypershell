@@ -107,10 +107,6 @@
     "defaultMessage": "Copy the credentials login command",
     "description": "Accessible label for copying the ADC login command."
   },
-  "app.gateway.connection.copyInferenceCommand": {
-    "defaultMessage": "Copy the model-routing command",
-    "description": "Accessible label for copying the model-routing command."
-  },
   "app.gateway.connection.copyProviderCommand": {
     "defaultMessage": "Copy the add-provider command",
     "description": "Accessible label for copying the add-provider command."
@@ -123,10 +119,6 @@
     "defaultMessage": "Copy the create-sandbox command",
     "description": "Accessible label for copying the create-sandbox command."
   },
-  "app.gateway.connection.login.description": {
-    "defaultMessage": "Authenticate the OpenShell CLI to this gateway.",
-    "description": "Supporting text for the gateway login connection step."
-  },
   "app.gateway.connection.login.title": {
     "defaultMessage": "Log in to the gateway",
     "description": "Title for the first gateway connection step."
@@ -135,10 +127,6 @@
     "defaultMessage": "Gateway login is unavailable until this gateway reports its endpoint and OIDC connection details.",
     "description": "Shown in the login step when the gateway lacks required connection values."
   },
-  "app.gateway.connection.provider.adc.description": {
-    "defaultMessage": "Run this once so the gateway can obtain your Google Cloud credentials.",
-    "description": "Explains the Application Default Credentials prerequisite command."
-  },
   "app.gateway.connection.provider.adc.title": {
     "defaultMessage": "Configure Application Default Credentials",
     "description": "Title for the ADC prerequisite within the provider step."
@@ -146,10 +134,6 @@
   "app.gateway.connection.provider.caveat": {
     "defaultMessage": "Inside the sandbox, reach Vertex AI through inference.local. Do not set CLAUDE_CODE_USE_VERTEX=1, which makes Claude Code bypass the gateway and fail Google Cloud credential discovery.",
     "description": "Sandbox routing caveat shown in the provider step details."
-  },
-  "app.gateway.connection.provider.description": {
-    "defaultMessage": "Register Claude on Google Vertex AI using credentials pulled from your environment. No key is entered in the browser.",
-    "description": "Supporting text for the add-provider connection step."
   },
   "app.gateway.connection.provider.detailsToggle": {
     "defaultMessage": "Prerequisites and options",
@@ -160,16 +144,12 @@
     "description": "Explains the environment-variable alternative for creating the provider."
   },
   "app.gateway.connection.provider.fromEnv.title": {
-    "defaultMessage": "Or create the provider from environment variables",
+    "defaultMessage": "From environment variables",
     "description": "Title for the environment-variable alternative in the provider step."
   },
   "app.gateway.connection.provider.routing.description": {
     "defaultMessage": "Replace {model} with a Vertex Claude model ID.",
     "description": "Explains the model-routing command in the provider step."
-  },
-  "app.gateway.connection.provider.routing.title": {
-    "defaultMessage": "Route a Claude model through the provider",
-    "description": "Title for the model-routing command in the provider step."
   },
   "app.gateway.connection.provider.title": {
     "defaultMessage": "Add a Claude on Vertex AI provider",
@@ -336,8 +316,8 @@
     "description": "Accessible label for transient application notifications."
   },
   "app.page.gateway.description": {
-    "defaultMessage": "Review this gateway's configuration and operational status.",
-    "description": "Supporting text on the gateway detail page."
+    "defaultMessage": "Connect to this gateway and review its configuration.",
+    "description": "Metadata description for the gateway detail page."
   },
   "app.page.gatewayDetails.title": {
     "defaultMessage": "Gateway details",

@@ -258,6 +258,11 @@ export const messages = defineMessages({
     defaultMessage: "No changes were made. Try again.",
     description: "Recovery guidance when gateway deletion fails.",
   },
+  gatewayDescription: {
+    id: "app.page.gateway.description",
+    defaultMessage: "Connect to this gateway and review its configuration.",
+    description: "Metadata description for the gateway detail page.",
+  },
   gatewayDetailsTitle: {
     id: "app.page.gatewayDetails.title",
     defaultMessage: "Gateway details",
