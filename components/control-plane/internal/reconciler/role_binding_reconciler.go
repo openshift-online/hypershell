@@ -98,15 +98,15 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 	return nil
 }
 
-// resolveKeycloakClientID looks up the gateway by ID and returns the gateway
-// name, which is used directly as the Keycloak client ID.
+// resolveKeycloakClientID looks up the gateway by ID and returns the Keycloak
+// client ID in the {name}-{id} format specified by the Keycloak provisioning spec.
 func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gatewayID string) (string, error) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	resp, err := client.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
 	if err != nil {
 		return "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
-	return resp.GetGateway().GetName(), nil
+	return fmt.Sprintf("%s-%s", resp.GetGateway().GetName(), gatewayID), nil
 }
 
 // assignClientRoleWithRetry retries AssignClientRole to handle the race where
