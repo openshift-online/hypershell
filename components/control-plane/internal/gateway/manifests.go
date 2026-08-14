@@ -212,6 +212,31 @@ func injectPGDATA(obj *unstructured.Unstructured, mountPath string) {
 func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, tenantNamespace ...string) error {
 	kind := obj.GetKind()
 
+	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && config.Route.Enabled {
+		data, found, err := unstructured.NestedMap(obj.Object, "data")
+		if err != nil || !found {
+			return fmt.Errorf("configmap data not found")
+		}
+		toml, ok := data["gateway.toml"].(string)
+		if !ok {
+			return fmt.Errorf("gateway.toml not found in configmap")
+		}
+		var filtered []string
+		for _, line := range strings.Split(toml, "\n") {
+			if !strings.Contains(line, "client_ca_path") {
+				filtered = append(filtered, line)
+			}
+		}
+		data["gateway.toml"] = strings.Join(filtered, "\n")
+		if err := unstructured.SetNestedMap(obj.Object, data, "data"); err != nil {
+			return fmt.Errorf("set configmap data: %w", err)
+		}
+	}
+
+	if kind == "Deployment" && obj.GetName() == "openshell-gateway" && config.Route.Enabled {
+		removeClientCAVolume(obj)
+	}
+
 	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && (len(config.ServerDnsNames) > 0 || config.CredentialDriver != nil) {
 		data, found, err := unstructured.NestedMap(obj.Object, "data")
 		if err != nil || !found {
@@ -498,4 +523,50 @@ func applyCredentialDriverDeploymentOverrides(obj *unstructured.Unstructured, dr
 	}
 
 	return nil
+}
+
+func removeClientCAVolume(obj *unstructured.Unstructured) {
+	volumes, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "volumes")
+	if found {
+		var filtered []interface{}
+		for _, v := range volumes {
+			vm, ok := v.(map[string]interface{})
+			if !ok {
+				filtered = append(filtered, v)
+				continue
+			}
+			if vm["name"] == "tls-client-ca" {
+				continue
+			}
+			filtered = append(filtered, v)
+		}
+		_ = unstructured.SetNestedSlice(obj.Object, filtered, "spec", "template", "spec", "volumes")
+	}
+
+	containers, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	if !found {
+		return
+	}
+	for i, c := range containers {
+		container, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
+		var filteredMounts []interface{}
+		for _, m := range mounts {
+			mm, ok := m.(map[string]interface{})
+			if !ok {
+				filteredMounts = append(filteredMounts, m)
+				continue
+			}
+			if mm["name"] == "tls-client-ca" {
+				continue
+			}
+			filteredMounts = append(filteredMounts, m)
+		}
+		_ = unstructured.SetNestedSlice(container, filteredMounts, "volumeMounts")
+		containers[i] = container
+	}
+	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 }

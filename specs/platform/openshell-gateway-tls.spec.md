@@ -102,6 +102,27 @@ The control plane ClusterRole SHALL include permissions for TLS-related resource
 
 ---
 
+### Requirement: Client Certificate Verification Conditional on Routing
+
+The gateway config template includes a `client_ca_path` setting under `[openshell.gateway.tls]` that enables the server to require client certificates (mTLS). This setting SHALL be conditionally applied based on whether the gateway is exposed via Gateway API routing.
+
+#### Scenario: Gateway with routing enabled
+
+- GIVEN a Gateway with `route.enabled = true`
+- WHEN the GatewayReconciler applies config overrides
+- THEN it SHALL remove the `client_ca_path` setting from `gateway.toml`
+- AND it SHALL remove the `tls-client-ca` volume and volume mount from the Deployment
+- BECAUSE the Gateway API ingress proxy (Envoy) terminates external TLS and re-connects to the backend via BackendTLSPolicy, which only handles server certificate validation — the proxy cannot present a client certificate, so requiring one causes "peer sent no certificates" connection resets
+
+#### Scenario: Gateway without routing (direct access)
+
+- GIVEN a Gateway with no `route` configuration or `route.enabled = false`
+- WHEN the GatewayReconciler applies config overrides
+- THEN it SHALL preserve the `client_ca_path` setting and `tls-client-ca` volume mount
+- AND the gateway SHALL require client certificates for all incoming connections (used by supervisors connecting directly)
+
+---
+
 ## Debugging Reference
 
 | Symptom | Root Cause | Fix |
@@ -110,6 +131,7 @@ The control plane ClusterRole SHALL include permissions for TLS-related resource
 | Cert deletion loop (every 30s) | ConfigMap SANs don't match API SANs | Ensure exact match; manual certgen if needed |
 | `invalid peer certificate: UnknownIssuer` | Self-signed CA - CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
 | OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap |
+| `peer sent no certificates` + `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present one | Ensure `route.enabled` is true so `client_ca_path` is stripped from config |
 
 ---
 
