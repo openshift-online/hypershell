@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -19,19 +20,25 @@ type OwnerBindingCreator interface {
 	CreateOwnerBinding(ctx context.Context, userID string, gatewayID string) error
 }
 
+type GatewayVisibilityFilter interface {
+	AccessibleGatewayIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 var _ handlers.RestHandler = gatewayHandler{}
 
 type gatewayHandler struct {
-	gateway      GatewayService
-	generic      services.GenericService
-	ownerBinding OwnerBindingCreator
+	gateway          GatewayService
+	generic          services.GenericService
+	ownerBinding     OwnerBindingCreator
+	visibilityFilter GatewayVisibilityFilter
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter) *gatewayHandler {
 	return &gatewayHandler{
-		gateway:      gateway,
-		generic:      generic,
-		ownerBinding: ownerBinding,
+		gateway:          gateway,
+		generic:          generic,
+		ownerBinding:     ownerBinding,
+		visibilityFilter: visibilityFilter,
 	}
 }
 
@@ -127,6 +134,12 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.DatabaseConfig != nil {
 				found.DatabaseConfig = patch.DatabaseConfig
 			}
+			if patch.CredentialDriver != nil {
+				if found.CredentialDriver != nil && *found.CredentialDriver != "" && *patch.CredentialDriver != *found.CredentialDriver {
+					return nil, errors.Conflict("credential driver cannot be changed after provider credentials have been stored; migrate credentials manually first")
+				}
+				found.CredentialDriver = patch.CredentialDriver
+			}
 
 			gatewayModel, err := h.gateway.Replace(ctx, found)
 			if err != nil {
@@ -146,11 +159,40 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
 			listArgs := services.NewListArguments(r.URL.Query())
+
+			userID := rbac.GetUserIDFromContext(ctx)
+			if userID != "" && h.visibilityFilter != nil {
+				accessibleIDs, filterErr := h.visibilityFilter.AccessibleGatewayIDs(ctx, userID)
+				if filterErr != nil {
+					return nil, errors.GeneralError("failed to check gateway access: %s", filterErr)
+				}
+				if len(accessibleIDs) == 0 {
+					kindStr := "GatewayList"
+					pageVal := int32(listArgs.Page)
+					sizeVal := int32(0)
+					totalVal := int32(0)
+					return openapi.GatewayList{
+						Kind:  &kindStr,
+						Page:  &pageVal,
+						Size:  &sizeVal,
+						Total: &totalVal,
+						Items: []openapi.Gateway{},
+					}, nil
+				}
+				idFilter := visibilitySearchFilter(accessibleIDs)
+				if listArgs.Search != "" {
+					listArgs.Search = "(" + listArgs.Search + ") and " + idFilter
+				} else {
+					listArgs.Search = idFilter
+				}
+			}
+
 			var gateways []Gateway
 			paging, err := h.generic.List(ctx, "id", listArgs, &gateways)
 			if err != nil {
 				return nil, err
 			}
+
 			kindStr := "GatewayList"
 			pageVal := int32(paging.Page)
 			sizeVal := int32(paging.Size)
@@ -179,6 +221,14 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handlers.HandleList(w, r, cfg)
+}
+
+func visibilitySearchFilter(ids []string) string {
+	quoted := make([]string, len(ids))
+	for i, id := range ids {
+		quoted[i] = "'" + id + "'"
+	}
+	return "id in (" + strings.Join(quoted, ",") + ")"
 }
 
 func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {

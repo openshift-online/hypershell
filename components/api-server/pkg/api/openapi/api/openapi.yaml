@@ -2541,13 +2541,18 @@ components:
             readOnly: true
             type: string
           oidc:
-            description: JSON-encoded OIDC authentication configuration
+            description: JSON-encoded OIDC authentication configuration (auto-populated
+              by Keycloak provisioning)
+            readOnly: true
             type: string
           route:
             description: JSON-encoded route configuration
             type: string
           database_config:
             description: JSON-encoded database provisioning configuration
+            type: string
+          credential_driver:
+            description: JSON-encoded credential storage driver configuration
             type: string
         required:
         - cluster_id
@@ -2566,6 +2571,7 @@ components:
         - server_dns_names
         - server_dns_names
         created_at: 2000-01-23T04:56:07.000+00:00
+        credential_driver: credential_driver
         route_address: route_address
         oidc: oidc
         supervisor_image: supervisor_image
@@ -2610,6 +2616,7 @@ components:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
+          credential_driver: credential_driver
           route_address: route_address
           oidc: oidc
           supervisor_image: supervisor_image
@@ -2635,6 +2642,7 @@ components:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
+          credential_driver: credential_driver
           route_address: route_address
           oidc: oidc
           supervisor_image: supervisor_image
@@ -2660,6 +2668,7 @@ components:
         server_dns_names:
         - server_dns_names
         - server_dns_names
+        credential_driver: credential_driver
         route_address: route_address
         oidc: oidc
         supervisor_image: supervisor_image
@@ -2709,6 +2718,8 @@ components:
         route:
           type: string
         database_config:
+          type: string
+        credential_driver:
           type: string
       type: object
     GatewayNetwork:
@@ -2953,6 +2964,7 @@ components:
         server_dns_names:
         - server_dns_names
         - server_dns_names
+        credential_driver: credential_driver
         oidc: oidc
         supervisor_image: supervisor_image
         cluster_id: cluster_id
@@ -3005,6 +3017,9 @@ components:
           type: string
         database_config:
           description: JSON-encoded database provisioning configuration
+          type: string
+        credential_driver:
+          description: JSON-encoded credential storage driver configuration
           type: string
       required:
       - cluster_id

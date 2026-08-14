@@ -1,3 +1,8 @@
 .endpoint {
   overflow-wrap: anywhere;
 }
+
+.endpointCopy :global(.pf-v6-c-clipboard-copy__group),
+.endpointCopy :global(.pf-v6-c-text-input-group__text-input) {
+  background-color: var(--pf-t--global--background--color--primary--default);
+}

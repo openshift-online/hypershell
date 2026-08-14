@@ -1,6 +1,6 @@
 # Platform OIDC Integration
 
-**Date:** 2026-08-11
+**Date:** 2026-08-14
 **Status:** Draft
 **Related:** `openshell-gateway-oidc.spec.md` - per-gateway OIDC authentication; `../web-console/architecture.spec.md` - WEB-AUTH-01 through WEB-AUTH-03; `local-development.spec.md` - Kind cluster environment
 
@@ -145,21 +145,43 @@ The BFF SHALL implement the OAuth 2.0 authorization code flow with PKCE:
    ```
    When unauthenticated, return `{ "authenticated": false }`. This endpoint SHALL NOT expose tokens.
 
-### Session Cookie
+### Session Cookies
 
-- Name: `session` (the `__Host-` prefix requires the `Set-Cookie` response to use HTTPS; the BFF receives HTTP behind the TLS-terminating gateway, so the prefix cannot be used)
+Session state is split across two independently encrypted cookies so that no single cookie approaches the ~4KB per-cookie browser limit once refresh and ID tokens are stored server-side. Both cookies share the same encryption key, flags, and lifetime, and both are set atomically on login, refresh, and logout. `@fastify/secure-session` supports this natively through named sessions (an array of session options, each with its own `sessionName` and `cookieName`).
+
+- **`session` (hot-path identity cookie)**  -- carries the access token, the access-token expiry timestamp, and display claims (sub, preferred_username, email, name, roles). Read on every proxied `/api/*` request.
+- **`session_tok` (refresh cookie)**  -- carries the refresh token and the ID token. Read only when refreshing the access token or performing RP-initiated logout.
+
+Common attributes for both cookies:
+
+- Names: `session` and `session_tok` (the `__Host-` prefix requires the `Set-Cookie` response to use HTTPS; the BFF receives HTTP behind the TLS-terminating gateway, so the prefix cannot be used)
 - Flags: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`
-- Encryption: `@fastify/secure-session` with sodium-based secretbox (NaCl)
-- Content: access token, user claims (sub, preferred_username, email, name, roles), expiry timestamp. Refresh tokens and ID tokens are NOT stored to keep the cookie under the 4KB browser limit.
-- Login SHALL rotate the session (new cookie after authentication)
+- Encryption: `@fastify/secure-session` named sessions with sodium-based secretbox (NaCl)
+- Login SHALL rotate both cookies (new encrypted values after authentication)
+- Each cookie SHALL remain under the 4KB browser limit after encryption and Base64 encoding. The BFF SHALL store only the claims needed to render the console plus the access token it must forward; it SHALL NOT copy the full ID-token or userinfo payload into the identity cookie.
 
-### Token Refresh (deferred)
+### Token Refresh
 
-Token refresh requires storing the refresh token in the session cookie, which pushes the cookie over the 4KB browser limit. This will be addressed when cookie chunking is implemented. Until then, users are redirected to the IdP login when the access token expires.
+The BFF SHALL keep the proxied access token valid without user interaction for as long as the refresh token remains valid.
+
+- **Proactive refresh.** Before proxying an `/api/*` request, if the access token is missing or within a fixed skew window (30 seconds) of its expiry, the BFF SHALL exchange the stored refresh token for a new token set before forwarding.
+- **Reactive refresh.** If the upstream API rejects a proxied request with 401 despite a token the BFF believed valid (clock skew, server-side revocation, key rotation), the BFF SHALL attempt exactly one refresh-and-retry before treating the request as a re-authentication event.
+- **Rotation.** The BFF SHALL persist the rotated refresh token returned by the IdP into `session_tok` and SHALL NOT reuse a refresh token after a successful exchange.
+- **Single-flight.** Concurrent requests carrying the same session SHALL share one in-flight refresh within a BFF instance, so a burst of parallel `/api/*` calls performs a single token exchange and avoids refresh-token reuse detection at the IdP.
+- **Failure.** When refresh fails (expired or revoked refresh token, IdP unavailable), the BFF SHALL clear both session cookies and signal re-authentication per the Re-authentication requirement below. It SHALL NOT surface a raw provider error to the browser.
 
 ### Logout
 
-The BFF clears the session cookie and redirects to the IdP `end_session_endpoint`. The `id_token_hint` parameter is omitted because the ID token is not stored in the session (cookie size constraint). Some IdPs may show a confirmation prompt instead of logging out silently without this hint; Keycloak handles it gracefully.
+The BFF clears both session cookies and redirects to the IdP `end_session_endpoint`. Because the ID token is stored in `session_tok`, the BFF SHALL include it as the `id_token_hint` parameter so the IdP terminates the session without a confirmation prompt, along with `post_logout_redirect_uri`.
+
+### Re-authentication (no dead ends)
+
+An invalid, expired, or unrefreshable session SHALL NOT surface as a generic application error. The user SHALL always be routed to the identity provider to re-authenticate.
+
+- **Browser navigations.** A GET for an application route without a usable session SHALL 302 to `/auth/login`, which 302s to the IdP. `/auth/login` SHALL accept an optional `return_to` value, validate that it is a same-origin absolute path (no scheme, host, or protocol-relative `//` form), store it in the login session, and redirect to it after a successful callback.
+- **API (fetch) requests.** Because a cross-origin 302 cannot drive a `fetch`, the BFF SHALL return the 401 re-authentication signal described in API Proxy Changes. The browser API transport SHALL detect this signal and perform a full-page navigation to `login_url`, preserving the current route as `return_to`. No generic error, retry banner, or permission-denied message SHALL be shown for an authentication failure.
+- **Distinct from authorization.** A 403 from the API (genuine RBAC denial) SHALL remain a "denied" state and SHALL NOT trigger re-authentication. Only authentication failures (missing, expired, or revoked session) route to the IdP.
+- **Observability.** The transport SHALL NOT write raw console output or ad-hoc telemetry for an authentication failure; it MAY publish a typed session-expiry fact through the domain probe fan-out before redirecting.
 
 ### CSRF Protection
 
@@ -168,10 +190,11 @@ The BFF SHALL validate the `Origin` header on all state-changing requests (POST,
 ### API Proxy Changes
 
 When OIDC is enabled, the `/api/*` proxy SHALL:
-- Extract the access token from the encrypted session cookie
+- Extract the access token from the identity cookie
+- Ensure the token is valid before forwarding, refreshing proactively per the Token Refresh requirement
 - Set `Authorization: Bearer <access_token>` on upstream requests
 - Remove any client-supplied `Authorization` header (the browser SHALL NOT send tokens)
-- Return 401 when no valid session exists for non-safe requests
+- When no valid session exists and refresh is not possible, respond with 401 carrying a machine-readable re-authentication signal (a JSON body `{ "error": "reauth_required", "login_url": "/auth/login?return_to=<path>" }` and a `WWW-Authenticate: Bearer error="invalid_token"` header) rather than a generic error
 
 When OIDC is not enabled (no-auth mode), the proxy SHALL behave as today  -- no auth header, no session check.
 
@@ -221,39 +244,24 @@ The `hypershell-provisioner` client is a confidential service account used for a
 
 ### Local Kind Development
 
-OIDC in the Kind cluster is opt-in via `KIND_ENABLE_OIDC=true`. Default is off.
+OIDC is always enabled in the Kind cluster. `make kind-up` configures all components for OIDC authentication automatically.
 
-#### Environment Variable
+#### Behavior
 
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `KIND_ENABLE_OIDC` | (unset  -- OIDC off) | Set to `true` to enable OIDC across API server, web console BFF, and gateway |
+`make kind-up` SHALL:
 
-#### Behavior When Enabled
-
-`make kind-up` with `KIND_ENABLE_OIDC=true` SHALL:
-
-1. Deploy the API server with `API_ENV=development_oidc` and `--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs`
+1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
 2. Deploy the web console BFF with:
-   - `OIDC_ISSUER=http://keycloak.hypershell.localhost:8080/realms/hypershell`
+   - `OIDC_ISSUER=https://keycloak.hypershell.localhost/realms/hypershell`
    - `OIDC_CLIENT_ID=hypershell-frontend`
    - `SESSION_SECRET` generated via `openssl rand -hex 32` during `kind-up` and stored in a Kubernetes Secret
 3. Create the gateway resource with OIDC configuration per `local-development.spec.md`
-4. Print OIDC-specific connection information in the banner:
+4. Print OIDC connection information in the banner:
    ```
-   OIDC Authentication: ENABLED
-   Keycloak:            https://keycloak.hypershell.localhost (admin/admin)
-   Login:               https://console.hypershell.localhost/auth/login
-   Test users:          admin/admin (admins + users), developer/developer (users only)
+   Keycloak:     https://keycloak.hypershell.localhost (admin/admin)
+   Login:        https://console.hypershell.localhost/auth/login
+   Test users:   admin/admin (admins + users), developer/developer (users only)
    ```
-
-#### Behavior When Disabled (Default)
-
-`make kind-up` without `KIND_ENABLE_OIDC` SHALL behave exactly as today:
-- API server: `development` environment, JWT disabled
-- Web console BFF: no OIDC env vars, no-auth proxy mode
-- Gateway: no OIDC configuration
-- Banner: no OIDC section
 
 #### Keycloak Client Configuration (Kind)
 
@@ -268,21 +276,8 @@ The ephemeral port variant (`console.hypershell.localhost:*`) covers Kind setups
 
 #### CLI Output
 
-When `KIND_ENABLE_OIDC=true`:
 - The `kind-up` banner SHALL include the OIDC section shown above
-- `make kind-status` SHALL report whether OIDC is active and show the Keycloak URL and test credentials
-
-When OIDC is off:
-- `kind-status` SHALL include a hint: `OIDC: disabled (set KIND_ENABLE_OIDC=true to enable)`
-
-#### Documentation
-
-`DEVELOPMENT.md` SHALL document:
-- How to enable OIDC: `KIND_ENABLE_OIDC=true make kind-up`
-- What changes when OIDC is enabled
-- How to log in via the browser (navigate to console, redirected to Keycloak)
-- How to obtain a token for CLI/curl testing
-- Troubleshooting OIDC issues (token expiry, JWKS discovery, cookie problems)
+- `make kind-status` SHALL report OIDC as active and show the Keycloak URL and test credentials
 
 ---
 
@@ -346,11 +341,13 @@ The web console BFF SHALL implement OAuth 2.0 authorization code flow with PKCE 
 - AND set `Authorization: Bearer <access_token>` on the upstream request
 - AND proxy the response back to the browser
 
-#### Scenario: Token Refresh (deferred -- requires cookie chunking)
-- GIVEN the access token has expired but the refresh token is valid
+#### Scenario: Silent Token Refresh
+- GIVEN the access token has expired or is within the skew window
+- AND the refresh token is still valid
 - WHEN the browser makes an API request
-- THEN the BFF SHALL redirect the user to `/auth/login` for re-authentication
-- NOTE: Transparent refresh is deferred until cookie chunking is implemented (refresh tokens exceed the 4KB cookie limit)
+- THEN the BFF SHALL exchange the refresh token for a new token set before forwarding
+- AND persist the rotated refresh token
+- AND the request SHALL succeed without any browser-visible interruption
 
 #### Scenario: Full RP-Initiated Logout
 - GIVEN the browser has an active session
@@ -403,28 +400,118 @@ The BFF SHALL expose a session resource per WEB-AUTH-03.
 - WHEN the browser requests `GET /auth/session`
 - THEN the response SHALL contain `{ "authenticated": false }`
 
-### Requirement: Opt-In Kind OIDC
+### Requirement: Browser Identity and Sign-Out
 
-OIDC in the local Kind cluster SHALL be opt-in via `KIND_ENABLE_OIDC=true`.
+The console SHALL display the authenticated user's identity in the masthead and provide a sign-out control that performs full RP-initiated logout. Identity SHALL come from the `/auth/session` resource; the browser SHALL NOT read tokens.
 
-#### Scenario: OIDC Enabled
-- GIVEN `KIND_ENABLE_OIDC=true`
+#### Scenario: Authenticated Identity in the Masthead
+- GIVEN an authenticated session
+- WHEN the console shell renders
+- THEN the masthead SHALL show an identity menu labeled with the user's display name from `/auth/session`
+- AND no token SHALL be exposed to the browser
+
+#### Scenario: Sign Out Performs Full Logout
+- GIVEN the user opens the identity menu
+- WHEN the user selects sign out
+- THEN the browser SHALL navigate to `/auth/logout`
+- AND the BFF SHALL clear both session cookies and redirect to the IdP `end_session_endpoint` with `id_token_hint`
+- AND the IdP session SHALL be terminated
+
+#### Scenario: No Identity Menu When Unauthenticated
+- GIVEN no session, or the BFF running in no-auth mode
+- WHEN the console shell renders
+- THEN no identity menu SHALL be shown
+
+### Requirement: Silent Token Refresh and Rotation
+
+The BFF SHALL maintain a valid access token without user interaction while the refresh token is valid, rotating refresh tokens and coalescing concurrent refreshes.
+
+#### Scenario: Proactive Refresh Before Expiry
+- GIVEN a session whose access token is within 30 seconds of expiry
+- WHEN the browser makes an `/api/*` request
+- THEN the BFF SHALL refresh the token before forwarding
+- AND set the new access token on the upstream request
+
+#### Scenario: Reactive Refresh on Upstream 401
+- GIVEN the upstream API rejects a proxied request with 401
+- AND the refresh token is valid
+- WHEN the BFF receives the 401
+- THEN the BFF SHALL refresh once and retry the request
+- AND return the retried response on success
+
+#### Scenario: Refresh Token Rotation Persisted
+- GIVEN a successful refresh that returns a new refresh token
+- WHEN the BFF stores the token set
+- THEN the rotated refresh token SHALL replace the previous one in `session_tok`
+- AND the previous refresh token SHALL NOT be reused
+
+#### Scenario: Concurrent Requests Coalesce
+- GIVEN several `/api/*` requests carrying the same expired session arrive together at one BFF instance
+- WHEN the BFF refreshes
+- THEN a single refresh exchange SHALL occur
+- AND all coalesced requests SHALL proceed with the refreshed token
+
+### Requirement: Re-authentication Without Dead Ends
+
+An invalid, expired, or unrefreshable session SHALL route the user to the identity provider to re-authenticate and SHALL NOT surface as a generic application error. This refines WEB-AUTH-03.
+
+#### Scenario: Expired Session on Navigation
+- GIVEN a browser whose session cannot be refreshed
+- WHEN the browser requests an application route
+- THEN the BFF SHALL redirect to `/auth/login`
+- AND `/auth/login` SHALL redirect to the IdP with the current route preserved as `return_to`
+
+#### Scenario: Expired Session on API Request
+- GIVEN a browser whose session cannot be refreshed
+- WHEN the browser makes an `/api/*` request
+- THEN the BFF SHALL respond 401 with a re-authentication signal (`reauth_required` and a `login_url`)
+- AND the browser SHALL perform a full-page navigation to the login URL
+- AND no generic error or permission-denied message SHALL be shown
+
+#### Scenario: Return To Original Route
+- GIVEN a user was on `/gateways/{id}` when the session expired
+- WHEN re-authentication completes
+- THEN the browser SHALL land back on `/gateways/{id}`
+
+#### Scenario: Open-Redirect Rejected
+- GIVEN a `return_to` value that is not a same-origin absolute path (an absolute URL, a scheme, or a protocol-relative `//host`)
+- WHEN `/auth/login` processes it
+- THEN the BFF SHALL ignore it and use the default post-login path
+
+#### Scenario: Authorization Denial Is Not Re-authentication
+- GIVEN an authenticated user without access to a resource
+- WHEN the API returns 403
+- THEN the console SHALL show a denied state
+- AND SHALL NOT redirect to the identity provider
+
+### Requirement: Chunked Session Cookies Within Browser Limits
+
+Session state SHALL be split so that no single cookie exceeds the browser per-cookie size limit, even with refresh and ID tokens stored server-side.
+
+#### Scenario: Two Encrypted Cookies
+- GIVEN a completed login
+- WHEN the BFF sets the session
+- THEN identity and access-token state SHALL be written to the `session` cookie
+- AND the refresh and ID tokens SHALL be written to the `session_tok` cookie
+- AND each cookie SHALL remain under the 4KB browser limit after encryption
+
+#### Scenario: Tokens Never Reach the Browser
+- GIVEN a valid session
+- WHEN the browser reads `GET /auth/session` or inspects cookies via JavaScript
+- THEN no access token, refresh token, or ID token SHALL be observable
+
+### Requirement: Kind OIDC Always-On
+
+OIDC in the local Kind cluster SHALL always be enabled. `make kind-up` configures all components for OIDC authentication automatically.
+
+#### Scenario: OIDC Configured on kind-up
 - WHEN a developer runs `make kind-up`
 - THEN the API server SHALL use `API_ENV=development_oidc`
 - AND the BFF SHALL be configured with OIDC env vars
 - AND the gateway SHALL be created with OIDC configuration
 - AND the banner SHALL display OIDC connection information
 
-#### Scenario: OIDC Disabled (Default)
-- GIVEN `KIND_ENABLE_OIDC` is not set
-- WHEN a developer runs `make kind-up`
-- THEN the API server SHALL use `API_ENV=development`
-- AND the BFF SHALL run in no-auth mode
-- AND the gateway SHALL not have OIDC configuration
-- AND `kind-status` SHALL show a hint about enabling OIDC
-
 #### Scenario: OIDC Status Reporting
-- GIVEN a Kind cluster is running with `KIND_ENABLE_OIDC=true`
 - WHEN a developer runs `make kind-status`
 - THEN the output SHALL show OIDC as active
 - AND display the IdP URL and test user credentials
@@ -449,11 +536,14 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 | `@fastify/secure-session` for cookie encryption | Sodium-based secretbox (NaCl) is the gold standard for symmetric encryption. The library is maintained by the Fastify team and integrates natively. `iron-session` is an alternative but adds an extra dependency outside the Fastify ecosystem. |
 | RP-initiated logout (full IdP session termination) | Clearing the cookie alone leaves the IdP session alive  -- the user could re-authenticate without credentials until TTL expires. Full logout is the expected UX for an enterprise console. One extra redirect is negligible. |
 | Control plane authenticates with its own service account | The control plane obtains JWTs via `client_credentials` grant using a dedicated `hypershell-control-plane` Keycloak client. This is the standard pattern for service-to-service auth with the rh-trex-ai framework (the JWT interceptor validates tokens on all gRPC methods). The service account is least-privilege ready for future RBAC enforcement. |
-| `KIND_ENABLE_OIDC` opt-in instead of always-on | Most contributors are not working on auth. OIDC adds login redirects, token expiry, and cookie management  -- friction for developers testing unrelated features. Opt-in keeps the default experience fast and simple. |
+| OIDC always-on in Kind | OIDC is the only supported authentication method. Running without it masks integration issues and diverges from production. |
 | `hypershell-frontend` client reused for BFF | The client already exists with the correct audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
 | Restrict `redirectUris` from wildcard | Wildcard redirect URIs are an OAuth security anti-pattern (open redirect). Restricting to the deployment's console origin prevents authorization code interception. |
 | `directAccessGrantsEnabled` retained | Password grant is used by CLI tooling and curl-based testing in local dev. Disabling it would break the documented CLI authentication flow in `openshell-gateway-oidc.spec.md`. |
 | Session secret as deployment configuration | Each deployment generates or provisions its own encryption key. In Kind, `openssl rand -hex 32` during `kind-up` stored in a Kubernetes Secret. In production, provisioned via the deployment's secret management system. |
+| Chunked session cookies (`session` + `session_tok`) | Storing the access token, refresh token, and ID token together would push a single encrypted cookie past the ~4KB browser limit (a limit this project has hit before). Splitting a hot-path identity cookie from a refresh cookie keeps each well under the limit and keeps the per-request read small. Both use the same key and are set atomically via `@fastify/secure-session` named sessions. |
+| In-process single-flight refresh instead of a shared lock | The BFF is stateless (encrypted cookies, no shared store), so a distributed lock would add infrastructure the design deliberately avoids. Coalescing concurrent refreshes within an instance handles the common case (an SPA firing parallel requests), and a failed refresh falls back to re-authentication, which is safe. Session affinity MAY be enabled if cross-replica refresh races become material. |
+| Redirect to the IdP on any authentication failure instead of showing an error | A stale or revoked session is not an application error the user can act on; the only recovery is to re-authenticate. Routing straight to the IdP (302 for navigations, a 401 re-authentication signal that the transport turns into a full-page redirect for fetches) removes dead ends. 403 authorization denials remain distinct and do not redirect. |
 
 ---
 

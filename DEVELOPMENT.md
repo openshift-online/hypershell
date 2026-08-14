@@ -182,26 +182,11 @@ KIND_KEYCLOAK_URL=https://keycloak.example.com/realms/hypershell make kind-up
 This skips the local Keycloak deployment and points the gateway OIDC issuer at
 the external URL.
 
-## OIDC Authentication (opt-in)
+## OIDC Authentication
 
-By default, the Kind cluster runs without OIDC authentication: the API server
-disables JWT validation and the web console serves pages without requiring login.
-Enable OIDC to test the full authentication flow end-to-end:
-
-```bash
-KIND_ENABLE_OIDC=true make kind-up
-```
-
-### What changes when OIDC is enabled
-
-| Component | Default (no OIDC) | With OIDC |
-|-----------|-------------------|-----------|
-| API server | `--enable-jwt=false` | `API_ENV=development_oidc`, JWK cert URL configured |
-| Web console | No session, no login | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `SESSION_SECRET` configured |
-| Gateway seed | Fleet, cluster, release, DB only | Also creates a Gateway with OIDC config |
-
-Keycloak deploys in both modes. OIDC mode patches the API server and web console
-deployments at runtime (the base YAML manifests are unchanged).
+The Kind cluster runs with OIDC authentication enabled. Keycloak is deployed as
+the identity provider and all components are configured for JWT validation and
+session management during `make kind-up`.
 
 ### Browser login flow
 
@@ -284,7 +269,6 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
 | `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
 | `KEYCLOAK_OIDC_ISSUER` | `http://keycloak.hypershell.localhost:8080/realms/hypershell` | OIDC issuer URL |
-| `KIND_ENABLE_OIDC` | (unset) | Set to `true` to enable OIDC authentication across all components |
 | `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |

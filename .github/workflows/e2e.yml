@@ -94,11 +94,26 @@ jobs:
               if git diff --name-only "${base_sha}" HEAD | grep -q '^components/web-console/'; then need_konflux=true; fi
 
               if [[ "${need_konflux}" != "true" ]]; then
-                echo "No source components changed -- running with baseline images"
-                echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
-                echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
-                echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                echo "No source components changed -- using latest Konflux on-push images from main"
+                main_sha=$(git rev-parse origin/main)
+                main_tag="on-pr-${main_sha}"
+                konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${main_tag}"
+                konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${main_tag}"
+                konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${main_tag}"
+                # Fall back to baseline if Konflux images are not available
+                if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
+                  echo "  Using Konflux images from main (${main_sha:0:7})"
+                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                  echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
+                  echo "control_plane_image=${konflux_cp}" >> "${GITHUB_OUTPUT}"
+                  echo "web_console_image=${konflux_wc}" >> "${GITHUB_OUTPUT}"
+                else
+                  echo "  Konflux images not found for main -- falling back to baseline"
+                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                  echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+                  echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+                  echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                fi
                 exit 0
               fi
 
@@ -170,11 +185,23 @@ jobs:
               ;;
 
             *)
-              # push, merge_group, workflow_dispatch -- use baselines
-              echo "should_run=true" >> "${GITHUB_OUTPUT}"
-              echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
-              echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
-              echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+              # push, merge_group, workflow_dispatch -- use latest Konflux on-push images
+              push_sha="${{ github.sha }}"
+              push_tag="on-pr-${push_sha}"
+              konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${push_tag}"
+              if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
+                echo "Using Konflux on-push images (${push_sha:0:7})"
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${KONFLUX_REGISTRY}/hypershell-control-plane-main:${push_tag}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${KONFLUX_REGISTRY}/hypershell-web-console-main:${push_tag}" >> "${GITHUB_OUTPUT}"
+              else
+                echo "Konflux on-push images not found -- falling back to baseline"
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+              fi
               ;;
           esac
 
@@ -204,11 +231,12 @@ jobs:
           curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
           openshell --version
 
-      - name: Create Kind cluster
+      - name: Create Kind cluster with OIDC
         env:
           API_SERVER_IMAGE: ${{ needs.resolve-images.outputs.api_server_image }}
           CONTROL_PLANE_IMAGE: ${{ needs.resolve-images.outputs.control_plane_image }}
           WEB_CONSOLE_IMAGE: ${{ needs.resolve-images.outputs.web_console_image }}
+          KIND_ENABLE_OIDC: "true"
         run: make kind-up
 
       - name: Run e2e tests
@@ -222,27 +250,51 @@ jobs:
         if: failure()
         run: |
           mkdir -p e2e-diagnostics
-          echo "=== Pod descriptions ===" > e2e-diagnostics/pod-describes.txt
-          kubectl describe pods -n hypershell-system >> e2e-diagnostics/pod-describes.txt 2>&1 || true
-          echo "=== Pod logs ===" > e2e-diagnostics/pod-logs.txt
-          kubectl logs --all-containers --prefix -l app.kubernetes.io/name=hypershell -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
-          kubectl logs --all-containers --prefix -l app=hypershell-api-server -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
-          kubectl logs --all-containers --prefix -l app=hypershell-controller -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
-          kubectl logs --all-containers --prefix -l app=hypershell-web-console -n hypershell-system >> e2e-diagnostics/pod-logs.txt 2>&1 || true
-          echo "=== Events ===" > e2e-diagnostics/events.txt
-          kubectl get events --sort-by=.lastTimestamp -n hypershell-system >> e2e-diagnostics/events.txt 2>&1 || true
-          echo "=== All pods ===" > e2e-diagnostics/pods.txt
-          kubectl get pods -A >> e2e-diagnostics/pods.txt 2>&1 || true
-          echo "=== Keycloak logs ===" > e2e-diagnostics/keycloak-logs.txt
-          kubectl logs --all-containers --prefix -l app=keycloak -n keycloak --tail=100 >> e2e-diagnostics/keycloak-logs.txt 2>&1 || true
-          echo "=== Gateway API resources ===" > e2e-diagnostics/gateway-api.txt
-          kubectl get gateways,grpcroutes,httproutes -A -o wide >> e2e-diagnostics/gateway-api.txt 2>&1 || true
-          echo "=== Openshell namespaces ===" >> e2e-diagnostics/gateway-api.txt
-          for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
-            echo "--- $ns ---" >> e2e-diagnostics/gateway-api.txt
-            kubectl get pods,svc,deployments -n "${ns##*/}" >> e2e-diagnostics/gateway-api.txt 2>&1 || true
-            kubectl logs --all-containers --prefix -l app.kubernetes.io/name=openshell -n "${ns##*/}" --tail=50 >> e2e-diagnostics/gateway-api.txt 2>&1 || true
-          done
+
+          echo "::group::All pods"
+          kubectl get pods -A -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
+          echo "::endgroup::"
+
+          echo "::group::Pod descriptions (hypershell-system)"
+          kubectl describe pods -n hypershell-system 2>&1 | tee e2e-diagnostics/pod-describes.txt || true
+          echo "::endgroup::"
+
+          echo "::group::Pod logs (hypershell-system)"
+          {
+            for label in app.kubernetes.io/name=hypershell app=hypershell-api-server app=hypershell-controller app=hypershell-web-console; do
+              kubectl logs --all-containers --prefix --tail=200 -l "${label}" -n hypershell-system 2>&1 || true
+            done
+          } | tee e2e-diagnostics/pod-logs.txt
+          echo "::endgroup::"
+
+          echo "::group::Keycloak logs"
+          kubectl logs --all-containers --prefix --tail=100 -l app=keycloak -n keycloak 2>&1 | tee e2e-diagnostics/keycloak-logs.txt || true
+          echo "::endgroup::"
+
+          echo "::group::Events (hypershell-system)"
+          kubectl get events --sort-by=.lastTimestamp -n hypershell-system 2>&1 | tee e2e-diagnostics/events.txt || true
+          echo "::endgroup::"
+
+          echo "::group::Gateway API resources"
+          {
+            kubectl get gateways,grpcroutes,httproutes -A -o wide 2>&1 || true
+            for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
+              ns_name="${ns##*/}"
+              echo "--- $ns ---"
+              kubectl get pods,svc,deployments -n "${ns_name}" 2>&1 || true
+              echo "--- pod descriptions ($ns_name) ---"
+              kubectl describe pods -n "${ns_name}" 2>&1 || true
+              echo "--- events ($ns_name) ---"
+              kubectl get events --sort-by=.lastTimestamp -n "${ns_name}" 2>&1 || true
+              for pod in $(kubectl get pods -n "${ns_name}" -o name 2>/dev/null); do
+                echo "--- logs ${pod} ($ns_name) ---"
+                kubectl logs "${pod}" --all-containers --tail=80 -n "${ns_name}" 2>&1 || true
+                echo "--- previous logs ${pod} ($ns_name) ---"
+                kubectl logs "${pod}" --all-containers --previous --tail=80 -n "${ns_name}" 2>&1 || true
+              done
+            done
+          } | tee e2e-diagnostics/gateway-api.txt
+          echo "::endgroup::"
 
       - name: Upload diagnostics
         if: failure()

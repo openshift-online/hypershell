@@ -3,6 +3,10 @@ import {
   ActionListItem,
   Button,
   ClipboardCopy,
+  ClipboardCopyButton,
+  CodeBlock,
+  CodeBlockAction,
+  CodeBlockCode,
   Content,
   Divider,
   Dropdown,
@@ -14,7 +18,7 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { ExternalLinkAltIcon } from "@patternfly/react-icons";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import { messages } from "../messages";
@@ -28,24 +32,45 @@ import { GatewayStatus } from "./gateway-status";
 
 export function GatewayCliCopy({ gateway }: { gateway: GatewayConnection }) {
   const intl = useIntl();
+  const id = useId();
+  const [copied, setCopied] = useState(false);
   const connectionCommand = buildGatewayAddCommand(gateway);
 
   if (!connectionCommand) {
     return null;
   }
 
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(connectionCommand);
+    setCopied(true);
+  };
+
   return (
-    <ClipboardCopy
-      clickTip={intl.formatMessage(messages.copied)}
-      copyAriaLabel={intl.formatMessage(messages.copyConnectionCommand, {
-        gatewayName: gateway.name,
-      })}
-      hoverTip={intl.formatMessage(messages.copy)}
-      isCode
-      isReadOnly
+    <CodeBlock
+      actions={
+        <CodeBlockAction>
+          <ClipboardCopyButton
+            aria-label={intl.formatMessage(messages.copyConnectionCommand, {
+              gatewayName: gateway.name,
+            })}
+            exitDelay={copied ? 1500 : 600}
+            id={`${id}-copy-button`}
+            maxWidth="110px"
+            onClick={handleCopy}
+            onTooltipHidden={() => {
+              setCopied(false);
+            }}
+            variant="plain"
+          >
+            {copied
+              ? intl.formatMessage(messages.copied)
+              : intl.formatMessage(messages.copy)}
+          </ClipboardCopyButton>
+        </CodeBlockAction>
+      }
     >
-      {connectionCommand}
-    </ClipboardCopy>
+      <CodeBlockCode id={id}>{connectionCommand}</CodeBlockCode>
+    </CodeBlock>
   );
 }
 
@@ -187,7 +212,7 @@ export function GatewayDetailHeader({
   onDeleted,
   onRenamed,
 }: {
-  description: ReactNode;
+  description?: ReactNode;
   gateway: GatewayConnection;
   onDeleted: () => void;
   onRenamed: (gatewayName: string) => void;
@@ -209,9 +234,7 @@ export function GatewayDetailHeader({
             <GatewayStatus status={gateway.status} />
           </FlexItem>
         </Flex>
-        <Content>
-          <p>{description}</p>
-        </Content>
+        <Content>{description && <p>{description}</p>}</Content>
       </FlexItem>
       <FlexItem>
         <GatewayDetailActions

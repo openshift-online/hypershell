@@ -40,6 +40,15 @@ func NewTokenProvider(issuer, clientID, clientSecret string) *TokenProvider {
 	}
 }
 
+// SetTokenEndpoint overrides the discovered token endpoint. Use this when the
+// OIDC discovery document advertises an external HTTPS URL that the pod cannot
+// reach (e.g. a gateway-fronted Keycloak with a self-signed CA).
+func (tp *TokenProvider) SetTokenEndpoint(endpoint string) {
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	tp.tokenEndpoint = endpoint
+}
+
 // Token returns a valid access token, refreshing it if necessary. It returns
 // an empty string when the provider is not configured (no issuer).
 func (tp *TokenProvider) Token() (string, error) {

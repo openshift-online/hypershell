@@ -59,7 +59,7 @@ fi
 # shellcheck source=drivers/kind.sh
 source "$DRIVER_FILE"
 
-REQUIRED_FUNCTIONS=(discover_api_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token)
+REQUIRED_FUNCTIONS=(discover_api_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl)
 for fn in "${REQUIRED_FUNCTIONS[@]}"; do
   if ! declare -f "$fn" >/dev/null 2>&1; then
     red "ERROR: Driver '${E2E_INFRA_DRIVER}' does not implement required function: ${fn}"
@@ -105,7 +105,11 @@ cleanup() {
   fi
   if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
-    curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
+    # JWT is enforced, so the DELETE needs a bearer token. The token acquired
+    # earlier may have expired during provisioning, so refresh best-effort before
+    # deleting; cleanup is non-fatal, so ignore failures.
+    acquire_oidc_token 2>/dev/null || true
+    api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -140,6 +144,71 @@ dim  "  Gateway name:      ${GW_NAME}"
 dim  "  OIDC issuer:       ${E2E_OIDC_ISSUER}"
 dim  "  Sandbox timeout:   ${E2E_SANDBOX_TIMEOUT}s"
 echo ""
+sep
+
+# ── 0. OIDC authentication verification ──────────────────────────────────
+
+echo ""
+bold "0. OIDC Authentication Verification"
+echo ""
+
+# Acquire a token for authenticated API calls
+acquire_oidc_token
+if [[ -n "${_OIDC_ACCESS_TOKEN}" ]]; then
+  _API_AUTH_HEADER="Authorization: Bearer ${_OIDC_ACCESS_TOKEN}"
+  pass "OIDC token acquired for API authentication"
+else
+  fail_test "Could not acquire OIDC token for API authentication"
+  exit 1
+fi
+
+# Verify: unauthenticated API requests return 401
+show_cmd "curl -sk -o /dev/null -w '%{http_code}' ${API_HOST}/api/hypershell/v1/gateways (no auth)"
+UNAUTH_STATUS=$(curl -sk -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
+if [[ "$UNAUTH_STATUS" == "401" ]]; then
+  pass "API server rejects unauthenticated requests (401)"
+else
+  fail_test "Expected 401 for unauthenticated request, got ${UNAUTH_STATUS}"
+fi
+
+# Verify: authenticated API requests return 200
+show_cmd "curl -sk -H 'Authorization: Bearer ...' ${API_HOST}/api/hypershell/v1/gateways"
+AUTH_STATUS=$(api_curl -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
+if [[ "$AUTH_STATUS" == "200" ]]; then
+  pass "API server accepts authenticated requests (200)"
+else
+  fail_test "Expected 200 for authenticated request, got ${AUTH_STATUS}"
+fi
+
+# Verify: BFF /auth/session returns unauthenticated
+CONSOLE_HOST="${API_HOST/api./console.}"
+show_cmd "curl -sk ${CONSOLE_HOST}/auth/session"
+SESSION_RESP=$(curl -sk "${CONSOLE_HOST}/auth/session" 2>/dev/null || true)
+SESSION_AUTH=$(echo "${SESSION_RESP}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('authenticated',''))" 2>/dev/null || true)
+if [[ "$SESSION_AUTH" == "False" ]]; then
+  pass "BFF /auth/session returns authenticated: false"
+else
+  fail_test "Expected authenticated: false from /auth/session, got: ${SESSION_RESP:0:100}"
+fi
+
+# Verify: BFF /auth/login redirects to Keycloak with PKCE
+show_cmd "curl -sk -o /dev/null -w '%{redirect_url}' ${CONSOLE_HOST}/auth/login"
+LOGIN_REDIRECT=$(curl -sk -o /dev/null -w '%{redirect_url}' "${CONSOLE_HOST}/auth/login" 2>/dev/null || true)
+if echo "${LOGIN_REDIRECT}" | grep -q 'code_challenge_method=S256'; then
+  pass "BFF /auth/login redirects to IdP with PKCE"
+else
+  fail_test "Expected PKCE redirect from /auth/login, got: ${LOGIN_REDIRECT:0:100}"
+fi
+
+# Verify: control plane gRPC streams are healthy
+show_cmd "kubectl logs -l app=hypershell-controller --tail=20 | grep Unauthenticated"
+CP_UNAUTH=$(${CLI} logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=50 2>/dev/null | grep -c 'Unauthenticated' || true)
+if [[ "$CP_UNAUTH" == "0" ]]; then
+  pass "Control plane gRPC streams: no Unauthenticated errors"
+else
+  fail_test "Control plane has ${CP_UNAUTH} Unauthenticated gRPC errors"
+fi
+
 sep
 
 # ── 1. infrastructure validation ──────────────────────────────────────────
@@ -228,8 +297,16 @@ echo ""
 bold "2. Gateway Provisioning via HyperShell API"
 echo ""
 
-show_cmd "curl -sk ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
-EXISTING_GW=$(curl -sk "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
+# JWT enforcement means every gateway CRUD call below needs a bearer token.
+# Refresh the token here so the full Keycloak access-token lifetime covers the
+# create plus the provisioning poll (up to E2E_PROVISION_TIMEOUT seconds).
+if ! acquire_oidc_token; then
+  fail_test "Could not acquire OIDC token for gateway provisioning"
+  exit 1
+fi
+
+show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
+EXISTING_GW=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
 EXISTING_ID=$(echo "$EXISTING_GW" | GW_NAME="$GW_NAME" python3 -c "
 import json, sys, os
 data = json.load(sys.stdin)
@@ -260,7 +337,7 @@ for gw in data.get('items', []):
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
-  show_cmd "curl -sk -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
 import json, os
@@ -283,17 +360,35 @@ body = {
 }
 print(json.dumps(body))
 ")
-  CREATE_RESPONSE=$(curl -sk -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+  CREATE_RESPONSE=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
     -d "${GW_CREATE_BODY}" 2>/dev/null || true)
 
-  GW_ID=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-  GW_NAMESPACE=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
+  # A successful create returns kind="Gateway" with a ksuid id. A failure returns
+  # kind="Error" with a numeric id (e.g. "9"=ErrorGeneral/500, "17"=malformed/400).
+  # Detect the error case explicitly: otherwise the error object's id is mistaken
+  # for a gateway id and the provisioning poll spins on a nonexistent gateway until
+  # timeout, masking the real api-server failure.
+  IFS=$'\t' read -r CREATE_KIND CREATE_F1 CREATE_F2 <<< "$(echo "$CREATE_RESPONSE" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('PARSE\t\t'); sys.exit(0)
+if d.get('kind') == 'Error':
+    print('ERROR\t%s\t%s' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
+print('OK\t%s\t%s' % (d.get('id', ''), d.get('namespace', '')))
+" 2>/dev/null)" || true
 
-  if [[ -n "$GW_ID" ]]; then
+  if [[ "$CREATE_KIND" == "OK" && -n "$CREATE_F1" ]]; then
+    GW_ID="$CREATE_F1"
+    GW_NAMESPACE="$CREATE_F2"
     pass "Gateway created: ${GW_NAME} (${GW_ID})"
   else
     fail_test "Failed to create gateway"
+    if [[ "$CREATE_KIND" == "ERROR" ]]; then
+      dim "    api-server error ${CREATE_F1}: ${CREATE_F2}"
+    fi
     dim "    ${CREATE_RESPONSE:0:300}"
     exit 1
   fi
@@ -302,7 +397,7 @@ print(json.dumps(body))
   DEADLINE=$(($(date +%s) + E2E_PROVISION_TIMEOUT))
   GW_PHASE=""
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    GW_PHASE=$(curl -sk "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+    GW_PHASE=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
       python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
@@ -314,7 +409,10 @@ print(json.dumps(body))
   if [[ "$GW_PHASE" == "Running" ]]; then
     pass "Gateway provisioned and running"
   else
-    fail_test "Gateway not running after ${E2E_PROVISION_TIMEOUT}s (phase=${GW_PHASE})"
+    fail_test "Gateway not running after ${E2E_PROVISION_TIMEOUT}s (phase=${GW_PHASE:-unknown})"
+    dim "    last gateway state:"
+    api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null \
+      | python3 -m json.tool 2>/dev/null | sed 's/^/      /' || true
     exit 1
   fi
 fi
@@ -349,6 +447,22 @@ if $CLI get deployment openshell-gateway -n "$GW_NAMESPACE" &>/dev/null; then
     pass "Gateway pod ready ($GW_IMAGE)"
   else
     fail_test "Gateway pod not ready after 90s (${GW_READY:-0} replicas)"
+    dim "  --- gateway diagnostics ($GW_NAMESPACE) ---"
+    dim "  Image: $GW_IMAGE"
+    dim "  Pods:"
+    $CLI get pods -n "$GW_NAMESPACE" -o wide 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    dim "  Events:"
+    $CLI get events --sort-by=.lastTimestamp -n "$GW_NAMESPACE" 2>&1 | tail -20 | while IFS= read -r line; do dim "    $line"; done
+    for pod in $($CLI get pods -n "$GW_NAMESPACE" -l app.kubernetes.io/component=gateway -o name 2>/dev/null); do
+      dim "  Logs ${pod}:"
+      $CLI logs "${pod}" --all-containers --tail=40 -n "$GW_NAMESPACE" 2>&1 | while IFS= read -r line; do dim "    $line"; done
+      dim "  Previous logs ${pod}:"
+      $CLI logs "${pod}" --all-containers --previous --tail=40 -n "$GW_NAMESPACE" 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    done
+    dim "  Describe:"
+    $CLI describe pods -l app.kubernetes.io/component=gateway -n "$GW_NAMESPACE" 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    dim "  ConfigMap:"
+    $CLI get configmap openshell-gateway-config -n "$GW_NAMESPACE" -o yaml 2>&1 | while IFS= read -r line; do dim "    $line"; done
   fi
 else
   fail_test "Gateway Deployment not found in $GW_NAMESPACE"

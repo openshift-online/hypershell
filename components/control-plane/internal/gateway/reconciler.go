@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -14,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -22,6 +26,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 func ReconcileGateway(
@@ -56,8 +62,21 @@ func ReconcileGateway(
 		return fmt.Errorf("reconcile database credentials in %s: %w", nsConfig.Name, err)
 	}
 
-	if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
-		return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
+	if opts.RotateDBCredentials != "" {
+		if err := rotateDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage, opts.RotateDBCredentials); err != nil {
+			return fmt.Errorf("rotate database credentials in %s: %w", nsConfig.Name, err)
+		}
+	}
+
+	if nsConfig.Gateway.CredentialDriver == nil {
+		if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
+			return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
+		}
+		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
+	} else {
+		if err := reconcileCredentialDriverResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
+			return fmt.Errorf("reconcile credential driver resources in %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	if opts.HasCertManager {
@@ -66,6 +85,12 @@ func ReconcileGateway(
 		}
 	} else {
 		return fmt.Errorf("cert-manager is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
+	}
+
+	if opts.Keycloak != nil {
+		if err := reconcileKeycloakClient(ctx, opts, nsConfig); err != nil {
+			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
+		}
 	}
 
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
@@ -102,6 +127,7 @@ func DeleteGatewayResources(
 	clientset *kubernetes.Clientset,
 	namespace string,
 	opts ReconcileOpts,
+	credentialNamespaces ...string,
 ) error {
 	labelSelector := "hypershell.redhat.io/managed=true"
 
@@ -176,6 +202,22 @@ func DeleteGatewayResources(
 		}
 	} else {
 		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
+	}
+
+	if opts.KeycloakClient != nil && opts.GatewayName != "" && opts.GatewayID != "" {
+		kcClientID := KeycloakClientID(opts.GatewayName, opts.GatewayID)
+		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
+			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+		} else {
+			log.Printf("INFO deleted keycloak client %s", kcClientID)
+		}
+	}
+
+	for _, credNS := range credentialNamespaces {
+		if credNS != "" && credNS != namespace {
+			deleteCredentialSecretsRBAC(ctx, dynamicClient, credNS)
+			log.Printf("INFO cleaned up credential RBAC from namespace %s", credNS)
+		}
 	}
 
 	log.Printf("INFO gateway resources cleaned up from namespace %s", namespace)
@@ -316,7 +358,7 @@ func deployGateway(
 				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
 			}
 
-			if err := ApplyConfigOverrides(obj, nsConfig.Gateway); err != nil {
+			if err := ApplyConfigOverrides(obj, nsConfig.Gateway, nsConfig.Name); err != nil {
 				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
 			}
 
@@ -350,26 +392,112 @@ func deployGateway(
 }
 
 func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
-	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		return nil
+	watchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	fieldSelector := fields.OneTermEqualSelector("metadata.name", name).String()
+
+	for {
+		list, err := clientset.CoreV1().Secrets(namespace).List(watchCtx, metav1.ListOptions{
+			FieldSelector: fieldSelector,
+		})
+		if err != nil {
+			if watchCtx.Err() != nil {
+				return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+			}
+			return fmt.Errorf("list secret %s/%s: %w", namespace, name, err)
+		}
+		if len(list.Items) > 0 {
+			return nil
+		}
+
+		watcher, err := clientset.CoreV1().Secrets(namespace).Watch(watchCtx, metav1.ListOptions{
+			FieldSelector:   fieldSelector,
+			ResourceVersion: list.ResourceVersion,
+		})
+		if err != nil {
+			if watchCtx.Err() != nil {
+				return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+			}
+			return fmt.Errorf("watch secret %s/%s: %w", namespace, name, err)
+		}
+
+		appeared := false
+		for event := range watcher.ResultChan() {
+			if event.Type == watch.Added || event.Type == watch.Modified {
+				appeared = true
+				break
+			}
+		}
+		watcher.Stop()
+
+		if appeared {
+			log.Printf("INFO secret %s/%s is available", namespace, name)
+			return nil
+		}
+
+		if watchCtx.Err() != nil {
+			return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+		}
+		log.Printf("INFO watch for secret %s/%s closed early; re-establishing", namespace, name)
+	}
+}
+
+// GatewayDeploymentName is the name of the primary gateway workload Deployment
+// whose readiness gates the Gateway `Running` phase.
+const GatewayDeploymentName = "openshell-gateway"
+
+// DeploymentReadiness performs a single, non-blocking check of a Deployment's
+// readiness. It returns ready=true when ready replicas meet or exceed desired
+// replicas. When the Deployment is not ready, reason carries a short
+// human-readable descriptor (e.g. "1/2 replicas ready" or "deployment not
+// found") suitable for the Gateway `status` field.
+func DeploymentReadiness(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string) (ready bool, reason string, err error) {
+	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, "deployment not found", nil
+		}
+		return false, "", fmt.Errorf("get deployment %s/%s: %w", namespace, name, err)
 	}
 
+	desired := int32(1)
+	if deploy.Spec.Replicas != nil {
+		desired = *deploy.Spec.Replicas
+	}
+	if deploy.Status.ReadyReplicas >= desired {
+		return true, "", nil
+	}
+	return false, fmt.Sprintf("%d/%d replicas ready", deploy.Status.ReadyReplicas, desired), nil
+}
+
+// WaitForGatewayReady blocks until the openshell-gateway Deployment reaches
+// readiness or the timeout elapses. It returns ready=true on readiness, or
+// ready=false with the last observed reason when the provisioning readiness
+// window expires without the workload becoming ready.
+func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, namespace string, timeout time.Duration) (bool, string) {
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	lastReason := "not ready"
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err().Error()
 		case <-deadline:
-			return fmt.Errorf("timed out waiting for secret %s/%s", namespace, name)
+			return false, lastReason
 		case <-ticker.C:
-			_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
-			if err == nil {
-				log.Printf("INFO secret %s/%s is available", namespace, name)
-				return nil
+			ready, reason, err := DeploymentReadiness(ctx, clientset, namespace, GatewayDeploymentName)
+			if err != nil {
+				lastReason = err.Error()
+				continue
+			}
+			if ready {
+				return true, ""
+			}
+			if reason != "" {
+				lastReason = reason
 			}
 		}
 	}
@@ -537,20 +665,22 @@ func applyConfigHashAnnotation(ctx context.Context, clientset *kubernetes.Client
 		return
 	}
 
-	tlsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
-	if err == nil {
-		keys := make([]string, 0, len(tlsSecret.Data))
-		for k := range tlsSecret.Data {
-			keys = append(keys, k)
+	for _, secretName := range []string{"openshell-server-tls", "openshell-gateway-db-credentials"} {
+		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if err == nil {
+			keys := make([]string, 0, len(secret.Data))
+			for k := range secret.Data {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				h.Write([]byte(k))
+				h.Write(secret.Data[k])
+			}
+		} else if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN skipping config-hash annotation in %s: failed to get Secret %s: %v", namespace, secretName, err)
+			return
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			h.Write([]byte(k))
-			h.Write(tlsSecret.Data[k])
-		}
-	} else if !k8serrors.IsNotFound(err) {
-		log.Printf("WARN skipping config-hash annotation in %s: failed to get Secret: %v", namespace, err)
-		return
 	}
 
 	hashStr := hex.EncodeToString(h.Sum(nil))
@@ -792,6 +922,141 @@ func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Cli
 	return nil
 }
 
+func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig NamespaceConfig) error {
+	log.Printf("INFO keycloak: starting client reconciliation for gateway %s (id=%s) server=%s realm=%s",
+		opts.GatewayName, opts.GatewayID, opts.Keycloak.ServerURL, opts.Keycloak.Realm)
+
+	kc := keycloak.NewClient(
+		opts.Keycloak.ServerURL,
+		opts.Keycloak.Realm,
+		opts.Keycloak.ClientID,
+		opts.Keycloak.ClientSecret,
+	)
+
+	if opts.GatewayName == "" {
+		return fmt.Errorf("gateway name is required for keycloak provisioning")
+	}
+	if opts.GatewayID == "" {
+		return fmt.Errorf("gateway id is required for keycloak provisioning")
+	}
+
+	kcClientID := KeycloakClientID(opts.GatewayName, opts.GatewayID)
+	log.Printf("INFO keycloak: resolved client id %s for gateway %s", kcClientID, opts.GatewayName)
+
+	log.Printf("INFO keycloak: checking if client %s already exists", kcClientID)
+	existingUUID, err := kc.GetClientUUID(ctx, kcClientID)
+	if err != nil {
+		return fmt.Errorf("check existing keycloak client: %w", err)
+	}
+
+	if existingUUID != "" {
+		log.Printf("INFO keycloak: client %s already exists (uuid=%s), skipping provisioning", kcClientID, existingUUID)
+	} else {
+		log.Printf("INFO keycloak: provisioning new client %s", kcClientID)
+		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)
+		if err != nil {
+			return fmt.Errorf("provision keycloak client %s: %w", kcClientID, err)
+		}
+		log.Printf("INFO keycloak: provisioned client %s (uuid=%s)", kcClientID, clientUUID)
+	}
+
+	oidcConfig := OIDCConfig{
+		Issuer:     kc.Issuer(),
+		ClientID:   kcClientID,
+		Audience:   kcClientID,
+		JwksTTL:    3600,
+		RolesClaim: "hypershell.roles",
+		AdminRole:  "openshell-admin",
+		UserRole:   "openshell-user",
+	}
+	// The Keycloak Admin API server URL must be reachable in-cluster, but the
+	// gateway's client-facing issuer (consumed by the gateway pod, console, and
+	// CLI) may need to be a separately reachable URL. When GATEWAY_OIDC_ISSUER_URL
+	// is set it overrides the admin-derived issuer; it MUST equal Keycloak's
+	// KC_HOSTNAME so the token `iss` claim validates. Unset preserves 98's default.
+	if issuerURL := os.Getenv("GATEWAY_OIDC_ISSUER_URL"); issuerURL != "" {
+		log.Printf("INFO keycloak: overriding issuer URL with GATEWAY_OIDC_ISSUER_URL=%s", issuerURL)
+		oidcConfig.Issuer = issuerURL
+	}
+	log.Printf("INFO keycloak: oidc config for %s: issuer=%s audience=%s roles_claim=%s",
+		kcClientID, oidcConfig.Issuer, oidcConfig.Audience, oidcConfig.RolesClaim)
+	nsConfig.Gateway.OIDC = oidcConfig
+
+	if opts.UpdateOIDC != nil {
+		oidcJSON, err := json.Marshal(oidcConfig)
+		if err != nil {
+			return fmt.Errorf("marshal oidc config: %w", err)
+		}
+		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
+			log.Printf("WARN keycloak: failed to persist oidc config for %s: %v", kcClientID, err)
+		} else {
+			log.Printf("INFO keycloak: persisted oidc config for %s to api-server", kcClientID)
+		}
+	}
+
+	log.Printf("INFO keycloak: client reconciliation complete for %s", kcClientID)
+	return nil
+}
+
+func rotateDatabaseCredentials(ctx context.Context, clientset *kubernetes.Clientset, namespace string, dbImage string, rotateTimestamp string) error {
+	secretName := "openshell-gateway-db-credentials"
+	existing, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get database credentials secret for rotation: %w", err)
+	}
+
+	lastRotation := existing.Annotations["hypershell.redhat.io/last-db-rotation"]
+	if lastRotation == rotateTimestamp {
+		log.Printf("DEBUG database credentials in %s already rotated at %s, skipping", namespace, rotateTimestamp)
+		return nil
+	}
+
+	passwordBytes := make([]byte, 32)
+	if _, err := rand.Read(passwordBytes); err != nil {
+		return fmt.Errorf("generate new database password: %w", err)
+	}
+	newPassword := hex.EncodeToString(passwordBytes)
+
+	userKey, passKey, _ := postgresEnvKeys(dbImage)
+	dbUser := string(existing.Data[userKey])
+	if dbUser == "" {
+		dbUser = "openshell"
+	}
+
+	dbHost := fmt.Sprintf("openshell-gateway-db.%s.svc.cluster.local", namespace)
+	connStr := fmt.Sprintf("postgresql://%s:%s@%s:5432/openshell?sslmode=disable&connect_timeout=10",
+		dbUser, url.QueryEscape(string(existing.Data[passKey])), dbHost)
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("open database connection for rotation: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD %s", pq.QuoteIdentifier(dbUser), pq.QuoteLiteral(newPassword))); err != nil {
+		return fmt.Errorf("ALTER ROLE during credential rotation: %w", err)
+	}
+	log.Printf("INFO executed ALTER ROLE for user %s in %s", dbUser, namespace)
+
+	dbName := "openshell"
+	dbURL := fmt.Sprintf("postgresql://%s:%s@openshell-gateway-db:5432/%s?sslmode=disable",
+		dbUser, url.QueryEscape(newPassword), dbName)
+
+	existing.Data[passKey] = []byte(newPassword)
+	existing.Data["url"] = []byte(dbURL)
+	if existing.Annotations == nil {
+		existing.Annotations = make(map[string]string)
+	}
+	existing.Annotations["hypershell.redhat.io/last-db-rotation"] = rotateTimestamp
+
+	if _, err := clientset.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update database credentials secret after rotation: %w", err)
+	}
+
+	log.Printf("INFO rotated database credentials in %s (timestamp=%s)", namespace, rotateTimestamp)
+	return nil
+}
+
 func isRHELPostgres(image string) bool {
 	return strings.Contains(image, "rhel") && strings.Contains(image, "postgresql-")
 }
@@ -858,6 +1123,114 @@ func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset
 	}
 
 	log.Printf("INFO created credential KEK secret %s in %s", secretName, namespace)
+	return nil
+}
+
+func reconcileCredentialDriverResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
+	nsConfig NamespaceConfig,
+) error {
+	driver := nsConfig.Gateway.CredentialDriver
+	if driver.Type == "kubernetes-secrets" {
+		credNS := nsConfig.Name
+		if driver.KubernetesSecrets != nil && driver.KubernetesSecrets.Namespace != "" {
+			credNS = driver.KubernetesSecrets.Namespace
+		}
+		if err := reconcileCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name, credNS); err != nil {
+			return fmt.Errorf("reconcile credential secrets RBAC: %w", err)
+		}
+	} else {
+		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
+	}
+	return nil
+}
+
+func deleteCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Interface, namespace string) {
+	roleGVR := schema.GroupVersionResource{
+		Group:    "rbac.authorization.k8s.io",
+		Version:  "v1",
+		Resource: "roles",
+	}
+	roleBindingGVR := schema.GroupVersionResource{
+		Group:    "rbac.authorization.k8s.io",
+		Version:  "v1",
+		Resource: "rolebindings",
+	}
+
+	name := "openshell-gateway-credential-secrets"
+	if err := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete credential secrets RoleBinding in %s: %v", namespace, err)
+	}
+	if err := dynamicClient.Resource(roleGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete credential secrets Role in %s: %v", namespace, err)
+	}
+}
+
+func reconcileCredentialSecretsRBAC(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	gatewayNamespace, credentialNamespace string,
+) error {
+	managedLabels := map[string]interface{}{
+		"app.kubernetes.io/name":       "openshell",
+		"app.kubernetes.io/component":  "gateway",
+		"app.kubernetes.io/managed-by": "hypershell-control-plane",
+		"hypershell.redhat.io/managed": "true",
+	}
+
+	role := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1",
+			"kind":       "Role",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-credential-secrets",
+				"namespace": credentialNamespace,
+				"labels":    managedLabels,
+			},
+			"rules": []interface{}{
+				map[string]interface{}{
+					"apiGroups": []interface{}{""},
+					"resources": []interface{}{"secrets"},
+					"verbs":     []interface{}{"get", "create", "patch", "delete"},
+				},
+			},
+		},
+	}
+
+	roleBinding := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1",
+			"kind":       "RoleBinding",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-credential-secrets",
+				"namespace": credentialNamespace,
+				"labels":    managedLabels,
+			},
+			"roleRef": map[string]interface{}{
+				"apiGroup": "rbac.authorization.k8s.io",
+				"kind":     "Role",
+				"name":     "openshell-gateway-credential-secrets",
+			},
+			"subjects": []interface{}{
+				map[string]interface{}{
+					"kind":      "ServiceAccount",
+					"name":      "openshell-gateway",
+					"namespace": gatewayNamespace,
+				},
+			},
+		},
+	}
+
+	if err := reconcileResource(ctx, dynamicClient, role); err != nil {
+		return fmt.Errorf("reconcile credential secrets Role: %w", err)
+	}
+	if err := reconcileResource(ctx, dynamicClient, roleBinding); err != nil {
+		return fmt.Errorf("reconcile credential secrets RoleBinding: %w", err)
+	}
+
+	log.Printf("INFO reconciled credential secrets RBAC in %s for gateway in %s", credentialNamespace, gatewayNamespace)
 	return nil
 }
 
@@ -928,20 +1301,6 @@ func gatewayIngressName() string {
 	return ""
 }
 
-func gatewayTLSIssuerName() string {
-	if name := os.Getenv("GATEWAY_API_TLS_ISSUER_NAME"); name != "" {
-		return name
-	}
-	return "openshell-ca-issuer"
-}
-
-func gatewayTLSIssuerKind() string {
-	if kind := os.Getenv("GATEWAY_API_TLS_ISSUER_KIND"); kind != "" {
-		return kind
-	}
-	return "Issuer"
-}
-
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
 	routeConfig := nsConfig.Gateway.Route
@@ -961,6 +1320,19 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		hostname = fmt.Sprintf("%s.%s", firstLabel, baseDomain)
 	}
 
+	// Publish the deterministic route address immediately. The hostname is known
+	// before the per-tenant Gateway reports Accepted/Programmed, so the connection
+	// command is available to the CLI and console while the gateway finishes
+	// provisioning. Readiness is reflected separately by the Gateway phase.
+	if opts.UpdateRouteAddress != nil {
+		routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
+		if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+			log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+		} else {
+			log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+		}
+	}
+
 	gwNS := gatewayIngressNamespace()
 	sharedGwName := gatewayIngressName()
 	gwName := "gw-" + namespace
@@ -970,44 +1342,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 
 	if sharedGwName == "" {
-		tlsCertName := gatewayTLSSecretName() + "-" + namespace
-		tlsSecretName := tlsCertName
-
-		if opts.HasCertManager {
-			gwCert := &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"apiVersion": "cert-manager.io/v1",
-					"kind":       "Certificate",
-					"metadata": map[string]interface{}{
-						"name":      tlsCertName,
-						"namespace": gwNS,
-						"labels": map[string]interface{}{
-							"app.kubernetes.io/name":       "openshell",
-							"app.kubernetes.io/component":  "gateway",
-							"app.kubernetes.io/managed-by": "hypershell-control-plane",
-							"hypershell.redhat.io/managed": "true",
-							"hypershell.redhat.io/tenant":  namespace,
-						},
-					},
-					"spec": map[string]interface{}{
-						"secretName": tlsSecretName,
-						"dnsNames":   []interface{}{hostname},
-						"issuerRef": map[string]interface{}{
-							"name":  gatewayTLSIssuerName(),
-							"kind":  gatewayTLSIssuerKind(),
-							"group": "cert-manager.io",
-						},
-					},
-				},
-			}
-			if err := reconcileResource(ctx, dynamicClient, gwCert); err != nil {
-				return fmt.Errorf("reconcile gateway TLS Certificate in %s: %w", gwNS, err)
-			}
-
-			if err := waitForSecret(ctx, clientset, gwNS, tlsSecretName, 60*time.Second); err != nil {
-				return fmt.Errorf("wait for gateway TLS Secret %s/%s: %w", gwNS, tlsSecretName, err)
-			}
-		}
+		tlsSecretName := gatewayTLSSecretName()
 
 		gw := &unstructured.Unstructured{
 			Object: map[string]interface{}{
@@ -1107,6 +1442,10 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 	if err := reconcileResource(ctx, dynamicClient, grpcRoute); err != nil {
 		return fmt.Errorf("reconcile GRPCRoute: %w", err)
+	}
+
+	if err := waitForSecret(ctx, clientset, namespace, "openshell-server-tls", 60*time.Second); err != nil {
+		return fmt.Errorf("wait for server TLS secret in %s: %w", namespace, err)
 	}
 
 	caData := ""
@@ -1257,68 +1596,11 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
 	}
 
-	// R15/R16: Check Gateway status conditions and publish routeAddress once
-	// the per-tenant Gateway reports Accepted+Programmed.
-	if opts.UpdateRouteAddress != nil {
-		gwGVR := schema.GroupVersionResource{
-			Group:    "gateway.networking.k8s.io",
-			Version:  "v1",
-			Resource: "gateways",
-		}
-		gwObj, err := dynamicClient.Resource(gwGVR).Namespace(gwNS).Get(ctx, gwName, metav1.GetOptions{})
-		if err != nil {
-			log.Printf("WARN failed to get Gateway status for routeAddress discovery: %v", err)
-		} else if gatewayConditionsMet(gwObj) {
-			routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
-			if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-				log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
-			} else {
-				log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
-			}
-		} else {
-			log.Printf("DEBUG Gateway not yet ready in %s, deferring routeAddress update", namespace)
-		}
-	}
+	// The route address is published deterministically at the top of this
+	// function, so no readiness-gated discovery is required here.
 
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
 	return nil
-}
-
-// gatewayConditionsMet returns true when the Gateway API Gateway resource
-// reports both Accepted: True and Programmed: True status conditions.
-func gatewayConditionsMet(gw *unstructured.Unstructured) bool {
-	generation, _, _ := unstructured.NestedInt64(gw.Object, "metadata", "generation")
-	conditions, found, _ := unstructured.NestedSlice(gw.Object, "status", "conditions")
-	if !found {
-		return false
-	}
-	accepted := false
-	programmed := false
-	for _, c := range conditions {
-		cond, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		var obsGen int64
-		switch v := cond["observedGeneration"].(type) {
-		case int64:
-			obsGen = v
-		case float64:
-			obsGen = int64(v)
-		}
-		if obsGen < generation {
-			continue
-		}
-		condType, _ := cond["type"].(string)
-		condStatus, _ := cond["status"].(string)
-		if condType == "Accepted" && condStatus == "True" {
-			accepted = true
-		}
-		if condType == "Programmed" && condStatus == "True" {
-			programmed = true
-		}
-	}
-	return accepted && programmed
 }
 
 func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) error {

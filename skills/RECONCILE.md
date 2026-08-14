@@ -45,9 +45,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-12
-**Spec corpus**: 26 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
-**Codebase commit**: working tree
+**Last analyzed**: 2026-08-13
+**Spec corpus**: 28 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
+**Codebase commit**: 1055647 (spec/gateway-keycloak-provisioning)
 
 ### Coverage Summary
 
@@ -58,15 +58,17 @@ skills/
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
 | Platform - Gateway DB | 1 | 9 | 5 | 0 | 4 | 0 | 56% |
 | Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
-| Platform - Gateway OIDC | 1 | 7 | 4 | 1 | 2 | 0 | 64% |
+| Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
+| Platform - Gateway Keycloak | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
+| Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 0 | 2 | 69% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
-| Security - RBAC Enforcement | 1 | 13 | 9 | 2 | 0 | 2 | 79% |
+| Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **26** | **165** | **120** | **20** | **26** | **3** | **78%** |
+| **TOTAL** | **28** | **183** | **138** | **18** | **27** | **5** | **80%** |
 
 ### Spec Dependency Order
 
@@ -76,7 +78,9 @@ Layer 1:          control-plane, local-development, web-console architecture
 Layer 2:          openshell-gateway (core)
 Layer 3:          openshell-gateway-database, openshell-gateway-tls
 Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
+Layer 4.5:        openshell-gateway-secret-rotation (depends on database, credentials, TLS)
 Layer 5:          openshell-gateway-routing (depends on TLS for BackendTLSPolicy)
+Layer 5.5:        openshell-gateway-keycloak (depends on oidc, rbac-enforcement)
 Layer 6:          local-development (depends on all platform specs)
 Layer 1.5:        security/rbac-enforcement (depends on data-model)
 Layer 7:          web-console/architecture (depends on data-model, security, UI standards)
@@ -181,6 +185,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | O5 | `jwks_ttl` default 3600 | Partial | Field exists; default not applied when value is 0 | `config.go:25` | W7 |
 | O6 | Custom `config` field bypasses OIDC injection | Missing | No raw TOML `config` field in GatewayConfig | - | Future |
 | O7 | Gateway restart on OIDC change | Missing | No hash annotation mechanism | - | W7 |
+| O8 | OIDC fields are read-only (auto-populated by CP) | Present | `oidc` field in OpenAPI has `readOnly: true`; auto-populated by Keycloak provisioning | `openapi.gateways.yaml:274-276` | KC-W1 ✅ |
+| O9 | Auto-provisioned roles always complete | Present | `reconcileKeycloakClient()` always sets roles_claim, admin_role, user_role from Keycloak config | `gateway/reconciler.go` | KC-W1 ✅ |
 
 ### openshell-gateway-routing.spec.md
 
@@ -265,7 +271,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OI-2 | BFF OIDC Authorization Code Flow | Present | Auth code + PKCE, encrypted cookies, token refresh, RP-initiated logout | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
 | OI-3 | BFF Session Security | Present | @fastify/secure-session, CSRF Origin validation, session rotation | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
 | OI-4 | BFF Browser Session Contract | Present | GET /auth/session with identity, roles, expiry; no tokens | `bff/src/auth.ts` | OIDC ✅ |
-| OI-5 | Opt-In Kind OIDC | Present | KIND_ENABLE_OIDC wired through Makefile/lib.sh/up.sh/status.sh | `scripts/kind/`, `Makefile` | OIDC ✅ |
+| OI-5 | Kind OIDC Always-On | Present | OIDC enabled unconditionally in kind-up; KIND_ENABLE_OIDC removed | `scripts/kind/`, `Makefile` | OIDC ✅ |
 | OI-6 | Identity Provider Client Security | Partial | redirectUris restricted but port wildcard pattern not supported by Keycloak; needs explicit port URIs | `keycloak.yaml` | Follow-up |
 
 ### rbac-enforcement.spec.md
@@ -273,18 +279,45 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; controlled by `RBAC_ENFORCE` env var | `pkg/rbac/authorization.go` | WR4 ✅ |
-| RBAC-2 | Resource List Filtering | Partial | Authz middleware blocks unauthorized requests; per-query DAO filtering deferred | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-2 | Resource List Filtering | Present | Per-query visibility filtering via `GatewayVisibilityFilter` in gateway List handler; `FindGatewayIDsByUserID` DAO method | `plugins/gateways/handler.go`, `pkg/rbac/visibility_filter.go` | KC-W3 ✅ |
 | RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go` | WR1 ✅, WR3 ✅ |
 | RBAC-4 | Bootstrap via Fleet Creation | Present | `fleetHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/fleets/handler.go`, `pkg/rbac/fleet_bootstrap.go` | WR3 ✅ |
 | RBAC-5 | Platform Admin Bootstrap | Deferred | First platform:admin created via DB migration; no CLI command by design | - | Future |
 | RBAC-6 | RoleBinding Mutation Authorization | Present | Strictly-below hierarchy enforcement on Create; advisory-locked last-owner protection on Delete | `plugins/roleBindings/service.go` | WR2 ✅, WR8 ✅ |
-| RBAC-7 | Gateway OIDC Role Bridge | Deferred | CP does not propagate RBAC role changes to gateway OIDC config | - | Future |
+| RBAC-7 | Gateway OIDC Role Bridge | Present | RoleBindingReconciler watches RoleBinding events via gRPC stream; maps gateway:owner→openshell-admin, gateway:viewer→openshell-user via Keycloak Admin REST API | `reconciler/role_binding_reconciler.go`, `keycloak/client.go` | KC-W2 ✅ |
 | RBAC-8 | Auth-Exempt Endpoints | Present | `isExemptEndpoint` exempts POST /fleets, GET /roles, GET /roles/{id}, GET /metadata, GET /openapi | `pkg/rbac/authorization.go` | WR4 ✅, WR8 ✅ |
 | RBAC-9 | gRPC Authorization | Present | `isGRPCAuthorized` evaluates bindings against method type (Get/List/Watch=read, Create/Update=write, Delete=owner-only); lazy init via `RegisterPostAuthGRPC*Interceptor` | `pkg/rbac/grpc_interceptor.go`, `plugins/rbac/grpc_init.go` | WR6 ✅, WR8 ✅ |
 | RBAC-10 | Service Caller Bypass | Present | Authz middleware checks for service caller (ClientID-based) and bypasses RBAC | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-11 | Error Response Opacity | Present | Singleton GETs return 404 when unauthorized; mutations return generic 403 | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-12 | Production Rollout | Present | `RBAC_ENFORCE=true` env var enables enforcement; separate from framework `enable-authz` | `plugins/rbac/plugin.go` | WR4 ✅ |
 | RBAC-13 | Integration Test Coverage | Present | Unit tests: 18 authorization + 6 gRPC (pkg/rbac/). Integration tests: roles (4), roleBindings (12 including hierarchy enforcement, scope FK validation, last-owner protection) | `pkg/rbac/*_test.go`, `plugins/roles/integration_test.go`, `plugins/roleBindings/integration_test.go` | WR7 ✅, WR8 ✅ |
+
+### openshell-gateway-keycloak.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| KC-1 | Keycloak Service Account Access | Present | `hypershell-keycloak-admin` Secret read at CP startup; token cache with 80% TTL refresh | `main.go:106-118`, `keycloak/client.go` | KC-W1 ✅ |
+| KC-2 | Per-Gateway OIDC Client Provisioning | Present | `ProvisionGatewayClient()` creates public client with PKCE, fullScopeAllowed=false, redirectUris | `keycloak/client.go`, `gateway/reconciler.go` | KC-W1 ✅ |
+| KC-3 | Client Role Provisioning | Present | `openshell-admin` + `openshell-user` roles created via Admin REST API | `keycloak/client.go:createClientRoles()` | KC-W1 ✅ |
+| KC-4 | Protocol Mapper Provisioning | Present | audience, sub, client-roles mappers created on client | `keycloak/client.go:createProtocolMappers()` | KC-W1 ✅ |
+| KC-5 | RBAC-Driven Keycloak Role Assignment (OIDC Role Bridge) | Present | `WatchRoleBindings` gRPC stream; RoleBindingReconciler maps gateway:owner→openshell-admin, gateway:viewer→openshell-user | `role_bindings.proto`, `grpc_handler.go`, `role_binding_reconciler.go` | KC-W2 ✅ |
+| KC-6 | Auto-Populated OIDC Configuration | Present | `reconcileKeycloakClient()` auto-populates OIDC from Keycloak config and patches Gateway via `UpdateOIDC` callback | `gateway/reconciler.go`, `reconciler/reconciler.go` | KC-W1 ✅ |
+| KC-7 | Gateway Visibility Scoping | Present | `GatewayVisibilityFilter` in List handler filters results by caller's RoleBinding gateway_ids | `handler.go`, `visibility_filter.go`, `dao.go:FindGatewayIDsByUserID()` | KC-W3 ✅ |
+| KC-8 | Keycloak Client Cleanup | Present | `DeleteGatewayClient()` called in `DeleteGatewayResources()` opts | `gateway/reconciler.go`, `keycloak/client.go` | KC-W1 ✅ |
+| KC-9 | Provisioning Atomicity | Present | `ProvisionGatewayClient()` rolls back client on role/mapper creation failure | `keycloak/client.go` | KC-W1 ✅ |
+
+### openshell-gateway-secret-rotation.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| SR-1 | Database Password Rotation (annotation-triggered) | Present | `rotateDatabaseCredentials()` checks `rotate-db-credentials` annotation vs `last-db-rotation`; generates new password, ALTER ROLE, updates Secret | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-2 | Database Rotation Failure Handling (ALTER ROLE first, then Secret) | Present | ALTER ROLE executes before Secret update; if ALTER fails, Secret is unchanged; if Secret update fails, ALTER is idempotent on retry | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-3 | Config-Hash Coverage for Database Credentials | Present | `applyConfigHashAnnotation` now loops over both `openshell-server-tls` AND `openshell-gateway-db-credentials` Secrets | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-4 | PostgreSQL Connection for ALTER ROLE | Present | `database/sql` + `lib/pq` imported; direct PostgreSQL connection for ALTER ROLE | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-5 | KEK Rotation (Day-2) | Deferred | Explicitly deferred in spec; no gateway re-encryption API exists | - | Future |
+| SR-6 | TLS Certificate Rotation (cert-manager) | Present | cert-manager handles renewal; `applyConfigHashAnnotation` includes TLS Secret; config-hash triggers restart | `reconciler.go:540-554` | W7 ✅ |
+| SR-7 | Provider Credential Rotation by Driver Type | Deferred | Credential driver fields not yet implemented in reconciler; driver-specific rotation is platform-managed (K8s SA, Vault) | - | Future |
+| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Present | DB password rotation is independent of credential driver; wired after `reconcileDatabaseCredentials()` via `RotateDBCredentials` opt | `gateway/reconciler.go` | SR-W1 ✅ |
 
 ### e2e-openshell.sh (Test Alignment)
 
@@ -418,19 +451,43 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 
 **Wave R8 summary:** Resolved 12 PR review security findings. Blockers: (1) gRPC interceptor now evaluates bindings against method type via `isGRPCAuthorized` instead of blanket pass-through; (2) RoleBinding Create enforces strictly-below hierarchy with platform:admin exception via `validateHierarchy`. Majors: (3) `matchesFleetRole` fixed `fleet:editor` DELETE bug (`|| true` removed); (4) gateway-scoped bindings now compare `b.GatewayID` against request `gatewayID`; (5) `isExemptEndpoint` now exempts GET /roles and GET /roles/{id}; (6) gateway scope validation rejects `fleet_id` (exactly one FK); (7) last-owner protection uses `NewNonBlockingLock` advisory lock to prevent races. Verified: fleet owner bootstrap IS atomic via framework `TransactionMiddleware`. Added 24 unit tests (`pkg/rbac/`) + 5 new integration tests. All admin seeding references removed from spec and RECONCILE.md.
 
+### Wave KC-W1: Keycloak Client Provisioning + OIDC Auto-Population ✅
+
+**Scope:** KC-1, KC-2, KC-3, KC-4, KC-6, KC-8, KC-9 | **Status:** Complete
+
+Created `keycloak/client.go` with full Admin REST API client (token cache with 80% TTL refresh, client CRUD, role/mapper provisioning, atomic rollback). Read `hypershell-keycloak-admin` Secret at CP startup. `reconcileKeycloakClient()` provisions OIDC client with PKCE, fullScopeAllowed=false, openshell-admin/openshell-user roles, audience/sub/client-roles mappers. Auto-populates Gateway `oidc` field via `UpdateOIDC` callback. Keycloak client deleted on Gateway deletion. OpenAPI `oidc` field marked `readOnly: true`.
+
+### Wave KC-W2: OIDC Role Bridge (RoleBinding Event Handling) ✅
+
+**Scope:** KC-5, RBAC-7 | **Status:** Complete
+
+Added `role_bindings.proto` with `WatchRoleBindings` RPC. Created `grpc_handler.go` and `grpc_presenter.go` in roleBindings plugin with role name enrichment via RoleService. Added `WatchRoleBindings` to watcher package. Created `RoleBindingReconciler` that maps gateway:owner→openshell-admin, gateway:viewer→openshell-user and calls `keycloak.AssignClientRole`/`RemoveClientRole`. 7th watch stream launched conditionally when Keycloak is configured. Added `GetUnscoped` to DAO/service for soft-deleted event handling.
+
+### Wave KC-W3: Gateway Visibility Scoping (Per-Query DAO Filtering) ✅
+
+**Scope:** KC-7, RBAC-2 (list filtering) | **Status:** Complete
+
+Added `FindGatewayIDsByUserID` DAO method (distinct gateway_id from role_bindings). Created `GatewayVisibilityFilter` interface and `rbac.NewGatewayVisibilityFilter` adapter. Gateway List handler filters results by accessible gateway IDs when user is authenticated. Singleton GET returns 404 for unauthorized gateways (unchanged, already in RBAC middleware).
+
+### Wave SR-W1: Database Password Rotation ✅
+
+**Scope:** SR-1, SR-2, SR-3, SR-4, SR-8 | **Status:** Complete
+
+Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` checks `rotate-db-credentials` annotation vs `last-db-rotation` on Secret; generates 32-byte hex password via crypto/rand; connects to PostgreSQL and executes `ALTER ROLE`; updates Secret with new password+URL; sets `last-db-rotation` annotation. ALTER ROLE before Secret update for safety. `applyConfigHashAnnotation` now includes `openshell-gateway-db-credentials` Secret. Wired into `ReconcileGateway` after `reconcileDatabaseCredentials()`.
+
 ### Future (Deferred)
 
 | # | Item | Domain | Reason |
 |---|------|--------|--------|
 | RBAC-5 | Platform Admin Bootstrap | Security | First admin created via DB migration; no CLI by design |
-| RBAC-7 | Gateway OIDC Role Bridge | Security | Depends on CP + Keycloak integration design |
 | G2 | Shared Kustomize Library + CLI | Gateway | Architectural; needs design |
 | G17 | SSH Payload Delivery | Gateway | New feature; needs design |
-| D4 | Manual Credential Rotation | DB | Operational; not blocking |
 | D6 | Database Field Immutability | DB | API server validation |
 | D7 | Gateway Deletion Protection | DB | API server validation |
 | D8 | `externalSecretRef` (Phase 2) | DB | Intentionally deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
+| SR-5 | KEK Rotation | Secret Rotation | Requires gateway re-encryption API (Day-2) |
+| SR-7 | Provider Credential Rotation | Secret Rotation | Platform-managed (K8s SA, Vault); no CP action needed |
 | DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
 | DM-5 | Canary release logic | Data Model | GatewayReleaseReconciler is stub |
 | DM-6 | Network mesh logic | Data Model | GatewayNetworkReconciler is stub |
@@ -442,9 +499,11 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 ### Cross-Cutting Findings
 
 1. **Stale `statefulset.yaml`**: `manifests/gateway/statefulset.yaml` exists but is unreferenced (uses SQLite). Should be removed.
-2. **Naming: Sector vs Fleet**: Spec uses "Sector", code uses "Fleet". Cosmetic; consistent within code.
+2. **Naming: Sector vs Fleet**: Spec now uses "Fleet" (aligned with code). No longer a gap.
 3. **No restart mechanism (cross-spec)**: TLS, OIDC, and Routing specs all require workload restart on config changes. Addressed in Wave 7 via hash annotation.
 4. **Label-based cleanup (cross-spec)**: Database and Routing specs updated to use `hypershell.redhat.io/managed` label-based deletion instead of ownerReferences. ownerReferences were infeasible (DB resources created before Deployment) and unnecessary given explicit cleanup in `DeleteGatewayResources()`.
+5. ~~**Config-hash missing DB credentials**~~: Resolved in SR-W1. `applyConfigHashAnnotation` now includes `openshell-gateway-db-credentials` Secret.
+6. ~~**RoleBinding watcher missing**~~: Resolved in KC-W2. CP now watches 7 resource types (added RoleBindings via `WatchRoleBindings` gRPC stream).
 
 ---
 
@@ -471,3 +530,6 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 | 2026-08-11 | working tree | RBAC gap analysis | 63% | New spec `security/rbac-enforcement.spec.md` analyzed; 13 requirements, all missing; 7 RBAC waves planned (R1-R7); Gateway OIDC Role Bridge deferred |
 | 2026-08-11 | working tree | Executed Waves R1-R4,R6-R7: RBAC Enforcement | 72% | Full RBAC implementation: 3 new plugins (users, roles, roleBindings), user auto-provisioning middleware, fleet:owner bootstrap, scope-aware HTTP+gRPC authorization, 11 integration tests. 9 present, 2 partial (list filtering, escalation prevention), 2 deferred (admin bootstrap via DB migration, OIDC role bridge) |
 | 2026-08-12 | ed3725a | OIDC reconciliation complete | 77% | API server development_oidc env; BFF auth code flow with PKCE (22 tests); CP client_credentials TokenProvider + gRPC PerRPCCredentials; KIND_ENABLE_OIDC opt-in; Keycloak hypershell-control-plane client; verified end-to-end on Kind (8/8 checks pass) |
+| 2026-08-12 | working tree | OIDC always-on + Keycloak stability | 77% | Removed KIND_ENABLE_OIDC toggle; OIDC unconditional in kind-up; Keycloak memory 1Gi→2Gi + startup/liveness probes |
+| 2026-08-13 | 1055647 | Gap analysis for keycloak + secret-rotation specs | 73% | 2 new specs: keycloak (9 reqs, 6 deferred, 1 partial), secret-rotation (8 reqs, 6 deferred, 1 present, 1 partial). OIDC spec updated: 2 new requirements (O8 read-only, O9 auto-provisioned roles) deferred to KC wave. Data model spec: Sector→Fleet naming aligned. 4 new waves planned (KC-W1/W2/W3, SR-W1). Overall coverage drops from 78% to 73% due to new spec requirements. |
+| 2026-08-13 | working tree | Executed KC-W1/W2/W3 + SR-W1 | 80% | Keycloak Admin REST API client (token cache, atomic provisioning, cleanup). RoleBinding gRPC watch stream with role name enrichment. RoleBindingReconciler for OIDC Role Bridge (gateway:owner→openshell-admin, gateway:viewer→openshell-user). Gateway visibility filtering via FindGatewayIDsByUserID. Database password rotation (ALTER ROLE, config-hash). Coverage: 138/183 present (80%), keycloak 100%, secret-rotation 69%. |

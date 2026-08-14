@@ -4,17 +4,7 @@ namespace: keycloak
 resources:
   - namespace.yaml
   - keycloak.yaml
-configMapGenerator:
-  - name: keycloak-hypershell-theme
-    options:
-      disableNameSuffixHash: true
-    files:
-      - theme.properties
-      - login.css
-      - messages_en.properties
-  - name: keycloak-hypershell-theme-assets
-    options:
-      disableNameSuffixHash: true
-    files:
-      - hypershell-logo.png
-      - RedHatText-latin.woff2
+  # The login theme ConfigMaps live in their own base so they can be consumed
+  # standalone (e.g. remote-ref'd by an operator-managed Keycloak). Pulling it
+  # here keeps this base's rendered output unchanged.
+  - theme

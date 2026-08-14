@@ -26,7 +26,7 @@ error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 : "${KIND_CLUSTER_NAME:=hypershell-dev}"
 : "${KIND_NAMESPACE:=hypershell-system}"
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
-REPO_ROOT="$(cd "${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]}")}/../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]:-$0}")}/../.." && pwd)"
 
 # Prefer locally-built binaries from make kind-prereqs
 if [[ -d "${REPO_ROOT}/bin" ]]; then
@@ -35,18 +35,15 @@ fi
 if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
   export KIND_EXPERIMENTAL_PROVIDER=podman
 fi
-: "${GATEWAY_IMAGE:=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:latest}"
+: "${GATEWAY_IMAGE:=ghcr.io/nvidia/openshell/gateway:0.0.101}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KEYCLOAK_OIDC_ISSUER:=http://${KEYCLOAK_HOSTNAME}:8080/realms/hypershell}"
+: "${KEYCLOAK_OIDC_ISSUER_INTERNAL:=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${KEYCLOAK_OIDC_AUDIENCE:=hypershell-frontend}"
-: "${KIND_ENABLE_OIDC:=}"
 : "${KIND_DNS_PORT:=5553}"
+: "${CPK_LOG:=/tmp/cloud-provider-kind.log}"
 DNS_CONTAINER_NAME="${KIND_CLUSTER_NAME}-dns"
-
-oidc_enabled() {
-  [[ "${KIND_ENABLE_OIDC}" == "true" ]]
-}
 
 # --- Cluster helpers ---
 
@@ -189,11 +186,22 @@ patch_cluster_coredns() {
     info "Cluster CoreDNS already patched for hypershell.localhost"
     return
   fi
-  info "Patching cluster CoreDNS to resolve *.hypershell.localhost -> ${gw_ip}..."
+  # keycloak.hypershell.localhost must resolve to the Keycloak ClusterIP so the
+  # gateway pod validates OIDC tokens against the canonical issuer
+  # (http://keycloak.hypershell.localhost:8080) over plain HTTP in-cluster,
+  # without depending on the gateway LB or TLS trust. Other hosts route through
+  # the gateway LB IP as usual. Falls back to the LB IP if the lookup fails.
+  local kc_ip
+  kc_ip=$(kube get svc keycloak-service -n keycloak -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+  if [[ -z "${kc_ip}" ]]; then
+    warn "Could not resolve keycloak-service ClusterIP - falling back to gateway LB for keycloak"
+    kc_ip="${gw_ip}"
+  fi
+  info "Patching cluster CoreDNS: keycloak -> ${kc_ip}, api/console/health -> ${gw_ip}..."
   local hosts_block
   hosts_block="hypershell.localhost:53 {
     hosts {
-      ${gw_ip} keycloak.hypershell.localhost
+      ${kc_ip} keycloak.hypershell.localhost
       ${gw_ip} api.hypershell.localhost
       ${gw_ip} console.hypershell.localhost
       ${gw_ip} health.hypershell.localhost

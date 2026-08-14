@@ -18,8 +18,12 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const defaultManifestsDir = "/manifests/gateway"
@@ -52,6 +56,10 @@ func main() {
 		}
 
 		tp := auth.NewTokenProvider(oidcIssuer, oidcClientID, oidcClientSecret)
+		if endpoint := os.Getenv("OIDC_TOKEN_ENDPOINT"); endpoint != "" {
+			tp.SetTokenEndpoint(endpoint)
+			log.Printf("INFO using explicit OIDC token endpoint: %s", endpoint)
+		}
 		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tp)))
 		log.Printf("INFO OIDC authentication enabled for gRPC connections")
 	} else {
@@ -99,10 +107,38 @@ func main() {
 		manifestsDir = defaultManifestsDir
 	}
 
+	var keycloakConfig *gateway.KeycloakConfig
+	if clientset != nil {
+		kcSecret, kcErr := clientset.CoreV1().Secrets(cfg.Namespace).Get(ctx, "hypershell-keycloak-admin", metav1.GetOptions{})
+		if kcErr == nil {
+			keycloakConfig = &gateway.KeycloakConfig{
+				ServerURL:    string(kcSecret.Data["server-url"]),
+				Realm:        string(kcSecret.Data["realm"]),
+				ClientID:     string(kcSecret.Data["client-id"]),
+				ClientSecret: string(kcSecret.Data["client-secret"]),
+			}
+			log.Printf("INFO keycloak admin secret found: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
+		} else {
+			log.Printf("INFO keycloak admin secret not found, keycloak integration disabled: %v", kcErr)
+		}
+	}
+
+	var roleBindingReconciler watcher.Handler[*pb.RoleBinding]
+	if keycloakConfig != nil {
+		kcClient := keycloak.NewClient(
+			keycloakConfig.ServerURL,
+			keycloakConfig.Realm,
+			keycloakConfig.ClientID,
+			keycloakConfig.ClientSecret,
+		)
+		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn)
+		log.Printf("INFO role binding reconciler enabled with keycloak integration")
+	}
+
 	var gatewayReconciler watcher.Handler[*pb.Gateway]
 
 	if clientset != nil && dynamicClient != nil {
-		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir, cfg.Namespace)
+		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir, cfg.Namespace, keycloakConfig)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
 			gatewayReconciler = reconciler.NewStubGatewayReconciler()
@@ -114,7 +150,12 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
-	errCh := make(chan error, 6)
+	watchCount := 6
+	if roleBindingReconciler != nil {
+		watchCount = 7
+	}
+	// +1 for the continuous gateway health reconciler goroutine.
+	errCh := make(chan error, watchCount+1)
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
@@ -122,8 +163,22 @@ func main() {
 	go func() { errCh <- watcher.WatchGatewayReleases(ctx, conn, releaseReconciler) }()
 	go func() { errCh <- watcher.WatchGateways(ctx, conn, gatewayReconciler) }()
 	go func() { errCh <- watcher.WatchGatewayNetworks(ctx, conn, networkReconciler) }()
+	if roleBindingReconciler != nil {
+		go func() { errCh <- watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler) }()
+	}
 
-	log.Printf("INFO all 6 watch streams launched")
+	log.Printf("INFO all %d watch streams launched", watchCount)
+
+	// The continuous gateway health reconciler keeps each Gateway's phase and
+	// status synchronized with observed workload health (Running <-> Degraded).
+	// It requires an in-cluster Kubernetes client to observe Deployments.
+	if clientset != nil {
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, conn)
+		go func() { errCh <- healthReconciler.Run(ctx) }()
+		log.Printf("INFO gateway health reconciler launched")
+	} else {
+		log.Printf("WARN no kubernetes client available, gateway health reconciliation disabled")
+	}
 
 	watchErr := <-errCh
 	cancel()

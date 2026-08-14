@@ -1,14 +1,18 @@
 package reconciler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
+	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -136,6 +140,8 @@ type GatewayReconciler struct {
 	hasGatewayAPI         bool
 	manifestsDir          string
 	controlPlaneNamespace string
+	keycloakClient        *keycloak.Client
+	keycloakConfig        *gateway.KeycloakConfig
 }
 
 func NewGatewayReconciler(
@@ -144,6 +150,7 @@ func NewGatewayReconciler(
 	grpcConn *grpc.ClientConn,
 	manifestsDir string,
 	controlPlaneNamespace string,
+	keycloakConfig *gateway.KeycloakConfig,
 ) (*GatewayReconciler, error) {
 	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
 	if err != nil {
@@ -153,7 +160,20 @@ func NewGatewayReconciler(
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v", len(manifests), isOpenShift, hasCertManager, hasGatewayAPI)
+
+	var kcClient *keycloak.Client
+	if keycloakConfig != nil {
+		kcClient = keycloak.NewClient(
+			keycloakConfig.ServerURL,
+			keycloakConfig.Realm,
+			keycloakConfig.ClientID,
+			keycloakConfig.ClientSecret,
+		)
+		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
+	}
+
+	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v keycloak=%v",
+		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, kcClient != nil)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -166,6 +186,8 @@ func NewGatewayReconciler(
 		hasGatewayAPI:         hasGatewayAPI,
 		manifestsDir:          manifestsDir,
 		controlPlaneNamespace: controlPlaneNamespace,
+		keycloakClient:        kcClient,
+		keycloakConfig:        keycloakConfig,
 	}, nil
 }
 
@@ -190,10 +212,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	if event.Type == watcher.EventDeleted {
-		namespace := gw.Namespace
-		if namespace == "" {
-			namespace = fmt.Sprintf("openshell-%s", gw.Name)
-		}
+		namespace := gatewayNamespace(gw)
 
 		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
 		opts := gateway.ReconcileOpts{
@@ -201,8 +220,22 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			HasCertManager:        r.hasCertManager,
 			HasGatewayAPI:         r.hasGatewayAPI,
 			ControlPlaneNamespace: r.controlPlaneNamespace,
+			KeycloakClient:        r.keycloakClient,
+			GatewayID:             event.ResourceID,
+			GatewayName:           gw.Name,
 		}
-		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts); err != nil {
+		var credentialNamespaces []string
+		if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
+			if strings.Contains(*gw.CredentialDriver, "kubernetes_secrets") {
+				var credCfg gateway.CredentialDriverConfig
+				if err := json.Unmarshal([]byte(*gw.CredentialDriver), &credCfg); err == nil {
+					if credCfg.KubernetesSecrets != nil && credCfg.KubernetesSecrets.Namespace != "" {
+						credentialNamespaces = append(credentialNamespaces, credCfg.KubernetesSecrets.Namespace)
+					}
+				}
+			}
+		}
+		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
 			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
 		}
 		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
@@ -212,15 +245,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	log.Printf("INFO reconciling Gateway %s name=%s namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
 
-	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning") {
+	// The phase gate prevents redundant re-provisioning (re-applying manifests)
+	// of a Gateway that has already been acted upon. Running, Provisioning, and
+	// Degraded gateways are owned by the continuous health reconciler, which
+	// keeps their phase synchronized with workload health via a separate path
+	// that this gate does not suppress. See openshell-gateway-health.spec.md.
+	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
 		log.Printf("DEBUG gateway %s phase=%s, skipping reconciliation", event.ResourceID, *gw.Phase)
 		return nil
 	}
 
-	namespace := gw.Namespace
-	if namespace == "" {
-		namespace = fmt.Sprintf("openshell-%s", gw.Name)
-	}
+	namespace := gatewayNamespace(gw)
 
 	dnsNames := gw.ServerDnsNames
 	if len(dnsNames) == 0 {
@@ -274,6 +309,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gwConfig.Database = dbConfig
 	}
 
+	if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
+		var credDriverConfig gateway.CredentialDriverConfig
+		decoder := json.NewDecoder(bytes.NewReader([]byte(*gw.CredentialDriver)))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&credDriverConfig); err != nil {
+			return fmt.Errorf("invalid credential driver config for gateway %s: %w", gw.Name, err)
+		}
+		gwConfig.CredentialDriver = &credDriverConfig
+	}
+
 	nsConfig := gateway.NamespaceConfig{
 		Name:    namespace,
 		Gateway: gwConfig,
@@ -286,6 +331,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
 		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
+		Keycloak:              r.keycloakConfig,
+		KeycloakClient:        r.keycloakClient,
+		GatewayName:           gw.Name,
+		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
@@ -295,9 +344,44 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 	}
 
-	r.updateGatewayPhase(ctx, event.ResourceID, "Running")
-	log.Printf("INFO gateway %s provisioned in namespace %s", gw.Name, namespace)
+	// Manifests are applied, but the gateway is not Running until its workload
+	// is observed Ready. Wait within the provisioning readiness window: on
+	// readiness set Running; otherwise set Degraded and record why. The
+	// continuous health reconciler keeps the phase synchronized thereafter.
+	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
+	if ready {
+		r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
+		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
+	} else {
+		r.updateGatewayHealth(ctx, event.ResourceID, "Degraded", reason)
+		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
+	}
 	return nil
+}
+
+// gatewayNamespace returns the Kubernetes namespace for a Gateway, deriving the
+// conventional `openshell-<name>` namespace when the resource does not carry an
+// explicit one.
+func gatewayNamespace(gw *pb.Gateway) string {
+	if gw.GetNamespace() != "" {
+		return gw.GetNamespace()
+	}
+	return fmt.Sprintf("openshell-%s", gw.GetName())
+}
+
+// updateGatewayHealth sets the Gateway `phase` and `status` together in a single
+// gRPC update so the console and CLI observe a consistent lifecycle state and
+// health descriptor.
+func (r *GatewayReconciler) updateGatewayHealth(ctx context.Context, gatewayID, phase, status string) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:     gatewayID,
+		Phase:  &phase,
+		Status: &status,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update gateway %s health to %s (%s): %v", gatewayID, phase, status, err)
+	}
 }
 
 func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID string, phase string) {
@@ -329,6 +413,20 @@ func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID st
 		return fmt.Errorf("update gateway %s route_address to %s: %w", gatewayID, routeAddress, err)
 	}
 	return nil
+}
+
+func (r *GatewayReconciler) makeOIDCUpdater(gatewayID string) func(ctx context.Context, oidcJSON string) error {
+	return func(ctx context.Context, oidcJSON string) error {
+		client := pb.NewGatewayServiceClient(r.grpcConn)
+		_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+			Id:   gatewayID,
+			Oidc: &oidcJSON,
+		})
+		if err != nil {
+			return fmt.Errorf("update gateway %s oidc: %w", gatewayID, err)
+		}
+		return nil
+	}
 }
 
 type StubGatewayReconciler struct{}

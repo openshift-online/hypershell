@@ -7,8 +7,9 @@ import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 
-import { registerAuth } from "./auth.js";
+import { clearSession, persistTokenSet, registerAuth } from "./auth.js";
 import type { ServerConfig } from "./config.js";
+import { tokenExpired } from "./tokens.js";
 
 const correlationHeader = "x-hypershell-correlation-id";
 const validCorrelationId =
@@ -234,6 +235,23 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
     return reply.type("text/html; charset=utf-8").send(indexDocument);
   };
 
+  // Signals the browser to re-authenticate at the IdP. The SPA's API transport
+  // turns this into a full-page redirect to /auth/login rather than surfacing a
+  // generic error for an expired or revoked session.
+  const respondReauth = (reply: {
+    code(statusCode: number): unknown;
+    header(name: string, value: string): unknown;
+  }) => {
+    reply.header("WWW-Authenticate", 'Bearer error="invalid_token"');
+    reply.header("Cache-Control", "no-store");
+    reply.code(401);
+    return {
+      error: "reauth_required",
+      login_url: "/auth/login",
+      statusCode: 401,
+    };
+  };
+
   app.all("/api/*", async (request, reply) => {
     const incoming = new URL(request.url, "http://bff.invalid");
     const target = new URL(
@@ -249,31 +267,92 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
     }
     headers.set(correlationHeader, request.correlationId);
 
+    const refreshToken = config.oidcIssuer
+      ? request.tokenSession.get("refreshToken")
+      : undefined;
+    let refreshed = false;
+
+    // Ensure a valid access token before forwarding (proactive refresh).
     if (config.oidcIssuer) {
-      const accessToken = request.session.get("accessToken");
-      if (typeof accessToken === "string") {
-        headers.set("authorization", `Bearer ${accessToken}`);
+      let accessToken = request.session.get("accessToken");
+      const expiresAt = request.session.get("expiresAt");
+      if (!accessToken || tokenExpired(expiresAt)) {
+        if (!refreshToken || !app.refreshAccessToken) {
+          clearSession(request);
+          return respondReauth(reply);
+        }
+        try {
+          const tokens = await app.refreshAccessToken(refreshToken);
+          persistTokenSet(request, tokens);
+          accessToken = tokens.accessToken;
+          refreshed = true;
+        } catch {
+          clearSession(request);
+          return respondReauth(reply);
+        }
       }
+      headers.set("authorization", `Bearer ${accessToken}`);
     }
 
-    const controller = new AbortController();
-    const timeoutReason = new Error("Upstream API request timed out");
-    const timeout = setTimeout(() => {
-      controller.abort(timeoutReason);
-    }, config.apiTimeoutMs);
-    const abortDownstream = () => {
-      controller.abort();
+    // Perform the upstream request with its own timeout and downstream-abort
+    // wiring, so it can be retried once after a reactive refresh.
+    const runUpstream = async (): Promise<Response> => {
+      const controller = new AbortController();
+      const timeoutReason = new Error("Upstream API request timed out");
+      const timeout = setTimeout(() => {
+        controller.abort(timeoutReason);
+      }, config.apiTimeoutMs);
+      const abortDownstream = () => {
+        controller.abort();
+      };
+      request.raw.once("aborted", abortDownstream);
+      try {
+        return await fetch(target, {
+          body: proxyBody(request.method, request.body),
+          headers,
+          method: request.method,
+          redirect: "manual",
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error === timeoutReason) {
+          const timeout504 = new Error("Upstream API request timed out");
+          timeout504.name = "UpstreamTimeout";
+          throw timeout504;
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+        request.raw.off("aborted", abortDownstream);
+      }
     };
-    request.raw.once("aborted", abortDownstream);
 
     try {
-      const upstream = await fetch(target, {
-        body: proxyBody(request.method, request.body),
-        headers,
-        method: request.method,
-        redirect: "manual",
-        signal: controller.signal,
-      });
+      let upstream = await runUpstream();
+
+      // Reactive refresh: a token we believed valid was rejected upstream
+      // (clock skew, revocation, or key rotation). Refresh once and retry.
+      if (
+        config.oidcIssuer &&
+        upstream.status === 401 &&
+        !refreshed &&
+        refreshToken &&
+        app.refreshAccessToken
+      ) {
+        try {
+          const tokens = await app.refreshAccessToken(refreshToken);
+          persistTokenSet(request, tokens);
+          headers.set("authorization", `Bearer ${tokens.accessToken}`);
+          upstream = await runUpstream();
+        } catch {
+          // Fall through to the re-authentication response below.
+        }
+      }
+
+      if (config.oidcIssuer && upstream.status === 401) {
+        clearSession(request);
+        return respondReauth(reply);
+      }
 
       for (const header of forwardedResponseHeaders) {
         const value = upstream.headers.get(header);
@@ -287,7 +366,7 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
       }
       return await reply.send(Buffer.from(await upstream.arrayBuffer()));
     } catch (error) {
-      if (error === timeoutReason) {
+      if (error instanceof Error && error.name === "UpstreamTimeout") {
         reply.code(504);
         return {
           error: "Gateway Timeout",
@@ -295,9 +374,6 @@ export async function buildApp(config: ServerConfig): Promise<FastifyInstance> {
         };
       }
       throw error;
-    } finally {
-      clearTimeout(timeout);
-      request.raw.off("aborted", abortDownstream);
     }
   });
 

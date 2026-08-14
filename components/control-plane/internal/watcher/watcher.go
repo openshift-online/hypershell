@@ -198,6 +198,32 @@ func WatchGatewayNetworks(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
+func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding]) error {
+	client := pb.NewRoleBindingServiceClient(conn)
+	return watchLoop(ctx, "RoleBinding", func(ctx context.Context) error {
+		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{})
+		if err != nil {
+			return fmt.Errorf("starting role binding watch: %w", err)
+		}
+		for {
+			event, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("receiving role binding event: %w", err)
+			}
+			if err := handler.Handle(ctx, Event[*pb.RoleBinding]{
+				Type:       toEventType(event.Type),
+				ResourceID: event.ResourceId,
+				Resource:   event.RoleBinding,
+			}); err != nil {
+				log.Printf("ERROR handling role binding %s: %v", event.ResourceId, err)
+			}
+		}
+	})
+}
+
 func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context.Context) error) error {
 	backoff := time.Second
 	maxBackoff := 30 * time.Second

@@ -90,6 +90,20 @@ function createOidcServer(ctx: OidcContext): Server {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
       req.on("end", () => {
+        const params = new URLSearchParams(
+          Buffer.concat(chunks).toString("utf8"),
+        );
+        const isRefresh = params.get("grant_type") === "refresh_token";
+
+        // A designated bad refresh token is rejected so the terminal
+        // re-authentication path can be exercised.
+        if (isRefresh && params.get("refresh_token") === "bad-refresh") {
+          res.statusCode = 400;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "invalid_grant" }));
+          return;
+        }
+
         const idToken = createJwt({
           aud: "test-client",
           email: "test@example.com",
@@ -106,9 +120,14 @@ function createOidcServer(ctx: OidcContext): Server {
         res.setHeader("content-type", "application/json");
         res.end(
           JSON.stringify({
-            access_token: "test-access-token",
+            access_token: isRefresh
+              ? "refreshed-access-token"
+              : "test-access-token",
             expires_in: 3600,
             id_token: idToken,
+            refresh_token: isRefresh
+              ? "rotated-refresh-token"
+              : "test-refresh-token",
             token_type: "Bearer",
           }),
         );
@@ -202,6 +221,14 @@ describe("web-console BFF with OIDC enabled", () => {
             method: request.method,
             url: request.url,
           });
+          // Simulate an upstream that rejects a stale access token so the BFF
+          // reactive-refresh path can be exercised.
+          if (request.headers.authorization === "Bearer stale-access-token") {
+            response.setHeader("content-type", "application/json");
+            response.statusCode = 401;
+            response.end('{"error":"invalid_token"}');
+            return;
+          }
           response.setHeader("content-type", "application/json; charset=utf-8");
           response.statusCode = 200;
           response.end('{"kind":"GatewayList","items":[]}');
@@ -294,6 +321,39 @@ describe("web-console BFF with OIDC enabled", () => {
     });
     // URL-encode the value because @fastify/cookie URL-decodes the Cookie header
     return `session=${encodeURIComponent(app.encodeSecureSession(session))}`;
+  }
+
+  // --- helper: build both chunked session cookies with controllable tokens ---
+  function makeCookies(overrides?: {
+    accessToken?: string;
+    expiresInSeconds?: number;
+    idToken?: string;
+    refreshToken?: string;
+  }): string {
+    const now = Math.floor(Date.now() / 1000);
+    const identity = app.createSecureSession({
+      accessToken: overrides?.accessToken ?? "test-access-token",
+      email: "test@example.com",
+      expiresAt: now + (overrides?.expiresInSeconds ?? 3600),
+      name: "Test User",
+      preferredUsername: "testuser",
+      roles: ["admin", "viewer"],
+      sub: "user-123",
+    });
+    const tokenData: { idToken?: string; refreshToken?: string } = {};
+    if (overrides?.idToken !== undefined) {
+      tokenData.idToken = overrides.idToken;
+    }
+    if (overrides?.refreshToken !== undefined) {
+      tokenData.refreshToken = overrides.refreshToken;
+    }
+    const tokenSession = app.createSecureSession(tokenData);
+    return [
+      `session=${encodeURIComponent(app.encodeSecureSession(identity, "session"))}`,
+      `session_tok=${encodeURIComponent(
+        app.encodeSecureSession(tokenSession, "tokenSession"),
+      )}`,
+    ].join("; ");
   }
 
   // -----------------------------------------------------------------------
@@ -447,6 +507,76 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(response.headers.location).not.toContain("id_token_hint");
   });
 
+  it("includes id_token_hint on logout when an ID token is stored", async () => {
+    const cookie = makeCookies({ idToken: "stored-id-token" });
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/auth/logout",
+    });
+
+    expect(response.statusCode).toBe(302);
+    if (typeof response.headers.location !== "string") {
+      throw new Error("Expected location header");
+    }
+    expect(response.headers.location).toContain("/end-session");
+    expect(response.headers.location).toContain(
+      "id_token_hint=stored-id-token",
+    );
+  });
+
+  it("returns to a safe return_to path after callback", async () => {
+    const login = await app.inject({
+      method: "GET",
+      url: "/auth/login?return_to=%2Fgateways%2Fgw-1",
+    });
+    if (typeof login.headers.location !== "string") {
+      throw new Error("Expected location header");
+    }
+    const redirectUrl = new URL(login.headers.location);
+    const state = redirectUrl.searchParams.get("state");
+    const nonce = redirectUrl.searchParams.get("nonce");
+    if (!state || !nonce) {
+      throw new Error("Expected state and nonce in redirect URL");
+    }
+    oidcCtx.nonce = nonce;
+
+    const callback = await app.inject({
+      headers: { cookie: sessionCookie(login) },
+      method: "GET",
+      url: `/auth/callback?code=test-code&state=${state}`,
+    });
+
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe("/gateways/gw-1");
+  });
+
+  it("ignores an unsafe return_to and redirects to /", async () => {
+    const login = await app.inject({
+      method: "GET",
+      url: "/auth/login?return_to=https%3A%2F%2Fevil.example.com%2F",
+    });
+    if (typeof login.headers.location !== "string") {
+      throw new Error("Expected location header");
+    }
+    const redirectUrl = new URL(login.headers.location);
+    const state = redirectUrl.searchParams.get("state");
+    const nonce = redirectUrl.searchParams.get("nonce");
+    if (!state || !nonce) {
+      throw new Error("Expected state and nonce in redirect URL");
+    }
+    oidcCtx.nonce = nonce;
+
+    const callback = await app.inject({
+      headers: { cookie: sessionCookie(login) },
+      method: "GET",
+      url: `/auth/callback?code=test-code&state=${state}`,
+    });
+
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe("/");
+  });
+
   // -----------------------------------------------------------------------
   // CSRF protection
   // -----------------------------------------------------------------------
@@ -523,15 +653,87 @@ describe("web-console BFF with OIDC enabled", () => {
     );
   });
 
-  it("proxies API requests without Bearer token when unauthenticated", async () => {
+  it("signals re-authentication for unauthenticated API requests", async () => {
     const response = await app.inject({
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({
+      error: "reauth_required",
+      login_url: "/auth/login",
+    });
+    expect(response.headers["www-authenticate"]).toContain("invalid_token");
+    expect(apiRequests).toHaveLength(0);
+  });
+
+  it("refreshes an expired access token before proxying", async () => {
+    const cookie = makeCookies({
+      expiresInSeconds: -10,
+      refreshToken: "test-refresh-token",
+    });
+    const response = await app.inject({
+      headers: { cookie },
       method: "GET",
       url: "/api/hypershell/v1/gateways",
     });
 
     expect(response.statusCode).toBe(200);
     expect(apiRequests).toHaveLength(1);
-    expect(apiRequests[0]?.headers.authorization).toBeUndefined();
+    expect(apiRequests[0]?.headers.authorization).toBe(
+      "Bearer refreshed-access-token",
+    );
+  });
+
+  it("refreshes and retries once when the upstream rejects a valid-looking token", async () => {
+    const cookie = makeCookies({
+      accessToken: "stale-access-token",
+      refreshToken: "test-refresh-token",
+    });
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(apiRequests).toHaveLength(2);
+    expect(apiRequests[0]?.headers.authorization).toBe(
+      "Bearer stale-access-token",
+    );
+    expect(apiRequests[1]?.headers.authorization).toBe(
+      "Bearer refreshed-access-token",
+    );
+  });
+
+  it("signals re-authentication when an expired session has no refresh token", async () => {
+    const cookie = makeCookies({ expiresInSeconds: -10 });
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ error: "reauth_required" });
+    expect(apiRequests).toHaveLength(0);
+  });
+
+  it("signals re-authentication when the refresh token is rejected", async () => {
+    const cookie = makeCookies({
+      expiresInSeconds: -10,
+      refreshToken: "bad-refresh",
+    });
+    const response = await app.inject({
+      headers: { cookie },
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ error: "reauth_required" });
+    expect(apiRequests).toHaveLength(0);
   });
 
   // -----------------------------------------------------------------------
