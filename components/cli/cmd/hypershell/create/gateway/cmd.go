@@ -16,22 +16,22 @@ import (
 )
 
 var args struct {
-	clusterId string
-	databaseConfig string
-	databaseId string
-	externalDns string
-	fleetId string
-	image string
-	name string
-	phase string
-	releaseId string
-	route string
-	serverDnsNames string
-	serviceType string
-	status string
+	clusterId       string
+	databaseConfig  string
+	databaseId      string
+	externalDns     string
+	fleetId         string
+	image           string
+	name            string
+	phase           string
+	releaseId       string
+	route           string
+	serverDnsNames  string
+	serviceType     string
+	status          string
 	supervisorImage string
-	tlsMode string
-	bodyFile string
+	tlsMode         string
+	bodyFile        string
 }
 
 var Cmd = &cobra.Command{

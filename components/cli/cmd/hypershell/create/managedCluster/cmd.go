@@ -16,14 +16,14 @@ import (
 )
 
 var args struct {
-	apiServerUrl string
-	fleetId string
+	apiServerUrl     string
+	fleetId          string
 	kubeconfigSecret string
-	name string
-	provider string
-	region string
-	status string
-	bodyFile string
+	name             string
+	provider         string
+	region           string
+	status           string
+	bodyFile         string
 }
 
 var Cmd = &cobra.Command{

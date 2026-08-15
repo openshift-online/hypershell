@@ -4,13 +4,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/fleets"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gateways"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gatewayNetworks"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gatewayReleases"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gateways"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/managedClusters"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/managedDatabases"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/roles"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/roleBindings"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/roles"
 )
 
 var Cmd = &cobra.Command{

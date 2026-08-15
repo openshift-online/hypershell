@@ -16,12 +16,12 @@ import (
 )
 
 var args struct {
-	builtIn bool
+	builtIn     bool
 	description string
 	displayName string
-	name string
+	name        string
 	permissions string
-	bodyFile string
+	bodyFile    string
 }
 
 var Cmd = &cobra.Command{

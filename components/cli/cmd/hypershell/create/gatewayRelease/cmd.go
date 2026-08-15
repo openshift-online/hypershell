@@ -16,14 +16,14 @@ import (
 )
 
 var args struct {
-	canaryDuration string
-	canaryPercent int
-	fleetId string
-	image string
-	name string
+	canaryDuration  string
+	canaryPercent   int
+	fleetId         string
+	image           string
+	name            string
 	rolloutStrategy string
-	status string
-	bodyFile string
+	status          string
+	bodyFile        string
 }
 
 var Cmd = &cobra.Command{

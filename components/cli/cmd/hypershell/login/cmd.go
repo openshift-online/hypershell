@@ -39,7 +39,7 @@ func init() {
 
 func run(cmd *cobra.Command, argv []string) error {
 	var token string
-	
+
 	// Handle token input (prefer --token-file over --token for security)
 	if args.tokenFile != "" {
 		var reader io.Reader
@@ -53,7 +53,7 @@ func run(cmd *cobra.Command, argv []string) error {
 			defer file.Close()
 			reader = file
 		}
-		
+
 		tokenBytes, err := io.ReadAll(reader)
 		if err != nil {
 			return fmt.Errorf("can't read token: %v", err)

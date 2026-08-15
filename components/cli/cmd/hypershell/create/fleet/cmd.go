@@ -17,9 +17,9 @@ import (
 
 var args struct {
 	description string
-	name string
-	status string
-	bodyFile string
+	name        string
+	status      string
+	bodyFile    string
 }
 
 var Cmd = &cobra.Command{

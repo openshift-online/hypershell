@@ -16,13 +16,13 @@ import (
 )
 
 var args struct {
-	fleetId string
+	fleetId      string
 	hubGatewayId string
-	name string
-	status string
-	topology string
-	tunnelMode string
-	bodyFile string
+	name         string
+	status       string
+	topology     string
+	tunnelMode   string
+	bodyFile     string
 }
 
 var Cmd = &cobra.Command{

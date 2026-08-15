@@ -17,15 +17,15 @@ import (
 
 var args struct {
 	connectionSecret string
-	engine string
-	engineVersion string
-	fleetId string
-	instanceClass string
-	name string
-	provider string
-	region string
-	status string
-	bodyFile string
+	engine           string
+	engineVersion    string
+	fleetId          string
+	instanceClass    string
+	name             string
+	provider         string
+	region           string
+	status           string
+	bodyFile         string
 }
 
 var Cmd = &cobra.Command{
