@@ -156,7 +156,7 @@ build-controller:
 
 .PHONY: build-cli
 build-cli:
-	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hypershell ./cmd/hypershell
+	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hypershell
 
 .PHONY: build-web-console
 build-web-console:

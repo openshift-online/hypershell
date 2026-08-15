@@ -235,9 +235,9 @@ All routes under `/api/hypershell/v1/`:
 | GET/POST | `/managed_databases` | List/Create |
 | GET/PATCH/DELETE | `/managed_databases/{id}` | Get/Update/Delete |
 
-## CLI Reference (`hypershell`)
+## CLI Reference (`hsctl`)
 
-The `hypershell` CLI mirrors the REST API 1-for-1. Every REST operation has a corresponding command.
+The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresponding command.
 
 ### API ↔ CLI Mapping
 
@@ -247,89 +247,89 @@ The `hypershell` CLI mirrors the REST API 1-for-1. Every REST operation has a co
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/fleets` | `hypershell list fleets` | ✅ implemented |
-| `GET /api/hypershell/v1/fleets/{id}` | `hypershell get fleet <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/fleets` | `hypershell create fleet --name <n> [--description <d>] [--status <s>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/fleets/{id}` | `hypershell update fleet <id> [--name <n>] [--description <d>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/fleets/{id}` | `hypershell delete fleet <id> [--yes]` | 🔲 planned |
+| `GET /api/hypershell/v1/fleets` | `hsctl list fleets` | ✅ implemented |
+| `GET /api/hypershell/v1/fleets/{id}` | `hsctl get fleet <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/fleets` | `hsctl create fleet --name <n> [--description <d>] [--status <s>]` | ✅ implemented |
+| `PATCH /api/hypershell/v1/fleets/{id}` | `hsctl update fleet <id> [--name <n>] [--description <d>]` | 🔲 planned |
+| `DELETE /api/hypershell/v1/fleets/{id}` | `hsctl delete fleet <id> [--yes]` | 🔲 planned |
 
 #### Gateways
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/gateways` | `hypershell list gateways` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways?search=fleet_id%3D<fleet_id>` | `hypershell list gateways --fleet-id <fleet-id>` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways/{id}` | `hypershell get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hypershell create gateway --name <n> --fleet-id <f> --cluster-id <c> --release-id <r> --database-id <d> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateways/{id}` | `hypershell update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateways/{id}` | `hypershell delete gateway <id> [--yes]` | 🔲 planned |
+| `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
+| `GET /api/hypershell/v1/gateways?search=fleet_id%3D<fleet_id>` | `hsctl list gateways --fleet-id <fleet-id>` | ✅ implemented |
+| `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --fleet-id <f> --cluster-id <c> --release-id <r> --database-id <d> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
+| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
+| `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id> [--yes]` | 🔲 planned |
 
 #### Gateway Networks
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/gateway_networks` | `hypershell list gatewayNetworks` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_networks/{id}` | `hypershell get gatewayNetwork <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_networks` | `hypershell create gatewayNetwork --name <n> --fleet-id <f> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hypershell update gatewayNetwork <id> [--topology <t>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hypershell delete gatewayNetwork <id> [--yes]` | 🔲 planned |
+| `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` | ✅ implemented |
+| `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --fleet-id <f> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented |
+| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` | 🔲 planned |
+| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id> [--yes]` | 🔲 planned |
 
 #### Gateway Releases
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/gateway_releases` | `hypershell list gatewayReleases` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_releases/{id}` | `hypershell get gatewayRelease <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_releases` | `hypershell create gatewayRelease --name <n> --fleet-id <f> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hypershell update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hypershell delete gatewayRelease <id> [--yes]` | 🔲 planned |
+| `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` | ✅ implemented |
+| `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --fleet-id <f> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented |
+| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | 🔲 planned |
+| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id> [--yes]` | 🔲 planned |
 
 #### Managed Clusters
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/managed_clusters` | `hypershell list managedClusters` | ✅ implemented |
-| `GET /api/hypershell/v1/managed_clusters/{id}` | `hypershell get managedCluster <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_clusters` | `hypershell create managedCluster --name <n> --fleet-id <f> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented |
-| `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hypershell update managedCluster <id> [--status <s>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hypershell delete managedCluster <id> [--yes]` | 🔲 planned |
+| `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented |
+| `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --fleet-id <f> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented |
+| `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned |
+| `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id> [--yes]` | 🔲 planned |
 
 #### Managed Databases
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/managed_databases` | `hypershell list managedDatabases` | ✅ implemented |
-| `GET /api/hypershell/v1/managed_databases/{id}` | `hypershell get managedDatabase <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_databases` | `hypershell create managedDatabase --name <n> --fleet-id <f> --provider <p> --region <r> --engine <e> --instance-class <c> --connection-secret <s>` | ✅ implemented |
-| `PATCH /api/hypershell/v1/managed_databases/{id}` | `hypershell update managedDatabase <id> [--instance-class <c>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/managed_databases/{id}` | `hypershell delete managedDatabase <id> [--yes]` | 🔲 planned |
+| `GET /api/hypershell/v1/managed_databases` | `hsctl list managedDatabases` | ✅ implemented |
+| `GET /api/hypershell/v1/managed_databases/{id}` | `hsctl get managedDatabase <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/managed_databases` | `hsctl create managedDatabase --name <n> --fleet-id <f> --provider <p> --region <r> --engine <e> --instance-class <c> --connection-secret <s>` | ✅ implemented |
+| `PATCH /api/hypershell/v1/managed_databases/{id}` | `hsctl update managedDatabase <id> [--instance-class <c>]` | 🔲 planned |
+| `DELETE /api/hypershell/v1/managed_databases/{id}` | `hsctl delete managedDatabase <id> [--yes]` | 🔲 planned |
 
 #### RBAC
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/roles` | `hypershell list roles` | ✅ implemented |
-| `GET /api/hypershell/v1/roles/{id}` | `hypershell get role <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/roles` | `hypershell create role --name <n> [--permissions <json>]` | ✅ implemented |
-| `DELETE /api/hypershell/v1/roles/{id}` | `hypershell delete role <id>` | 🔲 planned |
-| `GET /api/hypershell/v1/role_bindings` | `hypershell list roleBindings` | ✅ implemented |
-| `GET /api/hypershell/v1/role_bindings/{id}` | `hypershell get roleBinding <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/role_bindings` | `hypershell create roleBinding --role-id <r> --scope <s> [--user-id <u>] [--fleet-id <f>]` | ✅ implemented |
-| `DELETE /api/hypershell/v1/role_bindings/{id}` | `hypershell delete roleBinding <id>` | 🔲 planned |
+| `GET /api/hypershell/v1/roles` | `hsctl list roles` | ✅ implemented |
+| `GET /api/hypershell/v1/roles/{id}` | `hsctl get role <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/roles` | `hsctl create role --name <n> [--permissions <json>]` | ✅ implemented |
+| `DELETE /api/hypershell/v1/roles/{id}` | `hsctl delete role <id>` | 🔲 planned |
+| `GET /api/hypershell/v1/role_bindings` | `hsctl list roleBindings` | ✅ implemented |
+| `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>] [--fleet-id <f>]` | ✅ implemented |
+| `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` | 🔲 planned |
 
 #### Auth & Context
 
 | Operation | `hypershell` Command | Status |
 |---|---|---|
-| Authenticate | `hypershell login [SERVER_URL] --token <t>` | ✅ implemented |
-| Log out | `hypershell logout` | ✅ implemented |
-| Identity | `hypershell whoami` | 🔲 planned |
-| Config get | `hypershell config get <key>` | ✅ implemented |
-| Config set | `hypershell config set <key> <value>` | ✅ implemented |
+| Authenticate | `hsctl login [SERVER_URL] --token <t>` | ✅ implemented |
+| Log out | `hsctl logout` | ✅ implemented |
+| Identity | `hsctl whoami` | 🔲 planned |
+| Config get | `hsctl config get <key>` | ✅ implemented |
+| Config set | `hsctl config set <key> <value>` | ✅ implemented |
 
-### `hypershell apply` - Declarative Fleet Management
+### `hsctl apply` - Declarative Fleet Management
 
-`hypershell apply` reconciles Fleets, Gateways, and infrastructure from declarative YAML files, mirroring `kubectl apply` semantics.
+`hsctl apply` reconciles Fleets, Gateways, and infrastructure from declarative YAML files, mirroring `kubectl apply` semantics.
 
 #### Supported Kinds
 
@@ -345,9 +345,9 @@ The `hypershell` CLI mirrors the REST API 1-for-1. Every REST operation has a co
 #### `-f` - File or Directory
 
 ```sh
-hypershell apply -f <file>               # apply a single YAML file
-hypershell apply -f <dir>                # apply all *.yaml files in the directory (non-recursive)
-hypershell apply -f -                    # read from stdin
+hsctl apply -f <file>               # apply a single YAML file
+hsctl apply -f <dir>                # apply all *.yaml files in the directory (non-recursive)
+hsctl apply -f -                    # read from stdin
 ```
 
 Each file may contain one or more YAML documents separated by `---`. Documents with unrecognized `kind` values are skipped with a warning.
@@ -371,7 +371,7 @@ With `-o json`: JSON array of all applied resources.
 #### `-k` - Kustomize Directory
 
 ```sh
-hypershell apply -k <dir>                # build kustomization in <dir> and apply the result
+hsctl apply -k <dir>                # build kustomization in <dir> and apply the result
 ```
 
 Equivalent to: build the kustomization (resolve `bases`, `resources`, merge `patches`) into a flat manifest stream, then apply each document in order.
@@ -401,19 +401,19 @@ Patches use **strategic merge**: scalar fields overwrite, maps merge, sequences 
 
 ```sh
 ## Apply the full base fleet
-hypershell apply -f .hypershell/base/
+hsctl apply -f .hypershell/base/
 
 ## Apply the prod overlay (resolves base + patches)
-hypershell apply -k .hypershell/overlays/prod/
+hsctl apply -k .hypershell/overlays/prod/
 
 ## Apply a single gateway file
-hypershell apply -f gateways/api-gateway.yaml
+hsctl apply -f gateways/api-gateway.yaml
 
 ## Dry-run: show what would change without applying
-hypershell apply -k .hypershell/overlays/staging/ --dry-run
+hsctl apply -k .hypershell/overlays/staging/ --dry-run
 
 ## Pipe from stdin
-cat gateway.yaml | hypershell apply -f -
+cat gateway.yaml | hsctl apply -f -
 ```
 
 #### Flags
@@ -448,10 +448,10 @@ cat gateway.yaml | hypershell apply -f -
 The CLI can maintain a current fleet context in `~/.hypershell/config.yaml` (overridable via `HYPERSHELL_FLEET` env var). Operations that require `fleet_id` read it from context automatically.
 
 ```sh
-hypershell login https://api.example.com --token $TOKEN
-hypershell fleet select production
-hypershell list gateways
-hypershell create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0 --database-id db-1
+hsctl login https://api.example.com --token $TOKEN
+hsctl fleet select production
+hsctl list gateways
+hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0 --database-id db-1
 ```
 
 ## Design Decisions
