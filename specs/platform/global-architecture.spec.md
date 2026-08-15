@@ -432,14 +432,22 @@ Gateway API objects, cert-manager objects, and control-plane config are identica
 API is **not installed** — `kubectl api-resources` returns no
 `gateway.networking.k8s.io` types; tenant gateways currently fall back to
 OpenShift `Route` objects (`passthrough`) on the IBM-managed
-`*.containers.appdomain.cloud` domain. This is the configuration drift to close.
+`*.containers.appdomain.cloud` domain. **Root cause:** that cluster runs OCP
+**4.17.56**, and the built-in, Cluster-Ingress-Operator-managed Gateway API
+(`openshift-default` GatewayClass) is **GA only on OCP >= 4.19**. On 4.17 it is
+Tech Preview behind a feature gate that managed-ROKS control planes should not
+toggle. The resolution is a **new cluster on OCP >= 4.19**, not an in-place change
+(the 4.17 cluster's feature set is `CustomNoUpgrade`, which blocks upgrades).
+IBM's default is `4.21.27_openshift`. See the [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md)
+skill for provisioning; new Cloud Hub `hysh-ibm-01` (OCP 4.21.27) created for this.
 
 Steps (parity, not migration):
 
-1. **Enable the OpenShift Gateway API feature.** Confirm the ROKS OpenShift
-   version ships the CIO-managed Gateway API (`openshift-default` GatewayClass) and
-   enable it. If the version predates GA support, this is a blocker — see open
-   questions.
+1. **Provision (or confirm) a ROKS cluster on OCP >= 4.19** so the built-in
+   `openshift-default` GatewayClass is available with no operator install — verify
+   `oc get gatewayclass` returns `openshift-default`. On OCP < 4.19 this is a
+   blocker; hand-installing OSSM 3 / Sail yields a divergent `istio` GatewayClass
+   and is not the preferred parity path.
 2. **Choose the IBM base domain.** e.g. `*.openshell.<ibm-env>.devshift.net`
    (a distinct subdomain from AWS, still under the Route53 `devshift.net` zone).
 3. **Seed the Route53 credential secret** `certmgr-<cluster>-devshift-net-sa` in
