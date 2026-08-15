@@ -19,16 +19,15 @@ stands up that shared Gateway plus its wildcard DNS + TLS so every tenant gets a
 `gw-<tenant>.<base-domain>` subdomain behind a single load balancer.
 
 Run this **once per Cloud Hub / gateway-hosting cluster**, before or alongside the
-platform deploy (`/deploy-cluster`). It is idempotent — re-applying reconciles.
+platform deploy (`/deploy-cluster`). It is idempotent - re-applying reconciles.
 
 ## Why one shared Gateway (not per-tenant)
 
 A wildcard DNS record resolves to exactly **one** LB. A shared `Gateway` gives one
 LB + one wildcard cert + one wildcard DNS record, with hostname-based routing per
-tenant `GRPCRoute`. A per-tenant Gateway would need one LB and one DNS record each
-— incompatible with wildcard subdomains. Authoritative spec + verified manifests:
+tenant `GRPCRoute`. A per-tenant Gateway would need one LB and one DNS record each - incompatible with wildcard subdomains. Authoritative spec + verified manifests:
 [`specs/platform/global-architecture.spec.md`](../../../specs/platform/global-architecture.spec.md)
-(§ "Tenant Gateway Ingress — Reference Implementation" and "IBM Cloud Parity Plan").
+(§ "Tenant Gateway Ingress - Reference Implementation" and "IBM Cloud Parity Plan").
 
 ## The only cloud-specific difference
 
@@ -43,7 +42,7 @@ No per-cloud LB manifest is written.
 | LB provisioned by CCM | AWS Classic ELB (`*.elb.amazonaws.com`) | VPC Load Balancer (`*.lb.appdomain.cloud`) |
 | Base domain (example) | `*.openshell.stage.devshift.net` | `*.openshell.<ibm-env>.devshift.net` |
 | TLS secret | `wildcard-openshell-stage-devshift-tls` | `wildcard-openshell-<ibm-env>-devshift-tls` |
-| ClusterIssuer | `letsencrypt-devshiftnet-dns` (Route53 DNS-01) | **same issuer** — Route53 is central |
+| ClusterIssuer | `letsencrypt-devshiftnet-dns` (Route53 DNS-01) | **same issuer** - Route53 is central |
 | DNS record | static Route53 wildcard CNAME → ELB | static Route53 wildcard CNAME → VPC LB |
 
 Route53 hosts the `devshift.net` zone centrally, so DNS-01 issuance works from any
@@ -72,7 +71,7 @@ oc -n openshift-ingress get deployment cert-manager -o name 2>/dev/null \
 ```
 
 If `gatewayclass openshift-default` is missing, stop. The built-in, CIO-managed
-Gateway API is **GA only on OCP >= 4.19** — check `oc get clusterversion version
+Gateway API is **GA only on OCP >= 4.19** - check `oc get clusterversion version
 -o jsonpath='{.status.desired.version}'`. On OCP < 4.19 (e.g. the original IBM
 `hypershell-cluster` on 4.17, confirmed 2026-08-15) this GatewayClass does not
 exist and cannot be safely enabled on a managed control plane; provision a
@@ -126,7 +125,7 @@ echo "LB hostname: $LB"     # AWS: *.elb.amazonaws.com  |  IBM: *.lb.appdomain.c
 
 ## Step 5: Create the wildcard DNS record
 
-There is **no external-dns** — the Gateway reports DNS management `Unmanaged`.
+There is **no external-dns** - the Gateway reports DNS management `Unmanaged`.
 Create the static Route53 record once, after the LB hostname is known:
 
 ```
@@ -166,21 +165,25 @@ openshell login "gw-${NS}.${BASE_DOMAIN}:443"   # CLI connects over the wildcard
 
 ## Cloud variants at a glance
 
-### AWS (reference — already live on `hcmai` / hypershell-stage)
+### AWS (reference - already live on `hcmai` / hypershell-stage)
 - Verified working; this skill is derived from it. LB is an AWS Classic ELB.
 - Nothing to change beyond the parameters above.
 
-### IBM Cloud / ROKS (parity target — `hypershell-cluster`)
-1. **Gateway API enablement is the gap** — confirm the ROKS OCP version ships the
-   CIO-managed Gateway API and `openshift-default` GatewayClass; enable it. If the
-   version predates GA, that is a blocker (raise before proceeding).
-2. Use `BASE_DOMAIN=openshell.<ibm-env>.devshift.net` and matching `TLS_SECRET` /
-   `CERT_NAME` (distinct from AWS, still under the Route53 `devshift.net` zone).
-3. Steps 1–7 are otherwise identical. Step 4 yields a **VPC Load Balancer**
-   (`*.lb.appdomain.cloud`) instead of an ELB — no manifest change.
-4. Tenant traffic currently falls back to OpenShift `Route` (`passthrough`) on
-   `*.containers.appdomain.cloud`; completing this bootstrap + Step 6 closes that
-   drift so IBM emits `GRPCRoute`s like AWS.
+### IBM Cloud / ROKS - do NOT run this skill (use Route ingress mode instead)
+
+ROKS **cannot run** the CIO-managed Gateway API (HyperShift-hosted; OSSM images
+unpullable; IDMS denied on the HostedCluster - verified on `hysh-ibm-01`, OCP
+4.21.27, 2026-08-15). This bootstrap (shared Gateway) does not apply there.
+Instead, the IBM Cloud Hub uses the **Route ingress mode**: the control plane
+emits passthrough `Route`s on IBM's free `*.containers.appdomain.cloud` wildcard,
+selected by `GATEWAY_INGRESS_MODE=route` via the `deploy/ibm` overlay - no shared
+Gateway, wildcard cert, ClusterIssuer, or Route53. See the
+[`ibm-cluster`](../ibm-cluster/SKILL.md) skill (Step 5) and
+[`global-architecture.spec.md`](../../../specs/platform/global-architecture.spec.md)
+(§ "IBM Cloud Cloud Hub - Route ingress mode").
+
+Only run this skill on IBM if IBM later makes the Gateway API functional on the
+HostedCluster; then unset `GATEWAY_INGRESS_MODE` to return to `gateway-api` mode.
 
 ## Troubleshooting
 
@@ -192,12 +195,12 @@ The shared Gateway isn't wired up. Complete Steps 4 and 6.
 returns nothing. The built-in CIO-managed Gateway API is **GA only on OCP >= 4.19**.
 Check the version; if < 4.19 (verified on IBM `hypershell-cluster` @ 4.17.56,
 2026-08-15), do **not** try to enable a Tech-Preview feature gate on a managed
-control plane — provision a >= 4.19 cluster via the
+control plane - provision a >= 4.19 cluster via the
 [`ibm-cluster`](../ibm-cluster/SKILL.md) skill. Treat as a prerequisite blocker,
 not a runtime error.
 
 ### Gateway stuck `Programmed=False`
-Usually the TLS secret is missing — confirm Step 3 finished (`$TLS_SECRET` exists
+Usually the TLS secret is missing - confirm Step 3 finished (`$TLS_SECRET` exists
 in `openshift-ingress`) before the Gateway can terminate TLS.
 
 ### Certificate never becomes Ready

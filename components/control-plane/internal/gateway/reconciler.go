@@ -120,7 +120,10 @@ func ReconcileGateway(
 		}
 	}
 
-	if opts.HasGatewayAPI {
+	// Tenant ingress is environment-adaptive: Gateway API where available,
+	// OpenShift Routes where it is not. See gatewayIngressMode.
+	switch mode := gatewayIngressMode(opts); mode {
+	case ingressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile Gateway API resources in %s: %v", nsConfig.Name, err)
@@ -130,6 +133,18 @@ func ReconcileGateway(
 				log.Printf("WARN failed to remove Gateway API resources in %s: %v", nsConfig.Name, err)
 			}
 		}
+	case ingressModeRoute:
+		if nsConfig.Gateway.Route.Enabled {
+			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
+				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
+			}
+		} else {
+			if err := deleteRouteResources(ctx, dynamicClient, nsConfig.Name, opts); err != nil {
+				log.Printf("WARN failed to remove Route resources in %s: %v", nsConfig.Name, err)
+			}
+		}
+	default:
+		log.Printf("INFO no ingress mode selected for %s (not OpenShift and no Gateway API); skipping tenant ingress", nsConfig.Name)
 	}
 
 	log.Printf("INFO gateway reconciled in namespace %s", nsConfig.Name)
@@ -170,6 +185,14 @@ func DeleteGatewayResources(
 		namespacedResources = append(namespacedResources,
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
+		)
+	}
+
+	// OpenShift Routes are used for tenant ingress where the Gateway API is not
+	// available (see gatewayIngressMode). Clean them up on any OpenShift cluster.
+	if opts.IsOpenShift {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
 		)
 	}
 
@@ -268,6 +291,156 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 	}
 
 	log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
+	return nil
+}
+
+// reconcileRouteResources exposes a tenant gateway through an OpenShift Route
+// (HAProxy passthrough) instead of the Gateway API. Passthrough is the least
+// invasive mode: the gateway pod already terminates TLS with its per-tenant
+// self-signed CA and performs client mTLS, so HAProxy forwards the encrypted
+// connection end-to-end (SNI-routed) with no wildcard cert, cert-manager
+// ClusterIssuer, or external DNS integration required. This is the ingress mode
+// used where the Gateway API/Istio cannot run (e.g. IBM Cloud ROKS).
+func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
+	namespace := nsConfig.Name
+
+	hostname, err := deriveGatewayHostname(nsConfig)
+	if err != nil {
+		log.Printf("WARN %v", err)
+		return nil
+	}
+
+	publishRouteAddress(ctx, opts, namespace, hostname)
+
+	route := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "route.openshift.io/v1",
+			"kind":       "Route",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+				"annotations": map[string]interface{}{
+					// gRPC streams are long-lived; extend the router timeout well
+					// beyond the 30s default so streams are not torn down.
+					"haproxy.router.openshift.io/timeout": "3600s",
+				},
+			},
+			"spec": map[string]interface{}{
+				"host": hostname,
+				"to": map[string]interface{}{
+					"kind":   "Service",
+					"name":   "openshell-gateway",
+					"weight": int64(100),
+				},
+				"port": map[string]interface{}{
+					"targetPort": "grpc",
+				},
+				"tls": map[string]interface{}{
+					// Passthrough preserves the gateway pod's own TLS + client
+					// mTLS end-to-end. No router-side certificate is involved.
+					"termination":                   "passthrough",
+					"insecureEdgeTerminationPolicy": "None",
+				},
+				"wildcardPolicy": "None",
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, route); err != nil {
+		return fmt.Errorf("reconcile Route: %w", err)
+	}
+
+	// Allow ingress from the OpenShift router namespace to the gateway ports.
+	routerNS := gatewayIngressNamespace()
+	ingressRule := map[string]interface{}{
+		"ports": []interface{}{
+			map[string]interface{}{
+				"port":     int64(8080),
+				"protocol": "TCP",
+			},
+			map[string]interface{}{
+				"port":     int64(8081),
+				"protocol": "TCP",
+			},
+		},
+		"from": []interface{}{
+			map[string]interface{}{
+				"namespaceSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"kubernetes.io/metadata.name": routerNS,
+					},
+				},
+			},
+		},
+	}
+
+	routerNetpol := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.k8s.io/v1",
+			"kind":       "NetworkPolicy",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-allow-router",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"podSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"app.kubernetes.io/instance": "openshell-gateway",
+						"app.kubernetes.io/name":     "openshell",
+					},
+				},
+				"policyTypes": []interface{}{"Ingress"},
+				"ingress":     []interface{}{ingressRule},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, routerNetpol); err != nil {
+		log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
+	}
+
+	log.Printf("INFO Route resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
+	return nil
+}
+
+func deleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, namespace string, opts ReconcileOpts) error {
+	routeGVR := schema.GroupVersionResource{
+		Group:    "route.openshift.io",
+		Version:  "v1",
+		Resource: "routes",
+	}
+	if err := dynamicClient.Resource(routeGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete Route: %v", err)
+	}
+
+	netpolGVR := schema.GroupVersionResource{
+		Group:    "networking.k8s.io",
+		Version:  "v1",
+		Resource: "networkpolicies",
+	}
+	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete router NetworkPolicy: %v", err)
+	}
+
+	if opts.UpdateRouteAddress != nil {
+		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
+			log.Printf("WARN failed to clear routeAddress for gateway in %s: %v", namespace, err)
+		} else {
+			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+		}
+	}
+
+	log.Printf("INFO Route resources removed from namespace %s", namespace)
 	return nil
 }
 
@@ -593,6 +766,7 @@ func kindToResource(kind string) string {
 		"Gateway":               "gateways",
 		"GRPCRoute":             "grpcroutes",
 		"BackendTLSPolicy":      "backendtlspolicies",
+		"Route":                 "routes",
 	}
 
 	if resource, ok := mapping[kind]; ok {
@@ -1267,6 +1441,77 @@ func gatewayIngressName() string {
 		return name
 	}
 	return ""
+}
+
+// Ingress modes select how a tenant gateway is exposed for external traffic.
+const (
+	ingressModeGatewayAPI = "gateway-api"
+	ingressModeRoute      = "route"
+	ingressModeNone       = ""
+)
+
+// gatewayIngressMode decides how tenant-gateway ingress is provisioned.
+//
+// HyperShell is environment-adaptive: it emits Kubernetes Gateway API resources
+// (a GRPCRoute onto a shared Gateway) where the Gateway API is available and
+// functional, and OpenShift Routes (HAProxy passthrough) where it is not (e.g.
+// IBM Cloud ROKS, which ships the Gateway API CRDs but cannot run the
+// CIO-managed Istio). The mode is chosen per environment via the kustomize-set
+// env var GATEWAY_INGRESS_MODE, with a sensible capability-based default when it
+// is unset.
+//
+// GATEWAY_INGRESS_MODE values: "gateway-api", "route", or "none"/"off" to
+// disable managed ingress. When unset, auto-detect: prefer the Gateway API when
+// present, otherwise fall back to Routes on OpenShift. Note that on some
+// platforms the Gateway API CRDs exist but do not function (ROKS); those
+// operators must set GATEWAY_INGRESS_MODE=route explicitly.
+func gatewayIngressMode(opts ReconcileOpts) string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_INGRESS_MODE"))) {
+	case ingressModeGatewayAPI, "gatewayapi":
+		return ingressModeGatewayAPI
+	case ingressModeRoute, "routes":
+		return ingressModeRoute
+	case "none", "off", "disabled":
+		return ingressModeNone
+	}
+
+	// Auto-detect from cluster capabilities when no explicit override is set.
+	if opts.HasGatewayAPI {
+		return ingressModeGatewayAPI
+	}
+	if opts.IsOpenShift {
+		return ingressModeRoute
+	}
+	return ingressModeNone
+}
+
+// deriveGatewayHostname resolves the external hostname for a tenant gateway,
+// shared by both ingress modes. An explicit Route.Host wins; otherwise it is
+// derived as gw-<namespace>.<GATEWAY_API_BASE_DOMAIN>. The gateway's server
+// certificate SANs (ServerDnsNames/ExternalDns) must cover this hostname.
+func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
+	if h := nsConfig.Gateway.Route.Host; h != "" {
+		return h, nil
+	}
+	baseDomain := os.Getenv("GATEWAY_API_BASE_DOMAIN")
+	if baseDomain == "" {
+		return "", fmt.Errorf("cannot derive gateway hostname: set Route.Host or GATEWAY_API_BASE_DOMAIN")
+	}
+	return fmt.Sprintf("gw-%s.%s", nsConfig.Name, baseDomain), nil
+}
+
+// publishRouteAddress writes the externally reachable gRPC address back to the
+// API-server Gateway resource. Shared by both ingress modes.
+func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hostname string) {
+	if opts.UpdateRouteAddress == nil {
+		return
+	}
+	routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
+	if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+		log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+	} else {
+		log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+	}
 }
 
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {

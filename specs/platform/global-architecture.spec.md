@@ -250,7 +250,35 @@ Traffic destined for the actual managed gRPC gateways bypasses the default OpenS
 
 This architecture allows the control plane to dynamically route traffic for new gateways without needing to provision individual load balancers or DNS records per tenant.
 
-### Tenant Gateway Ingress — Reference Implementation (verified on AWS)
+### Tenant gateway ingress is environment-adaptive (two modes)
+
+Not every cluster can run the Gateway API. HyperShell is composable per
+environment (see the deploy overlays), so the tenant-gateway ingress path is a
+**selectable mode**, chosen by configuration, not by forking behavior:
+
+| Mode | Routing object | When to use | Externally provisioned by |
+|------|----------------|-------------|---------------------------|
+| **`gateway-api`** (reference) | `GRPCRoute` → shared `Gateway` | Gateway API GA and functional (AWS/ROSA, OCP ≥ 4.19 with working CIO Istio) | Shared `Gateway` + wildcard cert + Route53 CNAME |
+| **`route`** | OpenShift `Route` (`passthrough`) | Gateway API absent or non-functional (IBM Cloud ROKS - HyperShift-hosted, cannot pull OSSM images, IDMS owned by the HostedCluster) | Cluster's default router (HAProxy) on the platform wildcard |
+
+Both modes converge on the **same** tenant workload: the gateway pod terminates
+TLS with its per-tenant self-signed CA (`openshell-ca` → `openshell-server-tls`)
+and performs client mTLS. In `route` mode the `Route` is `passthrough`, so the
+router forwards the encrypted connection SNI-routed end-to-end - no wildcard
+certificate, cert-manager `ClusterIssuer`, or external DNS integration is
+required, and it works on the cloud's free ingress wildcard (e.g. IBM's
+`*.containers.appdomain.cloud`). In `gateway-api` mode the shared `Gateway`
+terminates the client's TLS and re-encrypts to the backend, validated by a
+`BackendTLSPolicy`.
+
+The mode is set by the control-plane env var `GATEWAY_INGRESS_MODE`
+(`gateway-api` | `route` | `none`). When unset it is auto-detected from cluster
+capabilities (`gateway-api` if the Gateway API is present, else `route` on
+OpenShift). Because some platforms ship the Gateway API CRDs but cannot run it
+(ROKS), those environments set `GATEWAY_INGRESS_MODE=route` explicitly via their
+kustomize overlay (`deploy/ibm`). See "Requirement: Control Plane Ingress Mode".
+
+### Tenant Gateway Ingress - Reference Implementation (verified on AWS)
 
 > The following was captured live from the `hypershell-stage` deployment on the
 > ROSA cluster `hcmais01ue1` (2026-08-15). It is the source-of-truth
@@ -281,7 +309,7 @@ Istio install. The Cluster Ingress Operator (CIO) installs and manages `istiod`
 - **Controller:** `openshift.io/gateway-controller/v1` ("Handled by Istio controller"; `istiod v1.28.5` installed by CIO)
 - **Gateway → LoadBalancer:** creating the `Gateway` causes the operator to create an Istio ingress `Deployment` + `Service` (`type: LoadBalancer`); the cloud CCM then provisions the external LB (AWS Classic ELB observed: `a1a663034da9843c3944de9cbdaceb98-536422505.us-east-1.elb.amazonaws.com`).
 
-#### Manifest 1 — Shared Gateway (one per cluster, in `openshift-ingress`)
+#### Manifest 1 - Shared Gateway (one per cluster, in `openshift-ingress`)
 
 Created/owned by the control plane (`app.kubernetes.io/managed-by: hypershell-control-plane`).
 
@@ -317,7 +345,7 @@ spec:
             name: wildcard-openshell-stage-devshift-tls
 ```
 
-#### Manifest 2 — Per-tenant GRPCRoute (control plane creates one per gateway)
+#### Manifest 2 - Per-tenant GRPCRoute (control plane creates one per gateway)
 
 Lives in the tenant namespace (`openshell-<tenant-hash>`), attaches cross-namespace to the shared Gateway's `grpc` listener.
 
@@ -349,7 +377,7 @@ spec:
           weight: 1
 ```
 
-#### Manifest 3 — Wildcard TLS certificate (cert-manager, in `openshift-ingress`)
+#### Manifest 3 - Wildcard TLS certificate (cert-manager, in `openshift-ingress`)
 
 ```yaml
 apiVersion: cert-manager.io/v1
@@ -366,7 +394,7 @@ spec:
     name: letsencrypt-devshiftnet-dns
 ```
 
-#### Manifest 4 — ClusterIssuer (ACME / Let's Encrypt, DNS-01 via Route53)
+#### Manifest 4 - ClusterIssuer (ACME / Let's Encrypt, DNS-01 via Route53)
 
 The `devshift.net` zone is centrally hosted in AWS Route53, so the DNS-01 solver
 is Route53 **regardless of which cloud the cluster runs in**. This is the key that
@@ -421,69 +449,89 @@ after the LB hostname is known.
 | Issuer | `letsencrypt-devshiftnet-dns` (ACME, DNS-01, Route53 zone `devshift.net`) | cloud-agnostic |
 | DNS record | static Route53 wildcard CNAME → LB | no external-dns |
 
-### IBM Cloud Parity Plan
+### IBM Cloud Cloud Hub - Route ingress mode (verified 2026-08-15)
 
-Goal: reproduce the exact tenant-gateway ingress path on the IBM Cloud Cloud Hub
-(ROKS, VPC Gen2) so the control plane behaves identically across clouds. The
-**only cloud-specific difference is the load balancer implementation** — the
-Gateway API objects, cert-manager objects, and control-plane config are identical.
+IBM Cloud ROKS does **not** run the Gateway API, so the IBM Cloud Hub uses the
+**`route` ingress mode** (see "environment-adaptive" above) rather than reaching
+`gateway-api` parity. This is a deliberate, first-class configuration, not a
+degraded fallback.
 
-**Confirmed gap (verified on the IBM `hypershell-cluster`, 2026-08-15):** Gateway
-API is **not installed** — `kubectl api-resources` returns no
-`gateway.networking.k8s.io` types; tenant gateways currently fall back to
-OpenShift `Route` objects (`passthrough`) on the IBM-managed
-`*.containers.appdomain.cloud` domain. **Root cause:** that cluster runs OCP
-**4.17.56**, and the built-in, Cluster-Ingress-Operator-managed Gateway API
-(`openshift-default` GatewayClass) is **GA only on OCP >= 4.19**. On 4.17 it is
-Tech Preview behind a feature gate that managed-ROKS control planes should not
-toggle. The resolution is a **new cluster on OCP >= 4.19**, not an in-place change
-(the 4.17 cluster's feature set is `CustomNoUpgrade`, which blocks upgrades).
-IBM's default is `4.21.27_openshift`. See the [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md)
-skill for provisioning; new Cloud Hub `hysh-ibm-01` (OCP 4.21.27) created for this.
+**Why Gateway API is unavailable on ROKS (exhaustively verified on `hysh-ibm-01`,
+OCP 4.21.27, 2026-08-15):** the CRDs and feature gates are present, and creating
+the `openshift-default` GatewayClass makes the CIO deploy `istiod`, but it
+`ImagePullBackOff`s - the OSSM images (`registry.redhat.io/openshift-service-mesh/
+istio-pilot-rhel9`, `istio-proxyv2-rhel9`) are not stocked in IBM's node mirror
+and worker egress to `registry.redhat.io` is blocked. ROKS is **HyperShift-hosted**:
+a `ValidatingAdmissionPolicy` named `mirror` denies creating
+`ImageDigestMirrorSet`/`ImageTagMirrorSet` in the guest (node `registries.conf`
+is owned by the HostedCluster), and CIO reverts any Deployment image patch within
+~45s. OperatorHub is also broken (catalog pods `ImagePullBackOff`), so OLM install
+of Sail/OSSM is unavailable too. The **only** supported way to make Gateway API
+work on ROKS is an IBM-side change to the HostedCluster (mirror/allowlist), which
+is out of our control. See [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md).
 
-Steps (parity, not migration):
+Steps (Route mode on ROKS):
 
-1. **Provision (or confirm) a ROKS cluster on OCP >= 4.19** so the built-in
-   `openshift-default` GatewayClass is available with no operator install — verify
-   `oc get gatewayclass` returns `openshift-default`. On OCP < 4.19 this is a
-   blocker; hand-installing OSSM 3 / Sail yields a divergent `istio` GatewayClass
-   and is not the preferred parity path.
-2. **Choose the IBM base domain.** e.g. `*.openshell.<ibm-env>.devshift.net`
-   (a distinct subdomain from AWS, still under the Route53 `devshift.net` zone).
-3. **Seed the Route53 credential secret** `certmgr-<cluster>-devshift-net-sa` in
-   `openshift-ingress` and apply the **same** `ClusterIssuer`
-   (`letsencrypt-devshiftnet-dns`, Route53 DNS-01). No IBM DNS integration needed.
-4. **Apply the wildcard `Certificate`** for the IBM base domain
-   (Manifest 3 pattern, new `dnsNames` + `secretName`).
-5. **Apply the shared `Gateway`** (Manifest 1 pattern) with `gatewayClassName:
-   openshift-default` and the IBM hostname. IBM Cloud CCM provisions a **VPC
-   Load Balancer** (`*.lb.appdomain.cloud`) in place of the AWS ELB —
-   automatically, no manifest change.
-6. **Create the wildcard DNS record** `*.openshell.<ibm-env>.devshift.net CNAME
-   <vpc-lb-hostname>` in Route53 once the LB hostname is known.
-7. **Point the control plane at the Gateway.** Set the gateway/domain config so
-   the IBM control plane emits `GRPCRoute`s (Manifest 2) instead of `Route`s
-   (see Requirement: Control Plane Ingress Mode below).
-8. **Verify:** `Gateway` `Programmed=True` with an address; a test tenant's
-   `GRPCRoute` reports `Accepted`/`ResolvedRefs`; `openshell` CLI connects over
-   `gw-...<ibm-env>.devshift.net:443`.
+1. **Provision a ROKS cluster on OCP ≥ 4.19** (Cloud Hub `hysh-ibm-01`, OCP
+   4.21.27). Registry storage must be a **ReadWriteOnce** PVC (IBM VPC block is
+   RWO-only; the operator's default RWM PVC fails `VolumeCapabilitiesNotSupported`).
+2. **Deploy the control plane with the IBM overlay** (`deploy/ibm`), which sets
+   `GATEWAY_INGRESS_MODE=route` and `GATEWAY_API_BASE_DOMAIN` to the cluster's
+   ingress subdomain (IBM's free `*.<ingress-subdomain>.containers.appdomain.cloud`
+   wildcard - no cert-manager `ClusterIssuer`, no Route53, no external DNS needed).
+3. **Provision a test tenant gateway** with `route.enabled=true`. The control
+   plane creates an OpenShift `Route` (`passthrough`) `openshell-gateway` in the
+   tenant namespace with host `gw-<tenant>.<base-domain>`, backed by
+   `Service openshell-gateway:8080`, plus the `openshell-gateway-allow-router`
+   NetworkPolicy, and publishes `grpcs://<host>:443` as the gateway's route address.
+4. **Verify:** the `Route` reports `Admitted=True`; `openshell` CLI connects over
+   `gw-<tenant>.<base-domain>:443`. The pod's server cert SANs
+   (`ServerDnsNames`/`ExternalDns`) must include that hostname.
+
+To later switch a cloud to `gateway-api` mode (e.g. if IBM fixes HostedCluster
+mirroring), unset `GATEWAY_INGRESS_MODE` (or set it to `gateway-api`) and complete
+the shared-Gateway bootstrap; the control plane then emits `GRPCRoute`s and cleans
+up the Routes. The AWS reference (`gateway-api` mode) is unchanged.
 
 ### Requirements
 
-#### Requirement: Tenant Gateway Ingress via Gateway API
+#### Requirement: Tenant Gateway Ingress via Gateway API (`gateway-api` mode)
 
-Tenant gateway traffic SHALL be routed through the Kubernetes Gateway API using a
-single shared `Gateway` (`openshell-grpc-gateway`) in the `openshift-ingress`
-namespace on every cluster that hosts gateways. Tenant gateways SHALL NOT use
+In `gateway-api` mode, tenant gateway traffic SHALL be routed through the
+Kubernetes Gateway API using a single shared `Gateway` (`openshell-grpc-gateway`)
+in the `openshift-ingress` namespace. In this mode tenant gateways SHALL NOT use
 OpenShift `Route` objects for data-plane gRPC traffic.
 
 ##### Scenario: Gateway provisioning creates a GRPCRoute
 
-- GIVEN a cluster with the `openshift-default` GatewayClass and the shared `openshell-grpc-gateway`
+- GIVEN a cluster in `gateway-api` mode with the `openshift-default` GatewayClass and the shared `openshell-grpc-gateway`
 - WHEN the control plane provisions a new tenant gateway
 - THEN it SHALL create a `GRPCRoute` in the tenant namespace with a `parentRef` to `openshell-grpc-gateway` (`sectionName: grpc`)
 - AND the route hostname SHALL be `gw-<tenant>.<base-domain>` under the shared listener's wildcard
 - AND it SHALL NOT create an OpenShift `Route` for gRPC data-plane traffic
+
+#### Requirement: Tenant Gateway Ingress via OpenShift Route (`route` mode)
+
+In `route` mode, tenant gateway traffic SHALL be exposed through an OpenShift
+`Route` with `tls.termination: passthrough`, so the gateway pod's own TLS and
+client mTLS are preserved end-to-end. In this mode the control plane SHALL NOT
+require a shared `Gateway`, a wildcard certificate, or external DNS integration.
+
+##### Scenario: Gateway provisioning creates a passthrough Route
+
+- GIVEN a cluster in `route` mode (`GATEWAY_INGRESS_MODE=route`)
+- WHEN the control plane provisions a new tenant gateway with ingress enabled
+- THEN it SHALL create a `Route` `openshell-gateway` in the tenant namespace with `spec.tls.termination: passthrough` and `port.targetPort: grpc` to `Service openshell-gateway`
+- AND the route hostname SHALL be `gw-<tenant>.<base-domain>` (or the gateway's explicit `route.host`)
+- AND it SHALL publish `grpcs://<host>:443` as the gateway's route address
+- AND it SHALL NOT create a `GRPCRoute`, shared `Gateway`, or `BackendTLSPolicy`
+
+##### Scenario: Disabling ingress removes the mode's routing objects
+
+- GIVEN a provisioned tenant gateway with a routing object for the active mode
+- WHEN ingress is disabled (`route.enabled=false`) or the gateway is deleted
+- THEN the control plane SHALL delete the tenant's `Route` (route mode) or `GRPCRoute`/`BackendTLSPolicy` (gateway-api mode) and the `openshell-gateway-allow-router` NetworkPolicy
+- AND it SHALL clear the gateway's route address
 
 #### Requirement: Cloud-Agnostic Gateway Manifests
 
@@ -508,14 +556,29 @@ cert-manager using the ACME DNS-01 challenge against the central Route53
 
 #### Requirement: Control Plane Ingress Mode
 
-The control plane's ingress mode (Gateway API vs OpenShift Route) SHALL be
+The control plane's ingress mode (`gateway-api` vs `route`) SHALL be
 configuration-driven, not cloud-hardcoded, so the same binary produces `GRPCRoute`s
-on any cluster where the shared Gateway and GatewayClass are present.
+or OpenShift `Route`s depending only on the selected mode. The mode SHALL be
+selectable via the `GATEWAY_INGRESS_MODE` env var (`gateway-api` | `route` |
+`none`), overridable per environment through a kustomize overlay
+(`deploy/openshift` defaults to `gateway-api`; `deploy/ibm` sets `route`).
+
+##### Scenario: Explicit mode overrides auto-detection
+
+- GIVEN a cluster where the Gateway API CRDs are present but non-functional (ROKS)
+- WHEN `GATEWAY_INGRESS_MODE=route` is set
+- THEN the control plane SHALL provision OpenShift `Route`s and SHALL NOT attempt Gateway API resources
+
+##### Scenario: Auto-detection when no mode is set
+
+- GIVEN `GATEWAY_INGRESS_MODE` is unset
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL select `gateway-api` if the Gateway API is detected, otherwise `route` on OpenShift, otherwise skip managed ingress
 
 ### Open Questions (for implementer review)
 
-1. **[RESOLVED] ROKS Gateway API availability.** Verified on 2026-08-15: The `gateway.networking.k8s.io` CRDs do **not** exist by default on the current IBM cluster. The Gateway API must be explicitly enabled via the Cluster Ingress Operator or a FeatureGate before parity can be achieved.
-2. **IBM base domain.** What exact subdomain — e.g. `openshell.ibm-stage.devshift.net`?
+1. **[RESOLVED] ROKS Gateway API availability.** Verified on 2026-08-15 across two clusters: on the old 4.17 cluster the CRDs were absent; on the new `hysh-ibm-01` (4.21.27) the CRDs and feature gates are present but the Gateway API is **non-functional** (CIO `istiod` cannot pull OSSM images; IDMS denied by the HostedCluster; CIO reverts patches; OperatorHub broken). **Decision:** the IBM Cloud Hub uses the `route` ingress mode (`deploy/ibm`, `GATEWAY_INGRESS_MODE=route`), not Gateway API. See "IBM Cloud Cloud Hub - Route ingress mode".
+2. **IBM base domain.** What exact subdomain - e.g. `openshell.ibm-stage.devshift.net`?
    Confirm it is delegated within the Route53 `devshift.net` zone.
 3. **[RESOLVED - BUG] Control-plane config surface.** Verified on 2026-08-15: The Go code reads `GATEWAY_API_BASE_DOMAIN` and `GATEWAY_API_GATEWAY_CLASS`. However, it **completely ignores** the gateway name and namespace config. `internal/gateway/reconciler.go` currently hardcodes the `GRPCRoute` `parentRefs` to `name: openshell-gateway` inside the tenant's own namespace. This is a severe bug that provisions one Load Balancer per tenant. This code must be patched to respect `GATEWAY_API_GATEWAY_NAME` and `GATEWAY_API_GATEWAY_NAMESPACE` to use the shared ingress gateway.
 4. **DNS record creation.** Reproduce the AWS pattern (static Route53 wildcard

@@ -13,7 +13,7 @@ description: >
 > PostgreSQL) and is cloud-agnostic across OpenShift distributions (ROSA, ROKS,
 > self-managed). It does **not** stand up tenant-gateway ingress. The shared
 > `Gateway` + wildcard DNS/TLS that tenant traffic needs is a separate one-time
-> per-cluster bootstrap — see [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md).
+> per-cluster bootstrap - see [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md).
 > Without it, the controller runs but every gateway reconcile fails with
 > `GATEWAY_API_GATEWAY_NAME is required`.
 
