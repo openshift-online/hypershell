@@ -91,6 +91,7 @@ erDiagram
         jsonb route
         text route_address
         jsonb database
+        jsonb credential_driver
         string external_dns
         string tls_mode
         string service_type
@@ -182,6 +183,7 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `database` | JSONB | Database backend config: `{storageSize, image, externalSecretRef}` |
+| `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 
 See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and its sub-specs for full provisioning details.
 

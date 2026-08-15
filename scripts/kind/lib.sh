@@ -42,6 +42,7 @@ fi
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${KEYCLOAK_OIDC_AUDIENCE:=hypershell-frontend}"
 : "${KIND_DNS_PORT:=5553}"
+: "${CPK_LOG:=/tmp/cloud-provider-kind.log}"
 DNS_CONTAINER_NAME="${KIND_CLUSTER_NAME}-dns"
 
 # --- Cluster helpers ---
@@ -218,6 +219,47 @@ ${existing}"
   success "Cluster CoreDNS patched"
 }
 
+# --- cloud-provider-kind SHA tracking ---
+
+# The expected commit is written to bin/.cloud-provider-kind.sha by
+# `make kind-prereqs`; CPK_SHA_MARKER records the commit of the instance that is
+# actually running. up.sh compares the two to decide whether a restart is needed:
+# cloud-provider-kind republishes the gateway LB on new random host ports every
+# time it restarts, so we only pay that port churn when the pinned build has
+# genuinely changed. A missing running-marker biases toward restart so the
+# pinned build is always guaranteed.
+CPK_SHA_FILE="${REPO_ROOT}/bin/.cloud-provider-kind.sha"
+CPK_SHA_MARKER="/tmp/hypershell-kind-${KIND_CLUSTER_NAME}-cpk.sha"
+
+# Expected (built) SHA: prefer the marker written by kind-prereqs; fall back to
+# the binary's own stamped vcs.revision so this works even if the marker is
+# missing (e.g. a binary built by an older Makefile). Always returns 0 (prints
+# empty when unknown) so callers under `set -e` don't abort on a lookup miss.
+cpk_expected_sha() {
+  if [[ -f "${CPK_SHA_FILE}" ]]; then
+    tr -d '[:space:]' < "${CPK_SHA_FILE}"
+    return 0
+  fi
+  local bin
+  bin="$(command -v cloud-provider-kind 2>/dev/null || echo "${REPO_ROOT}/bin/cloud-provider-kind")"
+  if [[ -x "${bin}" ]]; then
+    go version -m "${bin}" 2>/dev/null |
+      awk -F= '/[[:space:]]vcs.revision=/{print $2}' | tr -d '[:space:]'
+  fi
+  return 0
+}
+
+# Running SHA: the commit recorded when the live instance was last started.
+# Always returns 0 (empty output when no marker) for the same reason.
+cpk_running_sha() {
+  [[ -f "${CPK_SHA_MARKER}" ]] && tr -d '[:space:]' < "${CPK_SHA_MARKER}"
+  return 0
+}
+
+record_cpk_sha() {
+  printf '%s\n' "$1" > "${CPK_SHA_MARKER}"
+}
+
 # --- kubectl port-forward (no-sudo fallback) ---
 
 KUBECTL_PF_DIR="/tmp/hypershell-kind-${KIND_CLUSTER_NAME}-pf"
@@ -334,6 +376,12 @@ rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 8080 -> 127.0.0.1 port
 }
 
 stop_port_forward() {
+  # Tearing down rules needs the same privileges as adding them. Skip when we
+  # have no sudo (HAVE_SUDO defaults to true for callers like port-forward.sh
+  # that don't set it) so up.sh's no-sudo path never blocks on a password prompt.
+  if [[ "${HAVE_SUDO:-true}" == "false" ]]; then
+    return
+  fi
   case "$(uname -s)" in
     Darwin)
       sudo pfctl -a "${PF_ANCHOR}" -F all 2>/dev/null || true

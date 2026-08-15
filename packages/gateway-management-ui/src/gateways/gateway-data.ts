@@ -16,6 +16,7 @@ const gatewayPollingStates = new Set([
   "provisioning",
   "reconciling",
   "updating",
+  "degraded",
 ]);
 const gatewayFailedLifecycleStates = new Set(["error", "failed"]);
 

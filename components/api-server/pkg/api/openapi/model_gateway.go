@@ -53,6 +53,8 @@ type Gateway struct {
 	Route *string `json:"route,omitempty"`
 	// JSON-encoded database provisioning configuration
 	DatabaseConfig *string `json:"database_config,omitempty"`
+	// JSON-encoded credential storage driver configuration
+	CredentialDriver *string `json:"credential_driver,omitempty"`
 }
 
 type _Gateway Gateway
@@ -768,6 +770,38 @@ func (o *Gateway) SetDatabaseConfig(v string) {
 	o.DatabaseConfig = &v
 }
 
+// GetCredentialDriver returns the CredentialDriver field value if set, zero value otherwise.
+func (o *Gateway) GetCredentialDriver() string {
+	if o == nil || IsNil(o.CredentialDriver) {
+		var ret string
+		return ret
+	}
+	return *o.CredentialDriver
+}
+
+// GetCredentialDriverOk returns a tuple with the CredentialDriver field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetCredentialDriverOk() (*string, bool) {
+	if o == nil || IsNil(o.CredentialDriver) {
+		return nil, false
+	}
+	return o.CredentialDriver, true
+}
+
+// HasCredentialDriver returns a boolean if a field has been set.
+func (o *Gateway) HasCredentialDriver() bool {
+	if o != nil && !IsNil(o.CredentialDriver) {
+		return true
+	}
+
+	return false
+}
+
+// SetCredentialDriver gets a reference to the given string and assigns it to the CredentialDriver field.
+func (o *Gateway) SetCredentialDriver(v string) {
+	o.CredentialDriver = &v
+}
+
 func (o Gateway) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -834,6 +868,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.DatabaseConfig) {
 		toSerialize["database_config"] = o.DatabaseConfig
+	}
+	if !IsNil(o.CredentialDriver) {
+		toSerialize["credential_driver"] = o.CredentialDriver
 	}
 	return toSerialize, nil
 }

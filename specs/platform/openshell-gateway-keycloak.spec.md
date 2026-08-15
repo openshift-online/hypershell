@@ -40,14 +40,14 @@ Gateway Lifecycle (Gateway ADDED/DELETED events):
     Control Plane - GatewayReconciler
         |  1. Receives Gateway ADDED event
         |  2. Provisions Keycloak via Admin REST API:
-        |     a. Creates OIDC client (clientId = gateway name)
+        |     a. Creates OIDC client (clientId = "{name}-{id}" for uniqueness)
         |     b. Creates client roles (openshell-admin, openshell-user)
         |     c. Creates protocol mappers (audience, sub, client-roles)
         |  3. Populates Gateway oidc config (PATCH via API or internal state)
-        |  4. Resolves existing gateway-scoped RoleBindings and assigns
-        |     Keycloak client roles (initially the creator's gateway:owner binding)
-        |  5. Injects OIDC section into gateway.toml
-        |  6. Deploys gateway K8s resources
+        |  4. Deploys gateway K8s resources
+        |
+        |  Note: The creator's gateway:owner binding is assigned via the
+        |  OIDC Role Bridge (RoleBinding event path below), not inline.
         v
     Gateway Pod
         |  Validates JWTs against the provisioned Keycloak client
@@ -102,20 +102,20 @@ HyperShell Namespace
 
 ```
 user-a has gateway:creator (from Keycloak)
-user-a creates gw-alpha → auto gateway:owner on gw-alpha
-user-a creates gw-shared → auto gateway:owner on gw-shared
-    KC clients: gw-alpha, gw-shared
+user-a creates gw-alpha (id=abc123) → auto gateway:owner on gw-alpha
+user-a creates gw-shared (id=def456) → auto gateway:owner on gw-shared
+    KC clients: gw-alpha-abc123, gw-shared-def456
     openshell-admin → user-a (on both, via gateway:owner)
 
 gateway:owner user-a grants gateway:viewer to user-b on gw-alpha
-    openshell-user → user-b (on gw-alpha only)
+    openshell-user → user-b (on gw-alpha-abc123 only)
 
 gateway:owner user-a grants gateway:owner to user-b on gw-shared
-    openshell-admin → user-b (on gw-shared only)
+    openshell-admin → user-b (on gw-shared-def456 only)
 
 user-c has gateway:creator (from Keycloak)
-user-c creates gw-beta → auto gateway:owner on gw-beta
-    KC client: gw-beta
+user-c creates gw-beta (id=ghi789) → auto gateway:owner on gw-beta
+    KC client: gw-beta-ghi789
     openshell-admin → user-c
 
     user-a GET /gateways → [gw-alpha, gw-shared]   (gateway:owner on both)
@@ -196,12 +196,16 @@ Both components SHALL obtain an access token from Keycloak using the client cred
 
 When the GatewayReconciler receives a Gateway ADDED event, it SHALL create a dedicated OIDC client in the configured Keycloak realm via the Admin REST API (`POST /admin/realms/{realm}/clients`). Keycloak provisioning occurs as part of the reconciliation loop, before deploying the gateway K8s resources.
 
+#### Client ID Format
+
+The Keycloak `clientId` SHALL be `{name}-{id}`, where `{name}` is the user-visible gateway name and `{id}` is the API-server resource ID (KSUID). This prevents name clashes when multiple gateways share the same name across fleets or when a gateway is deleted and recreated with the same name. Example: a gateway named `my-gateway` with ID `2FhMpQzXBz` produces `clientId = "my-gateway-2FhMpQzXBz"`.
+
 The client SHALL be created with the following properties:
 
 | Property | Value | Notes |
 |---|---|---|
-| `clientId` | Gateway name | Unique within the realm; used as OIDC `client_id` and `aud` |
-| `name` | Gateway name | Display name in Keycloak admin console |
+| `clientId` | `{name}-{id}` | Unique within the realm; used as OIDC `client_id` and `aud` |
+| `name` | `{name}-{id}` | Display name in Keycloak admin console |
 | `publicClient` | `true` | PKCE flow, no client secret required |
 | `standardFlowEnabled` | `true` | Authorization code flow for browser/CLI |
 | `directAccessGrantsEnabled` | `true` | Resource owner password grant for non-interactive CI pipelines that cannot use browser-based PKCE flow |
@@ -214,27 +218,29 @@ The client SHALL be created with the following properties:
 
 The `gateway-roles` client scope is a realm prerequisite. It SHALL contain an `oidc-usermodel-client-role-mapper` that emits client roles under `resource_access.${client_id}.roles`. This scope SHALL exist in the Keycloak realm before gateways are created.
 
-After creating the client, the GatewayReconciler SHALL resolve all existing gateway-scoped RoleBindings for the new gateway and assign the corresponding Keycloak client roles to each user. In practice, this is the auto-provisioned `gateway:owner` binding for the creator (created in the same API server transaction as the gateway).
+After creating the client, the creator's `gateway:owner` role is assigned via the OIDC Role Bridge (RoleBinding event path). The API server creates the RoleBinding in the same transaction as the gateway, and the RoleBindingReconciler picks it up via the watch stream. The RoleBindingReconciler retries with exponential backoff if the Keycloak client is not yet provisioned (see Role Assignment Retry below).
 
 #### Scenario: Reconciler provisions Keycloak client
 
-- GIVEN the GatewayReconciler receives an ADDED event for Gateway `my-gateway`
+- GIVEN the GatewayReconciler receives an ADDED event for Gateway `my-gateway` (id=`2FhMpQzXBz`)
 - WHEN the reconciler provisions Keycloak
-- THEN it SHALL create a Keycloak client with `clientId = "my-gateway"`
+- THEN it SHALL create a Keycloak client with `clientId = "my-gateway-2FhMpQzXBz"`
 - AND the client SHALL have `fullScopeAllowed = false`
 - AND the client SHALL have `publicClient = true` with `pkce.code.challenge.method = S256`
 - AND the `gateway-roles` client scope SHALL be included in `defaultClientScopes`
 
 #### Scenario: Creator receives admin role on new gateway
 
-- GIVEN user-a has `gateway:creator` (from Keycloak) and creates Gateway `gw-new`
+- GIVEN user-a has `gateway:creator` (from Keycloak) and creates Gateway `gw-new` (id=`xyz789`)
 - AND the API server auto-provisions a `gateway:owner` RoleBinding for user-a on `gw-new`
-- WHEN the GatewayReconciler provisions the Keycloak client for `gw-new`
-- THEN it SHALL assign `openshell-admin` to user-a on the `gw-new` client
+- WHEN the RoleBindingReconciler receives the RoleBinding ADDED event
+- THEN it SHALL resolve the Keycloak client ID as `gw-new-xyz789`
+- AND it SHALL assign `openshell-admin` to user-a on the `gw-new-xyz789` client
+- NOTE: If the Keycloak client is not yet provisioned, the reconciler retries with exponential backoff (see Role Assignment Retry)
 
 #### Scenario: Duplicate client ID in Keycloak
 
-- GIVEN a Keycloak client with `clientId = "my-gateway"` already exists in the realm
+- GIVEN a Keycloak client with `clientId = "my-gateway-2FhMpQzXBz"` already exists in the realm
 - WHEN the GatewayReconciler attempts to create the client
 - THEN the reconciler SHALL log an error and retry on the next reconciliation cycle
 
@@ -271,7 +277,7 @@ Sets the `aud` claim in the access token to match the client ID so the gateway c
 | `name` | `audience` |
 | `protocol` | `openid-connect` |
 | `protocolMapper` | `oidc-audience-mapper` |
-| `config.included.client.audience` | `{clientId}` (e.g., `my-gateway`) |
+| `config.included.client.audience` | `{clientId}` (e.g., `my-gateway-2FhMpQzXBz`) |
 | `config.id.token.claim` | `false` |
 | `config.access.token.claim` | `true` |
 
@@ -300,21 +306,21 @@ Maps the client's roles from `resource_access.{clientId}.roles` to a fixed `hype
 | `config.jsonType.label` | `String` |
 | `config.id.token.claim` | `true` |
 | `config.access.token.claim` | `true` |
-| `config.usermodel.clientRoleMapping.clientId` | `{clientId}` (e.g., `my-gateway`) |
+| `config.usermodel.clientRoleMapping.clientId` | `{clientId}` (e.g., `my-gateway-2FhMpQzXBz`) |
 
 #### Scenario: All mappers provisioned
 
-- GIVEN a Keycloak client `my-gateway` has been created with roles
+- GIVEN a Keycloak client `my-gateway-2FhMpQzXBz` has been created with roles
 - WHEN the GatewayReconciler provisions protocol mappers
-- THEN the audience mapper SHALL set `aud` to `my-gateway` in access tokens
+- THEN the audience mapper SHALL set `aud` to `my-gateway-2FhMpQzXBz` in access tokens
 - AND the sub mapper SHALL ensure `sub` is present in access tokens
-- AND the client-roles mapper SHALL map `resource_access.my-gateway.roles` to the `hypershell.roles` claim
+- AND the client-roles mapper SHALL map `resource_access.my-gateway-2FhMpQzXBz.roles` to the `hypershell.roles` claim
 
 #### Scenario: Token contains correct claims after provisioning
 
-- GIVEN user `user-a` has the `openshell-admin` role on client `my-gateway`
-- WHEN `user-a` obtains a token using `client_id = my-gateway`
-- THEN the access token SHALL contain `aud: "my-gateway"`
+- GIVEN user `user-a` has the `openshell-admin` role on client `my-gateway-2FhMpQzXBz`
+- WHEN `user-a` obtains a token using `client_id = my-gateway-2FhMpQzXBz`
+- THEN the access token SHALL contain `aud: "my-gateway-2FhMpQzXBz"`
 - AND the access token SHALL contain `sub: "user-a-sub-id"`
 - AND the access token SHALL contain `hypershell.roles: ["openshell-admin"]`
 - AND the access token SHALL NOT contain roles from any other gateway's client
@@ -331,12 +337,13 @@ All per-gateway RoleBindings (`gateway:owner`, `gateway:viewer`) have `scope=gat
 
 For each RoleBinding ADDED event with `scope=gateway`, the control plane SHALL:
 1. Map the HyperShell role to a Keycloak client role (`openshell-admin` or `openshell-user`)
-2. Resolve the gateway from the binding's `gateway_id`
+2. Resolve the gateway from the binding's `gateway_id` and compute the Keycloak client ID (`{name}-{id}`)
 3. Resolve the User's Keycloak identity (the `username` from the User record, which is populated from the JWT `preferred_username` claim at auto-provisioning time)
 4. Look up the user in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
 5. On the gateway's Keycloak client:
    - Retrieve the client role UUID
    - Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
+6. If the Keycloak client does not yet exist (race with gateway provisioning), retry with exponential backoff (see Role Assignment Retry)
 
 #### RoleBinding DELETED
 
@@ -349,17 +356,17 @@ For each RoleBinding DELETED event with `scope=gateway`, the control plane SHALL
 
 #### Scenario: Gateway owner receives admin role
 
-- GIVEN gateway `gw-alpha` exists with a provisioned Keycloak client
+- GIVEN gateway `gw-alpha` (id=`abc123`) exists with a provisioned Keycloak client `gw-alpha-abc123`
 - AND a User `user-a` exists in both HyperShell and Keycloak
-- WHEN a RoleBinding is created: `role=gateway:owner`, `scope=gateway`, `gateway_id=gw-alpha`, `user_id=user-a`
-- THEN the control plane SHALL assign `openshell-admin` to `user-a` on the `gw-alpha` Keycloak client
-- AND `user-a` SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]` for `gw-alpha`
+- WHEN a RoleBinding is created: `role=gateway:owner`, `scope=gateway`, `gateway_id=abc123`, `user_id=user-a`
+- THEN the control plane SHALL assign `openshell-admin` to `user-a` on the `gw-alpha-abc123` Keycloak client
+- AND `user-a` SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]` for `gw-alpha-abc123`
 
 #### Scenario: Gateway viewer receives user role
 
-- GIVEN gateway `gw-alpha` exists with a provisioned Keycloak client
-- WHEN a RoleBinding is created: `role=gateway:viewer`, `scope=gateway`, `gateway_id=gw-alpha`, `user_id=user-b`
-- THEN the control plane SHALL assign `openshell-user` to `user-b` on the `gw-alpha` Keycloak client only
+- GIVEN gateway `gw-alpha` (id=`abc123`) exists with a provisioned Keycloak client `gw-alpha-abc123`
+- WHEN a RoleBinding is created: `role=gateway:viewer`, `scope=gateway`, `gateway_id=abc123`, `user_id=user-b`
+- THEN the control plane SHALL assign `openshell-user` to `user-b` on the `gw-alpha-abc123` Keycloak client only
 
 #### Scenario: RoleBinding deletion with remaining coverage
 
@@ -393,7 +400,7 @@ The auto-populated OIDC values SHALL be:
 | OIDC Field | Value | Source |
 |---|---|---|
 | `issuer` | `{server-url}/realms/{realm}` | Keycloak service account config |
-| `audience` | `{clientId}` | Provisioned client ID (= gateway name) |
+| `audience` | `{clientId}` | Provisioned client ID (`{name}-{id}`) |
 | `jwks_ttl` | `3600` | Default |
 | `roles_claim` | `hypershell.roles` | Fixed claim path from client-roles mapper |
 | `admin_role` | `openshell-admin` | Fixed role name |
@@ -404,14 +411,15 @@ The OIDC fields on the Gateway resource SHALL be read-only -- not settable or up
 
 #### Scenario: Gateway created with auto-populated OIDC
 
-- GIVEN a user creates a Gateway named `my-gateway`
+- GIVEN a user creates a Gateway named `my-gateway` (assigned id=`2FhMpQzXBz`)
 - AND the Keycloak realm is at `https://keycloak.example.com/realms/hypershell`
 - WHEN Keycloak provisioning succeeds
 - THEN the persisted Gateway's `oidc` field SHALL be:
   ```json
   {
     "issuer": "https://keycloak.example.com/realms/hypershell",
-    "audience": "my-gateway",
+    "client_id": "my-gateway-2FhMpQzXBz",
+    "audience": "my-gateway-2FhMpQzXBz",
     "jwks_ttl": 3600,
     "roles_claim": "hypershell.roles",
     "admin_role": "openshell-admin",
@@ -422,7 +430,7 @@ The OIDC fields on the Gateway resource SHALL be read-only -- not settable or up
   ```toml
   [openshell.gateway.oidc]
   issuer        = "https://keycloak.example.com/realms/hypershell"
-  audience      = "my-gateway"
+  audience      = "my-gateway-2FhMpQzXBz"
   jwks_ttl_secs = 3600
   roles_claim   = "hypershell.roles"
   admin_role    = "openshell-admin"
@@ -460,9 +468,9 @@ When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the
 
 #### Scenario: Gateway deletion cleans up Keycloak
 
-- GIVEN a Gateway `my-gateway` with a corresponding Keycloak client
+- GIVEN a Gateway `my-gateway` (id=`2FhMpQzXBz`) with a corresponding Keycloak client `my-gateway-2FhMpQzXBz`
 - WHEN the GatewayReconciler receives a DELETED event for the Gateway
-- THEN it SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=my-gateway`)
+- THEN it SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=my-gateway-2FhMpQzXBz`)
 - AND it SHALL delete the client (`DELETE /admin/realms/{realm}/clients/{client-uuid}`)
 - AND the client's roles, mappers, and user role assignments SHALL be automatically removed by Keycloak
 
@@ -488,6 +496,39 @@ OIDC Role Bridge operations (from RoleBinding events) are separate from client p
 - THEN the reconciler SHALL delete the created client from Keycloak (cascading roles)
 - AND it SHALL log the error and retry on the next reconciliation cycle
 - AND the gateway SHALL NOT be deployed until Keycloak provisioning succeeds
+
+---
+
+### Requirement: Role Assignment Retry
+
+The RoleBinding event and the Gateway event are emitted by the API server in the same transaction. Because the control plane processes watch events concurrently, the RoleBindingReconciler MAY attempt to assign a Keycloak client role before the GatewayReconciler has finished provisioning the Keycloak client. The RoleBindingReconciler SHALL handle this race by retrying role assignment with exponential backoff.
+
+The retry policy SHALL be:
+- Maximum attempts: 10
+- Initial backoff: 2 seconds
+- Backoff multiplier: 2x per attempt
+- Maximum backoff: 30 seconds
+- Context-aware: retries SHALL stop immediately if the context is cancelled
+
+Each retry attempt SHALL be logged at INFO level with the attempt number, target client, and error. A successful assignment after retry SHALL be logged at INFO level. Exhaustion of all retry attempts SHALL return the last error to the watcher, which logs it at ERROR level.
+
+#### Scenario: RoleBinding arrives before Keycloak client exists
+
+- GIVEN user-a creates Gateway `gw-new` (id=`xyz789`)
+- AND the API server emits both a Gateway ADDED event and a RoleBinding ADDED event
+- AND the RoleBindingReconciler processes the RoleBinding event first
+- WHEN the RoleBindingReconciler attempts to assign `openshell-admin` to user-a on `gw-new-xyz789`
+- AND the Keycloak client `gw-new-xyz789` does not yet exist
+- THEN the RoleBindingReconciler SHALL retry with exponential backoff
+- AND it SHALL succeed once the GatewayReconciler provisions the Keycloak client
+- AND user-a SHALL have the `openshell-admin` role on the `gw-new-xyz789` client
+
+#### Scenario: Keycloak client never provisioned
+
+- GIVEN the GatewayReconciler fails to provision the Keycloak client (e.g., Keycloak is down)
+- WHEN the RoleBindingReconciler exhausts all retry attempts
+- THEN it SHALL log the failure at ERROR level
+- AND the role assignment SHALL be retried on the next RoleBinding event for this binding
 
 ---
 
@@ -521,7 +562,7 @@ Complete API call sequence for gateway creation:
    ```
    POST /admin/realms/{realm}/clients
    ```
-   Body includes `clientId`, `publicClient: true`, `fullScopeAllowed: false`, `defaultClientScopes`, PKCE attribute, `redirectUris`, and inline audience mapper via `protocolMappers`.
+   Body includes `clientId` (`{name}-{id}`), `publicClient: true`, `fullScopeAllowed: false`, `defaultClientScopes`, PKCE attribute, `redirectUris`, and inline audience mapper via `protocolMappers`.
 
 3. **Create openshell-admin role:**
    ```
@@ -551,9 +592,9 @@ Complete API call sequence for gateway creation:
 
 When a gateway-scoped RoleBinding is created:
 
-1. **Get the Keycloak client UUID for the gateway:**
+1. **Resolve gateway name and compute Keycloak client ID** (`{name}-{id}`), **then get the Keycloak client UUID:**
    ```
-   GET /admin/realms/{realm}/clients?clientId={gateway-name}
+   GET /admin/realms/{realm}/clients?clientId={name}-{id}
    ```
 
 2. **Get the Keycloak client role UUID:**
@@ -587,7 +628,7 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 
 1. **Look up client by clientId:**
    ```
-   GET /admin/realms/{realm}/clients?clientId={gateway-name}
+   GET /admin/realms/{realm}/clients?clientId={name}-{id}
    ```
 
 2. **Delete client (cascades roles, mappers, and all user role assignments):**
@@ -605,7 +646,7 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 | Bulk realm import does not scale | Importing a realm with thousands of clients runs as a single transaction | Use incremental Admin REST API calls for each gateway |
 | Audience resolve mapper leaks audiences | The built-in `oidc-audience-resolve-mapper` adds all clients' IDs to `aud` when `fullScopeAllowed = true` | Omit the audience-resolve mapper from the realm; use per-client audience mappers |
 | User lookup by subject | Keycloak user search uses `username`, which may differ from the OIDC `sub` claim depending on identity provider federation | The RBAC spec auto-provisions Users from `preferred_username`; ensure this matches the Keycloak username |
-| Gateway created with auto-provisioned RoleBinding | Race between Gateway ADDED and RoleBinding ADDED events (both emitted from the same API transaction) | GatewayReconciler resolves existing gateway-scoped RoleBindings at client creation time |
+| Gateway created with auto-provisioned RoleBinding | Race between Gateway ADDED and RoleBinding ADDED events (both emitted from the same API transaction) | RoleBindingReconciler retries role assignment with exponential backoff until the Keycloak client is provisioned |
 | RoleBinding deletion requires coverage check | Removing one binding may leave the user covered by another | Resolve all remaining bindings for the user+gateway before removing the Keycloak role |
 | Gateway deletion cascades role assignments | Deleting a Keycloak client removes all user role assignments for that client | RBAC RoleBindings in HyperShell are also deleted when the gateway is deleted (gateway_id FK) |
 

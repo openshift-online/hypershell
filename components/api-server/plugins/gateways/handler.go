@@ -134,6 +134,12 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.DatabaseConfig != nil {
 				found.DatabaseConfig = patch.DatabaseConfig
 			}
+			if patch.CredentialDriver != nil {
+				if found.CredentialDriver != nil && *found.CredentialDriver != "" && *patch.CredentialDriver != *found.CredentialDriver {
+					return nil, errors.Conflict("credential driver cannot be changed after provider credentials have been stored; migrate credentials manually first")
+				}
+				found.CredentialDriver = patch.CredentialDriver
+			}
 
 			gatewayModel, err := h.gateway.Replace(ctx, found)
 			if err != nil {

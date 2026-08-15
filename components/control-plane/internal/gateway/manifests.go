@@ -209,10 +209,41 @@ func injectPGDATA(obj *unstructured.Unstructured, mountPath string) {
 	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 }
 
-func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) error {
+func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, tenantNamespace ...string) error {
 	kind := obj.GetKind()
 
-	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && len(config.ServerDnsNames) > 0 {
+	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && config.Route.Enabled {
+		data, found, err := unstructured.NestedMap(obj.Object, "data")
+		if err != nil {
+			return fmt.Errorf("read configmap data: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("configmap data not found")
+		}
+		toml, ok := data["gateway.toml"].(string)
+		if !ok {
+			return fmt.Errorf("gateway.toml not found in configmap")
+		}
+		var filtered []string
+		for _, line := range strings.Split(toml, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "client_ca_path") {
+				continue
+			}
+			filtered = append(filtered, line)
+		}
+		data["gateway.toml"] = strings.Join(filtered, "\n")
+		if err := unstructured.SetNestedMap(obj.Object, data, "data"); err != nil {
+			return fmt.Errorf("set configmap data: %w", err)
+		}
+	}
+
+	if kind == "Deployment" && obj.GetName() == "openshell-gateway" && config.Route.Enabled {
+		if err := removeClientCAVolume(obj); err != nil {
+			return fmt.Errorf("remove client CA volume: %w", err)
+		}
+	}
+
+	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && (len(config.ServerDnsNames) > 0 || config.CredentialDriver != nil) {
 		data, found, err := unstructured.NestedMap(obj.Object, "data")
 		if err != nil || !found {
 			return fmt.Errorf("configmap data not found")
@@ -276,6 +307,14 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) 
 			lines = append(lines, oidcSection)
 		}
 
+		if config.CredentialDriver != nil {
+			ns := ""
+			if len(tenantNamespace) > 0 {
+				ns = tenantNamespace[0]
+			}
+			lines = applyCredentialDriverToml(lines, config.CredentialDriver, ns)
+		}
+
 		data["gateway.toml"] = strings.Join(lines, "\n")
 
 		if err := unstructured.SetNestedMap(obj.Object, data, "data"); err != nil {
@@ -326,5 +365,230 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig) 
 		}
 	}
 
+	if kind == "Deployment" && obj.GetName() == "openshell-gateway" && config.CredentialDriver != nil {
+		if err := applyCredentialDriverDeploymentOverrides(obj, config.CredentialDriver); err != nil {
+			return fmt.Errorf("apply credential driver deployment overrides: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func tomlEscapeString(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		"\n", `\n`,
+		"\r", `\r`,
+		"\t", `\t`,
+	)
+	return r.Replace(s)
+}
+
+func applyCredentialDriverToml(lines []string, driver *CredentialDriverConfig, tenantNamespace string) []string {
+	var result []string
+	skip := false
+	for _, line := range lines {
+		if strings.Contains(line, "[openshell.gateway.credential_storage]") {
+			skip = true
+			continue
+		}
+		if skip {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "[") {
+				skip = false
+			} else {
+				continue
+			}
+		}
+		if !skip {
+			result = append(result, line)
+		}
+	}
+
+	switch driver.Type {
+	case "kubernetes-secrets":
+		ns := tenantNamespace
+		if driver.KubernetesSecrets != nil && driver.KubernetesSecrets.Namespace != "" {
+			ns = driver.KubernetesSecrets.Namespace
+		}
+		result = append(result, "")
+		result = append(result, "    credential_drivers = [\"kubernetes-secrets\"]")
+		result = append(result, "")
+		result = append(result, "    [openshell.credential_drivers.kubernetes-secrets]")
+		if ns != "" {
+			result = append(result, fmt.Sprintf("    namespace = \"%s\"", tomlEscapeString(ns)))
+		}
+	case "vault":
+		v := driver.Vault
+		mount := v.Mount
+		if mount == "" {
+			mount = "secret"
+		}
+		authMethod := v.AuthMethod
+		if authMethod == "" {
+			authMethod = "kubernetes"
+		}
+		kubeAuthMount := v.KubernetesAuthMount
+		if kubeAuthMount == "" {
+			kubeAuthMount = "kubernetes"
+		}
+		timeoutSecs := v.TimeoutSecs
+		if timeoutSecs == 0 {
+			timeoutSecs = 30
+		}
+		result = append(result, "")
+		result = append(result, "    credential_drivers = [\"vault\"]")
+		result = append(result, "")
+		result = append(result, "    [openshell.credential_drivers.vault]")
+		result = append(result, fmt.Sprintf("    address = \"%s\"", tomlEscapeString(v.Address)))
+		result = append(result, fmt.Sprintf("    mount = \"%s\"", tomlEscapeString(mount)))
+		result = append(result, fmt.Sprintf("    auth_method = \"%s\"", tomlEscapeString(authMethod)))
+		result = append(result, fmt.Sprintf("    role = \"%s\"", tomlEscapeString(v.Role)))
+		result = append(result, fmt.Sprintf("    kubernetes_auth_mount = \"%s\"", tomlEscapeString(kubeAuthMount)))
+		result = append(result, fmt.Sprintf("    timeout_secs = %d", timeoutSecs))
+		if authMethod == "kubernetes" {
+			result = append(result, "    service_account_token_path = \"/var/run/secrets/vault/token\"")
+		}
+	}
+
+	return result
+}
+
+func applyCredentialDriverDeploymentOverrides(obj *unstructured.Unstructured, driver *CredentialDriverConfig) error {
+	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	if err != nil || !found {
+		return nil
+	}
+
+	for i, container := range containers {
+		containerMap, ok := container.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _, _ := unstructured.NestedString(containerMap, "name")
+		if name != "openshell-gateway" {
+			continue
+		}
+
+		envList, _, _ := unstructured.NestedSlice(containerMap, "env")
+		var filteredEnv []interface{}
+		for _, e := range envList {
+			em, ok := e.(map[string]interface{})
+			if !ok {
+				filteredEnv = append(filteredEnv, e)
+				continue
+			}
+			if em["name"] == "OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY" {
+				continue
+			}
+			filteredEnv = append(filteredEnv, e)
+		}
+		if err := unstructured.SetNestedSlice(containerMap, filteredEnv, "env"); err != nil {
+			return fmt.Errorf("set env: %w", err)
+		}
+
+		if driver.Type == "vault" && (driver.Vault == nil || driver.Vault.AuthMethod == "" || driver.Vault.AuthMethod == "kubernetes") {
+			mounts, _, _ := unstructured.NestedSlice(containerMap, "volumeMounts")
+			mounts = append(mounts, map[string]interface{}{
+				"name":      "vault-sa-token",
+				"mountPath": "/var/run/secrets/vault",
+				"readOnly":  true,
+			})
+			if err := unstructured.SetNestedSlice(containerMap, mounts, "volumeMounts"); err != nil {
+				return fmt.Errorf("set volumeMounts: %w", err)
+			}
+		}
+
+		containers[i] = containerMap
+	}
+
+	if err := unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers"); err != nil {
+		return fmt.Errorf("set containers: %w", err)
+	}
+
+	if driver.Type == "vault" && (driver.Vault == nil || driver.Vault.AuthMethod == "" || driver.Vault.AuthMethod == "kubernetes") {
+		volumes, _, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "volumes")
+		volumes = append(volumes, map[string]interface{}{
+			"name": "vault-sa-token",
+			"projected": map[string]interface{}{
+				"sources": []interface{}{
+					map[string]interface{}{
+						"serviceAccountToken": map[string]interface{}{
+							"path":              "token",
+							"expirationSeconds": int64(3600),
+							"audience":          "vault",
+						},
+					},
+				},
+			},
+		})
+		if err := unstructured.SetNestedSlice(obj.Object, volumes, "spec", "template", "spec", "volumes"); err != nil {
+			return fmt.Errorf("set volumes: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func removeClientCAVolume(obj *unstructured.Unstructured) error {
+	volumes, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "volumes")
+	if err != nil {
+		return fmt.Errorf("read volumes: %w", err)
+	}
+	if found {
+		var filtered []interface{}
+		for _, v := range volumes {
+			vm, ok := v.(map[string]interface{})
+			if !ok {
+				filtered = append(filtered, v)
+				continue
+			}
+			if vm["name"] == "tls-client-ca" {
+				continue
+			}
+			filtered = append(filtered, v)
+		}
+		if err := unstructured.SetNestedSlice(obj.Object, filtered, "spec", "template", "spec", "volumes"); err != nil {
+			return fmt.Errorf("set volumes: %w", err)
+		}
+	}
+
+	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	if err != nil {
+		return fmt.Errorf("read containers: %w", err)
+	}
+	if !found {
+		return nil
+	}
+	for i, c := range containers {
+		container, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		mounts, _, err := unstructured.NestedSlice(container, "volumeMounts")
+		if err != nil {
+			return fmt.Errorf("read volume mounts for container %d: %w", i, err)
+		}
+		var filteredMounts []interface{}
+		for _, m := range mounts {
+			mm, ok := m.(map[string]interface{})
+			if !ok {
+				filteredMounts = append(filteredMounts, m)
+				continue
+			}
+			if mm["name"] == "tls-client-ca" {
+				continue
+			}
+			filteredMounts = append(filteredMounts, m)
+		}
+		if err := unstructured.SetNestedSlice(container, filteredMounts, "volumeMounts"); err != nil {
+			return fmt.Errorf("set volume mounts for container %d: %w", i, err)
+		}
+		containers[i] = container
+	}
+	if err := unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers"); err != nil {
+		return fmt.Errorf("set containers: %w", err)
+	}
 	return nil
 }

@@ -27,6 +27,14 @@ vi.mock("../../composition/gateway-composition", () => ({
   },
 }));
 
+// The masthead identity menu reads the session; keep it unauthenticated here so
+// shell assertions are unaffected. Menu behavior is covered in user-menu.test.
+vi.mock("../../composition/session-composition", () => ({
+  sessionGateway: {
+    getSession: vi.fn().mockResolvedValue({ authenticated: false, roles: [] }),
+  },
+}));
+
 function RouteContent() {
   const { pathname } = useLocation();
   const { navigation } = useGatewayUi();

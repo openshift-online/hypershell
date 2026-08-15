@@ -24,6 +24,7 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c.Oidc = gateway.Oidc
 	c.Route = gateway.Route
 	c.DatabaseConfig = gateway.DatabaseConfig
+	c.CredentialDriver = gateway.CredentialDriver
 
 	if len(gateway.ServerDnsNames) > 0 {
 		data, _ := json.Marshal(gateway.ServerDnsNames)
@@ -37,28 +38,29 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 func PresentGateway(gateway *Gateway) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
-		Id:              reference.Id,
-		Kind:            reference.Kind,
-		Href:            reference.Href,
-		CreatedAt:       openapi.PtrTime(gateway.CreatedAt),
-		UpdatedAt:       openapi.PtrTime(gateway.UpdatedAt),
-		Name:            gateway.Name,
-		FleetId:         gateway.FleetId,
-		ClusterId:       gateway.ClusterId,
-		ReleaseId:       gateway.ReleaseId,
-		DatabaseId:      gateway.DatabaseId,
-		Namespace:       gateway.Namespace,
-		ExternalDns:     gateway.ExternalDns,
-		TlsMode:         gateway.TlsMode,
-		ServiceType:     gateway.ServiceType,
-		Status:          gateway.Status,
-		Phase:           gateway.Phase,
-		Image:           gateway.Image,
-		SupervisorImage: gateway.SupervisorImage,
-		RouteAddress:    gateway.RouteAddress,
-		Oidc:            gateway.Oidc,
-		Route:           gateway.Route,
-		DatabaseConfig:  gateway.DatabaseConfig,
+		Id:               reference.Id,
+		Kind:             reference.Kind,
+		Href:             reference.Href,
+		CreatedAt:        openapi.PtrTime(gateway.CreatedAt),
+		UpdatedAt:        openapi.PtrTime(gateway.UpdatedAt),
+		Name:             gateway.Name,
+		FleetId:          gateway.FleetId,
+		ClusterId:        gateway.ClusterId,
+		ReleaseId:        gateway.ReleaseId,
+		DatabaseId:       gateway.DatabaseId,
+		Namespace:        gateway.Namespace,
+		ExternalDns:      gateway.ExternalDns,
+		TlsMode:          gateway.TlsMode,
+		ServiceType:      gateway.ServiceType,
+		Status:           gateway.Status,
+		Phase:            gateway.Phase,
+		Image:            gateway.Image,
+		SupervisorImage:  gateway.SupervisorImage,
+		RouteAddress:     gateway.RouteAddress,
+		Oidc:             gateway.Oidc,
+		Route:            gateway.Route,
+		DatabaseConfig:   gateway.DatabaseConfig,
+		CredentialDriver: gateway.CredentialDriver,
 	}
 
 	if gateway.ServerDnsNames != nil {

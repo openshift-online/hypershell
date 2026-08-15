@@ -61,6 +61,23 @@ func migrationAddProvisioningFields() *gormigrate.Migration {
 	}
 }
 
+func migrationAddCredentialDriver() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		CredentialDriver *string `gorm:"type:jsonb"`
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026081112000005",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "credential_driver")
+		},
+	}
+}
+
 func migrationAddSupervisorImage() *gormigrate.Migration {
 	type Gateway struct {
 		db.Model

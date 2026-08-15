@@ -1,0 +1,18 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  # Placeholder host; the GitOps overlay patches the cluster domain
+  # (keycloak.apps.<cluster-domain>). This host is the OIDC issuer that every
+  # env's api-server/web-console trusts, so it must match KC_HOSTNAME below.
+  host: keycloak.apps.example.com
+  to:
+    kind: Service
+    name: keycloak-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

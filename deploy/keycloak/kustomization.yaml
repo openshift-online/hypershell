@@ -1,0 +1,48 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# OpenShift base for a SINGLE shared Keycloak per cluster.
+#
+# One Keycloak instance serves every hypershell env (int/stage/prod) on the
+# cluster (the "single Keycloak, many namespaces" topology). It builds on
+# deploy/base/keycloak (its own `keycloak` namespace, realm import, theme) and
+# adds the OpenShift-specific bits:
+#   - an edge-TLS Route so browsers and each env's app can reach it
+#   - KC_HOSTNAME pinned to that external Route (the OIDC issuer)
+#
+# The consuming GitOps overlay patches the real cluster domain into both the
+# Route host and KC_HOSTNAME (keycloak.apps.<cluster-domain>).
+#
+# TODO(HYPERSHELL-38 follow-ups), tracked with the GitOps PRs:
+#   - Persistence: the base still runs `start-dev` with an ephemeral H2 store
+#     and one-shot `--import-realm`. Before prod leans on this shared instance,
+#     switch to production `start` backed by a persistent DB (CloudNativePG,
+#     mirroring the platform DB) so runtime state survives restarts.
+#   - Realm clients: the imported realm has a single frontend client pinned to
+#     the kind console host. A shared realm serving three consoles needs a
+#     client per env (redirect URIs / webOrigins for each console host). Those
+#     hosts are defined by the GitOps web-console Routes, so the realm clients
+#     are added once those hosts are settled. Doing it here would also have to
+#     override the realm ConfigMap, which lives in deploy/base/keycloak and is
+#     shared with the kind e2e render.
+resources:
+  - ../base/keycloak
+  - route.yaml
+
+patches:
+  # Point Keycloak at its external Route as the OIDC issuer. The GitOps overlay
+  # patches the cluster domain here to match the Route host above.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: keycloak
+        namespace: keycloak
+      spec:
+        template:
+          spec:
+            containers:
+              - name: keycloak
+                env:
+                  - name: KC_HOSTNAME
+                    value: "https://keycloak.apps.example.com"

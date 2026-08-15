@@ -40,13 +40,33 @@ type NamespaceConfig struct {
 }
 
 type GatewayConfig struct {
-	Image           string         `yaml:"image"`
-	SupervisorImage string         `yaml:"supervisorImage"`
-	ServerDnsNames  []string       `yaml:"serverDnsNames"`
-	ExternalDns     string         `yaml:"externalDns"`
-	Database        DatabaseConfig `yaml:"database"`
-	OIDC            OIDCConfig     `yaml:"oidc"`
-	Route           RouteConfig    `yaml:"route"`
+	Image            string                  `yaml:"image"`
+	SupervisorImage  string                  `yaml:"supervisorImage"`
+	ServerDnsNames   []string                `yaml:"serverDnsNames"`
+	ExternalDns      string                  `yaml:"externalDns"`
+	Database         DatabaseConfig          `yaml:"database"`
+	OIDC             OIDCConfig              `yaml:"oidc"`
+	Route            RouteConfig             `yaml:"route"`
+	CredentialDriver *CredentialDriverConfig `yaml:"credentialDriver"`
+}
+
+type CredentialDriverConfig struct {
+	Type              string                   `yaml:"type" json:"type"`
+	KubernetesSecrets *KubernetesSecretsConfig `yaml:"kubernetes_secrets,omitempty" json:"kubernetes_secrets,omitempty"`
+	Vault             *VaultCredentialConfig   `yaml:"vault,omitempty" json:"vault,omitempty"`
+}
+
+type KubernetesSecretsConfig struct {
+	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+}
+
+type VaultCredentialConfig struct {
+	Address             string `yaml:"address" json:"address"`
+	Mount               string `yaml:"mount,omitempty" json:"mount,omitempty"`
+	AuthMethod          string `yaml:"auth_method,omitempty" json:"auth_method,omitempty"`
+	Role                string `yaml:"role" json:"role"`
+	KubernetesAuthMount string `yaml:"kubernetes_auth_mount,omitempty" json:"kubernetes_auth_mount,omitempty"`
+	TimeoutSecs         int    `yaml:"timeout_secs,omitempty" json:"timeout_secs,omitempty"`
 }
 
 type RouteConfig struct {
@@ -55,7 +75,12 @@ type RouteConfig struct {
 }
 
 type OIDCConfig struct {
-	Issuer      string `yaml:"issuer" json:"issuer,omitempty"`
+	Issuer string `yaml:"issuer" json:"issuer,omitempty"`
+	// ClientID is client-facing metadata (the per-gateway Keycloak clientId,
+	// formatted as {name}-{id}) that the console and CLI need for `openshell gateway
+	// add`. It is surfaced on the Gateway resource but not written to gateway.toml,
+	// since the gateway server validates issuer and audience, not client id.
+	ClientID    string `yaml:"client_id" json:"client_id,omitempty"`
 	Audience    string `yaml:"audience" json:"audience,omitempty"`
 	JwksTTL     int    `yaml:"jwks_ttl" json:"jwks_ttl,omitempty"`
 	RolesClaim  string `yaml:"roles_claim" json:"roles_claim,omitempty"`

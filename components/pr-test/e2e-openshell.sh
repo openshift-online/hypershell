@@ -34,6 +34,13 @@ SKIP_CLEANUP="${SKIP_CLEANUP:-}"
 LAUNCH_TUI="${LAUNCH_TUI:-0}"
 PAUSE="${PAUSE:-1}"
 
+KC_NAMESPACE="${KEYCLOAK_NAMESPACE:-keycloak}"
+OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-hypershell-frontend}"
+OIDC_USERNAME="${OIDC_USERNAME:-admin}"
+OIDC_PASSWORD="${OIDC_PASSWORD:-admin}"
+DEV_USERNAME="${DEV_USERNAME:-developer}"
+DEV_PASSWORD="${DEV_PASSWORD:-developer}"
+
 PASS=0
 FAIL=0
 TESTS=()
@@ -91,19 +98,30 @@ fi
 # Login to hypershell CLI (no auth mode for stage/dev)
 dim "Logging in to hypershell CLI..."
 "${HSCTL}" login "https://${API_HOST}" --insecure-skip-tls-verify &>/dev/null || true
+KC_HOST=$($CLI get route keycloak -n "$KC_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -z "$KC_HOST" ]]; then
+  red "ERROR: Keycloak route not found in namespace ${KC_NAMESPACE}"
+  exit 1
+fi
+OIDC_ISSUER="https://${KC_HOST}/realms/hypershell"
 
 echo ""
 bold "HyperShell OpenShell Gateway End-to-End Test"
 sep
 echo ""
-printf '  %s\n' "1. Gateway provisioning via HyperShell API"
+printf '  %s\n' "1. Gateway provisioning via HyperShell API (OIDC)"
 printf '  %s\n' "2. Gateway infrastructure verification"
-printf '  %s\n' "3. Route discovery + openshell CLI registration"
-printf '  %s\n' "4. Gateway connectivity"
-printf '  %s\n' "5. Sandbox lifecycle (create → ready)"
-printf '  %s\n' "6. Sandbox interaction"
+printf '  %s\n' "3. OIDC token acquisition"
+printf '  %s\n' "3a. CA certificate setup"
+printf '  %s\n' "4. Route discovery + openshell CLI registration"
+printf '  %s\n' "5. Gateway connectivity"
+printf '  %s\n' "6. Sandbox lifecycle (create → ready)"
+printf '  %s\n' "7. Sandbox interaction"
+printf '  %s\n' "8. Developer user RBAC verification"
 echo ""
 dim  "  HyperShell API:    https://${API_HOST}"
+dim  "  Keycloak:          https://${KC_HOST}"
+dim  "  OIDC issuer:       ${OIDC_ISSUER}"
 dim  "  Gateway name:      ${GW_NAME}"
 dim  "  Sandbox timeout:   ${SANDBOX_TIMEOUT}s"
 echo ""
@@ -112,7 +130,7 @@ sep
 # ── 1. gateway provisioning ────────────────────────────────────────────────
 
 echo ""
-bold "1. Gateway Provisioning via HyperShell API"
+bold "1. Gateway Provisioning via HyperShell API (OIDC)"
 echo ""
 
 show_cmd "${HSCTL} list gateways --search \"name=${GW_NAME}\" -o json"
@@ -147,13 +165,31 @@ for gw in data.get('items', []):
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
-  show_cmd "${HSCTL} create gateway --name ${GW_NAME} --fleet-id e2e-fleet --cluster-id e2e-cluster --release-id e2e-release --database-id e2e-db"
-  CREATE_RESPONSE=$("${HSCTL}" create gateway \
-    --name "${GW_NAME}" \
-    --fleet-id "e2e-fleet" \
-    --cluster-id "e2e-cluster" \
-    --release-id "e2e-release" \
-    --database-id "e2e-db" 2>/dev/null || true)
+  show_cmd "curl -sk -X POST https://${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
+  GW_CREATE_BODY=$(OIDC_ISSUER="$OIDC_ISSUER" OIDC_CLIENT_ID="$OIDC_CLIENT_ID" GW_NAME="$GW_NAME" python3 -c "
+import json, os
+body = {
+    'name': os.environ['GW_NAME'],
+    'fleet_id': 'e2e-fleet',
+    'cluster_id': 'e2e-cluster',
+    'release_id': 'e2e-release',
+    'database_id': 'e2e-db',
+    'oidc': json.dumps({
+        'issuer': os.environ['OIDC_ISSUER'],
+        'audience': os.environ['OIDC_CLIENT_ID'],
+        'roles_claim': 'groups',
+        'admin_role': 'hypershell-admins',
+        'user_role': 'hypershell-users'
+    }),
+    'route': json.dumps({
+        'enabled': True
+    })
+}
+print(json.dumps(body))
+")
+  CREATE_RESPONSE=$(curl -sk -X POST "https://${API_HOST}/api/hypershell/v1/gateways" \
+    -H "Content-Type: application/json" \
+    -d "${GW_CREATE_BODY}" 2>/dev/null || true)
 
   GW_ID=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
   GW_NAMESPACE=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
@@ -246,10 +282,53 @@ else
 fi
 sep
 
-# ── 3. route discovery + CLI registration ─────────────────────────────────
+# ── 3. OIDC token acquisition ────────────────────────────────────────────
 
 echo ""
-bold "3. Route Discovery + CLI Registration"
+bold "3. OIDC Token Acquisition"
+echo ""
+
+show_cmd "# resource-owner password grant → ${OIDC_ISSUER}"
+TOKEN_ENDPOINT="${OIDC_ISSUER}/protocol/openid-connect/token"
+OIDC_RESPONSE=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
+  -d "grant_type=password" \
+  -d "client_id=${OIDC_CLIENT_ID}" \
+  -d "username=${OIDC_USERNAME}" \
+  -d "password=${OIDC_PASSWORD}" 2>/dev/null || true)
+
+OIDC_TOKEN=$(echo "$OIDC_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+if [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "None" ]]; then
+  pass "OIDC token acquired (user: ${OIDC_USERNAME})"
+else
+  fail_test "Failed to acquire OIDC token from Keycloak"
+  TOKEN_ERR=$(echo "$OIDC_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','unknown'))" 2>/dev/null || echo 'no response')
+  dim "    ${TOKEN_ERR}"
+  exit 1
+fi
+sep
+
+# ── 3a. extract and trust the cluster CA ──────────────────────────────────
+
+echo ""
+bold "3a. CA Certificate Setup"
+echo ""
+
+show_cmd "$CLI get secret hypershell-ca-secret -n $HS_NAMESPACE -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/e2e-hypershell-ca.crt"
+$CLI get secret hypershell-ca-secret -n "$HS_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > /tmp/e2e-hypershell-ca.crt
+if [[ -s /tmp/e2e-hypershell-ca.crt ]]; then
+  export SSL_CERT_FILE=/tmp/e2e-hypershell-ca.crt
+  pass "CA certificate extracted and SSL_CERT_FILE set"
+  dim "    CA: /tmp/e2e-hypershell-ca.crt"
+else
+  fail_test "Failed to extract CA certificate"
+  exit 1
+fi
+sep
+
+# ── 4. route discovery + CLI registration ─────────────────────────────────
+
+echo ""
+bold "4. Route Discovery + CLI Registration"
 echo ""
 
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
@@ -298,40 +377,55 @@ show_cmd "${OPENSHELL} gateway remove ${GW_LOCAL_NAME}"
 "${OPENSHELL}" gateway remove "${GW_LOCAL_NAME}" 2>/dev/null || true
 mkdir -p "${GW_CONFIG_DIR}"
 
-show_cmd "# write gateway metadata (no-auth mode)"
-python3 -c "
+show_cmd "# write gateway metadata (OIDC mode)"
+GW_LOCAL_NAME="$GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
+  OIDC_ISSUER="$OIDC_ISSUER" OIDC_CLIENT_ID="$OIDC_CLIENT_ID" \
+  OIDC_TOKEN="$OIDC_TOKEN" GW_CONFIG_DIR="$GW_CONFIG_DIR" \
+  python3 -c "
 import json, os
+config_dir = os.environ['GW_CONFIG_DIR']
 meta = {
-    'name': '${GW_LOCAL_NAME}',
-    'gateway_endpoint': '${GW_ENDPOINT}',
+    'name': os.environ['GW_LOCAL_NAME'],
+    'gateway_endpoint': os.environ['GW_ENDPOINT'],
     'is_remote': True,
     'gateway_port': 0,
-    'auth_mode': 'none'
+    'auth_mode': 'oidc',
+    'oidc_issuer': os.environ['OIDC_ISSUER'],
+    'oidc_client_id': os.environ['OIDC_CLIENT_ID']
 }
-with open('${GW_CONFIG_DIR}/metadata.json', 'w') as f:
+with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
+token = {
+    'access_token': os.environ['OIDC_TOKEN'],
+    'issuer': os.environ['OIDC_ISSUER'],
+    'client_id': os.environ['OIDC_CLIENT_ID']
+}
+with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
+    json.dump(token, f, indent=2)
+os.chmod(os.path.join(config_dir, 'metadata.json'), 0o600)
+os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
 "
 
-if [[ -f "${GW_CONFIG_DIR}/metadata.json" ]]; then
-  pass "openshell CLI registered (no-auth mode)"
+if [[ -f "${GW_CONFIG_DIR}/metadata.json" && -f "${GW_CONFIG_DIR}/oidc_token.json" ]]; then
+  pass "openshell CLI registered (OIDC mode)"
 else
   fail_test "Failed to write gateway config"
 fi
 sep
 
-# ── 4. gateway connectivity ───────────────────────────────────────────────
+# ── 5. gateway connectivity ───────────────────────────────────────────────
 
 echo ""
-bold "4. Gateway Connectivity"
+bold "5. Gateway Connectivity"
 echo ""
 
-show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL} -g ${GW_LOCAL_NAME} status"
+show_cmd "${OPENSHELL} -g ${GW_LOCAL_NAME} status"
 dim "  Waiting for route connectivity (up to 60s)..."
 CONNECT_DEADLINE=$(($(date +%s) + 60))
 STATUS_OUTPUT=""
 CONNECTED=false
 while [[ $(date +%s) -lt $CONNECT_DEADLINE ]]; do
-  STATUS_OUTPUT=$(OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL}" -g "${GW_LOCAL_NAME}" status 2>&1 || true)
+  STATUS_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" status 2>&1 || true)
   CLEAN_STATUS=$(echo "$STATUS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
   if echo "$CLEAN_STATUS" | grep -qi "Connected"; then
     CONNECTED=true
@@ -354,19 +448,19 @@ else
 fi
 sep
 
-# ── 5. sandbox lifecycle ──────────────────────────────────────────────────
+# ── 6. sandbox lifecycle ──────────────────────────────────────────────────
 
 echo ""
-bold "5. Sandbox Lifecycle"
+bold "6. Sandbox Lifecycle"
 echo ""
 
 RUN_ID=$(date +%s | tail -c5)
 SANDBOX_NAME="e2e-${RUN_ID}"
 
-show_cmd "OPENSHELL_GATEWAY_INSECURE=true ${OPENSHELL} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
+show_cmd "${OPENSHELL} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
 dim "  Creating sandbox (timeout: ${SANDBOX_TIMEOUT}s)..."
 
-OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" &>/dev/null &
+"${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" &>/dev/null &
 SB_CREATE_PID=$!
 
 DEADLINE=$(($(date +%s) + SANDBOX_TIMEOUT))
@@ -407,17 +501,16 @@ else
 fi
 sep
 
-# ── 6. sandbox interaction ────────────────────────────────────────────────
+# ── 7. sandbox interaction ────────────────────────────────────────────────
 
 echo ""
-bold "6. Sandbox Interaction"
+bold "7. Sandbox Interaction"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
-INSECURE_ENV="OPENSHELL_GATEWAY_INSECURE=true"
 
-show_cmd "${INSECURE_ENV} ${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
-if SB_EXEC_OUTPUT=$(OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
+show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
+if SB_EXEC_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
   CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
   if [[ -n "$CLEAN_EXEC" ]]; then
     pass "Sandbox exec: command executed inside sandbox"
@@ -433,8 +526,8 @@ else
   dim "    ${SB_EXEC_OUTPUT:0:200}"
 fi
 
-show_cmd "${INSECURE_ENV} ${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
-if SB_LS_OUTPUT=$(OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
+show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
+if SB_LS_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
   CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
   if [[ -n "$CLEAN_LS" ]]; then
     pass "Sandbox workspace: /workspace directory listing"
@@ -459,9 +552,134 @@ fi
 if [[ "$SKIP_CLEANUP" != "1" && "$LAUNCH_TUI" != "1" && -n "$SANDBOX_NAME" ]]; then
   echo ""
   dim "  Cleaning up sandbox..."
-  show_cmd "${INSECURE_ENV} ${OPENSHELL} ${GW_FLAG} sandbox delete ${SANDBOX_NAME}"
-  OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
+  show_cmd "${OPENSHELL} ${GW_FLAG} sandbox delete ${SANDBOX_NAME}"
+  "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
   dim "  Sandbox deleted"
+fi
+sep
+
+# ── 8. developer user RBAC verification ──────────────────────────────────
+
+echo ""
+bold "8. Developer User RBAC Verification"
+echo ""
+
+show_cmd "# acquire OIDC token for developer user"
+DEV_RESPONSE=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
+  -d "grant_type=password" \
+  -d "client_id=${OIDC_CLIENT_ID}" \
+  -d "username=${DEV_USERNAME}" \
+  -d "password=${DEV_PASSWORD}" 2>/dev/null || true)
+
+DEV_TOKEN=$(echo "$DEV_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+if [[ -n "$DEV_TOKEN" && "$DEV_TOKEN" != "None" ]]; then
+  pass "Developer OIDC token acquired (user: ${DEV_USERNAME})"
+else
+  fail_test "Failed to acquire developer OIDC token"
+fi
+
+if [[ -n "$DEV_TOKEN" && "$DEV_TOKEN" != "None" ]]; then
+  DEV_GW_LOCAL_NAME="${GW_LOCAL_NAME}-dev"
+  DEV_CONFIG_DIR="${HOME}/.config/openshell/gateways/${DEV_GW_LOCAL_NAME}"
+  mkdir -p "${DEV_CONFIG_DIR}"
+
+  "${OPENSHELL}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
+  mkdir -p "${DEV_CONFIG_DIR}"
+
+  show_cmd "# register gateway as developer user"
+  DEV_GW_LOCAL_NAME="$DEV_GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
+    OIDC_ISSUER="$OIDC_ISSUER" OIDC_CLIENT_ID="$OIDC_CLIENT_ID" \
+    DEV_TOKEN="$DEV_TOKEN" DEV_CONFIG_DIR="$DEV_CONFIG_DIR" \
+    python3 -c "
+import json, os
+config_dir = os.environ['DEV_CONFIG_DIR']
+meta = {
+    'name': os.environ['DEV_GW_LOCAL_NAME'],
+    'gateway_endpoint': os.environ['GW_ENDPOINT'],
+    'is_remote': True,
+    'gateway_port': 0,
+    'auth_mode': 'oidc',
+    'oidc_issuer': os.environ['OIDC_ISSUER'],
+    'oidc_client_id': os.environ['OIDC_CLIENT_ID']
+}
+with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
+    json.dump(meta, f, indent=2)
+token = {
+    'access_token': os.environ['DEV_TOKEN'],
+    'issuer': os.environ['OIDC_ISSUER'],
+    'client_id': os.environ['OIDC_CLIENT_ID']
+}
+with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
+    json.dump(token, f, indent=2)
+os.chmod(os.path.join(config_dir, 'metadata.json'), 0o600)
+os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
+"
+
+  if [[ -f "${DEV_CONFIG_DIR}/metadata.json" && -f "${DEV_CONFIG_DIR}/oidc_token.json" ]]; then
+    pass "Developer gateway registered (OIDC mode)"
+  else
+    fail_test "Failed to write developer gateway config"
+  fi
+
+  show_cmd "${OPENSHELL} -g ${DEV_GW_LOCAL_NAME} status"
+  DEV_STATUS=$("${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" status 2>&1 || true)
+  DEV_CLEAN=$(echo "$DEV_STATUS" | sed 's/\x1b\[[0-9;]*m//g')
+  if echo "$DEV_CLEAN" | grep -qi "Connected"; then
+    pass "Developer user: gateway connected"
+  else
+    fail_test "Developer user: gateway not reachable"
+    echo "$DEV_STATUS" | while IFS= read -r line; do dim "    $line"; done
+  fi
+
+  DEV_SANDBOX="e2e-dev-$(date +%s | tail -c5)"
+  show_cmd "${OPENSHELL} -g ${DEV_GW_LOCAL_NAME} sandbox create --name ${DEV_SANDBOX}"
+  dim "  Creating developer sandbox (timeout: ${SANDBOX_TIMEOUT}s)..."
+
+  "${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox create --name "${DEV_SANDBOX}" &>/dev/null &
+  DEV_SB_PID=$!
+
+  DEV_SB_FOUND=false
+  DEV_DEADLINE=$(($(date +%s) + SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $DEV_DEADLINE ]]; do
+    DEV_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${DEV_SANDBOX}" || true)
+    if [[ -n "$DEV_PODS" ]]; then
+      DEV_POD_STATUS=$(echo "$DEV_PODS" | awk '{print $3}' | head -1)
+      if [[ "$DEV_POD_STATUS" == "Running" ]]; then
+        DEV_SB_FOUND=true
+        break
+      fi
+    fi
+    sleep 5
+  done
+
+  kill "$DEV_SB_PID" 2>/dev/null || true
+  wait "$DEV_SB_PID" 2>/dev/null || true
+
+  if [[ "$DEV_SB_FOUND" == "true" ]]; then
+    pass "Developer user: sandbox created"
+
+    show_cmd "${OPENSHELL} -g ${DEV_GW_LOCAL_NAME} sandbox exec -n ${DEV_SANDBOX} -- uname -a"
+    if DEV_EXEC=$("${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox exec -n "${DEV_SANDBOX}" -- uname -a 2>&1); then
+      DEV_EXEC_CLEAN=$(echo "$DEV_EXEC" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
+      if [[ -n "$DEV_EXEC_CLEAN" ]]; then
+        pass "Developer user: sandbox exec succeeded"
+      else
+        fail_test "Developer user: sandbox exec returned no output"
+      fi
+    else
+      fail_test "Developer user: sandbox exec failed"
+      dim "    ${DEV_EXEC:0:200}"
+    fi
+  else
+    fail_test "Developer user: sandbox not created after ${SANDBOX_TIMEOUT}s"
+  fi
+
+  if [[ "$SKIP_CLEANUP" != "1" && "$DEV_SB_FOUND" == "true" ]]; then
+    dim "  Cleaning up developer sandbox..."
+    "${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
+  fi
+
+  "${OPENSHELL}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
 fi
 sep
 
@@ -490,7 +708,7 @@ if [[ "$LAUNCH_TUI" == "1" && $FAIL -eq 0 ]]; then
   dim "  Press Ctrl-C to exit."
   echo ""
   sleep 2
-  exec env OPENSHELL_GATEWAY_INSECURE=true "${OPENSHELL}" -g "${GW_LOCAL_NAME}" term
+  exec "${OPENSHELL}" -g "${GW_LOCAL_NAME}" term
 fi
 
 if [[ $FAIL -gt 0 ]]; then
