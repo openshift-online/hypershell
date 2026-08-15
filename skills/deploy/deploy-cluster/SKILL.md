@@ -9,6 +9,27 @@ description: >
 
 # HyperShell OpenShift Deployment
 
+> **Scope:** this skill deploys the **platform services** (API server, controller,
+> PostgreSQL) and is cloud-agnostic across OpenShift distributions (ROSA, ROKS,
+> self-managed). It does **not** stand up tenant-gateway ingress. The shared
+> `Gateway` + wildcard DNS/TLS that tenant traffic needs is a separate one-time
+> per-cluster bootstrap — see [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md).
+> Without it, the controller runs but every gateway reconcile fails with
+> `GATEWAY_API_GATEWAY_NAME is required`.
+
+## Cloud-Hub Parameter Overrides
+
+The steps below use AWS/ROSA defaults. On other clouds, override only these values;
+the `oc`-based flow is otherwise identical.
+
+| Parameter | AWS / ROSA | IBM Cloud / ROKS |
+|-----------|------------|-------------------|
+| Cluster login | `oc login` | `ibmcloud login` → `ibmcloud oc cluster config -c <cluster>` → `oc` |
+| Internal registry route | `...elb/openshift-image-registry` host | `default-route-openshift-image-registry...appdomain.cloud` |
+| Namespace | `hypershell-api` | `hypershell-api` (same) |
+| PostgreSQL storage class | cluster default | `ibmc-vpc-block-10iops-tier` (pin on the postgres PVC) |
+| Tenant-gateway ingress | via `cloud-hub-ingress-bootstrap` (ELB) | via `cloud-hub-ingress-bootstrap` (VPC LB) |
+
 ## Platform Components
 
 | Component | Image | Deployment | Ports |
