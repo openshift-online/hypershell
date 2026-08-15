@@ -1,15 +1,15 @@
 package urls
 
 const (
-	APIPrefix            = "/api/hypershell/v1"
-	FleetsPath           = APIPrefix + "/fleets"
-	GatewaysPath         = APIPrefix + "/gateways"
-	GatewayNetworksPath  = APIPrefix + "/gateway_networks"
-	GatewayReleasesPath  = APIPrefix + "/gateway_releases"
-	ManagedClustersPath  = APIPrefix + "/managed_clusters"
+	APIPrefix = "/api/hypershell/v1"
+	FleetsPath = APIPrefix + "/fleets"
+	GatewaysPath = APIPrefix + "/gateways"
+	GatewayNetworksPath = APIPrefix + "/gateway_networks"
+	GatewayReleasesPath = APIPrefix + "/gateway_releases"
+	ManagedClustersPath = APIPrefix + "/managed_clusters"
 	ManagedDatabasesPath = APIPrefix + "/managed_databases"
-	RolesPath            = APIPrefix + "/roles"
-	RoleBindingsPath     = APIPrefix + "/role_bindings"
+	RolesPath = APIPrefix + "/roles"
+	RoleBindingsPath = APIPrefix + "/role_bindings"
 )
 
 func FleetPath(id string) string {
@@ -43,3 +43,4 @@ func RolePath(id string) string {
 func RoleBindingPath(id string) string {
 	return RoleBindingsPath + "/" + id
 }
+

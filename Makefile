@@ -144,7 +144,7 @@ build-controller:
 
 .PHONY: build-cli
 build-cli:
-	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
+	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hypershell ./cmd/hypershell
 
 .PHONY: build-web-console
 build-web-console:
@@ -343,3 +343,18 @@ kind-web-console-up:
 .PHONY: kind-web-console-down
 kind-web-console-down:
 	@scripts/kind/swap-component.sh down web-console
+
+generate-cli:
+	cd scripts/cli-generator && go run . \
+		--spec ../../components/api-server/openapi/openapi.yaml \
+		--out ../../components/cli \
+		--binary hypershell \
+		--project hypershell \
+		--api-prefix /api/hypershell/v1 \
+		--module github.com/openshift-online/hypershell/components/cli
+
+generate-sdk-go:
+	cd scripts/sdk-generator && go run . \
+		--spec ../../components/api-server/openapi/openapi.yaml \
+		--go-out ../../components/sdk-go \
+		--ts-out ../../components/sdk-typescript
