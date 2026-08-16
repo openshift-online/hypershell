@@ -9,7 +9,10 @@ import (
 
 var (
 	dnsLabelRegex = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
-	imageRefRegex = regexp.MustCompile(`^([a-z0-9.-]+/)?[a-z0-9._-]+(/[a-z0-9._-]+)*(:[a-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$`)
+	// Optional registry host may carry a port (e.g. the in-cluster registry
+	// service address "image-registry.openshift-image-registry.svc:5000/..."),
+	// which standard Docker image references permit as host[:port]/path[:tag].
+	imageRefRegex = regexp.MustCompile(`^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._-]+(/[a-z0-9._-]+)*(:[a-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$`)
 )
 
 func ValidateDNSName(name string) error {

@@ -119,6 +119,9 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Image != nil {
 				found.Image = patch.Image
 			}
+			if patch.SupervisorImage != nil {
+				found.SupervisorImage = patch.SupervisorImage
+			}
 			if len(patch.ServerDnsNames) > 0 {
 				data, _ := json.Marshal(patch.ServerDnsNames)
 				s := string(data)

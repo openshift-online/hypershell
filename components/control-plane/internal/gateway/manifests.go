@@ -92,6 +92,10 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 	manifestJSON = strings.ReplaceAll(manifestJSON, "SUPERVISOR_IMAGE_PLACEHOLDER", supervisorImage)
 
+	// Replace SANDBOX_IMAGE_PLACEHOLDER before IMAGE_PLACEHOLDER because the
+	// shorter string is a substring of the longer one.
+	manifestJSON = strings.ReplaceAll(manifestJSON, "SANDBOX_IMAGE_PLACEHOLDER", images.DefaultSandboxImage())
+
 	image := images.DefaultGatewayImage()
 	if config.Image != "" {
 		image = config.Image

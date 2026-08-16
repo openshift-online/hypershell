@@ -15,18 +15,36 @@ type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
 	DefaultDatabaseImage() string
+	DefaultSandboxImage() string
 }
 
 const defaultDatabaseImage = "postgres:18"
+const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 
 type StaticImageDefaults struct{}
 
+const defaultGatewayImage = "ghcr.io/nvidia/openshell/gateway:0.0.101"
+const defaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:0.0.101"
+
+// DefaultGatewayImage resolves the gateway server (and certgen) image used when
+// a Gateway resource does not specify one. Overridable via GATEWAY_IMAGE so
+// clusters whose nodes cannot reach ghcr.io (e.g. IBM ROKS) can point it at an
+// in-cluster registry mirror, mirroring the GATEWAY_SANDBOX_IMAGE override.
 func (StaticImageDefaults) DefaultGatewayImage() string {
-	return "ghcr.io/nvidia/openshell/gateway:0.0.101"
+	if v := os.Getenv("GATEWAY_IMAGE"); v != "" {
+		return v
+	}
+	return defaultGatewayImage
 }
 
+// DefaultSupervisorImage resolves the supervisor sidecar image used when a
+// Gateway resource does not specify one. Overridable via GATEWAY_SUPERVISOR_IMAGE
+// for the same ghcr.io-unreachable clusters as DefaultGatewayImage.
 func (StaticImageDefaults) DefaultSupervisorImage() string {
-	return "ghcr.io/nvidia/openshell/supervisor:0.0.101"
+	if v := os.Getenv("GATEWAY_SUPERVISOR_IMAGE"); v != "" {
+		return v
+	}
+	return defaultSupervisorImage
 }
 
 func (StaticImageDefaults) DefaultDatabaseImage() string {
@@ -34,6 +52,17 @@ func (StaticImageDefaults) DefaultDatabaseImage() string {
 		return v
 	}
 	return defaultDatabaseImage
+}
+
+// DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
+// It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
+// reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror,
+// mirroring the HYPERSHELL_DATABASE_IMAGE override for the gateway database.
+func (StaticImageDefaults) DefaultSandboxImage() string {
+	if v := os.Getenv("GATEWAY_SANDBOX_IMAGE"); v != "" {
+		return v
+	}
+	return defaultSandboxImage
 }
 
 type NamespaceConfig struct {
