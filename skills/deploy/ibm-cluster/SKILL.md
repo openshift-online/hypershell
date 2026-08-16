@@ -630,6 +630,62 @@ openshell sandbox connect <name>         # no --gateway-insecure flag
 the flag; only `connect`'s ssh-proxy subprocess needs the env var. The upstream
 fix is to thread `--gateway-insecure` into the ProxyCommand.)
 
+### 5.8: Run an agent (Claude Code) in a sandbox — credential-free via `inference.local`
+
+An in-sandbox agent reaches the cloud model through the OpenShell **inference
+router**, NOT by holding a credential. `inference.local:443` is a virtual host the
+supervisor intercepts: it strips the client's key and injects the operator's
+provider token server-side, translating the Anthropic `/v1/messages` body into
+Vertex's `:rawPredict` contract. So the sandbox never sees a secret. See
+[`openshell-inference-routing.spec.md`](../../../specs/platform/openshell-inference-routing.spec.md)
+for the model. Do **not** try `CLAUDE_CODE_USE_VERTEX=1` — that makes Claude Code
+do its own Google ADC (none in the sandbox) and hang.
+
+```bash
+# a) Point inference.local at the Vertex provider from 5.7 (workspace-level, persists).
+#    --no-verify because the provider region is `global` (no region endpoint to probe).
+openshell inference set -g <name> --gateway-insecure \
+  --provider vertex-claude --model 'claude-sonnet-4-5@20250929' --no-verify
+openshell inference get -g <name> --gateway-insecure   # confirm the user route
+```
+
+**CRITICAL — pin a non-effort model with `--model claude-sonnet-4-5`.** Claude Code
+2.1.x defaults to an effort-capable model and emits newer request fields that the
+Vertex Anthropic partner endpoint (`anthropic_version = vertex-2023-10-16`, strict
+validation) rejects — and the router does NOT strip them:
+
+- default model → `400 thinking: 'adaptive' does not match 'disabled'/'enabled'`
+- with `MAX_THINKING_TOKENS=0` → `400 output_config.effort: Extra inputs are not permitted`
+
+These fields are gated on the model, not on any env var (there is no Claude Code
+flag to strip them). Selecting `claude-sonnet-4-5` (non-effort, non-adaptive)
+suppresses both → HTTP 200. The router forces the served model via the URL anyway,
+so `--model` here only controls the request *shape*, not which model answers.
+
+```bash
+export OPENSHELL_GATEWAY_INSECURE=true
+openshell sandbox connect <sandbox>          # from 5.6 / the connect note above
+
+# inside the sandbox — the API key value is discarded by the router:
+ANTHROPIC_BASE_URL=https://inference.local ANTHROPIC_API_KEY=unused \
+  claude --model claude-sonnet-4-5 -p "Reply with one word: PONG"     # -> PONG
+```
+
+**Make bare `claude` "just work"** — persist the model + base URL in the sandbox's
+`~/.claude/settings.json` (HOME is `/sandbox`; merge, don't clobber `theme` etc.):
+
+```json
+{
+  "model": "claude-sonnet-4-5",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://inference.local",
+    "ANTHROPIC_API_KEY": "unused"
+  }
+}
+```
+
+After that, a bare `claude -p "..."` (no flags, no env) returns a real completion.
+
 ## Internal registry storage (COS is NOT required)
 
 `--cos-instance` is a required create flag, but on this account the ROKS registry
