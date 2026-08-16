@@ -478,15 +478,27 @@ Steps (Route mode on ROKS):
 2. **Deploy the control plane with the IBM overlay** (`deploy/ibm`), which sets
    `GATEWAY_INGRESS_MODE=route` and `GATEWAY_API_BASE_DOMAIN` to the cluster's
    ingress subdomain (IBM's free `*.<ingress-subdomain>.containers.appdomain.cloud`
-   wildcard - no cert-manager `ClusterIssuer`, no Route53, no external DNS needed).
+   wildcard). Route mode removes only the *ingress-layer* PKI - no wildcard
+   certificate, cert-manager `ClusterIssuer`, Route53, or external DNS. It does
+   **not** remove cert-manager itself: cert-manager (namespaced `Issuer` +
+   per-tenant `Certificate`s minting the `openshell-ca` chain for the pod's own
+   TLS + client mTLS) remains a **hard prerequisite in every ingress mode**
+   (`reconcileCertManagerResources`; reconcile fails closed without it). On ROKS,
+   OperatorHub is broken, so cert-manager is installed by mirroring its images into
+   the internal registry (see [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md)).
 3. **Provision a test tenant gateway** with `route.enabled=true`. The control
    plane creates an OpenShift `Route` (`passthrough`) `openshell-gateway` in the
    tenant namespace with host `gw-<tenant>.<base-domain>`, backed by
    `Service openshell-gateway:8080`, plus the `openshell-gateway-allow-router`
    NetworkPolicy, and publishes `grpcs://<host>:443` as the gateway's route address.
-4. **Verify:** the `Route` reports `Admitted=True`; `openshell` CLI connects over
-   `gw-<tenant>.<base-domain>:443`. The pod's server cert SANs
-   (`ServerDnsNames`/`ExternalDns`) must include that hostname.
+   The tenant workload images (gateway, supervisor, gateway database) must be
+   **node-reachable**; on ROKS they are mirrored into the internal registry and
+   referenced by its in-cluster service address (see `ibm-cluster` Step 5).
+4. **Verify:** the `Route` reports `Admitted=True`; the served passthrough
+   certificate chains to the per-tenant `openshell-ca` and its SANs include
+   `gw-<tenant>.<base-domain>` (the control plane injects the derived ingress
+   hostname into the certificate SANs automatically - operators do not set it by
+   hand). A client with that CA connects over `gw-<tenant>.<base-domain>:443`.
 
 To later switch a cloud to `gateway-api` mode (e.g. if IBM fixes HostedCluster
 mirroring), unset `GATEWAY_INGRESS_MODE` (or set it to `gateway-api`) and complete
@@ -574,6 +586,81 @@ selectable via the `GATEWAY_INGRESS_MODE` env var (`gateway-api` | `route` |
 - GIVEN `GATEWAY_INGRESS_MODE` is unset
 - WHEN the control plane reconciles a gateway
 - THEN it SHALL select `gateway-api` if the Gateway API is detected, otherwise `route` on OpenShift, otherwise skip managed ingress
+
+#### Requirement: cert-manager Is a Mode-Independent Prerequisite
+
+Every tenant gateway SHALL depend on cert-manager for its per-tenant PKI: a
+namespaced `Issuer` (`openshell-ca`) and `Certificate`s minting the gateway's own
+server TLS, client mTLS, and CA. This is independent of the ingress mode - `route`
+mode removes only the ingress-layer wildcard certificate/`ClusterIssuer`/Route53,
+not the pod-TLS layer. The control plane SHALL fail closed when cert-manager is
+absent.
+
+##### Scenario: Reconcile blocks without cert-manager
+
+- GIVEN a cluster without cert-manager installed (any ingress mode)
+- WHEN the control plane reconciles a tenant gateway
+- THEN it SHALL return an error and SHALL NOT deploy the gateway workload
+
+#### Requirement: Gateway Server Certificate Covers the Ingress Hostname
+
+Because both ingress modes carry the gateway pod's TLS through unmodified (Route
+passthrough / Gateway API `BackendTLSPolicy`), the gateway server certificate
+SHALL list the external ingress hostname (`gw-<tenant>.<base-domain>`, or an
+explicit `route.host`) as a SAN. The control plane derives that hostname, so it
+SHALL inject it into the certificate SANs itself, before cert-manager mints the
+certificate - operators SHALL NOT be required to set `external_dns`/
+`server_dns_names` by hand for the ingress hostname to be covered.
+
+##### Scenario: Derived hostname appears in the served certificate
+
+- GIVEN a tenant gateway with ingress enabled and `GATEWAY_API_BASE_DOMAIN` set
+- WHEN the control plane provisions it
+- THEN the per-tenant `openshell-server` `Certificate` SHALL include both the
+  in-cluster service DNS name and `gw-<tenant>.<base-domain>` as SANs
+- AND the certificate served over the ingress hostname SHALL verify against the
+  per-tenant `openshell-ca` with hostname verification enabled
+
+#### Requirement: Image References Support an In-Cluster Registry
+
+Gateway image references (gateway, supervisor) SHALL accept a registry host that
+carries an explicit port, as standard Docker references permit
+(`host[:port]/path[:tag]`), so images mirrored into the cluster-internal registry
+(`image-registry.openshift-image-registry.svc:5000/...`) - the only node-reachable
+source on ROKS - pass validation. The per-tenant database image SHALL be
+overridable via `HYPERSHELL_DATABASE_IMAGE` for the same reason, and the gateway's
+`supervisor_image` SHALL be settable through the API (`PATCH`) so sandboxes pull
+from a node-reachable registry.
+
+#### Requirement: Agent Sandbox CRD Is a Sandbox Prerequisite
+
+Tenant sandbox operations (`openshell sandbox list/create`) depend on the Agent
+Sandbox CRD + controller (`sandboxes.agents.x-k8s.io`, the upstream
+`kubernetes-sigs/agent-sandbox` project) being installed cluster-wide. The control
+plane SHALL provision only the per-tenant sandbox RBAC (SA, Role/RoleBinding
+against `agents.x-k8s.io`, and on OpenShift the privileged-SCC binding); it SHALL
+NOT install the CRD/controller, which is a cluster prerequisite on par with
+cert-manager. The gateway's Kubernetes compute driver watches this CRD; when it is
+absent the sandbox RPCs surface as gRPC `Unimplemented` and the driver logs `no
+supported Agent Sandbox API version is available`. The version installed SHALL
+serve the API version the gateway requires (`v1beta1` for gateway 0.0.101; upstream
+`v0.5.x`).
+
+#### Requirement: Sandbox Base Image Supports an In-Cluster Registry
+
+The base image tenant sandbox pods launch from (the gateway `default_image`) SHALL
+be overridable via `GATEWAY_SANDBOX_IMAGE` (control-plane env), so that on clusters
+whose nodes cannot reach `ghcr.io` (e.g. ROKS) it can be pointed at a mirror in the
+cluster-internal registry. This mirrors the `HYPERSHELL_DATABASE_IMAGE` override for
+the gateway database.
+
+##### Scenario: Sandbox launch on a cluster without public egress
+
+- GIVEN a cluster whose worker nodes cannot pull from `ghcr.io` or `registry.k8s.io`
+- AND the Agent Sandbox CRD + controller and the sandbox base image have been mirrored into the internal registry
+- WHEN `GATEWAY_SANDBOX_IMAGE` points the gateway `default_image` at the mirrored base image
+- THEN a created Sandbox's pod SHALL pull the base image from the internal registry and reach Running
+- AND the gateway compute driver SHALL watch `agents.x-k8s.io` without `Unimplemented` errors
 
 ### Open Questions (for implementer review)
 
