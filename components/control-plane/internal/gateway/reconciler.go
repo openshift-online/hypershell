@@ -68,6 +68,23 @@ func ReconcileGateway(
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
 
+	// When an ingress mode is active the gateway is reachable at an external
+	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
+	// gateway pod terminates TLS with its own per-tenant CA, and both ingress
+	// modes carry that TLS through unmodified (Route passthrough / Gateway API
+	// BackendTLSPolicy), so the server certificate must list the external
+	// hostname as a SAN or clients fail verification. The controller derives
+	// that hostname, so it -- not the operator -- injects it into the cert SANs
+	// here, before cert-manager mints the certificate below.
+	if mode := gatewayIngressMode(opts); mode != ingressModeNone && nsConfig.Gateway.Route.Enabled {
+		hostname, err := deriveGatewayHostname(nsConfig)
+		if err != nil {
+			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
+		} else {
+			nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
+		}
+	}
+
 	dbImage := nsConfig.Gateway.Database.Image
 	if dbImage == "" {
 		dbImage = images.DefaultDatabaseImage()
@@ -1498,6 +1515,21 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 		return "", fmt.Errorf("cannot derive gateway hostname: set Route.Host or GATEWAY_API_BASE_DOMAIN")
 	}
 	return fmt.Sprintf("gw-%s.%s", nsConfig.Name, baseDomain), nil
+}
+
+// appendDNSNameIfMissing returns names with hostname appended, unless it is
+// empty or already present. Used to add the derived ingress hostname to the
+// gateway server certificate SANs without duplicating it.
+func appendDNSNameIfMissing(names []string, hostname string) []string {
+	if hostname == "" {
+		return names
+	}
+	for _, n := range names {
+		if n == hostname {
+			return names
+		}
+	}
+	return append(names, hostname)
 }
 
 // publishRouteAddress writes the externally reachable gRPC address back to the
