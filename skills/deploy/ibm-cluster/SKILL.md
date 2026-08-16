@@ -611,6 +611,25 @@ openshell provider create --gateway-insecure \
 # ✓ Created provider ... / Configured GCP credentials from gcloud ADC and minted the initial access token
 ```
 
+**`openshell sandbox connect` needs the env var, not the flag.** Unlike the other
+commands, `connect` does not open the sandbox channel in-process: it execs the
+system `ssh`, whose `ProxyCommand` re-execs `openshell ssh-proxy --gateway https://gw-…:443
+--sandbox-id <uuid> --token <uuid> --gateway-name <name>`. The CLI builds that
+ProxyCommand string **without** `--gateway-insecure`, so the child `ssh-proxy`
+verifies the self-signed passthrough cert and dies with `invalid peer certificate:
+UnknownIssuer` — passing `--gateway-insecure` to `connect` does not help (it never
+reaches the child). The child inherits the environment, so export the var:
+
+```bash
+export OPENSHELL_GATEWAY_INSECURE=true   # true/false, not 1
+openshell sandbox connect <name>         # no --gateway-insecure flag
+# remote shell runs as uid=1000790000(sandbox) on the sandbox pod
+```
+
+(`sandbox list --gateway-insecure` is a pure in-process gRPC call and works with
+the flag; only `connect`'s ssh-proxy subprocess needs the env var. The upstream
+fix is to thread `--gateway-insecure` into the ProxyCommand.)
+
 ## Internal registry storage (COS is NOT required)
 
 `--cos-instance` is a required create flag, but on this account the ROKS registry
