@@ -269,37 +269,247 @@ and reusable for whichever path wins.
    [`global-architecture.spec.md`](../../../specs/platform/global-architecture.spec.md)
    (§ "IBM Cloud Cloud Hub - Route ingress mode").
 
-## Step 5: Hand off (Route ingress mode)
+## Step 5: Deploy HyperShell + a tenant gateway (Route ingress mode)
 
 ROKS uses the **Route ingress mode**, not Gateway API. Do **not** run
 `cloud-hub-ingress-bootstrap` (that bootstraps the shared Gateway for
 `gateway-api` mode on AWS/functional clusters).
 
-1. `deploy-cluster` with the **`deploy/ibm` overlay** - platform services
-   (API/controller/PostgreSQL) plus `GATEWAY_INGRESS_MODE=route`. Use its
-   Cloud-Hub Parameter Overrides (registry host, storage class `ibmc-vpc-block-*`),
-   and set `GATEWAY_API_BASE_DOMAIN` to this cluster's ingress subdomain:
+The governing constraint on ROKS is that **worker nodes can pull only from IBM
+registries and the cluster-internal registry** - `quay.io`, `registry.redhat.io`,
+`registry.access.redhat.com`, `ghcr.io`, and `docker.io` are all unreachable from
+nodes. So **every** image the platform *and every tenant gateway* uses must be
+mirrored into the internal registry and referenced by its in-cluster service
+address (`image-registry.openshift-image-registry.svc:5000/...`). This includes
+images most deploys take for granted: cert-manager, and the per-tenant gateway,
+supervisor, and database images. Verified end-to-end on `hysh-ibm-01` (2026-08-15).
 
-   ```bash
-   oc get ingresscontroller default -n openshift-ingress-operator \
-     -o jsonpath='{.status.domain}{"\n"}'   # -> *.<subdomain>.containers.appdomain.cloud
-   ```
+### 5.0: Registry push identity (cert-admin has no bearer token)
 
-2. **Provision a test tenant gateway** with `route.enabled=true`. The control
-   plane creates a passthrough `Route` `openshell-gateway` in the tenant namespace
-   (host `gw-<tenant>.<base-domain>`) and publishes `grpcs://<host>:443`.
+`ibmcloud ks cluster config --admin` gives a **certificate-based** kubeconfig with
+no bearer token, so `oc whoami -t` fails and you cannot `podman login` the registry
+route as yourself. Mint a ServiceAccount token instead:
 
-3. **Verify** the Route is admitted and the CLI connects:
+```bash
+oc -n hypershell create sa pusher
+oc adm policy add-cluster-role-to-user system:image-builder -z pusher -n hypershell   # cluster-wide: lets pusher write any namespace's imagestreams
+REG=$(oc get route default-route -n openshift-image-registry -o jsonpath='{.spec.host}')
+podman login --tls-verify=false -u pusher -p "$(oc -n hypershell create token pusher --duration=2h)" "$REG"
+```
 
-   ```bash
-   NS=$(oc get ns -l hypershell.redhat.io/managed=true -o name | head -1 | cut -d/ -f2)
-   oc -n "$NS" get route openshell-gateway \
-     -o jsonpath='{.status.ingress[0].conditions[0].type}={.status.ingress[0].conditions[0].status}{"\n"}'  # Admitted=True
-   openshell login "gw-${NS}.<base-domain>:443"
-   ```
+Tokens are short-lived; re-mint (and re-`podman login`) if a later push 401s.
 
-   The gateway pod's server cert SANs (`ServerDnsNames`/`ExternalDns`) must
-   include `gw-<tenant>.<base-domain>` for passthrough TLS to validate.
+### 5.1: Install cert-manager (hard prerequisite, all ingress modes)
+
+cert-manager is **not** optional in route mode. It mints each tenant's per-tenant
+CA (`openshell-ca` Issuer + `openshell-server`/`openshell-client`/`openshell-ca`
+Certificates) for the gateway pod's own TLS and client mTLS. Route mode only drops
+the *ingress-layer* PKI (wildcard cert / ClusterIssuer / Route53), not this. The
+control plane fails closed (`cert-manager is required but not available`) without
+it. OperatorHub is broken on ROKS (catalog pods `ImagePullBackOff`), so install by
+mirroring the images:
+
+```bash
+V=v1.16.3
+for I in controller webhook cainjector; do
+  skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
+    docker://quay.io/jetstack/cert-manager-$I:$V \
+    docker://$REG/cert-manager/cert-manager-$I:$V
+done
+# download the release manifest, repoint the three images at the mirror, apply:
+curl -sL https://github.com/cert-manager/cert-manager/releases/download/$V/cert-manager.yaml \
+  | sed -E 's#quay.io/jetstack/(cert-manager-[a-z]+):#image-registry.openshift-image-registry.svc:5000/cert-manager/\1:#g' \
+  | oc apply -f -
+oc -n cert-manager rollout status deploy/cert-manager
+```
+
+The controller caches cert-manager detection at startup, so **restart it** after
+cert-manager is up: `oc -n hypershell rollout restart deploy/hypershell-controller`.
+
+### 5.2: Mirror the platform + tenant workload images
+
+Mirror the platform images (api-server, controller, PostgreSQL) per
+[`deploy-cluster`](../deploy-cluster/SKILL.md) Step 3, but into the `deploy/ibm`
+overlay's target repos (it repoints images to
+`.svc:5000/hypershell/{hypershell-api-server,hypershell-controller,postgresql}`).
+Then mirror the **tenant gateway** images into the `openshift` namespace, which is
+cluster-wide pullable by every namespace's default SA (so per-tenant image-pull
+secrets are unnecessary):
+
+```bash
+# postgres/RHEL images carry signatures the internal registry rejects -> --remove-signatures
+skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
+  docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
+skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
+  docker://ghcr.io/nvidia/openshell/gateway:0.0.101    docker://$REG/openshift/openshell-gateway:0.0.101
+skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
+  docker://ghcr.io/nvidia/openshell/supervisor:0.0.101 docker://$REG/openshift/openshell-supervisor:0.0.101
+oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, postgres
+```
+
+### 5.3: Deploy with the `deploy/ibm` overlay
+
+```bash
+cd components/api-server && oc kustomize deploy/ibm | oc apply -f -
+oc -n hypershell rollout status deploy/hypershell-controller
+```
+
+The overlay (on top of `deploy/openshift`, namespace `hypershell`) sets, and you
+must keep aligned with this cluster:
+
+- `GATEWAY_INGRESS_MODE=route` and `GATEWAY_API_BASE_DOMAIN=<ingress subdomain>`
+  (`oc get ingresscontroller default -n openshift-ingress-operator -o jsonpath='{.status.domain}'`).
+- `HYPERSHELL_DATABASE_IMAGE=...svc:5000/openshift/postgres:18` - the per-tenant
+  gateway database image (nodes can't pull Docker Hub `postgres:18`).
+- Image transformers repointing api-server/controller/postgresql at `.svc:5000/hypershell/*`.
+- **`controller-clusterrbac.yaml`** - a cluster-wide `ClusterRole` for the
+  controller. The self-contained `deploy/openshift` tree ships only a narrow Role;
+  reconciling whole tenants needs cluster-wide namespaces/secrets/services/
+  deployments/networkpolicies plus, specifically for route mode + sandboxes:
+  `route.openshift.io/routes` **and `routes/custom-host`** (OpenShift gates setting
+  a Route's `spec.host` behind this subresource - without it the Route is rejected
+  with "you do not have permission to set the host field of the route"), and
+  `security.openshift.io/securitycontextconstraints` **`use`** on `privileged` (so
+  the controller can bind the sandbox SA to the privileged SCC without an RBAC
+  escalation error).
+
+### 5.4: Provision a tenant gateway (images must point at the mirror)
+
+The control plane reads the gateway's own `image` and `supervisor_image` fields
+(not the GatewayRelease image) and defaults them to `ghcr.io/...`, which nodes
+cannot pull. Set both to the mirrored internal refs, and pass `namespace`
+explicitly (the deployed API image still validates it as required despite the
+OpenAPI `readOnly` marking):
+
+```bash
+API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
+# ...create Fleet, ManagedCluster, GatewayRelease, ManagedDatabase first...
+curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' -d '{
+  "name":"ibm-test-gw","fleet_id":"...","cluster_id":"...","release_id":"...","database_id":"...",
+  "namespace":"openshell-ibmtest",
+  "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.101",
+  "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.101",
+  "route":"{\"enabled\": true}"
+}'
+```
+
+The control plane then: mints the per-tenant CA via cert-manager, **auto-injects
+`gw-<tenant>.<base-domain>` into the server certificate SANs** (you do not set
+`external_dns` by hand), waits for the gateway DB, deploys the gateway, creates a
+`passthrough` `Route openshell-gateway` (host `gw-<tenant>.<base-domain>`), and
+publishes `grpcs://<host>:443`.
+
+### 5.5: Verify end to end
+
+```bash
+NS=openshell-ibmtest
+oc -n "$NS" get pods            # openshell-gateway + -db Running, -certgen Completed
+oc -n "$NS" get route openshell-gateway \
+  -o jsonpath='{.status.ingress[0].conditions[?(@.type=="Admitted")].status}{"\n"}'   # True
+HOST=$(oc -n "$NS" get route openshell-gateway -o jsonpath='{.spec.host}')
+
+# Passthrough serves the per-tenant cert; SANs include the external host (auto-injected):
+oc -n "$NS" get secret openshell-server-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/tenant-ca.crt
+openssl s_client -connect "$HOST:443" -servername "$HOST" -CAfile /tmp/tenant-ca.crt \
+  -verify_hostname "$HOST" </dev/null 2>/dev/null | grep 'Verify return code'   # 0 (ok)
+
+# gRPC transport through the Route (edge/OIDC auth aside, this proves the path):
+openshell status --gateway-endpoint "https://$HOST:443" --gateway-insecure   # Status: Connected
+```
+
+`openshell gateway add https://<host>` drives the interactive edge/OIDC login
+flow and populates the CLI's mTLS/CA material under `~/.config/openshell/`; it is
+not needed to prove the infrastructure path above.
+
+### 5.6: Enable Agent Sandboxes (required for `openshell sandbox ...`)
+
+A running gateway can serve `status`, but `openshell sandbox list/create` return
+gRPC `Unimplemented` until the **Agent Sandbox CRD + controller**
+(`sandboxes.agents.x-k8s.io`, the upstream `kubernetes-sigs/agent-sandbox`
+project) are installed cluster-wide. The gateway's Kubernetes compute driver
+watches this CRD; without it the driver loops on `no supported Agent Sandbox API
+version is available; tried v1beta1, v1alpha1` (404s). The HyperShell control
+plane grants the tenant SA RBAC *against* `agents.x-k8s.io` and mints the
+per-tenant sandbox SA + privileged-SCC binding, but it does **not** install the
+CRD/controller - that is a cluster prerequisite, like cert-manager. Verified on
+`hysh-ibm-01` (2026-08-15) with `agent-sandbox` **v0.5.5** (first line to serve
+`v1beta1`, which gateway 0.0.101 prefers).
+
+Same ROKS constraint as everything else: the controller image
+(`registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.5.5`) and the tenant
+sandbox base image (`ghcr.io/nvidia/openshell-community/sandboxes/base:latest`)
+are **not node-reachable**, so mirror both into the internal `openshift`
+namespace (cluster-wide pullable) and repoint.
+
+```bash
+# a) mirror the controller image + the sandbox base image (openshift ns = globally pullable)
+skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
+  docker://registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.5.5 \
+  docker://$REG/openshift/agent-sandbox-controller:v0.5.5
+skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
+  docker://ghcr.io/nvidia/openshell-community/sandboxes/base:latest \
+  docker://$REG/openshift/openshell-sandbox-base:latest
+
+# b) install the CRD + controller, repointing ONLY the controller image at the mirror
+V=v0.5.5
+curl -sL https://github.com/kubernetes-sigs/agent-sandbox/releases/download/$V/sandbox.yaml \
+  | sed "s#registry.k8s.io/agent-sandbox/agent-sandbox-controller:$V#image-registry.openshift-image-registry.svc:5000/openshift/agent-sandbox-controller:$V#g" \
+  | oc apply -f -
+oc -n agent-sandbox-system rollout status deploy/agent-sandbox-controller
+oc get crd sandboxes.agents.x-k8s.io -o jsonpath='{.status.conditions[?(@.type=="Established")].status}{"\n"}'   # True
+```
+
+The upstream controller Deployment declares no `securityContext`, so OpenShift's
+`restricted-v2` SCC assigns a UID and it runs unmodified (the `fsGroup`/`runAsUser`
+blocks in `sandbox.yaml` are inside the CRD's OpenAPI *schema examples*, not the
+controller pod). The CRD's conversion webhook is served by the controller itself
+(it self-injects the caBundle via its `customresourcedefinitions` patch grant); no
+cert-manager `Certificate` is needed. Because v0.5.x serves a single real version,
+conversion is never invoked, so `list` works as soon as the CRD is Established.
+
+**The gateway caches API discovery at startup**, so after the CRD exists you must
+restart each already-running tenant gateway once for its compute driver to pick up
+`agents.x-k8s.io`:
+
+```bash
+oc -n "$NS" rollout restart deploy/openshell-gateway   # then: 0 "no supported Agent Sandbox" logs; "Compute driver connected"
+```
+
+**Sandbox base image must be node-reachable too.** The gateway's `default_image`
+(the base image every sandbox pod runs) was previously hardcoded to the ghcr path
+with no override; it is now `SANDBOX_IMAGE_PLACEHOLDER`, resolved from
+`GATEWAY_SANDBOX_IMAGE` (control-plane env, set in the `deploy/ibm` overlay to the
+mirror). Rebuild + redeploy the controller (5.2/5.3) and force one re-reconcile
+(`PATCH /gateways/<id> {"phase":""}`) so the tenant configmap re-renders with the
+mirrored `default_image`, then restart the gateway. Without this a CLI-created
+sandbox is admitted but its pod `ImagePullBackOff`s on the ghcr base image.
+
+Verify (headless, no CLI auth needed - the sandbox RPC requires an authenticated
+caller since `allow_unauthenticated_users=false`, so `openshell sandbox list` over
+`--gateway-insecure` returns `Unauthenticated` rather than `Unimplemented` once the
+CRD is in; to prove the controller + mirrored-image path directly, apply a Sandbox CR):
+
+```bash
+cat <<'EOF' | oc apply -f -
+apiVersion: agents.x-k8s.io/v1beta1
+kind: Sandbox
+metadata: { name: mirror-test, namespace: NS_HERE }
+spec:
+  podTemplate:
+    spec:
+      serviceAccountName: openshell-gateway-sandbox
+      containers:
+        - name: sandbox
+          image: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-base:latest
+          command: ["sleep", "3600"]
+EOF
+oc -n "$NS" get sandbox mirror-test          # READY=True, REASON=DependenciesReady
+oc -n "$NS" get pod mirror-test -o jsonpath='{.status.containerStatuses[0].imageID}{"\n"}'  # ...svc:5000/openshift/openshell-sandbox-base@sha256:...
+oc -n "$NS" delete sandbox mirror-test
+```
+
+Full authenticated `openshell sandbox create` additionally needs
+`openshell gateway add` (interactive edge/OIDC) so the CLI carries a bearer token.
 
 To later switch to Gateway API (if IBM fixes HostedCluster mirroring), unset
 `GATEWAY_INGRESS_MODE` and run `cloud-hub-ingress-bootstrap`; the control plane

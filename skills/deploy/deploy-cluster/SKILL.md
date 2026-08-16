@@ -11,11 +11,23 @@ description: >
 
 > **Scope:** this skill deploys the **platform services** (API server, controller,
 > PostgreSQL) and is cloud-agnostic across OpenShift distributions (ROSA, ROKS,
-> self-managed). It does **not** stand up tenant-gateway ingress. The shared
-> `Gateway` + wildcard DNS/TLS that tenant traffic needs is a separate one-time
-> per-cluster bootstrap - see [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md).
-> Without it, the controller runs but every gateway reconcile fails with
-> `GATEWAY_API_GATEWAY_NAME is required`.
+> self-managed). It does **not** stand up tenant-gateway ingress. How that ingress
+> is bootstrapped depends on the ingress mode:
+> - **`gateway-api` mode (AWS/ROSA, functional Gateway API):** a shared `Gateway` +
+>   wildcard DNS/TLS is a separate one-time per-cluster bootstrap - see
+>   [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md). Without
+>   it the controller runs but every gateway reconcile fails with
+>   `GATEWAY_API_GATEWAY_NAME is required`.
+> - **`route` mode (IBM ROKS):** no shared Gateway; the control plane emits
+>   passthrough `Route`s. Use the **`deploy/ibm` overlay** and follow
+>   [`ibm-cluster`](../ibm-cluster/SKILL.md) **Step 5**, which layers the
+>   ROKS-specific requirements onto this skill (mirror *all* images including
+>   cert-manager and the tenant gateway/supervisor/DB images; `pusher` SA token for
+>   registry push; cluster-wide controller RBAC incl. `routes/custom-host` and
+>   privileged-SCC `use`; `HYPERSHELL_DATABASE_IMAGE`).
+>
+> cert-manager is a hard prerequisite for tenant gateways in **both** modes (it
+> mints each tenant's per-tenant CA for pod TLS); reconcile fails closed without it.
 
 ## Cloud-Hub Parameter Overrides
 
@@ -28,7 +40,9 @@ the `oc`-based flow is otherwise identical.
 | Internal registry route | `...elb/openshift-image-registry` host | `default-route-openshift-image-registry...appdomain.cloud` |
 | Namespace | `hypershell-api` | `hypershell-api` (same) |
 | PostgreSQL storage class | cluster default | `ibmc-vpc-block-10iops-tier` (pin on the postgres PVC) |
-| Tenant-gateway ingress | via `cloud-hub-ingress-bootstrap` (ELB) | via `cloud-hub-ingress-bootstrap` (VPC LB) |
+| Tenant-gateway ingress | `gateway-api` mode via `cloud-hub-ingress-bootstrap` (ELB) | `route` mode via `deploy/ibm` overlay - see [`ibm-cluster`](../ibm-cluster/SKILL.md) Step 5 (no shared Gateway) |
+| Image sourcing | build + push platform images | mirror **all** images (platform + cert-manager + tenant gateway/supervisor/DB) into the internal registry; nodes can't reach quay/ghcr/dockerhub |
+| Registry push identity | `oc whoami -t` | cert-admin has no token → mint a `pusher` SA token (see `ibm-cluster` Step 5.0) |
 
 ## Platform Components
 
