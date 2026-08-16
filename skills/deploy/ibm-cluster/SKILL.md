@@ -213,6 +213,35 @@ So the mirror must live on a **node-reachable** registry: IBM Container Registry
   the public route host is), then IDMS mirror to `<route-host>/openshift-ingress`.
   Editing the global pull secret + adding an IDMS both **roll the worker nodes**.
 
+#### Root cause: the worker Security Group (and how to open general egress)
+
+The registry timeouts above are **not** registry-specific. The ROKS worker
+**Security Group** `kube-<clusterID>` (e.g. `kube-da0a9c9w0br7f5gf3dd0`) is
+**default-deny outbound**, allowing only IBM Cloud infrastructure (service
+endpoints `161.26.0.0/16` / `166.8.0.0/14`, VPE gateways, the in-cluster
+registry, metadata `169.254.169.254`). DNS resolves but no packets reach the
+public internet, so `registry.redhat.io`, `quay.io`, and any **app-level** egress
+(e.g. `oauth2.googleapis.com` when a gateway mints a Vertex AI token — see §5.7)
+all time out. The Public Gateway is attached and the subnet ACL is wide open —
+the SG is the gate. Diagnose from any pod with a shell (gateway pods are
+distroless; use the gateway's Postgres pod):
+`timeout 8 bash -c 'cat </dev/null >/dev/tcp/1.1.1.1/443' && echo OPEN || echo BLOCKED`.
+
+Adding a rule to this ROKS-managed SG only *grants* egress (it never removes
+IBM's rules):
+
+```bash
+SG=$(ibmcloud is security-groups --vpc <vpc-id> --output json \
+  | python3 -c "import json,sys;print(next(g['id'] for g in json.load(sys.stdin) if g['name'].startswith('kube-') and 'lbaas' not in g['name'] and 'vpegw' not in g['name']))")
+ibmcloud is security-group-rule-add "$SG" outbound tcp --remote 0.0.0.0/0 --port-min 443 --port-max 443
+```
+
+This enables all outbound HTTPS from workers (egress-only, port 443) — required
+for cloud-model providers (§5.7). As a side effect it should also let nodes pull
+directly from `registry.redhat.io` / `quay.io` on 443, since crio shares the
+node's SG — **verify before relying on it to skip the mirroring dance**. This is
+IBM Cloud VPC state, **not** reproducible from GitOps; re-apply on any rebuild.
+
 #### ImageDigestMirrorSet (redirect the OSSM repo to the mirror)
 
 ```yaml
@@ -417,9 +446,10 @@ openssl s_client -connect "$HOST:443" -servername "$HOST" -CAfile /tmp/tenant-ca
 openshell status --gateway-endpoint "https://$HOST:443" --gateway-insecure   # Status: Connected
 ```
 
-`openshell gateway add https://<host>` drives the interactive edge/OIDC login
-flow and populates the CLI's mTLS/CA material under `~/.config/openshell/`; it is
-not needed to prove the infrastructure path above.
+`openshell status --gateway-endpoint … --gateway-insecure` proves the transport
+path without auth. For an authenticated registration a **bare** `openshell gateway
+add https://<host>` is wrong — it selects edge/"cloud" mode and 404s on these
+gRPC-only gateways; use OIDC mode (`--oidc-issuer …`, §5.7).
 
 ### 5.6: Enable Agent Sandboxes (required for `openshell sandbox ...`)
 
@@ -514,6 +544,72 @@ Full authenticated `openshell sandbox create` additionally needs
 To later switch to Gateway API (if IBM fixes HostedCluster mirroring), unset
 `GATEWAY_INGRESS_MODE` and run `cloud-hub-ingress-bootstrap`; the control plane
 then emits `GRPCRoute`s and removes the Routes.
+
+### 5.7: OIDC default-secure gateways + cloud-model providers
+
+**Default-secure every gateway via Keycloak (no per-gateway `oidc` field).** When
+the controller finds a `hypershell-keycloak-admin` Secret in its namespace it runs
+`reconcileKeycloakClient` on every gateway provision: it uses a `client_credentials`
+grant to auto-create a per-gateway public PKCE Keycloak client `<name>-<id>`
+(loopback redirects `http://127.0.0.1:*`,`http://localhost:*`), its
+`openshell-admin`/`openshell-user` client roles + audience/`hypershell.roles`
+protocol mappers, then persists the resulting `oidc` block back onto the Gateway
+and into `gateway.toml`. Wire it once:
+
+```bash
+# a) admin secret in the controller namespace (keys read verbatim by main.go).
+#    server-url stays IN-CLUSTER; the external issuer is set separately (below).
+oc create secret generic hypershell-keycloak-admin -n hypershell \
+  --from-literal=server-url="http://hypershell-keycloak-service.keycloak-system.svc.cluster.local:8080" \
+  --from-literal=realm="hypershell" \
+  --from-literal=client-id="hypershell-control-plane" \
+  --from-literal=client-secret="control-plane-secret"
+
+# b) client-facing issuer = the EXTERNAL Keycloak host (must match KC_HOSTNAME).
+#    This overrides only the issuer written to the gateway/toml, not the admin URL.
+oc set env deploy/hypershell-controller -n hypershell \
+  GATEWAY_OIDC_ISSUER_URL="https://keycloak.<appdomain>/realms/hypershell"
+oc rollout restart deploy/hypershell-controller -n hypershell
+# log confirms: "keycloak integration enabled ... gateway reconciler ... keycloak=true"
+```
+
+The `hypershell-control-plane` service account needs realm-management roles
+(`manage-clients`,`manage-users`,`view-users`,`query-clients`,`query-users`) or
+the client-credentials grant 403s. Declare them in the realm import as a
+`service-account-hypershell-control-plane` user with `clientRoles`
+(bootstrap-hyperfleet `bases/hypershell/keycloak/realm-import.yaml`) —
+`clientScopeMappings` alone does **not** grant SA roles. Per-user authorization is
+separate: assign the `openshell-admin`/`openshell-user` client role on the
+`<name>-<id>` client to each end user (sandbox create additionally needs workspace
+membership).
+
+**CLI connect — OIDC mode, not edge/cloud mode.** A bare `openshell gateway add
+https://<host>` treats the endpoint as edge-authenticated ("cloud") and 404s on
+these gRPC-only passthrough gateways. Use OIDC mode with `--gateway-insecure`
+(passthrough serves the self-signed pod cert; the flag is required on `add` **and**
+every later command, and its env form is `OPENSHELL_GATEWAY_INSECURE=true`, not `1`):
+
+```bash
+openshell gateway add --gateway-insecure \
+  --oidc-issuer   "https://keycloak.<appdomain>/realms/hypershell" \
+  --oidc-client-id "<name>-<id>" --oidc-audience "<name>-<id>" \
+  "https://<gateway-route-host>:443"
+```
+
+**Cloud-model providers need worker internet egress.** `openshell provider create
+--type google-vertex-ai --from-gcloud-adc …` makes the gateway pod call
+`oauth2.googleapis.com` (token mint) and later `*.googleapis.com` (inference).
+On ROKS that fails with `transport error … token endpoint request failed` until
+the worker SG is opened for outbound 443 (see *Root cause: the worker Security
+Group* in Step 4). Remember `--gateway-insecure` here too:
+
+```bash
+openshell provider create --gateway-insecure \
+  --name vertex-claude --type google-vertex-ai --from-gcloud-adc \
+  --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)" \
+  --config VERTEX_AI_REGION=global
+# ✓ Created provider ... / Configured GCP credentials from gcloud ADC and minted the initial access token
+```
 
 ## Internal registry storage (COS is NOT required)
 
