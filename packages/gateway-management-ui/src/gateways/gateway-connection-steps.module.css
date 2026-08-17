@@ -19,6 +19,12 @@
   border: var(--pf-t--global--border--width--box--default) solid
     var(--pf-t--global--border--color--default);
   border-radius: var(--pf-t--global--border--radius--medium);
+  /*
+   * Shiki's <pre> paints its own square-cornered background edge to edge (the
+   * content padding is 0), which would cover the rounded corners. Clip children
+   * to the border radius so the rounding shows through.
+   */
+  overflow: hidden;
 }
 
 .steps :global(.pf-v6-c-code-block__header) {
