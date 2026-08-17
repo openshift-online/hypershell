@@ -94,6 +94,7 @@ help:
 	@echo "    kind-control-plane-down  Revert control plane to baseline image"
 	@echo "    kind-web-console-up      Hot reload (default) or build + swap web console (KIND_HOT_RELOAD=false)"
 	@echo "    kind-web-console-down    Revert web console to baseline image"
+	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
 	@echo ""
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
@@ -379,6 +380,10 @@ kind-web-console-up:
 .PHONY: kind-web-console-down
 kind-web-console-down:
 	@scripts/kind/swap-component.sh down web-console
+
+.PHONY: kind-gateway-trust
+kind-gateway-trust:
+	@scripts/kind/gateway-trust.sh
 
 generate-cli:
 	cd scripts/cli-generator && go run . \
