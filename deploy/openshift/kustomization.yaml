@@ -57,9 +57,16 @@ patches:
   # (plugins/rbac/plugin.go), independent of --enable-authz. RBAC_SERVICE_ACCOUNTS
   # bypasses the gRPC RBAC interceptor for the control plane's service account,
   # whose UpdateGateway writes are not covered by --auth-bypass-methods and whose
-  # gRPC path never syncs JWT roles (pkg/rbac/grpc_interceptor.go). To take
-  # effect in a real cluster the external SSO must define gateway:creator, assign
-  # it to platform operators, and emit it in realm_access.roles.
+  # gRPC path never syncs JWT roles (pkg/rbac/grpc_interceptor.go).
+  #
+  # BREAKING CHANGE for existing clusters: once applied, every gateway operation
+  # requires the caller's token to carry gateway:creator (create) or a matching
+  # per-gateway RoleBinding (read/write). On a real cluster the IdP is external
+  # SSO, so before/with this rollout the SSO MUST define gateway:creator, assign
+  # it to platform operators, and emit it in realm_access.roles -- otherwise
+  # creates 403 and reads 404 immediately after upgrade. See the operator note in
+  # specs/security/rbac-enforcement.spec.md (Production Rollout) and coordinate the
+  # SSO role mapping with the release that makes this overlay enforce RBAC.
   - target:
       kind: Deployment
       name: hypershell-api-server

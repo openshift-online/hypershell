@@ -14,6 +14,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lib/pq"
@@ -29,6 +30,19 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/watch"
 )
+
+// networkPoliciesDisabledLogOnce keeps the "network policies disabled" notice to
+// a single line per process. When GATEWAY_SKIP_NETWORK_POLICIES=true (the
+// default in the kind overlay) the skip branches run on every reconcile, so
+// logging per-resource produced steady per-reconcile noise under a misleading
+// DEBUG label. logNetworkPoliciesDisabled emits the notice once instead.
+var networkPoliciesDisabledLogOnce sync.Once
+
+func logNetworkPoliciesDisabled() {
+	networkPoliciesDisabledLogOnce.Do(func() {
+		log.Printf("network policies disabled (GATEWAY_SKIP_NETWORK_POLICIES=true); skipping gateway NetworkPolicy resources")
+	})
+}
 
 func ReconcileGateway(
 	ctx context.Context,
@@ -314,7 +328,7 @@ func deployGateway(
 			// IP no selector can match). This drops the netpol docs in both
 			// networkpolicy.yaml and database.yaml while keeping the rest.
 			if opts.SkipNetworkPolicies && manifest.GetKind() == "NetworkPolicy" {
-				log.Printf("DEBUG skipping NetworkPolicy %s in %s (network policies disabled)", manifest.GetName(), nsConfig.Name)
+				logNetworkPoliciesDisabled()
 				continue
 			}
 
@@ -1415,7 +1429,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	// would blackhole gateway ingress). Restrict source to the namespace hosting
 	// the shared Gateway so only the admin-provisioned proxy can reach the ports.
 	if opts.SkipNetworkPolicies {
-		log.Printf("DEBUG skipping router NetworkPolicy in %s (network policies disabled)", namespace)
+		logNetworkPoliciesDisabled()
 	} else {
 		ingressRule := map[string]interface{}{
 			"ports": []interface{}{

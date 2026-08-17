@@ -262,7 +262,7 @@ fi
 # restarting the control plane so the reconciler can apply it when provisioning
 # gateways. The reconciler copies it into each gateway's namespace and mounts it
 # as SSL_CERT_FILE so OIDC discovery over HTTPS succeeds
-# (see specs/standards/security/openshell-gateway-tls.spec.md).
+# (see specs/platform/openshell-gateway-tls.spec.md).
 header "Gateway Trusted CA"
 info "Waiting for hypershell-https-tls certificate to be issued..."
 CA_PEM=""
@@ -519,6 +519,17 @@ info "Obtaining API token from Keycloak..."
 # Use the Gateway-routed Keycloak URL instead of port-forwarding.
 # Keycloak is accessible via HTTPRoute at keycloak.hypershell.localhost.
 #
+# Seed with the admin resource-owner (password) token, NOT the control-plane
+# client-credentials token. The kind overlay enables RBAC_ENFORCE=true, and the
+# HTTP authz middleware (unlike the gRPC interceptor) has no service-account
+# bypass -- every write requires the caller's JWT to carry the `gateway:creator`
+# realm role. The `hypershell-control-plane` client holds no such role, so its
+# token 403s on `POST /fleets` onward and (because seeding is non-fatal) would
+# leave the cluster with no seeded resources behind a scroll-past warning. The
+# `admin` user has `gateway:creator`, and `hypershell-frontend` permits the
+# password grant (publicClient + directAccessGrantsEnabled), so this token is
+# authorized to create the platform resources below.
+#
 # Poll rather than fetching once. On a fresh `kind-up` the gateway LB has an
 # address (waited on above) and Keycloak is Available, but the gateway's
 # Keycloak route/listener may not be accepting on :443 yet -- a single curl
@@ -532,9 +543,10 @@ API_TOKEN=""
 TOKEN_RESP=""
 for _ in $(seq 1 30); do
   TOKEN_RESP=$(curl -sSk -m 5 -X POST "${KC_TOKEN_URL}" \
-    -d "grant_type=client_credentials" \
-    -d "client_id=hypershell-control-plane" \
-    -d "client_secret=control-plane-secret" 2>&1 || true)
+    -d "grant_type=password" \
+    -d "client_id=hypershell-frontend" \
+    -d "username=admin" \
+    -d "password=admin" 2>&1 || true)
   API_TOKEN=$(echo "${TOKEN_RESP}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
   if [[ -n "${API_TOKEN}" ]]; then break; fi
   sleep 2
