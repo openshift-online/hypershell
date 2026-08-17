@@ -68,60 +68,116 @@ export function buildGatewayAddCommand(
 
 /**
  * Fixed OpenShell provider name used across the Vertex AI connection steps so
- * the create, inference-routing, and sandbox commands refer to the same provider.
+ * the create, sandbox, and policy commands refer to the same provider. The
+ * sandbox policy binds credentials to this exact provider name.
  */
-export const vertexClaudeProviderName = "vertex-claude";
+export const vertexProviderName = "my-gcp";
 
-/** Placeholder a user replaces with their sandbox name. */
-export const sandboxNamePlaceholder = "<sandbox-name>";
+/** Default sandbox name shown in the copyable create-sandbox command. */
+export const sandboxName = "mysand";
 
-/** One-time prerequisite that writes Application Default Credentials locally. */
-export const gcloudAdcLoginCommand = "gcloud auth application-default login";
+/** File the sandbox policy heredoc writes, referenced by the `--policy` flag. */
+export const sandboxPolicyFileName = "vertex-policy.yaml";
 
 /**
  * Primary "add a provider" command. Pulls credentials from Application Default
- * Credentials and the project from the user's active gcloud configuration, so no
- * secret or project value has to be pasted into the browser or edited by hand.
+ * Credentials (`--from-gcloud-adc`) and reads the project id from the shell, so
+ * no secret has to be pasted into the browser.
  */
 export function buildProviderCreateCommand(): string {
   return [
     "openshell provider create",
-    `--name ${vertexClaudeProviderName}`,
-    "--type google-vertex-ai",
+    `--name ${vertexProviderName}`,
+    "--type google-cloud",
     "--from-gcloud-adc",
-    `--config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)"`,
-    "--config VERTEX_AI_REGION=global",
+    "--config project_id=$ANTHROPIC_VERTEX_PROJECT_ID",
+    "--config region=global",
   ].join(" \\\n  ");
 }
 
 /**
- * Alternative that reads every credential and config value from the shell
- * environment (`VERTEX_AI_PROJECT_ID`, `VERTEX_AI_REGION`, and the credential),
- * for users who already export the OpenShell Vertex variables.
+ * Creates a sandbox that runs Claude through the provider, forwarding the Vertex
+ * project id and applying the sandbox network/filesystem policy file.
  */
-export function buildProviderFromExistingCommand(): string {
-  return [
-    "openshell provider create",
-    `--name ${vertexClaudeProviderName}`,
-    "--type google-vertex-ai",
-    "--from-existing",
-  ].join(" \\\n  ");
-}
-
-/**
- * Creates a sandbox that launches Claude through the Vertex AI provider. The
- * sandbox name is a template value the user substitutes before running.
- */
-export function buildSandboxCreateCommand(
-  sandboxName: string = sandboxNamePlaceholder,
-): string {
+export function buildSandboxCreateCommand(name: string = sandboxName): string {
   return [
     "openshell sandbox create",
-    `--name ${sandboxName}`,
-    `--provider ${vertexClaudeProviderName}`,
+    `--name ${name}`,
+    `--provider ${vertexProviderName}`,
+    "--env=ANTHROPIC_VERTEX_PROJECT_ID=$ANTHROPIC_VERTEX_PROJECT_ID",
+    "--env=CLAUDE_CODE_USE_VERTEX=1",
+    `--policy ${sandboxPolicyFileName}`,
     "--no-auto-providers",
     "-- claude",
   ].join(" \\\n  ");
+}
+
+/**
+ * Sandbox policy that constrains the filesystem and pins outbound network access
+ * to the Vertex AI endpoints, binding each to the provider's credentials.
+ * Rendered as a heredoc so the whole file can be copied and written in one step
+ * before `openshell sandbox create --policy`.
+ */
+export function buildSandboxPolicyCommand(): string {
+  const policy = `version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+    - /lib
+    - /proc
+    - /dev/urandom
+    - /app
+    - /etc
+    - /var/log
+  read_write:
+    - /tmp
+    - /dev/null
+
+landlock:
+  compatibility: best_effort
+
+network_policies:
+  vertex_direct:
+    name: vertex_direct
+    endpoints:
+      - host: "*-aiplatform.googleapis.com"
+        port: 443
+        protocol: rest
+        tls: terminate
+        enforcement: enforce
+        access: read-write
+        credential_binding:
+          provider: ${vertexProviderName}
+      - host: "aiplatform.googleapis.com"
+        port: 443
+        protocol: rest
+        tls: terminate
+        enforcement: enforce
+        access: read-write
+        credential_binding:
+          provider: ${vertexProviderName}
+      - host: "aiplatform.us.rep.googleapis.com"
+        port: 443
+        protocol: rest
+        tls: terminate
+        enforcement: enforce
+        access: read-write
+        credential_binding:
+          provider: ${vertexProviderName}
+      - host: "aiplatform.eu.rep.googleapis.com"
+        port: 443
+        protocol: rest
+        tls: terminate
+        enforcement: enforce
+        access: read-write
+        credential_binding:
+          provider: ${vertexProviderName}
+    binaries:
+      - { path: /usr/local/bin/claude }`;
+
+  return `cat > ${sandboxPolicyFileName} <<'EOF'\n${policy}\nEOF`;
 }
 
 export type GatewayStatusAppearance =

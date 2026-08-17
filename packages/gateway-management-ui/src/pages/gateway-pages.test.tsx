@@ -251,8 +251,7 @@ describe("gateway shell pages", () => {
     expect(cliCmd.textContent).not.toContain("--oidc-");
   });
 
-  it("walks through gateway connection with provider and sandbox commands", async () => {
-    const user = userEvent.setup();
+  it("walks through gateway connection with provider and sandbox commands", () => {
     renderPage(() => (
       <GatewayPage
         gateway={{
@@ -293,17 +292,15 @@ describe("gateway shell pages", () => {
       screen.getByText(/openshell sandbox create/, { selector: "code" }),
     ).toBeTruthy();
 
-    // Prerequisites and options are revealed on demand.
-    await user.click(
-      screen.getByRole("button", { name: "Prerequisites and options" }),
-    );
+    // The sandbox policy is offered as its own copyable heredoc step.
     expect(
-      screen.getByText("gcloud auth application-default login", {
-        selector: "code",
+      screen.getByRole("heading", {
+        level: 2,
+        name: "Save the sandbox policy",
       }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Do not set CLAUDE_CODE_USE_VERTEX=1/u),
+      screen.getByText(/cat > vertex-policy\.yaml/, { selector: "code" }),
     ).toBeTruthy();
   });
 

@@ -4,7 +4,6 @@ import {
   CodeBlockAction,
   CodeBlockCode,
   Content,
-  ExpandableSection,
   Skeleton,
   Title,
 } from "@patternfly/react-core";
@@ -14,9 +13,8 @@ import { useIntl } from "react-intl";
 import { messages } from "../messages";
 import {
   buildProviderCreateCommand,
-  buildProviderFromExistingCommand,
   buildSandboxCreateCommand,
-  gcloudAdcLoginCommand,
+  buildSandboxPolicyCommand,
   isGatewayReadyToConnect,
   type GatewayConnection,
 } from "./gateway-connections";
@@ -86,35 +84,12 @@ function ConnectionStep({
   );
 }
 
-function ProviderStepDetail({
-  ariaLabel,
-  command,
-  description,
-  title,
-}: {
-  ariaLabel: string;
-  command: string;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <div className={styles.detail}>
-      <Title headingLevel="h3" size="md">
-        {title}
-      </Title>
-      {description && <Content component="p">{description}</Content>}
-      <CommandCopy ariaLabel={ariaLabel} command={command} />
-    </div>
-  );
-}
-
 export function GatewayConnectionSteps({
   gateway,
 }: {
   gateway: GatewayConnection;
 }) {
   const intl = useIntl();
-  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const readyToConnect = isGatewayReadyToConnect(gateway);
 
   return (
@@ -144,34 +119,16 @@ export function GatewayConnectionSteps({
           ariaLabel={intl.formatMessage(messages.copyProviderCommand)}
           command={buildProviderCreateCommand()}
         />
-        <ExpandableSection
-          isExpanded={isDetailsExpanded}
-          onToggle={(_event, expanded) => {
-            setIsDetailsExpanded(expanded);
-          }}
-          toggleText={intl.formatMessage(
-            messages.connectionProviderDetailsToggle,
-          )}
-        >
-          <ProviderStepDetail
-            ariaLabel={intl.formatMessage(messages.copyAdcLoginCommand)}
-            command={gcloudAdcLoginCommand}
-            title={intl.formatMessage(messages.connectionProviderAdcTitle)}
-          />
-          <ProviderStepDetail
-            ariaLabel={intl.formatMessage(
-              messages.copyProviderFromExistingCommand,
-            )}
-            command={buildProviderFromExistingCommand()}
-            description={intl.formatMessage(
-              messages.connectionProviderFromEnvDescription,
-            )}
-            title={intl.formatMessage(messages.connectionProviderFromEnvTitle)}
-          />
-          <Content component="p">
-            {intl.formatMessage(messages.connectionProviderCaveat)}
-          </Content>
-        </ExpandableSection>
+      </ConnectionStep>
+
+      <ConnectionStep
+        description={intl.formatMessage(messages.connectionPolicyDescription)}
+        title={intl.formatMessage(messages.connectionPolicyTitle)}
+      >
+        <CommandCopy
+          ariaLabel={intl.formatMessage(messages.copyPolicyCommand)}
+          command={buildSandboxPolicyCommand()}
+        />
       </ConnectionStep>
 
       <ConnectionStep

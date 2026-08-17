@@ -3,12 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildGatewayAddCommand,
   buildProviderCreateCommand,
-  buildProviderFromExistingCommand,
   buildSandboxCreateCommand,
+  buildSandboxPolicyCommand,
   gatewayStatusAppearance,
   isGatewayReadyToConnect,
-  sandboxNamePlaceholder,
-  vertexClaudeProviderName,
+  sandboxName,
+  sandboxPolicyFileName,
+  vertexProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
 
@@ -106,41 +107,50 @@ describe("gateway connections", () => {
     );
   });
 
-  it("builds the Vertex AI provider command pulling ADC and gcloud project", () => {
+  it("builds the google-cloud provider command pulling ADC and project id", () => {
     expect(buildProviderCreateCommand()).toBe(
       `openshell provider create \\
-  --name ${vertexClaudeProviderName} \\
-  --type google-vertex-ai \\
+  --name ${vertexProviderName} \\
+  --type google-cloud \\
   --from-gcloud-adc \\
-  --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)" \\
-  --config VERTEX_AI_REGION=global`,
+  --config project_id=$ANTHROPIC_VERTEX_PROJECT_ID \\
+  --config region=global`,
     );
   });
 
-  it("builds the environment-only provider command", () => {
-    expect(buildProviderFromExistingCommand()).toBe(
-      `openshell provider create \\
-  --name ${vertexClaudeProviderName} \\
-  --type google-vertex-ai \\
-  --from-existing`,
-    );
-  });
-
-  it("creates a sandbox that attaches the provider and launches claude", () => {
+  it("creates a sandbox that attaches the provider, forwards Vertex env, and launches claude", () => {
     expect(buildSandboxCreateCommand()).toBe(
       `openshell sandbox create \\
-  --name ${sandboxNamePlaceholder} \\
-  --provider ${vertexClaudeProviderName} \\
+  --name ${sandboxName} \\
+  --provider ${vertexProviderName} \\
+  --env=ANTHROPIC_VERTEX_PROJECT_ID=$ANTHROPIC_VERTEX_PROJECT_ID \\
+  --env=CLAUDE_CODE_USE_VERTEX=1 \\
+  --policy ${sandboxPolicyFileName} \\
   --no-auto-providers \\
   -- claude`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
       `openshell sandbox create \\
   --name demo \\
-  --provider ${vertexClaudeProviderName} \\
+  --provider ${vertexProviderName} \\
+  --env=ANTHROPIC_VERTEX_PROJECT_ID=$ANTHROPIC_VERTEX_PROJECT_ID \\
+  --env=CLAUDE_CODE_USE_VERTEX=1 \\
+  --policy ${sandboxPolicyFileName} \\
   --no-auto-providers \\
   -- claude`,
     );
+  });
+
+  it("writes the sandbox policy as a heredoc bound to the provider", () => {
+    const command = buildSandboxPolicyCommand();
+
+    expect(command.startsWith(`cat > ${sandboxPolicyFileName} <<'EOF'\n`)).toBe(
+      true,
+    );
+    expect(command.endsWith("\nEOF")).toBe(true);
+    expect(command).toContain(`provider: ${vertexProviderName}`);
+    expect(command).toContain('host: "*-aiplatform.googleapis.com"');
+    expect(command).toContain("- { path: /usr/local/bin/claude }");
   });
 
   it.each([

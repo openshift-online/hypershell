@@ -285,7 +285,8 @@ test("keeps connection methods on gateway details", async ({
     page.getByRole("button", { name: "Actions", exact: true }),
   ).toBeVisible();
 
-  // Connection is the default tab and walks through login, provider, and sandbox.
+  // Connection is the default tab and walks through login, provider, policy, and
+  // sandbox.
   await expect(
     page.getByRole("tab", { name: "Connection", selected: true }),
   ).toBeVisible();
@@ -294,6 +295,9 @@ test("keeps connection methods on gateway details", async ({
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Copy the add-provider command" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy the sandbox policy file" }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Copy the create-sandbox command" }),
