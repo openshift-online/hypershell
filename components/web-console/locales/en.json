@@ -183,6 +183,10 @@
     "defaultMessage": "Delete gateway",
     "description": "Action that permanently deletes a gateway."
   },
+  "app.gateway.delete.activeSandboxWarning": {
+    "defaultMessage": "This gateway has {count, plural, one {# active sandbox} other {# active sandboxes}} that will be disrupted by deletion.",
+    "description": "Warning shown before deleting a gateway that still has running sandboxes."
+  },
   "app.gateway.delete.confirmation": {
     "defaultMessage": "Deleting {gatewayName} will permanently remove the gateway. This action cannot be undone.",
     "description": "Warning shown before permanently deleting a gateway."
