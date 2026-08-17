@@ -136,63 +136,23 @@ func ReconcileGateway(
 	return nil
 }
 
+// DeleteGatewayResources cleans up the resources a gateway owns that live
+// OUTSIDE its namespace and are therefore not reclaimed when the namespace is
+// deleted. Everything inside the gateway's namespace (Deployments, Services,
+// Secrets, ConfigMaps, PVCs, Jobs, Roles, RoleBindings, and cert-manager /
+// Gateway API objects) is garbage-collected by Kubernetes as a side effect of
+// deleting the namespace itself, so those are not enumerated here. The
+// out-of-namespace resources handled below are:
+//   - the cluster-scoped ClusterRoleBinding created for the gateway,
+//   - the gateway's external Keycloak client, and
+//   - any credential RBAC the gateway created in a separate credential namespace.
 func DeleteGatewayResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
-	clientset *kubernetes.Clientset,
 	namespace string,
 	opts ReconcileOpts,
 	credentialNamespaces ...string,
 ) error {
-	labelSelector := "hypershell.redhat.io/managed=true"
-
-	namespacedResources := []schema.GroupVersionResource{
-		{Group: "apps", Version: "v1", Resource: "deployments"},
-		{Version: "v1", Resource: "services"},
-		{Version: "v1", Resource: "configmaps"},
-		{Version: "v1", Resource: "serviceaccounts"},
-		{Version: "v1", Resource: "secrets"},
-		{Version: "v1", Resource: "persistentvolumeclaims"},
-		{Group: "batch", Version: "v1", Resource: "jobs"},
-		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
-	}
-
-	if opts.HasCertManager {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
-		)
-	}
-
-	if opts.HasGatewayAPI {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
-		)
-	}
-
-	for _, gvr := range namespacedResources {
-		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				continue
-			}
-			log.Printf("WARN failed to list %s in %s: %v", gvr.Resource, namespace, err)
-			continue
-		}
-		for _, item := range list.Items {
-			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-				log.Printf("WARN failed to delete %s %s in %s: %v", gvr.Resource, item.GetName(), namespace, err)
-			} else {
-				log.Printf("INFO deleted %s %s from %s", gvr.Resource, item.GetName(), namespace)
-			}
-		}
-	}
-
 	crbGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
 		Version:  "v1",
@@ -223,7 +183,7 @@ func DeleteGatewayResources(
 		}
 	}
 
-	log.Printf("INFO gateway resources cleaned up from namespace %s", namespace)
+	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
 	return nil
 }
 
