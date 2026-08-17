@@ -134,3 +134,4 @@ export class GatewayReleasePatchBuilder {
     return this.data as GatewayReleasePatchRequest;
   }
 }
+

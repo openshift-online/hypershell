@@ -45,4 +45,17 @@ export class SDKClient {
     this.roleBindings = new RoleBindingAPI(this.config);
   }
 
+  static fromEnv(): SDKClient {
+    const env = (typeof globalThis !== 'undefined' && 'process' in globalThis
+      ? (globalThis as Record<string, unknown>).process as { env: Record<string, string | undefined> }
+      : { env: {} as Record<string, string | undefined> }).env;
+    const baseUrl = env.API_URL || 'https://localhost:8000';
+    const token = env.API_TOKEN;
+
+    if (!token) {
+      throw new Error('API_TOKEN environment variable is required');
+    }
+
+    return new SDKClient({ baseUrl, token });
+  }
 }

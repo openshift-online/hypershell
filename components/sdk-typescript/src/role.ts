@@ -72,3 +72,4 @@ export class RolePatchBuilder {
     return this.data as RolePatchRequest;
   }
 }
+

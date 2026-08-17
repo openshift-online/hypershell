@@ -24,6 +24,7 @@ set -euo pipefail
 
 CLI="${OC:-oc}"
 OPENSHELL="${OPENSHELL_BIN:-openshell}"
+HSCTL="${HSCTL_BIN:-hsctl}"
 HS_NAMESPACE="${HYPERSHELL_NAMESPACE:-hypershell-api}"
 GW_NAMESPACE=""
 GW_NAME="${GATEWAY_NAME:-e2e-gw}"
@@ -83,17 +84,20 @@ cleanup() {
   fi
   if [[ "$SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
-    curl -sk -X DELETE "https://${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
+    "${HSCTL}" delete gateway "${GW_ID}" --yes &>/dev/null || true
   fi
 }
 trap cleanup EXIT
 
-API_HOST=$($CLI get route hypershell-api -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+API_HOST=$($CLI get route hypershell-api-server -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -z "$API_HOST" ]]; then
   red "ERROR: HyperShell API route not found in namespace ${HS_NAMESPACE}"
   exit 1
 fi
 
+# Login to hypershell CLI (no auth mode for stage/dev)
+dim "Logging in to hypershell CLI..."
+"${HSCTL}" login "https://${API_HOST}" --insecure-skip-tls-verify &>/dev/null || true
 KC_HOST=$($CLI get route keycloak -n "$KC_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -z "$KC_HOST" ]]; then
   red "ERROR: Keycloak route not found in namespace ${KC_NAMESPACE}"
@@ -129,8 +133,8 @@ echo ""
 bold "1. Gateway Provisioning via HyperShell API (OIDC)"
 echo ""
 
-show_cmd "curl -sk https://${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
-EXISTING_GW=$(curl -sk "https://${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
+show_cmd "${HSCTL} list gateways --search \"name=${GW_NAME}\" -o json"
+EXISTING_GW=$("${HSCTL}" list gateways --search "name=${GW_NAME}" -o json 2>/dev/null || true)
 EXISTING_ID=$(echo "$EXISTING_GW" | python3 -c "
 import json,sys
 data = json.load(sys.stdin)
@@ -201,7 +205,7 @@ print(json.dumps(body))
   dim "  Waiting for controller to provision (timeout: ${PROVISION_TIMEOUT}s)..."
   DEADLINE=$(($(date +%s) + PROVISION_TIMEOUT))
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    GW_PHASE=$(curl -sk "https://${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+    GW_PHASE=$("${HSCTL}" get gateway "${GW_ID}" 2>/dev/null | \
       python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
     if [[ "$GW_PHASE" == "Running" ]]; then
       break

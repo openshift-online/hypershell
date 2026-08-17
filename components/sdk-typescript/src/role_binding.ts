@@ -75,3 +75,4 @@ export class RoleBindingPatchBuilder {
     return this.data as RoleBindingPatchRequest;
   }
 }
+

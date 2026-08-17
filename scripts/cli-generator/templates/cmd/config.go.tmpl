@@ -1,0 +1,48 @@
+package config
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	cliconfig "{{.Module}}/pkg/config"
+)
+
+var Cmd = &cobra.Command{
+	Use:   "config",
+	Short: "Display configuration",
+	Long:  "Display the current CLI configuration including the config file location.",
+	Args:  cobra.NoArgs,
+	RunE:  run,
+}
+
+func run(cmd *cobra.Command, argv []string) error {
+	location, err := cliconfig.Location()
+	if err != nil {
+		return fmt.Errorf("can't determine config location: %v", err)
+	}
+
+	cfg, err := cliconfig.Load()
+	if err != nil {
+		return fmt.Errorf("can't load config: %v", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Config file: %s\n", location)
+	if cfg.URL != "" {
+		fmt.Fprintf(os.Stdout, "API URL:     %s\n", cfg.URL)
+	} else {
+		fmt.Fprintf(os.Stdout, "API URL:     (not set)\n")
+	}
+	if cfg.AccessToken != "" {
+		fmt.Fprintf(os.Stdout, "Token:       (set, len=%d)\n", len(cfg.AccessToken))
+	} else {
+		fmt.Fprintf(os.Stdout, "Token:       (not set)\n")
+	}
+	fmt.Fprintf(os.Stdout, "Insecure:    %v\n", cfg.Insecure)
+	if cfg.Pager != "" {
+		fmt.Fprintf(os.Stdout, "Pager:       %s\n", cfg.Pager)
+	}
+
+	return nil
+}

@@ -1,0 +1,94 @@
+package login
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"{{.Module}}/pkg/config"
+)
+
+var args struct {
+	url       string
+	token     string
+	tokenFile string
+	insecure  bool
+}
+
+var Cmd = &cobra.Command{
+	Use:   "login",
+	Short: "Log in to the API server",
+	Long: "Log in, saving the credentials to the configuration file.\n\n" +
+		"Examples:\n" +
+		"  {{.Binary}} login --token-file ~/.config/token --url http://localhost:8000\n" +
+		"  echo \"$JWT_TOKEN\" | {{.Binary}} login --token-file /dev/stdin --url local",
+	Args: cobra.NoArgs,
+	RunE: run,
+}
+
+func init() {
+	flags := Cmd.Flags()
+	flags.StringVar(&args.url, "url", "http://localhost:8000", "URL of the API server.")
+	flags.StringVar(&args.token, "token", "", "Bearer access token (JWT) - DEPRECATED: use --token-file instead.")
+	flags.StringVar(&args.tokenFile, "token-file", "", "File containing bearer access token (use /dev/stdin to read from stdin).")
+	flags.BoolVar(&args.insecure, "insecure", false, "Enables insecure communication with the server.")
+}
+
+func run(cmd *cobra.Command, argv []string) error {
+	var token string
+	
+	// Handle token input (prefer --token-file over --token for security)
+	if args.tokenFile != "" {
+		var reader io.Reader
+		if args.tokenFile == "/dev/stdin" {
+			reader = os.Stdin
+		} else {
+			file, err := os.Open(args.tokenFile)
+			if err != nil {
+				return fmt.Errorf("can't open token file '%s': %v", args.tokenFile, err)
+			}
+			defer file.Close()
+			reader = file
+		}
+		
+		tokenBytes, err := io.ReadAll(reader)
+		if err != nil {
+			return fmt.Errorf("can't read token: %v", err)
+		}
+		token = strings.TrimSpace(string(tokenBytes))
+	} else if args.token != "" {
+		fmt.Fprintf(os.Stderr, "Warning: Using --token flag exposes token in shell history. Use --token-file instead.\n")
+		token = args.token
+	} else {
+		fmt.Fprintf(os.Stderr, "A token is required. Use '--token-file <path>' or '--token-file /dev/stdin'.\n")
+		os.Exit(1)
+	}
+
+	if token == "" {
+		fmt.Fprintf(os.Stderr, "Token cannot be empty.\n")
+		os.Exit(1)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("can't load config file: %v", err)
+	}
+	if cfg == nil {
+		cfg = new(config.Config)
+	}
+
+	cfg.AccessToken = token
+	cfg.URL = args.url
+	cfg.Insecure = args.insecure
+
+	err = config.Save(cfg)
+	if err != nil {
+		return fmt.Errorf("can't save config file: %v", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Login successful. Configuration saved.\n")
+	return nil
+}

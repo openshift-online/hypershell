@@ -118,3 +118,4 @@ export class GatewayNetworkPatchBuilder {
     return this.data as GatewayNetworkPatchRequest;
   }
 }
+

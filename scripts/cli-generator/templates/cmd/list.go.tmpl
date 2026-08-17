@@ -1,0 +1,20 @@
+package list
+
+import (
+	"github.com/spf13/cobra"
+{{range .Resources}}
+	"{{$.Module}}/cmd/{{$.Binary}}/list/{{.PluralLower}}"
+{{- end}}
+)
+
+var Cmd = &cobra.Command{
+	Use:   "list RESOURCE",
+	Short: "List all resources of a specific type",
+	Long:  "List all resources of a specific type",
+}
+
+func init() {
+{{- range .Resources}}
+	Cmd.AddCommand({{.PluralLower}}.Cmd)
+{{- end}}
+}
