@@ -27,56 +27,115 @@ function getHighlighter(): Promise<Highlighter> {
 // Shiki colors every token with an inline `style` attribute (exposing the dark
 // palette via a `--shiki-dark` custom property). The web-console BFF serves a
 // hardened CSP with `style-src-attr 'none'`, which strips inline style
-// attributes, so that markup would render uncolored. Rewrite each token's inline
-// colors to `hl-fg-<hex>` / `hl-dfg-<hex>` classes and drop the container's
-// inline style; the self-hosted stylesheet (gateway-connection-steps.module.css)
-// paints those classes, so highlighting works under the CSP with no relaxation.
-// Keep that stylesheet's palette in sync with the themes -- command-highlight
-// tests fail if Shiki emits a color without a matching rule.
-const HEX = "([0-9a-fA-F]{3,8})";
-const lightColor = new RegExp(`(?:^|;)\\s*color:\\s*#${HEX}`);
-const darkColor = new RegExp(`--shiki-dark:\\s*#${HEX}`);
+// attributes, so that markup would render uncolored. Instead of emitting HTML,
+// we work from Shiki's structured tokens and carry each token's colors as
+// `hl-fg-<hex>` / `hl-dfg-<hex>` classes; the self-hosted stylesheet
+// (gateway-connection-steps.module.css) paints those classes, so highlighting
+// works under the CSP with no relaxation. Keep that stylesheet's palette in sync
+// with the themes -- command-highlight tests fail if Shiki emits a color without
+// a matching rule.
+function colorClass(
+  prefix: string,
+  value: string | undefined,
+): string | undefined {
+  const hex = /^#([0-9a-fA-F]{3,8})$/.exec(value?.trim() ?? "")?.[1];
+  return hex ? `${prefix}-${hex.toLowerCase()}` : undefined;
+}
 
-function tokenClasses(style: string): string {
+function tokenClassName(style: Record<string, string> | undefined): string {
+  if (!style) {
+    return "";
+  }
   const classes: string[] = [];
-  const light = lightColor.exec(style)?.[1];
-  const dark = darkColor.exec(style)?.[1];
-  if (light) {
-    classes.push(`hl-fg-${light.toLowerCase()}`);
+  const fg = colorClass("hl-fg", style.color);
+  const dfg = colorClass("hl-dfg", style["--shiki-dark"]);
+  if (fg) {
+    classes.push(fg);
   }
-  if (dark) {
-    classes.push(`hl-dfg-${dark.toLowerCase()}`);
+  if (dfg) {
+    classes.push(dfg);
   }
-  if (/font-weight:\s*bold/.test(style)) {
+  if ((style["font-weight"] ?? "").includes("bold")) {
     classes.push("hl-bold");
   }
-  if (/font-style:\s*italic/.test(style)) {
+  if ((style["font-style"] ?? "").includes("italic")) {
     classes.push("hl-italic");
   }
   return classes.join(" ");
 }
 
-function toClassBasedMarkup(html: string): string {
-  return html
-    .replace(/(<pre\b[^>]*?)\s+style="[^"]*"/g, "$1")
-    .replace(/<span style="([^"]*)">/g, (_match, style: string) => {
-      const classes = tokenClasses(style);
-      return classes ? `<span class="${classes}">` : "<span>";
-    });
+/**
+ * A run of the highlighted command. `text` parts carry static, syntax-colored
+ * text; `field` parts mark where an editable value was substituted (via a unique
+ * marker) so the renderer can drop an inline editor in that slot while keeping
+ * the surrounding token color.
+ */
+export type CommandPart =
+  | { className: string; kind: "text"; value: string }
+  | { className: string; kind: "field"; marker: string };
+
+// Split a single token's text on any of the edit markers, emitting a `field`
+// part for each marker occurrence (carrying the token's color so the editor
+// matches the surrounding syntax) and `text` parts for the runs between them.
+function splitOnMarkers(
+  content: string,
+  markers: readonly string[],
+  className: string,
+): CommandPart[] {
+  const parts: CommandPart[] = [];
+  let rest = content;
+  while (rest.length > 0) {
+    let earliest = -1;
+    let matched = "";
+    for (const marker of markers) {
+      const index = rest.indexOf(marker);
+      if (index !== -1 && (earliest === -1 || index < earliest)) {
+        earliest = index;
+        matched = marker;
+      }
+    }
+    if (earliest === -1) {
+      parts.push({ className, kind: "text", value: rest });
+      break;
+    }
+    if (earliest > 0) {
+      parts.push({ className, kind: "text", value: rest.slice(0, earliest) });
+    }
+    parts.push({ className, kind: "field", marker: matched });
+    rest = rest.slice(earliest + matched.length);
+  }
+  return parts;
 }
 
 /**
- * Render a shell command as dual-theme, CSP-safe Shiki HTML.
+ * Highlight a shell command that embeds edit markers, returning an ordered list
+ * of parts: syntax-colored static text and field slots at each marker.
  *
- * Token colors are carried by `hl-fg-*` / `hl-dfg-*` classes (no inline styles),
- * so the markup survives the BFF's `style-src-attr 'none'` policy. The raw
- * `command` string still drives copy, so the highlighted markup is display-only.
+ * The whole command is highlighted at once (so bash tokenizes flags, arguments,
+ * and operators in context), then each token's text is split at the markers.
+ * Because markers are placed where a whole argument word would go, they tokenize
+ * as their own argument-colored tokens, so the resulting field slots inherit the
+ * correct color and no HTML tag is ever broken mid-element.
  */
-export async function highlightCommand(command: string): Promise<string> {
+export async function highlightTemplate(
+  command: string,
+  markers: readonly string[],
+): Promise<CommandPart[]> {
   const highlighter = await getHighlighter();
-  const html = highlighter.codeToHtml(command, {
+  const { tokens } = highlighter.codeToTokens(command, {
     lang: "bash",
     themes: { light: lightTheme, dark: darkTheme },
   });
-  return toClassBasedMarkup(html);
+
+  const parts: CommandPart[] = [];
+  tokens.forEach((line, index) => {
+    if (index > 0) {
+      parts.push({ className: "", kind: "text", value: "\n" });
+    }
+    for (const token of line) {
+      const className = tokenClassName(token.htmlStyle);
+      parts.push(...splitOnMarkers(token.content, markers, className));
+    }
+  });
+  return parts;
 }

@@ -81,12 +81,16 @@ export const claudeModel = "claude-haiku-4-5";
 /**
  * Primary "add a provider" command. Pulls credentials from Application Default
  * Credentials (`--from-gcloud-adc`) and reads the project id from the shell, so
- * no secret has to be pasted into the browser.
+ * no secret has to be pasted into the browser. `providerName` is parameterized so
+ * the caller can substitute an edit marker (for highlighting) or the operator's
+ * chosen name (for copy) without diverging from this single command template.
  */
-export function buildProviderCreateCommand(): string {
+export function buildProviderCreateCommand(
+  providerName: string = vertexProviderName,
+): string {
   return [
     "openshell provider create",
-    `--name ${vertexProviderName}`,
+    `--name ${providerName}`,
     "--type google-vertex-ai",
     "--from-gcloud-adc",
     '--config VERTEX_AI_PROJECT_ID="$ANTHROPIC_VERTEX_PROJECT_ID"',
@@ -97,10 +101,14 @@ export function buildProviderCreateCommand(): string {
 /**
  * Points the provider's inference at the Claude model the sandbox runs, so
  * `claude` inside the sandbox resolves to it without any extra flags at the
- * provider level.
+ * provider level. `providerName` and `model` are parameterized so the same
+ * template drives both the highlighted (marker) and copyable (resolved) forms.
  */
-export function buildInferenceSetCommand(): string {
-  return `openshell inference set --provider ${vertexProviderName} --model ${claudeModel}`;
+export function buildInferenceSetCommand(
+  providerName: string = vertexProviderName,
+  model: string = claudeModel,
+): string {
+  return `openshell inference set --provider ${providerName} --model ${model}`;
 }
 
 /**
@@ -130,21 +138,24 @@ export function buildSandboxCreateCommand(name: string = sandboxName): string {
  */
 export function buildSetupScript(
   gateway: GatewayConnection,
+  overrides: { model?: string; providerName?: string } = {},
 ): string | undefined {
   const gatewayAdd = buildGatewayAddCommand(gateway);
   if (!gatewayAdd) {
     return undefined;
   }
 
+  const { model = claudeModel, providerName = vertexProviderName } = overrides;
+
   return [
     "# 1. Log in to the gateway",
     gatewayAdd,
     "",
     "# 2. Add the Claude on Vertex AI provider",
-    buildProviderCreateCommand(),
+    buildProviderCreateCommand(providerName),
     "",
     "# 3. Select the model",
-    buildInferenceSetCommand(),
+    buildInferenceSetCommand(providerName, model),
   ].join("\n");
 }
 

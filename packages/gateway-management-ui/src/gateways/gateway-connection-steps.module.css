@@ -61,7 +61,7 @@
 
 /*
  * The hardened CSP (style-src-attr 'none') strips Shiki's inline token styles,
- * so highlightCommand() rewrites them to hl-fg-* and hl-dfg-* classes and this
+ * so highlightTemplate() carries them as hl-fg-* and hl-dfg-* classes and this
  * stylesheet paints them: the github-light-high-contrast palette applies by
  * default and github-dark-high-contrast (foreground and its paired background)
  * swaps in under the PatternFly dark theme, keeping AA contrast in both. Keep
@@ -119,6 +119,38 @@
 
 :global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-f0f3f6) {
   color: #f0f3f6;
+}
+
+/*
+ * Inline editable value slots. They keep the surrounding token color (the
+ * dashed underline uses currentColor) so they read as code while signalling
+ * that they can be edited; hover and focus add a subtle background and a visible
+ * focus ring for keyboard users.
+ */
+.field {
+  cursor: text;
+  text-decoration: underline dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
+  border-radius: var(--pf-t--global--border--radius--small);
+  outline: none;
+  white-space: pre;
+}
+
+.field:empty {
+  min-width: 1ch;
+}
+
+.field:hover {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+.field:focus-visible {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .commandPending {

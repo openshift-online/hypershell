@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { highlightCommand } from "./command-highlight";
+import { type CommandPart, highlightTemplate } from "./command-highlight";
 
 // A snippet that exercises every bash token type the connection commands use
 // (comments, command names, arguments, options, quoted strings, variables,
@@ -17,36 +17,67 @@ const paletteSample = [
   "echo done | grep x && true || false; exit 0",
 ].join("\n");
 
-describe("highlightCommand", () => {
-  it("renders CSP-safe class-based Shiki markup", async () => {
-    const html = await highlightCommand("openshell gateway add --name my-gw");
+function reconstruct(parts: CommandPart[]): string {
+  return parts
+    .map((part) => (part.kind === "text" ? part.value : part.marker))
+    .join("");
+}
 
-    // Shiki wraps the code in a themed <pre>, preserving the original text.
-    expect(html).toContain('class="shiki');
-    expect(html).toContain("openshell");
-    expect(html).toContain("gateway");
-    // The hardened CSP (style-src-attr 'none') strips inline style attributes,
-    // so tokens must carry color through classes, never inline styles.
-    expect(html).not.toContain("style=");
-    expect(html).toMatch(/hl-fg-[0-9a-f]{3,8}/);
-    expect(html).toMatch(/hl-dfg-[0-9a-f]{3,8}/);
+function emittedClasses(parts: CommandPart[]): Set<string> {
+  const classes = new Set<string>();
+  for (const part of parts) {
+    for (const className of part.className.split(/\s+/).filter(Boolean)) {
+      if (/^hl-(?:fg|dfg)-[0-9a-f]{3,8}$/.test(className)) {
+        classes.add(className);
+      }
+    }
+  }
+  return classes;
+}
+
+describe("highlightTemplate", () => {
+  it("splits a marked command into colored text and field slots", async () => {
+    const command = "openshell inference set --provider ZPROV --model ZMODEL";
+    const parts = await highlightTemplate(command, ["ZPROV", "ZMODEL"]);
+
+    // Highlighting never alters the underlying text: text runs plus the markers
+    // reconstruct the original command exactly.
+    expect(reconstruct(parts)).toBe(command);
+
+    const fields = parts.filter((part) => part.kind === "field");
+    expect(fields.map((part) => part.marker)).toEqual(["ZPROV", "ZMODEL"]);
+
+    // Field slots inherit the argument token color so the editor matches the
+    // surrounding syntax, and static text carries color through classes only.
+    for (const field of fields) {
+      expect(field.className).toMatch(/hl-fg-[0-9a-f]{3,8}/);
+      expect(field.className).toMatch(/hl-dfg-[0-9a-f]{3,8}/);
+    }
+    expect(emittedClasses(parts).size).toBeGreaterThan(0);
   });
 
-  it("reuses the highlighter across calls", async () => {
-    const first = await highlightCommand("openshell inference set");
-    const second = await highlightCommand("openshell inference set");
+  it("emits a field slot for every marker occurrence, including repeats", async () => {
+    const command =
+      "openshell provider create --name ZPROV && openshell inference set --provider ZPROV";
+    const parts = await highlightTemplate(command, ["ZPROV"]);
 
-    expect(second).toBe(first);
+    const markers = parts
+      .filter((part) => part.kind === "field")
+      .map((part) => part.marker);
+    expect(markers).toEqual(["ZPROV", "ZPROV"]);
+  });
+
+  it("is deterministic across calls (highlighter reused)", async () => {
+    const first = await highlightTemplate("openshell inference set", []);
+    const second = await highlightTemplate("openshell inference set", []);
+
+    expect(second).toEqual(first);
   });
 
   it("only emits token classes the stylesheet defines", async () => {
-    const html = await highlightCommand(paletteSample);
+    const parts = await highlightTemplate(paletteSample, []);
 
-    const emitted = new Set(
-      [...html.matchAll(/hl-(?:fg|dfg)-[0-9a-f]{3,8}/g)].map(
-        (match) => match[0],
-      ),
-    );
+    const emitted = emittedClasses(parts);
     expect(emitted.size).toBeGreaterThan(0);
 
     const stylesheet = readFileSync(

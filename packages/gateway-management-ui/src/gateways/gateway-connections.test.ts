@@ -125,6 +125,29 @@ describe("gateway connections", () => {
     );
   });
 
+  it("substitutes a chosen provider name into the provider command", () => {
+    expect(buildProviderCreateCommand("MARKER")).toContain("--name MARKER");
+  });
+
+  it("substitutes chosen provider and model names into inference set", () => {
+    expect(buildInferenceSetCommand("PROV", "MODEL")).toBe(
+      "openshell inference set --provider PROV --model MODEL",
+    );
+  });
+
+  it("threads provider and model overrides through the setup script", () => {
+    const script = buildSetupScript(gateway, {
+      model: "MODEL",
+      providerName: "PROV",
+    });
+
+    // The provider name is mirrored across both the create and inference steps.
+    expect(script).toContain("--name PROV");
+    expect(script).toContain("--provider PROV --model MODEL");
+    expect(script).not.toContain(vertexProviderName);
+    expect(script).not.toContain(claudeModel);
+  });
+
   it("creates a sandbox that runs claude against the local inference endpoint", () => {
     expect(buildSandboxCreateCommand()).toBe(
       `openshell sandbox create \\

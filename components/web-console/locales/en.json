@@ -115,6 +115,18 @@
     "defaultMessage": "Copy the one-time setup commands",
     "description": "Accessible label for copying the consolidated one-time setup script."
   },
+  "app.gateway.connection.editModel": {
+    "defaultMessage": "Model (editable)",
+    "description": "Accessible label for the inline-editable model name in the setup command."
+  },
+  "app.gateway.connection.editProviderName": {
+    "defaultMessage": "Provider name (editable)",
+    "description": "Accessible label for the inline-editable provider name in the setup command."
+  },
+  "app.gateway.connection.editSandboxName": {
+    "defaultMessage": "Sandbox name (editable)",
+    "description": "Accessible label for the inline-editable sandbox name in the create-sandbox command."
+  },
   "app.gateway.connection.login.unavailable": {
     "defaultMessage": "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     "description": "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase."
