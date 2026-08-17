@@ -151,20 +151,40 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		desiredPhase, desiredStatus = "Running", "Healthy"
 	}
 
-	if phase == desiredPhase && gw.GetStatus() == desiredStatus {
+	// Observe the number of active agent sandboxes in the gateway namespace so
+	// the count can be surfaced (e.g. in the delete confirmation dialog) before
+	// a gateway is removed. This is an observability signal only; it never gates
+	// a reconcile decision. A transient list error is logged and leaves the
+	// last reported count untouched rather than clobbering it with zero.
+	activeSandboxes, sandboxErr := gateway.CountActiveSandboxes(ctx, h.clientset, namespace)
+	if sandboxErr != nil {
+		log.Printf("WARN gateway health: %s: count sandboxes: %v", gatewayID, sandboxErr)
+	}
+
+	phaseOrStatusChanged := phase != desiredPhase || gw.GetStatus() != desiredStatus
+	countChanged := sandboxErr == nil &&
+		(gw.ActiveSandboxCount == nil || gw.GetActiveSandboxCount() != int32(activeSandboxes))
+
+	if !phaseOrStatusChanged && !countChanged {
 		return
 	}
 
-	if _, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+	req := &pb.UpdateGatewayRequest{
 		Id:     gatewayID,
 		Phase:  &desiredPhase,
 		Status: &desiredStatus,
-	}); err != nil {
+	}
+	if sandboxErr == nil {
+		count := int32(activeSandboxes)
+		req.ActiveSandboxCount = &count
+	}
+
+	if _, err := client.UpdateGateway(ctx, req); err != nil {
 		log.Printf("WARN gateway health: update %s to %s: %v", gatewayID, desiredPhase, err)
 		return
 	}
 
-	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
+	log.Printf("INFO gateway health: %s %s -> %s (%s, sandboxes=%d)", gatewayID, phase, desiredPhase, desiredStatus, activeSandboxes)
 }
 
 // evaluateRouteReadiness decides the phase for a routed gateway whose Deployment
