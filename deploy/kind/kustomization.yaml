@@ -35,12 +35,19 @@ patches:
                   - name: OIDC_CLIENT_ID
                     value: "hypershell-control-plane"
                   # Client-facing gateway OIDC issuer (pod, console, CLI). Must
-                  # equal Keycloak KC_HOSTNAME so the token `iss` validates. The
-                  # gateway pod reaches it in-cluster (CoreDNS -> gateway, TLS via
-                  # the trusted-CA bundle); the host reaches it on 443. Keep this in
-                  # sync with the keycloak KC_HOSTNAME value.
+                  # equal Keycloak KC_HOSTNAME so the token `iss` validates
+                  # (config.issuer == discovery.issuer == token.iss). In Kind this
+                  # is plain HTTP on :8080: the gateway pod reaches it in-cluster
+                  # via the CoreDNS patch (keycloak.hypershell.localhost -> Keycloak
+                  # ClusterIP:8080, see scripts/kind/lib.sh), and the host reaches
+                  # it through the gateway LB's http-keycloak listener on :8080.
+                  # Keycloak serves only HTTP/8080 on that ClusterIP (no TLS/443),
+                  # so an https://.../ issuer here fails OIDC discovery and the
+                  # gateway goes Degraded. Keep this in sync with keycloak
+                  # KC_HOSTNAME. (Production/OpenShift fronts Keycloak with real
+                  # TLS and uses the https form in deploy/keycloak.)
                   - name: GATEWAY_OIDC_ISSUER_URL
-                    value: "https://keycloak.hypershell.localhost/realms/hypershell"
+                    value: "http://keycloak.hypershell.localhost:8080/realms/hypershell"
                   - name: OIDC_TOKEN_ENDPOINT
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/token"
                   - name: OIDC_CLIENT_SECRET
