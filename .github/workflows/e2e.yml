@@ -198,6 +198,10 @@ jobs:
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
+          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # The action defaults to "success,skipped"; a skipped build never
+          # pushes the image, so pin strict success to keep the image guarantee.
+          allowed-conclusions: success
 
       - name: Wait for control-plane Konflux build
         if: steps.plan.outputs.wait_control_plane == 'true'
@@ -208,6 +212,10 @@ jobs:
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
+          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # The action defaults to "success,skipped"; a skipped build never
+          # pushes the image, so pin strict success to keep the image guarantee.
+          allowed-conclusions: success
 
       - name: Wait for web-console Konflux build
         if: steps.plan.outputs.wait_web_console == 'true'
@@ -218,9 +226,13 @@ jobs:
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
+          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # The action defaults to "success,skipped"; a skipped build never
+          # pushes the image, so pin strict success to keep the image guarantee.
+          allowed-conclusions: success
 
   e2e-kind:
-    name: E2E tests (Kind)
+    name: E2E Kind
     needs: resolve-images
     if: needs.resolve-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
