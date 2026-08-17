@@ -131,15 +131,17 @@ describe("gateway connections", () => {
   --name ${sandboxName} \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
-  -- claude --bare --model ${claudeModel}`,
+  -- claude --bare`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
       `openshell sandbox create \\
   --name demo \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
-  -- claude --bare --model ${claudeModel}`,
+  -- claude --bare`,
     );
+    // The model lives in the inference-set step, not the sandbox command.
+    expect(buildSandboxCreateCommand()).not.toContain("--model");
   });
 
   it("combines login, provider, and inference into one setup script when ready", () => {
