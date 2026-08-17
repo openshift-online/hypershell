@@ -47,10 +47,19 @@ patches:
                       secretKeyRef:
                         name: hypershell-api-config
                         key: api-service.clientSecret
-  # --- API server: enable JWT + JWK cert URL from OIDC secret ---
+  # --- API server: enable JWT + JWK cert URL from OIDC secret + enforce RBAC ---
   # The JWKS URL is read from the hypershell-api-config secret so it stays in
   # sync with the Keycloak instance provisioned for this cluster. Without this,
   # the framework defaults to sso.redhat.com and rejects Keycloak-issued tokens.
+  #
+  # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
+  # (gateway:creator/owner/viewer); it is the sole gate for that model
+  # (plugins/rbac/plugin.go), independent of --enable-authz. RBAC_SERVICE_ACCOUNTS
+  # bypasses the gRPC RBAC interceptor for the control plane's service account,
+  # whose UpdateGateway writes are not covered by --auth-bypass-methods and whose
+  # gRPC path never syncs JWT roles (pkg/rbac/grpc_interceptor.go). To take
+  # effect in a real cluster the external SSO must define gateway:creator, assign
+  # it to platform operators, and emit it in realm_access.roles.
   - target:
       kind: Deployment
       name: hypershell-api-server
@@ -64,6 +73,10 @@ patches:
               secretKeyRef:
                 name: hypershell-api-config
                 key: api-service.jwkCertUrl
+          - name: RBAC_ENFORCE
+            value: "true"
+          - name: RBAC_SERVICE_ACCOUNTS
+            value: "service-account-hypershell-control-plane"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--enable-jwt=true"

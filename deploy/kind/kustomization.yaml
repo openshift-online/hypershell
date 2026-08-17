@@ -109,6 +109,9 @@ patches:
         value: "--enable-jwt=true"
       - op: add
         path: /spec/template/spec/containers/0/command/-
+        value: "--enable-authz=true"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"
       - op: add
         path: /spec/template/spec/containers/0/command/-
@@ -116,11 +119,25 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
-  # --- API server: select the development_oidc environment ---
+  # --- API server: select the development_oidc environment + enforce RBAC ---
   # The binary's default `development` environment force-disables JWT in its
   # OverrideConfig, which overrides the --enable-jwt=true flag above. The
   # `development_oidc` environment leaves JWT driven by flags, so JWT
   # enforcement and JWKS loading from Keycloak actually take effect.
+  #
+  # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
+  # (gateway:creator/owner/viewer). It is the sole gate for that model
+  # (plugins/rbac/plugin.go) -- independent of --enable-authz, which only adds
+  # the framework's identity-presence check. admin carries gateway:creator (via
+  # the realm_access.roles mapper in deploy/base/keycloak); developers do not,
+  # so their POST /gateways is rejected with 403.
+  #
+  # RBAC_SERVICE_ACCOUNTS bypasses the gRPC RBAC interceptor for the control
+  # plane's service account. The control plane writes gateway status via the
+  # gRPC UpdateGateway method (not bypassed by --auth-bypass-methods, which only
+  # covers Watch*), but the gRPC provisioning path never syncs JWT roles
+  # (pkg/rbac/grpc_interceptor.go), so the SA can never earn a gateway:creator
+  # binding. The bypass is the supported mechanism for trusted service accounts.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -135,6 +152,10 @@ patches:
                 env:
                   - name: API_ENV
                     value: "development_oidc"
+                  - name: RBAC_ENFORCE
+                    value: "true"
+                  - name: RBAC_SERVICE_ACCOUNTS
+                    value: "service-account-hypershell-control-plane"
   # --- Keycloak: fixed HTTPS issuer reachable in-cluster and from host ---
   # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
   # requiring config.issuer == discovery.issuer == token.iss, so the issuer
