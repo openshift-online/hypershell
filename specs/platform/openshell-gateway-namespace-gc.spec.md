@@ -11,17 +11,16 @@ that never bootstrapped) does not leave orphaned `openshell-*` namespaces behind
 It covers two complementary paths:
 
 1. **Delete-driven cleanup** - when a Gateway is deleted, the control plane
-   deletes that gateway's namespace as part of processing the delete event
-   (HYPERSHELL-96).
+   deletes that gateway's namespace as part of processing the delete event.
 2. **Periodic garbage collection** - a background reconciler sweeps managed
    namespaces and reaps any that no longer have a live Gateway backing them
    after a grace period. This recovers namespaces orphaned by a delete event
    missed while the control plane was down, and namespaces whose gateway failed
-   to bootstrap and was subsequently deleted (HYPERSHELL-78).
+   to bootstrap and was subsequently deleted.
 
 It also defines how the number of active agent sandboxes in a gateway namespace
 is observed and surfaced so an operator can see how many running sessions a
-deletion would disrupt before they confirm it (HYPERSHELL-96).
+deletion would disrupt before they confirm it.
 
 This spec is a sub-spec of [`control-plane.spec.md`](./control-plane.spec.md)
 and complements [`watch-delete-events.spec.md`](./watch-delete-events.spec.md)
@@ -60,9 +59,21 @@ reported). Namespace creation and provisioning mechanics are defined in
 
 ### Requirement: Gateway Deletion Reaps the Gateway Namespace
 
-When the control plane processes a Gateway delete event, after cleaning up the
-gateway's in-namespace resources it SHALL delete the gateway's managed namespace.
-This deletion SHALL be best-effort and idempotent: an already-absent or
+When the control plane processes a Gateway delete event, it SHALL delete the
+gateway's managed namespace. Deleting the namespace cascades removal of every
+resource inside it, so in-namespace workloads (Deployments, Services, Secrets,
+ConfigMaps, PVCs, Jobs, Roles, RoleBindings, and cert-manager / Gateway API
+objects) are reclaimed by the namespace deletion itself and need not be deleted
+individually.
+
+The control plane SHALL additionally clean up the resources a gateway owns that
+live outside its namespace, because namespace deletion does not reach them:
+
+- the cluster-scoped ClusterRoleBinding created for the gateway,
+- the gateway's external Keycloak client, and
+- any credential RBAC the gateway created in a separate credential namespace.
+
+Namespace deletion SHALL be best-effort and idempotent: an already-absent or
 already-terminating namespace is treated as success, and a namespace that is not
 managed by this control plane SHALL NOT be deleted.
 
@@ -74,8 +85,11 @@ the delete is processed, the delete is considered complete.
 
 - GIVEN a Gateway with a managed namespace `openshell-a14873d1631f1b74`
 - WHEN the control plane receives the Gateway delete event
-- THEN it SHALL delete the gateway's in-namespace resources
-- AND it SHALL delete the namespace `openshell-a14873d1631f1b74`
+- THEN it SHALL delete the namespace `openshell-a14873d1631f1b74`, cascading
+  removal of the gateway's in-namespace resources
+- AND it SHALL clean up the gateway's out-of-namespace resources (its
+  cluster-scoped ClusterRoleBinding, Keycloak client, and any cross-namespace
+  credential RBAC)
 
 #### Scenario: Namespace already gone
 
