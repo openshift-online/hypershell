@@ -114,8 +114,16 @@ swap_up() {
         export SESSION_SECRET="${SECRET_VAL}"
       fi
     fi
+    # Dev identity for the Vite /api proxy's Keycloak token minting. The proxy
+    # mints a bearer token as this user (resource owner password grant) so the
+    # hot-reload console can reach the OIDC-enforcing API server. Override to
+    # test other roles, e.g.:
+    #   KIND_DEV_USER=developer KIND_DEV_PASSWORD=developer make kind-web-console-up
+    export KIND_DEV_USER="${KIND_DEV_USER:-admin}"
+    export KIND_DEV_PASSWORD="${KIND_DEV_PASSWORD:-admin}"
     if [[ -n "${OIDC_ISSUER:-}" ]]; then
       info "OIDC env vars loaded from deployment"
+      info "Dev API requests authenticate as '${KIND_DEV_USER}' (KIND_DEV_USER/KIND_DEV_PASSWORD to change)"
     fi
 
     info "Scaling down in-cluster web console..."
