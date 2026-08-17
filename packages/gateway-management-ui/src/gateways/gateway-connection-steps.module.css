@@ -49,17 +49,70 @@
   padding-block: var(--pf-t--global--spacer--md);
   padding-inline: var(--pf-t--global--spacer--md) 3rem;
   overflow-x: auto;
+  background-color: #ffffff;
+  color: #0e1116;
 }
 
 /*
- * Shiki emits light colors inline and the dark palette as `--shiki-dark` CSS
- * variables. Activate the dark palette (foreground and its paired background)
- * under PatternFly's dark theme so contrast stays AA in both themes.
+ * The hardened CSP (style-src-attr 'none') strips Shiki's inline token styles,
+ * so highlightCommand() rewrites them to hl-fg-* and hl-dfg-* classes and this
+ * stylesheet paints them: the github-light-high-contrast palette applies by
+ * default and github-dark-high-contrast (foreground and its paired background)
+ * swaps in under the PatternFly dark theme, keeping AA contrast in both. Keep
+ * this palette in sync with the themes -- command-highlight.test.ts fails if
+ * Shiki emits a color without a matching rule here.
  */
-:global(html.pf-v6-theme-dark) .highlighted :global(.shiki),
-:global(html.pf-v6-theme-dark) .highlighted :global(.shiki span) {
-  color: var(--shiki-dark) !important;
-  background-color: var(--shiki-dark-bg) !important;
+:global(html.pf-v6-theme-dark) .highlighted :global(.shiki) {
+  background-color: #0a0c10;
+  color: #f0f3f6;
+}
+
+.highlighted :global(.hl-fg-66707b) {
+  color: #66707b;
+}
+
+.highlighted :global(.hl-fg-702c00) {
+  color: #702c00;
+}
+
+.highlighted :global(.hl-fg-032563) {
+  color: #032563;
+}
+
+.highlighted :global(.hl-fg-a0111f) {
+  color: #a0111f;
+}
+
+.highlighted :global(.hl-fg-023b95) {
+  color: #023b95;
+}
+
+.highlighted :global(.hl-fg-0e1116) {
+  color: #0e1116;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-bdc4cc) {
+  color: #bdc4cc;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-ffb757) {
+  color: #ffb757;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-addcff) {
+  color: #addcff;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-ff9492) {
+  color: #ff9492;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-91cbff) {
+  color: #91cbff;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-f0f3f6) {
+  color: #f0f3f6;
 }
 
 .commandPending {
