@@ -5,6 +5,7 @@ import {
   buildProviderCreateCommand,
   buildSandboxCreateCommand,
   buildSandboxPolicyCommand,
+  buildSetupScript,
   gatewayStatusAppearance,
   isGatewayReadyToConnect,
   sandboxName,
@@ -151,6 +152,31 @@ describe("gateway connections", () => {
     expect(command).toContain(`provider: ${vertexProviderName}`);
     expect(command).toContain('host: "*-aiplatform.googleapis.com"');
     expect(command).toContain("- { path: /usr/local/bin/claude }");
+  });
+
+  it("combines login, provider, and policy into one setup script when ready", () => {
+    const script = buildSetupScript(gateway);
+
+    // The three preamble commands are consolidated into a single copyable block.
+    expect(script).toContain("--oidc-issuer https://issuer.example.test");
+    expect(script).toContain(buildProviderCreateCommand());
+    expect(script).toContain(buildSandboxPolicyCommand());
+    // Ordered login -> provider -> policy so it runs top to bottom.
+    const loginAt = script?.indexOf("openshell gateway add") ?? -1;
+    const providerAt = script?.indexOf("openshell provider create") ?? -1;
+    const policyAt = script?.indexOf(`cat > ${sandboxPolicyFileName}`) ?? -1;
+    expect(loginAt).toBeGreaterThanOrEqual(0);
+    expect(loginAt).toBeLessThan(providerAt);
+    expect(providerAt).toBeLessThan(policyAt);
+  });
+
+  it("withholds the setup script until the gateway is ready to connect", () => {
+    expect(buildSetupScript({ ...gateway, phase: "Provisioning" })).toBe(
+      undefined,
+    );
+    expect(buildSetupScript({ ...gateway, endpoint: undefined })).toBe(
+      undefined,
+    );
   });
 
   it.each([

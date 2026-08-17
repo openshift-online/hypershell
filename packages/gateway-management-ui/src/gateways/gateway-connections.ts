@@ -180,6 +180,34 @@ network_policies:
   return `cat > ${sandboxPolicyFileName} <<'EOF'\n${policy}\nEOF`;
 }
 
+/**
+ * One-time setup script that logs in to the gateway, adds the Claude on Vertex AI
+ * provider, and writes the sandbox policy file, combined into a single copyable
+ * block so operators paste the whole preamble at once instead of stepping through
+ * three commands. Returns `undefined` until the gateway is ready to connect,
+ * because registration requires a running gateway endpoint; the caller renders a
+ * pending state in that case.
+ */
+export function buildSetupScript(
+  gateway: GatewayConnection,
+): string | undefined {
+  const gatewayAdd = buildGatewayAddCommand(gateway);
+  if (!gatewayAdd) {
+    return undefined;
+  }
+
+  return [
+    "# 1. Log in to the gateway",
+    gatewayAdd,
+    "",
+    "# 2. Add the Claude on Vertex AI provider",
+    buildProviderCreateCommand(),
+    "",
+    "# 3. Save the sandbox policy file (referenced by --policy below)",
+    buildSandboxPolicyCommand(),
+  ].join("\n");
+}
+
 export type GatewayStatusAppearance =
   "danger" | "pending" | "progress" | "success" | "unknown" | "warning";
 

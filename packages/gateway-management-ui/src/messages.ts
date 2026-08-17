@@ -76,11 +76,6 @@ export const messages = defineMessages({
     defaultMessage: "Region: {region}",
     description: "Region context that distinguishes a managed cluster option.",
   },
-  connectionLoginTitle: {
-    id: "app.gateway.connection.login.title",
-    defaultMessage: "Log in to the gateway",
-    description: "Title for the first gateway connection step.",
-  },
   connectionLoginUnavailable: {
     id: "app.gateway.connection.login.unavailable",
     defaultMessage:
@@ -88,37 +83,27 @@ export const messages = defineMessages({
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
   },
-  connectionPolicyDescription: {
-    id: "app.gateway.connection.policy.description",
-    defaultMessage:
-      "Write this policy file in the directory where you run the sandbox command. The create-sandbox command references it with its --policy flag.",
-    description: "Supporting text for the sandbox policy connection step.",
-  },
-  connectionPolicyTitle: {
-    id: "app.gateway.connection.policy.title",
-    defaultMessage: "Save the sandbox policy",
-    description: "Title for the sandbox policy connection step.",
-  },
-  connectionProviderRoutingDescription: {
-    id: "app.gateway.connection.provider.routing.description",
-    defaultMessage: "Replace {model} with a Vertex Claude model ID.",
-    description: "Explains the model-routing command in the provider step.",
-  },
-  connectionProviderTitle: {
-    id: "app.gateway.connection.provider.title",
-    defaultMessage: "Add a Claude on Vertex AI provider",
-    description: "Title for the second gateway connection step.",
-  },
   connectionSandboxDescription: {
     id: "app.gateway.connection.sandbox.description",
     defaultMessage:
-      "Start a sandbox that runs Claude through this gateway. Replace {sandbox} with a name.",
+      "Once setup is done, run this whenever you want a fresh sandbox running Claude through this gateway.",
     description: "Supporting text for the create-sandbox connection step.",
   },
   connectionSandboxTitle: {
     id: "app.gateway.connection.sandbox.title",
     defaultMessage: "Create a sandbox",
-    description: "Title for the third gateway connection step.",
+    description: "Title for the create-sandbox connection step.",
+  },
+  connectionSetupDescription: {
+    id: "app.gateway.connection.setup.description",
+    defaultMessage:
+      "Run these once to log in, add the Claude on Vertex AI provider, and save the sandbox policy file.",
+    description: "Supporting text for the one-time setup connection step.",
+  },
+  connectionSetupTitle: {
+    id: "app.gateway.connection.setup.title",
+    defaultMessage: "One-time setup",
+    description: "Title for the consolidated one-time setup connection step.",
   },
   connectionTab: {
     id: "app.gateway.connection.tab",
@@ -157,20 +142,16 @@ export const messages = defineMessages({
     description:
       "Accessible label for copying a specific gateway's network endpoint.",
   },
-  copyPolicyCommand: {
-    id: "app.gateway.connection.copyPolicyCommand",
-    defaultMessage: "Copy the sandbox policy file",
-    description: "Accessible label for copying the sandbox policy heredoc.",
-  },
-  copyProviderCommand: {
-    id: "app.gateway.connection.copyProviderCommand",
-    defaultMessage: "Copy the add-provider command",
-    description: "Accessible label for copying the add-provider command.",
-  },
   copySandboxCommand: {
     id: "app.gateway.connection.copySandboxCommand",
     defaultMessage: "Copy the create-sandbox command",
     description: "Accessible label for copying the create-sandbox command.",
+  },
+  copySetupCommand: {
+    id: "app.gateway.connection.copySetupCommand",
+    defaultMessage: "Copy the one-time setup commands",
+    description:
+      "Accessible label for copying the consolidated one-time setup script.",
   },
   created: {
     id: "app.table.column.created",

@@ -12,13 +12,10 @@ import { useIntl } from "react-intl";
 
 import { messages } from "../messages";
 import {
-  buildProviderCreateCommand,
   buildSandboxCreateCommand,
-  buildSandboxPolicyCommand,
-  isGatewayReadyToConnect,
+  buildSetupScript,
   type GatewayConnection,
 } from "./gateway-connections";
-import { GatewayCliCopy } from "./gateway-detail-header";
 import styles from "./gateway-connection-steps.module.css";
 
 function CommandCopy({
@@ -90,13 +87,19 @@ export function GatewayConnectionSteps({
   gateway: GatewayConnection;
 }) {
   const intl = useIntl();
-  const readyToConnect = isGatewayReadyToConnect(gateway);
+  const setupScript = buildSetupScript(gateway);
 
   return (
     <ol className={styles.steps}>
-      <ConnectionStep title={intl.formatMessage(messages.connectionLoginTitle)}>
-        {readyToConnect ? (
-          <GatewayCliCopy gateway={gateway} />
+      <ConnectionStep
+        description={intl.formatMessage(messages.connectionSetupDescription)}
+        title={intl.formatMessage(messages.connectionSetupTitle)}
+      >
+        {setupScript ? (
+          <CommandCopy
+            ariaLabel={intl.formatMessage(messages.copySetupCommand)}
+            command={setupScript}
+          />
         ) : (
           <div
             aria-label={intl.formatMessage(messages.connectionLoginUnavailable)}
@@ -113,25 +116,7 @@ export function GatewayConnectionSteps({
       </ConnectionStep>
 
       <ConnectionStep
-        title={intl.formatMessage(messages.connectionProviderTitle)}
-      >
-        <CommandCopy
-          ariaLabel={intl.formatMessage(messages.copyProviderCommand)}
-          command={buildProviderCreateCommand()}
-        />
-      </ConnectionStep>
-
-      <ConnectionStep
-        description={intl.formatMessage(messages.connectionPolicyDescription)}
-        title={intl.formatMessage(messages.connectionPolicyTitle)}
-      >
-        <CommandCopy
-          ariaLabel={intl.formatMessage(messages.copyPolicyCommand)}
-          command={buildSandboxPolicyCommand()}
-        />
-      </ConnectionStep>
-
-      <ConnectionStep
+        description={intl.formatMessage(messages.connectionSandboxDescription)}
         title={intl.formatMessage(messages.connectionSandboxTitle)}
       >
         <CommandCopy

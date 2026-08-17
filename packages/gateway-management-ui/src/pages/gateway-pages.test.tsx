@@ -273,34 +273,23 @@ describe("gateway shell pages", () => {
       />
     ));
 
+    // The preamble is consolidated into a single "One-time setup" block, with
+    // the re-runnable sandbox command in its own block.
     expect(
-      screen.getByRole("heading", { level: 2, name: "Log in to the gateway" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: "Add a Claude on Vertex AI provider",
-      }),
+      screen.getByRole("heading", { level: 2, name: "One-time setup" }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", { level: 2, name: "Create a sandbox" }),
     ).toBeTruthy();
-    expect(
-      screen.getByText(/--from-gcloud-adc/, { selector: "code" }),
-    ).toBeTruthy();
+
+    // The setup block carries login, provider, and the policy heredoc together.
+    const setupCommand = screen.getByText(/openshell gateway add/, {
+      selector: "code",
+    });
+    expect(setupCommand.textContent).toContain("--from-gcloud-adc");
+    expect(setupCommand.textContent).toContain("cat > vertex-policy.yaml");
     expect(
       screen.getByText(/openshell sandbox create/, { selector: "code" }),
-    ).toBeTruthy();
-
-    // The sandbox policy is offered as its own copyable heredoc step.
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: "Save the sandbox policy",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/cat > vertex-policy\.yaml/, { selector: "code" }),
     ).toBeTruthy();
   });
 

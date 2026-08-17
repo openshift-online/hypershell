@@ -285,35 +285,33 @@ test("keeps connection methods on gateway details", async ({
     page.getByRole("button", { name: "Actions", exact: true }),
   ).toBeVisible();
 
-  // Connection is the default tab and walks through login, provider, policy, and
-  // sandbox.
+  // Connection is the default tab and consolidates the preamble into a single
+  // "One-time setup" block plus a re-runnable sandbox command.
   await expect(
     page.getByRole("tab", { name: "Connection", selected: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { level: 2, name: "Log in to the gateway" }),
+    page.getByRole("heading", { level: 2, name: "One-time setup" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Copy the add-provider command" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Copy the sandbox policy file" }),
+    page.getByRole("button", { name: "Copy the one-time setup commands" }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Copy the create-sandbox command" }),
   ).toBeVisible();
   await page
-    .getByRole("button", {
-      name: "Copy connection command for openshell-gateway-test",
-    })
+    .getByRole("button", { name: "Copy the one-time setup commands" })
     .click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(
-      `openshell gateway add \\
+    .toContain("openshell provider create");
+  const setupScript = await page.evaluate(() => navigator.clipboard.readText());
+  expect(setupScript).toContain(
+    `openshell gateway add \\
   --name openshell-gateway-test \\
   https://gateway.example.test:443`,
-    );
+  );
+  expect(setupScript).toContain("cat > vertex-policy.yaml <<'EOF'");
 
   // Operational configuration and copyable values live under the Details tab.
   await page.getByRole("tab", { name: "Details" }).click();
