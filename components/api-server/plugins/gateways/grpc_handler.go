@@ -195,6 +195,10 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.DatabaseConfig != nil {
 		gateway.DatabaseConfig = req.DatabaseConfig
 	}
+	if req.ActiveSandboxCount != nil {
+		v := int(*req.ActiveSandboxCount)
+		gateway.ActiveSandboxCount = &v
+	}
 	result, svcErr := h.service.Replace(ctx, gateway)
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)

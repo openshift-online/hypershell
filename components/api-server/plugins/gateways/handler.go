@@ -125,6 +125,10 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.RouteAddress != nil {
 				found.RouteAddress = patch.RouteAddress
 			}
+			if patch.ActiveSandboxCount != nil {
+				activeSandboxCountVal := int(*patch.ActiveSandboxCount)
+				found.ActiveSandboxCount = &activeSandboxCountVal
+			}
 			if patch.Oidc != nil {
 				found.Oidc = patch.Oidc
 			}

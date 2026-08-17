@@ -27,6 +27,7 @@ message Gateway {
   optional string route = 17;
   optional string database_config = 18;
   optional string credential_driver = 20;
+  optional int32 active_sandbox_count = 21;
 }
 
 message CreateGatewayRequest {
@@ -81,6 +82,7 @@ message UpdateGatewayRequest {
   optional string route = 17;
   optional string database_config = 18;
   optional string credential_driver = 19;
+  optional int32 active_sandbox_count = 20;
 }
 
 message UpdateGatewayResponse {
