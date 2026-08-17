@@ -18,6 +18,7 @@
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw)
 #   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
+#   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 set -euo pipefail
@@ -128,6 +129,7 @@ printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
 printf '  %s\n' "8. Sandbox interaction"
 printf '  %s\n' "9. Developer user RBAC verification"
+printf '  %s\n' "10. Gateway deletion + namespace garbage collection"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  HyperShell API:    ${API_HOST}"
@@ -1111,6 +1113,103 @@ print(json.dumps(body))
   rm -f "${DEV_GW_RESP_FILE}" 2>/dev/null || true
 
   "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
+fi
+sep
+
+# ── 10. gateway deletion + namespace garbage collection ────────────────────
+
+echo ""
+bold "10. Gateway Deletion + Namespace Garbage Collection"
+echo ""
+
+if [[ "$E2E_SKIP_CLEANUP" == "1" ]]; then
+  dim "  Skipped (E2E_SKIP_CLEANUP=1): preserving gateway ${GW_NAME} and namespace ${GW_NAMESPACE}"
+elif [[ -z "$GW_ID" || -z "$GW_NAMESPACE" ]]; then
+  fail_test "Cannot validate namespace GC: gateway id or namespace is unknown"
+else
+  # Deleting the Gateway via the API drives the control-plane delete path
+  # (watch-delete-events.spec.md): DeleteGatewayResources then
+  # DeleteManagedNamespace, best-effort and idempotent. The gateway namespace is
+  # managed (carries both hypershell.redhat.io/managed=true and
+  # app.kubernetes.io/managed-by=hypershell-control-plane), so it MUST be reaped.
+  # Any namespace missed here is later swept by the NamespaceGCReconciler. See
+  # openshell-gateway-namespace-gc.spec.md (HYPERSHELL-96, HYPERSHELL-78).
+
+  # JWT is enforced; refresh the token so the DELETE and the GC poll are covered
+  # by a fresh access-token lifetime.
+  acquire_oidc_token 2>/dev/null || true
+
+  # Confirm the namespace is present before deletion so its later disappearance is
+  # a real GC signal rather than a namespace that never existed.
+  show_cmd "$CLI get namespace ${GW_NAMESPACE}"
+  if $CLI get namespace "$GW_NAMESPACE" &>/dev/null; then
+    pass "Gateway namespace present before deletion: ${GW_NAMESPACE}"
+  else
+    fail_test "Gateway namespace ${GW_NAMESPACE} missing before deletion; cannot validate GC"
+  fi
+
+  show_cmd "api_curl -X DELETE ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}"
+  DEL_STATUS=$(api_curl -o /dev/null -w '%{http_code}' -X DELETE \
+    "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+  if [[ "$DEL_STATUS" == "204" ]]; then
+    pass "Gateway delete accepted (204 No Content)"
+  else
+    fail_test "Expected 204 deleting gateway, got ${DEL_STATUS:-none}"
+  fi
+
+  # The control plane must remove the record from the API. Poll until GET returns
+  # 404 so we know the delete event was actually processed before checking the
+  # namespace.
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID} (expect 404)"
+  dim "  Waiting for gateway record to be removed from the API (up to 60s)..."
+  GW_GONE=false
+  GW_DELETE_DEADLINE=$(($(date +%s) + 60))
+  GET_STATUS=""
+  while [[ $(date +%s) -lt $GW_DELETE_DEADLINE ]]; do
+    GET_STATUS=$(api_curl -o /dev/null -w '%{http_code}' \
+      "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+    if [[ "$GET_STATUS" == "404" ]]; then
+      GW_GONE=true
+      break
+    fi
+    sleep 5
+  done
+  if [[ "$GW_GONE" == "true" ]]; then
+    pass "Gateway record removed from API (404)"
+  else
+    dim "  - Gateway record still present after 60s (GET=${GET_STATUS:-unknown}); continuing to check namespace GC"
+  fi
+
+  # The managed namespace must be garbage collected by the control plane. The
+  # delete-driven path reaps it promptly; allow headroom for the namespace to
+  # enter Terminating and finalize (pods, PVC, certificates).
+  show_cmd "$CLI get namespace ${GW_NAMESPACE} (expect NotFound)"
+  dim "  Waiting for namespace ${GW_NAMESPACE} to be garbage collected (up to ${E2E_GC_TIMEOUT}s)..."
+  NS_GONE=false
+  GC_DEADLINE=$(($(date +%s) + E2E_GC_TIMEOUT))
+  while [[ $(date +%s) -lt $GC_DEADLINE ]]; do
+    if ! $CLI get namespace "$GW_NAMESPACE" &>/dev/null; then
+      NS_GONE=true
+      break
+    fi
+    NS_PHASE=$($CLI get namespace "$GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    dim "    namespace: ${NS_PHASE:-present}"
+    sleep 5
+  done
+
+  if [[ "$NS_GONE" == "true" ]]; then
+    pass "Gateway namespace garbage collected: ${GW_NAMESPACE}"
+  else
+    fail_test "Namespace ${GW_NAMESPACE} not garbage collected after ${E2E_GC_TIMEOUT}s"
+    dim "  --- namespace GC diagnostics ---"
+    $CLI get namespace "$GW_NAMESPACE" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
+    dim "  Control plane logs:"
+    $CLI logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=40 2>&1 | while IFS= read -r line; do dim "    $line"; done
+  fi
+
+  # The gateway and its namespace are gone; clear GW_ID so the EXIT-trap cleanup
+  # does not attempt a redundant delete.
+  GW_ID=""
 fi
 sep
 

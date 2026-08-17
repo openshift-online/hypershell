@@ -95,6 +95,7 @@ retry_until() {
 : "${E2E_GATEWAY_NAME:=e2e-gw}"
 : "${E2E_SANDBOX_TIMEOUT:=120}"
 : "${E2E_PROVISION_TIMEOUT:=180}"
+: "${E2E_GC_TIMEOUT:=180}"
 : "${E2E_SKIP_CLEANUP:=0}"
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"
