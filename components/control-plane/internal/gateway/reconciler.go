@@ -281,8 +281,8 @@ func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, names
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "hypershell-control-plane",
-				"hypershell.redhat.io/managed": "true",
+				ManagedByLabel: ManagedByValue,
+				ManagedLabel:   ManagedLabelValue,
 			},
 		},
 	}

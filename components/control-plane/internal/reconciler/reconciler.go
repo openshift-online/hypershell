@@ -252,6 +252,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
 		}
 		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
+
+		// Delete the gateway's namespace itself. This is best-effort and
+		// idempotent: DeleteManagedNamespace only removes namespaces this control
+		// plane manages and treats an already-absent namespace as success. Any
+		// namespace missed here (e.g. a delete event lost during a restart) is
+		// swept later by the NamespaceGCReconciler.
+		if _, err := gateway.DeleteManagedNamespace(ctx, r.clientset, namespace); err != nil {
+			return fmt.Errorf("delete gateway namespace %s: %w", namespace, err)
+		}
 		return nil
 	}
 

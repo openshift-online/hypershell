@@ -171,8 +171,8 @@ func main() {
 	if roleBindingReconciler != nil {
 		watchCount = 7
 	}
-	// +1 for the continuous gateway health reconciler goroutine.
-	errCh := make(chan error, watchCount+1)
+	// +2 for the continuous gateway health reconciler and namespace GC goroutines.
+	errCh := make(chan error, watchCount+2)
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
@@ -195,6 +195,21 @@ func main() {
 		log.Printf("INFO gateway health reconciler launched")
 	} else {
 		log.Printf("WARN no kubernetes client available, gateway health reconciliation disabled")
+	}
+
+	// The namespace GC reconciler reaps gateway namespaces the control plane
+	// created but that no longer have a live Gateway (e.g. a delete event missed
+	// while the control plane was down, or a gateway that failed to bootstrap).
+	// It requires an in-cluster Kubernetes client.
+	if clientset != nil && cfg.NamespaceGCEnabled {
+		gcReconciler := reconciler.NewNamespaceGCReconciler(
+			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace,
+		)
+		go func() { errCh <- gcReconciler.Run(ctx) }()
+		log.Printf("INFO namespace GC reconciler launched (interval=%s grace=%s)",
+			cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod)
+	} else if clientset != nil {
+		log.Printf("INFO namespace GC reconciler disabled (GATEWAY_NAMESPACE_GC_ENABLED=false)")
 	}
 
 	watchErr := <-errCh
