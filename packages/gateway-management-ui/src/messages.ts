@@ -181,6 +181,13 @@ export const messages = defineMessages({
     defaultMessage: "Delete gateway",
     description: "Action that permanently deletes a gateway.",
   },
+  deleteGatewayActiveSandboxWarning: {
+    id: "app.gateway.delete.activeSandboxWarning",
+    defaultMessage:
+      "This gateway has {count, plural, one {# active sandbox} other {# active sandboxes}} that will be disrupted by deletion.",
+    description:
+      "Warning shown before deleting a gateway that still has running sandboxes.",
+  },
   deleteGatewayConfirmation: {
     id: "app.gateway.delete.confirmation",
     defaultMessage:

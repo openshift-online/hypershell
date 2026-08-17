@@ -1,4 +1,5 @@
 export interface GatewayRecord {
+  activeSandboxCount?: number;
   clusterId: string;
   consoleUrl?: string;
   createdAt?: string;

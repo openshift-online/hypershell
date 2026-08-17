@@ -97,6 +97,9 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const oidcIssuer = optionalString(oidc?.issuer);
 
   return {
+    ...(typeof gateway.active_sandbox_count === "number"
+      ? { activeSandboxCount: gateway.active_sandbox_count }
+      : {}),
     clusterId: gateway.cluster_id,
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
     databaseId: gateway.database_id,
