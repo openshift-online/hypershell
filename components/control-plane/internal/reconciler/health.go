@@ -123,7 +123,11 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		return
 	}
 
-	namespace := gatewayNamespace(gw)
+	namespace, err := gatewayNamespace(gw)
+	if err != nil {
+		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
+		return
+	}
 	ready, reason, err := gateway.DeploymentReadiness(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)

@@ -224,7 +224,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	if event.Type == watcher.EventDeleted {
-		namespace := gatewayNamespace(gw)
+		namespace, err := gatewayNamespace(gw)
+		if err != nil {
+			// Without a recorded namespace there is nothing deterministic to
+			// clean up, and guessing one could delete the wrong (possibly live)
+			// namespace. Skip; the NamespaceGCReconciler is the backstop for any
+			// orphaned managed namespace.
+			log.Printf("WARN gateway %s deleted but %v; skipping namespace cleanup", event.ResourceID, err)
+			return nil
+		}
 
 		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
 		opts := gateway.ReconcileOpts{
@@ -277,7 +285,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
-	namespace := gatewayNamespace(gw)
+	namespace, err := gatewayNamespace(gw)
+	if err != nil {
+		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+	}
 
 	dnsNames := gw.ServerDnsNames
 	if len(dnsNames) == 0 {
@@ -406,14 +417,20 @@ func isRoutedGateway(gw *pb.Gateway) bool {
 	return route != "" && route != "null"
 }
 
-// gatewayNamespace returns the Kubernetes namespace for a Gateway, deriving the
-// conventional `openshell-<name>` namespace when the resource does not carry an
-// explicit one.
-func gatewayNamespace(gw *pb.Gateway) string {
-	if gw.GetNamespace() != "" {
-		return gw.GetNamespace()
+// gatewayNamespace returns the Kubernetes namespace a Gateway is deployed into.
+// The namespace is assigned deterministically at creation (the API server's
+// Gateway.BeforeCreate sets `openshell-<hex(ksuid)>`) and is carried on every
+// event, so any Gateway that reaches a reconciler has one. It returns an error
+// rather than synthesizing a name from gw.Name: a guessed namespace would
+// diverge from the real `openshell-<hex(ksuid)>` scheme and, on the delete
+// path, could hand a wrong (possibly live) namespace to the destructive
+// DeleteManagedNamespace.
+func gatewayNamespace(gw *pb.Gateway) (string, error) {
+	ns := gw.GetNamespace()
+	if ns == "" {
+		return "", fmt.Errorf("gateway %s has no namespace", gw.GetMetadata().GetId())
 	}
-	return fmt.Sprintf("openshell-%s", gw.GetName())
+	return ns, nil
 }
 
 // gatewayListPageSize is the page size the reconcilers use when paging through
