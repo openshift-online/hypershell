@@ -117,6 +117,14 @@ type ReconcileOpts struct {
 	HasGatewayAPI         bool
 	ControlPlaneNamespace string
 	Images                ImageDefaults
+	// SkipNetworkPolicies disables creation of the per-tenant gateway
+	// NetworkPolicies. On distributions where the shared Gateway data plane
+	// runs out-of-cluster (e.g. cloud-provider-kind's Envoy container in local
+	// dev), its source IP cannot be matched by the namespace/pod selectors
+	// these policies use, so the policies would blackhole all ingress to the
+	// gateway. Dev clusters set this true to skip them; production/OpenShift
+	// leaves it false (the zero value) to keep tenant isolation enforced.
+	SkipNetworkPolicies bool
 	// GatewayID is the API-server resource ID for the gateway being reconciled.
 	// Used when updating fields (e.g. routeAddress) back to the API server.
 	GatewayID string

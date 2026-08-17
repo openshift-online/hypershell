@@ -14,6 +14,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lib/pq"
@@ -30,6 +31,19 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/watch"
 )
+
+// networkPoliciesDisabledLogOnce keeps the "network policies disabled" notice to
+// a single line per process. When GATEWAY_SKIP_NETWORK_POLICIES=true (the
+// default in the kind overlay) the skip branches run on every reconcile, so
+// logging per-resource produced steady per-reconcile noise under a misleading
+// DEBUG label. logNetworkPoliciesDisabled emits the notice once instead.
+var networkPoliciesDisabledLogOnce sync.Once
+
+func logNetworkPoliciesDisabled() {
+	networkPoliciesDisabledLogOnce.Do(func() {
+		log.Printf("network policies disabled (GATEWAY_SKIP_NETWORK_POLICIES=true); skipping gateway NetworkPolicy resources")
+	})
+}
 
 func ReconcileGateway(
 	ctx context.Context,
@@ -310,6 +324,15 @@ func deployGateway(
 		}
 
 		for _, manifest := range resources {
+			// Dev clusters skip the per-tenant gateway NetworkPolicies (they
+			// would blackhole ingress from an out-of-cluster proxy whose source
+			// IP no selector can match). This drops the netpol docs in both
+			// networkpolicy.yaml and database.yaml while keeping the rest.
+			if opts.SkipNetworkPolicies && manifest.GetKind() == "NetworkPolicy" {
+				logNetworkPoliciesDisabled()
+				continue
+			}
+
 			// Apply database overrides on a copy first so that
 			// DB_IMAGE_PLACEHOLDER is resolved before the generic
 			// IMAGE_PLACEHOLDER replacement runs (substring overlap).
@@ -1409,59 +1432,64 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
-	// Build ingress rules for router/proxy → gateway traffic.
-	// Restrict source to the namespace hosting the shared Gateway so only the
-	// admin-provisioned proxy can reach the gateway ports.
-	ingressRule := map[string]interface{}{
-		"ports": []interface{}{
-			map[string]interface{}{
-				"port":     int64(8080),
-				"protocol": "TCP",
+	// Build the router → gateway NetworkPolicy unless dev has opted out (Kind's
+	// out-of-cluster proxy has a source IP no selector can match, so the policy
+	// would blackhole gateway ingress). Restrict source to the namespace hosting
+	// the shared Gateway so only the admin-provisioned proxy can reach the ports.
+	if opts.SkipNetworkPolicies {
+		logNetworkPoliciesDisabled()
+	} else {
+		ingressRule := map[string]interface{}{
+			"ports": []interface{}{
+				map[string]interface{}{
+					"port":     int64(8080),
+					"protocol": "TCP",
+				},
+				map[string]interface{}{
+					"port":     int64(8081),
+					"protocol": "TCP",
+				},
 			},
-			map[string]interface{}{
-				"port":     int64(8081),
-				"protocol": "TCP",
-			},
-		},
-		"from": []interface{}{
-			map[string]interface{}{
-				"namespaceSelector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
-						"kubernetes.io/metadata.name": gwNS,
+			"from": []interface{}{
+				map[string]interface{}{
+					"namespaceSelector": map[string]interface{}{
+						"matchLabels": map[string]interface{}{
+							"kubernetes.io/metadata.name": gwNS,
+						},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	routerNetpol := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "networking.k8s.io/v1",
-			"kind":       "NetworkPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-gateway-allow-router",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"podSelector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
-						"app.kubernetes.io/instance": "openshell-gateway",
-						"app.kubernetes.io/name":     "openshell",
+		routerNetpol := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "networking.k8s.io/v1",
+				"kind":       "NetworkPolicy",
+				"metadata": map[string]interface{}{
+					"name":      "openshell-gateway-allow-router",
+					"namespace": namespace,
+					"labels": map[string]interface{}{
+						"app.kubernetes.io/name":       "openshell",
+						"app.kubernetes.io/component":  "gateway",
+						"app.kubernetes.io/managed-by": "hypershell-control-plane",
+						"hypershell.redhat.io/managed": "true",
 					},
 				},
-				"policyTypes": []interface{}{"Ingress"},
-				"ingress":     []interface{}{ingressRule},
+				"spec": map[string]interface{}{
+					"podSelector": map[string]interface{}{
+						"matchLabels": map[string]interface{}{
+							"app.kubernetes.io/instance": "openshell-gateway",
+							"app.kubernetes.io/name":     "openshell",
+						},
+					},
+					"policyTypes": []interface{}{"Ingress"},
+					"ingress":     []interface{}{ingressRule},
+				},
 			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, routerNetpol); err != nil {
-		log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
+		}
+		if err := reconcileResource(ctx, dynamicClient, routerNetpol); err != nil {
+			log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
+		}
 	}
 
 	// The route address is published deterministically at the top of this

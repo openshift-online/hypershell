@@ -99,10 +99,14 @@ retry_until() {
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"
 : "${E2E_KEYCLOAK_NAMESPACE:=keycloak}"
-: "${E2E_OIDC_ISSUER:=http://keycloak.hypershell.localhost:8080/realms/hypershell}"
-: "${E2E_OIDC_ISSUER_INTERNAL:=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell}"
+: "${E2E_OIDC_ISSUER:=https://keycloak.hypershell.localhost/realms/hypershell}"
 : "${E2E_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${E2E_OIDC_USERNAME:=admin}"
 : "${E2E_OIDC_PASSWORD:=admin}"
 : "${E2E_DEV_USERNAME:=developer}"
 : "${E2E_DEV_PASSWORD:=developer}"
+# Keycloak admin credentials for test-setup helpers that provision per-gateway
+# client role grants (e.g. granting the developer openshell-user on the gateway's
+# own Keycloak client, mirroring what the RoleBinding reconciler does in prod).
+: "${E2E_KC_ADMIN_USER:=admin}"
+: "${E2E_KC_ADMIN_PASSWORD:=admin}"

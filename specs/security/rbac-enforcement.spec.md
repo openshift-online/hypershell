@@ -313,6 +313,27 @@ database migration or CLI command is needed for bootstrapping.
 RoleBindings from JWT claims are synced regardless of whether enforcement is enabled,
 ensuring bindings exist before enforcement is turned on.
 
+#### Operator Note: Enabling Enforcement Is a Breaking Change
+
+The OpenShift overlay (`deploy/openshift/kustomization.yaml`) ships with
+`RBAC_ENFORCE=true`. Applying it to an existing cluster is a breaking change: from
+that point every gateway operation requires the caller's token to carry
+`gateway:creator` (create) or a matching per-gateway RoleBinding (read/write).
+
+On a real cluster the IdP is external SSO (not the bundled Keycloak), so the
+following MUST be in place BEFORE -- or atomically with -- the rollout:
+
+- The external SSO defines a `gateway:creator` realm role.
+- Platform operators who need to create gateways are assigned that role.
+- The SSO emits the role in the `realm_access.roles` claim of issued access tokens
+  (or the equivalent configurable claim path the API server reads).
+
+If enforcement is turned on before the role is wired, gateway create calls return
+403 and reads return 404 immediately after upgrade, with no other symptom -- a
+silent, hard-to-diagnose outage. Coordinate the SSO role mapping and the overlay
+rollout together, and call out this SSO prerequisite in the release notes for the
+version that makes the overlay default enforce RBAC.
+
 ### Requirement: Integration Test Coverage
 
 Integration tests SHALL exercise RBAC enforcement with the new three-role model.

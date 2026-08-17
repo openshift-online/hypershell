@@ -28,6 +28,15 @@ patches:
                     value: hypershell-gw
                   - name: GATEWAY_API_TLS_ISSUER_NAME
                     value: hypershell-ca-issuer
+                  # Kind's Gateway data plane is cloud-provider-kind's Envoy,
+                  # which runs as an out-of-cluster Docker container. Its source
+                  # IP cannot be matched by the per-tenant gateway
+                  # NetworkPolicies' namespace/pod selectors, so those policies
+                  # would blackhole all gateway ingress (503s). Dev needs no
+                  # tenant isolation, so skip creating them entirely here;
+                  # production/OpenShift leaves this unset to keep them enforced.
+                  - name: GATEWAY_SKIP_NETWORK_POLICIES
+                    value: "true"
                   - name: HYPERSHELL_DATABASE_IMAGE
                     value: "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
                   - name: OIDC_ISSUER
@@ -35,10 +44,18 @@ patches:
                   - name: OIDC_CLIENT_ID
                     value: "hypershell-control-plane"
                   # Client-facing gateway OIDC issuer (pod, console, CLI). Must
-                  # equal Keycloak KC_HOSTNAME so the token `iss` validates. The
-                  # gateway pod reaches it in-cluster (CoreDNS -> gateway, TLS via
-                  # the trusted-CA bundle); the host reaches it on 443. Keep this in
-                  # sync with the keycloak KC_HOSTNAME value.
+                  # equal Keycloak KC_HOSTNAME so the token `iss` validates
+                  # (config.issuer == discovery.issuer == token.iss). In Kind this
+                  # is HTTPS on :443, matching production's issuer form: the gateway
+                  # pod and host both reach it through the gateway LB's https
+                  # listener (keycloak.hypershell.localhost -> gateway LB via the
+                  # CoreDNS patch, see scripts/kind/lib.sh), which terminates TLS
+                  # with the *.hypershell.localhost cert and forwards to
+                  # keycloak-service:8080. The gateway trusts the self-signed CA
+                  # via the gateway-trusted-ca ConfigMap (SSL_CERT_FILE), created
+                  # by scripts/kind/up.sh. Keep this in sync with keycloak
+                  # KC_HOSTNAME. (Production/OpenShift uses the same https form in
+                  # deploy/keycloak.)
                   - name: GATEWAY_OIDC_ISSUER_URL
                     value: "https://keycloak.hypershell.localhost/realms/hypershell"
                   - name: OIDC_TOKEN_ENDPOINT
@@ -62,7 +79,7 @@ patches:
               - name: web-console
                 env:
                   - name: OIDC_ISSUER
-                    value: "http://keycloak.hypershell.localhost:8080/realms/hypershell"
+                    value: "https://keycloak.hypershell.localhost/realms/hypershell"
                   - name: OIDC_CLIENT_ID
                     value: "hypershell-frontend"
                   - name: OIDC_REDIRECT_URI
@@ -92,6 +109,9 @@ patches:
         value: "--enable-jwt=true"
       - op: add
         path: /spec/template/spec/containers/0/command/-
+        value: "--enable-authz=true"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"
       - op: add
         path: /spec/template/spec/containers/0/command/-
@@ -99,11 +119,25 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
-  # --- API server: select the development_oidc environment ---
+  # --- API server: select the development_oidc environment + enforce RBAC ---
   # The binary's default `development` environment force-disables JWT in its
   # OverrideConfig, which overrides the --enable-jwt=true flag above. The
   # `development_oidc` environment leaves JWT driven by flags, so JWT
   # enforcement and JWKS loading from Keycloak actually take effect.
+  #
+  # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
+  # (gateway:creator/owner/viewer). It is the sole gate for that model
+  # (plugins/rbac/plugin.go) -- independent of --enable-authz, which only adds
+  # the framework's identity-presence check. admin carries gateway:creator (via
+  # the realm_access.roles mapper in deploy/base/keycloak); developers do not,
+  # so their POST /gateways is rejected with 403.
+  #
+  # RBAC_SERVICE_ACCOUNTS bypasses the gRPC RBAC interceptor for the control
+  # plane's service account. The control plane writes gateway status via the
+  # gRPC UpdateGateway method (not bypassed by --auth-bypass-methods, which only
+  # covers Watch*), but the gRPC provisioning path never syncs JWT roles
+  # (pkg/rbac/grpc_interceptor.go), so the SA can never earn a gateway:creator
+  # binding. The bypass is the supported mechanism for trusted service accounts.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -118,12 +152,19 @@ patches:
                 env:
                   - name: API_ENV
                     value: "development_oidc"
-  # --- Keycloak: fixed HTTP issuer reachable in-cluster and from host ---
+                  - name: RBAC_ENFORCE
+                    value: "true"
+                  - name: RBAC_SERVICE_ACCOUNTS
+                    value: "service-account-hypershell-control-plane"
+  # --- Keycloak: fixed HTTPS issuer reachable in-cluster and from host ---
   # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
   # requiring config.issuer == discovery.issuer == token.iss, so the issuer
-  # must be a single URL reachable over plain HTTP both in-cluster (via CoreDNS
-  # -> Keycloak ClusterIP) and from the host (via the gateway LB :8080).
-  # This value matches E2E_OIDC_ISSUER and the seeded gateway OIDC issuer.
+  # must be a single URL reachable over HTTPS both in-cluster (via CoreDNS ->
+  # gateway LB) and from the host (via the gateway LB :443). The LB terminates
+  # TLS with the *.hypershell.localhost cert and forwards to keycloak-service:8080;
+  # Keycloak stays plain HTTP internally and honors X-Forwarded-Proto
+  # (KC_PROXY_HEADERS=xforwarded). This value matches E2E_OIDC_ISSUER and the
+  # seeded gateway OIDC issuer.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -137,7 +178,7 @@ patches:
               - name: keycloak
                 env:
                   - name: KC_HOSTNAME
-                    value: "http://keycloak.hypershell.localhost:8080"
+                    value: "https://keycloak.hypershell.localhost"
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest
