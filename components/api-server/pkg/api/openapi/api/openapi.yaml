@@ -2674,7 +2674,6 @@ components:
         phase: phase
         release_id: release_id
         image: image
-        active_sandbox_count: 0
         server_dns_names:
         - server_dns_names
         - server_dns_names
@@ -2731,9 +2730,6 @@ components:
           type: string
         credential_driver:
           type: string
-        active_sandbox_count:
-          format: int32
-          type: integer
       type: object
     GatewayNetwork:
       allOf:

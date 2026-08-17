@@ -19,25 +19,24 @@ var _ MappedNullable = &GatewayPatchRequest{}
 
 // GatewayPatchRequest struct for GatewayPatchRequest
 type GatewayPatchRequest struct {
-	Name               *string  `json:"name,omitempty"`
-	FleetId            *string  `json:"fleet_id,omitempty"`
-	ClusterId          *string  `json:"cluster_id,omitempty"`
-	ReleaseId          *string  `json:"release_id,omitempty"`
-	DatabaseId         *string  `json:"database_id,omitempty"`
-	ExternalDns        *string  `json:"external_dns,omitempty"`
-	TlsMode            *string  `json:"tls_mode,omitempty"`
-	ServiceType        *string  `json:"service_type,omitempty"`
-	Status             *string  `json:"status,omitempty"`
-	Phase              *string  `json:"phase,omitempty"`
-	Image              *string  `json:"image,omitempty"`
-	SupervisorImage    *string  `json:"supervisor_image,omitempty"`
-	ServerDnsNames     []string `json:"server_dns_names,omitempty"`
-	RouteAddress       *string  `json:"route_address,omitempty"`
-	Oidc               *string  `json:"oidc,omitempty"`
-	Route              *string  `json:"route,omitempty"`
-	DatabaseConfig     *string  `json:"database_config,omitempty"`
-	CredentialDriver   *string  `json:"credential_driver,omitempty"`
-	ActiveSandboxCount *int32   `json:"active_sandbox_count,omitempty"`
+	Name             *string  `json:"name,omitempty"`
+	FleetId          *string  `json:"fleet_id,omitempty"`
+	ClusterId        *string  `json:"cluster_id,omitempty"`
+	ReleaseId        *string  `json:"release_id,omitempty"`
+	DatabaseId       *string  `json:"database_id,omitempty"`
+	ExternalDns      *string  `json:"external_dns,omitempty"`
+	TlsMode          *string  `json:"tls_mode,omitempty"`
+	ServiceType      *string  `json:"service_type,omitempty"`
+	Status           *string  `json:"status,omitempty"`
+	Phase            *string  `json:"phase,omitempty"`
+	Image            *string  `json:"image,omitempty"`
+	SupervisorImage  *string  `json:"supervisor_image,omitempty"`
+	ServerDnsNames   []string `json:"server_dns_names,omitempty"`
+	RouteAddress     *string  `json:"route_address,omitempty"`
+	Oidc             *string  `json:"oidc,omitempty"`
+	Route            *string  `json:"route,omitempty"`
+	DatabaseConfig   *string  `json:"database_config,omitempty"`
+	CredentialDriver *string  `json:"credential_driver,omitempty"`
 }
 
 // NewGatewayPatchRequest instantiates a new GatewayPatchRequest object
@@ -633,38 +632,6 @@ func (o *GatewayPatchRequest) SetCredentialDriver(v string) {
 	o.CredentialDriver = &v
 }
 
-// GetActiveSandboxCount returns the ActiveSandboxCount field value if set, zero value otherwise.
-func (o *GatewayPatchRequest) GetActiveSandboxCount() int32 {
-	if o == nil || IsNil(o.ActiveSandboxCount) {
-		var ret int32
-		return ret
-	}
-	return *o.ActiveSandboxCount
-}
-
-// GetActiveSandboxCountOk returns a tuple with the ActiveSandboxCount field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GatewayPatchRequest) GetActiveSandboxCountOk() (*int32, bool) {
-	if o == nil || IsNil(o.ActiveSandboxCount) {
-		return nil, false
-	}
-	return o.ActiveSandboxCount, true
-}
-
-// HasActiveSandboxCount returns a boolean if a field has been set.
-func (o *GatewayPatchRequest) HasActiveSandboxCount() bool {
-	if o != nil && !IsNil(o.ActiveSandboxCount) {
-		return true
-	}
-
-	return false
-}
-
-// SetActiveSandboxCount gets a reference to the given int32 and assigns it to the ActiveSandboxCount field.
-func (o *GatewayPatchRequest) SetActiveSandboxCount(v int32) {
-	o.ActiveSandboxCount = &v
-}
-
 func (o GatewayPatchRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -728,9 +695,6 @@ func (o GatewayPatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver
-	}
-	if !IsNil(o.ActiveSandboxCount) {
-		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount
 	}
 	return toSerialize, nil
 }

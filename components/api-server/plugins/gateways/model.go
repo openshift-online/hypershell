@@ -76,5 +76,4 @@ type GatewayPatchRequest struct {
 	Route              *string `json:"route,omitempty"`
 	DatabaseConfig     *string `json:"database_config,omitempty"`
 	CredentialDriver   *string `json:"credential_driver,omitempty"`
-	ActiveSandboxCount *int    `json:"active_sandbox_count,omitempty"`
 }

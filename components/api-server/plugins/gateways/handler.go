@@ -125,10 +125,9 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.RouteAddress != nil {
 				found.RouteAddress = patch.RouteAddress
 			}
-			if patch.ActiveSandboxCount != nil {
-				activeSandboxCountVal := int(*patch.ActiveSandboxCount)
-				found.ActiveSandboxCount = &activeSandboxCountVal
-			}
+			// active_sandbox_count is a control-plane-owned observability signal
+			// written only over gRPC UpdateGateway (readOnly on the REST Gateway
+			// schema); it is intentionally not settable via the public REST PATCH.
 			if patch.Oidc != nil {
 				found.Oidc = patch.Oidc
 			}

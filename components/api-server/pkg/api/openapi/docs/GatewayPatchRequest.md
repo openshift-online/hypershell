@@ -22,7 +22,6 @@ Name | Type | Description | Notes
 **Route** | Pointer to **string** |  | [optional] 
 **DatabaseConfig** | Pointer to **string** |  | [optional] 
 **CredentialDriver** | Pointer to **string** |  | [optional] 
-**ActiveSandboxCount** | Pointer to **int32** |  | [optional] 
 
 ## Methods
 
@@ -492,31 +491,6 @@ SetCredentialDriver sets CredentialDriver field to given value.
 `func (o *GatewayPatchRequest) HasCredentialDriver() bool`
 
 HasCredentialDriver returns a boolean if a field has been set.
-
-### GetActiveSandboxCount
-
-`func (o *GatewayPatchRequest) GetActiveSandboxCount() int32`
-
-GetActiveSandboxCount returns the ActiveSandboxCount field if non-nil, zero value otherwise.
-
-### GetActiveSandboxCountOk
-
-`func (o *GatewayPatchRequest) GetActiveSandboxCountOk() (*int32, bool)`
-
-GetActiveSandboxCountOk returns a tuple with the ActiveSandboxCount field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetActiveSandboxCount
-
-`func (o *GatewayPatchRequest) SetActiveSandboxCount(v int32)`
-
-SetActiveSandboxCount sets ActiveSandboxCount field to given value.
-
-### HasActiveSandboxCount
-
-`func (o *GatewayPatchRequest) HasActiveSandboxCount() bool`
-
-HasActiveSandboxCount returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

@@ -393,6 +393,7 @@ generate-sdk-go:
 	cd scripts/sdk-generator && go run . \
 		--spec ../../components/api-server/openapi/openapi.yaml \
 		--go-out ../../components/sdk-go \
+		--module github.com/openshift-online/hypershell/components/sdk-go \
 		--ts-out ../../components/sdk-typescript
 # ============================================================================
 # E2E Tests
