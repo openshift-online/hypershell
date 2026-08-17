@@ -74,7 +74,6 @@ GW_NAME="${E2E_GATEWAY_NAME}"
 GW_NAMESPACE=""
 GW_ID=""
 SANDBOX_NAME=""
-E2E_PF_PID="${E2E_PF_PID:-}"
 E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
@@ -91,17 +90,9 @@ cleanup() {
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
   fi
-  if [[ -n "${E2E_KC_PF_PID:-}" ]]; then
-    kill "$E2E_KC_PF_PID" 2>/dev/null || true
-    wait "$E2E_KC_PF_PID" 2>/dev/null || true
-  fi
   if [[ -n "${E2E_GW_PF_PID:-}" ]]; then
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
-  fi
-  if [[ -n "${E2E_PF_PID:-}" ]]; then
-    kill "$E2E_PF_PID" 2>/dev/null || true
-    wait "$E2E_PF_PID" 2>/dev/null || true
   fi
   if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
@@ -116,12 +107,11 @@ trap cleanup EXIT
 
 # --- Discover API host via driver ---
 
-discover_api_host
-API_HOST="${_DISCOVER_API_HOST}"
-if [[ -z "$API_HOST" ]]; then
-  red "ERROR: Could not discover HyperShell API host"
+if ! discover_api_host; then
+  red "ERROR: Could not discover HyperShell API host over the gateway HTTPS route"
   exit 1
 fi
+API_HOST="${_DISCOVER_API_HOST}"
 
 # --- Banner ---
 
@@ -417,6 +407,17 @@ if [[ -z "$GW_NAMESPACE" ]]; then
   exit 1
 fi
 dim "  Gateway namespace: ${GW_NAMESPACE}"
+
+# Per-gateway Keycloak client id. When Keycloak provisioning is enabled (the Kind
+# path), the control-plane reconciler creates a dedicated public client named
+# "${gw.Name}-${gatewayID}" with an audience mapper and overrides the gateway's
+# OIDC config to require aud == this client. Gateway and CLI tokens must therefore
+# be minted against this client, not the shared frontend client, or Envoy rejects
+# them with InvalidAudience. gatewayID is the API resource id (GW_ID).
+GW_KC_CLIENT_ID="${GW_NAME}-${GW_ID}"
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
+  dim "  Per-gateway OIDC client: ${GW_KC_CLIENT_ID}"
+fi
 sep
 
 # ── 3. gateway infrastructure ──────────────────────────────────────────────
@@ -562,12 +563,21 @@ else
   fail_test "Gateway server certificate not ready (status=${GW_SRV_READY:-unknown})"
 fi
 
-show_cmd "$CLI get networkpolicy -n $GW_NAMESPACE"
-GW_NP_COUNT=$($CLI get networkpolicy -n "$GW_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-if [[ "${GW_NP_COUNT:-0}" -ge 3 ]]; then
-  pass "Gateway NetworkPolicies present (${GW_NP_COUNT} found)"
+# Kind deliberately skips the per-tenant gateway NetworkPolicies: its Gateway
+# data plane is cloud-provider-kind's out-of-cluster Envoy, whose source IP no
+# selector can match, so the policies would blackhole gateway ingress. Dev needs
+# no tenant isolation (see GATEWAY_SKIP_NETWORK_POLICIES in deploy/kind), so the
+# ≥3 assertion does not apply here.
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
+  dim "  Gateway NetworkPolicies intentionally skipped on kind (not applicable)"
 else
-  fail_test "Expected at least 3 gateway NetworkPolicies, found ${GW_NP_COUNT:-0}"
+  show_cmd "$CLI get networkpolicy -n $GW_NAMESPACE"
+  GW_NP_COUNT=$($CLI get networkpolicy -n "$GW_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${GW_NP_COUNT:-0}" -ge 3 ]]; then
+    pass "Gateway NetworkPolicies present (${GW_NP_COUNT} found)"
+  else
+    fail_test "Expected at least 3 gateway NetworkPolicies, found ${GW_NP_COUNT:-0}"
+  fi
 fi
 sep
 
@@ -577,14 +587,30 @@ echo ""
 bold "4. OIDC Token Acquisition + CA Certificate Setup"
 echo ""
 
-show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER}"
-acquire_oidc_token
-OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
-if [[ -n "$OIDC_TOKEN" ]]; then
-  pass "OIDC token acquired (user: ${E2E_OIDC_USERNAME})"
+# The client the admin's gateway/CLI tokens are minted against. On Kind the
+# reconciler forces a per-gateway audience, so we use the per-gateway client and
+# wait for the async owner-binding -> openshell-admin role to land in the token.
+OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
+  OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+  show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
+  if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
+    OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
+    pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
+  else
+    fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
+    exit 1
+  fi
 else
-  fail_test "Failed to acquire OIDC token from Keycloak"
-  exit 1
+  show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER}"
+  acquire_oidc_token
+  OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  if [[ -n "$OIDC_TOKEN" ]]; then
+    pass "OIDC token acquired (user: ${E2E_OIDC_USERNAME})"
+  else
+    fail_test "Failed to acquire OIDC token from Keycloak"
+    exit 1
+  fi
 fi
 
 
@@ -631,9 +657,9 @@ show_cmd "${OPENSHELL_BIN} gateway remove ${GW_LOCAL_NAME}"
 "${OPENSHELL_BIN}" gateway remove "${GW_LOCAL_NAME}" 2>/dev/null || true
 mkdir -p "${GW_CONFIG_DIR}"
 
-show_cmd "# write gateway metadata (OIDC mode)"
+show_cmd "# write gateway metadata (OIDC mode, client: ${OIDC_CLIENT_ID_EFFECTIVE})"
 GW_LOCAL_NAME="$GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
-  E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
+  E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" OIDC_CLIENT_ID_EFFECTIVE="$OIDC_CLIENT_ID_EFFECTIVE" \
   OIDC_TOKEN="$OIDC_TOKEN" GW_CONFIG_DIR="$GW_CONFIG_DIR" \
   python3 -c "
 import json, os
@@ -645,14 +671,14 @@ meta = {
     'gateway_port': 0,
     'auth_mode': 'oidc',
     'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
-    'oidc_client_id': os.environ['E2E_OIDC_CLIENT_ID']
+    'oidc_client_id': os.environ['OIDC_CLIENT_ID_EFFECTIVE']
 }
 with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
 token = {
     'access_token': os.environ['OIDC_TOKEN'],
     'issuer': os.environ['E2E_OIDC_ISSUER'],
-    'client_id': os.environ['E2E_OIDC_CLIENT_ID']
+    'client_id': os.environ['OIDC_CLIENT_ID_EFFECTIVE']
 }
 with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
     json.dump(token, f, indent=2)
@@ -700,6 +726,7 @@ else
   echo "$STATUS_OUTPUT" | while IFS= read -r line; do
     dim "    $line"
   done
+  exit 1
 fi
 sep
 
@@ -833,13 +860,40 @@ echo ""
 bold "9. Developer User RBAC Verification"
 echo ""
 
-show_cmd "# acquire OIDC token for developer user"
-acquire_oidc_token "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD"
-DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
-if [[ -n "$DEV_TOKEN" ]]; then
-  pass "Developer OIDC token acquired (user: ${E2E_DEV_USERNAME})"
+# The developer's gateway/CLI token, like the admin's, must be minted against the
+# per-gateway client on Kind. The gateway requires user_role (openshell-user) on
+# that client or it rejects the developer outright ("role 'openshell-user'
+# required"). In production the RoleBinding reconciler assigns this when a
+# gateway:viewer binding is created, but that grant is not expressible through the
+# API for a non-owner (no user_id discovery path), so we provision the same end
+# state directly in Keycloak -- a test-setup shortcut, not a product change.
+DEV_OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
+  DEV_OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+  show_cmd "# grant developer openshell-user on ${GW_KC_CLIENT_ID} (mirrors gateway:viewer RoleBinding)"
+  if assign_gateway_client_role "$E2E_DEV_USERNAME" "$GW_KC_CLIENT_ID" openshell-user; then
+    pass "Developer granted openshell-user on per-gateway client"
+  else
+    fail_test "Failed to grant developer openshell-user on per-gateway client"
+  fi
+
+  show_cmd "# acquire per-gateway OIDC token for developer (client: ${GW_KC_CLIENT_ID}, await role: openshell-user)"
+  if acquire_gateway_token_with_role "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD" "$GW_KC_CLIENT_ID" openshell-user; then
+    DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
+    pass "Developer OIDC token acquired with openshell-user (user: ${E2E_DEV_USERNAME})"
+  else
+    DEV_TOKEN=""
+    fail_test "Failed to acquire developer per-gateway OIDC token with openshell-user role"
+  fi
 else
-  fail_test "Failed to acquire developer OIDC token"
+  show_cmd "# acquire OIDC token for developer user"
+  acquire_oidc_token "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD"
+  DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  if [[ -n "$DEV_TOKEN" ]]; then
+    pass "Developer OIDC token acquired (user: ${E2E_DEV_USERNAME})"
+  else
+    fail_test "Failed to acquire developer OIDC token"
+  fi
 fi
 
 if [[ -n "$DEV_TOKEN" ]]; then
@@ -850,9 +904,9 @@ if [[ -n "$DEV_TOKEN" ]]; then
   "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
   mkdir -p "${DEV_CONFIG_DIR}"
 
-  show_cmd "# register gateway as developer user"
+  show_cmd "# register gateway as developer user (client: ${DEV_OIDC_CLIENT_ID_EFFECTIVE})"
   DEV_GW_LOCAL_NAME="$DEV_GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
-    E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
+    E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" DEV_OIDC_CLIENT_ID_EFFECTIVE="$DEV_OIDC_CLIENT_ID_EFFECTIVE" \
     DEV_TOKEN="$DEV_TOKEN" DEV_CONFIG_DIR="$DEV_CONFIG_DIR" \
     python3 -c "
 import json, os
@@ -864,14 +918,14 @@ meta = {
     'gateway_port': 0,
     'auth_mode': 'oidc',
     'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
-    'oidc_client_id': os.environ['E2E_OIDC_CLIENT_ID']
+    'oidc_client_id': os.environ['DEV_OIDC_CLIENT_ID_EFFECTIVE']
 }
 with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
 token = {
     'access_token': os.environ['DEV_TOKEN'],
     'issuer': os.environ['E2E_OIDC_ISSUER'],
-    'client_id': os.environ['E2E_OIDC_CLIENT_ID']
+    'client_id': os.environ['DEV_OIDC_CLIENT_ID_EFFECTIVE']
 }
 with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
     json.dump(token, f, indent=2)
@@ -896,9 +950,10 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
   fi
 
   # RBAC boundary for the standard-user tier. The developer's OIDC token carries
-  # the "hypershell-users" group, which the gateway maps to its user_role -- a
-  # standard OpenShell user, not an admin. Two independent authorization systems
-  # apply, and we assert both:
+  # the gateway's user_role (openshell-user on the per-gateway client in Kind;
+  # the "hypershell-users" group under the shared-client model), which the gateway
+  # maps to a standard OpenShell user, not an admin. Two independent authorization
+  # systems apply, and we assert both:
   #   1. OpenShell gateway authz: a user_role principal MAY create sandboxes, but
   #      only in a workspace where it holds an explicit membership record. The
   #      OIDC role alone does NOT confer workspace access and membership is not

@@ -49,7 +49,7 @@ KIND_VERSION?=v0.32.1-0.20260811083914-7650cab268f5
 # bump it when the fork advances. The binary auto-stamps this commit as
 # vcs.revision, which kind-prereqs uses to skip rebuilds that are already current.
 CLOUD_PROVIDER_KIND_REPO?=https://github.com/squizzi/cloud-provider-kind.git
-CLOUD_PROVIDER_KIND_REF?=3c357b5abae48a38c38d5fe5c04680cb9c7cff99
+CLOUD_PROVIDER_KIND_REF?=08ce4ea4cc10bce8ffbcf4f859a086bb6b292230
 # Optional testing override: build from a branch tip (or any git ref) instead of
 # the pinned REF, e.g. `CLOUD_PROVIDER_KIND_BRANCH=my-experiment make kind-up`.
 # Empty by default so normal builds stay deterministic and idempotent-by-SHA.

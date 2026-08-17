@@ -37,8 +37,7 @@ if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
 fi
 : "${GATEWAY_IMAGE:=ghcr.io/nvidia/openshell/gateway:0.0.101}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
-: "${KEYCLOAK_OIDC_ISSUER:=http://${KEYCLOAK_HOSTNAME}:8080/realms/hypershell}"
-: "${KEYCLOAK_OIDC_ISSUER_INTERNAL:=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell}"
+: "${KEYCLOAK_OIDC_ISSUER:=https://${KEYCLOAK_HOSTNAME}/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${KEYCLOAK_OIDC_AUDIENCE:=hypershell-frontend}"
 : "${KIND_DNS_PORT:=5553}"
@@ -186,22 +185,18 @@ patch_cluster_coredns() {
     info "Cluster CoreDNS already patched for hypershell.localhost"
     return
   fi
-  # keycloak.hypershell.localhost must resolve to the Keycloak ClusterIP so the
-  # gateway pod validates OIDC tokens against the canonical issuer
-  # (http://keycloak.hypershell.localhost:8080) over plain HTTP in-cluster,
-  # without depending on the gateway LB or TLS trust. Other hosts route through
-  # the gateway LB IP as usual. Falls back to the LB IP if the lookup fails.
-  local kc_ip
-  kc_ip=$(kube get svc keycloak-service -n keycloak -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-  if [[ -z "${kc_ip}" ]]; then
-    warn "Could not resolve keycloak-service ClusterIP - falling back to gateway LB for keycloak"
-    kc_ip="${gw_ip}"
-  fi
-  info "Patching cluster CoreDNS: keycloak -> ${kc_ip}, api/console/health -> ${gw_ip}..."
+  # All *.hypershell.localhost hosts (including keycloak) resolve to the gateway
+  # LB IP so in-cluster traffic goes through the gateway's HTTPS listener on :443.
+  # The gateway terminates TLS with the *.hypershell.localhost cert and forwards
+  # to the backing Service. For keycloak this means the gateway pod validates
+  # OIDC tokens against the canonical issuer (https://keycloak.hypershell.localhost)
+  # exactly as the host does, trusting the self-signed CA via the
+  # gateway-trusted-ca ConfigMap (SSL_CERT_FILE).
+  info "Patching cluster CoreDNS: *.hypershell.localhost -> ${gw_ip} (gateway LB)..."
   local hosts_block
   hosts_block="hypershell.localhost:53 {
     hosts {
-      ${kc_ip} keycloak.hypershell.localhost
+      ${gw_ip} keycloak.hypershell.localhost
       ${gw_ip} api.hypershell.localhost
       ${gw_ip} console.hypershell.localhost
       ${gw_ip} health.hypershell.localhost
@@ -322,7 +317,6 @@ IPTABLES_CHAIN="HS-${KIND_CLUSTER_NAME}"
 
 start_port_forward() {
   local ephemeral_port="$1"
-  local http_port="${2:-}"
   PORT_FORWARD_ACTIVE=""
   if [[ "${HAVE_SUDO:-true}" == "false" ]]; then
     warn "Skipping port forwarding (no sudo) - use port ${ephemeral_port} directly"
@@ -336,18 +330,11 @@ start_port_forward() {
 rdr-anchor "com.hypershell/*"' /etc/pf.conf)
       local rdr_lines
       rdr_lines="rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port ${ephemeral_port}"
-      if [[ -n "${http_port}" ]]; then
-        rdr_lines="${rdr_lines}
-rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 8080 -> 127.0.0.1 port ${http_port}"
-      fi
       if echo "${pf_rules}" | sudo pfctl -f - 2>/dev/null && \
          echo "${rdr_lines}" | sudo pfctl -a "${PF_ANCHOR}" -f - 2>/dev/null && \
          sudo pfctl -E 2>/dev/null; then
         PORT_FORWARD_ACTIVE=true
         success "Port forwarding active: https://localhost:443 -> :${ephemeral_port}"
-        if [[ -n "${http_port}" ]]; then
-          success "Port forwarding active: http://localhost:8080 -> :${http_port}"
-        fi
       else
         warn "pfctl setup failed - access services on port ${ephemeral_port} instead"
       fi
@@ -364,12 +351,6 @@ rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 8080 -> 127.0.0.1 port
         success "Port forwarding active: https://localhost:443 -> :${ephemeral_port}"
       else
         warn "iptables setup failed - access services on port ${ephemeral_port} instead"
-      fi
-      if [[ -n "${http_port}" ]]; then
-        if sudo iptables -t nat -A "${IPTABLES_CHAIN}" -p tcp -d 127.0.0.1 --dport 8080 \
-             -j REDIRECT --to-port "${http_port}"; then
-          success "Port forwarding active: http://localhost:8080 -> :${http_port}"
-        fi
       fi
       ;;
   esac

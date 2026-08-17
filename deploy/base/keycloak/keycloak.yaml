@@ -34,8 +34,12 @@ spec:
               value: "8080"
             - name: KC_HEALTH_ENABLED
               value: "true"
+            # KC_HOSTNAME pins the issuer/frontend URL to HTTPS; a TLS-terminating
+            # proxy (the networking Gateway in Kind, the Route on OpenShift)
+            # fronts the plain-HTTP listener below. Overlays patch this to their
+            # own external hostname (deploy/kind, deploy/keycloak).
             - name: KC_HOSTNAME
-              value: "http://keycloak.hypershell.localhost:8080"
+              value: "https://keycloak.hypershell.localhost"
             - name: KC_PROXY_HEADERS
               value: "xforwarded"
           ports:

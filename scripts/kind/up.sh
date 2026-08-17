@@ -253,6 +253,35 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   success "Keycloak ready"
 fi
 
+# --- Gateway trusted CA (self-signed CA for OIDC over HTTPS) ---
+# The gateway pod validates OIDC tokens against the canonical HTTPS issuer
+# (https://keycloak.hypershell.localhost). That endpoint is served by the
+# gateway LB using the *.hypershell.localhost cert signed by Kind's self-signed
+# cert-manager CA, which the gateway does not trust out of the box. Publish the
+# CA as the gateway-trusted-ca ConfigMap in the control-plane namespace BEFORE
+# restarting the control plane so the reconciler can apply it when provisioning
+# gateways. The reconciler copies it into each gateway's namespace and mounts it
+# as SSL_CERT_FILE so OIDC discovery over HTTPS succeeds
+# (see specs/standards/security/openshell-gateway-tls.spec.md).
+header "Gateway Trusted CA"
+info "Waiting for hypershell-https-tls certificate to be issued..."
+CA_PEM=""
+for _ in $(seq 1 30); do
+  CA_PEM=$(kube get secret hypershell-https-tls -n "${KIND_NAMESPACE}" \
+    -o go-template='{{index .data "ca.crt" | base64decode}}' 2>/dev/null || true)
+  if [[ -n "${CA_PEM}" ]]; then break; fi
+  sleep 2
+done
+if [[ -n "${CA_PEM}" ]]; then
+  printf '%s' "${CA_PEM}" | kube create configmap gateway-trusted-ca \
+    -n "${KIND_NAMESPACE}" --from-file=ca-bundle.crt=/dev/stdin \
+    --dry-run=client -o yaml | kube apply -f -
+  success "gateway-trusted-ca ConfigMap published"
+else
+  warn "hypershell-https-tls has no ca.crt yet - gateway OIDC over HTTPS may fail"
+fi
+echo ""
+
 # The API server enforces JWT and loads Keycloak's JWKS at startup. If it
 # started before Keycloak was serving keys it is stuck in CrashLoopBackoff;
 # restart it now that Keycloak is ready so a fresh pod (with no backoff delay)
@@ -334,7 +363,6 @@ echo ""
 header "TLS & Networking"
 
 GATEWAY_PORT=""
-KEYCLOAK_HTTP_PORT=""
 if [[ "${CPK_RUNNING}" == "true" ]]; then
   info "Waiting for networking Gateway to get an address..."
   for i in $(seq 1 30); do
@@ -360,7 +388,6 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
       PROXY_CONTAINER=$(${CONTAINER_ENGINE} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
       if [[ -n "${PROXY_CONTAINER}" ]]; then
         GATEWAY_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 443 2>/dev/null | head -1 | cut -d: -f2)
-        KEYCLOAK_HTTP_PORT=$(${CONTAINER_ENGINE} port "${PROXY_CONTAINER}" 8080 2>/dev/null | head -1 | cut -d: -f2)
         if [[ -n "${GATEWAY_PORT}" ]]; then break; fi
       fi
       sleep 2
@@ -368,15 +395,12 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
 
     if [[ -n "${GATEWAY_PORT}" ]]; then
       success "Gateway HTTPS on host port ${GATEWAY_PORT}"
-      if [[ -n "${KEYCLOAK_HTTP_PORT}" ]]; then
-        success "Gateway HTTP (Keycloak) on host port ${KEYCLOAK_HTTP_PORT}"
-      fi
       # Flush any stale rules from a previous run (which may have pinned a
       # different ephemeral port) before installing the current mapping, so the
       # port-forward always reflects the live proxy container. Matches the
       # stop-then-start sequence in port-forward.sh (make kind-fix-ports).
       stop_port_forward
-      start_port_forward "${GATEWAY_PORT}" "${KEYCLOAK_HTTP_PORT:-}"
+      start_port_forward "${GATEWAY_PORT}"
     else
       warn "Could not discover Gateway proxy port - check '${CONTAINER_ENGINE} ps --filter name=kindccm-gw'"
     fi
@@ -413,7 +437,7 @@ fi
 if [[ -n "${PORT_SUFFIX}" ]]; then
   warn "Port forwarding not active - overriding OIDC URLs with port suffix ${PORT_SUFFIX}"
   warn "Caveat: gateway OIDC validation expects the canonical issuer"
-  warn "  http://${KEYCLOAK_HOSTNAME}:8080 that the gateway is seeded with. On this"
+  warn "  https://${KEYCLOAK_HOSTNAME} that the gateway is seeded with. On this"
   warn "  fallback path Keycloak mints tokens with a port-suffixed issuer, which"
   warn "  will not match, so gateway token validation will fail. Use port"
   warn "  forwarding (the default) for end-to-end gateway OIDC."
@@ -435,16 +459,25 @@ echo ""
 
 # --- Wait for readiness ---
 header "Readiness"
+# Use `rollout status`, not `wait --for=condition=available`. With replicas=1
+# and the default rolling update the Deployment stays Available throughout a
+# rollout (the old pod keeps serving until the new one is Ready), so
+# `wait --for=condition=available` returns immediately after the earlier
+# `rollout restart`s -- while a rollout is still in flight. The API-server
+# port-forward below would then bind to a pod that is being terminated, and the
+# seed requests would fail with curl (52) "empty reply from server" (HTTP 000).
+# `rollout status` blocks until the new ReplicaSet is fully rolled out and the
+# old pods are gone, so the Service endpoints are stable before we port-forward.
 info "Waiting for API server..."
-kube wait --for=condition=available deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
+kube rollout status deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
 success "API server ready"
 
 info "Waiting for control plane..."
-kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
+kube rollout status deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 success "Control plane ready"
 
 info "Waiting for web console..."
-kube wait --for=condition=available deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --timeout=120s
+kube rollout status deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --timeout=120s
 success "Web console ready"
 echo ""
 
@@ -456,29 +489,62 @@ kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/d
 PF_PID=$!
 cleanup_pf() { kill "${PF_PID}" 2>/dev/null || true; wait "${PF_PID}" 2>/dev/null || true; }
 trap cleanup_pf EXIT
-sleep 2
+
+# `port-forward` accepts a local TCP connection before it has confirmed the pod
+# is serving, so a fixed `sleep` races the REST server coming up. Poll until the
+# API answers with *any* HTTP status -- a 401/403 without a token still proves
+# the server responded (curl exits 0). An empty reply / dead forward makes curl
+# exit non-zero (HTTP 000), so tear the forward down and re-establish it before
+# retrying.
+info "Waiting for API server to answer through the port-forward..."
+api_reachable=""
+for _ in $(seq 1 30); do
+  if curl -s -o /dev/null -m 3 "${API_URL}/api/hypershell/v1/fleets" 2>/dev/null; then
+    api_reachable=true
+    break
+  fi
+  kill "${PF_PID}" 2>/dev/null || true
+  wait "${PF_PID}" 2>/dev/null || true
+  kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
+  PF_PID=$!
+  sleep 2
+done
+if [[ -z "${api_reachable}" ]]; then
+  warn "API server did not answer through the port-forward; seeding may fail"
+fi
 
 # Obtain a Bearer token from Keycloak for API calls.
 API_AUTH_HEADER=""
 info "Obtaining API token from Keycloak..."
-KC_TOKEN_URL="http://localhost:8080/realms/hypershell/protocol/openid-connect/token"
-kube port-forward svc/keycloak-service -n keycloak 8080:8080 >/dev/null 2>&1 &
-KC_PF_PID=$!
-cleanup_pf_orig=$(declare -f cleanup_pf | tail -n +2)
-cleanup_pf() { kill "${KC_PF_PID}" 2>/dev/null || true; eval "${cleanup_pf_orig}"; }
-sleep 2
-TOKEN_RESP=$(curl -sS -X POST "${KC_TOKEN_URL}" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=hypershell-control-plane" \
-  -d "client_secret=control-plane-secret" 2>&1 || true)
-API_TOKEN=$(echo "${TOKEN_RESP}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
+# Use the Gateway-routed Keycloak URL instead of port-forwarding.
+# Keycloak is accessible via HTTPRoute at keycloak.hypershell.localhost.
+#
+# Poll rather than fetching once. On a fresh `kind-up` the gateway LB has an
+# address (waited on above) and Keycloak is Available, but the gateway's
+# Keycloak route/listener may not be accepting on :443 yet -- a single curl
+# then fails with (7) "Couldn't connect to server", the token is empty, and
+# seeding proceeds unauthenticated (HTTP 401). Re-running `kind-up` "fixes" it
+# only because everything is warm by then. Retry until Keycloak answers with a
+# token (or we time out) so the first run seeds successfully. Mirrors the
+# API-server port-forward readiness loop above.
+KC_TOKEN_URL="https://${KEYCLOAK_HOSTNAME}/realms/hypershell/protocol/openid-connect/token"
+API_TOKEN=""
+TOKEN_RESP=""
+for _ in $(seq 1 30); do
+  TOKEN_RESP=$(curl -sSk -m 5 -X POST "${KC_TOKEN_URL}" \
+    -d "grant_type=client_credentials" \
+    -d "client_id=hypershell-control-plane" \
+    -d "client_secret=control-plane-secret" 2>&1 || true)
+  API_TOKEN=$(echo "${TOKEN_RESP}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
+  if [[ -n "${API_TOKEN}" ]]; then break; fi
+  sleep 2
+done
 if [[ -n "${API_TOKEN}" ]]; then
   API_AUTH_HEADER="Authorization: Bearer ${API_TOKEN}"
   success "API token obtained"
 else
   warn "Could not obtain API token: ${TOKEN_RESP:0:200}"
 fi
-kill "${KC_PF_PID}" 2>/dev/null || true
 
 # Helper: POST a JSON resource; prints the response body on success or failure.
 api_post() {

@@ -33,10 +33,3 @@ spec:
             kind: GRPCRoute
         namespaces:
           from: All
-    - name: http-keycloak
-      hostname: "keycloak.hypershell.localhost"
-      port: 8080
-      protocol: HTTP
-      allowedRoutes:
-        namespaces:
-          from: All

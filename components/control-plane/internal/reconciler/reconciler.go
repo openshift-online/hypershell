@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -138,6 +139,7 @@ type GatewayReconciler struct {
 	isOpenShift           bool
 	hasCertManager        bool
 	hasGatewayAPI         bool
+	skipNetworkPolicies   bool
 	manifestsDir          string
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
@@ -160,6 +162,11 @@ func NewGatewayReconciler(
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
+	// Dev clusters (Kind) opt out of the per-tenant gateway NetworkPolicies:
+	// their out-of-cluster proxy source IP cannot be matched by the policies'
+	// selectors, so the policies would blackhole gateway ingress. Defaults to
+	// enforced (empty/unset) so production/OpenShift keeps tenant isolation.
+	skipNetworkPolicies := os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true"
 
 	var kcClient *keycloak.Client
 	if keycloakConfig != nil {
@@ -172,8 +179,8 @@ func NewGatewayReconciler(
 		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
 	}
 
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v keycloak=%v",
-		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, kcClient != nil)
+	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v keycloak=%v netpol=%v",
+		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, kcClient != nil, !skipNetworkPolicies)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -184,6 +191,7 @@ func NewGatewayReconciler(
 		isOpenShift:           isOpenShift,
 		hasCertManager:        hasCertManager,
 		hasGatewayAPI:         hasGatewayAPI,
+		skipNetworkPolicies:   skipNetworkPolicies,
 		manifestsDir:          manifestsDir,
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
@@ -219,6 +227,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			IsOpenShift:           r.isOpenShift,
 			HasCertManager:        r.hasCertManager,
 			HasGatewayAPI:         r.hasGatewayAPI,
+			SkipNetworkPolicies:   r.skipNetworkPolicies,
 			ControlPlaneNamespace: r.controlPlaneNamespace,
 			KeycloakClient:        r.keycloakClient,
 			GatewayID:             event.ResourceID,
@@ -328,6 +337,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		IsOpenShift:           r.isOpenShift,
 		HasCertManager:        r.hasCertManager,
 		HasGatewayAPI:         r.hasGatewayAPI,
+		SkipNetworkPolicies:   r.skipNetworkPolicies,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
 		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
