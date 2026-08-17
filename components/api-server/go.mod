@@ -4,12 +4,14 @@ go 1.26.4
 
 require (
 	github.com/go-gormigrate/gormigrate/v2 v2.1.6
+	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/golang/glog v1.2.5
 	github.com/gorilla/mux v1.7.3
 	github.com/onsi/gomega v1.27.1
-	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260803221848-ee905fbd54a8
+	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260805155018-27d5882f5340
 	github.com/segmentio/ksuid v1.0.2
 	github.com/spf13/pflag v1.0.5
+	github.com/yaacov/tree-search-language v0.0.0-20190923184055-1c2dad2e354b
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/resty.v1 v1.12.0
@@ -45,7 +47,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
-	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -89,7 +90,6 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.33.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	github.com/yaacov/tree-search-language v0.0.0-20190923184055-1c2dad2e354b // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
