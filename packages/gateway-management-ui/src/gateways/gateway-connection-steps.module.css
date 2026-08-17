@@ -34,6 +34,17 @@
 .steps :global(.pf-v6-c-code-block__content) {
   padding-inline-end: 3rem;
 }
+
+/*
+ * The one-time setup block ends with the sandbox-policy heredoc, which is far
+ * longer than the commands above it. Cap the block so the actionable commands
+ * (through `cat > vertex-policy.yaml <<'EOF'`) stay visible and the policy body
+ * scrolls within the block instead of pushing the sandbox step below the fold.
+ */
+.scrollable :global(.pf-v6-c-code-block__content) {
+  max-height: 26rem;
+  overflow-y: auto;
+}
 .commandPending {
   background-color: var(--pf-t--global--background--color--primary--default);
   border: var(--pf-t--global--border--width--box--default) solid

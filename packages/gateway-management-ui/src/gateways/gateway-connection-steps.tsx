@@ -7,7 +7,7 @@ import {
   Skeleton,
   Title,
 } from "@patternfly/react-core";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 
 import { messages } from "../messages";
@@ -21,12 +21,15 @@ import styles from "./gateway-connection-steps.module.css";
 function CommandCopy({
   ariaLabel,
   command,
+  scrollable = false,
 }: {
   ariaLabel: string;
   command: string;
+  scrollable?: boolean;
 }) {
   const intl = useIntl();
   const id = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -34,30 +37,48 @@ function CommandCopy({
     setCopied(true);
   };
 
+  // A capped, scrolling code block must be keyboard reachable, or axe flags
+  // `scrollable-region-focusable`. PatternFly does not expose the scroll
+  // container (`.pf-v6-c-code-block__content`), so make it focusable directly.
+  useEffect(() => {
+    if (!scrollable) {
+      return;
+    }
+    const content = containerRef.current?.querySelector<HTMLElement>(
+      ".pf-v6-c-code-block__content",
+    );
+    if (content) {
+      content.tabIndex = 0;
+    }
+  }, [scrollable]);
+
   return (
-    <CodeBlock
-      actions={
-        <CodeBlockAction>
-          <ClipboardCopyButton
-            aria-label={ariaLabel}
-            exitDelay={copied ? 1500 : 600}
-            id={`${id}-copy-button`}
-            maxWidth="110px"
-            onClick={handleCopy}
-            onTooltipHidden={() => {
-              setCopied(false);
-            }}
-            variant="plain"
-          >
-            {copied
-              ? intl.formatMessage(messages.copied)
-              : intl.formatMessage(messages.copy)}
-          </ClipboardCopyButton>
-        </CodeBlockAction>
-      }
-    >
-      <CodeBlockCode id={id}>{command}</CodeBlockCode>
-    </CodeBlock>
+    <div ref={containerRef}>
+      <CodeBlock
+        className={scrollable ? styles.scrollable : undefined}
+        actions={
+          <CodeBlockAction>
+            <ClipboardCopyButton
+              aria-label={ariaLabel}
+              exitDelay={copied ? 1500 : 600}
+              id={`${id}-copy-button`}
+              maxWidth="110px"
+              onClick={handleCopy}
+              onTooltipHidden={() => {
+                setCopied(false);
+              }}
+              variant="plain"
+            >
+              {copied
+                ? intl.formatMessage(messages.copied)
+                : intl.formatMessage(messages.copy)}
+            </ClipboardCopyButton>
+          </CodeBlockAction>
+        }
+      >
+        <CodeBlockCode id={id}>{command}</CodeBlockCode>
+      </CodeBlock>
+    </div>
   );
 }
 
@@ -99,6 +120,7 @@ export function GatewayConnectionSteps({
           <CommandCopy
             ariaLabel={intl.formatMessage(messages.copySetupCommand)}
             command={setupScript}
+            scrollable
           />
         ) : (
           <div
