@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildGatewayAddCommand,
+  buildInferenceSetCommand,
   buildProviderCreateCommand,
   buildSandboxCreateCommand,
-  buildSandboxPolicyCommand,
   buildSetupScript,
+  claudeModel,
   gatewayStatusAppearance,
   isGatewayReadyToConnect,
   sandboxName,
-  sandboxPolicyFileName,
   vertexProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
@@ -108,66 +108,56 @@ describe("gateway connections", () => {
     );
   });
 
-  it("builds the google-cloud provider command pulling ADC and project id", () => {
+  it("builds the google-vertex-ai provider command pulling ADC and project id", () => {
     expect(buildProviderCreateCommand()).toBe(
       `openshell provider create \\
   --name ${vertexProviderName} \\
-  --type google-cloud \\
+  --type google-vertex-ai \\
   --from-gcloud-adc \\
-  --config project_id=$ANTHROPIC_VERTEX_PROJECT_ID \\
-  --config region=global`,
+  --config VERTEX_AI_PROJECT_ID="$ANTHROPIC_VERTEX_PROJECT_ID" \\
+  --config VERTEX_AI_REGION=global`,
     );
   });
 
-  it("creates a sandbox that attaches the provider, forwards Vertex env, and launches claude", () => {
+  it("points inference at the Claude model through the provider", () => {
+    expect(buildInferenceSetCommand()).toBe(
+      `openshell inference set --provider ${vertexProviderName} --model ${claudeModel}`,
+    );
+  });
+
+  it("creates a sandbox that runs claude against the local inference endpoint", () => {
     expect(buildSandboxCreateCommand()).toBe(
       `openshell sandbox create \\
   --name ${sandboxName} \\
-  --provider ${vertexProviderName} \\
-  --env=ANTHROPIC_VERTEX_PROJECT_ID=$ANTHROPIC_VERTEX_PROJECT_ID \\
-  --env=CLAUDE_CODE_USE_VERTEX=1 \\
-  --policy ${sandboxPolicyFileName} \\
-  --no-auto-providers \\
-  -- claude`,
+  --env=ANTHROPIC_BASE_URL=https://inference.local \\
+  --env=ANTHROPIC_API_KEY=unused \\
+  -- claude --bare --model ${claudeModel}`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
       `openshell sandbox create \\
   --name demo \\
-  --provider ${vertexProviderName} \\
-  --env=ANTHROPIC_VERTEX_PROJECT_ID=$ANTHROPIC_VERTEX_PROJECT_ID \\
-  --env=CLAUDE_CODE_USE_VERTEX=1 \\
-  --policy ${sandboxPolicyFileName} \\
-  --no-auto-providers \\
-  -- claude`,
+  --env=ANTHROPIC_BASE_URL=https://inference.local \\
+  --env=ANTHROPIC_API_KEY=unused \\
+  -- claude --bare --model ${claudeModel}`,
     );
   });
 
-  it("writes the sandbox policy as a heredoc bound to the provider", () => {
-    const command = buildSandboxPolicyCommand();
-
-    expect(command.startsWith(`cat > ${sandboxPolicyFileName} <<'EOF'\n`)).toBe(
-      true,
-    );
-    expect(command.endsWith("\nEOF")).toBe(true);
-    expect(command).toContain(`provider: ${vertexProviderName}`);
-    expect(command).toContain('host: "*-aiplatform.googleapis.com"');
-    expect(command).toContain("- { path: /usr/local/bin/claude }");
-  });
-
-  it("combines login, provider, and policy into one setup script when ready", () => {
+  it("combines login, provider, and inference into one setup script when ready", () => {
     const script = buildSetupScript(gateway);
 
     // The three preamble commands are consolidated into a single copyable block.
     expect(script).toContain("--oidc-issuer https://issuer.example.test");
     expect(script).toContain(buildProviderCreateCommand());
-    expect(script).toContain(buildSandboxPolicyCommand());
-    // Ordered login -> provider -> policy so it runs top to bottom.
+    expect(script).toContain(buildInferenceSetCommand());
+    // The policy heredoc is gone; the inference-based flow needs no policy file.
+    expect(script).not.toContain("cat >");
+    // Ordered login -> provider -> inference so it runs top to bottom.
     const loginAt = script?.indexOf("openshell gateway add") ?? -1;
     const providerAt = script?.indexOf("openshell provider create") ?? -1;
-    const policyAt = script?.indexOf(`cat > ${sandboxPolicyFileName}`) ?? -1;
+    const inferenceAt = script?.indexOf("openshell inference set") ?? -1;
     expect(loginAt).toBeGreaterThanOrEqual(0);
     expect(loginAt).toBeLessThan(providerAt);
-    expect(providerAt).toBeLessThan(policyAt);
+    expect(providerAt).toBeLessThan(inferenceAt);
   });
 
   it("withholds the setup script until the gateway is ready to connect", () => {

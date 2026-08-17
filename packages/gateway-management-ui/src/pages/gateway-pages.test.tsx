@@ -282,12 +282,12 @@ describe("gateway shell pages", () => {
       screen.getByRole("heading", { level: 2, name: "Create a sandbox" }),
     ).toBeTruthy();
 
-    // The setup block carries login, provider, and the policy heredoc together.
+    // The setup block carries login, provider, and inference selection together.
     const setupCommand = screen.getByText(/openshell gateway add/, {
       selector: "code",
     });
     expect(setupCommand.textContent).toContain("--from-gcloud-adc");
-    expect(setupCommand.textContent).toContain("cat > vertex-policy.yaml");
+    expect(setupCommand.textContent).toContain("openshell inference set");
     expect(
       screen.getByText(/openshell sandbox create/, { selector: "code" }),
     ).toBeTruthy();

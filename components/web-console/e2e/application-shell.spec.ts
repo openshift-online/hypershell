@@ -311,7 +311,7 @@ test("keeps connection methods on gateway details", async ({
   --name openshell-gateway-test \\
   https://gateway.example.test:443`,
   );
-  expect(setupScript).toContain("cat > vertex-policy.yaml <<'EOF'");
+  expect(setupScript).toContain("openshell inference set");
 
   // Operational configuration and copyable values live under the Details tab.
   await page.getByRole("tab", { name: "Details" }).click();

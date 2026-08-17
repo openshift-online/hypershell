@@ -97,7 +97,7 @@ export const messages = defineMessages({
   connectionSetupDescription: {
     id: "app.gateway.connection.setup.description",
     defaultMessage:
-      "Run these once to log in, add the Claude on Vertex AI provider, and save the sandbox policy file.",
+      "Run these once to log in, add the Claude on Vertex AI provider, and select the model.",
     description: "Supporting text for the one-time setup connection step.",
   },
   connectionSetupTitle: {
