@@ -7,10 +7,11 @@ import {
   Skeleton,
   Title,
 } from "@patternfly/react-core";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { useIntl } from "react-intl";
 
 import { messages } from "../messages";
+import { highlightCommand } from "./command-highlight";
 import {
   buildSandboxCreateCommand,
   buildSetupScript,
@@ -21,64 +22,68 @@ import styles from "./gateway-connection-steps.module.css";
 function CommandCopy({
   ariaLabel,
   command,
-  scrollable = false,
 }: {
   ariaLabel: string;
   command: string;
-  scrollable?: boolean;
 }) {
   const intl = useIntl();
   const id = useId();
-  const containerRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [highlighted, setHighlighted] = useState<string>();
+
+  // Highlight asynchronously so the plain command renders immediately and the
+  // themed markup swaps in once Shiki resolves. Copy always uses the raw
+  // `command`, so highlighting never changes what lands on the clipboard.
+  useEffect(() => {
+    let active = true;
+    void highlightCommand(command).then((html) => {
+      if (active) {
+        setHighlighted(html);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [command]);
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(command);
     setCopied(true);
   };
 
-  // A capped, scrolling code block must be keyboard reachable, or axe flags
-  // `scrollable-region-focusable`. PatternFly does not expose the scroll
-  // container (`.pf-v6-c-code-block__content`), so make it focusable directly.
-  useEffect(() => {
-    if (!scrollable) {
-      return;
-    }
-    const content = containerRef.current?.querySelector<HTMLElement>(
-      ".pf-v6-c-code-block__content",
-    );
-    if (content) {
-      content.tabIndex = 0;
-    }
-  }, [scrollable]);
-
   return (
-    <div ref={containerRef}>
-      <CodeBlock
-        className={scrollable ? styles.scrollable : undefined}
-        actions={
-          <CodeBlockAction>
-            <ClipboardCopyButton
-              aria-label={ariaLabel}
-              exitDelay={copied ? 1500 : 600}
-              id={`${id}-copy-button`}
-              maxWidth="110px"
-              onClick={handleCopy}
-              onTooltipHidden={() => {
-                setCopied(false);
-              }}
-              variant="plain"
-            >
-              {copied
-                ? intl.formatMessage(messages.copied)
-                : intl.formatMessage(messages.copy)}
-            </ClipboardCopyButton>
-          </CodeBlockAction>
-        }
-      >
+    <CodeBlock
+      actions={
+        <CodeBlockAction>
+          <ClipboardCopyButton
+            aria-label={ariaLabel}
+            exitDelay={copied ? 1500 : 600}
+            id={`${id}-copy-button`}
+            maxWidth="110px"
+            onClick={handleCopy}
+            onTooltipHidden={() => {
+              setCopied(false);
+            }}
+            variant="plain"
+          >
+            {copied
+              ? intl.formatMessage(messages.copied)
+              : intl.formatMessage(messages.copy)}
+          </ClipboardCopyButton>
+        </CodeBlockAction>
+      }
+    >
+      {highlighted ? (
+        <div
+          className={styles.highlighted}
+          // Shiki output is derived from the trusted `command` string above;
+          // it is display-only markup, so injecting it as HTML is safe.
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
+      ) : (
         <CodeBlockCode id={id}>{command}</CodeBlockCode>
-      </CodeBlock>
-    </div>
+      )}
+    </CodeBlock>
   );
 }
 
@@ -120,7 +125,6 @@ export function GatewayConnectionSteps({
           <CommandCopy
             ariaLabel={intl.formatMessage(messages.copySetupCommand)}
             command={setupScript}
-            scrollable
           />
         ) : (
           <div

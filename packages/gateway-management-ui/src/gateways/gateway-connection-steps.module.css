@@ -36,15 +36,32 @@
 }
 
 /*
- * The one-time setup block ends with the sandbox-policy heredoc, which is far
- * longer than the commands above it. Cap the block so the actionable commands
- * (through `cat > vertex-policy.yaml <<'EOF'`) stay visible and the policy body
- * scrolls within the block instead of pushing the sandbox step below the fold.
+ * When Shiki highlights a block it replaces the plain <code> with its own
+ * <pre class="shiki">; let that pre supply padding (leaving room for the copy
+ * button) so the highlighted markup fills the content surface.
  */
-.scrollable :global(.pf-v6-c-code-block__content) {
-  max-height: 26rem;
-  overflow-y: auto;
+.steps :global(.pf-v6-c-code-block__content):has(.highlighted) {
+  padding: 0;
 }
+
+.highlighted :global(.shiki) {
+  margin: 0;
+  padding-block: var(--pf-t--global--spacer--md);
+  padding-inline: var(--pf-t--global--spacer--md) 3rem;
+  overflow-x: auto;
+}
+
+/*
+ * Shiki emits light colors inline and the dark palette as `--shiki-dark` CSS
+ * variables. Activate the dark palette (foreground and its paired background)
+ * under PatternFly's dark theme so contrast stays AA in both themes.
+ */
+:global(html.pf-v6-theme-dark) .highlighted :global(.shiki),
+:global(html.pf-v6-theme-dark) .highlighted :global(.shiki span) {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+
 .commandPending {
   background-color: var(--pf-t--global--background--color--primary--default);
   border: var(--pf-t--global--border--width--box--default) solid
