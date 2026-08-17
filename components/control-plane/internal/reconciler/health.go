@@ -93,13 +93,16 @@ func (h *GatewayHealthReconciler) Run(ctx context.Context) error {
 
 func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 	client := pb.NewGatewayServiceClient(h.grpcConn)
-	resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{})
+	// Page through the whole fleet: the list endpoint is server-side paginated
+	// (default page size 20), so an unpaged request would only ever refresh the
+	// health and active_sandbox_count of the first page of gateways.
+	gateways, err := listAllGateways(ctx, client)
 	if err != nil {
 		log.Printf("WARN gateway health: list gateways: %v", err)
 		return
 	}
 
-	for _, gw := range resp.GetItems() {
+	for _, gw := range gateways {
 		h.reconcileGatewayHealth(ctx, client, gw)
 	}
 }

@@ -84,16 +84,30 @@ func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
 func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	// Build the set of namespaces backed by a live Gateway. If we cannot list
 	// gateways we must abort the whole sweep: an empty or failed list would make
-	// every managed namespace look orphaned and risk reaping live ones.
+	// every managed namespace look orphaned and risk reaping live ones. The list
+	// is paginated, so page through the entire fleet; a truncated (first-page)
+	// view would omit later gateways from the live set and orphan their live
+	// namespaces.
 	client := pb.NewGatewayServiceClient(r.grpcConn)
-	resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{})
+	gateways, err := listAllGateways(ctx, client)
 	if err != nil {
 		log.Printf("WARN namespace gc: list gateways: %v", err)
 		return
 	}
-	live := make(map[string]struct{})
-	for _, gw := range resp.GetItems() {
-		live[gatewayNamespace(gw)] = struct{}{}
+	live := make(map[string]struct{}, len(gateways))
+	for _, gw := range gateways {
+		// This is a destructive path: the live set must key on the real
+		// namespace, never a synthesized guess. A live gateway with no namespace
+		// means we cannot know which namespace backs it, so building the set
+		// without it would risk reaping a namespace that is actually in use.
+		// Abort the whole sweep rather than guess (do not fall back to
+		// gatewayNamespace here).
+		ns := gw.GetNamespace()
+		if ns == "" {
+			log.Printf("WARN namespace gc: gateway %s has no namespace; aborting sweep to avoid reaping a live namespace", gw.GetMetadata().GetId())
+			return
+		}
+		live[ns] = struct{}{}
 	}
 
 	namespaces, err := r.client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{

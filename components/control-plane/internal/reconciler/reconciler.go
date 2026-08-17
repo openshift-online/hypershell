@@ -416,6 +416,38 @@ func gatewayNamespace(gw *pb.Gateway) string {
 	return fmt.Sprintf("openshell-%s", gw.GetName())
 }
 
+// gatewayListPageSize is the page size the reconcilers use when paging through
+// the full gateway inventory over gRPC. It matches the API server's maximum
+// page size so the common (small-fleet) case completes in a single request.
+const gatewayListPageSize = 500
+
+// listAllGateways pages through the gRPC gateway inventory and returns every
+// gateway. The list endpoint is server-side paginated (default page size 20),
+// so callers that must reason about the whole fleet (the namespace reaper and
+// the health reconciler) cannot rely on a single unpaged request.
+func listAllGateways(ctx context.Context, client pb.GatewayServiceClient) ([]*pb.Gateway, error) {
+	var all []*pb.Gateway
+	for page := int32(1); ; page++ {
+		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{
+			Page: page,
+			Size: gatewayListPageSize,
+		})
+		if err != nil {
+			return nil, err
+		}
+		items := resp.GetItems()
+		all = append(all, items...)
+
+		// Stop once we've collected the whole set (authoritative Total), or the
+		// server returns a short/empty page. The latter two are defensive so a
+		// misreported Total can never spin this loop forever.
+		total := int(resp.GetMetadata().GetTotal())
+		if len(items) == 0 || len(items) < gatewayListPageSize || (total > 0 && len(all) >= total) {
+			return all, nil
+		}
+	}
+}
+
 // updateGatewayHealth sets the Gateway `phase` and `status` together in a single
 // gRPC update so the console and CLI observe a consistent lifecycle state and
 // health descriptor.
