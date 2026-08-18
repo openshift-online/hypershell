@@ -1,4 +1,5 @@
-import { Content, Skeleton, Title } from "@patternfly/react-core";
+import { Button, Content, Skeleton, Title } from "@patternfly/react-core";
+import { ExternalLinkAltIcon } from "@patternfly/react-icons";
 import { type ReactNode, useState } from "react";
 import { useIntl } from "react-intl";
 
@@ -9,6 +10,7 @@ import {
   buildSetupScript,
   claudeModel,
   type GatewayConnection,
+  installDocsUrl,
   sandboxName as defaultSandboxName,
   vertexProviderName,
 } from "./gateway-connections";
@@ -64,63 +66,83 @@ export function GatewayConnectionSteps({
   const setupCopy = buildSetupScript(gateway, { model, providerName });
 
   return (
-    <ol className={styles.steps}>
-      <ConnectionStep
-        description={intl.formatMessage(messages.connectionSetupDescription)}
-        title={intl.formatMessage(messages.connectionSetupTitle)}
-      >
-        {setupTemplate && setupCopy ? (
-          <EditableCommand
-            copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
-            copyText={setupCopy}
-            labels={{
-              [modelMarker]: intl.formatMessage(messages.editModel),
-              [providerMarker]: intl.formatMessage(messages.editProviderName),
-            }}
-            markers={setupMarkers}
-            onFieldChange={(marker, value) => {
-              if (marker === providerMarker) {
-                setProviderName(value);
-              } else if (marker === modelMarker) {
-                setModel(value);
-              }
-            }}
-            templateCommand={setupTemplate}
-            values={{ [modelMarker]: model, [providerMarker]: providerName }}
-          />
-        ) : (
-          <div
-            aria-label={intl.formatMessage(messages.connectionLoginUnavailable)}
-            className={styles.commandPending}
-            role="status"
-          >
-            <Skeleton width="52%" />
-            <Skeleton width="38%" />
-            <Skeleton width="72%" />
-            <Skeleton width="35%" />
-            <Skeleton width="58%" />
-          </div>
-        )}
-      </ConnectionStep>
+    <>
+      <Content component="p">
+        <Button
+          component="a"
+          href={installDocsUrl}
+          icon={<ExternalLinkAltIcon />}
+          iconPosition="end"
+          isInline
+          rel="noopener noreferrer"
+          target="_blank"
+          variant="link"
+        >
+          {intl.formatMessage(messages.connectionInstallLink)}
+        </Button>
+      </Content>
+      <ol className={styles.steps}>
+        <ConnectionStep
+          description={intl.formatMessage(messages.connectionSetupDescription)}
+          title={intl.formatMessage(messages.connectionSetupTitle)}
+        >
+          {setupTemplate && setupCopy ? (
+            <EditableCommand
+              copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
+              copyText={setupCopy}
+              labels={{
+                [modelMarker]: intl.formatMessage(messages.editModel),
+                [providerMarker]: intl.formatMessage(messages.editProviderName),
+              }}
+              markers={setupMarkers}
+              onFieldChange={(marker, value) => {
+                if (marker === providerMarker) {
+                  setProviderName(value);
+                } else if (marker === modelMarker) {
+                  setModel(value);
+                }
+              }}
+              templateCommand={setupTemplate}
+              values={{ [modelMarker]: model, [providerMarker]: providerName }}
+            />
+          ) : (
+            <div
+              aria-label={intl.formatMessage(
+                messages.connectionLoginUnavailable,
+              )}
+              className={styles.commandPending}
+              role="status"
+            >
+              <Skeleton width="52%" />
+              <Skeleton width="38%" />
+              <Skeleton width="72%" />
+              <Skeleton width="35%" />
+              <Skeleton width="58%" />
+            </div>
+          )}
+        </ConnectionStep>
 
-      <ConnectionStep
-        description={intl.formatMessage(messages.connectionSandboxDescription)}
-        title={intl.formatMessage(messages.connectionSandboxTitle)}
-      >
-        <EditableCommand
-          copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
-          copyText={buildSandboxCreateCommand(sandboxName, model)}
-          labels={{
-            [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
-          }}
-          markers={sandboxMarkers}
-          onFieldChange={(_marker, value) => {
-            setSandboxName(value);
-          }}
-          templateCommand={buildSandboxCreateCommand(sandboxMarker, model)}
-          values={{ [sandboxMarker]: sandboxName }}
-        />
-      </ConnectionStep>
-    </ol>
+        <ConnectionStep
+          description={intl.formatMessage(
+            messages.connectionSandboxDescription,
+          )}
+          title={intl.formatMessage(messages.connectionSandboxTitle)}
+        >
+          <EditableCommand
+            copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
+            copyText={buildSandboxCreateCommand(sandboxName, model)}
+            labels={{
+              [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
+            }}
+            markers={sandboxMarkers}
+            onFieldChange={(_marker, value) => {
+              setSandboxName(value);
+            }}
+            templateCommand={buildSandboxCreateCommand(sandboxMarker, model)}
+            values={{ [sandboxMarker]: sandboxName }}
+          />
+        </ConnectionStep>
+      </ol>
+    </>
   );
 }

@@ -76,6 +76,12 @@ export const messages = defineMessages({
     defaultMessage: "Region: {region}",
     description: "Region context that distinguishes a managed cluster option.",
   },
+  connectionInstallLink: {
+    id: "app.gateway.connection.installLink",
+    defaultMessage: "Install the OpenShell CLI",
+    description:
+      "Link text pointing to the NVIDIA OpenShell installation documentation.",
+  },
   connectionLoginUnavailable: {
     id: "app.gateway.connection.login.unavailable",
     defaultMessage:

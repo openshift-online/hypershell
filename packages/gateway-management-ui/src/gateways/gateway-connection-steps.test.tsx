@@ -7,6 +7,7 @@ import { GatewayConnectionSteps } from "./gateway-connection-steps";
 import {
   buildSandboxCreateCommand,
   type GatewayConnection,
+  installDocsUrl,
 } from "./gateway-connections";
 
 const readyGateway: GatewayConnection = {
@@ -40,6 +41,18 @@ describe("GatewayConnectionSteps", () => {
     expect(
       screen.getByRole("heading", { name: "Create a sandbox" }),
     ).toBeTruthy();
+  });
+
+  it("renders an install docs link that opens in a new tab", () => {
+    renderSteps(readyGateway);
+
+    const link = screen.getByRole("link", {
+      name: /Install the OpenShell CLI/,
+    });
+    expect(link).toBeTruthy();
+    expect(link.getAttribute("href")).toBe(installDocsUrl);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
   });
 
   it("highlights both command blocks with Shiki once they resolve", async () => {
