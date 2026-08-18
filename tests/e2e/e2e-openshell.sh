@@ -128,6 +128,7 @@ printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
 printf '  %s\n' "8. Sandbox interaction"
 printf '  %s\n' "9. Developer user RBAC verification"
+printf '  %s\n' "10. Platform admin RBAC verification"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  HyperShell API:    ${API_HOST}"
@@ -135,6 +136,7 @@ dim  "  Gateway name:      ${GW_NAME}"
 dim  "  OIDC issuer:       ${E2E_OIDC_ISSUER}"
 dim  "  Admin user:        ${E2E_OIDC_USERNAME}"
 dim  "  Developer user:    ${E2E_DEV_USERNAME}"
+dim  "  Platform admin:    ${E2E_PLATFORM_ADMIN_USERNAME}"
 dim  "  Sandbox timeout:   ${E2E_SANDBOX_TIMEOUT}s"
 echo ""
 sep
@@ -1111,6 +1113,153 @@ print(json.dumps(body))
   rm -f "${DEV_GW_RESP_FILE}" 2>/dev/null || true
 
   "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
+fi
+sep
+
+# ── 10. platform admin RBAC verification ─────────────────────────────────
+
+echo ""
+bold "10. Platform Admin RBAC Verification"
+echo ""
+
+# The platform:admin role is a realm role (not a client role) assigned in Keycloak.
+# Platform admins can view all gateways and delete any gateway, but cannot modify
+# gateways they don't own or create gateways without gateway:creator.
+
+# Assign platform:admin realm role to the platform admin user
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
+  show_cmd "# assign platform:admin realm role to ${E2E_PLATFORM_ADMIN_USERNAME}"
+  if assign_realm_role "$E2E_PLATFORM_ADMIN_USERNAME" "platform:admin"; then
+    pass "Platform admin granted platform:admin realm role"
+  else
+    fail_test "Failed to grant platform:admin realm role"
+  fi
+fi
+
+# Acquire OIDC token for platform admin
+show_cmd "# acquire OIDC token for platform admin (user: ${E2E_PLATFORM_ADMIN_USERNAME})"
+acquire_oidc_token "$E2E_PLATFORM_ADMIN_USERNAME" "$E2E_PLATFORM_ADMIN_PASSWORD"
+PADMIN_TOKEN="${_OIDC_ACCESS_TOKEN}"
+if [[ -n "$PADMIN_TOKEN" ]]; then
+  pass "Platform admin OIDC token acquired (user: ${E2E_PLATFORM_ADMIN_USERNAME})"
+else
+  fail_test "Failed to acquire platform admin OIDC token"
+fi
+
+if [[ -n "$PADMIN_TOKEN" ]]; then
+  # ── positive assertion: platform:admin can list all gateways ──
+  show_cmd "curl -H 'Authorization: Bearer ...' ${API_HOST}/api/hypershell/v1/gateways"
+  dim "  Expecting 200 OK (platform:admin can view all gateways)..."
+
+  PADMIN_LIST_FILE=$(mktemp)
+  PADMIN_LIST_STATUS=$(curl -sk -o "${PADMIN_LIST_FILE}" -w '%{http_code}' \
+    -H "Authorization: Bearer ${PADMIN_TOKEN}" \
+    "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
+  PADMIN_LIST_RESP=$(cat "${PADMIN_LIST_FILE}" 2>/dev/null || true)
+
+  if [[ "$PADMIN_LIST_STATUS" == "200" ]]; then
+    PADMIN_GW_COUNT=$(echo "$PADMIN_LIST_RESP" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('items',[])))" 2>/dev/null || echo "0")
+    pass "Platform admin: can list all gateways (HTTP 200, ${PADMIN_GW_COUNT} gateways)"
+  else
+    fail_test "Platform admin: gateway list denied (HTTP ${PADMIN_LIST_STATUS:-none})"
+    dim "    ${PADMIN_LIST_RESP:0:200}"
+  fi
+  rm -f "${PADMIN_LIST_FILE}" 2>/dev/null || true
+
+  # ── positive assertion: platform:admin can delete gateway they don't own ──
+  # The platform admin user has NOT been granted gateway:owner on the e2e gateway
+  # created by the admin user, but should still be able to delete it via platform:admin.
+  show_cmd "curl -X DELETE ${API_HOST}/api/hypershell/v1/gateways/${GW_ID} (as platform admin)"
+  dim "  Expecting 204 No Content (platform:admin can delete gateways they don't own)..."
+
+  # Before deleting, verify platform admin is NOT the owner by checking role bindings
+  show_cmd "# verify platform admin has NO owner binding on ${GW_NAME}"
+  PADMIN_BINDINGS_FILE=$(mktemp)
+  PADMIN_BINDINGS_STATUS=$(curl -sk -o "${PADMIN_BINDINGS_FILE}" -w '%{http_code}' \
+    -H "Authorization: Bearer ${PADMIN_TOKEN}" \
+    "${API_HOST}/api/hypershell/v1/role_bindings?gateway_id=${GW_ID}" 2>/dev/null || true)
+
+  if [[ "$PADMIN_BINDINGS_STATUS" == "200" ]]; then
+    PADMIN_HAS_OWNER=$(echo "$(cat "${PADMIN_BINDINGS_FILE}")" | python3 -c "
+import json,sys
+bindings = json.load(sys.stdin).get('items',[])
+has_owner = any(b.get('role_id','').endswith('owner') for b in bindings)
+print('true' if has_owner else 'false')
+" 2>/dev/null || echo "false")
+
+    if [[ "$PADMIN_HAS_OWNER" == "false" ]]; then
+      pass "Platform admin has NO gateway:owner binding on ${GW_NAME} (verified)"
+    else
+      fail_test "Platform admin unexpectedly has gateway:owner binding (test setup issue)"
+    fi
+  fi
+  rm -f "${PADMIN_BINDINGS_FILE}" 2>/dev/null || true
+
+  # Now attempt delete as platform admin
+  PADMIN_DELETE_FILE=$(mktemp)
+  PADMIN_DELETE_STATUS=$(curl -sk -o "${PADMIN_DELETE_FILE}" -w '%{http_code}' \
+    -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" \
+    -H "Authorization: Bearer ${PADMIN_TOKEN}" 2>/dev/null || true)
+  PADMIN_DELETE_RESP=$(cat "${PADMIN_DELETE_FILE}" 2>/dev/null || true)
+
+  if [[ "$PADMIN_DELETE_STATUS" == "204" ]]; then
+    pass "Platform admin: can delete gateway without ownership (HTTP 204)"
+    # Clear GW_ID so cleanup trap doesn't try to delete it again
+    GW_ID=""
+  else
+    fail_test "Platform admin: gateway delete denied (HTTP ${PADMIN_DELETE_STATUS:-none})"
+    dim "    ${PADMIN_DELETE_RESP:0:200}"
+  fi
+  rm -f "${PADMIN_DELETE_FILE}" 2>/dev/null || true
+
+  # ── negative assertion: platform:admin cannot create gateways without gateway:creator ──
+  PADMIN_GW_CREATE_NAME="e2e-padmin-gw-$(date +%s | tail -c5)"
+  PADMIN_GW_BODY=$(GW_NAME="$PADMIN_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+import json, os
+body = {
+    'name': os.environ['GW_NAME'],
+    'fleet_id': 'e2e-fleet',
+    'cluster_id': 'e2e-cluster',
+    'release_id': 'e2e-release',
+    'database_id': 'e2e-database',
+    'oidc': json.dumps({
+        'issuer': os.environ['E2E_OIDC_ISSUER'],
+        'audience': os.environ['E2E_OIDC_CLIENT_ID'],
+        'roles_claim': 'groups',
+        'admin_role': 'hypershell-admins',
+        'user_role': 'hypershell-users'
+    }),
+    'route': json.dumps({'enabled': True})
+}
+print(json.dumps(body))
+")
+  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 403"
+  dim "  Expecting 403 Forbidden (platform:admin lacks gateway:creator)..."
+
+  PADMIN_CREATE_FILE=$(mktemp)
+  PADMIN_CREATE_STATUS=$(curl -sk -o "${PADMIN_CREATE_FILE}" -w '%{http_code}' \
+    -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+    -H "Authorization: Bearer ${PADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "${PADMIN_GW_BODY}" 2>/dev/null || true)
+  PADMIN_CREATE_RESP=$(cat "${PADMIN_CREATE_FILE}" 2>/dev/null || true)
+
+  if [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
+    pass "Platform admin: gateway create correctly denied (403 Forbidden)"
+  elif [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
+    fail_test "Platform admin: RBAC not enforced -- platform:admin created gateway without gateway:creator (HTTP ${PADMIN_CREATE_STATUS})"
+    # Clean up wrongly created gateway
+    PADMIN_BAD_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+    if [[ -n "$PADMIN_BAD_GW_ID" ]]; then
+      curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_BAD_GW_ID}" \
+        -H "Authorization: Bearer ${PADMIN_TOKEN}" &>/dev/null || true
+    fi
+  else
+    fail_test "Platform admin: gateway create did not return 403 (got HTTP ${PADMIN_CREATE_STATUS:-none})"
+    dim "    ${PADMIN_CREATE_RESP:0:200}"
+  fi
+  rm -f "${PADMIN_CREATE_FILE}" 2>/dev/null || true
 fi
 sep
 
