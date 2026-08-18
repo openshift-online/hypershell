@@ -149,31 +149,100 @@ const maxAttributes = 1_024;
 const maxEvents = 1_024;
 const maxLinks = 1_024;
 
+// Bounds on the nesting shape itself. A recursive AnyValue nested thousands of
+// levels deep would drive the recursive schema past the JavaScript call-stack
+// limit and throw a RangeError instead of returning a validation failure. An
+// iterative pre-pass caps nesting depth (so the schema recursion stays shallow)
+// and total node count before any recursive validation runs.
+const maxStructuralDepth = 64;
+const maxStructuralNodes = 1_000_000;
+
+/**
+ * Verifies the payload's object graph stays within a bounded nesting depth and
+ * node count, walking it with an explicit stack so the check itself never
+ * recurses. Rejecting an over-deep payload here keeps the recursive AnyValue
+ * schema from being driven past the call-stack limit, where it would throw
+ * rather than return a rejection.
+ */
+function withinStructuralBudget(payload: unknown): boolean {
+  const stack: { depth: number; node: unknown }[] = [
+    { depth: 0, node: payload },
+  ];
+  let nodes = 0;
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (entry === undefined) {
+      break;
+    }
+    nodes += 1;
+    if (nodes > maxStructuralNodes || entry.depth > maxStructuralDepth) {
+      return false;
+    }
+    const { depth, node } = entry;
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        stack.push({ depth: depth + 1, node: child });
+      }
+    } else if (node !== null && typeof node === "object") {
+      for (const child of Object.values(node)) {
+        stack.push({ depth: depth + 1, node: child });
+      }
+    }
+  }
+  return true;
+}
+
 // Trace and span ids are hex-encoded in the OTLP/HTTP JSON the OpenTelemetry JS
 // exporter emits (16- and 8-byte identifiers), not the base64 the generic proto3
 // JSON mapping would use for bytes.
 const traceIdHex = z.string().regex(/^[0-9a-f]{32}$/iu);
 const spanIdHex = z.string().regex(/^[0-9a-f]{16}$/iu);
-// Nanosecond timestamps are decimal strings (values exceed the safe integer
-// range) but a small value may still arrive as a JSON number.
-const unixNano = z.union([z.string().regex(/^\d+$/u), z.number()]);
+// proto3 JSON scalar encodings, enforced so a wrong-typed value is rejected
+// rather than relayed. A uint64/fixed64 nanosecond timestamp is a decimal string
+// (values exceed the safe integer range) or a JSON number when small; a uint32
+// (dropped counts, fixed32 flags) is a bounded non-negative integer; a signed
+// int64 (AnyValue intValue) is a decimal string or an integer number; a double
+// is a JSON number or one of the proto3 special-value strings; bytes are base64.
+const uint32 = z.number().int().min(0).max(4_294_967_295);
+const unixNano = z.union([
+  z.string().regex(/^\d+$/u),
+  z.number().int().nonnegative(),
+]);
+const int64Json = z.union([z.string().regex(/^-?\d+$/u), z.number().int()]);
+const doubleJson = z.union([
+  z.number(),
+  z.enum(["NaN", "Infinity", "-Infinity"]),
+]);
+const base64 = z
+  .string()
+  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u);
 
-// AnyValue is recursive: an array or kvlist value nests further values, so the
-// value and key-value schemas reference each other through z.lazy.
+// AnyValue is a proto3 oneof: at most one value field may be set, and each is
+// carried in its proto3 JSON encoding. It is recursive -- an array or kvlist
+// value nests further values -- so the value and key-value schemas reference
+// each other through z.lazy.
 const anyValueSchema: z.ZodType = z.lazy(() =>
-  z.object({
-    stringValue: z.string().optional(),
-    boolValue: z.boolean().optional(),
-    intValue: z.union([z.string(), z.number()]).optional(),
-    doubleValue: z.number().optional(),
-    bytesValue: z.string().optional(),
-    arrayValue: z
-      .object({ values: z.array(anyValueSchema).max(maxAttributes) })
-      .optional(),
-    kvlistValue: z
-      .object({ values: z.array(keyValueSchema).max(maxAttributes) })
-      .optional(),
-  }),
+  z
+    .object({
+      stringValue: z.string().optional(),
+      boolValue: z.boolean().optional(),
+      intValue: int64Json.optional(),
+      doubleValue: doubleJson.optional(),
+      bytesValue: base64.optional(),
+      arrayValue: z
+        .object({ values: z.array(anyValueSchema).max(maxAttributes) })
+        .optional(),
+      kvlistValue: z
+        .object({ values: z.array(keyValueSchema).max(maxAttributes) })
+        .optional(),
+    })
+    .refine(
+      (value) =>
+        Object.values(value as Record<string, unknown>).filter(
+          (field) => field !== undefined,
+        ).length <= 1,
+      { message: "AnyValue must set at most one value field" },
+    ),
 );
 const keyValueSchema: z.ZodType = z.lazy(() =>
   z.object({ key: z.string(), value: anyValueSchema.optional() }),
@@ -185,20 +254,21 @@ const spanSchema = z.object({
   spanId: spanIdHex,
   traceState: z.string().optional(),
   parentSpanId: spanIdHex.optional(),
-  flags: z.number().optional(),
+  flags: uint32.optional(),
   name: z.string(),
-  kind: z.number().optional(),
+  // SpanKind is a proto enum, 0 (unspecified) through 5 (consumer).
+  kind: z.number().int().min(0).max(5).optional(),
   startTimeUnixNano: unixNano.optional(),
   endTimeUnixNano: unixNano.optional(),
   attributes: attributesSchema,
-  droppedAttributesCount: z.number().optional(),
+  droppedAttributesCount: uint32.optional(),
   events: z
     .array(
       z.object({
         timeUnixNano: unixNano.optional(),
         name: z.string().optional(),
         attributes: attributesSchema,
-        droppedAttributesCount: z.number().optional(),
+        droppedAttributesCount: uint32.optional(),
       }),
     )
     .max(maxEvents)
@@ -210,14 +280,18 @@ const spanSchema = z.object({
         spanId: spanIdHex.optional(),
         traceState: z.string().optional(),
         attributes: attributesSchema,
-        droppedAttributesCount: z.number().optional(),
-        flags: z.number().optional(),
+        droppedAttributesCount: uint32.optional(),
+        flags: uint32.optional(),
       }),
     )
     .max(maxLinks)
     .optional(),
   status: z
-    .object({ message: z.string().optional(), code: z.number().optional() })
+    .object({
+      message: z.string().optional(),
+      // Status code is a proto enum, 0 (unset) through 2 (error).
+      code: z.number().int().min(0).max(2).optional(),
+    })
     .optional(),
 });
 
@@ -228,7 +302,7 @@ const otlpTracePayloadSchema = z.object({
         resource: z
           .object({
             attributes: attributesSchema,
-            droppedAttributesCount: z.number().optional(),
+            droppedAttributesCount: uint32.optional(),
           })
           .optional(),
         scopeSpans: z
@@ -239,7 +313,7 @@ const otlpTracePayloadSchema = z.object({
                   name: z.string().optional(),
                   version: z.string().optional(),
                   attributes: attributesSchema,
-                  droppedAttributesCount: z.number().optional(),
+                  droppedAttributesCount: uint32.optional(),
                 })
                 .optional(),
               spans: z.array(spanSchema).max(maxSpans).optional(),
@@ -257,15 +331,28 @@ const otlpTracePayloadSchema = z.object({
 /**
  * Validates the OTLP/HTTP trace envelope against the supported subset of the
  * OTLP JSON schema -- not merely the three container arrays, but every nested
- * message and scalar: span ids are hex, timestamps are nanosecond encodings,
- * attributes are KeyValue lists of typed AnyValue, and status, events, and links
- * match their proto shapes, all under fixed bounds. Unknown forward-compatible
- * keys are ignored, but a wrong-typed known field is rejected before the payload
- * reaches the collector, rather than accepted and relayed only for the collector
- * to reject it after the browser was told the export succeeded (WEB-TRACE-02).
+ * message and scalar in its proto3 JSON encoding: span ids are hex, timestamps
+ * are nanosecond encodings, counts and flags are bounded uint32s, an AnyValue is
+ * a oneof of typed values, and status, events, and links match their proto
+ * shapes, all under fixed bounds. A bounded structural pre-pass caps nesting
+ * depth so the recursive schema cannot overflow the stack, and any validator
+ * exception is converted to a rejection. Unknown forward-compatible keys are
+ * ignored, but a wrong-typed or malformed known field is rejected before the
+ * payload reaches the collector, rather than accepted and relayed only for the
+ * collector to reject it after the browser was told the export succeeded
+ * (WEB-TRACE-02).
  */
 function isOtlpTracePayload(payload: unknown): boolean {
-  return otlpTracePayloadSchema.safeParse(payload).success;
+  try {
+    return (
+      withinStructuralBudget(payload) &&
+      otlpTracePayloadSchema.safeParse(payload).success
+    );
+  } catch {
+    // A validator exception (for example a call-stack overflow on a shape the
+    // budget somehow admitted) is a rejection, never a relay.
+    return false;
+  }
 }
 
 const exportBackstopTimeoutMs = 15_000;
@@ -300,7 +387,10 @@ function deliveryHealthMeterProvider(
       add(value: number, attributes?: Attributes): void {
         const errorType = attributes?.[ATTR_ERROR_TYPE];
         if (typeof errorType === "string") {
-          health.spanExportFailures += 1;
+          // The processor reports the measurement as the number of spans lost in
+          // this batch, so the tally advances by that count rather than by one:
+          // a failed multi-span batch must not be undercounted as a single span.
+          health.spanExportFailures += value;
           health.lastErrorType = errorType;
         }
         inner.add(value, attributes);
@@ -364,7 +454,19 @@ function backstopExporter(
         error.name = "SpanExportTimeout";
         settle({ code: ExportResultCode.FAILED, error });
       }, timeoutMs);
-      inner.export(spans, settle);
+      // A synchronous throw from the inner exporter would otherwise bypass the
+      // callback entirely, so the loss would go unaccounted until the timer
+      // fired (or never, at shutdown). Normalize the throw into a FAILED result
+      // and settle it now, routing it through the processor's finish path (and
+      // so the self-observation meter) exactly once.
+      try {
+        inner.export(spans, settle);
+      } catch (thrown) {
+        settle({
+          code: ExportResultCode.FAILED,
+          error: thrown instanceof Error ? thrown : new Error(String(thrown)),
+        });
+      }
     },
     forceFlush: () => inner.forceFlush?.() ?? Promise.resolve(),
     shutdown: () => inner.shutdown(),

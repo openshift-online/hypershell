@@ -194,7 +194,19 @@ export function backstopExporter(
         error.name = "SpanExportTimeout";
         settle({ code: ExportResultCode.FAILED, error });
       }, timeoutMs);
-      inner.export(spans, settle);
+      // A synchronous throw from the inner exporter would otherwise bypass the
+      // callback entirely, so the loss would go unaccounted until the timer
+      // fired (or never, at shutdown). Normalize the throw into a FAILED result
+      // and settle it now, routing it through the processor's finish path (and
+      // so the self-observation meter) exactly once.
+      try {
+        inner.export(spans, settle);
+      } catch (thrown) {
+        settle({
+          code: ExportResultCode.FAILED,
+          error: thrown instanceof Error ? thrown : new Error(String(thrown)),
+        });
+      }
     },
     forceFlush: () => inner.forceFlush?.() ?? Promise.resolve(),
     shutdown: () => inner.shutdown(),

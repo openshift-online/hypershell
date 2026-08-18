@@ -505,4 +505,50 @@ describe("createGatewayTracing delivery health", () => {
       vi.useRealTimers();
     }
   });
+
+  it("reports a synchronous exporter throw as a delivery failure", async () => {
+    // The exporter throws instead of calling back. Without the backstop's throw
+    // guard the loss would bypass settlement and go entirely unaccounted.
+    const throwingExporter: SpanExporter = {
+      export: () => {
+        const error = new Error("exporter blew up");
+        error.name = "SyncExportError";
+        throw error;
+      },
+      forceFlush: () => Promise.resolve(),
+      shutdown: () => Promise.resolve(),
+    };
+    const failures: Readonly<ProbeDeliveryFailure>[] = [];
+    const processorConfig: BufferConfig & {
+      selfObsMeterProvider?: MeterProvider;
+    } = {
+      maxExportBatchSize: 1,
+      scheduledDelayMillis: 1,
+      selfObsMeterProvider: deliveryHealthMeterProvider((failure) =>
+        failures.push(failure),
+      ),
+    };
+    const provider = new BasicTracerProvider({
+      sampler: new AlwaysOnSampler(),
+      spanProcessors: [
+        new BatchSpanProcessor(
+          backstopExporter(throwingExporter, 15_000),
+          processorConfig,
+        ),
+      ],
+    });
+    const tracer = provider.getTracer("throwing-test");
+    tracer.startSpan("thrown").end();
+
+    await provider.forceFlush().catch(() => undefined);
+
+    expect(failures).toEqual([
+      {
+        errorType: "SyncExportError",
+        probeName: "gateway.trace.export",
+        schemaVersion: 0,
+        sinkId: "gateway-trace",
+      },
+    ]);
+  });
 });

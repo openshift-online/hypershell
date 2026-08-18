@@ -336,6 +336,13 @@ describe("BFF OTLP nested-field validation", () => {
       { ...validSpan, attributes: [{ value: { stringValue: "x" } }] },
     ],
     ["a non-numeric span kind", { ...validSpan, kind: "server" }],
+    ["an out-of-range span kind", { ...validSpan, kind: 99 }],
+    ["an out-of-range status code", { ...validSpan, status: { code: 7 } }],
+    [
+      "a negative dropped-attributes count",
+      { ...validSpan, droppedAttributesCount: -1 },
+    ],
+    ["a non-integer flags value", { ...validSpan, flags: 1.5 }],
     [
       "a malformed nanosecond timestamp",
       { ...validSpan, startTimeUnixNano: "12:00" },
@@ -347,6 +354,70 @@ describe("BFF OTLP nested-field validation", () => {
     await expect(tracing.ingestTraces(envelope(span))).resolves.toBe(
       "rejected",
     );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts proto3 JSON scalar encodings in attribute values", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const tracing = createBffTracing(config);
+
+    await expect(
+      tracing.ingestTraces(
+        envelope({
+          ...validSpan,
+          attributes: [
+            { key: "int", value: { intValue: "-42" } },
+            { key: "bytes", value: { bytesValue: "AAAA" } },
+            { key: "double", value: { doubleValue: "NaN" } },
+            {
+              key: "nested",
+              value: { arrayValue: { values: [{ boolValue: true }] } },
+            },
+          ],
+        }),
+      ),
+    ).resolves.toBe("accepted");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["two set value fields (oneof)", { boolValue: true, stringValue: "x" }],
+    ["a non-base64 bytes value", { bytesValue: "not base64!!" }],
+    ["a non-integer int value", { intValue: "12.5" }],
+  ])(
+    "rejects an attribute whose value has %s without relaying it",
+    async (_label, value) => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      const tracing = createBffTracing(config);
+
+      await expect(
+        tracing.ingestTraces(
+          envelope({ ...validSpan, attributes: [{ key: "k", value }] }),
+        ),
+      ).resolves.toBe("rejected");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a pathologically deep AnyValue without throwing", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const tracing = createBffTracing(config);
+
+    // Nest an AnyValue thousands of levels deep. A naive recursive validator
+    // would overflow the call stack and throw; the bounded structural pre-pass
+    // rejects it and the exception guard keeps any overflow from escaping.
+    let value: unknown = { stringValue: "leaf" };
+    for (let depth = 0; depth < 5_000; depth += 1) {
+      value = { arrayValue: { values: [value] } };
+    }
+
+    await expect(
+      tracing.ingestTraces(
+        envelope({ ...validSpan, attributes: [{ key: "deep", value }] }),
+      ),
+    ).resolves.toBe("rejected");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
@@ -383,6 +454,47 @@ describe("BFF delivery health", () => {
     expect(health.spanExportFailures).toBeGreaterThanOrEqual(1);
     expect(health.lastErrorType).toBe("Error");
     expect(health.relayFailures).toBe(0);
+  });
+
+  it("counts a synchronous exporter throw as a delivery failure", async () => {
+    // The exporter throws instead of calling back. Without the backstop's throw
+    // guard the loss would go unaccounted and shutdown would report zero.
+    const thrown = new Error("exporter blew up");
+    thrown.name = "SyncExportError";
+    vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(() => {
+      throw thrown;
+    });
+    vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
+    const tracing = createBffTracing(config);
+
+    endOneSpan(tracing);
+    await tracing.shutdown().catch(() => undefined);
+
+    const health = tracing.deliveryHealth();
+    expect(health.spanExportFailures).toBeGreaterThanOrEqual(1);
+    expect(health.lastErrorType).toBe("SyncExportError");
+  });
+
+  it("counts every span in a failed multi-span batch, not just one", async () => {
+    vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(
+      (_spans, resultCallback) => {
+        resultCallback({
+          code: ExportResultCode.FAILED,
+          error: new Error("collector unreachable"),
+        });
+      },
+    );
+    vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
+    const tracing = createBffTracing(config);
+
+    // Three spans buffer and flush together as one failed batch; the tally must
+    // advance by the batch's span count rather than by a single increment.
+    for (let index = 0; index < 3; index += 1) {
+      endOneSpan(tracing);
+    }
+    await tracing.shutdown().catch(() => undefined);
+
+    expect(tracing.deliveryHealth().spanExportFailures).toBe(3);
   });
 
   it("counts spans dropped by an overflowing queue", () => {
