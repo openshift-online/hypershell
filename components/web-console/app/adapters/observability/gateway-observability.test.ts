@@ -48,6 +48,27 @@ describe("gateway observability adapter", () => {
     ]);
   });
 
+  it("records an out-of-band delivery failure into delivery health", () => {
+    const observability = createGatewayObservability({
+      performanceTarget: { clearMarks: vi.fn(), mark: vi.fn() },
+    });
+
+    observability.reportDeliveryFailure({
+      errorType: "SpanExportError",
+      probeName: "gateway.trace.export",
+      schemaVersion: 0,
+      sinkId: "gateway-trace",
+    });
+
+    expect(observability.deliveryHealth()).toMatchObject({
+      deliveryFailureCount: 1,
+      lastFailure: { sinkId: "gateway-trace" },
+    });
+    expect(observability.recentDeliveryFailures()).toEqual([
+      expect.objectContaining({ probeName: "gateway.trace.export" }),
+    ]);
+  });
+
   it("provides deterministic workflow context through injected capabilities", () => {
     const observability = createGatewayObservability({
       createCorrelationId: () => "correlation-1",

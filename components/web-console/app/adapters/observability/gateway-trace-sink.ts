@@ -1,5 +1,8 @@
 import type { GatewayProbe } from "@openshift-online/hypershell-gateway-management-ui";
-import type { DomainProbeSink } from "@openshift-online/hypershell-domain-probes/fan-out";
+import type {
+  DomainProbeSink,
+  ProbeDeliveryFailure,
+} from "@openshift-online/hypershell-domain-probes/fan-out";
 import {
   ROOT_CONTEXT,
   SpanKind,
@@ -18,7 +21,9 @@ import {
   RandomIdGenerator,
   TraceIdRatioBasedSampler,
   type IdGenerator,
+  type SpanExporter,
 } from "@opentelemetry/sdk-trace-base";
+import { ExportResultCode } from "@opentelemetry/core";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
@@ -65,8 +70,51 @@ export interface GatewayTracingConfig {
   sampleRatio?: number;
 }
 
+export interface GatewayTracingOptions {
+  /**
+   * Records a span delivery failure that surfaces after buffering, when the
+   * batch exporter cannot reach the collector. Span export is asynchronous, so
+   * a failed batch would otherwise be dropped silently; routing it here makes
+   * the loss observable through the domain probe delivery-health accounting.
+   */
+  reportDeliveryFailure?: (failure: Readonly<ProbeDeliveryFailure>) => void;
+}
+
 const sinkId = "gateway-trace";
 const tracerName = "gateway-trace-sink";
+// Synthetic probe name for a failure that is not tied to one probe but to the
+// asynchronous export of a batch of spans this sink already accepted.
+const traceExportProbeName = "gateway.trace.export";
+
+/**
+ * Wraps a span exporter so every failed export is reported as a delivery
+ * failure. Both the batch timer and an explicit `forceFlush` funnel through the
+ * exporter's result callback, so this catches an unreachable collector on
+ * either path exactly once, rather than letting the SDK swallow it into its
+ * global error handler.
+ */
+function reportingExporter(
+  inner: SpanExporter,
+  report: (failure: Readonly<ProbeDeliveryFailure>) => void,
+): SpanExporter {
+  return {
+    export(spans, resultCallback) {
+      inner.export(spans, (result) => {
+        if (result.code === ExportResultCode.FAILED) {
+          report({
+            errorType: result.error?.name ?? "SpanExportError",
+            probeName: traceExportProbeName,
+            schemaVersion: 0,
+            sinkId,
+          });
+        }
+        resultCallback(result);
+      });
+    },
+    forceFlush: () => inner.forceFlush?.() ?? Promise.resolve(),
+    shutdown: () => inner.shutdown(),
+  };
+}
 
 /**
  * Id generator that lets the caller choose the trace id of the next root span
@@ -260,10 +308,15 @@ export function createGatewayTraceSink(
  */
 export function createGatewayTracing(
   config: GatewayTracingConfig,
+  options: GatewayTracingOptions = {},
 ): GatewayTracing {
   const ratio = config.sampleRatio ?? 1;
   const idGenerator = new RootTraceIdGenerator();
-  const exporter = new OTLPTraceExporter({ url: config.tracesEndpoint });
+  const baseExporter = new OTLPTraceExporter({ url: config.tracesEndpoint });
+  const exporter =
+    options.reportDeliveryFailure === undefined
+      ? baseExporter
+      : reportingExporter(baseExporter, options.reportDeliveryFailure);
   const provider = new BasicTracerProvider({
     idGenerator,
     resource: resourceFromAttributes({
@@ -282,7 +335,10 @@ export function createGatewayTracing(
   });
 
   const flushBufferedSpans = (): void => {
-    void provider.forceFlush();
+    // A failed export is already recorded through the reporting exporter, so the
+    // rejected forceFlush promise only needs to be settled to avoid an
+    // unhandled rejection; it is not a second failure to count.
+    void provider.forceFlush().catch(() => undefined);
   };
   const flushWhenHidden = (): void => {
     if (document.visibilityState === "hidden") {

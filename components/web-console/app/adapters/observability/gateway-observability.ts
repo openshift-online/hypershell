@@ -38,6 +38,10 @@ export interface GatewayObservability {
   probes: GatewayProbePublisher;
   recentDeliveryFailures(): readonly Readonly<ProbeDeliveryFailure>[];
   recentProbes(): readonly GatewayProbe[];
+  // Records a span delivery failure that surfaces asynchronously, outside the
+  // synchronous probe fan-out, so an export the browser could not complete is
+  // counted in delivery health instead of being lost.
+  reportDeliveryFailure(failure: Readonly<ProbeDeliveryFailure>): void;
   runtime: GatewayWorkflowRuntime;
 }
 
@@ -100,6 +104,9 @@ export function createGatewayObservability(
     probes: publisher,
     recentDeliveryFailures: () => Object.freeze([...failures]),
     recentProbes: () => Object.freeze([...recent]),
+    reportDeliveryFailure: (failure) => {
+      publisher.reportDeliveryFailure(failure);
+    },
     runtime: {
       createCorrelationId:
         options.createCorrelationId ?? (() => globalThis.crypto.randomUUID()),

@@ -2,7 +2,10 @@ import type {
   GatewayAction,
   GatewayProbe,
 } from "@openshift-online/hypershell-gateway-management-ui";
+import type { ProbeDeliveryFailure } from "@openshift-online/hypershell-domain-probes/fan-out";
 import { SpanStatusCode } from "@opentelemetry/api";
+import { ExportResultCode } from "@opentelemetry/core";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import {
   AlwaysOffSampler,
   AlwaysOnSampler,
@@ -326,5 +329,76 @@ describe("createGatewayTracing flush on page hide", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     window.dispatchEvent(new Event("pagehide"));
     expect(flush).not.toHaveBeenCalled();
+  });
+});
+
+describe("createGatewayTracing delivery health", () => {
+  const config = {
+    serviceName: "hypershell-web-console",
+    tracesEndpoint: "http://localhost/telemetry/v1/traces",
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reports a failed span export as an out-of-band delivery failure", async () => {
+    // The collector is unreachable: the exporter yields a FAILED result, which
+    // the batch processor would otherwise swallow into its global error handler.
+    vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(
+      (_spans, resultCallback) => {
+        resultCallback({
+          code: ExportResultCode.FAILED,
+          error: new Error("collector unreachable"),
+        });
+      },
+    );
+    const failures: Readonly<ProbeDeliveryFailure>[] = [];
+    const tracing = createGatewayTracing(config, {
+      reportDeliveryFailure: (failure) => failures.push(failure),
+    });
+
+    tracing.sink.publish(probe("gateway.workflow.started"));
+    tracing.sink.publish(
+      probe("gateway.workflow.completed", { outcome: "succeeded" }),
+    );
+    // The flush rejects on the failed export; the failure is recorded before the
+    // rejection propagates, so settling it here is enough.
+    await tracing.forceFlush().catch(() => undefined);
+
+    expect(failures).toEqual([
+      {
+        errorType: "Error",
+        probeName: "gateway.trace.export",
+        schemaVersion: 0,
+        sinkId: "gateway-trace",
+      },
+    ]);
+
+    vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
+    await tracing.shutdown();
+  });
+
+  it("does not report when the export succeeds", async () => {
+    vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(
+      (_spans, resultCallback) => {
+        resultCallback({ code: ExportResultCode.SUCCESS });
+      },
+    );
+    const failures: Readonly<ProbeDeliveryFailure>[] = [];
+    const tracing = createGatewayTracing(config, {
+      reportDeliveryFailure: (failure) => failures.push(failure),
+    });
+
+    tracing.sink.publish(probe("gateway.workflow.started"));
+    tracing.sink.publish(
+      probe("gateway.workflow.completed", { outcome: "succeeded" }),
+    );
+    await tracing.forceFlush();
+
+    expect(failures).toEqual([]);
+
+    vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
+    await tracing.shutdown();
   });
 });

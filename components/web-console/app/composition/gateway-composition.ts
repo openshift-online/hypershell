@@ -1,4 +1,5 @@
 import { createGatewayOperations } from "@openshift-online/hypershell-gateway-management-ui";
+import type { ProbeDeliveryFailure } from "@openshift-online/hypershell-domain-probes/fan-out";
 
 import { createApiClient } from "../adapters/api/api.client";
 import { createGatewayControlPlaneAdapter } from "../adapters/api/gateway-operations";
@@ -10,14 +11,35 @@ import { createGatewayTracing } from "../adapters/observability/gateway-trace-si
 // address and no cross-origin telemetry endpoint is exposed.
 const browserTracesEndpoint = "/telemetry/v1/traces";
 
-const tracing = createGatewayTracing({
-  serviceName: "hypershell-web-console",
-  tracesEndpoint: browserTracesEndpoint,
-});
+// The trace sink is created before the observability publisher because the
+// publisher takes the sink as one of its fan-out targets, yet a failed span
+// export must report back into that publisher's delivery health. A late-bound
+// reporter breaks the cycle: export failures raised before the publisher exists
+// are dropped, which is correct because no span can be exported until the sink
+// is wired into the publisher and receiving probes.
+let reportDeliveryFailure: (
+  failure: Readonly<ProbeDeliveryFailure>,
+) => void = () => undefined;
+
+const tracing = createGatewayTracing(
+  {
+    serviceName: "hypershell-web-console",
+    tracesEndpoint: browserTracesEndpoint,
+  },
+  {
+    reportDeliveryFailure: (failure) => {
+      reportDeliveryFailure(failure);
+    },
+  },
+);
 
 const gatewayObservability = createGatewayObservability({
   additionalSinks: [tracing.sink],
 });
+
+reportDeliveryFailure = (failure) => {
+  gatewayObservability.reportDeliveryFailure(failure);
+};
 
 const gatewayControlPlane = createGatewayControlPlaneAdapter((correlationId) =>
   createApiClient(correlationId, undefined, () =>
