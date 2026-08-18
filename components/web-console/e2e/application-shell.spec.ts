@@ -309,7 +309,6 @@ test("keeps connection methods on gateway details", async ({
   expect(setupScript).toContain(
     `openshell gateway add \\
   --name openshell-gateway-test \\
-  --no-auto-providers \\
   https://gateway.example.test:443`,
   );
   expect(setupScript).toContain("openshell inference set");
