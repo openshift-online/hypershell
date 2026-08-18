@@ -433,7 +433,7 @@ against bindings.
 
 The first `gateway:creator` and `platform:admin` users are provisioned by assigning the
 roles in Keycloak. No database migration or CLI command is needed for bootstrapping users
-— only the built-in Role records are seeded via migration; RoleBindings are created
+-- only the built-in Role records are seeded via migration; RoleBindings are created
 dynamically from JWT claims.
 
 ### Requirement: Database Migration
