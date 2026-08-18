@@ -17,19 +17,20 @@ spec:
     spec:
       containers:
         - name: jaeger
-          image: jaegertracing/all-in-one:latest
+          # Jaeger v2 (built on the OpenTelemetry Collector). Running the image
+          # with no arguments starts the all-in-one profile with in-memory
+          # storage, and the OTLP receivers on 4317/4318 are enabled by default,
+          # so the v1 COLLECTOR_OTLP_ENABLED env is no longer needed.
+          image: jaegertracing/jaeger:2.20.0
           ports:
             - containerPort: 4317
               name: otlp-grpc
             # OTLP/HTTP receiver for the web console browser + BFF, which cannot
-            # speak OTLP gRPC. Enabled by COLLECTOR_OTLP_ENABLED alongside 4317.
+            # speak OTLP gRPC.
             - containerPort: 4318
               name: otlp-http
             - containerPort: 16686
               name: query-ui
-          env:
-            - name: COLLECTOR_OTLP_ENABLED
-              value: "true"
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false

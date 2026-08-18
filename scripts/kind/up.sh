@@ -254,9 +254,10 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
 fi
 
 # --- Jaeger (optional, for OTel trace inspection) ---
-# Deploys the same all-in-one Jaeger as the API server observability work
-# (HYPERSHELL-26). The web console browser and BFF export over OTLP/HTTP (4318)
-# because browsers cannot speak OTLP gRPC; the API server uses gRPC (4317).
+# Deploys an all-in-one Jaeger v2 for local trace inspection alongside the API
+# server observability work (HYPERSHELL-26). The web console browser and BFF
+# export over OTLP/HTTP (4318) because browsers cannot speak OTLP gRPC; the API
+# server uses gRPC (4317).
 if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   header "Jaeger"
   info "Deploying Jaeger..."
