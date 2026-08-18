@@ -82,6 +82,18 @@ export const messages = defineMessages({
     description:
       "Link text pointing to the NVIDIA OpenShell installation documentation.",
   },
+  connectionInstallPrereq: {
+    id: "app.gateway.connection.installPrereq",
+    defaultMessage:
+      "The OpenShell CLI must be installed before running the commands below.",
+    description:
+      "Prerequisite note shown above the connection steps directing operators to install the CLI first.",
+  },
+  connectionInstallPrereqTitle: {
+    id: "app.gateway.connection.installPrereqTitle",
+    defaultMessage: "Prerequisite",
+    description: "Title for the CLI installation prerequisite alert.",
+  },
   connectionLoginUnavailable: {
     id: "app.gateway.connection.login.unavailable",
     defaultMessage:

@@ -1,5 +1,11 @@
-import { Button, Content, Skeleton, Title } from "@patternfly/react-core";
-import { ExternalLinkAltIcon } from "@patternfly/react-icons";
+import {
+  Alert,
+  AlertActionLink,
+  Content,
+  Skeleton,
+  Title,
+} from "@patternfly/react-core";
+
 import { type ReactNode, useState } from "react";
 import { useIntl } from "react-intl";
 
@@ -67,20 +73,23 @@ export function GatewayConnectionSteps({
 
   return (
     <>
-      <Content component="p">
-        <Button
-          component="a"
-          href={installDocsUrl}
-          icon={<ExternalLinkAltIcon />}
-          iconPosition="end"
-          isInline
-          rel="noopener noreferrer"
-          target="_blank"
-          variant="link"
-        >
-          {intl.formatMessage(messages.connectionInstallLink)}
-        </Button>
-      </Content>
+      <Alert
+        actionLinks={
+          <AlertActionLink
+            component="a"
+            href={installDocsUrl}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            {intl.formatMessage(messages.connectionInstallLink)}
+          </AlertActionLink>
+        }
+        isInline
+        title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
+        variant="info"
+      >
+        {intl.formatMessage(messages.connectionInstallPrereq)}
+      </Alert>
       <ol className={styles.steps}>
         <ConnectionStep
           description={intl.formatMessage(messages.connectionSetupDescription)}

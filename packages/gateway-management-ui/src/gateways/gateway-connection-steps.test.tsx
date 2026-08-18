@@ -43,13 +43,19 @@ describe("GatewayConnectionSteps", () => {
     ).toBeTruthy();
   });
 
-  it("renders an install docs link that opens in a new tab", () => {
+  it("renders a prerequisite alert with an install docs link", () => {
     renderSteps(readyGateway);
+
+    expect(screen.getByText("Prerequisite")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /OpenShell CLI must be installed before running the commands below/,
+      ),
+    ).toBeTruthy();
 
     const link = screen.getByRole("link", {
       name: /Install the OpenShell CLI/,
     });
-    expect(link).toBeTruthy();
     expect(link.getAttribute("href")).toBe(installDocsUrl);
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
