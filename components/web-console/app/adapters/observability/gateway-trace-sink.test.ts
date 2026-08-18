@@ -11,9 +11,12 @@ import {
   SimpleSpanProcessor,
   type ReadableSpan,
 } from "@opentelemetry/sdk-trace-base";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createGatewayTraceSink } from "./gateway-trace-sink";
+import {
+  createGatewayTraceSink,
+  createGatewayTracing,
+} from "./gateway-trace-sink";
 
 const traceId = "0af7651916cd43dd8448eb211c80319c";
 const parentSpanId = "aaaaaaaaaaaaaaaa";
@@ -204,5 +207,65 @@ describe("gateway trace sink", () => {
       new RegExp(`^00-${traceId}-[0-9a-f]{16}-00$`),
     );
     expect(harness.exporter.getFinishedSpans()).toHaveLength(0);
+  });
+});
+
+describe("createGatewayTracing flush on page hide", () => {
+  const config = {
+    serviceName: "hypershell-web-console",
+    tracesEndpoint: "http://localhost/telemetry/v1/traces",
+  };
+
+  function setVisibility(state: "hidden" | "visible"): void {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => state,
+    });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setVisibility("visible");
+  });
+
+  it("flushes buffered spans on hidden visibilitychange and on pagehide", async () => {
+    const flush = vi
+      .spyOn(BasicTracerProvider.prototype, "forceFlush")
+      .mockResolvedValue();
+    const tracing = createGatewayTracing(config);
+
+    // A visible transition must not flush; only a hide is a last-chance export.
+    setVisibility("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(flush).not.toHaveBeenCalled();
+
+    setVisibility("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(flush).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new Event("pagehide"));
+    expect(flush).toHaveBeenCalledTimes(2);
+
+    vi.spyOn(BasicTracerProvider.prototype, "shutdown").mockResolvedValue();
+    await tracing.shutdown();
+  });
+
+  it("stops flushing once shutdown removes the listeners", async () => {
+    const flush = vi
+      .spyOn(BasicTracerProvider.prototype, "forceFlush")
+      .mockResolvedValue();
+    const shutdown = vi
+      .spyOn(BasicTracerProvider.prototype, "shutdown")
+      .mockResolvedValue();
+    const tracing = createGatewayTracing(config);
+
+    await tracing.shutdown();
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    flush.mockClear();
+
+    setVisibility("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(flush).not.toHaveBeenCalled();
   });
 });

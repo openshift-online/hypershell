@@ -237,8 +237,11 @@ export function createGatewayTraceSink(
  * provider is not registered as the global tracer; the sink owns every span
  * explicitly, keyed by correlation identifier, so no implicit context is
  * needed.
- * The batch processor flushes on document hide, so page unload does not lose
- * buffered spans.
+ *
+ * `BatchSpanProcessor` exports on a timer, which a browser can discard when a
+ * tab is closed or navigated away, losing the tail of a workflow. The provider
+ * therefore forces a flush on `visibilitychange` to hidden and on `pagehide`,
+ * the last reliable hooks before unload. `shutdown` removes those listeners.
  */
 export function createGatewayTracing(
   config: GatewayTracingConfig,
@@ -256,9 +259,31 @@ export function createGatewayTracing(
   const { sink, traceParentFor } = createGatewayTraceSink(tracer, {
     isSampled: (traceId) => sampledByRatio(traceId, ratio),
   });
+
+  const flushBufferedSpans = (): void => {
+    void provider.forceFlush();
+  };
+  const flushWhenHidden = (): void => {
+    if (document.visibilityState === "hidden") {
+      flushBufferedSpans();
+    }
+  };
+  let stopFlushOnHide = (): void => undefined;
+  if (typeof document !== "undefined" && typeof window !== "undefined") {
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    window.addEventListener("pagehide", flushBufferedSpans);
+    stopFlushOnHide = () => {
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      window.removeEventListener("pagehide", flushBufferedSpans);
+    };
+  }
+
   return {
     forceFlush: () => provider.forceFlush(),
-    shutdown: () => provider.shutdown(),
+    shutdown: async () => {
+      stopFlushOnHide();
+      await provider.shutdown();
+    },
     sink,
     traceParentFor,
   };
