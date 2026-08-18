@@ -118,6 +118,11 @@ configuration maps HyperShell roles to OpenShell roles:
 | `gateway:owner` | `openshell-admin` |
 | `gateway:viewer` | `openshell-user` |
 
+The `platform:admin` role provides visibility and lifecycle management through the
+HyperShell web console but does NOT grant OpenShell CLI access to gateways. Platform
+administrators who need to use the `openshell` CLI for a specific gateway must be
+granted `gateway:owner` or `gateway:viewer` on that gateway.
+
 ---
 
 ## Requirements
@@ -292,6 +297,12 @@ Platform administrators SHALL NOT be able to:
 The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and
 `gateway:viewer`. A user may hold multiple roles (e.g., `platform:admin` + `gateway:creator`).
 
+The `platform:admin` role is **gateway-scoped only**. It does NOT grant permissions to:
+
+- View or modify Fleets, GatewayNetworks, GatewayReleases, ManagedClusters, or ManagedDatabases
+- View or modify Users or RoleBindings
+- Access platform-level configuration or system administration functions
+
 #### Scenario: Platform admin views all gateways
 
 - GIVEN user A has `platform:admin` (from Keycloak)
@@ -348,44 +359,11 @@ The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, a
 
 ### Requirement: Platform Admin UI Experience
 
-The web UI SHALL provide an enhanced experience for users with the `platform:admin` role:
+The web UI SHALL support `platform:admin` users as defined in `web-console/architecture.spec.md` requirement WEB-ARCH-02 and WEB-UI-03A.
 
-- The gateway list view SHALL display all gateways in the platform
-- The gateway list SHALL be paginated (default page size: 20, configurable up to 100)
-- The gateway list SHALL include a search input that filters by gateway name, ID, or fleet
-- Search SHALL be debounced (300ms) and cancellable (new search cancels in-flight request)
-- Each gateway row SHALL display a delete action for platform administrators
-- Delete actions SHALL require confirmation via a modal dialog
-- The UI SHALL display platform admin status (e.g., badge or indicator) when the role is active
+Platform administrators SHALL see all gateways in the gateway list, which SHALL use API-backed pagination and search as specified in WEB-DATA-01.
 
-#### Scenario: Platform admin sees all gateways in UI
-
-- GIVEN user A has `platform:admin`
-- AND user A logs into the web console
-- WHEN user A navigates to the gateway list page
-- THEN all gateways are displayed (paginated)
-- AND the page shows total gateway count
-- AND pagination controls are visible
-
-#### Scenario: Platform admin searches for a gateway
-
-- GIVEN user A has `platform:admin`
-- AND there are 100 gateways in the platform
-- WHEN user A types "prod" in the search box
-- THEN the search is debounced for 300ms
-- AND the UI sends a filtered request to the API
-- AND only gateways matching "prod" are displayed
-
-#### Scenario: Platform admin deletes a gateway from UI
-
-- GIVEN user A has `platform:admin`
-- AND user A is viewing the gateway list
-- WHEN user A clicks the delete button for gateway gw-1
-- THEN a confirmation modal appears
-- WHEN user A confirms the deletion
-- THEN the UI calls `DELETE /api/hypershell/v1/gateways/gw-1`
-- AND on success, the gateway is removed from the list
-- AND a success notification is displayed
+Each gateway row SHALL display a delete action for platform administrators. Delete actions SHALL require confirmation via a modal dialog before calling `DELETE /api/hypershell/v1/gateways/{id}`.
 
 ### Requirement: gRPC Authorization
 
@@ -395,6 +373,21 @@ and evaluate permissions using the same role-based logic as the HTTP middleware.
 
 The middleware SHALL provision users and sync JWT roles on gRPC requests identically
 to HTTP requests.
+
+#### Scenario: Platform admin watches gateways via gRPC
+
+- GIVEN user A has `platform:admin` (from Keycloak)
+- AND the control plane watches gateway events via gRPC
+- WHEN a gRPC client with user A's credentials calls `WatchGateways`
+- THEN the stream includes events for all gateways in the platform
+- AND the authorization interceptor evaluates `platform:admin` identically to HTTP handlers
+
+#### Scenario: Platform admin cannot modify via gRPC without ownership
+
+- GIVEN user A has `platform:admin` but no `gateway:owner` binding for gateway gw-1
+- WHEN a gRPC client with user A's credentials attempts to update gateway gw-1
+- THEN the request returns PermissionDenied
+- AND the response does not leak that gw-1 exists
 
 ### Requirement: Error Response Opacity
 
@@ -420,6 +413,18 @@ The following endpoints SHALL require only authentication (valid JWT), not autho
 Health, metrics, and version endpoints are already bypassed at the authentication
 layer.
 
+### Requirement: Audit Logging
+
+Platform administrator actions SHALL be logged with:
+
+- Action performed (view, delete)
+- Actor identity (platform:admin user)
+- Target resource (gateway ID and name)
+- Timestamp and correlation ID
+
+High-privilege operations (gateway deletion by platform:admin) SHALL be logged at INFO
+level or higher to ensure visibility in operational monitoring and security audits.
+
 ### Requirement: Production Rollout
 
 RBAC enforcement SHALL be gated behind the `RBAC_ENFORCE` configuration flag. When
@@ -430,6 +435,18 @@ The first `gateway:creator` and `platform:admin` users are provisioned by assign
 roles in Keycloak. No database migration or CLI command is needed for bootstrapping users
 — only the built-in Role records are seeded via migration; RoleBindings are created
 dynamically from JWT claims.
+
+### Requirement: Database Migration
+
+A database migration SHALL seed the `platform:admin` role record with:
+
+- `name: "platform:admin"`
+- `display_name: "Platform Administrator"`
+- `description: "Platform-wide view and delete access for all gateways"`
+- `built_in: true`
+
+This migration SHALL run alongside the existing migrations that seed `gateway:creator`,
+`gateway:owner`, and `gateway:viewer` roles.
 
 RoleBindings from JWT claims are synced regardless of whether enforcement is enabled,
 ensuring bindings exist before enforcement is turned on.
@@ -462,7 +479,7 @@ enforce RBAC.
 
 ### Requirement: Integration Test Coverage
 
-Integration tests SHALL exercise RBAC enforcement with the new three-role model.
+Integration tests SHALL exercise RBAC enforcement with the new four-role model.
 
 ---
 
