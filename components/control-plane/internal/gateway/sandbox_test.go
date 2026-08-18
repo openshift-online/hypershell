@@ -97,12 +97,10 @@ func TestSummarizeNamespacePodsEmpty(t *testing.T) {
 func TestCountActiveSandboxes(t *testing.T) {
 	const ns = "openshell-gw"
 	client := fake.NewSimpleClientset(
-		// active sandbox (current label)
+		// active sandbox
 		pod("sb-running", ns, corev1.PodRunning, map[string]string{sandboxPodLabelKey: "abc123"}),
-		// active sandbox still starting (current label)
+		// active sandbox still starting
 		pod("sb-pending", ns, corev1.PodPending, map[string]string{sandboxPodLabelKey: "def456"}),
-		// active sandbox (legacy label)
-		pod("sb-legacy", ns, corev1.PodRunning, map[string]string{sandboxLegacyLabelKey: sandboxLegacyLabelValue}),
 		// terminated sandbox -> not active
 		pod("sb-done", ns, corev1.PodSucceeded, map[string]string{sandboxPodLabelKey: "ghi789"}),
 		// gateway workload -> excluded (no sandbox label)
@@ -115,8 +113,31 @@ func TestCountActiveSandboxes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountActiveSandboxes() error = %v", err)
 	}
-	if got != 3 {
-		t.Errorf("CountActiveSandboxes() = %d, want 3", got)
+	if got != 2 {
+		t.Errorf("CountActiveSandboxes() = %d, want 2", got)
+	}
+}
+
+func TestIsActiveSandboxPod(t *testing.T) {
+	sandbox := map[string]string{sandboxPodLabelKey: "abc123"}
+	tests := []struct {
+		name string
+		pod  *corev1.Pod
+		want bool
+	}{
+		{"running sandbox is active", pod("p", "ns", corev1.PodRunning, sandbox), true},
+		{"pending sandbox is active", pod("p", "ns", corev1.PodPending, sandbox), true},
+		{"succeeded sandbox is not active", pod("p", "ns", corev1.PodSucceeded, sandbox), false},
+		{"failed sandbox is not active", pod("p", "ns", corev1.PodFailed, sandbox), false},
+		{"running non-sandbox is not counted", pod("p", "ns", corev1.PodRunning, map[string]string{"app": "openshell-gateway"}), false},
+		{"unlabelled pod is not counted", pod("p", "ns", corev1.PodRunning, nil), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsActiveSandboxPod(tt.pod); got != tt.want {
+				t.Errorf("IsActiveSandboxPod() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

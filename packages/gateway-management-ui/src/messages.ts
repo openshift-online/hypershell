@@ -6,6 +6,12 @@ export const messages = defineMessages({
     defaultMessage: "Actions",
     description: "Accessible heading for table row actions.",
   },
+  activeSandboxes: {
+    id: "app.gateway.column.activeSandboxes",
+    defaultMessage: "Active sandboxes",
+    description:
+      "Heading for the gateways table column showing the number of active sandbox sessions.",
+  },
   cancel: {
     id: "app.action.cancel",
     defaultMessage: "Cancel",

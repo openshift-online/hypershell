@@ -785,6 +785,34 @@ describe("gateway shell pages", () => {
     ).toBe("/gateways/new");
   });
 
+  it("shows the active sandbox count with a not-available fallback when unset", () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          {
+            ...previewGateway,
+            activeSandboxCount: 3,
+            id: "gw-busy",
+            name: "gw-busy",
+          },
+          // activeSandboxCount deliberately omitted: an unset count must render
+          // the not-available fallback rather than a misleading zero.
+          { ...previewGateway, id: "gw-idle", name: "gw-idle" },
+        ]}
+      />
+    ));
+
+    expect(
+      screen.getByRole("columnheader", { name: "Active sandboxes" }),
+    ).toBeTruthy();
+
+    const busyRow = screen.getByRole("row", { name: /gw-busy/u });
+    expect(within(busyRow).getByText("3")).toBeTruthy();
+
+    const idleRow = screen.getByRole("row", { name: /gw-idle/u });
+    expect(within(idleRow).getByText("Not available")).toBeTruthy();
+  });
+
   it("sorts the gateway list by creation date", async () => {
     const user = userEvent.setup();
     const onCollectionStateChange = vi.fn();

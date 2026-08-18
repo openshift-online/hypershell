@@ -45,9 +45,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-13
-**Spec corpus**: 28 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
-**Codebase commit**: 1055647 (spec/gateway-keycloak-provisioning)
+**Last analyzed**: 2026-08-18
+**Spec corpus**: 30 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
+**Codebase commit**: 432b210 (squizzi/hypershell-78/namespace-gc)
 
 ### Coverage Summary
 
@@ -62,13 +62,15 @@ skills/
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
 | Platform - Gateway Keycloak | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 0 | 2 | 69% |
+| Platform - Namespace GC | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
+| Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **28** | **183** | **138** | **18** | **27** | **5** | **80%** |
+| **TOTAL** | **30** | **195** | **150** | **18** | **27** | **5** | **82%** |
 
 ### Spec Dependency Order
 
@@ -319,6 +321,28 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SR-7 | Provider Credential Rotation by Driver Type | Deferred | Credential driver fields not yet implemented in reconciler; driver-specific rotation is platform-managed (K8s SA, Vault) | - | Future |
 | SR-8 | Interaction Between Credential Driver and DB Password Rotation | Present | DB password rotation is independent of credential driver; wired after `reconcileDatabaseCredentials()` via `RotateDBCredentials` opt | `gateway/reconciler.go` | SR-W1 ✅ |
 
+### openshell-gateway-namespace-gc.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| NGC-1 | Gateway deletion reaps the gateway namespace (cascade + out-of-namespace cleanup) | Present | Delete event deletes the managed namespace (cascading in-namespace resources incl. sandbox pods); ClusterRoleBinding, Keycloak client, cross-namespace credential RBAC cleaned explicitly; best-effort/idempotent; never gated on sandbox count | `gateway/reconciler.go` `DeleteGatewayResources()`, `gateway/namespace.go` | NGC ✅ |
+| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps managed namespaces (both management labels required); `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `config/config.go` | NGC ✅ |
+| NGC-3 | Grace period prevents premature deletion (durable annotation) | Present | `hypershell.redhat.io/gc-eligible-since` (RFC3339) stamped on and measured from the namespace so it survives restarts; cleared when a live Gateway reappears | `gateway/namespace.go` `MarkGCEligible`/`ClearGCEligible` | NGC ✅ |
+| NGC-4 | Do not reap namespaces of live gateways (abort on list failure) | Present | Liveness derived from API-reported Gateways; sweep aborts entirely if Gateways cannot be listed; existing gateway preserved regardless of phase (Degraded/Failed) | `reconciler/namespace.go` | NGC ✅ |
+| NGC-5 | Preserve a durable record before deletion | Present | `GarbageCollected` Event recorded in the control-plane namespace summarizing orphan duration, pod state, and active sandbox count; summary best-effort, never blocks the reap | `reconciler/namespace.go:203` | NGC ✅ |
+| NGC-6 | Surface active sandbox count before deletion (console warning) | Present | Delete-confirmation dialog surfaces `active_sandbox_count` as a pluralized warning; advisory only, never gates deletion | `packages/gateway-management-ui/src/gateways/gateway-delete-dialog.tsx` | NGC ✅ |
+
+### openshell-gateway-sandbox-count.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| SC-1 | Event-driven active sandbox accounting (informer, no full LIST) | Present | Label-selected pod informer on `agents.x-k8s.io/sandbox-name-hash`; increments/decrements on active-set (Running/Pending) transitions; no steady-state full-namespace pod LIST; legacy `managed-by` label dropped | `reconciler/sandboxcount.go`, `gateway/sandbox.go` | S2 ✅ |
+| SC-2 | Atomic, non-negative updates | Present | `AdjustActiveSandboxCount` single-column atomic SQL, floored at zero, NULL treated as zero, `IS DISTINCT FROM` guard | `plugins/gateways/dao.go`, `grpc_handler.go` | S1 ✅ |
+| SC-3 | Convergence and self-heal (reconcile to cache, restart recovery) | Present | Periodic `selfHeal` sets the absolute count from the informer cache for every gateway namespace (incl. drift-to-zero); immediate baseline after cache sync recovers the count post-restart with no intervening event | `reconciler/sandboxcount.go` | S2 ✅ |
+| SC-4 | Control-plane-owned, read-only surfacing | Present | `active_sandbox_count` OpenAPI `readOnly`, excluded from the patch request, written only over the gRPC path (Adjust/Set); nullable `*int` column (NULL = never counted) | `plugins/gateways/model.go`, `openapi/`, `presenter.go` | S1 ✅ |
+| SC-5 | Console surfaces the count in the gateways table | Present | Non-sortable "Active sandboxes" column adjacent to name; unset renders a localized not-available fallback (NULL→N/A, 0→"0") | `packages/gateway-management-ui/src/pages/gateway-pages.tsx` | S3 ✅ |
+| SC-6 | Advisory semantics (never gates deletion) | Present | Count is an advisory recent value consumed only as an operator warning; never gates gateway or namespace deletion | `reconciler/sandboxcount.go`, `gateway-delete-dialog.tsx` | S2 ✅ |
+
 ### e2e-openshell.sh (Test Alignment)
 
 | # | Item | Status | Gap | Line | Wave |
@@ -473,6 +497,45 @@ Added `FindGatewayIDsByUserID` DAO method (distinct gateway_id from role_binding
 
 Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` checks `rotate-db-credentials` annotation vs `last-db-rotation` on Secret; generates 32-byte hex password via crypto/rand; connects to PostgreSQL and executes `ALTER ROLE`; updates Secret with new password+URL; sets `last-db-rotation` annotation. ALTER ROLE before Secret update for safety. `applyConfigHashAnnotation` now includes `openshell-gateway-db-credentials` Secret. Wired into `ReconcileGateway` after `reconcileDatabaseCredentials()`.
 
+### Wave NGC + S1-S4: Namespace GC + Event-Driven Sandbox Count ✅
+
+**Scope:** NGC-1..NGC-6, SC-1..SC-6 | **Status:** Complete
+
+**Namespace GC (NGC):** `NamespaceGCReconciler` sweeps managed namespaces (both
+`app.kubernetes.io/managed-by=hypershell-control-plane` and
+`hypershell.redhat.io/managed=true` required) and reaps those orphaned past the
+grace period. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
+annotation (RFC3339) and cleared when a Gateway reappears. Sweep aborts entirely
+if Gateways cannot be listed, so a transient API failure never reaps a live
+namespace. A `GarbageCollected` Event is recorded in the control-plane namespace
+before deletion. Env-configurable (`GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/
+`_GRACE_PERIOD`, defaults true/5m/10m). Delete-driven cleanup deletes the
+namespace (cascading in-namespace resources incl. sandbox pods) and explicitly
+reaps out-of-namespace state (ClusterRoleBinding, Keycloak client, cross-namespace
+credential RBAC).
+
+**Sandbox Count (S1-S4):** Migrated active-sandbox accounting from a periodic
+full-namespace pod LIST (previously in the health reconciler) to an event-driven
+label-selected pod informer.
+- **S1:** `AdjustActiveSandboxCount(namespace, delta)` and
+  `SetActiveSandboxCount(namespace, count)` gRPC RPCs with atomic single-column
+  SQL, floored at zero, NULL-as-zero, `IS DISTINCT FROM` guard. `active_sandbox_count`
+  made a nullable `*int` column, OpenAPI `readOnly`, excluded from patch.
+- **S2:** `SandboxCountReconciler`: informer on `agents.x-k8s.io/sandbox-name-hash`;
+  increments/decrements on active-set transitions; `synced` gate suppresses the
+  initial-LIST add burst; periodic `selfHeal` sets the absolute count from the cache
+  for every gateway namespace (drift-to-zero + post-restart recovery). Legacy
+  `openshell.ai/managed-by=openshell` sandbox label dropped from code and spec.
+  Health reconciler's sandbox-counting block removed. Full unit-test suite
+  (`sandboxcount_test.go`) incl. a `-race` concurrency test.
+- **S3:** Non-sortable "Active sandboxes" console column adjacent to the gateway
+  name; unset renders the localized not-available fallback (NULL→N/A, 0→"0").
+  New reusable-package message re-extracted into web-console's `en.json`.
+- **S4:** Verified: control-plane `go build`/`vet`/`test -race` clean, golangci-lint
+  0 issues (control-plane + api-server gateways plugin), reusable UI package and
+  web-console `check` green. (api-server unit tests run on CI; the local
+  Apple-Silicon go-m1cpu cgo crash at package init is environmental.)
+
 ### Future (Deferred)
 
 | # | Item | Domain | Reason |
@@ -531,3 +594,4 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 | 2026-08-12 | working tree | OIDC always-on + Keycloak stability | 77% | Removed KIND_ENABLE_OIDC toggle; OIDC unconditional in kind-up; Keycloak memory 1Gi→2Gi + startup/liveness probes |
 | 2026-08-13 | 1055647 | Gap analysis for keycloak + secret-rotation specs | 73% | 2 new specs: keycloak (9 reqs, 6 deferred, 1 partial), secret-rotation (8 reqs, 6 deferred, 1 present, 1 partial). OIDC spec updated: 2 new requirements (O8 read-only, O9 auto-provisioned roles) deferred to KC wave. Data model spec: Sector→Fleet naming aligned. 4 new waves planned (KC-W1/W2/W3, SR-W1). Overall coverage drops from 78% to 73% due to new spec requirements. |
 | 2026-08-13 | working tree | Executed KC-W1/W2/W3 + SR-W1 | 80% | Keycloak Admin REST API client (token cache, atomic provisioning, cleanup). RoleBinding gRPC watch stream with role name enrichment. RoleBindingReconciler for OIDC Role Bridge (gateway:owner→openshell-admin, gateway:viewer→openshell-user). Gateway visibility filtering via FindGatewayIDsByUserID. Database password rotation (ALTER ROLE, config-hash). Coverage: 138/183 present (80%), keycloak 100%, secret-rotation 69%. |
+| 2026-08-18 | 432b210 | Reconciled namespace-gc + sandbox-count sub-specs | 82% | 2 new platform sub-specs (namespace-gc 6 reqs, sandbox-count 6 reqs), both 100% present. Namespace GC reconciler (dual-label managed-namespace reaping, durable gc-eligible-since grace timer, abort-on-list-failure, GarbageCollected Event, env-configurable). Event-driven sandbox count: atomic Adjust/Set gRPC RPCs (nullable readOnly column), label-selected pod informer with synced-gate + self-heal (drift-to-zero + restart recovery), health reconciler's LIST-based counting removed, legacy `openshell.ai/managed-by` label dropped from code+spec, non-sortable console column adjacent to name with N/A fallback. Coverage: 150/195 present (82%). |

@@ -171,8 +171,9 @@ func main() {
 	if roleBindingReconciler != nil {
 		watchCount = 7
 	}
-	// +2 for the continuous gateway health reconciler and namespace GC goroutines.
-	errCh := make(chan error, watchCount+2)
+	// +3 for the continuous gateway health, namespace GC, and sandbox-count
+	// reconciler goroutines.
+	errCh := make(chan error, watchCount+3)
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
@@ -195,6 +196,18 @@ func main() {
 		log.Printf("INFO gateway health reconciler launched")
 	} else {
 		log.Printf("WARN no kubernetes client available, gateway health reconciliation disabled")
+	}
+
+	// The sandbox-count reconciler maintains each Gateway's active_sandbox_count
+	// from an event-driven watch on sandbox pods (with a periodic self-heal from
+	// its cache), instead of a repeated full-namespace pod LIST. It requires an
+	// in-cluster Kubernetes client to watch pods.
+	if clientset != nil {
+		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0)
+		go func() { errCh <- sandboxCountReconciler.Run(ctx) }()
+		log.Printf("INFO sandbox count reconciler launched")
+	} else {
+		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")
 	}
 
 	// The namespace GC reconciler reaps gateway namespaces the control plane

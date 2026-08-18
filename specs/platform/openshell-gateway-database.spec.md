@@ -137,19 +137,31 @@ The `database` configuration on a Gateway resource SHALL be immutable after init
 
 ---
 
-### Requirement: Gateway Deletion Protection
+### Requirement: Gateway Deletion With Active Sandboxes (Advisory)
 
-A Gateway SHALL NOT be deleted if active sandboxes exist. This prevents orphaned sandbox resources (CRs, pods, PVCs).
+Active sandboxes SHALL NOT block Gateway deletion. Before an operator deletes a
+Gateway, the active sandbox count is surfaced as a warning so they can see how
+many running sessions the deletion would disrupt (see
+[`openshell-gateway-namespace-gc.spec.md`](./openshell-gateway-namespace-gc.spec.md)
+§ Surface Active Sandbox Count Before Deletion and
+[`openshell-gateway-sandbox-count.spec.md`](./openshell-gateway-sandbox-count.spec.md)),
+but the count is advisory only: deletion proceeds regardless and reclaims the
+gateway's resources. Deleting the gateway namespace cascades removal of its
+in-namespace sandbox resources (pods, PVCs) along with the gateway's own
+workloads, so a deletion cannot leave those orphaned.
 
-#### Scenario: Attempt to delete gateway with active sandboxes
+#### Scenario: Delete gateway that has active sandboxes
 
 - GIVEN a Gateway with one or more active sandboxes
-- WHEN a user attempts to delete the Gateway
-- THEN the API server SHALL reject the deletion with an error: "gateway cannot be deleted while sandboxes exist; delete all sandboxes first"
+- WHEN a user deletes the Gateway (having been warned of the active sandbox count)
+- THEN the API server SHALL accept the deletion and SHALL NOT reject it on account
+  of the active sandboxes
+- AND the control plane SHALL reclaim the gateway's namespace, disrupting those
+  sandboxes and cascading removal of their in-namespace resources
 
-#### Scenario: Delete gateway with no sandboxes
+#### Scenario: Delete gateway cleans up managed resources
 
-- GIVEN a Gateway with no active sandboxes
+- GIVEN a Gateway being deleted, with any number of active sandboxes (including none)
 - WHEN a user deletes the Gateway
 - THEN the control plane SHALL delete all resources with label `hypershell.redhat.io/managed: "true"` from the tenant namespace (explicit label-based cleanup)
 - AND the database PVC SHALL be deleted with the rest of the labelled resources

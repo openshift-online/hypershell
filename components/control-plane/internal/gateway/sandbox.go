@@ -15,14 +15,15 @@ import (
 // control plane. Every sandbox pod carries the sandbox-name-hash label the
 // controller stamps on it; none of the gateway's own workloads (deployment,
 // database, certgen job) do, so this label reliably distinguishes an occupied
-// user session from gateway infrastructure. Older gateway builds instead
-// labelled sandbox pods with the legacy openshell.ai/managed-by=openshell
-// marker, so both are matched for robustness.
-const (
-	sandboxPodLabelKey      = "agents.x-k8s.io/sandbox-name-hash"
-	sandboxLegacyLabelKey   = "openshell.ai/managed-by"
-	sandboxLegacyLabelValue = "openshell"
-)
+// user session from gateway infrastructure.
+const sandboxPodLabelKey = "agents.x-k8s.io/sandbox-name-hash"
+
+// SandboxPodSelector scopes the sandbox-count informer to agent sandbox pods: an
+// Exists match on the sandbox-name-hash label the agent-sandbox controller
+// stamps on every sandbox pod. Keeping the watch (and its in-memory cache)
+// scoped to sandbox pods means gateway infrastructure pods never enter the
+// accounting path.
+const SandboxPodSelector = sandboxPodLabelKey
 
 // Pod state classifications used when summarizing a namespace's workloads for
 // garbage-collection events and logs. These mirror the states an operator sees
@@ -36,16 +37,13 @@ const (
 	PodStateUnknown          = "Unknown"
 )
 
-// hasSandboxLabel reports whether a pod is an agent sandbox (current or legacy
-// labelling). Checking the label client-side keeps the count correct even
-// against a fake clientset that does not honor server-side label selectors, and
-// guards against a future gateway workload accidentally matching a broad
-// selector.
+// hasSandboxLabel reports whether a pod is an agent sandbox. Checking the label
+// client-side keeps the count correct even against a fake clientset that does
+// not honor server-side label selectors, and guards against a future gateway
+// workload accidentally matching a broad selector.
 func hasSandboxLabel(pod *corev1.Pod) bool {
-	if _, ok := pod.Labels[sandboxPodLabelKey]; ok {
-		return true
-	}
-	return pod.Labels[sandboxLegacyLabelKey] == sandboxLegacyLabelValue
+	_, ok := pod.Labels[sandboxPodLabelKey]
+	return ok
 }
 
 // isActivePod reports whether a pod represents an occupied session. Running and
@@ -57,6 +55,15 @@ func isActivePod(pod *corev1.Pod) bool {
 	default:
 		return false
 	}
+}
+
+// IsActiveSandboxPod reports whether a pod is an agent sandbox in an active
+// (Running or Pending) phase, i.e. whether it should be counted toward a
+// gateway's active_sandbox_count. It is the single classification the
+// event-driven sandbox-count reconciler uses for both incremental transitions
+// and the periodic self-heal from its watch cache.
+func IsActiveSandboxPod(pod *corev1.Pod) bool {
+	return hasSandboxLabel(pod) && isActivePod(pod)
 }
 
 // CountActiveSandboxes returns the number of active sandbox pods in a gateway

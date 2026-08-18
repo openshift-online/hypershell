@@ -20,6 +20,16 @@ type GatewayService interface {
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	All(ctx context.Context) (GatewayList, *errors.ServiceError)
 
+	// AdjustActiveSandboxCount applies a relative delta to the
+	// active_sandbox_count of the gateway backing the given namespace and returns
+	// the resulting count. It is a no-op returning 0 when no live gateway backs
+	// the namespace.
+	AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, *errors.ServiceError)
+
+	// SetActiveSandboxCount sets the active_sandbox_count of the gateway backing
+	// the given namespace to an absolute value and returns it (self-heal path).
+	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError)
+
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
@@ -117,6 +127,41 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	}
 
 	return gateway, nil
+}
+
+func (s *sqlGatewayService) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, *errors.ServiceError) {
+	gatewayID, count, changed, err := s.gatewayDao.AdjustActiveSandboxCount(ctx, namespace, delta)
+	if err != nil {
+		return 0, services.HandleUpdateError("Gateway", err)
+	}
+	return s.emitSandboxCountEvent(ctx, gatewayID, count, changed)
+}
+
+func (s *sqlGatewayService) SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError) {
+	gatewayID, resulting, changed, err := s.gatewayDao.SetActiveSandboxCount(ctx, namespace, count)
+	if err != nil {
+		return 0, services.HandleUpdateError("Gateway", err)
+	}
+	return s.emitSandboxCountEvent(ctx, gatewayID, resulting, changed)
+}
+
+// emitSandboxCountEvent publishes a Gateway update event so watchers (the
+// console, the control plane) observe the new count, but only when a live
+// gateway backed the namespace and its stored count actually changed. This
+// keeps steady-state self-heal from churning events when nothing moved.
+func (s *sqlGatewayService) emitSandboxCountEvent(ctx context.Context, gatewayID string, count int, changed bool) (int, *errors.ServiceError) {
+	if !changed || gatewayID == "" {
+		return count, nil
+	}
+	_, evErr := s.events.Create(ctx, &api.Event{
+		Source:    "Gateways",
+		SourceID:  gatewayID,
+		EventType: api.UpdateEventType,
+	})
+	if evErr != nil {
+		return 0, services.HandleUpdateError("Gateway", evErr)
+	}
+	return count, nil
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {

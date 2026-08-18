@@ -26,8 +26,11 @@ This spec is a sub-spec of [`control-plane.spec.md`](./control-plane.spec.md)
 and complements [`watch-delete-events.spec.md`](./watch-delete-events.spec.md)
 (which guarantees delete events carry the resource snapshot the cleanup path
 needs) and [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md)
-(which owns the Gateway `phase`/`status` and is where the active-sandbox count is
-reported). Namespace creation and provisioning mechanics are defined in
+(which owns the Gateway `phase`/`status`). How the active-sandbox count itself is
+maintained and published is defined in
+[`openshell-gateway-sandbox-count.spec.md`](./openshell-gateway-sandbox-count.spec.md);
+this spec only consumes that count to warn an operator before a deletion.
+Namespace creation and provisioning mechanics are defined in
 [`openshell-gateway.spec.md`](./openshell-gateway.spec.md).
 
 ## Domain Vocabulary
@@ -52,8 +55,8 @@ reported). Namespace creation and provisioning mechanics are defined in
 - **Active sandbox** - an agent sandbox pod in the `Running` or `Pending` phase.
   Sandbox pods are created by the upstream OpenShell gateway (via the
   agent-sandbox controller), not by this control plane, and are identified by the
-  `agents.x-k8s.io/sandbox-name-hash` label (or the legacy
-  `openshell.ai/managed-by=openshell` marker).
+  `agents.x-k8s.io/sandbox-name-hash` label the agent-sandbox controller stamps on
+  them.
 
 ## Requirements
 
@@ -62,9 +65,12 @@ reported). Namespace creation and provisioning mechanics are defined in
 When the control plane processes a Gateway delete event, it SHALL delete the
 gateway's managed namespace. Deleting the namespace cascades removal of every
 resource inside it, so in-namespace workloads (Deployments, Services, Secrets,
-ConfigMaps, PVCs, Jobs, Roles, RoleBindings, and cert-manager / Gateway API
-objects) are reclaimed by the namespace deletion itself and need not be deleted
-individually.
+ConfigMaps, PVCs, Jobs, Roles, RoleBindings, cert-manager / Gateway API objects,
+and the gateway's agent sandbox pods and their `agents.x-k8s.io` Sandbox
+resources) are reclaimed by the namespace deletion itself and need not be deleted
+individually. Sandbox pods run in the gateway's own namespace (see
+[`openshell-gateway-sandbox-count.spec.md`](./openshell-gateway-sandbox-count.spec.md)),
+so they are reclaimed by this cascade and are never garbage-collected pod by pod.
 
 The control plane SHALL additionally clean up the resources a gateway owns that
 live outside its namespace, because namespace deletion does not reach them:
@@ -72,6 +78,14 @@ live outside its namespace, because namespace deletion does not reach them:
 - the cluster-scoped ClusterRoleBinding created for the gateway,
 - the gateway's external Keycloak client, and
 - any credential RBAC the gateway created in a separate credential namespace.
+
+> **Future work (not yet implemented):** As gateways gain ownership of
+> out-of-namespace external state that namespace deletion cannot reach (for
+> example secrets written to an external secret store such as HashiCorp Vault),
+> this delete path will need to be extended to reclaim that state too, under the
+> same best-effort, idempotent contract used for the resources above. No such
+> external store is provisioned today, so there is nothing beyond the listed
+> resources to clean up yet.
 
 Namespace deletion SHALL be best-effort and idempotent: an already-absent or
 already-terminating namespace is treated as success, and a namespace that is not
@@ -205,23 +219,17 @@ best-effort: failure to collect it SHALL NOT block the reap.
 ### Requirement: Surface Active Sandbox Count Before Deletion
 
 So an operator can see how many running sessions a deletion would disrupt, the
-control plane SHALL observe the number of active (Running or Pending) agent
-sandbox pods in each gateway's namespace and report it on the Gateway as the
-read-only `active_sandbox_count` field. The count is observed on each health
-reconciliation cycle and reported via `UpdateGateway` alongside `phase`/`status`.
-It is an observability signal only: it SHALL NOT gate namespace deletion. A
-transient failure to list pods SHALL leave the last reported count unchanged
-rather than reset it to zero.
+Gateway's read-only `active_sandbox_count` field SHALL be surfaced as a warning
+before the gateway is deleted. How that count is maintained and published is
+defined in
+[`openshell-gateway-sandbox-count.spec.md`](./openshell-gateway-sandbox-count.spec.md)
+(event-driven from a sandbox pod watch, with periodic self-heal); this spec only
+consumes it. The count is an observability signal only: it SHALL NOT gate
+namespace deletion.
 
-The reported value reflects the control plane's most recent observation of the
-namespace and MAY lag real time; consumers SHALL treat it as an advisory recent
-count, not a real-time guarantee.
-
-#### Scenario: Count reflected on the Gateway
-
-- GIVEN a gateway namespace containing three active sandbox pods
-- WHEN the health reconciler observes the namespace
-- THEN it SHALL report `active_sandbox_count = 3` on the Gateway
+The reported value reflects the control plane's most recent observation and MAY
+lag real time; consumers SHALL treat it as an advisory recent count, not a
+real-time guarantee.
 
 #### Scenario: Count surfaced in the delete confirmation
 
@@ -230,11 +238,13 @@ count, not a real-time guarantee.
 - THEN the console SHALL surface the active sandbox count as a warning
 - BUT it SHALL NOT block the deletion on that count
 
-#### Scenario: Transient pod-list error does not clobber the count
+#### Scenario: Count is self-healing, not clobbered by a missed observation
 
-- GIVEN a Gateway last reported with `active_sandbox_count = 3`
-- WHEN a health cycle cannot list pods in the namespace
-- THEN the control plane SHALL leave the reported count unchanged
+- GIVEN a gateway namespace containing three active sandbox pods
+- WHEN an event is missed or the control plane restarts
+- THEN the control plane SHALL converge `active_sandbox_count` back to the actual
+  number of active sandbox pods (per the sandbox-count spec), so the delete
+  warning is based on a self-correcting value rather than a stale or zeroed one
 
 ## Design Decisions
 
@@ -246,4 +256,6 @@ count, not a real-time guarantee.
 | Abort the whole sweep if Gateways cannot be listed | An empty or failed Gateway list would make every managed namespace look orphaned; aborting is the only safe response to avoid mass reaping of live namespaces. |
 | Delete is best-effort and not gated on sandbox count | Deletion is idempotent - process the delete, remove the namespace, and if it is already gone consider the delete done. The sandbox count is a warning surfaced to the operator, not a backend precondition. |
 | Record the GC Event in the control-plane namespace | An Event stored in the namespace being deleted would be destroyed with it; recording it in the control-plane namespace gives operators a durable audit trail. |
-| Active sandbox count reported via the health reconciler | The health loop already observes each gateway namespace every cycle, so reporting the count there keeps it reasonably fresh without a second watch. |
+| Active sandbox count maintained event-driven, not by this reconciler | The count is maintained from a control-plane sandbox pod watch with periodic self-heal (see [`openshell-gateway-sandbox-count.spec.md`](./openshell-gateway-sandbox-count.spec.md)), avoiding a repeated full-namespace pod poll. This reconciler only consumes the published value to warn operators before a deletion. |
+| Sandbox pods reclaimed by the namespace cascade, not reaped pod by pod | Sandboxes run in the gateway's own namespace, so deleting the namespace reclaims them along with the gateway's workloads; no separate per-pod sandbox reaper is needed, and the sandbox count stays a warning signal rather than a cleanup driver. |
+| Out-of-namespace cleanup is an explicit, extensible list | Namespace deletion cannot reach resources outside the namespace, so each must be deleted explicitly. The list is expected to grow (e.g. external secret stores such as Vault); new out-of-namespace state is added here under the same best-effort, idempotent contract. |

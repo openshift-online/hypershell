@@ -51,3 +51,45 @@ func (d *gatewayDaoMock) FindByIDs(ctx context.Context, ids []string) (GatewayLi
 func (d *gatewayDaoMock) All(ctx context.Context) (GatewayList, error) {
 	return d.gateways, nil
 }
+
+func (d *gatewayDaoMock) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (string, int, bool, error) {
+	gw := d.findByNamespace(namespace)
+	if gw == nil {
+		return "", 0, false, nil
+	}
+	cur := derefCount(gw.ActiveSandboxCount)
+	next := cur + delta
+	if next < 0 {
+		next = 0
+	}
+	if next == cur {
+		return gw.ID, cur, false, nil
+	}
+	gw.ActiveSandboxCount = &next
+	return gw.ID, next, true, nil
+}
+
+func (d *gatewayDaoMock) SetActiveSandboxCount(ctx context.Context, namespace string, count int) (string, int, bool, error) {
+	gw := d.findByNamespace(namespace)
+	if gw == nil {
+		return "", 0, false, nil
+	}
+	if count < 0 {
+		count = 0
+	}
+	cur := derefCount(gw.ActiveSandboxCount)
+	if count == cur && gw.ActiveSandboxCount != nil {
+		return gw.ID, cur, false, nil
+	}
+	gw.ActiveSandboxCount = &count
+	return gw.ID, count, true, nil
+}
+
+func (d *gatewayDaoMock) findByNamespace(namespace string) *Gateway {
+	for _, gateway := range d.gateways {
+		if gateway.Namespace == namespace {
+			return gateway
+		}
+	}
+	return nil
+}

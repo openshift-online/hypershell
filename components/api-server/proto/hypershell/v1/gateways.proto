@@ -82,11 +82,40 @@ message UpdateGatewayRequest {
   optional string route = 17;
   optional string database_config = 18;
   optional string credential_driver = 19;
-  optional int32 active_sandbox_count = 20;
+  // active_sandbox_count is intentionally absent: the count is control-plane
+  // owned and written only through AdjustActiveSandboxCount / SetActiveSandboxCount
+  // so the whole-row UpdateGateway path can never clobber it. See
+  // openshell-gateway-sandbox-count.spec.md.
 }
 
 message UpdateGatewayResponse {
   Gateway gateway = 1;
+}
+
+// AdjustActiveSandboxCountRequest applies a relative delta to a gateway's
+// active_sandbox_count, keyed by the gateway's namespace. Deltas are applied
+// atomically at the database and the stored count is floored at zero.
+message AdjustActiveSandboxCountRequest {
+  string namespace = 1;
+  int32 delta = 2;
+}
+
+message AdjustActiveSandboxCountResponse {
+  // The resulting count after the adjustment. Zero when no live gateway backs
+  // the namespace (the adjustment is a no-op in that case).
+  int32 active_sandbox_count = 1;
+}
+
+// SetActiveSandboxCountRequest sets a gateway's active_sandbox_count to an
+// absolute observed value, keyed by the gateway's namespace. Used by the
+// periodic self-heal that reconciles the stored count to the watch cache.
+message SetActiveSandboxCountRequest {
+  string namespace = 1;
+  int32 count = 2;
+}
+
+message SetActiveSandboxCountResponse {
+  int32 active_sandbox_count = 1;
 }
 
 message DeleteGatewayRequest {
@@ -120,4 +149,6 @@ service GatewayService {
   rpc DeleteGateway(DeleteGatewayRequest) returns (DeleteGatewayResponse);
   rpc ListGateways(ListGatewaysRequest) returns (ListGatewaysResponse);
   rpc WatchGateways(WatchGatewaysRequest) returns (stream WatchGatewaysResponse);
+  rpc AdjustActiveSandboxCount(AdjustActiveSandboxCountRequest) returns (AdjustActiveSandboxCountResponse);
+  rpc SetActiveSandboxCount(SetActiveSandboxCountRequest) returns (SetActiveSandboxCountResponse);
 }

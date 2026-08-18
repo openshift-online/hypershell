@@ -5,7 +5,9 @@
 **Jira:** HYPERSHELL-18
 **Related:** `local-development.spec.md` -- Kind cluster setup;
              `control-plane.spec.md` -- reconciler behavior;
-             `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning
+             `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning;
+             `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
+             `openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting
 
 ## Purpose
 
@@ -191,23 +193,24 @@ Each driver script SHALL export the following shell functions. The main test scr
 
 ### Requirement: E2E Test Suite Coverage
 
-The e2e test suite SHALL validate the following 7 areas, extending the original test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
+The e2e test suite SHALL validate the following 8 areas, extending the original test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
 
 1. **Gateway provisioning via HyperShell API** -- create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
 2. **Gateway infrastructure verification** -- confirm the gateway deployment, service, TLS secret, and certgen job exist and are healthy
 3. **Route discovery + openshell CLI registration** -- discover the gateway endpoint via the driver, register it with the openshell CLI
 4. **Gateway connectivity** -- verify the openshell CLI can connect to the gateway and report status (over trusted TLS, no insecure bypass -- see Gateway TLS Trust)
-5. **Sandbox lifecycle** -- create a sandbox as the admin user, wait for the pod to reach `Running` state
+5. **Sandbox lifecycle** -- create a sandbox as the admin user, wait for the pod to reach `Running` state, and verify the gateway's `active_sandbox_count` accounting reflects sandbox create and delete (see Active Sandbox Count Accounting)
 6. **Sandbox interaction** -- execute commands inside the sandbox (`uname -a`, `ls /workspace`)
 7. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
+8. **Gateway deletion + namespace garbage collection** -- delete the gateway through the HyperShell API and verify the control plane removes the gateway record and reaps its managed namespace (see Gateway Deletion and Namespace GC, and `openshell-gateway-namespace-gc.spec.md`)
 
-The admin-user OIDC flow that authenticates areas 1--6 is validated separately (see OIDC Authentication in E2E Tests).
+The admin-user OIDC flow that authenticates areas 1--6 and 8 is validated separately (see OIDC Authentication in E2E Tests).
 
 #### Scenario: Full Suite Execution
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all 7 test areas SHALL be executed in sequence
+- THEN all 8 test areas SHALL be executed in sequence
 - AND results SHALL be reported as pass/fail counts with per-test detail
 
 #### Scenario: Gateway Provisioning
@@ -229,6 +232,37 @@ The admin-user OIDC flow that authenticates areas 1--6 is validated separately (
 - WHEN `sandbox create --name <name>` is invoked
 - THEN a pod matching `default--<name>` SHALL appear in the gateway namespace
 - AND the pod SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds
+
+### Requirement: Active Sandbox Count Accounting
+
+The e2e test suite SHALL validate that a gateway's read-only `active_sandbox_count`
+field, reported by the HyperShell API, tracks sandbox creation and deletion. The
+suite SHALL create two to three sandboxes on a `Running` gateway, poll the API
+until `active_sandbox_count` reflects the created sandboxes, then delete one or
+more and poll until the count decrements accordingly. The suite SHALL reuse the
+existing sandbox create/delete steps and the API-polling helper. Because the
+count is an advisory recent value that may lag real time (see
+`openshell-gateway-sandbox-count.spec.md`), assertions SHALL poll up to
+`E2E_SANDBOX_TIMEOUT` seconds for the expected value rather than checking once.
+
+#### Scenario: Count increments as sandboxes are created
+
+- GIVEN a `Running` gateway with `active_sandbox_count` of 0
+- WHEN two to three sandboxes are created on that gateway and their pods reach
+  `Running` state
+- THEN polling `GET /api/hypershell/v1/gateways/<id>` SHALL report an
+  `active_sandbox_count` equal to the number of sandboxes created, within
+  `E2E_SANDBOX_TIMEOUT` seconds
+- AND a timeout without the expected count SHALL be reported as a test failure
+
+#### Scenario: Count decrements as sandboxes are deleted
+
+- GIVEN a `Running` gateway whose `active_sandbox_count` reflects the created
+  sandboxes
+- WHEN one or more of those sandboxes are deleted and their pods terminate
+- THEN polling the API SHALL report an `active_sandbox_count` reduced by the
+  number of sandboxes deleted, within `E2E_SANDBOX_TIMEOUT` seconds
+- AND the suite SHALL delete any remaining sandboxes to leave a clean state
 
 ### Requirement: Developer RBAC Enforcement
 
@@ -255,6 +289,44 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 - WHEN the API returns a 2xx status despite the missing `gateway:creator` role
 - THEN the test SHALL record a failure (RBAC not enforced)
 - AND the test SHALL delete the erroneously-created gateway to leave a clean state
+
+### Requirement: Gateway Deletion and Namespace GC
+
+The e2e test suite SHALL validate that deleting a Gateway through the HyperShell
+API drives the control plane to remove the gateway record and reap its managed
+namespace, per `openshell-gateway-namespace-gc.spec.md`. Before deletion the suite
+SHALL confirm the gateway's managed namespace exists, so its later disappearance
+is a real garbage-collection signal rather than a namespace that never existed.
+After issuing `DELETE /api/hypershell/v1/gateways/<id>`, the suite SHALL poll
+until the gateway record returns `404` (the delete event has been processed) and
+until the managed namespace is gone, within `E2E_GC_TIMEOUT` seconds. A namespace
+that is not reaped within the timeout SHALL be reported as a test failure with GC
+diagnostics (the namespace's remaining state and control-plane logs).
+
+Deletion SHALL NOT be gated on the gateway's active sandbox count: even with
+active sandboxes the delete is accepted and the namespace is reaped, cascading
+removal of the in-namespace sandbox resources (see
+`openshell-gateway-namespace-gc.spec.md` and `openshell-gateway-database.spec.md`).
+
+#### Scenario: Namespace present before deletion
+
+- GIVEN a `Running` gateway whose managed namespace exists
+- WHEN the suite checks for the namespace before deleting the gateway
+- THEN the namespace SHALL be present
+- AND its absence SHALL be reported as a failure, because the GC check cannot then be validated
+
+#### Scenario: Gateway record removed after delete
+
+- GIVEN the gateway has been deleted via `DELETE /api/hypershell/v1/gateways/<id>` (accepted with `204 No Content`)
+- WHEN the suite polls `GET /api/hypershell/v1/gateways/<id>`
+- THEN the API SHALL report `404` once the control plane has processed the delete event
+
+#### Scenario: Managed namespace garbage collected
+
+- GIVEN the gateway delete has been accepted
+- WHEN the suite polls for the gateway's managed namespace
+- THEN the namespace SHALL be gone within `E2E_GC_TIMEOUT` seconds
+- AND a namespace still present after the timeout SHALL be reported as a failure with GC diagnostics (namespace state and control-plane logs)
 
 ### Requirement: Gateway TLS Trust (No Insecure Bypass)
 
@@ -472,6 +544,7 @@ deploy/
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
+| `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--6 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only) |
