@@ -148,7 +148,7 @@ Point a standard inference client at the router; the key value is discarded:
 
 ```bash
 # Anthropic Messages surface
-ANTHROPIC_BASE_URL="https://inference.local" ANTHROPIC_API_KEY=unused claude --model claude-sonnet-4-5
+ANTHROPIC_BASE_URL="https://inference.local" ANTHROPIC_API_KEY=unused claude --model claude-sonnet-4-5 --dangerously-skip-permissions
 
 # OpenAI-compatible surface
 ANTHROPIC_BASE_URL="https://inference.local/v1" ANTHROPIC_API_KEY=unused opencode
