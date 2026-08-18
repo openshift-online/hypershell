@@ -66,6 +66,18 @@ func ValidateGatewayConfig(config GatewayConfig) error {
 		}
 	}
 
+	// An explicit route host lands verbatim in the Route spec.host and the
+	// gateway certificate SANs, so it must be a well-formed DNS name just like
+	// ServerDnsNames. The per-tenant slot constraint (it must be the tenant's
+	// own gw-<namespace>.<base-domain> when under the shared base domain) is
+	// enforced in deriveGatewayHostname, where the namespace and base domain
+	// are both available.
+	if config.Route.Host != "" {
+		if err := ValidateDNSName(config.Route.Host); err != nil {
+			return fmt.Errorf("invalid route host: %w", err)
+		}
+	}
+
 	if err := ValidateOIDCConfig(config.OIDC); err != nil {
 		return fmt.Errorf("invalid OIDC config: %w", err)
 	}

@@ -1507,10 +1507,23 @@ func gatewayIngressMode(opts ReconcileOpts) string {
 // derived as gw-<namespace>.<GATEWAY_API_BASE_DOMAIN>. The gateway's server
 // certificate SANs (ServerDnsNames/ExternalDns) must cover this hostname.
 func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
+	baseDomain := os.Getenv("GATEWAY_API_BASE_DOMAIN")
 	if h := nsConfig.Gateway.Route.Host; h != "" {
+		// An explicit host that falls under the operator's shared base domain
+		// MUST be this tenant's own slot (gw-<namespace>.<base-domain>).
+		// Otherwise a tenant could set Route.Host to another tenant's derived
+		// host and hijack its route under the shared wildcard, since OpenShift
+		// Route host claiming is first-come. Hosts outside the base domain
+		// (genuine external/vanity names) are the operator's responsibility and
+		// pass through; empty base domain means no shared wildcard to protect.
+		if baseDomain != "" && strings.HasSuffix(h, "."+baseDomain) {
+			expected := fmt.Sprintf("gw-%s.%s", nsConfig.Name, baseDomain)
+			if h != expected {
+				return "", fmt.Errorf("route host %q under base domain %q must equal %q for namespace %q", h, baseDomain, expected, nsConfig.Name)
+			}
+		}
 		return h, nil
 	}
-	baseDomain := os.Getenv("GATEWAY_API_BASE_DOMAIN")
 	if baseDomain == "" {
 		return "", fmt.Errorf("cannot derive gateway hostname: set Route.Host or GATEWAY_API_BASE_DOMAIN")
 	}

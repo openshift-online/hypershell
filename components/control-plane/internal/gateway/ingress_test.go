@@ -99,4 +99,44 @@ func TestDeriveGatewayHostname(t *testing.T) {
 			t.Error("expected error, got nil")
 		}
 	})
+
+	t.Run("explicit host equal to own slot under base domain is allowed", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+		ns := NamespaceConfig{Name: "tenant-a", Gateway: GatewayConfig{Route: RouteConfig{Host: "gw-tenant-a.apps.example.com"}}}
+		got, err := deriveGatewayHostname(ns)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "gw-tenant-a.apps.example.com" {
+			t.Errorf("got %q, want gw-tenant-a.apps.example.com", got)
+		}
+	})
+
+	t.Run("rejects another tenant's slot under the shared base domain (hijack)", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+		ns := NamespaceConfig{Name: "tenant-a", Gateway: GatewayConfig{Route: RouteConfig{Host: "gw-tenant-b.apps.example.com"}}}
+		if _, err := deriveGatewayHostname(ns); err == nil {
+			t.Error("expected hijack rejection, got nil")
+		}
+	})
+
+	t.Run("rejects an arbitrary host under the shared base domain", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+		ns := NamespaceConfig{Name: "tenant-a", Gateway: GatewayConfig{Route: RouteConfig{Host: "victim.apps.example.com"}}}
+		if _, err := deriveGatewayHostname(ns); err == nil {
+			t.Error("expected rejection of foreign host under base domain, got nil")
+		}
+	})
+
+	t.Run("external vanity host outside base domain passes through", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+		ns := NamespaceConfig{Name: "tenant-a", Gateway: GatewayConfig{Route: RouteConfig{Host: "gateway.customer.io"}}}
+		got, err := deriveGatewayHostname(ns)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "gateway.customer.io" {
+			t.Errorf("got %q, want gateway.customer.io", got)
+		}
+	})
 }

@@ -34,6 +34,30 @@ func TestValidateImageReference(t *testing.T) {
 	}
 }
 
+func TestValidateGatewayConfigRouteHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		wantErr bool
+	}{
+		{name: "empty host is valid (derived from base domain)", host: "", wantErr: false},
+		{name: "well-formed host is valid", host: "gw-tenant-a.apps.example.com", wantErr: false},
+		{name: "uppercase is invalid (not a DNS label)", host: "GW-Tenant.example.com", wantErr: true},
+		{name: "leading dot is invalid", host: ".example.com", wantErr: true},
+		{name: "whitespace is invalid", host: "gw tenant.example.com", wantErr: true},
+		{name: "trailing newline is invalid", host: "gw-tenant.example.com\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := GatewayConfig{Route: RouteConfig{Host: tt.host}}
+			err := ValidateGatewayConfig(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateGatewayConfig(host=%q) error = %v, wantErr %v", tt.host, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateCredentialDriverConfig(t *testing.T) {
 	tests := []struct {
 		name    string
