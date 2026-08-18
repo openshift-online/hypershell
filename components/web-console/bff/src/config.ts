@@ -99,6 +99,32 @@ export interface ServerConfig {
   tracing?: TracingConfig;
 }
 
+/**
+ * Configuration handed to the untrusted browser. This is an allowlist: only
+ * values safe to reveal to a client appear here. The collector endpoint,
+ * origins, session secret, and OIDC settings never cross this boundary.
+ */
+export interface BrowserRuntimeConfig {
+  tracing: {
+    /**
+     * Fraction of browser-rooted traces to record, 0..1. It mirrors the BFF
+     * sample ratio so the browser trace root and the BFF agree on each trace,
+     * and is 0 when tracing is disabled so the browser records nothing the BFF
+     * cannot relay.
+     */
+    sampleRatio: number;
+  };
+}
+
+/** Projects the server config down to the allowlist the browser may read. */
+export function browserRuntimeConfig(
+  config: ServerConfig,
+): BrowserRuntimeConfig {
+  return {
+    tracing: { sampleRatio: config.tracing?.sampleRatio ?? 0 },
+  };
+}
+
 /** Derives the OTLP/HTTP traces URL from a collector base endpoint. */
 function tracesEndpointFor(collectorEndpoint: string): string {
   return `${collectorEndpoint.replace(/\/+$/u, "")}/v1/traces`;

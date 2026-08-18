@@ -8,7 +8,11 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, LogController } from "fastify";
 
 import { clearSession, persistTokenSet, registerAuth } from "./auth.js";
-import type { ServerConfig } from "./config.js";
+import {
+  browserRuntimeConfig,
+  type BrowserRuntimeConfig,
+  type ServerConfig,
+} from "./config.js";
 import { tokenExpired } from "./tokens.js";
 import {
   disabledTracing,
@@ -60,6 +64,40 @@ function proxyBody(
   return JSON.stringify(body);
 }
 
+const runtimeConfigMetaName = "hypershell-runtime-config";
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;");
+}
+
+/**
+ * Injects the allowlisted browser runtime config as a <meta> tag in the head, so
+ * the SPA reads operator settings (such as the trace sample ratio) without an
+ * inline script that would need a CSP hash. Only the browserRuntimeConfig
+ * projection is serialized; server-only config never reaches the client. The tag
+ * lands after the opening head, or after the opening html when a document has no
+ * head, so it is always present in the document the browser parses.
+ */
+function injectRuntimeConfig(
+  document: string,
+  config: BrowserRuntimeConfig,
+): string {
+  const meta = `<meta name="${runtimeConfigMetaName}" content="${escapeHtmlAttribute(
+    JSON.stringify(config),
+  )}">`;
+  if (/<head\b[^>]*>/iu.test(document)) {
+    return document.replace(/<head\b[^>]*>/iu, (head) => `${head}${meta}`);
+  }
+  if (/<html\b[^>]*>/iu.test(document)) {
+    return document.replace(/<html\b[^>]*>/iu, (html) => `${html}${meta}`);
+  }
+  return `${meta}${document}`;
+}
+
 function inlineScriptHashes(document: string): string[] {
   const hashes = new Set<string>();
   const scriptPattern = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/giu;
@@ -97,7 +135,10 @@ export async function buildApp(
   tracing: BffTracing = disabledTracing,
 ): Promise<FastifyInstance> {
   const indexPath = path.join(config.staticRoot, "index.html");
-  const indexDocument = await readFile(indexPath, "utf8");
+  const indexDocument = injectRuntimeConfig(
+    await readFile(indexPath, "utf8"),
+    browserRuntimeConfig(config),
+  );
   const scriptHashes = inlineScriptHashes(indexDocument);
 
   const app = Fastify({

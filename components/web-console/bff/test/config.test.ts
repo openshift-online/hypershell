@@ -1,4 +1,4 @@
-import { loadConfig } from "../src/config.js";
+import { browserRuntimeConfig, loadConfig } from "../src/config.js";
 
 describe("loadConfig", () => {
   it("validates and normalizes trusted runtime configuration", () => {
@@ -77,6 +77,41 @@ describe("loadConfig", () => {
         STATIC_ROOT: "./public",
       }),
     ).toThrow(/OTEL_TRACES_SAMPLE_RATIO/u);
+  });
+});
+
+describe("browserRuntimeConfig", () => {
+  it("mirrors the configured sample ratio to the browser allowlist", () => {
+    const config = loadConfig({
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.example.test:4318",
+      OTEL_TRACES_SAMPLE_RATIO: "0.25",
+      STATIC_ROOT: "./public",
+    });
+
+    expect(browserRuntimeConfig(config)).toEqual({
+      tracing: { sampleRatio: 0.25 },
+    });
+  });
+
+  it("samples nothing in the browser when tracing is disabled", () => {
+    const config = loadConfig({ STATIC_ROOT: "./public" });
+
+    expect(browserRuntimeConfig(config)).toEqual({
+      tracing: { sampleRatio: 0 },
+    });
+  });
+
+  it("exposes no server-only configuration to the browser", () => {
+    const config = loadConfig({
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.example.test:4318",
+      SESSION_SECRET: "a".repeat(64),
+      STATIC_ROOT: "./public",
+    });
+
+    const serialized = JSON.stringify(browserRuntimeConfig(config));
+    expect(serialized).not.toContain("collector.example.test");
+    expect(serialized).not.toContain("a".repeat(64));
+    expect(Object.keys(browserRuntimeConfig(config))).toEqual(["tracing"]);
   });
 });
 
