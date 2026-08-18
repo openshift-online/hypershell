@@ -20,7 +20,9 @@ function stubTracing() {
   const started: StartProxySpanInput[] = [];
   const ended: { outcome: ProxyOutcome; statusCode: number }[] = [];
   const ingested: unknown[] = [];
+  const health = { relayFailures: 0, spanExportFailures: 0 };
   const tracing: BffTracing = {
+    deliveryHealth: () => ({ ...health }),
     enabled: true,
     ingestTraces: (payload) => {
       ingested.push(payload);
@@ -44,7 +46,7 @@ function stubTracing() {
       };
     },
   };
-  return { ended, ingested, started, tracing };
+  return { ended, health, ingested, started, tracing };
 }
 
 describe("web-console BFF tracing wiring", () => {
@@ -189,5 +191,21 @@ describe("web-console BFF tracing wiring", () => {
     });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  it("surfaces the delivery-health snapshot on readiness without gating it", async () => {
+    trace.health.relayFailures = 3;
+    trace.health.spanExportFailures = 5;
+
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+
+    // Readiness stays "ready" even with delivery losses -- tracing is
+    // best-effort and must never gate serving -- but the bounded snapshot rides
+    // along so the losses are observable.
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      status: "ready",
+      tracing: { relayFailures: 3, spanExportFailures: 5 },
+    });
   });
 });

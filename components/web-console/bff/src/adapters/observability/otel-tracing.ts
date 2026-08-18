@@ -2,28 +2,45 @@ import {
   ROOT_CONTEXT,
   SpanKind,
   SpanStatusCode,
+  createNoopMeter,
   defaultTextMapGetter,
   defaultTextMapSetter,
   isSpanContextValid,
   trace as otelTrace,
+  type Attributes,
   type Context,
+  type Counter,
+  type Meter,
+  type MeterProvider,
+  type MetricOptions,
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
-import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import {
+  ExportResultCode,
+  W3CTraceContextPropagator,
+  type ExportResult,
+} from "@opentelemetry/core";
 import {
   BasicTracerProvider,
   BatchSpanProcessor,
   ParentBasedSampler,
   TraceIdRatioBasedSampler,
+  type BufferConfig,
+  type SpanExporter,
 } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import {
+  ATTR_ERROR_TYPE,
+  ATTR_SERVICE_NAME,
+} from "@opentelemetry/semantic-conventions";
+import { z } from "zod";
 
 import type { TracingConfig } from "../../config.js";
 import {
   disabledTracing,
+  type BffDeliveryHealthSnapshot,
   type BffTracing,
   type ProxyOutcome,
   type ProxySpan,
@@ -123,56 +140,246 @@ function spanStatusFor(outcome: ProxyOutcome): SpanStatusCode {
 }
 
 // Bounds on the OTLP/HTTP JSON envelope. The Fastify body limit already caps the
-// raw size; these caps additionally bound the structural walk and reject a
+// raw byte size; these additionally bound the structural walk and reject a
 // payload whose arrays are implausibly large before it is relayed.
 const maxResourceSpans = 10_000;
 const maxScopeSpans = 10_000;
 const maxSpans = 100_000;
+const maxAttributes = 1_024;
+const maxEvents = 1_024;
+const maxLinks = 1_024;
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+// Trace and span ids are hex-encoded in the OTLP/HTTP JSON the OpenTelemetry JS
+// exporter emits (16- and 8-byte identifiers), not the base64 the generic proto3
+// JSON mapping would use for bytes.
+const traceIdHex = z.string().regex(/^[0-9a-f]{32}$/iu);
+const spanIdHex = z.string().regex(/^[0-9a-f]{16}$/iu);
+// Nanosecond timestamps are decimal strings (values exceed the safe integer
+// range) but a small value may still arrive as a JSON number.
+const unixNano = z.union([z.string().regex(/^\d+$/u), z.number()]);
+
+// AnyValue is recursive: an array or kvlist value nests further values, so the
+// value and key-value schemas reference each other through z.lazy.
+const anyValueSchema: z.ZodType = z.lazy(() =>
+  z.object({
+    stringValue: z.string().optional(),
+    boolValue: z.boolean().optional(),
+    intValue: z.union([z.string(), z.number()]).optional(),
+    doubleValue: z.number().optional(),
+    bytesValue: z.string().optional(),
+    arrayValue: z
+      .object({ values: z.array(anyValueSchema).max(maxAttributes) })
+      .optional(),
+    kvlistValue: z
+      .object({ values: z.array(keyValueSchema).max(maxAttributes) })
+      .optional(),
+  }),
+);
+const keyValueSchema: z.ZodType = z.lazy(() =>
+  z.object({ key: z.string(), value: anyValueSchema.optional() }),
+);
+const attributesSchema = z.array(keyValueSchema).max(maxAttributes).optional();
+
+const spanSchema = z.object({
+  traceId: traceIdHex,
+  spanId: spanIdHex,
+  traceState: z.string().optional(),
+  parentSpanId: spanIdHex.optional(),
+  flags: z.number().optional(),
+  name: z.string(),
+  kind: z.number().optional(),
+  startTimeUnixNano: unixNano.optional(),
+  endTimeUnixNano: unixNano.optional(),
+  attributes: attributesSchema,
+  droppedAttributesCount: z.number().optional(),
+  events: z
+    .array(
+      z.object({
+        timeUnixNano: unixNano.optional(),
+        name: z.string().optional(),
+        attributes: attributesSchema,
+        droppedAttributesCount: z.number().optional(),
+      }),
+    )
+    .max(maxEvents)
+    .optional(),
+  links: z
+    .array(
+      z.object({
+        traceId: traceIdHex.optional(),
+        spanId: spanIdHex.optional(),
+        traceState: z.string().optional(),
+        attributes: attributesSchema,
+        droppedAttributesCount: z.number().optional(),
+        flags: z.number().optional(),
+      }),
+    )
+    .max(maxLinks)
+    .optional(),
+  status: z
+    .object({ message: z.string().optional(), code: z.number().optional() })
+    .optional(),
+});
+
+const otlpTracePayloadSchema = z.object({
+  resourceSpans: z
+    .array(
+      z.object({
+        resource: z
+          .object({
+            attributes: attributesSchema,
+            droppedAttributesCount: z.number().optional(),
+          })
+          .optional(),
+        scopeSpans: z
+          .array(
+            z.object({
+              scope: z
+                .object({
+                  name: z.string().optional(),
+                  version: z.string().optional(),
+                  attributes: attributesSchema,
+                  droppedAttributesCount: z.number().optional(),
+                })
+                .optional(),
+              spans: z.array(spanSchema).max(maxSpans).optional(),
+              schemaUrl: z.string().optional(),
+            }),
+          )
+          .max(maxScopeSpans)
+          .optional(),
+        schemaUrl: z.string().optional(),
+      }),
+    )
+    .max(maxResourceSpans),
+});
+
+/**
+ * Validates the OTLP/HTTP trace envelope against the supported subset of the
+ * OTLP JSON schema -- not merely the three container arrays, but every nested
+ * message and scalar: span ids are hex, timestamps are nanosecond encodings,
+ * attributes are KeyValue lists of typed AnyValue, and status, events, and links
+ * match their proto shapes, all under fixed bounds. Unknown forward-compatible
+ * keys are ignored, but a wrong-typed known field is rejected before the payload
+ * reaches the collector, rather than accepted and relayed only for the collector
+ * to reject it after the browser was told the export succeeded (WEB-TRACE-02).
+ */
+function isOtlpTracePayload(payload: unknown): boolean {
+  return otlpTracePayloadSchema.safeParse(payload).success;
 }
 
-function isBoundedObjectArray(value: unknown, limit: number): boolean {
-  return Array.isArray(value) && value.length <= limit && value.every(isObject);
+const exportBackstopTimeoutMs = 15_000;
+
+/** Bounded, mutable delivery-health tally folded into the port snapshot. */
+interface MutableDeliveryHealth {
+  relayFailures: number;
+  spanExportFailures: number;
+  lastErrorType?: string;
 }
 
 /**
- * Validates the OTLP/HTTP trace envelope structurally and within bounds:
- * `resourceSpans` is an array of objects, each optional `scopeSpans` is an array
- * of objects, and each optional `spans` is an array of objects, all under a
- * fixed cap. This rejects a body that is not well-formed OTLP before it reaches
- * the collector, rather than accepting anything with a `resourceSpans` array and
- * letting the collector reject it after the browser was told the export was
- * accepted (WEB-TRACE-02).
+ * Builds a self-observation {@link MeterProvider} that folds the batch
+ * processor's own span-processing counter into the delivery-health tally. The
+ * processor emits one counter, `otel.sdk.processor.span.processed`, tagged with
+ * an `error.type` attribute on every loss: `queue_full` when a span is dropped
+ * because the buffer is full, and the exporter error name when a batch export
+ * fails. Successful processing carries no `error.type` and is ignored. This is
+ * the single accounting site for every span loss the SDK observes, rather than
+ * only the export failures an out-of-band wrapper could see.
  */
-function isOtlpTracePayload(payload: unknown): boolean {
-  if (!isObject(payload)) {
-    return false;
-  }
-  if (!isBoundedObjectArray(payload.resourceSpans, maxResourceSpans)) {
-    return false;
-  }
-  for (const resourceSpan of payload.resourceSpans as Record<
-    string,
-    unknown
-  >[]) {
-    const { scopeSpans } = resourceSpan;
-    if (
-      scopeSpans !== undefined &&
-      !isBoundedObjectArray(scopeSpans, maxScopeSpans)
-    ) {
-      return false;
-    }
-    for (const scopeSpan of (scopeSpans ?? []) as Record<string, unknown>[]) {
-      const { spans } = scopeSpan;
-      if (spans !== undefined && !isBoundedObjectArray(spans, maxSpans)) {
-        return false;
-      }
-    }
-  }
-  return true;
+function deliveryHealthMeterProvider(
+  health: MutableDeliveryHealth,
+): MeterProvider {
+  const noop = createNoopMeter();
+  const createReportingCounter = (
+    name: string,
+    options?: MetricOptions,
+  ): Counter => {
+    const inner = noop.createCounter(name, options);
+    return {
+      add(value: number, attributes?: Attributes): void {
+        const errorType = attributes?.[ATTR_ERROR_TYPE];
+        if (typeof errorType === "string") {
+          health.spanExportFailures += 1;
+          health.lastErrorType = errorType;
+        }
+        inner.add(value, attributes);
+      },
+    };
+  };
+  // Delegate every instrument to the no-op meter except the counter, whose `add`
+  // is intercepted above. The no-op meter is a shared singleton, so a fresh
+  // delegating meter is returned rather than mutating it.
+  const meter: Meter = {
+    createCounter: createReportingCounter,
+    createGauge: (name, options) => noop.createGauge(name, options),
+    createHistogram: (name, options) => noop.createHistogram(name, options),
+    createObservableCounter: (name, options) =>
+      noop.createObservableCounter(name, options),
+    createObservableGauge: (name, options) =>
+      noop.createObservableGauge(name, options),
+    createObservableUpDownCounter: (name, options) =>
+      noop.createObservableUpDownCounter(name, options),
+    createUpDownCounter: (name, options) =>
+      noop.createUpDownCounter(name, options),
+    addBatchObservableCallback: (callback, observables) => {
+      noop.addBatchObservableCallback(callback, observables);
+    },
+    removeBatchObservableCallback: (callback, observables) => {
+      noop.removeBatchObservableCallback(callback, observables);
+    },
+  };
+  return { getMeter: () => meter };
 }
+
+/**
+ * Wraps a span exporter so a batch always receives a terminal result even when
+ * the inner exporter never calls back. A wedged exporter would otherwise let the
+ * batch processor's export timeout fire, which rejects the flush without
+ * accounting the loss through the self-observation meter. Converting the stall
+ * into a FAILED result routes it back through the processor's finish path (and
+ * so the meter) exactly once; genuine results pass straight through. Accounting
+ * lives in {@link deliveryHealthMeterProvider}, so this wrapper never records --
+ * it only guarantees the callback the meter depends on.
+ */
+function backstopExporter(
+  inner: SpanExporter,
+  timeoutMs: number,
+): SpanExporter {
+  return {
+    export(spans, resultCallback) {
+      let settled = false;
+      const settle = (result: ExportResult): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resultCallback(result);
+      };
+      const timer = setTimeout(() => {
+        const error = new Error(
+          "span export timed out before the exporter responded",
+        );
+        error.name = "SpanExportTimeout";
+        settle({ code: ExportResultCode.FAILED, error });
+      }, timeoutMs);
+      inner.export(spans, settle);
+    },
+    forceFlush: () => inner.forceFlush?.() ?? Promise.resolve(),
+    shutdown: () => inner.shutdown(),
+  };
+}
+
+/**
+ * The batch processor config extended with the self-observation meter provider.
+ * The bundled `sdk-trace-base` shim omits `selfObsMeterProvider` from its
+ * constructor config type but forwards it to the underlying processor, so this
+ * intersection re-adds the field for a typed hand-off.
+ */
+type SelfObservableBatchConfig = BufferConfig & {
+  selfObsMeterProvider?: MeterProvider;
+};
 
 /**
  * Builds the BFF tracing adapter. Spans are managed explicitly per request and
@@ -188,7 +395,20 @@ export function createBffTracing(
   }
   const tracing = config;
 
-  const exporter = new OTLPTraceExporter({ url: tracing.tracesEndpoint });
+  const health: MutableDeliveryHealth = {
+    relayFailures: 0,
+    spanExportFailures: 0,
+  };
+  // Wrap the exporter so a wedged collector still yields a terminal result, and
+  // wire the self-observation meter that folds every processor-accounted loss
+  // (queue overflow and export failure) into the delivery-health tally.
+  const exporter = backstopExporter(
+    new OTLPTraceExporter({ url: tracing.tracesEndpoint }),
+    exportBackstopTimeoutMs,
+  );
+  const processorConfig: SelfObservableBatchConfig = {
+    selfObsMeterProvider: deliveryHealthMeterProvider(health),
+  };
   const provider = new BasicTracerProvider({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: tracing.serviceName,
@@ -196,7 +416,7 @@ export function createBffTracing(
     sampler: new ParentBasedSampler({
       root: new TraceIdRatioBasedSampler(tracing.sampleRatio),
     }),
-    spanProcessors: [new BatchSpanProcessor(exporter)],
+    spanProcessors: [new BatchSpanProcessor(exporter, processorConfig)],
   });
   const tracer: Tracer = provider.getTracer("hypershell-web-console-bff");
 
@@ -258,14 +478,35 @@ export function createBffTracing(
       ) {
         return "rejected";
       }
+      // A transient 408/429 or any 5xx means the collector could not accept the
+      // relay: best-effort for the browser, but a delivery failure worth
+      // surfacing in the bounded health diagnostic.
+      health.relayFailures += 1;
+      health.lastErrorType = "collector_unavailable";
       return "unavailable";
     } catch {
-      // Best-effort: an unreachable collector never fails the browser request.
+      // Best-effort: an unreachable collector never fails the browser request,
+      // but the loss is still counted so the health diagnostic reflects it.
+      health.relayFailures += 1;
+      health.lastErrorType = "collector_unreachable";
       return "unavailable";
     }
   }
 
+  const deliveryHealth = (): BffDeliveryHealthSnapshot =>
+    health.lastErrorType === undefined
+      ? {
+          relayFailures: health.relayFailures,
+          spanExportFailures: health.spanExportFailures,
+        }
+      : {
+          lastErrorType: health.lastErrorType,
+          relayFailures: health.relayFailures,
+          spanExportFailures: health.spanExportFailures,
+        };
+
   return {
+    deliveryHealth,
     enabled: true,
     ingestTraces,
     shutdown: () => provider.shutdown(),

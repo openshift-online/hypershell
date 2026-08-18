@@ -1,3 +1,5 @@
+import { ExportResultCode } from "@opentelemetry/core";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TracingConfig } from "../src/config.js";
@@ -5,6 +7,12 @@ import {
   createBffTracing,
   routeTemplateFrom,
 } from "../src/adapters/observability/otel-tracing.js";
+
+const validSpan = {
+  traceId: "0af7651916cd43dd8448eb211c80319c",
+  spanId: "b7ad6b7169203331",
+  name: "GET /api/hypershell/v1/gateways",
+};
 
 const config: TracingConfig = {
   collectorEndpoint: "http://collector.test:4318",
@@ -72,6 +80,10 @@ describe("BFF tracing adapter", () => {
 
     expect(tracing.enabled).toBe(false);
     expect(tracing.startProxySpan(proxyInput()).upstream()).toBeUndefined();
+    expect(tracing.deliveryHealth()).toEqual({
+      relayFailures: 0,
+      spanExportFailures: 0,
+    });
     await expect(tracing.ingestTraces({ resourceSpans: [] })).resolves.toBe(
       "unavailable",
     );
@@ -211,7 +223,21 @@ describe("BFF tracing adapter", () => {
 
     await expect(
       tracing.ingestTraces({
-        resourceSpans: [{ scopeSpans: [{ spans: [{ name: "s" }] }] }],
+        resourceSpans: [
+          {
+            scopeSpans: [
+              {
+                spans: [
+                  {
+                    traceId: "0af7651916cd43dd8448eb211c80319c",
+                    spanId: "b7ad6b7169203331",
+                    name: "s",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       }),
     ).resolves.toBe("accepted");
   });
@@ -267,5 +293,196 @@ describe("BFF tracing adapter", () => {
     await expect(tracing.ingestTraces({ resourceSpans: [] })).resolves.toBe(
       "unavailable",
     );
+  });
+});
+
+describe("BFF OTLP nested-field validation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function envelope(span: unknown): unknown {
+    return { resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] };
+  }
+
+  it("accepts a fully typed span and relays it", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const tracing = createBffTracing(config);
+
+    await expect(
+      tracing.ingestTraces(
+        envelope({
+          ...validSpan,
+          kind: 2,
+          startTimeUnixNano: "1723000000000000000",
+          endTimeUnixNano: 1_723_000_000_000_001,
+          attributes: [{ key: "http.route", value: { stringValue: "/x" } }],
+          status: { code: 1 },
+        }),
+      ),
+    ).resolves.toBe("accepted");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a missing span id", { traceId: validSpan.traceId, name: "s" }],
+    ["a non-hex span id", { ...validSpan, spanId: "not-hex-id-here!!" }],
+    ["a non-hex trace id", { ...validSpan, traceId: "zz" }],
+    ["a non-string name", { ...validSpan, name: 42 }],
+    [
+      "an attribute missing its key",
+      { ...validSpan, attributes: [{ value: { stringValue: "x" } }] },
+    ],
+    ["a non-numeric span kind", { ...validSpan, kind: "server" }],
+    [
+      "a malformed nanosecond timestamp",
+      { ...validSpan, startTimeUnixNano: "12:00" },
+    ],
+  ])("rejects a span with %s without relaying it", async (_label, span) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const tracing = createBffTracing(config);
+
+    await expect(tracing.ingestTraces(envelope(span))).resolves.toBe(
+      "rejected",
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("BFF delivery health", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  function endOneSpan(tracing: ReturnType<typeof createBffTracing>): void {
+    tracing.startProxySpan(proxyInput()).end("success", 200);
+  }
+
+  it("counts a failed span export and records its error type", async () => {
+    vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(
+      (_spans, resultCallback) => {
+        resultCallback({
+          code: ExportResultCode.FAILED,
+          error: new Error("collector unreachable"),
+        });
+      },
+    );
+    vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
+    const tracing = createBffTracing(config);
+
+    endOneSpan(tracing);
+    // Shutdown flushes the buffered span; the export fails and the processor's
+    // self-observation meter folds the loss into the health tally. The flush
+    // rejects on the failed export, but accounting happens before it rejects.
+    await tracing.shutdown().catch(() => undefined);
+
+    const health = tracing.deliveryHealth();
+    expect(health.spanExportFailures).toBeGreaterThanOrEqual(1);
+    expect(health.lastErrorType).toBe("Error");
+    expect(health.relayFailures).toBe(0);
+  });
+
+  it("counts spans dropped by an overflowing queue", () => {
+    // The shim reads OTEL_BSP_* env for its bounds; a one-slot queue plus an
+    // exporter that never drains forces every further span to overflow.
+    vi.stubEnv("OTEL_BSP_MAX_QUEUE_SIZE", "1");
+    vi.stubEnv("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "1");
+    vi.stubEnv("OTEL_BSP_SCHEDULE_DELAY", "1");
+    vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(
+      () => undefined,
+    );
+    const tracing = createBffTracing(config);
+
+    for (let index = 0; index < 8; index += 1) {
+      endOneSpan(tracing);
+    }
+
+    const health = tracing.deliveryHealth();
+    expect(health.spanExportFailures).toBeGreaterThanOrEqual(1);
+    expect(health.lastErrorType).toBe("queue_full");
+  });
+
+  it("counts a wedged exporter that never acknowledges a batch", async () => {
+    // The exporter accepts the batch and never calls back. The backstop turns
+    // the stall into a FAILED result the self-observation meter records.
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(
+        () => undefined,
+      );
+      vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
+      const tracing = createBffTracing(config);
+
+      endOneSpan(tracing);
+      const shutdown = tracing.shutdown().catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await shutdown;
+
+      const health = tracing.deliveryHealth();
+      expect(health.spanExportFailures).toBeGreaterThanOrEqual(1);
+      expect(health.lastErrorType).toBe("SpanExportTimeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts a browser relay that cannot reach the collector", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unreachable"));
+    const tracing = createBffTracing(config);
+
+    await tracing.ingestTraces({ resourceSpans: [{ scopeSpans: [] }] });
+
+    const health = tracing.deliveryHealth();
+    expect(health.relayFailures).toBe(1);
+    expect(health.lastErrorType).toBe("collector_unreachable");
+    expect(health.spanExportFailures).toBe(0);
+  });
+
+  it("counts a transient collector response as a relay failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 503 }),
+    );
+    const tracing = createBffTracing(config);
+
+    await tracing.ingestTraces({ resourceSpans: [{ scopeSpans: [] }] });
+
+    const health = tracing.deliveryHealth();
+    expect(health.relayFailures).toBe(1);
+    expect(health.lastErrorType).toBe("collector_unavailable");
+  });
+
+  it("does not count a collector 4xx rejection as a relay failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 400 }),
+    );
+    const tracing = createBffTracing(config);
+
+    await tracing.ingestTraces({ resourceSpans: [{ scopeSpans: [] }] });
+
+    expect(tracing.deliveryHealth()).toEqual({
+      relayFailures: 0,
+      spanExportFailures: 0,
+    });
+  });
+
+  it("reports zero failures after a healthy export and shutdown", async () => {
+    vi.spyOn(OTLPTraceExporter.prototype, "export").mockImplementation(
+      (_spans, resultCallback) => {
+        resultCallback({ code: ExportResultCode.SUCCESS });
+      },
+    );
+    vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
+    const tracing = createBffTracing(config);
+
+    endOneSpan(tracing);
+    await tracing.shutdown();
+
+    expect(tracing.deliveryHealth()).toEqual({
+      relayFailures: 0,
+      spanExportFailures: 0,
+    });
   });
 });

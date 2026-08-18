@@ -30,6 +30,22 @@ export interface ProxySpan {
 /** Result of relaying a browser OTLP payload to the collector. */
 export type TelemetryIngestResult = "accepted" | "rejected" | "unavailable";
 
+/**
+ * Bounded, monotonic snapshot of telemetry delivery health. The shape is fixed
+ * and the values are plain counters, so the diagnostic never grows unboundedly
+ * no matter how many span exports or relays fail. It surfaces losses that are
+ * otherwise best-effort and invisible: spans the batch processor drops or fails
+ * to export, and browser relays that cannot reach the collector.
+ */
+export interface BffDeliveryHealthSnapshot {
+  /** Spans the batch processor dropped or failed to export to the collector. */
+  spanExportFailures: number;
+  /** Browser OTLP relays that could not reach the collector. */
+  relayFailures: number;
+  /** The category of the most recent delivery failure on either path. */
+  lastErrorType?: string;
+}
+
 export interface StartProxySpanInput {
   correlationId: string;
   method: string;
@@ -46,6 +62,8 @@ export interface StartProxySpanInput {
 /** Application-owned port for BFF request tracing and browser telemetry relay. */
 export interface BffTracing {
   readonly enabled: boolean;
+  /** A bounded snapshot of span-export and browser-relay delivery health. */
+  deliveryHealth(): BffDeliveryHealthSnapshot;
   /**
    * Starts a server span for a proxied request. A valid inbound W3C context is
    * continued; an absent or malformed inbound context starts a new trace.
@@ -68,6 +86,7 @@ const disabledProxySpan: ProxySpan = {
 
 /** A tracing port with tracing turned off: no spans, no context, no relay. */
 export const disabledTracing: BffTracing = {
+  deliveryHealth: () => ({ relayFailures: 0, spanExportFailures: 0 }),
   enabled: false,
   ingestTraces: () => Promise.resolve("unavailable"),
   shutdown: () => Promise.resolve(),

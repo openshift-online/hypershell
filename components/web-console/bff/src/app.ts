@@ -286,7 +286,11 @@ export async function buildApp(
 
   app.get("/health/ready", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
-    return { status: "ready" };
+    // Readiness stays "ready" regardless of telemetry delivery -- tracing is
+    // best-effort and must never gate serving (WEB-TRACE-06) -- but the bounded
+    // delivery-health snapshot rides along so span-export and relay losses are
+    // observable rather than silently swallowed.
+    return { status: "ready", tracing: tracing.deliveryHealth() };
   });
 
   const sendApplication = (
