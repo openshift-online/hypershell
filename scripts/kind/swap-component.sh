@@ -51,6 +51,31 @@ case "${COMPONENT}" in
     ;;
 esac
 
+# restore_web_console_from_overlay: re-apply the web-console's Kind-overlay
+# resources (base + the OIDC env patch from deploy/kind) rather than the bare
+# deploy/base manifest. The base manifest carries no OIDC_ISSUER/OIDC_CLIENT_ID/
+# SESSION_SECRET, so applying it strips the OIDC env off the running deployment
+# and breaks the next dev swap: the hot-reload /api proxy then forwards without a
+# bearer token and the OIDC-enforcing API server returns 401. Render the overlay
+# to a temp dir and apply ONLY the web-console's own resources, so a concurrently
+# swapped api-server or control-plane is never reset to its baseline image.
+restore_web_console_from_overlay() {
+  local out applied=false f
+  out="$(mktemp -d)"
+  if kustomize build "${REPO_ROOT}/deploy/kind" -o "${out}" 2>/dev/null; then
+    for f in "${out}"/*hypershell-web-console*.yaml; do
+      [[ -e "${f}" ]] || continue
+      kube apply -f "${f}" && applied=true
+    done
+  fi
+  rm -rf "${out}"
+  if [[ "${applied}" == "true" ]]; then
+    return 0
+  fi
+  warn "Could not render web-console from the deploy/kind overlay; applying the base manifest (no OIDC env)."
+  kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml"
+}
+
 swap_up() {
   # Web console hot reload mode: run Vite dev server on the host,
   # redirect the in-cluster Service so the Gateway routes to it.
@@ -194,7 +219,7 @@ EOF
       rm -f "${API_PF_STOPFILE}" 2>/dev/null || true
       info "Restoring in-cluster web console..."
       kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-      kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml" || true
+      restore_web_console_from_overlay || true
       kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" || true
       info "Waiting for web console to become available..."
       kube wait --for=condition=available "deployment/${DEPLOYMENT}" \
@@ -283,7 +308,7 @@ swap_down() {
 
   if [[ "${COMPONENT}" == "web-console" ]]; then
     kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-    kube apply -f deploy/base/web-console.yaml
+    restore_web_console_from_overlay
   else
     local set_image_args=""
     for container in ${CONTAINERS}; do
