@@ -261,7 +261,10 @@ fi
 if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   header "Jaeger"
   info "Deploying Jaeger..."
-  kube apply -f deploy/kind/jaeger.yaml
+  # jaeger.yaml is a template: render every namespace and reference into the
+  # selected namespace so nothing is pinned to a stale hard-coded value.
+  KIND_NAMESPACE="${KIND_NAMESPACE}" envsubst '${KIND_NAMESPACE}' \
+    <deploy/kind/jaeger.yaml | kube apply -f -
   info "Patching web console BFF with OTEL_EXPORTER_OTLP_ENDPOINT..."
   kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
     OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4318"
