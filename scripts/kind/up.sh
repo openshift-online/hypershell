@@ -266,20 +266,22 @@ render_jaeger() {
 }
 
 # Reports whether the named deployment exists, distinguishing a genuine NotFound
-# (return 1, absent) from an API, auth, or authorization error (propagate and
-# abort). Reading a swallowed lookup error as "absent" would silently skip the
-# tracing-disable reconciliation and leave the BFF exporting to a dead collector.
+# from an API, auth, or authorization error. --ignore-not-found makes kubectl
+# exit 0 with empty output when the resource is absent and nonzero for every
+# other failure, so absence is read from an empty successful result rather than
+# by matching error text: a client-side failure such as "kubectl: command not
+# found" no longer masquerades as absence. Any nonzero exit propagates and
+# aborts, since reading a swallowed lookup error as "absent" would silently skip
+# the tracing-disable reconciliation and leave the BFF exporting to a dead
+# collector. Stderr flows to the terminal so a real failure stays diagnosable.
 deployment_exists() {
-  local name="$1" err
-  if err=$(kube get "deployment/${name}" -n "${KIND_NAMESPACE}" -o name 2>&1 \
-    >/dev/null); then
-    return 0
+  local name="$1" out
+  if ! out=$(kube get "deployment/${name}" -n "${KIND_NAMESPACE}" \
+    --ignore-not-found -o name); then
+    error "checking for deployment/${name} failed"
+    exit 1
   fi
-  if grep -qiE '\(notfound\)|not found' <<<"${err}"; then
-    return 1
-  fi
-  error "checking for deployment/${name}: ${err}"
-  exit 1
+  [[ -n "${out}" ]]
 }
 
 # Reports 0 when the web console BFF still carries an OTLP exporter endpoint, so
