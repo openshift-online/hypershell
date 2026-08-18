@@ -883,7 +883,7 @@ poll_active_sandbox_count() {
     last=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
       python3 -c "import json,sys; v=json.load(sys.stdin).get('active_sandbox_count'); print('' if v is None else v)" 2>/dev/null || true)
     [[ "$last" == "$expected" ]] && { echo "$last"; return 0; }
-    dim "    active_sandbox_count: ${last:-<unset>} (want ${expected})"
+    dim "    active_sandbox_count: ${last:-<unset>} (want ${expected})" >&2
     sleep 5
   done
   echo "$last"
