@@ -91,6 +91,7 @@ export function GatewayConnectionSteps({
           className={styles.prereqAlert}
           isInline
           title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
+          titleHeadingLevel="h3"
           variant="info"
         >
           {intl.formatMessage(messages.connectionInstallPrereq)}
