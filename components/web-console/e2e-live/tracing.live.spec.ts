@@ -14,14 +14,24 @@ const oidcPassword = process.env.E2E_OIDC_PASSWORD ?? "admin";
 const browserService = "hypershell-web-console";
 const bffService = "hypershell-web-console-bff";
 // Span names must come from the bounded workflow/dependency templates, never a
-// raw identifier (WEB-TRACE-07).
-const boundedSpanName = /^gateway\.(workflow|dependency)\.[a-z-]+$/u;
+// raw identifier (WEB-TRACE-07). The workflow and dependency templates are kept
+// distinct so the check demands both a workflow span and a dependency span
+// rather than accepting either one alone.
+const workflowSpanName = /^gateway\.workflow\.[a-z-]+$/u;
+const dependencySpanName = /^gateway\.dependency\.[a-z-]+$/u;
+
+interface JaegerReference {
+  readonly refType: string;
+  readonly traceID: string;
+  readonly spanID: string;
+}
 
 interface JaegerSpan {
   readonly traceID: string;
   readonly spanID: string;
   readonly operationName: string;
   readonly processID: string;
+  readonly references?: readonly JaegerReference[];
 }
 
 interface JaegerProcess {
@@ -42,24 +52,44 @@ function serviceOf(trace: JaegerTrace, span: JaegerSpan): string | undefined {
   return trace.processes[span.processID]?.serviceName;
 }
 
-// A cross-service trace carries at least one bounded browser span and at least
-// one BFF span under the same trace id -- the join that proves propagation.
+function isBrowserSpan(trace: JaegerTrace, span: JaegerSpan): boolean {
+  return serviceOf(trace, span) === browserService;
+}
+
+// A root span is the origin of the trace: it has no CHILD_OF reference to any
+// parent. The browser workflow span must be a true root (WEB-TRACE-01), so a
+// decapitated or reparented span never satisfies the check.
+function isRootSpan(span: JaegerSpan): boolean {
+  return !(span.references ?? []).some(
+    (reference) => reference.refType === "CHILD_OF",
+  );
+}
+
+// A cross-service trace proves propagation only when it carries all three of:
+// a browser workflow span that is a true root, a browser dependency child span,
+// and a BFF server span -- all under one trace id. Accepting a dependency-only
+// or workflow-only browser trace would let a decapitated or partial trace pass.
 function isCrossServiceTrace(trace: JaegerTrace): boolean {
-  let hasBrowserWorkflow = false;
+  let hasBrowserWorkflowRoot = false;
+  let hasBrowserDependency = false;
   let hasBffSpan = false;
   for (const span of trace.spans) {
-    const service = serviceOf(trace, span);
+    const browser = isBrowserSpan(trace, span);
     if (
-      service === browserService &&
-      boundedSpanName.test(span.operationName)
+      browser &&
+      workflowSpanName.test(span.operationName) &&
+      isRootSpan(span)
     ) {
-      hasBrowserWorkflow = true;
+      hasBrowserWorkflowRoot = true;
     }
-    if (service === bffService) {
+    if (browser && dependencySpanName.test(span.operationName)) {
+      hasBrowserDependency = true;
+    }
+    if (serviceOf(trace, span) === bffService) {
       hasBffSpan = true;
     }
   }
-  return hasBrowserWorkflow && hasBffSpan;
+  return hasBrowserWorkflowRoot && hasBrowserDependency && hasBffSpan;
 }
 
 test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
@@ -111,24 +141,34 @@ test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
     .toBe(1);
   await api.dispose();
 
-  // 4. Confirm the join concretely: a bounded browser span and a BFF span share
-  //    one trace id.
+  // 4. Confirm the join concretely: a browser workflow root span, a browser
+  //    dependency span, and a BFF span all share one trace id.
   const trace = crossServiceTrace;
   expect(trace).toBeDefined();
   if (trace === undefined) {
     return;
   }
-  const browserSpans = trace.spans.filter(
+  const workflowSpans = trace.spans.filter(
     (span) =>
-      serviceOf(trace, span) === browserService &&
-      boundedSpanName.test(span.operationName),
+      isBrowserSpan(trace, span) && workflowSpanName.test(span.operationName),
+  );
+  const dependencySpans = trace.spans.filter(
+    (span) =>
+      isBrowserSpan(trace, span) && dependencySpanName.test(span.operationName),
   );
   const bffSpans = trace.spans.filter(
     (span) => serviceOf(trace, span) === bffService,
   );
-  expect(browserSpans.length).toBeGreaterThan(0);
+  // A distinct workflow span and dependency span must both be present: a trace
+  // with only a dependency span (no workflow root) or only a workflow span (no
+  // dependency) does not prove the browser produced the full span tree.
+  expect(workflowSpans.length).toBeGreaterThan(0);
+  expect(dependencySpans.length).toBeGreaterThan(0);
   expect(bffSpans.length).toBeGreaterThan(0);
-  for (const span of [...browserSpans, ...bffSpans]) {
+  // The workflow span is the origin of the trace, not a child of a synthetic
+  // remote parent (WEB-TRACE-01).
+  expect(workflowSpans.some(isRootSpan)).toBe(true);
+  for (const span of [...workflowSpans, ...dependencySpans, ...bffSpans]) {
     expect(span.traceID).toBe(trace.traceID);
   }
 });
