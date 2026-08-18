@@ -9,7 +9,7 @@
 ## Purpose
 
 The HyperShell API server SHALL enforce authorization on all API endpoints (HTTP and
-gRPC) using a three-role model backed by Keycloak as the source of truth for platform-wide
+gRPC) using a four-role model backed by Keycloak as the source of truth for platform-wide
 roles and a PostgreSQL-backed RoleBinding model for per-gateway grants.
 
 Keycloak is the authority for identity and platform-wide role assignment. A privileged
@@ -44,7 +44,7 @@ User {
 
 ### Role
 
-Built-in roles are seeded at migration time. Three roles cover all required access
+Built-in roles are seeded at migration time. Four roles cover all required access
 patterns.
 
 ```
@@ -94,6 +94,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 | Role | Scope | Source | Purpose |
 |------|-------|--------|---------|
+| `platform:admin` | global | Keycloak JWT | Platform-wide administration; can view and delete any gateway |
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
 | `gateway:owner` | per gateway | DB (app logic) | Full CRUD on one gateway; can grant `gateway:owner` and `gateway:viewer` to others |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
@@ -102,6 +103,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 | Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping |
 |------|----------|-------------|-------------|-------------------|
+| `platform:admin` | view all, delete any | view all + delete any | -- | -- |
 | `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways |
 | `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway |
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway |
@@ -122,8 +124,9 @@ configuration maps HyperShell roles to OpenShell roles:
 
 ### Requirement: Keycloak as Authority for Platform Roles
 
-Keycloak is the source of truth for the `gateway:creator` role. A Keycloak administrator
-assigns this role to users and service accounts via Keycloak's admin console or API.
+Keycloak is the source of truth for the `gateway:creator` and `platform:admin` roles. A
+Keycloak administrator assigns these roles to users and service accounts via Keycloak's
+admin console or API.
 
 The API server middleware SHALL extract roles from the JWT `realm_access.roles` claim
 (or an equivalent configurable claim path) and lazily create or update the corresponding
@@ -176,8 +179,8 @@ is seen for the first time. The User record SHALL be populated from standard OID
 Auto-provisioning SHALL use upsert semantics (keyed on `username`) to handle concurrent
 first-time requests and profile updates.
 
-The middleware SHALL also sync platform-wide RoleBindings (currently only
-`gateway:creator`) from the JWT on every request, creating or removing bindings as
+The middleware SHALL also sync platform-wide RoleBindings (both `gateway:creator` and
+`platform:admin`) from the JWT on every request, creating or removing bindings as
 needed to match the JWT claims.
 
 #### Scenario: First-time user auto-provisioned
@@ -268,6 +271,122 @@ they own. There is no hierarchy restriction -- owners can make more owners.
 - WHEN user A calls `POST /api/hypershell/v1/role_bindings` with `gateway_id=gw-2`
 - THEN the request returns 403 Forbidden
 
+### Requirement: Platform Admin Global Access
+
+Users with the `platform:admin` role SHALL have global view and delete permissions across
+all gateways in the platform, regardless of per-gateway RoleBindings. This role is assigned
+via Keycloak and synced to the database identically to `gateway:creator`.
+
+Platform administrators SHALL be able to:
+
+- List all gateways across the platform (GET `/api/hypershell/v1/gateways` returns all)
+- View any specific gateway (GET `/api/hypershell/v1/gateways/{id}` succeeds for any ID)
+- Delete any gateway (DELETE `/api/hypershell/v1/gateways/{id}` succeeds for any ID)
+
+Platform administrators SHALL NOT be able to:
+
+- Modify gateway configuration (PATCH/PUT operations require `gateway:owner`)
+- Grant or revoke RoleBindings (requires `gateway:owner` on that specific gateway)
+- Create gateways (requires `gateway:creator` role)
+
+The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and
+`gateway:viewer`. A user may hold multiple roles (e.g., `platform:admin` + `gateway:creator`).
+
+#### Scenario: Platform admin views all gateways
+
+- GIVEN user A has `platform:admin` (from Keycloak)
+- AND there are 50 gateways in the platform owned by various users
+- WHEN user A calls `GET /api/hypershell/v1/gateways`
+- THEN the response includes all 50 gateways
+- AND the response is paginated
+- AND includes metadata for total count and pagination
+
+#### Scenario: Platform admin views a specific gateway
+
+- GIVEN user A has `platform:admin`
+- AND user A has no `gateway:owner` or `gateway:viewer` binding for gw-1
+- WHEN user A calls `GET /api/hypershell/v1/gateways/gw-1`
+- THEN the response is 200 OK with the gateway details
+
+#### Scenario: Platform admin deletes any gateway
+
+- GIVEN user A has `platform:admin`
+- AND user B owns gw-1 (has `gateway:owner` binding)
+- AND user A has no binding for gw-1
+- WHEN user A calls `DELETE /api/hypershell/v1/gateways/gw-1`
+- THEN the gateway is deleted
+- AND the response is 204 No Content
+
+#### Scenario: Platform admin cannot modify gateways without ownership
+
+- GIVEN user A has `platform:admin` only
+- AND user A has no `gateway:owner` binding for gw-1
+- WHEN user A calls `PATCH /api/hypershell/v1/gateways/gw-1`
+- THEN the response is 403 Forbidden
+
+#### Scenario: Platform admin cannot create gateways without creator role
+
+- GIVEN user A has `platform:admin` only
+- AND user A does NOT have `gateway:creator`
+- WHEN user A calls `POST /api/hypershell/v1/gateways`
+- THEN the response is 403 Forbidden
+
+#### Scenario: Platform admin cannot grant role bindings
+
+- GIVEN user A has `platform:admin` only
+- AND user A has no `gateway:owner` binding for gw-1
+- WHEN user A calls `POST /api/hypershell/v1/role_bindings` with `gateway_id=gw-1`
+- THEN the response is 403 Forbidden
+
+#### Scenario: User with platform:admin and gateway:creator can create and view all
+
+- GIVEN user A has both `platform:admin` and `gateway:creator`
+- WHEN user A calls `POST /api/hypershell/v1/gateways`
+- THEN the gateway is created
+- AND user A becomes `gateway:owner` of the new gateway
+- AND user A can still view all other gateways via `platform:admin`
+
+### Requirement: Platform Admin UI Experience
+
+The web UI SHALL provide an enhanced experience for users with the `platform:admin` role:
+
+- The gateway list view SHALL display all gateways in the platform
+- The gateway list SHALL be paginated (default page size: 20, configurable up to 100)
+- The gateway list SHALL include a search input that filters by gateway name, ID, or fleet
+- Search SHALL be debounced (300ms) and cancellable (new search cancels in-flight request)
+- Each gateway row SHALL display a delete action for platform administrators
+- Delete actions SHALL require confirmation via a modal dialog
+- The UI SHALL display platform admin status (e.g., badge or indicator) when the role is active
+
+#### Scenario: Platform admin sees all gateways in UI
+
+- GIVEN user A has `platform:admin`
+- AND user A logs into the web console
+- WHEN user A navigates to the gateway list page
+- THEN all gateways are displayed (paginated)
+- AND the page shows total gateway count
+- AND pagination controls are visible
+
+#### Scenario: Platform admin searches for a gateway
+
+- GIVEN user A has `platform:admin`
+- AND there are 100 gateways in the platform
+- WHEN user A types "prod" in the search box
+- THEN the search is debounced for 300ms
+- AND the UI sends a filtered request to the API
+- AND only gateways matching "prod" are displayed
+
+#### Scenario: Platform admin deletes a gateway from UI
+
+- GIVEN user A has `platform:admin`
+- AND user A is viewing the gateway list
+- WHEN user A clicks the delete button for gateway gw-1
+- THEN a confirmation modal appears
+- WHEN user A confirms the deletion
+- THEN the UI calls `DELETE /api/hypershell/v1/gateways/gw-1`
+- AND on success, the gateway is removed from the list
+- AND a success notification is displayed
+
 ### Requirement: gRPC Authorization
 
 gRPC handlers SHALL enforce the same authorization rules as HTTP handlers. The gRPC
@@ -307,8 +426,10 @@ RBAC enforcement SHALL be gated behind the `RBAC_ENFORCE` configuration flag. Wh
 disabled, all authenticated requests pass. When enabled, all requests are evaluated
 against bindings.
 
-The first `gateway:creator` user is provisioned by assigning the role in Keycloak. No
-database migration or CLI command is needed for bootstrapping.
+The first `gateway:creator` and `platform:admin` users are provisioned by assigning the
+roles in Keycloak. No database migration or CLI command is needed for bootstrapping users
+— only the built-in Role records are seeded via migration; RoleBindings are created
+dynamically from JWT claims.
 
 RoleBindings from JWT claims are synced regardless of whether enforcement is enabled,
 ensuring bindings exist before enforcement is turned on.
@@ -323,16 +444,21 @@ that point every gateway operation requires the caller's token to carry
 On a real cluster the IdP is external SSO (not the bundled Keycloak), so the
 following MUST be in place BEFORE -- or atomically with -- the rollout:
 
-- The external SSO defines a `gateway:creator` realm role.
-- Platform operators who need to create gateways are assigned that role.
-- The SSO emits the role in the `realm_access.roles` claim of issued access tokens
+- The external SSO defines both `gateway:creator` and `platform:admin` realm roles.
+- Platform operators who need to create gateways are assigned `gateway:creator`.
+- Platform operators who need global view/delete access are assigned `platform:admin`.
+- The SSO emits these roles in the `realm_access.roles` claim of issued access tokens
   (or the equivalent configurable claim path the API server reads).
 
-If enforcement is turned on before the role is wired, gateway create calls return
-403 and reads return 404 immediately after upgrade, with no other symptom -- a
-silent, hard-to-diagnose outage. Coordinate the SSO role mapping and the overlay
-rollout together, and call out this SSO prerequisite in the release notes for the
-version that makes the overlay default enforce RBAC.
+If enforcement is turned on before the roles are wired, gateway operations fail
+immediately after upgrade with no other symptom -- a silent, hard-to-diagnose outage:
+- Gateway create calls return 403 without `gateway:creator`
+- Gateway reads return 404 without appropriate ownership or `platform:admin`
+- Gateway deletes return 403 without ownership or `platform:admin`
+
+Coordinate the SSO role mapping and the overlay rollout together, and call out these
+SSO prerequisites in the release notes for the version that makes the overlay default
+enforce RBAC.
 
 ### Requirement: Integration Test Coverage
 
@@ -358,7 +484,9 @@ Integration tests SHALL exercise RBAC enforcement with the new three-role model.
 | Decision | Rationale |
 |----------|-----------|
 | Keycloak as authority for platform roles | Centralizes role management. Eliminates need for admin-seeding CLI or DB migration. Role changes take effect on next JWT. |
-| Three roles only | Minimal model that covers the use cases: create gateways, own gateways, view gateways. No fleet-scoped RBAC needed. |
+| Four roles model | Minimal model that covers the use cases: platform administration (view/delete all), create gateways, own gateways, view gateways. No fleet-scoped RBAC needed. |
+| `platform:admin` is view + delete only | Platform admins handle operational tasks (viewing all gateways, cleaning up orphaned resources). Full modification requires ownership to prevent accidental changes. Separation of concerns: visibility ≠ modification authority. |
+| `platform:admin` orthogonal to `gateway:creator` | A platform admin may or may not create gateways. Roles compose: `platform:admin` + `gateway:creator` allows both operational oversight and resource creation. |
 | JWT roles synced to DB on every request | DB is the projection, Keycloak is the authority. Revocations in Keycloak take effect immediately. Existing per-gateway bindings are unaffected by platform role changes. |
 | Service accounts treated identically to users | Control plane gets `gateway:creator` in Keycloak, provisions like any user. No special bypass logic needed. |
 | Gateway owners can grant co-owners | No hierarchy restriction. Team leads assign `gateway:creator` to team members or invite them as owners/viewers per gateway. Simple mental model. |
