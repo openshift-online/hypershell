@@ -51,11 +51,27 @@ describe("gateway observability adapter", () => {
   it("provides deterministic workflow context through injected capabilities", () => {
     const observability = createGatewayObservability({
       createCorrelationId: () => "correlation-1",
+      createTraceId: () => "0af7651916cd43dd8448eb211c80319c",
       now: () => "2026-08-06T18:00:00.000Z",
       performanceTarget: { clearMarks: vi.fn(), mark: vi.fn() },
     });
 
     expect(observability.runtime.createCorrelationId()).toBe("correlation-1");
+    expect(observability.runtime.createTraceId()).toBe(
+      "0af7651916cd43dd8448eb211c80319c",
+    );
     expect(observability.runtime.now()).toBe("2026-08-06T18:00:00.000Z");
+  });
+
+  it("generates a valid W3C trace identifier by default", () => {
+    const observability = createGatewayObservability({
+      performanceTarget: { clearMarks: vi.fn(), mark: vi.fn() },
+    });
+
+    const traceId = observability.runtime.createTraceId();
+
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(traceId).not.toBe("0".repeat(32));
+    expect(observability.runtime.createTraceId()).not.toBe(traceId);
   });
 });

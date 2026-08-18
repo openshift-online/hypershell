@@ -13,6 +13,20 @@ import {
 
 const recentProbeLimit = 100;
 const recentFailureLimit = 20;
+const traceIdByteLength = 16;
+
+/**
+ * Creates a W3C trace identifier: a 16-byte random value rendered as 32
+ * lowercase hex digits. A random 16-byte value is never the all-zero value
+ * that the W3C Trace Context specification forbids.
+ */
+function createTraceId(): string {
+  const bytes = new Uint8Array(traceIdByteLength);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
 
 interface PerformanceProbeTarget {
   clearMarks(name?: string): void;
@@ -30,6 +44,7 @@ export interface GatewayObservability {
 export interface GatewayObservabilityOptions {
   additionalSinks?: readonly DomainProbeSink<GatewayProbe>[];
   createCorrelationId?: () => string;
+  createTraceId?: () => string;
   now?: () => string;
   performanceTarget?: PerformanceProbeTarget;
 }
@@ -88,6 +103,7 @@ export function createGatewayObservability(
     runtime: {
       createCorrelationId:
         options.createCorrelationId ?? (() => globalThis.crypto.randomUUID()),
+      createTraceId: options.createTraceId ?? createTraceId,
       now: options.now ?? (() => new Date().toISOString()),
     },
   };
