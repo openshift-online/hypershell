@@ -265,13 +265,37 @@ render_jaeger() {
   sed "s|__KIND_NAMESPACE__|${KIND_NAMESPACE}|g" deploy/kind/jaeger.yaml
 }
 
+# Reports whether the named deployment exists, distinguishing a genuine NotFound
+# (return 1, absent) from an API, auth, or authorization error (propagate and
+# abort). Reading a swallowed lookup error as "absent" would silently skip the
+# tracing-disable reconciliation and leave the BFF exporting to a dead collector.
+deployment_exists() {
+  local name="$1" err
+  if err=$(kube get "deployment/${name}" -n "${KIND_NAMESPACE}" -o name 2>&1 \
+    >/dev/null); then
+    return 0
+  fi
+  if grep -qiE '\(notfound\)|not found' <<<"${err}"; then
+    return 1
+  fi
+  error "checking for deployment/${name}: ${err}"
+  exit 1
+}
+
 # Reports 0 when the web console BFF still carries an OTLP exporter endpoint, so
 # the disabled-state reconciliation can verify it actually removed the endpoint
-# rather than trusting that the unset command had any effect.
+# rather than trusting that the unset command had any effect. A lookup failure is
+# propagated rather than read as "endpoint absent", which would let a silent API
+# error masquerade as a successful disable.
 bff_otel_endpoint_set() {
-  kube get deployment/hypershell-web-console -n "${KIND_NAMESPACE}" \
+  local names
+  if ! names=$(kube get deployment/hypershell-web-console -n "${KIND_NAMESPACE}" \
     -o jsonpath='{.spec.template.spec.containers[?(@.name=="web-console")].env[*].name}' \
-    2>/dev/null | tr ' ' '\n' | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
+    2>&1); then
+    error "verifying OTLP endpoint removal: ${names}"
+    exit 1
+  fi
+  tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
 }
 
 if [[ "${KIND_JAEGER:-}" == "true" ]]; then
@@ -300,7 +324,9 @@ else
   # Unset the exporter endpoint only when the deployment exists; on a cluster
   # that has it, removing an already-absent variable is a no-op, then verify the
   # variable is actually gone so a silent failure cannot leave tracing enabled.
-  if kube get deployment/hypershell-web-console -n "${KIND_NAMESPACE}" >/dev/null 2>&1; then
+  # deployment_exists tolerates only a true NotFound; an API, auth, or
+  # authorization error aborts rather than being mistaken for absence.
+  if deployment_exists hypershell-web-console; then
     kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
       OTEL_EXPORTER_OTLP_ENDPOINT-
     if bff_otel_endpoint_set; then
