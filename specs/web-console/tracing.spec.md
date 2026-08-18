@@ -110,6 +110,20 @@ The local development environment SHALL provide a collector and a Jaeger instanc
 - THEN one trace SHALL be visible in Jaeger
 - AND it SHALL contain the browser workflow span and the BFF server span joined by the same trace identifier
 
+### Requirement: WEB-TRACE-11 -- Automated End-to-End Trace Verification
+
+The end-to-end trace defined by `WEB-TRACE-10` SHALL be verified automatically, not only by manual inspection. The CI end-to-end workflow SHALL bring the cluster up with tracing enabled, drive a representative gateway workflow through the deployed browser console, and assert that Jaeger holds one trace joining the browser and the BFF. The check SHALL confirm the browser spans use the bounded workflow and dependency span names and share a single trace identifier with the BFF server span. A missing trace, a browser-only trace, or a BFF-only trace SHALL fail the workflow. The verification details and its place in the e2e suite are defined in `platform/e2e-testing.spec.md`.
+
+**Verification:** Run the e2e workflow against a cluster with tracing enabled; confirm the trace check drives a browser workflow, finds a cross-service trace in Jaeger, and fails when no such trace is present.
+
+#### Scenario: CI Verifies the Cross-Service Trace
+
+- GIVEN the e2e cluster is running with tracing enabled and the console is reachable
+- WHEN the trace verification drives a gateway workflow in a real browser
+- THEN it SHALL find one trace in Jaeger whose spans include a bounded browser workflow span and the BFF server span
+- AND those spans SHALL share the same trace identifier
+- AND the workflow SHALL fail if no such cross-service trace appears within a bounded polling window
+
 ## Design Decisions
 
 | Decision | Rationale |
