@@ -5,7 +5,15 @@
 
 ## Overview
 
-HyperShell deploys as a global fleet management platform spanning multiple clouds and regions. The architecture uses a **three-tier hub-and-spoke topology**: a Global Hub provides federated identity root, Cloud Hubs run the operational platform (API, control plane, databases), and ManagedClusters host gateway workloads. Every OpenShift cluster in the topology runs the full operator stack (ArgoCD, Vault, Keycloak, CNPG, Prometheus, Grafana) but serves different purposes at each tier.
+HyperShell deploys as a global fleet management platform spanning multiple clouds and regions. The architecture uses a **three-tier hub-and-spoke topology**: a Global Hub provides federated identity root, Cloud Hubs run the operational platform (API, control plane, databases), and ManagedClusters host OpenShell Gateway workloads. Every OpenShift cluster in the topology runs the full operator stack (ArgoCD, Vault, Keycloak, CNPG, Prometheus, Grafana) but serves different purposes at each tier.
+
+> **Terminology.** "Gateway" is overloaded, so this document uses fully-qualified
+> names. **OpenShell Gateway** is the tenant workload (the pod, its Supervisor,
+> and its Sandboxes) that HyperShell provisions. **Gateway API** is the upstream
+> Kubernetes API (`gateway.networking.k8s.io`); a **shared Gateway (Gateway API
+> resource)** is a `Gateway` object under that API. Cloud load balancers are
+> named by provider (AWS NLB/ELB, IBM Cloud VPC LB) rather than a bare
+> "gateway". Unqualified "gateway" should be read as OpenShell Gateway.
 
 ## Three-Tier Topology
 
@@ -116,20 +124,20 @@ graph TB
 - Prometheus - aggregates metrics from this cloud's ManagedClusters
 - Grafana - cloud-level dashboards
 
-**Operational Role**: The control plane watches the API server via gRPC and reconciles gateway resources into ManagedClusters. ArgoCD defines and provisions ManagedClusters.
+**Operational Role**: The control plane is the reconciliation engine for the fleet. It watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters — not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, CNPG databases, and supporting workloads each gateway depends on. ArgoCD defines and provisions the ManagedClusters themselves (cluster infrastructure and the operator stack); the control plane then reconciles tenant-managed resources onto them.
 
 ### Tier 3: ManagedCluster
 
-**Purpose**: Hosts gateway workloads. Multiple per cloud, deployed close to users (regional).
+**Purpose**: Hosts OpenShell Gateway workloads — the OpenShell Gateway pod, its Supervisor, and the Sandboxes it launches to execute user sessions. Multiple per cloud, deployed close to users (regional).
 
 **Components**:
-- Keycloak - federates to Cloud Hub Keycloak, holds OIDC clients for gateways on this cluster
+- Keycloak - federates to Cloud Hub Keycloak, holds OIDC clients for OpenShell Gateways on this cluster
 - Vault - keystore for gateway secrets
 - PostgreSQL (via CNPG) - gateway-specific databases
 - Prometheus - local metrics (forwarded to Cloud Hub)
-- Gateway namespaces (each contains: Gateway pod, Supervisor, Sandboxes, CNPG Cluster, TLS secrets, RBAC)
+- Gateway namespaces (each contains: OpenShell Gateway pod, Supervisor, Sandboxes, CNPG Cluster, TLS secrets, RBAC)
 
-**Operational Role**: Runs gateway workloads. Users authenticate openshell CLI against Keycloak on the ManagedCluster where their gateway lives.
+**Operational Role**: Runs OpenShell Gateway workloads and the Sandboxes they spawn. Users authenticate openshell CLI against Keycloak on the ManagedCluster where their OpenShell Gateway lives.
 
 ## Data Flows
 
@@ -220,7 +228,8 @@ sequenceDiagram
 ```
 
 **Key Points**:
-- PostgreSQL on the Cloud Hub is the source of truth for all resource state
+- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources — Fleet, Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
+- Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams
 - Control Plane reconciles resources into ManagedClusters via kubeconfig secrets
 - Gateway databases run as CNPG Clusters in the gateway namespace on the ManagedCluster
@@ -235,9 +244,9 @@ HyperShell utilizes a **dual-ingress strategy** on OpenShift clusters, separatin
 Traffic destined for HyperShell management services (API Server, Web Console, Keycloak) uses the default OpenShift routing tier.
 
 - **Domain:** Standard OpenShift wildcard domain (e.g., `*.apps.rosa...`)
-- **Load Balancer:** AWS Internal Network Load Balancer (NLB)
+- **Load Balancer:** The cloud's own load balancer fronting the OpenShift router. This is provider-specific: **AWS** uses an internal Network Load Balancer (NLB); **IBM Cloud** (our ROKS clusters) uses a VPC Load Balancer. The same pattern recurs on any cloud we onboard — an Azure Load Balancer equivalent would slot in here — so we describe the role generically and name the concrete instances we run today. (Azure is listed only when we actually deploy there.)
 - **Routing Object:** OpenShift `Route` (HAProxy)
-- **Mechanism:** The wildcard DNS resolves to the internal NLB, which forwards traffic to the OpenShift router pods. HAProxy uses hostname-based routing to direct traffic to the correct service.
+- **Mechanism:** The wildcard DNS resolves to the cloud load balancer, which forwards traffic to the OpenShift router pods. HAProxy uses hostname-based routing to direct traffic to the correct service.
 
 ### 2. Tenant Gateways (Kubernetes Gateway API)
 
@@ -246,9 +255,9 @@ Traffic destined for the actual managed gRPC gateways bypasses the default OpenS
 - **Domain:** Dedicated base domain (e.g., `*.openshell.stage.devshift.net`)
 - **Load Balancer:** Dedicated AWS Classic ELB (provisioned by the Gateway API controller)
 - **Routing Object:** `GRPCRoute` attached to a central `Gateway`
-- **Mechanism:** A single shared `Gateway` object (`openshell-grpc-gateway`) in the `openshift-ingress` namespace terminates TLS using a wildcard certificate. When the control plane provisions a new gateway in a tenant namespace, it creates a `GRPCRoute` that automatically attaches to this shared `Gateway`. External DNS (e.g., Route53) manages the CNAME mapping the wildcard domain to the AWS ELB address.
+- **Mechanism:** A single shared Gateway (Gateway API resource) `openshell-grpc-gateway` in the `openshift-ingress` namespace terminates TLS using a wildcard certificate. When the control plane provisions a new OpenShell Gateway in a tenant namespace, it creates a `GRPCRoute` that automatically attaches to this shared Gateway (Gateway API resource). External DNS (e.g., Route53) manages the CNAME mapping the wildcard domain to the AWS ELB address.
 
-This architecture allows the control plane to dynamically route traffic for new gateways without needing to provision individual load balancers or DNS records per tenant.
+This architecture allows the control plane to dynamically route traffic for new OpenShell Gateways without needing to provision individual load balancers or DNS records per tenant.
 
 ### Tenant gateway ingress is environment-adaptive (two modes)
 
