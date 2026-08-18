@@ -240,14 +240,23 @@ EOF
     echo ""
     success "Web Console: https://${CONSOLE_HOSTNAME}"
     info "To use rebuild-and-replace instead: KIND_HOT_RELOAD=false make kind-web-console-up"
-    info "Starting dev server (Ctrl+C to stop and revert)..."
     echo ""
 
-    (cd "${REPO_ROOT}" && pnpm install --frozen-lockfile && \
+    # Prepare the workspace, then run Vite. Announce each phase so the wait is
+    # legible: before the server is up there are four pnpm steps (install + three
+    # dependency builds), each emitting Node's NODE_TLS_REJECT_UNAUTHORIZED
+    # warning (expected in dev). The first `dev` run then pre-bundles the large,
+    # PatternFly-heavy dependency graph and prints no "Local:" banner until that
+    # finishes -- up to ~1 minute on a cold cache, which is easily mistaken for a
+    # hang.
+    (cd "${REPO_ROOT}" && \
+      info "Installing workspace dependencies (pnpm install)..." && \
+      pnpm install --frozen-lockfile && \
       info "Building workspace dependencies (sdk → domain-probes → gateway-management-ui)..." && \
       pnpm --filter @openshift-online/hypershell-sdk build && \
       pnpm --filter @openshift-online/hypershell-domain-probes build && \
       pnpm --filter @openshift-online/hypershell-gateway-management-ui build && \
+      info "Starting dev server (first run optimizes dependencies, up to ~1 min with no output; Ctrl+C to stop and revert)..." && \
       DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev) || true
     exit 0
   fi
