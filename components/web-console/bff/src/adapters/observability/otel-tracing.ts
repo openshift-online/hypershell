@@ -121,12 +121,56 @@ function spanStatusFor(outcome: ProxyOutcome): SpanStatusCode {
     : SpanStatusCode.OK;
 }
 
+// Bounds on the OTLP/HTTP JSON envelope. The Fastify body limit already caps the
+// raw size; these caps additionally bound the structural walk and reject a
+// payload whose arrays are implausibly large before it is relayed.
+const maxResourceSpans = 10_000;
+const maxScopeSpans = 10_000;
+const maxSpans = 100_000;
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isBoundedObjectArray(value: unknown, limit: number): boolean {
+  return Array.isArray(value) && value.length <= limit && value.every(isObject);
+}
+
+/**
+ * Validates the OTLP/HTTP trace envelope structurally and within bounds:
+ * `resourceSpans` is an array of objects, each optional `scopeSpans` is an array
+ * of objects, and each optional `spans` is an array of objects, all under a
+ * fixed cap. This rejects a body that is not well-formed OTLP before it reaches
+ * the collector, rather than accepting anything with a `resourceSpans` array and
+ * letting the collector reject it after the browser was told the export was
+ * accepted (WEB-TRACE-02).
+ */
 function isOtlpTracePayload(payload: unknown): boolean {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    Array.isArray((payload as { resourceSpans?: unknown }).resourceSpans)
-  );
+  if (!isObject(payload)) {
+    return false;
+  }
+  if (!isBoundedObjectArray(payload.resourceSpans, maxResourceSpans)) {
+    return false;
+  }
+  for (const resourceSpan of payload.resourceSpans as Record<
+    string,
+    unknown
+  >[]) {
+    const { scopeSpans } = resourceSpan;
+    if (
+      scopeSpans !== undefined &&
+      !isBoundedObjectArray(scopeSpans, maxScopeSpans)
+    ) {
+      return false;
+    }
+    for (const scopeSpan of (scopeSpans ?? []) as Record<string, unknown>[]) {
+      const { spans } = scopeSpan;
+      if (spans !== undefined && !isBoundedObjectArray(spans, maxSpans)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /**
@@ -211,7 +255,22 @@ export function createBffTracing(
         method: "POST",
         signal: AbortSignal.timeout(ingestTimeoutMs),
       });
-      return response.ok ? "accepted" : "unavailable";
+      if (response.ok) {
+        return "accepted";
+      }
+      // A collector 4xx means the collector rejected the payload as malformed on
+      // its stricter parse; surface it as a rejection so the browser learns its
+      // telemetry was bad rather than seeing a 202. Transient 408/429 and every
+      // 5xx are best-effort unavailability, never surfaced as a client error.
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 408 &&
+        response.status !== 429
+      ) {
+        return "rejected";
+      }
+      return "unavailable";
     } catch {
       // Best-effort: an unreachable collector never fails the browser request.
       return "unavailable";

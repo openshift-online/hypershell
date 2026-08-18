@@ -132,6 +132,63 @@ describe("BFF tracing adapter", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("rejects a malformed OTLP envelope without relaying it", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const tracing = createBffTracing(config);
+
+    // resourceSpans present but not an array of objects.
+    await expect(tracing.ingestTraces({ resourceSpans: [42] })).resolves.toBe(
+      "rejected",
+    );
+    // scopeSpans is not an array.
+    await expect(
+      tracing.ingestTraces({ resourceSpans: [{ scopeSpans: "nope" }] }),
+    ).resolves.toBe("rejected");
+    // spans is not an array of objects.
+    await expect(
+      tracing.ingestTraces({
+        resourceSpans: [{ scopeSpans: [{ spans: {} }] }],
+      }),
+    ).resolves.toBe("rejected");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("relays a fully nested OTLP envelope with spans", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 200 }),
+    );
+    const tracing = createBffTracing(config);
+
+    await expect(
+      tracing.ingestTraces({
+        resourceSpans: [{ scopeSpans: [{ spans: [{ name: "s" }] }] }],
+      }),
+    ).resolves.toBe("accepted");
+  });
+
+  it("treats a collector 4xx as a rejection of the payload", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 400 }),
+    );
+    const tracing = createBffTracing(config);
+
+    await expect(
+      tracing.ingestTraces({ resourceSpans: [{ scopeSpans: [] }] }),
+    ).resolves.toBe("rejected");
+  });
+
+  it("treats a transient collector 429 or 5xx as unavailable", async () => {
+    const tracing = createBffTracing(config);
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    for (const status of [429, 408, 503]) {
+      fetchSpy.mockResolvedValueOnce(new Response(null, { status }));
+      await expect(
+        tracing.ingestTraces({ resourceSpans: [{ scopeSpans: [] }] }),
+      ).resolves.toBe("unavailable");
+    }
+  });
+
   it("relays a well-formed OTLP payload to the collector", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
