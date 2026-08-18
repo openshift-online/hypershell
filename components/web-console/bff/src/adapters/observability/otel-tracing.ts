@@ -2,13 +2,15 @@ import {
   ROOT_CONTEXT,
   SpanKind,
   SpanStatusCode,
-  TraceFlags,
+  defaultTextMapGetter,
+  defaultTextMapSetter,
   isSpanContextValid,
   trace as otelTrace,
+  type Context,
   type Span,
-  type SpanContext,
   type Tracer,
 } from "@opentelemetry/api";
+import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import {
   BasicTracerProvider,
   BatchSpanProcessor,
@@ -30,15 +32,13 @@ import {
   type UpstreamTraceContext,
 } from "../../tracing.js";
 
-const traceparentPattern =
-  /^00-(?<traceId>[0-9a-f]{32})-(?<spanId>[0-9a-f]{16})-(?<flags>[0-9a-f]{2})$/u;
-// A permissive W3C `tracestate`: comma-separated members, bounded length. The
-// value is untrusted and only forwarded, never parsed, so a light structural
-// check is enough to drop obvious garbage before propagation.
-const tracestatePattern = /^[ \t]*[!-~]+=[ -~]*(,[ \t]*[!-~]+=[ -~]*){0,31}$/u;
-const zeroTraceId = "0".repeat(32);
-const zeroSpanId = "0".repeat(16);
 const ingestTimeoutMs = 5_000;
+
+// The conformant W3C propagator handles extraction and injection: it accepts
+// current and future `traceparent` versions, rejects an all-zero or malformed
+// one, and drops a malformed `tracestate` while still continuing a trace whose
+// `traceparent` is valid. It is stateless, so a single instance is shared.
+const propagator = new W3CTraceContextPropagator();
 
 const versionSegment = /^v\d+$/u;
 
@@ -71,48 +71,49 @@ export function routeTemplateFrom(path: string): string {
   return `/${template.join("/")}`;
 }
 
-/** Parses a W3C `traceparent`, returning a remote span context or `undefined`. */
-function parseTraceparent(value: string): SpanContext | undefined {
-  const groups = traceparentPattern.exec(value)?.groups;
-  if (
-    groups?.flags === undefined ||
-    groups.spanId === undefined ||
-    groups.traceId === undefined
-  ) {
-    return undefined;
+/**
+ * Extracts the inbound W3C trace context. An absent, malformed, all-zero, or
+ * unsupported-version `traceparent` yields the root context, so a fresh trace is
+ * started; a valid one continues the trace and carries a valid `tracestate`
+ * forward. A `tracestate` without a valid `traceparent` is discarded because the
+ * root context it lands in has no trace to continue.
+ */
+function parentContextFrom(input: StartProxySpanInput): Context {
+  if (input.traceparent === undefined) {
+    return ROOT_CONTEXT;
   }
-  const { flags, spanId, traceId } = groups;
-  if (traceId === zeroTraceId || spanId === zeroSpanId) {
-    return undefined;
+  const carrier: Record<string, string> = { traceparent: input.traceparent };
+  if (input.tracestate !== undefined) {
+    carrier.tracestate = input.tracestate;
   }
-  return {
-    isRemote: true,
-    spanId,
-    traceFlags: Number.parseInt(flags, 16),
-    traceId,
-  };
+  return propagator.extract(ROOT_CONTEXT, carrier, defaultTextMapGetter);
 }
 
-function isValidTracestate(value: string | undefined): value is string {
-  return (
-    value !== undefined && value.length <= 512 && tracestatePattern.test(value)
+/**
+ * Serializes the BFF span's own context into upstream `traceparent`/`tracestate`
+ * headers via the propagator, so a continued trace forwards the inherited
+ * `tracestate` and the sampled flag reflects the span's decision. Returns
+ * `undefined` when the span has no valid context. The propagator emits an empty
+ * string for an absent trace state, which is not a header worth forwarding, so
+ * it is normalized to no `tracestate`.
+ */
+function upstreamContextFor(span: Span): UpstreamTraceContext | undefined {
+  if (!isSpanContextValid(span.spanContext())) {
+    return undefined;
+  }
+  const carrier: Record<string, string> = {};
+  propagator.inject(
+    otelTrace.setSpan(ROOT_CONTEXT, span),
+    carrier,
+    defaultTextMapSetter,
   );
-}
-
-function upstreamContext(
-  span: Span,
-  forwardedTracestate: string | undefined,
-): UpstreamTraceContext | undefined {
-  const spanContext = span.spanContext();
-  if (!isSpanContextValid(spanContext)) {
+  const { traceparent, tracestate } = carrier;
+  if (traceparent === undefined) {
     return undefined;
   }
-  const flags =
-    (spanContext.traceFlags & TraceFlags.SAMPLED) === 0 ? "00" : "01";
-  const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-${flags}`;
-  return forwardedTracestate === undefined
+  return tracestate === undefined || tracestate === ""
     ? { traceparent }
-    : { traceparent, tracestate: forwardedTracestate };
+    : { traceparent, tracestate };
 }
 
 function spanStatusFor(outcome: ProxyOutcome): SpanStatusCode {
@@ -200,20 +201,7 @@ export function createBffTracing(
   const tracer: Tracer = provider.getTracer("hypershell-web-console-bff");
 
   function startProxySpan(input: StartProxySpanInput): ProxySpan {
-    const parent =
-      input.traceparent === undefined
-        ? undefined
-        : parseTraceparent(input.traceparent);
-    const continued = parent !== undefined && isSpanContextValid(parent);
-    const parentContext = continued
-      ? otelTrace.setSpanContext(ROOT_CONTEXT, parent)
-      : ROOT_CONTEXT;
-    // A `tracestate` is forwarded only alongside a valid inbound `traceparent`;
-    // a state without a parent trace has nothing to continue.
-    const forwardedTracestate =
-      continued && isValidTracestate(input.tracestate)
-        ? input.tracestate
-        : undefined;
+    const parentContext = parentContextFrom(input);
     // Name the span by method and the bounded route template (for example
     // "GET /api/hypershell/v1/gateways/{id}") so Jaeger groups by endpoint
     // rather than collapsing every proxied call onto one wildcard operation.
@@ -238,7 +226,7 @@ export function createBffTracing(
         span.setStatus({ code: spanStatusFor(outcome) });
         span.end();
       },
-      upstream: () => upstreamContext(span, forwardedTracestate),
+      upstream: () => upstreamContextFor(span),
     };
   }
 

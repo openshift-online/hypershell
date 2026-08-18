@@ -122,6 +122,56 @@ describe("BFF tracing adapter", () => {
     expect(orphaned?.tracestate).toBeUndefined();
   });
 
+  it("continues a future-version traceparent, normalizing it to version 00", () => {
+    const tracing = createBffTracing(config);
+
+    // A version beyond 00 with trailing fields must still be honored per the W3C
+    // spec; the propagated header is re-emitted at the version this BFF speaks.
+    const futureVersion = `01-${inboundTraceId}-b7ad6b7169203331-01-extra`;
+    const upstream = tracing
+      .startProxySpan(proxyInput({ traceparent: futureVersion }))
+      .upstream();
+
+    expect(upstream?.traceparent).toMatch(
+      new RegExp(`^00-${inboundTraceId}-[0-9a-f]{16}-01$`),
+    );
+  });
+
+  it("starts a new trace for an all-zero or unsupported-version traceparent", () => {
+    const tracing = createBffTracing(config);
+
+    const allZero = "00-00000000000000000000000000000000-0000000000000000-01";
+    const badVersion =
+      "ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+    for (const traceparent of [allZero, badVersion]) {
+      const upstream = tracing
+        .startProxySpan(proxyInput({ traceparent }))
+        .upstream();
+      expect(upstream?.traceparent).toMatch(
+        /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+      );
+      expect(upstream?.traceparent).not.toContain(inboundTraceId);
+    }
+  });
+
+  it("drops a malformed tracestate while still continuing the trace", () => {
+    const tracing = createBffTracing(config);
+
+    const upstream = tracing
+      .startProxySpan(
+        proxyInput({
+          traceparent: validTraceparent,
+          tracestate: "no-equals-sign",
+        }),
+      )
+      .upstream();
+
+    expect(upstream?.traceparent).toMatch(
+      new RegExp(`^00-${inboundTraceId}-[0-9a-f]{16}-01$`),
+    );
+    expect(upstream?.tracestate).toBeUndefined();
+  });
+
   it("rejects a payload that is not well-formed OTLP", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const tracing = createBffTracing(config);
