@@ -27,7 +27,7 @@ Developers selectively swap individual components with local builds using per-co
 | Gateway API CRDs | Gateway, GRPCRoute, BackendTLSPolicy, and related CRDs; required before cloud-provider-kind can serve as a gateway controller |
 | cloud-provider-kind | LoadBalancer and Gateway API controller for Kind clusters; implements GatewayClass and serves as the data-plane proxy for GRPCRoute traffic |
 | cert-manager | TLS certificate lifecycle for gateway certificates (issuance, renewal, rotation) |
-| Keycloak | OIDC identity provider for local gateway authentication testing (skipped when `KIND_KEYCLOAK_URL` is set) |
+| Keycloak | OIDC identity provider for local gateway authentication testing; uses an optimized image (`deploy/kind/keycloak/Dockerfile`) that pre-builds providers at image time and starts with `--optimized` to cut startup from ~60s to ~15s (skipped when `KIND_KEYCLOAK_URL` is set) |
 
 `make kind-up` SHALL install the Gateway API CRDs before starting cloud-provider-kind. The CRDs SHALL be applied from the upstream release bundle (`https://github.com/kubernetes-sigs/gateway-api/releases/download/<version>/experimental-install.yaml`) using the `experimental` channel, which includes BackendTLSPolicy. The version SHALL be pinned via a `GATEWAY_API_VERSION` variable. On OpenShift 4.19+ these CRDs ship by default; on Kind they must be installed explicitly.
 
@@ -677,6 +677,7 @@ All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (def
 | `KIND_RESTART_CPK` | (unset) | Set to `true` to force `make kind-up` to restart cloud-provider-kind (republishes ephemeral LB ports; otherwise the running instance is reused to keep ports stable) |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
+| `KIND_KEYCLOAK_OPTIMIZED` | `false` | Set to `true` to build and use an optimized Keycloak image that pre-builds providers at image time and starts with `--optimized` (~15s startup vs ~60s) |
 | `KIND_NAMESPACE` | `hypershell-system` | Target namespace for all `kind-*` targets |
 
 ## Make Targets Summary
@@ -696,6 +697,7 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
+| `make kind-keycloak-build` | Rebuild the optimized Keycloak image (`deploy/kind/keycloak/Dockerfile`); `kind-up` builds automatically on first run and reuses on subsequent runs |
 
 ## Design Decisions
 
@@ -726,6 +728,7 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | Networking Gateway installed by kind-up | Cluster-level infrastructure (GatewayClass + Gateway), not per-tenant; the control plane only manages per-gateway route resources (GRPCRoute, BackendTLSPolicy, CA ConfigMap) |
 | cert-manager as prerequisite | Automates TLS certificate lifecycle (issuance, renewal, rotation) for gateway certificates; eliminates manual re-runs of the certgen job |
 | Keycloak for local OIDC | Local instance mirrors the downstream Keycloak topology (realm `hypershell`, per-gateway clients, provisioner service account); `KIND_KEYCLOAK_URL` override allows testing against an external instance |
+| Optimized Keycloak image | A multi-stage Dockerfile (`deploy/kind/keycloak/Dockerfile`) runs `kc.sh build` at image build time so provider registration, config parsing, and DB resource generation happen once. The pod starts with `--optimized`, skipping the build phase and cutting startup from ~60s to ~15s. `kind-up` builds the image on first run and reuses it; `make kind-keycloak-build` forces a rebuild |
 | OIDC only, no mTLS | Team agreed to drop mTLS client auth; OIDC is the recommended auth mode for Kubernetes deployments per upstream docs |
 | TLS always enabled | BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod (see Gateway API Routing section); the gateway must serve TLS even in local environments. cert-manager issues a self-signed CA for both the wildcard listener cert and the pod's server cert |
 | Configurable `IMAGE_REGISTRY` and `IMAGE_TAG` | Allows teams to test against different builds or staging registries |

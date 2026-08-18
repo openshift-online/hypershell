@@ -29,7 +29,7 @@ This creates a Kind cluster and deploys:
 1. Gateway API CRDs (experimental channel, includes BackendTLSPolicy)
 2. cloud-provider-kind (LoadBalancer + Gateway API controller)
 3. cert-manager (TLS certificate lifecycle)
-4. Keycloak (OIDC identity provider)
+4. Keycloak (OIDC identity provider, optimized image with pre-built providers)
 5. Networking Gateway with wildcard TLS certificates
 6. HTTPRoutes for all services
 7. API server (with DB migration init container)
@@ -126,7 +126,13 @@ plane are Go services that require a full rebuild (`make kind-api-server-up` /
 ## Keycloak
 
 The local Keycloak instance mirrors the downstream Keycloak topology used in
-production.
+production. It uses an optimized image (`deploy/kind/keycloak/Dockerfile`) that
+runs `kc.sh build` at image build time so the provider registry, config parsing,
+and DB resource generation happen once -- not on every pod start. At runtime
+Keycloak starts with `--optimized`, skipping the build phase entirely and cutting
+startup from ~60s to ~15s. `make kind-up` builds and loads this image
+automatically (reusing it on subsequent runs); rebuild manually with
+`make kind-keycloak-build`.
 
 | Setting | Value |
 |---------|-------|
@@ -287,6 +293,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18.4@sha256:9b19...` | Database image for Gateway; override for OSS dev |
 | `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
+| `KIND_KEYCLOAK_OPTIMIZED` | `false` | Set to `true` to build and use an optimized Keycloak image with pre-built providers (~15s startup vs ~60s) |
 | `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
 
 ## Make Targets
@@ -303,6 +310,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-control-plane-down` | Revert control plane to baseline image |
 | `make kind-web-console-up` | Hot reload (default) or build + swap web console |
 | `make kind-web-console-down` | Revert web console to baseline image |
+| `make kind-keycloak-build` | Rebuild optimized Keycloak image (pre-built providers) |
 | `make kind-fix-ports` | Re-establish host port forwarding (443) |
 
 ## Gateway Access

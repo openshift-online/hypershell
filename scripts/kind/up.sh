@@ -238,10 +238,35 @@ kube create secret generic hypershell-oidc-session \
 success "OIDC session secret created"
 echo ""
 
+# --- Build optimized Keycloak image (optional) ---
+KUSTOMIZE_DIR="deploy/kind"
+if [[ "${KIND_KEYCLOAK_OPTIMIZED:-false}" == "true" ]]; then
+  header "Keycloak (optimized)"
+  KC_IMAGE="${keycloak_local:-localhost/hypershell-keycloak:dev-optimized}"
+  if ${CONTAINER_ENGINE} image inspect "${KC_IMAGE}" >/dev/null 2>&1; then
+    info "Image ${KC_IMAGE} already exists, reusing (run 'make kind-keycloak-build' to rebuild)"
+  else
+    info "Building optimized Keycloak image..."
+    ${CONTAINER_ENGINE} build -t "${KC_IMAGE}" "${REPO_ROOT}/deploy/kind/keycloak"
+  fi
+  info "Loading Keycloak image into Kind..."
+  KC_TAR="/tmp/hypershell-keycloak-dev.tar"
+  rm -f "${KC_TAR}"
+  ${CONTAINER_ENGINE} save -o "${KC_TAR}" "${KC_IMAGE}"
+  kind load image-archive "${KC_TAR}" --name "${KIND_CLUSTER_NAME}"
+  rm -f "${KC_TAR}"
+  success "Optimized Keycloak image loaded"
+  KUSTOMIZE_DIR="deploy/kind-keycloak-optimized"
+  echo ""
+else
+  info "Keycloak optimization disabled (KIND_KEYCLOAK_OPTIMIZED=false), using stock image"
+  echo ""
+fi
+
 # --- Deploy all components via kustomize ---
 header "Deploying Components"
 info "Applying Kind manifests via kustomize..."
-kustomize build deploy/kind | kube apply -f -
+kustomize build "${KUSTOMIZE_DIR}" | kube apply -f -
 
 info "Waiting for PostgreSQL..."
 kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
