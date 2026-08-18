@@ -297,11 +297,13 @@ Platform administrators SHALL NOT be able to:
 The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and
 `gateway:viewer`. A user may hold multiple roles (e.g., `platform:admin` + `gateway:creator`).
 
-The `platform:admin` role is **gateway-scoped only**. It does NOT grant permissions to:
+In the initial implementation, the `platform:admin` role is **limited to gateway view and delete operations**. It does NOT grant permissions to:
 
 - View or modify Fleets, GatewayNetworks, GatewayReleases, ManagedClusters, or ManagedDatabases
 - View or modify Users or RoleBindings
 - Access platform-level configuration or system administration functions
+
+Future iterations may expand platform:admin permissions to include these resources.
 
 #### Scenario: Platform admin views all gateways
 
