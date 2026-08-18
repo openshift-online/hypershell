@@ -258,13 +258,26 @@ fi
 # server observability work (HYPERSHELL-26). The web console browser and BFF
 # export over OTLP/HTTP (4318) because browsers cannot speak OTLP gRPC; the API
 # server uses gRPC (4317).
+# Renders deploy/kind/jaeger.yaml into the selected namespace with sed, the same
+# portable substitution used for the Kind cluster config. Using sed instead of
+# GNU envsubst keeps bring-up working on stock macOS, where envsubst is absent.
+render_jaeger() {
+  sed "s|__KIND_NAMESPACE__|${KIND_NAMESPACE}|g" deploy/kind/jaeger.yaml
+}
+
+# Reports 0 when the web console BFF still carries an OTLP exporter endpoint, so
+# the disabled-state reconciliation can verify it actually removed the endpoint
+# rather than trusting that the unset command had any effect.
+bff_otel_endpoint_set() {
+  kube get deployment/hypershell-web-console -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="web-console")].env[*].name}' \
+    2>/dev/null | tr ' ' '\n' | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
+}
+
 if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   header "Jaeger"
   info "Deploying Jaeger..."
-  # jaeger.yaml is a template: render every namespace and reference into the
-  # selected namespace so nothing is pinned to a stale hard-coded value.
-  KIND_NAMESPACE="${KIND_NAMESPACE}" envsubst '${KIND_NAMESPACE}' \
-    <deploy/kind/jaeger.yaml | kube apply -f -
+  render_jaeger | kube apply -f -
   info "Patching web console BFF with OTEL_EXPORTER_OTLP_ENDPOINT..."
   kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
     OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4318"
@@ -278,12 +291,23 @@ else
   # endpoint until they are removed. On a reused cluster with tracing turned
   # off, tear Jaeger down and unset the endpoint so the BFF stops exporting to a
   # collector that is no longer there. Both steps are idempotent on a cluster
-  # that never had Jaeger.
+  # that never had Jaeger, but a failure other than absence must surface rather
+  # than leave the BFF exporting to a collector that is gone.
   info "KIND_JAEGER not enabled - ensuring Jaeger is removed and tracing is off..."
-  KIND_NAMESPACE="${KIND_NAMESPACE}" envsubst '${KIND_NAMESPACE}' \
-    <deploy/kind/jaeger.yaml | kube delete --ignore-not-found -f - >/dev/null 2>&1 || true
-  kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
-    OTEL_EXPORTER_OTLP_ENDPOINT- >/dev/null 2>&1 || true
+  # --ignore-not-found tolerates the resources being absent; any other kubectl
+  # failure propagates through the pipe (pipefail) and aborts the run.
+  render_jaeger | kube delete --ignore-not-found -f -
+  # Unset the exporter endpoint only when the deployment exists; on a cluster
+  # that has it, removing an already-absent variable is a no-op, then verify the
+  # variable is actually gone so a silent failure cannot leave tracing enabled.
+  if kube get deployment/hypershell-web-console -n "${KIND_NAMESPACE}" >/dev/null 2>&1; then
+    kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
+      OTEL_EXPORTER_OTLP_ENDPOINT-
+    if bff_otel_endpoint_set; then
+      error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
+      exit 1
+    fi
+  fi
   echo ""
 fi
 
