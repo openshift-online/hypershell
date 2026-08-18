@@ -219,7 +219,14 @@ jobs:
       - name: Run static, unit, Storybook, and production build gates
         run: pnpm check:web
       - name: Install Chromium
-        run: pnpm --filter @openshift-online/hypershell-web-console exec playwright install --with-deps chromium
+        run: |
+          # Cap apt network timeouts so a flaky Azure mirror doesn't hang the job.
+          sudo tee /etc/apt/apt.conf.d/99-timeout <<'APT'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          APT
+          pnpm --filter @openshift-online/hypershell-web-console exec playwright install --with-deps chromium
       - name: Run critical Chromium journey
         run: pnpm test:e2e:chromium
 

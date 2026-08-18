@@ -23,7 +23,7 @@ const providerMarker = "OSPROVIDERNAMEZ";
 const modelMarker = "OSMODELNAMEZ";
 const sandboxMarker = "OSSANDBOXNAMEZ";
 const setupMarkers = [providerMarker, modelMarker];
-const sandboxMarkers = [sandboxMarker];
+const sandboxMarkers = [sandboxMarker, modelMarker];
 
 function ConnectionStep({
   children,
@@ -109,16 +109,24 @@ export function GatewayConnectionSteps({
       >
         <EditableCommand
           copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
-          copyText={buildSandboxCreateCommand(sandboxName)}
+          copyText={buildSandboxCreateCommand(sandboxName, model)}
           labels={{
+            [modelMarker]: intl.formatMessage(messages.editModel),
             [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
           }}
           markers={sandboxMarkers}
-          onFieldChange={(_marker, value) => {
-            setSandboxName(value);
+          onFieldChange={(marker, value) => {
+            if (marker === sandboxMarker) {
+              setSandboxName(value);
+            } else if (marker === modelMarker) {
+              setModel(value);
+            }
           }}
-          templateCommand={buildSandboxCreateCommand(sandboxMarker)}
-          values={{ [sandboxMarker]: sandboxName }}
+          templateCommand={buildSandboxCreateCommand(
+            sandboxMarker,
+            modelMarker,
+          )}
+          values={{ [modelMarker]: model, [sandboxMarker]: sandboxName }}
         />
       </ConnectionStep>
     </ol>

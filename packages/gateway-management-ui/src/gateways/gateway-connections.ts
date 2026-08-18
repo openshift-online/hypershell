@@ -111,20 +111,17 @@ export function buildInferenceSetCommand(
   return `openshell inference set --provider ${providerName} --model ${model}`;
 }
 
-/**
- * Creates a sandbox that runs Claude against the gateway's local inference
- * endpoint. `ANTHROPIC_BASE_URL` points at the in-sandbox inference proxy and
- * the API key is unused because the provider supplies credentials, so nothing
- * secret is pasted into the browser. The model is selected once in the
- * `inference set` step, so `claude` needs no `--model` flag here.
- */
-export function buildSandboxCreateCommand(name: string = sandboxName): string {
+export function buildSandboxCreateCommand(
+  name: string = sandboxName,
+  model: string = claudeModel,
+): string {
   return [
     "openshell sandbox create",
     `--name ${name}`,
     "--env=ANTHROPIC_BASE_URL=https://inference.local",
     "--env=ANTHROPIC_API_KEY=unused",
-    "-- claude --bare",
+    "--no-auto-providers",
+    `-- claude --bare --model ${model}`,
   ].join(" \\\n  ");
 }
 
