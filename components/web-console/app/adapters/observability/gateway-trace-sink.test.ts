@@ -208,6 +208,57 @@ describe("gateway trace sink", () => {
     );
     expect(harness.exporter.getFinishedSpans()).toHaveLength(0);
   });
+
+  it("keeps high-cardinality and sensitive values out of every exported span", () => {
+    // A correlation identifier is opaque and high-cardinality; treat it as a
+    // stand-in for any secret that must never reach the collector.
+    const secret = "corr-Bearer-eyJhbGciOi-SEEDED-SECRET";
+    const withSecret = (base: GatewayProbe): GatewayProbe =>
+      Object.freeze({
+        ...base,
+        context: Object.freeze({ ...base.context, correlationId: secret }),
+      });
+
+    sink.sink.publish(withSecret(probe("gateway.workflow.started")));
+    sink.sink.publish(withSecret(probe("gateway.dependency.attempted")));
+    sink.sink.publish(
+      withSecret(
+        probe("gateway.dependency.completed", { outcome: "succeeded" }),
+      ),
+    );
+    sink.sink.publish(
+      withSecret(
+        probe("gateway.workflow.completed", {
+          operationId: "operation-1",
+          outcome: "succeeded",
+        }),
+      ),
+    );
+
+    const allowedKeys = new Set([
+      "gateway.action",
+      "gateway.outcome",
+      "gateway.failure_kind",
+      "hypershell.operation_id",
+    ]);
+    const finished = exporter.getFinishedSpans();
+    expect(finished).toHaveLength(2);
+    for (const span of finished) {
+      // Span names come from a bounded template, never a raw identifier.
+      expect(span.name).toMatch(/^gateway\.(workflow|dependency)\.[a-z]+$/);
+      for (const key of Object.keys(span.attributes)) {
+        expect(allowedKeys.has(key)).toBe(true);
+      }
+      // The secret appears in no span name or attribute value.
+      const serialized = JSON.stringify({
+        attributes: span.attributes,
+        name: span.name,
+      });
+      expect(serialized).not.toContain(secret);
+      expect(serialized).not.toContain("SEEDED-SECRET");
+      expect(serialized).not.toContain("Bearer");
+    }
+  });
 });
 
 describe("createGatewayTracing flush on page hide", () => {

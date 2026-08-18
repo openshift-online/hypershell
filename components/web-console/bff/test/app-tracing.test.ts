@@ -152,6 +152,22 @@ describe("web-console BFF tracing wiring", () => {
     expect(trace.ended).toEqual([{ outcome: "server_error", statusCode: 502 }]);
   });
 
+  it("keeps request secrets out of the span, recording only the bounded route", async () => {
+    const secret = "SEED-Bearer-token-do-not-log";
+
+    await app.inject({
+      method: "GET",
+      url: `/api/hypershell/v1/gateways?access_token=${secret}&user=alice`,
+    });
+
+    expect(trace.started).toHaveLength(1);
+    // The span records the bounded route template, never the raw URL or query.
+    expect(trace.started[0]?.routeTemplate).toBe("/api/*");
+    // No field fed to the span carries the secret or the raw query string.
+    expect(JSON.stringify(trace.started[0])).not.toContain(secret);
+    expect(JSON.stringify(trace.started[0])).not.toContain("access_token");
+  });
+
   it("accepts a well-formed OTLP payload at the ingest endpoint", async () => {
     const response = await app.inject({
       method: "POST",
