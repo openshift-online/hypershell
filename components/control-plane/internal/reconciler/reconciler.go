@@ -266,8 +266,19 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		// plane manages and treats an already-absent namespace as success. Any
 		// namespace missed here (e.g. a delete event lost during a restart) is
 		// swept later by the NamespaceGCReconciler.
-		if _, err := gateway.DeleteManagedNamespace(ctx, r.clientset, namespace); err != nil {
+		deleted, err := gateway.DeleteManagedNamespace(ctx, r.clientset, namespace)
+		if err != nil {
 			return fmt.Errorf("delete gateway namespace %s: %w", namespace, err)
+		}
+		if !deleted {
+			// The namespace was left in place: it is already gone, still
+			// terminating, or - the case that matters - a pre-existing namespace
+			// this control plane does not manage. In that last case deleting the
+			// namespace never cascades this gateway's in-namespace objects, and the
+			// NamespaceGCReconciler skips unmanaged namespaces too, so reclaim the
+			// resources this gateway labeled without touching the shared namespace or
+			// any co-tenant workloads.
+			gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts)
 		}
 		return nil
 	}
