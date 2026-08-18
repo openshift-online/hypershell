@@ -272,6 +272,19 @@ if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   kube wait --for=condition=available deployment/jaeger -n "${KIND_NAMESPACE}" --timeout=120s
   success "Jaeger ready"
   echo ""
+else
+  # Reconcile the disabled state, do not create-or-skip: a cluster brought up
+  # once with KIND_JAEGER=true keeps the Jaeger workload and the BFF exporter
+  # endpoint until they are removed. On a reused cluster with tracing turned
+  # off, tear Jaeger down and unset the endpoint so the BFF stops exporting to a
+  # collector that is no longer there. Both steps are idempotent on a cluster
+  # that never had Jaeger.
+  info "KIND_JAEGER not enabled - ensuring Jaeger is removed and tracing is off..."
+  KIND_NAMESPACE="${KIND_NAMESPACE}" envsubst '${KIND_NAMESPACE}' \
+    <deploy/kind/jaeger.yaml | kube delete --ignore-not-found -f - >/dev/null 2>&1 || true
+  kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
+    OTEL_EXPORTER_OTLP_ENDPOINT- >/dev/null 2>&1 || true
+  echo ""
 fi
 
 # --- Gateway trusted CA (self-signed CA for OIDC over HTTPS) ---
