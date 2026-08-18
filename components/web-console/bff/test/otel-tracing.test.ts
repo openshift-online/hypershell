@@ -465,6 +465,37 @@ describe("BFF OTLP nested-field validation", () => {
     ).resolves.toBe("rejected");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["a body-sized run of significant digits", "9".repeat(1_048_000)],
+    [
+      "a body-sized run of leading zeros then out-of-range digits",
+      `${"0".repeat(1_048_000)}${"1".repeat(21)}`,
+    ],
+  ])(
+    "rejects a 64-bit string with %s quickly, without a body-sized BigInt parse",
+    async (_label, timestamp) => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      const tracing = createBffTracing(config);
+
+      // A ~1 MiB decimal string fits under the body limit. Feeding it straight
+      // to BigInt() is an O(n^2) parse that blocked the event loop for ~125 ms
+      // even though the value is rejected; the significant-digit length guard
+      // must reject it with only a linear scan. The generous ceiling separates
+      // the linear path from the quadratic regression without flaking on slow
+      // CI. The leading-zeros case (21 significant digits, out of range) proves
+      // the guard strips zeros before the length bound and never builds a
+      // body-sized BigInt.
+      const startedAt = performance.now();
+      await expect(
+        tracing.ingestTraces(
+          envelope({ ...validSpan, startTimeUnixNano: timestamp }),
+        ),
+      ).resolves.toBe("rejected");
+      expect(performance.now() - startedAt).toBeLessThan(100);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("BFF delivery health", () => {

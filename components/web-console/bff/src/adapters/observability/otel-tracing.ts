@@ -208,11 +208,27 @@ const spanIdHex = z.string().regex(/^[0-9a-f]{16}$/iu);
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const INT64_MIN = -9_223_372_036_854_775_808n;
 const INT64_MAX = 9_223_372_036_854_775_807n;
+// The widest in-range 64-bit value has 20 significant decimal digits
+// (uint64 max = 18446744073709551615); anything longer is unconditionally out of
+// range. Reject on significant-digit length before constructing a BigInt:
+// `BigInt(text)` parses the entire decimal (an O(n^2) cost), so a body-sized
+// caller-controlled string would block the event loop for the whole parse even
+// though the value is rejected. The BigInt is only ever built from the bounded
+// significant digits, so a run of leading zeros never reaches it either.
+const maxDecimalDigits = 20;
 const withinBigIntRange =
   (min: bigint, max: bigint) =>
   (text: string): boolean => {
+    const negative = text.startsWith("-");
+    // The `\d`-only regex guarantees the remainder is decimal digits; strip the
+    // sign and leading zeros so the bound is on significant digits.
+    const digits = text.slice(negative ? 1 : 0).replace(/^0+/u, "");
+    if (digits.length > maxDecimalDigits) {
+      return false;
+    }
     try {
-      const value = BigInt(text);
+      const value =
+        digits === "" ? 0n : BigInt(negative ? `-${digits}` : digits);
       return value >= min && value <= max;
     } catch {
       return false;
