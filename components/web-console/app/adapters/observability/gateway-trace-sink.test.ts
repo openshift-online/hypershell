@@ -3,26 +3,38 @@ import type {
   GatewayProbe,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import type { ProbeDeliveryFailure } from "@openshift-online/hypershell-domain-probes/fan-out";
-import { SpanStatusCode } from "@opentelemetry/api";
+import { SpanStatusCode, type MeterProvider } from "@opentelemetry/api";
 import { ExportResultCode } from "@opentelemetry/core";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import {
   AlwaysOffSampler,
   AlwaysOnSampler,
   BasicTracerProvider,
+  BatchSpanProcessor,
   InMemorySpanExporter,
   ParentBasedSampler,
   SimpleSpanProcessor,
+  type BufferConfig,
   type ReadableSpan,
   type Sampler,
+  type SpanExporter,
 } from "@opentelemetry/sdk-trace-base";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   RootTraceIdGenerator,
+  backstopExporter,
   createGatewayTraceSink,
   createGatewayTracing,
+  deliveryHealthMeterProvider,
 } from "./gateway-trace-sink";
+
+/** An exporter that accepts a batch but never acknowledges it. */
+const blockingExporter: SpanExporter = {
+  export: () => undefined,
+  forceFlush: () => Promise.resolve(),
+  shutdown: () => Promise.resolve(),
+};
 
 const traceId = "0af7651916cd43dd8448eb211c80319c";
 const correlationId = "correlation-1";
@@ -400,5 +412,97 @@ describe("createGatewayTracing delivery health", () => {
 
     vi.spyOn(OTLPTraceExporter.prototype, "shutdown").mockResolvedValue();
     await tracing.shutdown();
+  });
+
+  it("reports every span dropped by an overflowing queue", () => {
+    // A queue that holds one span plus an exporter that never drains it forces
+    // the batch processor to drop every subsequent span. Those drops never
+    // reach the exporter callback, so only the self-observation meter can
+    // surface them.
+    vi.useFakeTimers();
+    try {
+      const failures: Readonly<ProbeDeliveryFailure>[] = [];
+      const processorConfig: BufferConfig & {
+        selfObsMeterProvider?: MeterProvider;
+      } = {
+        maxExportBatchSize: 1,
+        maxQueueSize: 1,
+        scheduledDelayMillis: 1,
+        selfObsMeterProvider: deliveryHealthMeterProvider((failure) =>
+          failures.push(failure),
+        ),
+      };
+      const provider = new BasicTracerProvider({
+        sampler: new AlwaysOnSampler(),
+        spanProcessors: [
+          new BatchSpanProcessor(blockingExporter, processorConfig),
+        ],
+      });
+      const tracer = provider.getTracer("overflow-test");
+
+      // The exporter never drains, so once the in-flight batch and the single
+      // queue slot are taken, every further span overflows and is dropped.
+      for (let index = 0; index < 8; index += 1) {
+        tracer.startSpan(`span-${String(index)}`).end();
+      }
+
+      expect(failures.length).toBeGreaterThanOrEqual(1);
+      expect(
+        failures.every((failure) => failure.errorType === "queue_full"),
+      ).toBe(true);
+      expect(failures).toContainEqual({
+        errorType: "queue_full",
+        probeName: "gateway.trace.export",
+        schemaVersion: 0,
+        sinkId: "gateway-trace",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a wedged exporter that never acknowledges a batch", async () => {
+    // The exporter accepts the batch and never calls back. The processor's own
+    // export timeout would reject the flush without accounting the loss; the
+    // backstop converts the stall into a FAILED result the meter records.
+    vi.useFakeTimers();
+    try {
+      const failures: Readonly<ProbeDeliveryFailure>[] = [];
+      const processorConfig: BufferConfig & {
+        selfObsMeterProvider?: MeterProvider;
+      } = {
+        maxExportBatchSize: 1,
+        scheduledDelayMillis: 1,
+        selfObsMeterProvider: deliveryHealthMeterProvider((failure) =>
+          failures.push(failure),
+        ),
+      };
+      const provider = new BasicTracerProvider({
+        sampler: new AlwaysOnSampler(),
+        spanProcessors: [
+          new BatchSpanProcessor(
+            backstopExporter(blockingExporter, 15_000),
+            processorConfig,
+          ),
+        ],
+      });
+      const tracer = provider.getTracer("blocking-test");
+      tracer.startSpan("wedged").end();
+
+      const flushed = provider.forceFlush().catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flushed;
+
+      expect(failures).toEqual([
+        {
+          errorType: "SpanExportTimeout",
+          probeName: "gateway.trace.export",
+          schemaVersion: 0,
+          sinkId: "gateway-trace",
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -9,8 +9,14 @@ import {
   SpanStatusCode,
   TraceFlags,
   context as otelContext,
+  createNoopMeter,
   isSpanContextValid,
   trace as otelTrace,
+  type Attributes,
+  type Counter,
+  type Meter,
+  type MeterProvider,
+  type MetricOptions,
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
@@ -20,13 +26,17 @@ import {
   ParentBasedSampler,
   RandomIdGenerator,
   TraceIdRatioBasedSampler,
+  type BufferConfig,
   type IdGenerator,
   type SpanExporter,
 } from "@opentelemetry/sdk-trace-base";
-import { ExportResultCode } from "@opentelemetry/core";
+import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import {
+  ATTR_ERROR_TYPE,
+  ATTR_SERVICE_NAME,
+} from "@opentelemetry/semantic-conventions";
 
 /** W3C `traceparent`/`tracestate` header pair for outbound propagation. */
 export interface GatewayTraceContext {
@@ -85,36 +95,121 @@ const tracerName = "gateway-trace-sink";
 // Synthetic probe name for a failure that is not tied to one probe but to the
 // asynchronous export of a batch of spans this sink already accepted.
 const traceExportProbeName = "gateway.trace.export";
+// Upper bound on how long the sink waits for the exporter to acknowledge a
+// batch before it synthesizes a failed result. It sits below the batch
+// processor's own export timeout (30s) so a wedged exporter is converted into a
+// FAILED callback -- which the processor accounts for through the
+// self-observation meter -- rather than a bare timeout the processor drops.
+const exportBackstopTimeoutMs = 15_000;
 
 /**
- * Wraps a span exporter so every failed export is reported as a delivery
- * failure. Both the batch timer and an explicit `forceFlush` funnel through the
- * exporter's result callback, so this catches an unreachable collector on
- * either path exactly once, rather than letting the SDK swallow it into its
- * global error handler.
+ * Builds a self-observation {@link MeterProvider} that turns the batch
+ * processor's own span-processing counter into delivery-failure reports. The
+ * processor emits one counter, `otel.sdk.processor.span.processed`, tagged with
+ * an `error.type` attribute on every loss: `queue_full` when a span is dropped
+ * because the buffer is full, and the exporter error name when a batch export
+ * fails. Successful processing carries no `error.type`, so it is ignored. This
+ * is the single reporting site for every loss the SDK accounts for -- queue
+ * overflow and export failure alike -- rather than only the exporter callbacks
+ * an out-of-band wrapper can see.
  */
-function reportingExporter(
-  inner: SpanExporter,
+export function deliveryHealthMeterProvider(
   report: (failure: Readonly<ProbeDeliveryFailure>) => void,
-): SpanExporter {
-  return {
-    export(spans, resultCallback) {
-      inner.export(spans, (result) => {
-        if (result.code === ExportResultCode.FAILED) {
+): MeterProvider {
+  const noop = createNoopMeter();
+  const createReportingCounter = (
+    name: string,
+    options?: MetricOptions,
+  ): Counter => {
+    const inner = noop.createCounter(name, options);
+    return {
+      add(value: number, attributes?: Attributes): void {
+        const errorType = attributes?.[ATTR_ERROR_TYPE];
+        if (typeof errorType === "string") {
           report({
-            errorType: result.error?.name ?? "SpanExportError",
+            errorType,
             probeName: traceExportProbeName,
             schemaVersion: 0,
             sinkId,
           });
         }
+        inner.add(value, attributes);
+      },
+    };
+  };
+  // Delegate every instrument to the no-op meter except the counter, whose
+  // `add` is intercepted above. The no-op meter is a shared singleton, so it is
+  // never mutated: a fresh delegating meter is returned instead.
+  const meter: Meter = {
+    createCounter: createReportingCounter,
+    createGauge: (name, options) => noop.createGauge(name, options),
+    createHistogram: (name, options) => noop.createHistogram(name, options),
+    createObservableCounter: (name, options) =>
+      noop.createObservableCounter(name, options),
+    createObservableGauge: (name, options) =>
+      noop.createObservableGauge(name, options),
+    createObservableUpDownCounter: (name, options) =>
+      noop.createObservableUpDownCounter(name, options),
+    createUpDownCounter: (name, options) =>
+      noop.createUpDownCounter(name, options),
+    addBatchObservableCallback: (callback, observables) => {
+      noop.addBatchObservableCallback(callback, observables);
+    },
+    removeBatchObservableCallback: (callback, observables) => {
+      noop.removeBatchObservableCallback(callback, observables);
+    },
+  };
+  return { getMeter: () => meter };
+}
+
+/**
+ * Wraps a span exporter so a batch always receives a terminal result even when
+ * the inner exporter never calls back. A wedged exporter would otherwise let
+ * the batch processor's export timeout fire, which rejects the flush without
+ * accounting the loss through the self-observation meter. Converting the stall
+ * into a FAILED result routes it back through the processor's finish path (and
+ * so the meter) exactly once; genuine results pass straight through. Reporting
+ * itself lives in {@link deliveryHealthMeterProvider}, so this wrapper never
+ * reports -- it only guarantees the callback the meter depends on.
+ */
+export function backstopExporter(
+  inner: SpanExporter,
+  timeoutMs: number,
+): SpanExporter {
+  return {
+    export(spans, resultCallback) {
+      let settled = false;
+      const settle = (result: ExportResult): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
         resultCallback(result);
-      });
+      };
+      const timer = setTimeout(() => {
+        const error = new Error(
+          "span export timed out before the exporter responded",
+        );
+        error.name = "SpanExportTimeout";
+        settle({ code: ExportResultCode.FAILED, error });
+      }, timeoutMs);
+      inner.export(spans, settle);
     },
     forceFlush: () => inner.forceFlush?.() ?? Promise.resolve(),
     shutdown: () => inner.shutdown(),
   };
 }
+
+/**
+ * The batch processor config extended with the self-observation meter provider.
+ * The bundled `sdk-trace-base` shim omits `selfObsMeterProvider` from its
+ * constructor config type, but forwards it to the underlying processor, so this
+ * intersection re-adds the field for a typed hand-off.
+ */
+type SelfObservableBatchConfig = BufferConfig & {
+  selfObsMeterProvider?: MeterProvider;
+};
 
 /**
  * Id generator that lets the caller choose the trace id of the next root span
@@ -312,11 +407,20 @@ export function createGatewayTracing(
 ): GatewayTracing {
   const ratio = config.sampleRatio ?? 1;
   const idGenerator = new RootTraceIdGenerator();
+  const report = options.reportDeliveryFailure;
   const baseExporter = new OTLPTraceExporter({ url: config.tracesEndpoint });
+  // With delivery-health reporting on, wrap the exporter so a wedged collector
+  // still yields a terminal result, and wire the self-observation meter that
+  // turns every processor-accounted loss (overflow and export failure) into a
+  // report. Without it, the default export path is left untouched.
   const exporter =
-    options.reportDeliveryFailure === undefined
+    report === undefined
       ? baseExporter
-      : reportingExporter(baseExporter, options.reportDeliveryFailure);
+      : backstopExporter(baseExporter, exportBackstopTimeoutMs);
+  const processorConfig: SelfObservableBatchConfig =
+    report === undefined
+      ? {}
+      : { selfObsMeterProvider: deliveryHealthMeterProvider(report) };
   const provider = new BasicTracerProvider({
     idGenerator,
     resource: resourceFromAttributes({
@@ -325,7 +429,7 @@ export function createGatewayTracing(
     sampler: new ParentBasedSampler({
       root: new TraceIdRatioBasedSampler(ratio),
     }),
-    spanProcessors: [new BatchSpanProcessor(exporter)],
+    spanProcessors: [new BatchSpanProcessor(exporter, processorConfig)],
   });
   const tracer = provider.getTracer(tracerName);
   const { sink, traceParentFor } = createGatewayTraceSink(tracer, {
@@ -335,8 +439,8 @@ export function createGatewayTracing(
   });
 
   const flushBufferedSpans = (): void => {
-    // A failed export is already recorded through the reporting exporter, so the
-    // rejected forceFlush promise only needs to be settled to avoid an
+    // A failed export is already recorded through the self-observation meter, so
+    // the rejected forceFlush promise only needs to be settled to avoid an
     // unhandled rejection; it is not a second failure to count.
     void provider.forceFlush().catch(() => undefined);
   };
