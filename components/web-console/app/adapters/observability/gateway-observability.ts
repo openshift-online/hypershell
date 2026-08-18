@@ -108,5 +108,3 @@ export function createGatewayObservability(
     },
   };
 }
-
-export const gatewayObservability = createGatewayObservability();
