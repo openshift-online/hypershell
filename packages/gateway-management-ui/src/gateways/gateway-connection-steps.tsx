@@ -72,86 +72,81 @@ export function GatewayConnectionSteps({
   const setupCopy = buildSetupScript(gateway, { model, providerName });
 
   return (
-    <>
-      <Alert
-        actionLinks={
-          <AlertActionLink
-            component="a"
-            href={installDocsUrl}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            {intl.formatMessage(messages.connectionInstallLink)}
-          </AlertActionLink>
-        }
-        isInline
-        title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
-        variant="info"
+    <ol className={styles.steps}>
+      <ConnectionStep
+        description={intl.formatMessage(messages.connectionSetupDescription)}
+        title={intl.formatMessage(messages.connectionSetupTitle)}
       >
-        {intl.formatMessage(messages.connectionInstallPrereq)}
-      </Alert>
-      <ol className={styles.steps}>
-        <ConnectionStep
-          description={intl.formatMessage(messages.connectionSetupDescription)}
-          title={intl.formatMessage(messages.connectionSetupTitle)}
-        >
-          {setupTemplate && setupCopy ? (
-            <EditableCommand
-              copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
-              copyText={setupCopy}
-              labels={{
-                [modelMarker]: intl.formatMessage(messages.editModel),
-                [providerMarker]: intl.formatMessage(messages.editProviderName),
-              }}
-              markers={setupMarkers}
-              onFieldChange={(marker, value) => {
-                if (marker === providerMarker) {
-                  setProviderName(value);
-                } else if (marker === modelMarker) {
-                  setModel(value);
-                }
-              }}
-              templateCommand={setupTemplate}
-              values={{ [modelMarker]: model, [providerMarker]: providerName }}
-            />
-          ) : (
-            <div
-              aria-label={intl.formatMessage(
-                messages.connectionLoginUnavailable,
-              )}
-              className={styles.commandPending}
-              role="status"
+        <Alert
+          actionLinks={
+            <AlertActionLink
+              component="a"
+              href={installDocsUrl}
+              rel="noopener noreferrer"
+              target="_blank"
             >
-              <Skeleton width="52%" />
-              <Skeleton width="38%" />
-              <Skeleton width="72%" />
-              <Skeleton width="35%" />
-              <Skeleton width="58%" />
-            </div>
-          )}
-        </ConnectionStep>
-
-        <ConnectionStep
-          description={intl.formatMessage(
-            messages.connectionSandboxDescription,
-          )}
-          title={intl.formatMessage(messages.connectionSandboxTitle)}
+              {intl.formatMessage(messages.connectionInstallLink)}
+            </AlertActionLink>
+          }
+          className={styles.prereqAlert}
+          isInline
+          title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
+          variant="info"
         >
+          {intl.formatMessage(messages.connectionInstallPrereq)}
+        </Alert>
+        {setupTemplate && setupCopy ? (
           <EditableCommand
-            copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
-            copyText={buildSandboxCreateCommand(sandboxName, model)}
+            copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
+            copyText={setupCopy}
             labels={{
-              [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
+              [modelMarker]: intl.formatMessage(messages.editModel),
+              [providerMarker]: intl.formatMessage(messages.editProviderName),
             }}
-            markers={sandboxMarkers}
-            onFieldChange={(_marker, value) => {
-              setSandboxName(value);
+            markers={setupMarkers}
+            onFieldChange={(marker, value) => {
+              if (marker === providerMarker) {
+                setProviderName(value);
+              } else if (marker === modelMarker) {
+                setModel(value);
+              }
             }}
-            templateCommand={buildSandboxCreateCommand(sandboxMarker, model)}
-            values={{ [sandboxMarker]: sandboxName }}
+            templateCommand={setupTemplate}
+            values={{ [modelMarker]: model, [providerMarker]: providerName }}
           />
-        </ConnectionStep>
-      </ol>
-    </>
+        ) : (
+          <div
+            aria-label={intl.formatMessage(messages.connectionLoginUnavailable)}
+            className={styles.commandPending}
+            role="status"
+          >
+            <Skeleton width="52%" />
+            <Skeleton width="38%" />
+            <Skeleton width="72%" />
+            <Skeleton width="35%" />
+            <Skeleton width="58%" />
+          </div>
+        )}
+      </ConnectionStep>
+
+      <ConnectionStep
+        description={intl.formatMessage(messages.connectionSandboxDescription)}
+        title={intl.formatMessage(messages.connectionSandboxTitle)}
+      >
+        <EditableCommand
+          copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
+          copyText={buildSandboxCreateCommand(sandboxName, model)}
+          labels={{
+            [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
+          }}
+          markers={sandboxMarkers}
+          onFieldChange={(_marker, value) => {
+            setSandboxName(value);
+          }}
+          templateCommand={buildSandboxCreateCommand(sandboxMarker, model)}
+          values={{ [sandboxMarker]: sandboxName }}
+        />
+      </ConnectionStep>
+    </ol>
   );
 }
