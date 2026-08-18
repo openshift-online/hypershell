@@ -53,6 +53,14 @@ func migrationSeedBuiltInRoles() *gormigrate.Migration {
 				Permissions map[string]interface{}
 			}{
 				{
+					Name:        RolePlatformAdmin,
+					DisplayName: "Platform Administrator",
+					Description: "Platform-wide view and delete access for all gateways",
+					Permissions: map[string]interface{}{
+						"gateways": []string{"read", "delete"},
+					},
+				},
+				{
 					Name:        RoleGatewayCreator,
 					DisplayName: "Gateway Creator",
 					Description: "Can create gateways; auto-becomes owner on creation",
@@ -116,6 +124,14 @@ type roleSeed struct {
 }
 
 var builtInRoleSeeds = []roleSeed{
+	{
+		Name:        RolePlatformAdmin,
+		DisplayName: "Platform Administrator",
+		Description: "Platform-wide view and delete access for all gateways",
+		Permissions: map[string]interface{}{
+			"gateways": []string{"read", "delete"},
+		},
+	},
 	{
 		Name:        RoleGatewayCreator,
 		DisplayName: "Gateway Creator",
