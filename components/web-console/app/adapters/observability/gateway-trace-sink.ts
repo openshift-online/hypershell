@@ -219,9 +219,8 @@ export function createGatewayTraceSink(
     if (!isSpanContextValid(spanContext)) {
       return undefined;
     }
-    const flags = (spanContext.traceFlags & TraceFlags.SAMPLED) === 0
-      ? "00"
-      : "01";
+    const flags =
+      (spanContext.traceFlags & TraceFlags.SAMPLED) === 0 ? "00" : "01";
     const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-${flags}`;
     const tracestate = spanContext.traceState?.serialize();
     return tracestate === undefined || tracestate === ""

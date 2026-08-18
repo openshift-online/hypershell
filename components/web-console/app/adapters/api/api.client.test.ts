@@ -86,15 +86,16 @@ describe("correlated API fetch", () => {
       fetchImplementation,
       undefined,
       () => ({
-        traceparent:
-          "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
         tracestate: "hypershell=1",
       }),
     );
 
     await correlatedFetch("/api/hypershell/v1/gateways");
 
-    const headers = new Headers(fetchImplementation.mock.calls[0]?.[1]?.headers);
+    const headers = new Headers(
+      fetchImplementation.mock.calls[0]?.[1]?.headers,
+    );
     expect(headers.get("traceparent")).toBe(
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
     );
@@ -114,7 +115,9 @@ describe("correlated API fetch", () => {
 
     await correlatedFetch("/api/hypershell/v1/gateways");
 
-    const headers = new Headers(fetchImplementation.mock.calls[0]?.[1]?.headers);
+    const headers = new Headers(
+      fetchImplementation.mock.calls[0]?.[1]?.headers,
+    );
     expect(headers.has("traceparent")).toBe(false);
     expect(headers.has("tracestate")).toBe(false);
   });
