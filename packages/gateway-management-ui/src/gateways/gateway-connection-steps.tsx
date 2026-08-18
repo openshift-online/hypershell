@@ -122,7 +122,10 @@ export function GatewayConnectionSteps({
               setModel(value);
             }
           }}
-          templateCommand={buildSandboxCreateCommand(sandboxMarker, modelMarker)}
+          templateCommand={buildSandboxCreateCommand(
+            sandboxMarker,
+            modelMarker,
+          )}
           values={{ [modelMarker]: model, [sandboxMarker]: sandboxName }}
         />
       </ConnectionStep>
