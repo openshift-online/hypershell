@@ -43,6 +43,15 @@ const configSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
+  // Tracing is optional: when the collector endpoint is absent the BFF starts
+  // normally with tracing disabled and readiness unaffected (WEB-TRACE-06).
+  OTEL_EXPORTER_OTLP_ENDPOINT: httpUrl.optional(),
+  OTEL_SERVICE_NAME: z
+    .string()
+    .trim()
+    .min(1)
+    .default("hypershell-web-console-bff"),
+  OTEL_TRACES_SAMPLE_RATIO: z.coerce.number().min(0).max(1).default(1),
   OIDC_CLIENT_ID: z.string().trim().min(1).optional(),
   OIDC_ISSUER: httpUrl.optional(),
   OIDC_POST_LOGOUT_REDIRECT_URI: httpUrl.optional(),
@@ -65,6 +74,14 @@ const configSchema = z.object({
     .default(path.resolve(process.cwd(), "../build/client")),
 });
 
+/** Resolved tracing configuration, present only when a collector is configured. */
+export interface TracingConfig {
+  collectorEndpoint: string;
+  sampleRatio: number;
+  serviceName: string;
+  tracesEndpoint: string;
+}
+
 export interface ServerConfig {
   apiOrigin: string;
   apiTimeoutMs: number;
@@ -79,6 +96,12 @@ export interface ServerConfig {
   sessionSecret?: Buffer;
   sessionTtlSeconds: number;
   staticRoot: string;
+  tracing?: TracingConfig;
+}
+
+/** Derives the OTLP/HTTP traces URL from a collector base endpoint. */
+function tracesEndpointFor(collectorEndpoint: string): string {
+  return `${collectorEndpoint.replace(/\/+$/u, "")}/v1/traces`;
 }
 
 export function loadConfig(
@@ -125,5 +148,15 @@ export function loadConfig(
       : undefined,
     sessionTtlSeconds: result.data.SESSION_TTL_SECONDS,
     staticRoot: path.resolve(result.data.STATIC_ROOT),
+    tracing: result.data.OTEL_EXPORTER_OTLP_ENDPOINT
+      ? {
+          collectorEndpoint: result.data.OTEL_EXPORTER_OTLP_ENDPOINT,
+          sampleRatio: result.data.OTEL_TRACES_SAMPLE_RATIO,
+          serviceName: result.data.OTEL_SERVICE_NAME,
+          tracesEndpoint: tracesEndpointFor(
+            result.data.OTEL_EXPORTER_OTLP_ENDPOINT,
+          ),
+        }
+      : undefined,
   };
 }

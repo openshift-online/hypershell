@@ -33,6 +33,51 @@ describe("loadConfig", () => {
       loadConfig({ HYPERSHELL_API_ORIGIN: "https://api.example.test/v1" }),
     ).toThrow(/HYPERSHELL_API_ORIGIN/u);
   });
+
+  it("leaves tracing disabled when no collector endpoint is set", () => {
+    const config = loadConfig({ STATIC_ROOT: "./public" });
+
+    expect(config.tracing).toBeUndefined();
+  });
+
+  it("derives the OTLP traces endpoint and sampling from configuration", () => {
+    const config = loadConfig({
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.example.test:4318/",
+      OTEL_SERVICE_NAME: "web-console-bff",
+      OTEL_TRACES_SAMPLE_RATIO: "0.25",
+      STATIC_ROOT: "./public",
+    });
+
+    expect(config.tracing).toEqual({
+      collectorEndpoint: "http://collector.example.test:4318/",
+      sampleRatio: 0.25,
+      serviceName: "web-console-bff",
+      tracesEndpoint: "http://collector.example.test:4318/v1/traces",
+    });
+  });
+
+  it("defaults the service name and sample ratio when only the endpoint is set", () => {
+    const config = loadConfig({
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.example.test:4318",
+      STATIC_ROOT: "./public",
+    });
+
+    expect(config.tracing?.serviceName).toBe("hypershell-web-console-bff");
+    expect(config.tracing?.sampleRatio).toBe(1);
+    expect(config.tracing?.tracesEndpoint).toBe(
+      "http://collector.example.test:4318/v1/traces",
+    );
+  });
+
+  it("rejects an out-of-range trace sample ratio", () => {
+    expect(() =>
+      loadConfig({
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.example.test:4318",
+        OTEL_TRACES_SAMPLE_RATIO: "5",
+        STATIC_ROOT: "./public",
+      }),
+    ).toThrow(/OTEL_TRACES_SAMPLE_RATIO/u);
+  });
 });
 
 function pathIsAbsolute(value: string): boolean {
