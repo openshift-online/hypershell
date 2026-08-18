@@ -270,9 +270,13 @@ environment (see the deploy overlays), so the tenant-gateway ingress path is a
 | **`gateway-api`** (reference) | `GRPCRoute` → shared `Gateway` | Gateway API GA and functional (AWS/ROSA, OCP ≥ 4.19 with working CIO Istio) | Shared `Gateway` + wildcard cert + Route53 CNAME |
 | **`route`** | OpenShift `Route` (`passthrough`) | Gateway API absent or non-functional (IBM Cloud ROKS - HyperShift-hosted, cannot pull OSSM images, IDMS owned by the HostedCluster) | Cluster's default router (HAProxy) on the platform wildcard |
 
-Both modes converge on the **same** tenant workload: the gateway pod terminates
-TLS with its per-tenant self-signed CA (`openshell-ca` → `openshell-server-tls`)
-and performs client mTLS. In `route` mode the `Route` is `passthrough`, so the
+Both modes converge on the **same** tenant workload: the OpenShell Gateway pod
+terminates TLS with its per-tenant self-signed CA (`openshell-ca` →
+`openshell-server-tls`). Client **identity** is established by OIDC (Keycloak
+bearer tokens), not client certificates — HyperShell does not require or support
+client mTLS. TLS here is server-side transport encryption only; callers are
+authenticated by OIDC, so they need no client certificate. In `route` mode the
+`Route` is `passthrough`, so the
 router forwards the encrypted connection SNI-routed end-to-end - no wildcard
 certificate, cert-manager `ClusterIssuer`, or external DNS integration is
 required, and it works on the cloud's free ingress wildcard (e.g. IBM's
@@ -491,7 +495,7 @@ Steps (Route mode on ROKS):
    certificate, cert-manager `ClusterIssuer`, Route53, or external DNS. It does
    **not** remove cert-manager itself: cert-manager (namespaced `Issuer` +
    per-tenant `Certificate`s minting the `openshell-ca` chain for the pod's own
-   TLS + client mTLS) remains a **hard prerequisite in every ingress mode**
+   server TLS) remains a **hard prerequisite in every ingress mode**
    (`reconcileCertManagerResources`; reconcile fails closed without it). On ROKS,
    OperatorHub is broken, so cert-manager is installed by mirroring its images into
    the internal registry (see [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md)).
@@ -534,9 +538,9 @@ OpenShift `Route` objects for data-plane gRPC traffic.
 #### Requirement: Tenant Gateway Ingress via OpenShift Route (`route` mode)
 
 In `route` mode, tenant gateway traffic SHALL be exposed through an OpenShift
-`Route` with `tls.termination: passthrough`, so the gateway pod's own TLS and
-client mTLS are preserved end-to-end. In this mode the control plane SHALL NOT
-require a shared `Gateway`, a wildcard certificate, or external DNS integration.
+`Route` with `tls.termination: passthrough`, so the gateway pod's own server TLS
+is preserved end-to-end. In this mode the control plane SHALL NOT require a
+shared `Gateway`, a wildcard certificate, or external DNS integration.
 
 ##### Scenario: Gateway provisioning creates a passthrough Route
 
@@ -600,7 +604,7 @@ selectable via the `GATEWAY_INGRESS_MODE` env var (`gateway-api` | `route` |
 
 Every tenant gateway SHALL depend on cert-manager for its per-tenant PKI: a
 namespaced `Issuer` (`openshell-ca`) and `Certificate`s minting the gateway's own
-server TLS, client mTLS, and CA. This is independent of the ingress mode - `route`
+server TLS and CA. This is independent of the ingress mode - `route`
 mode removes only the ingress-layer wildcard certificate/`ClusterIssuer`/Route53,
 not the pod-TLS layer. The control plane SHALL fail closed when cert-manager is
 absent.
