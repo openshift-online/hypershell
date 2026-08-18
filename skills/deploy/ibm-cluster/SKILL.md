@@ -221,8 +221,8 @@ The registry timeouts above are **not** registry-specific. The ROKS worker
 endpoints `161.26.0.0/16` / `166.8.0.0/14`, VPE gateways, the in-cluster
 registry, metadata `169.254.169.254`). DNS resolves but no packets reach the
 public internet, so `registry.redhat.io`, `quay.io`, and any **app-level** egress
-(e.g. `oauth2.googleapis.com` when a gateway mints a Vertex AI token — see §5.7)
-all time out. The Public Gateway is attached and the subnet ACL is wide open —
+(e.g. `oauth2.googleapis.com` when a gateway mints a Vertex AI token - see §5.7)
+all time out. The Public Gateway is attached and the subnet ACL is wide open -
 the SG is the gate. Diagnose from any pod with a shell (gateway pods are
 distroless; use the gateway's Postgres pod):
 `timeout 8 bash -c 'cat </dev/null >/dev/tcp/1.1.1.1/443' && echo OPEN || echo BLOCKED`.
@@ -236,10 +236,10 @@ SG=$(ibmcloud is security-groups --vpc <vpc-id> --output json \
 ibmcloud is security-group-rule-add "$SG" outbound tcp --remote 0.0.0.0/0 --port-min 443 --port-max 443
 ```
 
-This enables all outbound HTTPS from workers (egress-only, port 443) — required
+This enables all outbound HTTPS from workers (egress-only, port 443) - required
 for cloud-model providers (§5.7). As a side effect it should also let nodes pull
 directly from `registry.redhat.io` / `quay.io` on 443, since crio shares the
-node's SG — **verify before relying on it to skip the mirroring dance**. This is
+node's SG - **verify before relying on it to skip the mirroring dance**. This is
 IBM Cloud VPC state, **not** reproducible from GitOps; re-apply on any rebuild.
 
 #### ImageDigestMirrorSet (redirect the OSSM repo to the mirror)
@@ -448,7 +448,7 @@ openshell status --gateway-endpoint "https://$HOST:443" --gateway-insecure   # S
 
 `openshell status --gateway-endpoint … --gateway-insecure` proves the transport
 path without auth. For an authenticated registration a **bare** `openshell gateway
-add https://<host>` is wrong — it selects edge/"cloud" mode and 404s on these
+add https://<host>` is wrong - it selects edge/"cloud" mode and 404s on these
 gRPC-only gateways; use OIDC mode (`--oidc-issuer …`, §5.7).
 
 ### 5.6: Enable Agent Sandboxes (required for `openshell sandbox ...`)
@@ -577,13 +577,13 @@ The `hypershell-control-plane` service account needs realm-management roles
 (`manage-clients`,`manage-users`,`view-users`,`query-clients`,`query-users`) or
 the client-credentials grant 403s. Declare them in the realm import as a
 `service-account-hypershell-control-plane` user with `clientRoles`
-(bootstrap-hyperfleet `bases/hypershell/keycloak/realm-import.yaml`) —
+(bootstrap-hyperfleet `bases/hypershell/keycloak/realm-import.yaml`) -
 `clientScopeMappings` alone does **not** grant SA roles. Per-user authorization is
 separate: assign the `openshell-admin`/`openshell-user` client role on the
 `<name>-<id>` client to each end user (sandbox create additionally needs workspace
 membership).
 
-**CLI connect — OIDC mode, not edge/cloud mode.** A bare `openshell gateway add
+**CLI connect - OIDC mode, not edge/cloud mode.** A bare `openshell gateway add
 https://<host>` treats the endpoint as edge-authenticated ("cloud") and 404s on
 these gRPC-only passthrough gateways. Use OIDC mode with `--gateway-insecure`
 (passthrough serves the self-signed pod cert; the flag is required on `add` **and**
@@ -617,7 +617,7 @@ system `ssh`, whose `ProxyCommand` re-execs `openshell ssh-proxy --gateway https
 --sandbox-id <uuid> --token <uuid> --gateway-name <name>`. The CLI builds that
 ProxyCommand string **without** `--gateway-insecure`, so the child `ssh-proxy`
 verifies the self-signed passthrough cert and dies with `invalid peer certificate:
-UnknownIssuer` — passing `--gateway-insecure` to `connect` does not help (it never
+UnknownIssuer` - passing `--gateway-insecure` to `connect` does not help (it never
 reaches the child). The child inherits the environment, so export the var:
 
 ```bash
@@ -630,7 +630,7 @@ openshell sandbox connect <name>         # no --gateway-insecure flag
 the flag; only `connect`'s ssh-proxy subprocess needs the env var. The upstream
 fix is to thread `--gateway-insecure` into the ProxyCommand.)
 
-### 5.8: Run an agent (Claude Code) in a sandbox — credential-free via `inference.local`
+### 5.8: Run an agent (Claude Code) in a sandbox - credential-free via `inference.local`
 
 An in-sandbox agent reaches the cloud model through the OpenShell **inference
 router**, NOT by holding a credential. `inference.local:443` is a virtual host the
@@ -638,7 +638,7 @@ supervisor intercepts: it strips the client's key and injects the operator's
 provider token server-side, translating the Anthropic `/v1/messages` body into
 Vertex's `:rawPredict` contract. So the sandbox never sees a secret. See
 [`openshell-inference-routing.spec.md`](../../../specs/platform/openshell-inference-routing.spec.md)
-for the model. Do **not** try `CLAUDE_CODE_USE_VERTEX=1` — that makes Claude Code
+for the model. Do **not** try `CLAUDE_CODE_USE_VERTEX=1` - that makes Claude Code
 do its own Google ADC (none in the sandbox) and hang.
 
 ```bash
@@ -649,10 +649,10 @@ openshell inference set -g <name> --gateway-insecure \
 openshell inference get -g <name> --gateway-insecure   # confirm the user route
 ```
 
-**CRITICAL — pin a non-effort model with `--model claude-sonnet-4-5`.** Claude Code
+**CRITICAL - pin a non-effort model with `--model claude-sonnet-4-5`.** Claude Code
 2.1.x defaults to an effort-capable model and emits newer request fields that the
 Vertex Anthropic partner endpoint (`anthropic_version = vertex-2023-10-16`, strict
-validation) rejects — and the router does NOT strip them:
+validation) rejects - and the router does NOT strip them:
 
 - default model → `400 thinking: 'adaptive' does not match 'disabled'/'enabled'`
 - with `MAX_THINKING_TOKENS=0` → `400 output_config.effort: Extra inputs are not permitted`
@@ -666,12 +666,12 @@ so `--model` here only controls the request *shape*, not which model answers.
 export OPENSHELL_GATEWAY_INSECURE=true
 openshell sandbox connect <sandbox>          # from 5.6 / the connect note above
 
-# inside the sandbox — the API key value is discarded by the router:
+# inside the sandbox - the API key value is discarded by the router:
 ANTHROPIC_BASE_URL=https://inference.local ANTHROPIC_API_KEY=unused \
   claude --model claude-sonnet-4-5 -p "Reply with one word: PONG"     # -> PONG
 ```
 
-**Make bare `claude` "just work"** — persist the model + base URL in the sandbox's
+**Make bare `claude` "just work"** - persist the model + base URL in the sandbox's
 `~/.claude/settings.json` (HOME is `/sandbox`; merge, don't clobber `theme` etc.):
 
 ```json

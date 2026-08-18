@@ -22,7 +22,7 @@
 #   PAUSE                seconds between commands (default: 1)
 set -euo pipefail
 
-# ROKS (hysh-ibm-01) defaults — this is the ROKS-adapted copy of e2e-openshell.sh,
+# ROKS (hysh-ibm-01) defaults - this is the ROKS-adapted copy of e2e-openshell.sh,
 # so the defaults target the live IBM cluster layout. Every value is still
 # env-overridable for other clusters.
 CLI="${OC:-oc}"

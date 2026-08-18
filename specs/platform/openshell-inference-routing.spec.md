@@ -11,7 +11,7 @@
 
 This specification defines how agents running **inside OpenShell sandboxes** reach cloud inference models (Anthropic Claude on Vertex AI, Bedrock, OpenAI-compatible providers, etc.) **without any provider credential ever entering the sandbox**.
 
-The platform requirement is a security guarantee: a sandbox is an untrusted execution environment for user/agent code, so the operator's cloud-provider credentials (GCP Vertex tokens, Anthropic keys) MUST NOT be readable from within it. OpenShell satisfies this with two distinct, upstream-provided mechanisms — a per-binary egress credential rewrite, and a workspace-scoped **inference router** at the virtual host `inference.local`. This spec covers both, defines when each applies, and specifies how HyperShell provisions and operates them.
+The platform requirement is a security guarantee: a sandbox is an untrusted execution environment for user/agent code, so the operator's cloud-provider credentials (GCP Vertex tokens, Anthropic keys) MUST NOT be readable from within it. OpenShell satisfies this with two distinct, upstream-provided mechanisms - a per-binary egress credential rewrite, and a workspace-scoped **inference router** at the virtual host `inference.local`. This spec covers both, defines when each applies, and specifies how HyperShell provisions and operates them.
 
 The inference router itself is upstream OpenShell functionality. HyperShell's desired state is that (a) sandbox agents get credential-free cloud-model access, and (b) the operational configuration that enables it is reproducible per environment. Concrete per-cluster runbook steps live in the [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md) skill.
 
@@ -42,9 +42,9 @@ The inference router itself is upstream OpenShell functionality. HyperShell's de
                      (api.anthropic.com, *.googleapis.com)    (e.g. *-aiplatform.googleapis.com :rawPredict)
 ```
 
-- **Path A — direct-to-upstream (per-binary sentinel rewrite).** The sandbox connects straight to an allowlisted provider host. The supervisor's L7 proxy rewrites an `Authorization: Bearer openshell:resolve:env:<KEY>` sentinel into the real stored credential. The agent MUST emit the sentinel as its bearer. This path does not fit clients that manage their own provider auth (e.g. Claude Code in `CLAUDE_CODE_USE_VERTEX` mode uses Google ADC and never emits the sentinel).
+- **Path A - direct-to-upstream (per-binary sentinel rewrite).** The sandbox connects straight to an allowlisted provider host. The supervisor's L7 proxy rewrites an `Authorization: Bearer openshell:resolve:env:<KEY>` sentinel into the real stored credential. The agent MUST emit the sentinel as its bearer. This path does not fit clients that manage their own provider auth (e.g. Claude Code in `CLAUDE_CODE_USE_VERTEX` mode uses Google ADC and never emits the sentinel).
 
-- **Path B — inference router (`inference.local`).** `inference.local:443` is a virtual host intercepted by the supervisor proxy — not real DNS. The router receives the request, **discards the caller's credential**, **injects the operator-configured provider token server-side** (resolved by the gateway into the route bundle), and forwards. The client sends a throwaway key. This is the path for standard inference clients pointed at a custom base URL.
+- **Path B - inference router (`inference.local`).** `inference.local:443` is a virtual host intercepted by the supervisor proxy - not real DNS. The router receives the request, **discards the caller's credential**, **injects the operator-configured provider token server-side** (resolved by the gateway into the route bundle), and forwards. The client sends a throwaway key. This is the path for standard inference clients pointed at a custom base URL.
 
 ### Inference router surfaces
 
@@ -129,7 +129,7 @@ Because the inference router performs a targeted field-level adaptation (not a f
 - THEN Vertex SHALL reject the request with HTTP 400 (`thinking` tag mismatch; `output_config.effort` not permitted)
 - AND selecting a non-effort model (e.g. `claude-sonnet-4-5`) SHALL suppress those fields and the request SHALL succeed
 
-> These fields are gated on the model, not on an environment flag — no Claude Code
+> These fields are gated on the model, not on an environment flag - no Claude Code
 > env var strips them. Pinning a non-effort model is the supported lever. See the
 > [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md) skill for the exact recipe.
 
@@ -183,7 +183,7 @@ Persisting this for Claude Code (so bare `claude` works) via `~/.claude/settings
 
 ## References
 
-- [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md) skill — ROKS runbook for provider + inference + sandbox agent wiring
+- [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md) skill - ROKS runbook for provider + inference + sandbox agent wiring
 - [OpenShell inference routing](https://docs.nvidia.com/openshell/latest/sandboxes/inference-routing)
 - [OpenShell supported agents](https://docs.nvidia.com/openshell/latest/about/supported-agents)
 - [Vertex AI Anthropic Claude models](https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude)
