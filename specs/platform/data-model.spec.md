@@ -174,7 +174,7 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 |---|---|---|
 | `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/controller.yaml`) |
-| `sandbox_image` | string | Sandbox base image the gateway uses when launching sandboxes (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
+| `sandbox_image` | string | Sandbox base image the gateway uses when launching sandboxes (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
@@ -183,6 +183,8 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | `observed_release_id` | string | Read-only (control-plane-owned) release currently rolled out and observed healthy; advanced only after a new revision passes its health gates. Distinct from the desired `release_id`. See [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) |
 | `database` | JSONB | Database backend config: `{storageSize, image, externalSecretRef}` |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
+| `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane copies to `hypershell.redhat.io/openshell-dev-build` label on K8s resources. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
+| `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane copies to annotations on K8s resources. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
 See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and its sub-specs for full provisioning details.
 
