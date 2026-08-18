@@ -160,6 +160,55 @@ var builtInRoleSeeds = []roleSeed{
 	},
 }
 
+func migrationAddPlatformAdminRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026081812000001",
+		Migrate: func(tx *gorm.DB) error {
+			// Check if platform:admin role already exists
+			var existing Role
+			err := tx.Where("name = ?", RolePlatformAdmin).First(&existing).Error
+			if err == nil {
+				// Role already exists, nothing to do
+				return nil
+			}
+
+			// Create platform:admin role
+			permissions := map[string]interface{}{
+				"gateways": []string{"read", "delete"},
+			}
+			permJSON, jsonErr := json.Marshal(permissions)
+			if jsonErr != nil {
+				return jsonErr
+			}
+			permStr := string(permJSON)
+			displayName := "Platform Administrator"
+			description := "Platform-wide view and delete access for all gateways"
+
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RolePlatformAdmin,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RolePlatformAdmin).Delete(&Role{}).Error
+		},
+	}
+}
+
 func SeedRoles(ctx context.Context, dao RoleDao) error {
 	for _, seed := range builtInRoleSeeds {
 		_, err := dao.GetByName(ctx, seed.Name)
