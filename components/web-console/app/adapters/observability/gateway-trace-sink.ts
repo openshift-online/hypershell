@@ -8,17 +8,16 @@ import {
   context as otelContext,
   isSpanContextValid,
   trace as otelTrace,
-  type Context,
   type Span,
-  type SpanContext,
   type Tracer,
 } from "@opentelemetry/api";
 import {
   BasicTracerProvider,
   BatchSpanProcessor,
   ParentBasedSampler,
-  AlwaysOnSampler,
   RandomIdGenerator,
+  TraceIdRatioBasedSampler,
+  type IdGenerator,
 } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
@@ -49,12 +48,13 @@ export interface GatewayTracing extends GatewayTraceSink {
 
 export interface GatewayTraceSinkOptions {
   /**
-   * Decides whether one trace is recorded, keyed by its trace id so the
-   * decision is stable for the whole trace. Defaults to always sampling.
+   * Primes the trace id that the next root workflow span adopts, so the
+   * workflow span is a true root that owns the app-chosen trace id rather than
+   * descending from a synthetic remote parent. Wired to the provider's
+   * {@link RootTraceIdGenerator}. When omitted, a workflow keeps its probe
+   * trace id only for propagation and the exported root uses a generated id.
    */
-  isSampled?: (traceId: string) => boolean;
-  /** Generates the 16-byte span id (32 hex) of the manufactured remote parent. */
-  generateSpanId?: () => string;
+  beginTrace?: (traceId: string) => void;
 }
 
 export interface GatewayTracingConfig {
@@ -68,29 +68,37 @@ export interface GatewayTracingConfig {
 const sinkId = "gateway-trace";
 const tracerName = "gateway-trace-sink";
 
+/**
+ * Id generator that lets the caller choose the trace id of the next root span
+ * while keeping every span id random. A workflow span is the origin of the
+ * distributed trace, so it must be a true root; priming the trace id here lets
+ * that root still adopt the app-chosen id, joining the trace the browser
+ * propagates to the BFF and API without a synthetic remote parent (which would
+ * leave the trace decapitated by a parent span that no service ever exports).
+ */
+export class RootTraceIdGenerator implements IdGenerator {
+  private nextTraceId: string | undefined;
+  private readonly random = new RandomIdGenerator();
+
+  /** Sets the trace id the next generated root span adopts. */
+  primeTraceId(traceId: string): void {
+    this.nextTraceId = traceId;
+  }
+
+  generateTraceId(): string {
+    const chosen = this.nextTraceId;
+    this.nextTraceId = undefined;
+    return chosen ?? this.random.generateTraceId();
+  }
+
+  generateSpanId(): string {
+    return this.random.generateSpanId();
+  }
+}
+
 interface SpanEntry {
   workflow: Span;
   dependency?: Span;
-}
-
-/**
- * Manufactures the remote parent context that makes a workflow span adopt the
- * caller-chosen trace id. The parent is marked sampled only when `isSampled`
- * accepts the trace id; a `ParentBasedSampler` then honours that decision for
- * the whole trace, so the W3C sampled flag stays consistent end to end.
- */
-function remoteParentContext(
-  traceId: string,
-  spanId: string,
-  sampled: boolean,
-): Context {
-  const spanContext: SpanContext = {
-    isRemote: true,
-    spanId,
-    traceFlags: sampled ? TraceFlags.SAMPLED : TraceFlags.NONE,
-    traceId,
-  };
-  return otelTrace.setSpanContext(ROOT_CONTEXT, spanContext);
 }
 
 /** Terminal outcomes that mark a span failed rather than ok. */
@@ -116,26 +124,30 @@ function applyTerminalOutcome(span: Span, probe: GatewayProbe): void {
 
 /**
  * Builds a domain probe sink that projects gateway workflow and dependency
- * probes onto OpenTelemetry spans. The sink adopts the trace id carried on each
- * probe context so a workflow span joins the same trace the browser propagates
- * to the BFF and API. Span names are drawn from a bounded action template so
- * cardinality stays fixed.
+ * probes onto OpenTelemetry spans. A workflow span is a true root that adopts
+ * the trace id carried on each probe context (through the primed
+ * {@link RootTraceIdGenerator}), so a workflow span joins the same trace the
+ * browser propagates to the BFF and API while remaining the origin of that
+ * trace. Span names are drawn from a bounded action template so cardinality
+ * stays fixed.
  */
 export function createGatewayTraceSink(
   tracer: Tracer,
   options: GatewayTraceSinkOptions = {},
 ): GatewayTraceSink {
-  const generateSpanId =
-    options.generateSpanId ?? (() => new RandomIdGenerator().generateSpanId());
-  const isSampled = options.isSampled ?? (() => true);
+  const beginTrace = options.beginTrace ?? ((): void => undefined);
   const spansByCorrelation = new Map<string, SpanEntry>();
 
   function startWorkflow(probe: GatewayProbe): void {
     const { correlationId, traceId } = probe.context;
-    const parent =
-      traceId === undefined
-        ? otelContext.active()
-        : remoteParentContext(traceId, generateSpanId(), isSampled(traceId));
+    // A workflow with a chosen trace id is the trace root: prime the generator
+    // and start it with no parent. Without a chosen id, fall back to the active
+    // context so any caller-established parent still nests.
+    let parent = otelContext.active();
+    if (traceId !== undefined) {
+      beginTrace(traceId);
+      parent = ROOT_CONTEXT;
+    }
     const workflow = tracer.startSpan(
       `gateway.workflow.${probe.fields.action}`,
       {
@@ -236,7 +248,10 @@ export function createGatewayTraceSink(
  * same-origin OTLP/HTTP, and returns the gateway trace sink bound to it. The
  * provider is not registered as the global tracer; the sink owns every span
  * explicitly, keyed by correlation identifier, so no implicit context is
- * needed.
+ * needed. Sampling is a per-trace decision made once at the workflow root by a
+ * `TraceIdRatioBasedSampler` and inherited by child spans, so the browser and
+ * the BFF (which uses the same OTel sampler) agree on each trace without
+ * sharing a decision.
  *
  * `BatchSpanProcessor` exports on a timer, which a browser can discard when a
  * tab is closed or navigated away, losing the tail of a workflow. The provider
@@ -247,17 +262,23 @@ export function createGatewayTracing(
   config: GatewayTracingConfig,
 ): GatewayTracing {
   const ratio = config.sampleRatio ?? 1;
+  const idGenerator = new RootTraceIdGenerator();
   const exporter = new OTLPTraceExporter({ url: config.tracesEndpoint });
   const provider = new BasicTracerProvider({
+    idGenerator,
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: config.serviceName,
     }),
-    sampler: new ParentBasedSampler({ root: new AlwaysOnSampler() }),
+    sampler: new ParentBasedSampler({
+      root: new TraceIdRatioBasedSampler(ratio),
+    }),
     spanProcessors: [new BatchSpanProcessor(exporter)],
   });
   const tracer = provider.getTracer(tracerName);
   const { sink, traceParentFor } = createGatewayTraceSink(tracer, {
-    isSampled: (traceId) => sampledByRatio(traceId, ratio),
+    beginTrace: (traceId) => {
+      idGenerator.primeTraceId(traceId);
+    },
   });
 
   const flushBufferedSpans = (): void => {
@@ -287,21 +308,4 @@ export function createGatewayTracing(
     sink,
     traceParentFor,
   };
-}
-
-/**
- * Deterministic per-trace sampling decision. The leading 4 bytes of the trace
- * id map to a value in [0, 1); a trace records when that value is below the
- * configured ratio. Deterministic keying keeps the browser, BFF, and API in
- * agreement without sharing a decision.
- */
-function sampledByRatio(traceId: string, ratio: number): boolean {
-  if (ratio >= 1) {
-    return true;
-  }
-  if (ratio <= 0) {
-    return false;
-  }
-  const bucket = Number.parseInt(traceId.slice(0, 8), 16);
-  return bucket / 0x1_0000_0000 < ratio;
 }

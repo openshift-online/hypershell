@@ -4,22 +4,24 @@ import type {
 } from "@openshift-online/hypershell-gateway-management-ui";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
+  AlwaysOffSampler,
   AlwaysOnSampler,
   BasicTracerProvider,
   InMemorySpanExporter,
   ParentBasedSampler,
   SimpleSpanProcessor,
   type ReadableSpan,
+  type Sampler,
 } from "@opentelemetry/sdk-trace-base";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  RootTraceIdGenerator,
   createGatewayTraceSink,
   createGatewayTracing,
 } from "./gateway-trace-sink";
 
 const traceId = "0af7651916cd43dd8448eb211c80319c";
-const parentSpanId = "aaaaaaaaaaaaaaaa";
 const correlationId = "correlation-1";
 
 function probe(
@@ -54,13 +56,15 @@ function probe(
   });
 }
 
-function testTracer() {
+function testTracer(rootSampler: Sampler = new AlwaysOnSampler()) {
   const exporter = new InMemorySpanExporter();
+  const idGenerator = new RootTraceIdGenerator();
   const provider = new BasicTracerProvider({
-    sampler: new ParentBasedSampler({ root: new AlwaysOnSampler() }),
+    idGenerator,
+    sampler: new ParentBasedSampler({ root: rootSampler }),
     spanProcessors: [new SimpleSpanProcessor(exporter)],
   });
-  return { exporter, tracer: provider.getTracer("test") };
+  return { exporter, idGenerator, tracer: provider.getTracer("test") };
 }
 
 function byName(spans: readonly ReadableSpan[], name: string): ReadableSpan {
@@ -79,7 +83,9 @@ describe("gateway trace sink", () => {
     const harness = testTracer();
     exporter = harness.exporter;
     sink = createGatewayTraceSink(harness.tracer, {
-      generateSpanId: () => parentSpanId,
+      beginTrace: (id) => {
+        harness.idGenerator.primeTraceId(id);
+      },
     });
   });
 
@@ -99,9 +105,10 @@ describe("gateway trace sink", () => {
 
     expect(workflow.spanContext().traceId).toBe(traceId);
     expect(dependency.spanContext().traceId).toBe(traceId);
-    // The workflow span descends from the manufactured remote parent, so the
-    // trace joins the id the caller propagates end to end.
-    expect(workflow.parentSpanContext?.spanId).toBe(parentSpanId);
+    // The workflow span is a true trace root: it adopts the chosen trace id yet
+    // has no parent, so the trace is never decapitated by a synthetic remote
+    // parent that no service exports. The dependency nests under the workflow.
+    expect(workflow.parentSpanContext).toBeUndefined();
     expect(dependency.parentSpanContext?.spanId).toBe(
       workflow.spanContext().spanId,
     );
@@ -185,10 +192,11 @@ describe("gateway trace sink", () => {
   });
 
   it("drops a trace when the sampler declines it", () => {
-    const harness = testTracer();
+    const harness = testTracer(new AlwaysOffSampler());
     const unsampled = createGatewayTraceSink(harness.tracer, {
-      generateSpanId: () => parentSpanId,
-      isSampled: () => false,
+      beginTrace: (id) => {
+        harness.idGenerator.primeTraceId(id);
+      },
     });
 
     unsampled.sink.publish(probe("gateway.workflow.started"));
