@@ -45,10 +45,10 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 	// each even though only a few are populated; an unregistered GVR would make
 	// the fake client's List return an error.
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		depGVR:    "DeploymentList",
-		svcGVR:    "ServiceList",
-		secretGVR: "SecretList",
-		{Version: "v1", Resource: "configmaps"}:                                       "ConfigMapList",
+		depGVR:                                  "DeploymentList",
+		svcGVR:                                  "ServiceList",
+		secretGVR:                               "SecretList",
+		{Version: "v1", Resource: "configmaps"}: "ConfigMapList",
 		{Version: "v1", Resource: "serviceaccounts"}:                                  "ServiceAccountList",
 		{Version: "v1", Resource: "persistentvolumeclaims"}:                           "PersistentVolumeClaimList",
 		{Group: "batch", Version: "v1", Resource: "jobs"}:                             "JobList",
