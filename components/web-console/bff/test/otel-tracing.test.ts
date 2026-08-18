@@ -347,6 +347,23 @@ describe("BFF OTLP nested-field validation", () => {
       "a malformed nanosecond timestamp",
       { ...validSpan, startTimeUnixNano: "12:00" },
     ],
+    [
+      "a uint64-overflow nanosecond timestamp",
+      { ...validSpan, startTimeUnixNano: "18446744073709551616" },
+    ],
+    [
+      "an unsafe-integer nanosecond timestamp number",
+      { ...validSpan, startTimeUnixNano: 18_446_744_073_709_552_000 },
+    ],
+    [
+      "a negative dropped-events count",
+      { ...validSpan, droppedEventsCount: -1 },
+    ],
+    [
+      "a non-integer dropped-events count",
+      { ...validSpan, droppedEventsCount: 1.5 },
+    ],
+    ["a negative dropped-links count", { ...validSpan, droppedLinksCount: -1 }],
   ])("rejects a span with %s without relaying it", async (_label, span) => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const tracing = createBffTracing(config);
@@ -355,6 +372,32 @@ describe("BFF OTLP nested-field validation", () => {
       "rejected",
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts the exact 64-bit maxima and the dropped-collection counters", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const tracing = createBffTracing(config);
+
+    // The exact fixed-width boundaries are valid values the collector accepts;
+    // only one-past-the-maximum is out of range. droppedEventsCount and
+    // droppedLinksCount are real uint32 fields the JS exporter emits.
+    await expect(
+      tracing.ingestTraces(
+        envelope({
+          ...validSpan,
+          startTimeUnixNano: "18446744073709551615",
+          droppedEventsCount: 3,
+          droppedLinksCount: 4,
+          attributes: [
+            { key: "int64max", value: { intValue: "9223372036854775807" } },
+            { key: "int64min", value: { intValue: "-9223372036854775808" } },
+          ],
+        }),
+      ),
+    ).resolves.toBe("accepted");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("accepts proto3 JSON scalar encodings in attribute values", async () => {
@@ -386,6 +429,8 @@ describe("BFF OTLP nested-field validation", () => {
     ["two set value fields (oneof)", { boolValue: true, stringValue: "x" }],
     ["a non-base64 bytes value", { bytesValue: "not base64!!" }],
     ["a non-integer int value", { intValue: "12.5" }],
+    ["an int64-overflow int value", { intValue: "9223372036854775808" }],
+    ["an int64-underflow int value", { intValue: "-9223372036854775809" }],
   ])(
     "rejects an attribute whose value has %s without relaying it",
     async (_label, value) => {

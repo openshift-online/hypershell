@@ -203,12 +203,42 @@ const spanIdHex = z.string().regex(/^[0-9a-f]{16}$/iu);
 // (dropped counts, fixed32 flags) is a bounded non-negative integer; a signed
 // int64 (AnyValue intValue) is a decimal string or an integer number; a double
 // is a JSON number or one of the proto3 special-value strings; bytes are base64.
+// The 64-bit domains are also range-checked: decimal syntax alone would relay a
+// string one past the fixed-width maximum, which the collector rejects.
+const UINT64_MAX = 18_446_744_073_709_551_615n;
+const INT64_MIN = -9_223_372_036_854_775_808n;
+const INT64_MAX = 9_223_372_036_854_775_807n;
+const withinBigIntRange =
+  (min: bigint, max: bigint) =>
+  (text: string): boolean => {
+    try {
+      const value = BigInt(text);
+      return value >= min && value <= max;
+    } catch {
+      return false;
+    }
+  };
 const uint32 = z.number().int().min(0).max(4_294_967_295);
+// A uint64 nanosecond timestamp: a decimal string bounded by BigInt to the
+// fixed-width maximum, or a JSON number confined to the safe-integer range so a
+// larger value that has already lost precision is rejected rather than relayed.
 const unixNano = z.union([
-  z.string().regex(/^\d+$/u),
-  z.number().int().nonnegative(),
+  z.string().regex(/^\d+$/u).refine(withinBigIntRange(0n, UINT64_MAX), {
+    message: "unixNano string is outside the uint64 range",
+  }),
+  z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
 ]);
-const int64Json = z.union([z.string().regex(/^-?\d+$/u), z.number().int()]);
+// A signed int64: a decimal string bounded by BigInt to the int64 range, or a
+// JSON number confined to the safe-integer range for the same reason.
+const int64Json = z.union([
+  z
+    .string()
+    .regex(/^-?\d+$/u)
+    .refine(withinBigIntRange(INT64_MIN, INT64_MAX), {
+      message: "intValue string is outside the int64 range",
+    }),
+  z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER),
+]);
 const doubleJson = z.union([
   z.number(),
   z.enum(["NaN", "Infinity", "-Infinity"]),
@@ -273,6 +303,10 @@ const spanSchema = z.object({
     )
     .max(maxEvents)
     .optional(),
+  // uint32 counters the OpenTelemetry JS exporter emits alongside truncated
+  // event and link collections. Validated so a wrong-typed or negative count is
+  // rejected rather than silently ignored and relayed to the collector.
+  droppedEventsCount: uint32.optional(),
   links: z
     .array(
       z.object({
@@ -286,6 +320,7 @@ const spanSchema = z.object({
     )
     .max(maxLinks)
     .optional(),
+  droppedLinksCount: uint32.optional(),
   status: z
     .object({
       message: z.string().optional(),
