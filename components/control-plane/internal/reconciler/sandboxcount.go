@@ -26,8 +26,9 @@ import (
 // recovers the accurate count without waiting for a sandbox create or delete.
 const defaultSandboxCountResyncInterval = 2 * time.Minute
 
-// sandboxCountRPCTimeout bounds each incremental adjust RPC issued from an
-// informer event handler so a wedged API server cannot stall pod-event delivery.
+// sandboxCountRPCTimeout bounds each adjust or set RPC the reconciler issues,
+// whether from an informer event handler or a self-heal pass, so a wedged API
+// server cannot stall pod-event delivery or the self-heal loop.
 const sandboxCountRPCTimeout = 10 * time.Second
 
 // SandboxCountReconciler maintains each Gateway's active_sandbox_count from a
@@ -207,7 +208,9 @@ func (r *SandboxCountReconciler) applyDelta(namespace string, delta int) {
 // selfHeal reconciles every gateway's stored count to the absolute number of
 // active sandbox pods held in the informer cache. It reads the cache (never the
 // Kubernetes API) and sets a count for every gateway namespace - including those
-// with zero cached sandboxes - so drift is corrected in both directions.
+// with zero cached sandboxes - so drift is corrected in both directions. Each set
+// RPC is bounded by sandboxCountRPCTimeout so a single hung call cannot stall the
+// rest of the pass.
 func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelisters.PodLister) {
 	pods, err := lister.List(labels.Everything())
 	if err != nil {
@@ -221,8 +224,13 @@ func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelister
 		log.Printf("WARN sandbox count: list gateway namespaces: %v", err)
 		return
 	}
+	// A defer-per-iteration would leak cancels until the loop ends, so bound each
+	// set RPC with an explicit timeout and cancel it before the next iteration.
 	for _, ns := range namespaces {
-		if err := r.set(ctx, ns, active[ns]); err != nil {
+		rpcCtx, cancel := context.WithTimeout(ctx, sandboxCountRPCTimeout)
+		err := r.set(rpcCtx, ns, active[ns])
+		cancel()
+		if err != nil {
 			log.Printf("WARN sandbox count: set %s to %d: %v", ns, active[ns], err)
 		}
 	}

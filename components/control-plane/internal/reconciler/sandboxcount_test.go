@@ -210,6 +210,26 @@ func TestSelfHeal_SetsAbsoluteForEveryGatewayNamespace(t *testing.T) {
 	}
 }
 
+// TestSelfHeal_BoundsEachSetRPC verifies every set RPC runs under its own
+// deadline, so a single hung Set cannot stall the rest of the self-heal pass.
+func TestSelfHeal_BoundsEachSetRPC(t *testing.T) {
+	rec := &seamRecorder{nsList: []string{"openshell-a", "openshell-b"}}
+	r := newTestSandboxCount(rec)
+	var withoutDeadline int
+	r.set = func(ctx context.Context, ns string, count int) error {
+		if _, ok := ctx.Deadline(); !ok {
+			withoutDeadline++
+		}
+		return nil
+	}
+
+	r.selfHeal(context.Background(), podLister())
+
+	if withoutDeadline != 0 {
+		t.Errorf("%d set RPC(s) ran without a deadline; want each bounded by sandboxCountRPCTimeout", withoutDeadline)
+	}
+}
+
 func TestSelfHeal_NamespaceListErrorSkipsSet(t *testing.T) {
 	rec := &seamRecorder{nsErr: errors.New("boom")}
 	r := newTestSandboxCount(rec)
