@@ -127,7 +127,7 @@ printf '  %s\n' "4. OIDC token acquisition + CA certificate setup"
 printf '  %s\n' "5. Route discovery + openshell CLI registration"
 printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
-printf '  %s\n' "8. Sandbox interaction"
+printf '  %s\n' "8. Sandbox interaction + active sandbox count"
 printf '  %s\n' "9. Developer user RBAC verification"
 printf '  %s\n' "10. Gateway deletion + namespace garbage collection"
 echo ""
@@ -802,10 +802,10 @@ fi
 rm -f "${SB_CREATE_LOG}" 2>/dev/null || true
 sep
 
-# ── 8. sandbox interaction ────────────────────────────────────────────────
+# ── 8. sandbox interaction + active sandbox count ─────────────────────────
 
 echo ""
-bold "8. Sandbox Interaction"
+bold "8. Sandbox Interaction + Active Sandbox Count"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
@@ -870,6 +870,90 @@ else
     fi
   fi
 fi
+
+# poll_active_sandbox_count <expected>: poll the HyperShell API until the
+# gateway's active_sandbox_count equals <expected>, up to E2E_SANDBOX_TIMEOUT.
+# The field is control-plane-owned and advisory (it may lag real time) and is
+# omitted from the JSON while NULL, so an absent value is treated as "not yet".
+# Echoes the last observed value; returns 0 on match, 1 on timeout.
+poll_active_sandbox_count() {
+  local expected="$1" last="" deadline
+  deadline=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $deadline ]]; do
+    last=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+      python3 -c "import json,sys; v=json.load(sys.stdin).get('active_sandbox_count'); print('' if v is None else v)" 2>/dev/null || true)
+    [[ "$last" == "$expected" ]] && { echo "$last"; return 0; }
+    dim "    active_sandbox_count: ${last:-<unset>} (want ${expected})"
+    sleep 5
+  done
+  echo "$last"
+  return 1
+}
+
+# Active sandbox count accounting (e2e-testing.spec.md "Active Sandbox Count
+# Accounting"; openshell-gateway-sandbox-count.spec.md). The control plane
+# observes sandbox pods via an informer and publishes the running count on the
+# Gateway. Reuse the sandbox created above (count 1), add a second (count 2),
+# then delete it (back to 1), polling the API for each transition because the
+# value is advisory and may lag.
+if [[ "$SANDBOX_FOUND" == "true" ]]; then
+  echo ""
+  dim "  Verifying active_sandbox_count accounting..."
+
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # active_sandbox_count == 1"
+  if COUNT=$(poll_active_sandbox_count 1); then
+    pass "active_sandbox_count reflects the running sandbox (${COUNT})"
+  else
+    fail_test "active_sandbox_count did not reach 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
+  fi
+
+  SANDBOX_NAME_2="${SANDBOX_NAME}-2"
+  show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME_2}"
+  dim "  Creating a second sandbox to assert the count increments..."
+  SB2_CREATE_LOG=$(mktemp)
+  "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME_2}" >"${SB2_CREATE_LOG}" 2>&1 &
+  SB2_CREATE_PID=$!
+
+  SANDBOX2_RUNNING=false
+  DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $DEADLINE ]]; do
+    SB2_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${SANDBOX_NAME_2}" || true)
+    if [[ -n "$SB2_PODS" ]]; then
+      SB2_STATUS=$(echo "$SB2_PODS" | awk '{print $3}' | head -1)
+      if [[ "$SB2_STATUS" == "Running" ]]; then
+        SANDBOX2_RUNNING=true
+        break
+      fi
+      dim "    pod: default--${SANDBOX_NAME_2} (${SB2_STATUS})"
+    fi
+    sleep 5
+  done
+  kill "$SB2_CREATE_PID" 2>/dev/null || true
+  wait "$SB2_CREATE_PID" 2>/dev/null || true
+  rm -f "${SB2_CREATE_LOG}" 2>/dev/null || true
+
+  if [[ "$SANDBOX2_RUNNING" == "true" ]]; then
+    show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # active_sandbox_count == 2"
+    if COUNT=$(poll_active_sandbox_count 2); then
+      pass "active_sandbox_count incremented on sandbox create (${COUNT})"
+    else
+      fail_test "active_sandbox_count did not reach 2 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
+    fi
+  else
+    fail_test "Second sandbox pod not Running within ${E2E_SANDBOX_TIMEOUT}s; cannot assert count increment"
+  fi
+
+  # Deleting the second sandbox must drive the count back down. This runs
+  # regardless of E2E_SKIP_CLEANUP because the decrement is the assertion.
+  show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME_2}"
+  "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME_2}" 2>&1 || true
+  if COUNT=$(poll_active_sandbox_count 1); then
+    pass "active_sandbox_count decremented on sandbox delete (${COUNT})"
+  else
+    fail_test "active_sandbox_count did not return to 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
+  fi
+fi
+sep
 
 # ── cleanup ───────────────────────────────────────────────────────────────
 

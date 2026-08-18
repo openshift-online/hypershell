@@ -348,6 +348,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | # | Item | Status | Gap | Line | Wave |
 |---|------|--------|-----|------|------|
 | E1 | StatefulSet → Deployment | Aligned | e2e now checks `deployment` | 196-216 | W1 ✅ |
+| E2 | active_sandbox_count accounting | Aligned | e2e now polls the API for the count on sandbox create/delete (1/2/1) | step 8 | W-S ✅ |
 
 ### local-development.spec.md
 
