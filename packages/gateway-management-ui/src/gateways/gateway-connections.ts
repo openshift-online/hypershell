@@ -61,7 +61,7 @@ export function buildGatewayAddCommand(
     );
   }
 
-  parts.push("--no-auto-providers", shellArgument(gateway.endpoint));
+  parts.push(shellArgument(gateway.endpoint));
 
   return parts.join(" \\\n  ");
 }
@@ -123,6 +123,7 @@ export function buildSandboxCreateCommand(
     `--name ${name}`,
     "--env=ANTHROPIC_BASE_URL=https://inference.local",
     "--env=ANTHROPIC_API_KEY=unused",
+    "--no-auto-providers",
     `-- claude --bare --model ${model}`,
   ].join(" \\\n  ");
 }
