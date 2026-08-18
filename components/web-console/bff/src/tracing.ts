@@ -33,7 +33,12 @@ export type TelemetryIngestResult = "accepted" | "rejected" | "unavailable";
 export interface StartProxySpanInput {
   correlationId: string;
   method: string;
-  routeTemplate: string;
+  /**
+   * The request path (no query string). The tracing adapter collapses resource
+   * ids to a bounded route template for the span name and `http.route`, so a
+   * high-cardinality identifier never becomes part of either (WEB-TRACE-07).
+   */
+  path: string;
   traceparent?: string;
   tracestate?: string;
 }

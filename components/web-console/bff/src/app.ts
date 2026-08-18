@@ -307,7 +307,9 @@ export async function buildApp(
     const span = tracing.startProxySpan({
       correlationId: request.correlationId,
       method: request.method,
-      routeTemplate: request.routeOptions.url ?? "/api/*",
+      // Pass the path without its query string; the tracing adapter renders a
+      // bounded route template from it, so no query value or raw id is recorded.
+      path: request.url.split("?")[0] ?? request.url,
       traceparent: singleHeaderValue(request.headers.traceparent),
       tracestate: singleHeaderValue(request.headers.tracestate),
     });

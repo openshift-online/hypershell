@@ -40,6 +40,37 @@ const zeroTraceId = "0".repeat(32);
 const zeroSpanId = "0".repeat(16);
 const ingestTimeoutMs = 5_000;
 
+const versionSegment = /^v\d+$/u;
+
+/**
+ * A path segment is a resource id (not a collection or action name) when it
+ * carries a digit or is long. That is true of every ULID, UUID, or numeric id
+ * the API mints and of none of the fixed collection or action names, so
+ * collapsing it keeps a raw identifier out of the route template.
+ */
+function isIdSegment(segment: string): boolean {
+  return /\d/u.test(segment) || segment.length >= 20;
+}
+
+/**
+ * Collapses resource ids in a request path to a bounded route template, so the
+ * span name and `http.route` stay low-cardinality (WEB-TRACE-07). The API is a
+ * flat REST surface under `/api/<group>/v<n>/<collection>[/{id}...]`; after the
+ * version segment, id segments collapse to `{id}` while collection and action
+ * segments stay literal. A path with no version segment collapses every
+ * id-shaped segment, so an unexpected shape can never blow up cardinality.
+ */
+export function routeTemplateFrom(path: string): string {
+  const segments = path.split("/").filter((segment) => segment.length > 0);
+  const versionIndex = segments.findIndex((segment) =>
+    versionSegment.test(segment),
+  );
+  const template = segments.map((segment, index) =>
+    index > versionIndex && isIdSegment(segment) ? "{id}" : segment,
+  );
+  return `/${template.join("/")}`;
+}
+
 /** Parses a W3C `traceparent`, returning a remote span context or `undefined`. */
 function parseTraceparent(value: string): SpanContext | undefined {
   const groups = traceparentPattern.exec(value)?.groups;
@@ -139,12 +170,16 @@ export function createBffTracing(
       continued && isValidTracestate(input.tracestate)
         ? input.tracestate
         : undefined;
+    // Name the span by method and the bounded route template (for example
+    // "GET /api/hypershell/v1/gateways/{id}") so Jaeger groups by endpoint
+    // rather than collapsing every proxied call onto one wildcard operation.
+    const routeTemplate = routeTemplateFrom(input.path);
     const span = tracer.startSpan(
-      input.routeTemplate,
+      `${input.method} ${routeTemplate}`,
       {
         attributes: {
           "http.request.method": input.method,
-          "http.route": input.routeTemplate,
+          "http.route": routeTemplate,
           "hypershell.correlation_id": input.correlationId,
         },
         kind: SpanKind.SERVER,

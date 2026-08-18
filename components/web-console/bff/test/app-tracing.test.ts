@@ -133,7 +133,7 @@ describe("web-console BFF tracing wiring", () => {
     expect(trace.started).toHaveLength(1);
     expect(trace.started[0]).toMatchObject({
       method: "GET",
-      routeTemplate: "/api/*",
+      path: "/api/hypershell/v1/gateways",
       traceparent: "00-inbound-value",
     });
     expect(trace.started[0]?.correlationId).toBeTruthy();
@@ -161,8 +161,9 @@ describe("web-console BFF tracing wiring", () => {
     });
 
     expect(trace.started).toHaveLength(1);
-    // The span records the bounded route template, never the raw URL or query.
-    expect(trace.started[0]?.routeTemplate).toBe("/api/*");
+    // The span receives the path without its query string; the adapter renders
+    // the bounded route template from it, so no raw URL or query reaches it.
+    expect(trace.started[0]?.path).toBe("/api/hypershell/v1/gateways");
     // No field fed to the span carries the secret or the raw query string.
     expect(JSON.stringify(trace.started[0])).not.toContain(secret);
     expect(JSON.stringify(trace.started[0])).not.toContain("access_token");

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TracingConfig } from "../src/config.js";
-import { createBffTracing } from "../src/adapters/observability/otel-tracing.js";
+import {
+  createBffTracing,
+  routeTemplateFrom,
+} from "../src/adapters/observability/otel-tracing.js";
 
 const config: TracingConfig = {
   collectorEndpoint: "http://collector.test:4318",
@@ -22,10 +25,42 @@ function proxyInput(
   return {
     correlationId: "11111111-1111-4111-8111-111111111111",
     method: "GET",
-    routeTemplate: "/api/*",
+    path: "/api/hypershell/v1/gateways",
     ...overrides,
   };
 }
+
+describe("routeTemplateFrom", () => {
+  it("keeps a collection path literal", () => {
+    expect(routeTemplateFrom("/api/hypershell/v1/gateways")).toBe(
+      "/api/hypershell/v1/gateways",
+    );
+  });
+
+  it("collapses a resource id after the collection to {id}", () => {
+    expect(
+      routeTemplateFrom("/api/hypershell/v1/gateways/01HZY8_ABC123DEF456GH"),
+    ).toBe("/api/hypershell/v1/gateways/{id}");
+  });
+
+  it("collapses a numeric id and keeps a trailing action literal", () => {
+    expect(routeTemplateFrom("/api/hypershell/v1/fleets/42/rename")).toBe(
+      "/api/hypershell/v1/fleets/{id}/rename",
+    );
+  });
+
+  it("never collapses the versioned api prefix", () => {
+    expect(routeTemplateFrom("/api/hypershell/v1/metadata")).toBe(
+      "/api/hypershell/v1/metadata",
+    );
+  });
+
+  it("collapses id-shaped segments when no version is present", () => {
+    expect(routeTemplateFrom("/gateways/01HZY8ABC123DEF456GHJKMN")).toBe(
+      "/gateways/{id}",
+    );
+  });
+});
 
 describe("BFF tracing adapter", () => {
   afterEach(() => {

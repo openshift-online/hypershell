@@ -73,7 +73,9 @@ The BFF SHALL treat an inbound `traceparent`/`tracestate` pair as untrusted inpu
 
 The BFF SHALL produce one server span per proxied `/api/*` request as a child of the extracted inbound context, and export it by OTLP to the configured collector. The BFF OTel SDK SHALL be initialized once in the server bootstrap path, which is exempt from the observability import ban. Product and route code SHALL NOT call the OTel API directly; only the observability adapter, the composition root, and the bootstrap MAY. Span attributes SHALL record the templated route, the request method, the upstream outcome class, and the correlation identifier. The BFF SHALL keep its existing structured request log.
 
-**Verification:** Proxy a representative request and confirm one BFF server span that is a child of the inbound context, carries the templated-route and outcome attributes, and reaches the collector. Confirm route and product code contain no direct OTel API calls.
+The span name SHALL combine the request method and the templated route (for example `GET /api/hypershell/v1/gateways/{id}`), so Jaeger groups spans by endpoint. The catch-all proxy pattern (for example `/api/*`) SHALL NOT be the span name or the `http.route` value. The templated route SHALL collapse every resource identifier to a bounded placeholder and SHALL NOT carry a query string, so cardinality stays fixed per `WEB-TRACE-07`.
+
+**Verification:** Proxy a representative request and confirm one BFF server span that is a child of the inbound context, carries the templated-route and outcome attributes, is named by method and templated route with resource identifiers collapsed, and reaches the collector. Confirm route and product code contain no direct OTel API calls.
 
 ### Requirement: WEB-TRACE-06 -- Configurable Export and Sampling
 
