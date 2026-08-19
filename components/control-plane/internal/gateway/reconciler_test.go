@@ -38,6 +38,7 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 	const ns = "shared"
 
 	depGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	stsGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
 	svcGVR := schema.GroupVersionResource{Version: "v1", Resource: "services"}
 	secretGVR := schema.GroupVersionResource{Version: "v1", Resource: "secrets"}
 
@@ -46,6 +47,7 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 	// the fake client's List return an error.
 	gvrToListKind := map[schema.GroupVersionResource]string{
 		depGVR:                                  "DeploymentList",
+		stsGVR:                                  "StatefulSetList",
 		svcGVR:                                  "ServiceList",
 		secretGVR:                               "SecretList",
 		{Version: "v1", Resource: "configmaps"}: "ConfigMapList",
@@ -60,6 +62,7 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind,
 		labeledResource("apps/v1", "Deployment", ns, "gw-deploy", true),
 		labeledResource("apps/v1", "Deployment", ns, "tenant-deploy", false),
+		labeledResource("apps/v1", "StatefulSet", ns, "gw-sts", true),
 		labeledResource("v1", "Service", ns, "gw-svc", true),
 		labeledResource("v1", "Secret", ns, "gw-secret", true),
 	)
@@ -74,6 +77,7 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 		name string
 	}{
 		{depGVR, "gw-deploy"},
+		{stsGVR, "gw-sts"},
 		{svcGVR, "gw-svc"},
 		{secretGVR, "gw-secret"},
 	}

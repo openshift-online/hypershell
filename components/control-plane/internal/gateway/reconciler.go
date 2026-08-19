@@ -214,6 +214,7 @@ func DeleteLabeledNamespaceResources(
 
 	namespacedResources := []schema.GroupVersionResource{
 		{Group: "apps", Version: "v1", Resource: "deployments"},
+		{Group: "apps", Version: "v1", Resource: "statefulsets"},
 		{Version: "v1", Resource: "services"},
 		{Version: "v1", Resource: "configmaps"},
 		{Version: "v1", Resource: "serviceaccounts"},
@@ -224,6 +225,11 @@ func DeleteLabeledNamespaceResources(
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
 	}
+	if opts.IsOpenShift {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
+		)
+	}
 	if opts.HasCertManager {
 		namespacedResources = append(namespacedResources,
 			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
@@ -232,6 +238,7 @@ func DeleteLabeledNamespaceResources(
 	}
 	if opts.HasGatewayAPI {
 		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
 			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
 		)
@@ -908,6 +915,23 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 			"sh",
 			"-c",
 			"cat /etc/pki/tls/certs/ca-bundle.crt /etc/pki/tls/certs/hypershell-extra-ca.crt > /var/run/hypershell-ca/ca-bundle.crt",
+		},
+		"securityContext": map[string]interface{}{
+			"allowPrivilegeEscalation": false,
+			"capabilities": map[string]interface{}{
+				"drop": []interface{}{"ALL"},
+			},
+			"runAsNonRoot": true,
+		},
+		"resources": map[string]interface{}{
+			"requests": map[string]interface{}{
+				"cpu":    "10m",
+				"memory": "32Mi",
+			},
+			"limits": map[string]interface{}{
+				"cpu":    "100m",
+				"memory": "64Mi",
+			},
 		},
 		"volumeMounts": []interface{}{
 			map[string]interface{}{
