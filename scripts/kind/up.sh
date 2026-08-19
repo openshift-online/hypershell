@@ -202,6 +202,8 @@ kube wait --for=condition=available deployment/cert-manager -n cert-manager --ti
 kube wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=120s
 info "Waiting for agent-sandbox controller..."
 kube wait --for=condition=available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
+info "Waiting for CNPG operator..."
+kube wait --for=condition=available deployment/cnpg-controller-manager -n cnpg-system --timeout=120s
 success "Infrastructure ready"
 echo ""
 
@@ -209,7 +211,6 @@ echo ""
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   header "Local Images"
-  info "Building baseline images from origin/main..."
   "${SCRIPT_DIR}/build-images.sh"
   FORCE_ROLLOUT=true
   echo ""
@@ -255,12 +256,42 @@ echo ""
 
 # --- Deploy all components via kustomize ---
 header "Deploying Components"
-info "Applying Kind manifests via kustomize..."
-kustomize build deploy/kind | kube apply -f -
+if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
+  info "Applying Kind manifests with localhost image refs..."
+  _kustomize_dir="deploy/.local-images"
+  mkdir -p "${_kustomize_dir}"
+  _registry="${IMAGE_REGISTRY:-quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
+  cat > "${_kustomize_dir}/kustomization.yaml" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../kind
+images:
+  - name: ${_registry}/hypershell-api-server-main
+    newName: ${api_server_local%%:*}
+    newTag: ${api_server_local##*:}
+  - name: ${_registry}/hypershell-control-plane-main
+    newName: ${control_plane_local%%:*}
+    newTag: ${control_plane_local##*:}
+  - name: ${_registry}/hypershell-web-console-main
+    newName: ${web_console_local%%:*}
+    newTag: ${web_console_local##*:}
+EOF
+  kustomize build "${_kustomize_dir}" | kube apply -f -
+  rm -rf "${_kustomize_dir}"
+else
+  info "Applying Kind manifests via kustomize..."
+  kustomize build deploy/kind | kube apply -f -
+fi
 
-info "Waiting for PostgreSQL..."
-kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
-success "PostgreSQL ready"
+if [[ -n "${HYPERSHELL_DATABASE_IMAGE:-}" ]]; then
+  info "Setting API server CNPG cluster image to ${HYPERSHELL_DATABASE_IMAGE}..."
+  kube patch cluster/hypershell-db -n "${KIND_NAMESPACE}" --type merge \
+    -p "{\"spec\":{\"imageName\":\"${HYPERSHELL_DATABASE_IMAGE}\"}}"
+fi
+info "Waiting for CNPG clusters..."
+kube wait --for=condition=Ready cluster/hypershell-db -n "${KIND_NAMESPACE}" --timeout=300s
+success "CNPG clusters ready"
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Waiting for Keycloak..."
@@ -424,9 +455,12 @@ echo ""
 # started before Keycloak was serving keys it is stuck in CrashLoopBackoff;
 # restart it now that Keycloak is ready so a fresh pod (with no backoff delay)
 # comes up on the first try instead of waiting out the backoff timer.
+_api_restarted=""
+_cp_restarted=""
 if ! is_swapped api-server; then
   info "Restarting API server now that Keycloak serves JWKS..."
   kube rollout restart deployment/hypershell-api-server -n "${KIND_NAMESPACE}"
+  _api_restarted=true
 fi
 
 # The controller's gRPC watch streams must connect to a running API server.
@@ -441,6 +475,7 @@ fi
 if ! is_swapped control-plane; then
   info "Restarting control plane to establish watch streams..."
   kube rollout restart deployment/hypershell-controller -n "${KIND_NAMESPACE}"
+  _cp_restarted=true
   kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 fi
 
@@ -491,6 +526,10 @@ if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
     dep="${pair%%:*}"
     comp="${pair##*:}"
     if ! is_swapped "${comp}"; then
+      case "${dep}" in
+        hypershell-api-server)  [[ -n "${_api_restarted}" ]] && continue ;;
+        hypershell-controller)  [[ -n "${_cp_restarted}" ]]  && continue ;;
+      esac
       kube rollout restart "deployment/${dep}" -n "${KIND_NAMESPACE}"
     fi
   done
@@ -823,23 +862,23 @@ if [[ -z "${seed_failed}" ]]; then
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  # Check for existing ManagedDatabase
-  info "Checking for existing local-postgres ManagedDatabase..."
+  # Check for existing openshell-db ManagedDatabase
+  info "Checking for existing openshell-db ManagedDatabase..."
   EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
   EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
   EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
 
   if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
-    DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"local-postgres"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"openshell-db"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
     if [[ -n "${DATABASE_ID}" ]]; then
-      success "local-postgres ManagedDatabase already exists: ${DATABASE_ID}"
+      success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
     fi
   fi
 
   if [[ -z "${DATABASE_ID}" ]]; then
     info "Creating ManagedDatabase..."
     MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-      "{\"name\":\"local-postgres\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"local\"}")
+      "{\"name\":\"openshell-db\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"cnpg\"}")
     MD_HTTP=$(echo "${MD_RAW}" | tail -1)
     MD_RESP=$(echo "${MD_RAW}" | sed '$d')
     DATABASE_ID=$(extract_id "${MD_RESP}")

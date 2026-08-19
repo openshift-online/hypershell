@@ -6,7 +6,7 @@
 
 ## Purpose
 
-HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all baseline images from the local `main` branch instead of pulling from the registry.
+HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all images from the working tree instead of pulling from the registry. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
 
@@ -27,6 +27,8 @@ Developers selectively swap individual components with local builds using per-co
 | Gateway API CRDs | Gateway, GRPCRoute, BackendTLSPolicy, and related CRDs; required before cloud-provider-kind can serve as a gateway controller |
 | cloud-provider-kind | LoadBalancer and Gateway API controller for Kind clusters; implements GatewayClass and serves as the data-plane proxy for GRPCRoute traffic |
 | cert-manager | TLS certificate lifecycle for gateway certificates (issuance, renewal, rotation) |
+| CloudNativePG operator | PostgreSQL database lifecycle; provides Cluster, Database, and DatabaseRole CRDs |
+| CloudNativePG Cluster (hypershell-system) | PostgreSQL cluster for the API server in the platform namespace |
 | Keycloak | OIDC identity provider for local gateway authentication testing (skipped when `KIND_KEYCLOAK_URL` is set) |
 
 `make kind-up` SHALL install the Gateway API CRDs before starting cloud-provider-kind. The CRDs SHALL be applied from the upstream release bundle (`https://github.com/kubernetes-sigs/gateway-api/releases/download/<version>/experimental-install.yaml`) using the `experimental` channel, which includes BackendTLSPolicy. The version SHALL be pinned via a `GATEWAY_API_VERSION` variable. On OpenShift 4.19+ these CRDs ship by default; on Kind they must be installed explicitly.
@@ -39,13 +41,57 @@ Because cloud-provider-kind publishes the gateway LoadBalancer on ephemeral host
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.21.1`).
 
+The CloudNativePG (CNPG) operator SHALL be installed by applying the release manifest from `https://github.com/cloudnative-pg/cloudnative-pg/releases/download/<version>/cnpg-<version>.yaml`, skipping if the `cnpg-system` namespace already exists (idempotent), and waiting for the `cnpg-controller-manager` deployment in `cnpg-system` to reach ready state before proceeding. The version SHALL be pinned via a `CNPG_VERSION` variable (default: `v1.30.0`).
+
+After the CNPG operator is ready, `make kind-up` SHALL create one CNPG `Cluster` resource for the API server. The gateway database CNPG Cluster is NOT static infrastructure  -- it is created dynamically by the ManagedDatabaseReconciler when the seeded `openshell-db-default` ManagedDatabase is processed by the control plane.
+
+#### API server CNPG Cluster
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: hypershell-db
+  namespace: hypershell-system
+spec:
+  imageName: HYPERSHELL_DATABASE_IMAGE
+  instances: 1
+  bootstrap:
+    initdb:
+      database: hypershell
+      owner: hypershell
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+```
+
+The API server Deployment SHALL mount the CNPG-generated `hypershell-db-app` Secret (created automatically by the CNPG operator) and read connection parameters from its keys (`host`, `port`, `dbname`, `user`, `password`). The existing `deploy/base/postgres.yaml` (standalone Deployment + Secret + Service) SHALL be removed and replaced by the CNPG Cluster CR.
+
+The API server SHALL retry database connections on startup until the database becomes available, using exponential backoff. This eliminates hard ordering dependencies between the API server Deployment and the CNPG Cluster  -- both can be applied in the same kustomize pass and the API server will wait for PostgreSQL to become ready. This replaces the previous standalone PostgreSQL Deployment that was applied directly by `kind-up`.
+
+`make kind-up` SHALL wait for the API server CNPG Cluster to reach `Ready` status (all instances running) before proceeding to deploy HyperShell components. If the Cluster already exists (from a previous `kind-up`), that step SHALL be skipped (idempotent).
+
+`HYPERSHELL_DATABASE_IMAGE` is a Makefile/kustomize variable substituted into the API server CNPG Cluster CR at deploy time. When unset, the `imageName` field is omitted and CNPG uses its built-in default image. To use a specific image (e.g., a Red Hat Hardened Image), set the variable before running `make kind-up`.
+
+#### Gateway Database (ManagedDatabase Seeding)
+
+The gateway database CNPG Cluster is NOT created by `kind-up` as static infrastructure. Instead, `kind-up` seeds a ManagedDatabase resource named `openshell-db-default` (provider=cnpg) via the REST API during the resource seeding step. The ManagedDatabaseReconciler in the control plane then creates the namespace and CNPG Cluster dynamically. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for the full lifecycle.
+
+`OPENSHELL_DATABASE_IMAGE` configures the PostgreSQL image for ManagedDatabase CNPG Clusters. When unset, CNPG uses its built-in default image.
+
 Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker - a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients).
 
 ### Gateway Resource
 
-`make kind-up` SHALL seed all resources needed for a functional local environment: Fleet, ManagedCluster, GatewayRelease, ManagedDatabase, and a Gateway with OIDC configuration pointing at the local Keycloak instance. The seeding step obtains a Bearer token from Keycloak using the `hypershell-control-plane` service account, then creates each resource via the REST API. If any seed step fails (e.g. the resource already exists from a previous run), it SHALL warn and continue rather than abort. This makes `kind-up` fully self-contained -- a developer gets a working gateway without any manual API calls after the initial setup.
+`make kind-up` SHALL seed all resources needed for a functional local environment: Fleet, ManagedCluster, GatewayRelease, ManagedDatabase (`openshell-db`, provider=cnpg), and a Gateway with OIDC configuration pointing at the local Keycloak instance. The ManagedDatabase seed triggers the ManagedDatabaseReconciler to create the gateway database CNPG Cluster infrastructure. Because a single ManagedDatabase exists in the fleet, gateways created without an explicit `database_id` are auto-assigned to it. The seeding step obtains a Bearer token from Keycloak using the `hypershell-control-plane` service account, then creates each resource via the REST API. If any seed step fails (e.g. the resource already exists from a previous run), it SHALL warn and continue rather than abort. This makes `kind-up` fully self-contained -- a developer gets a working gateway without any manual API calls after the initial setup.
 
-The local environment SHALL NOT deploy the gateway's PostgreSQL directly - the control plane reconciler provisions a production-style PostgreSQL database via the GatewayReconciler (see `specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)). This ensures the local environment exercises the same database provisioning path used in production. The API server's own database (`deploy/kind/postgres.yaml`) is a separate concern - it stores platform resources (fleets, gateways, etc.) and is always deployed directly by `kind-up`.
+The local environment SHALL NOT deploy the gateway's PostgreSQL directly - the control plane reconciler provisions a dedicated database and role for each gateway in the shared CNPG Cluster using CNPG `Database` and `DatabaseRole` CRDs (see `specs/platform/openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production. The API server's database is also managed by CNPG via a separate Cluster CR in `hypershell-system` (see Cluster-Level Prerequisites above).
 
 TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer uses HTTP because the local Keycloak instance runs in dev mode without TLS; the TLS requirement applies to the gateway's own serving certificate, not to the OIDC issuer endpoint. Authentication SHALL use OIDC only - mTLS client authentication is not supported.
 
@@ -502,6 +548,8 @@ The system SHALL support both Podman and Docker as container engines. The engine
 
 All image names and tags used across Makefile targets, Kind load commands, and Kubernetes manifests SHALL resolve to the same artifacts. This reinforces the cross-cutting convention in `specs/standards/platform/cross-cutting.spec.md`.
 
+When `LOCAL_IMAGES=true`, the deployed image refs are the `localhost/` names (e.g. `localhost/hypershell-controller:dev`), not the registry refs. The substitution happens at kustomize apply time via an `images` transformer, so manifests reach the cluster with the correct refs  -- no post-apply patching, no wasted rollout.
+
 ### Requirement: Security Context Compliance
 
 All containers in the Kind deployment manifests SHALL set restricted security contexts per `specs/standards/security/security.spec.md`: `runAsNonRoot: true`, `capabilities.drop: ["ALL"]`, and `allowPrivilegeEscalation: false`.
@@ -601,42 +649,57 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 
 ### Requirement: Offline Development (LOCAL_IMAGES)
 
-The system SHALL support offline development by building all baseline images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from `origin/main` and load them into the Kind cluster. Repeated `kind-up` invocations with `LOCAL_IMAGES=true` SHALL rebuild from `origin/main`, picking up any new commits - analogous to a `git fetch` for images.
+The system SHALL support offline development by building all images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from the working tree (current branch), load them into the Kind cluster, and apply manifests with `localhost/` image refs so that pods start with local images on the first rollout. This ensures the deployed images match the scripts, manifests, and seed data on the current branch  -- and `kubectl describe pod` shows the actual local image name (e.g. `localhost/hypershell-controller:dev`) rather than a registry ref that could be mistaken for a remote pull. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
+
+Image ref substitution SHALL happen at manifest-apply time via a kustomize `images` transformer, not as a post-apply `kubectl set image` patch. This avoids a wasted rollout where pods first start with registry refs (potentially failing to pull) and then get killed and replaced with local refs. The kustomize transformer maps each registry image name to its `localhost/` equivalent before the manifests reach the API server.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build baseline images from the local repository instead of pulling from the container registry |
+| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build images locally instead of pulling from the container registry |
+| `BUILD_SOURCE` | `worktree` | Image build source: `worktree` (current branch) or `baseline` (`origin/main`) |
+
+Local image names:
+
+| Component | Registry Ref | Local Image Ref |
+|-----------|-------------|----------------|
+| API server | `${IMAGE_REGISTRY}/hypershell-api-server-main` | `localhost/hypershell:dev` |
+| Control plane | `${IMAGE_REGISTRY}/hypershell-control-plane-main` | `localhost/hypershell-controller:dev` |
+| Web console | `${IMAGE_REGISTRY}/hypershell-web-console-main` | `localhost/hypershell-web-console:dev` |
 
 #### Scenario: First Run - Offline
 - GIVEN no Kind cluster exists
 - AND the developer has no access to the container registry
 - AND `LOCAL_IMAGES=true` is set
 - WHEN the developer runs `make kind-up`
-- THEN all component images SHALL be built from the local repository
-- AND images SHALL be loaded into the Kind cluster
+- THEN all component images SHALL be built from the working tree with `localhost/` image names
+- AND images SHALL be loaded into the Kind cluster via tarball archive
+- AND kustomize SHALL apply manifests with a `localhost/` images transformer so pods start with local refs
 - AND the cluster SHALL reach a ready state without any registry pulls for platform components
+- AND `kubectl get pods -o jsonpath='{.items[*].spec.containers[*].image}'` SHALL show `localhost/` refs for locally-built components
 
-#### Scenario: Subsequent Run - Rebuild from Main
+#### Scenario: Subsequent Run - Rebuild from Working Tree
 - GIVEN a Kind cluster is running with locally-built images
 - AND `LOCAL_IMAGES=true` is set
 - WHEN the developer runs `make kind-up` again
-- THEN all non-swapped component images SHALL be rebuilt from `origin/main`
+- THEN all non-swapped component images SHALL be rebuilt from the working tree
 - AND updated images SHALL be loaded into the Kind cluster
+- AND kustomize SHALL apply manifests with the `localhost/` images transformer
 - AND swapped components SHALL be preserved
+
+#### Scenario: Baseline Build from origin/main
+- GIVEN `LOCAL_IMAGES=true` and `BUILD_SOURCE=baseline` are set
+- WHEN the developer runs `make kind-up`
+- THEN all component images SHALL be built from `origin/main` with `localhost/` image names
+- AND images SHALL be loaded into the Kind cluster
+- AND kustomize SHALL apply manifests with the `localhost/` images transformer
 
 ### Requirement: Red Hat Hardened Images
 
 All container images deployed into the Kind cluster SHALL use [Red Hat Hardened Images](https://images.redhat.com/) (HI). HI images are distroless, CIS-hardened, and signed at build time.
 
-The database image specified in the Gateway resource SHALL default to `registry.access.redhat.com/hi/postgresql:18`. Developers SHALL provide a pull secret file via the `KIND_PULL_SECRET` environment variable to authenticate against `registry.access.redhat.com`. When set, `make kind-up` SHALL apply the secret to the target namespace and patch the default ServiceAccount with `imagePullSecrets` so that pods can pull HI images without per-pod secret references.
+Developers SHALL provide a pull secret file via the `KIND_PULL_SECRET` environment variable to authenticate against `registry.access.redhat.com`. When set, `make kind-up` SHALL apply the secret to the target namespace and patch the default ServiceAccount with `imagePullSecrets` so that pods can pull HI images without per-pod secret references.
 
-The database image SHALL be overridable via the `KIND_DB_IMAGE` environment variable (e.g. `KIND_DB_IMAGE=docker.io/library/postgres:18`). This enables OSS contributors who do not have access to the Red Hat registry to use an alternative PostgreSQL image. Overriding the image is not officially supported - compatibility issues with non-HI images are the contributor's responsibility.
-
-#### Scenario: HI Image Used for Database
-- GIVEN a Kind cluster is running
-- WHEN the control plane reconciler provisions a database for a Gateway
-- THEN the database pod SHALL use the HI PostgreSQL image (`registry.access.redhat.com/hi/postgresql:18`)
-- AND the image SHALL be pulled using a pre-configured pull secret set by the contributor
+> **Database images:** The API server database uses the CloudNativePG operator. The PostgreSQL image is configured via `HYPERSHELL_DATABASE_IMAGE`. When unset, CNPG uses its built-in default image. To use Red Hat Hardened Images, set this variable to the HI PostgreSQL image before running `make kind-up`. Gateway database CNPG Clusters are created dynamically by the ManagedDatabaseReconciler; their image is controlled by the CNPG operator defaults.
 
 ### Requirement: Multiple Namespace Deployments
 
@@ -709,7 +772,8 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 | `KIND_PULL_SECRET` | (unset) | Path to a Kubernetes pull secret YAML file; applied to the target namespace for HI image access |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry path for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
-| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build baseline images from `origin/main` instead of pulling from registry |
+| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build images locally instead of pulling from registry |
+| `BUILD_SOURCE` | `worktree` | Image build source when `LOCAL_IMAGES=true`: `worktree` (current branch) or `baseline` (`origin/main`) |
 | `CONTAINER_ENGINE` | Auto-detected (Podman preferred) | Container engine (`podman` or `docker`) |
 | `GATEWAY_API_VERSION` | (pinned in Makefile) | Gateway API CRD release version |
 | `CLOUD_PROVIDER_KIND_REPO` | (pinned in Makefile) | Git repository URL for cloud-provider-kind fork (BackendTLSPolicy + ALPN h2 support) |
@@ -717,7 +781,8 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 | `CLOUD_PROVIDER_KIND_BRANCH` | (unset) | Optional testing override: build from a branch tip or arbitrary git ref instead of the pinned SHA; always rebuilds when set |
 | `KIND_RESTART_CPK` | (unset) | Set to `true` to force `make kind-up` to restart cloud-provider-kind (republishes ephemeral LB ports; otherwise the running instance is reused to keep ports stable) |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
-| `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
+| `CNPG_VERSION` | `v1.30.0` | CloudNativePG operator release version |
+| `HYPERSHELL_DATABASE_IMAGE` | (unset - CNPG default) | PostgreSQL image for the API server CNPG Cluster; set `spec.imageName` on the Cluster CR |
 | `KIND_NAMESPACE` | `hypershell-system` | Target namespace for all `kind-*` targets |
 | `KIND_JAEGER` | (unset) | Set to `true` to deploy Jaeger all-in-one for distributed tracing (OTLP gRPC `4317` + HTTP `4318`) and export web console traces to it |
 
@@ -744,19 +809,22 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | Decision | Rationale |
 |----------|-----------|
 | Registry pull for baseline images | Faster setup; no local build required for baseline; per-component swap handles local development |
-| Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` serves a separate purpose - offline baseline builds from `main` when registry access is unavailable |
+| Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` builds from the working tree by default so images match the branch's scripts and manifests; `BUILD_SOURCE=baseline` optionally builds from `origin/main` for comparison |
 | Hostname routing via networking Gateway as default | All component services route through the networking Gateway using HTTPRoute resources at `*.hypershell.localhost`. Developers access services by name (`api.hypershell.localhost`) instead of memorizing port numbers. Multi-namespace deployments get distinct hostnames without any per-hostname configuration thanks to wildcard DNS |
 | CoreDNS for wildcard DNS | A CoreDNS container resolves all `*.localhost` to loopback, eliminating per-hostname `/etc/hosts` management. OS resolver config routes `.localhost` queries to CoreDNS (macOS: `/etc/resolver/localhost`; Linux: `resolvectl`). Multi-namespace hostnames work automatically |
 | OS-native port forwarding (pfctl/iptables) | Redirects host:443 to cloud-provider-kind's ephemeral port, enabling clean `https://` URLs. Workaround until cloud-provider-kind supports publishing on specific host ports. Graceful fallback: if sudo fails, URLs show the ephemeral port suffix |
 | Pre-check cluster existence for idempotency | Check `kind get clusters` for the target name before attempting creation; skip if already present. Avoids `\|\| true` which swallows real failures (Docker not running, resource exhaustion) |
-| Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
+| Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency. `kind load docker-image` is Podman-incompatible; `kind load image-archive` works with any container engine |
+| Localhost image refs for LOCAL_IMAGES via kustomize transformer | Local builds use `localhost/` image names (e.g. `localhost/hypershell-controller:dev`). A kustomize `images` transformer maps registry refs to localhost refs at manifest-apply time, so pods start with the correct image on the first rollout  -- no wasted deploy-then-patch cycle. `kubectl describe pod` shows the actual local image, not a registry ref that could be mistaken for a remote pull |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
 | Web console as first-class component | Node.js frontend (`components/web-console/`) deployed alongside API server and control plane; supports hot reload via `KIND_HOT_RELOAD` for rapid UI iteration |
 | Jaeger all-in-one for local tracing | One workload provides both OTLP receivers (gRPC `4317` for the API server, HTTP `4318` for the web console) and the query UI with in-memory storage; avoids a separate OpenTelemetry Collector in development. The BFF exports over OTLP/HTTP; the browser exports through the same-origin BFF endpoint. `KIND_JAEGER=true` opts in |
 | Hot reload on by default | Swap targets for supported components (web console) mount host source and run a dev server in an interactive TTY by default; `KIND_HOT_RELOAD=false` opts out to rebuild-and-replace. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
-| Database provisioned by control plane | Gateway configured with HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)), exercising the same path as production. The API server's own database (`deploy/kind/postgres.yaml`) is always deployed directly by `kind-up` |
-| Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images - HI is the only supported path. `KIND_DB_IMAGE` override enables OSS contributors without Red Hat registry access to use an alternative image (unsupported) |
+| All databases provisioned by CNPG operator | The API server database (in `hypershell-system`) uses a static CNPG Cluster. Gateway databases use CNPG Clusters created dynamically by the ManagedDatabaseReconciler  -- each ManagedDatabase (provider=cnpg) gets its own namespace and CNPG Cluster. No standalone PostgreSQL Deployments |
+| Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images - HI is the only supported path |
+| Independent database image configuration | `HYPERSHELL_DATABASE_IMAGE` configures the API server CNPG Cluster image. `OPENSHELL_DATABASE_IMAGE` configures the image for ManagedDatabase CNPG Clusters (applied by the ManagedDatabaseReconciler). When unset, CNPG uses its built-in default |
+| CNPG as cluster prerequisite | CloudNativePG operator installed via release manifest (like cert-manager). The API server CNPG Cluster is static infrastructure in `hypershell-system`. Gateway CNPG Clusters are created dynamically by the ManagedDatabaseReconciler per ManagedDatabase resource |
 | Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames via `KIND_NAMESPACE=<name> make kind-up`. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). `kind-down` removes the target namespace; `kind-teardown` destroys the cluster |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |

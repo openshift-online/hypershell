@@ -93,4 +93,5 @@ func init() {
 	presenters.RegisterKind(&ManagedDatabase{}, "ManagedDatabase")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddNamespace())
 }

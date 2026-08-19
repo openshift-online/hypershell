@@ -52,7 +52,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("release_id", req.ReleaseId, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("database_id", req.DatabaseId, true); err != nil {
+	if err := grpcutil.ValidateStringField("database_id", req.DatabaseId, false); err != nil {
 		return nil, err
 	}
 	var serverDnsNamesJSON *string

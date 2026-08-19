@@ -30,6 +30,7 @@ type ManagedDatabase struct {
 	Name             string     `json:"name"`
 	FleetId          string     `json:"fleet_id"`
 	Provider         string     `json:"provider"`
+	Namespace        *string    `json:"namespace,omitempty"`
 	Region           *string    `json:"region,omitempty"`
 	Engine           *string    `json:"engine,omitempty"`
 	EngineVersion    *string    `json:"engine_version,omitempty"`
@@ -512,6 +513,9 @@ func (o ManagedDatabase) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["provider"] = o.Provider
+	if !IsNil(o.Namespace) {
+		toSerialize["namespace"] = o.Namespace
+	}
 	if !IsNil(o.Region) {
 		toSerialize["region"] = o.Region
 	}

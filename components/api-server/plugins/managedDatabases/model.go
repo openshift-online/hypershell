@@ -1,15 +1,22 @@
 package managedDatabases
 
 import (
+	"encoding/hex"
+	"fmt"
+
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
+	"github.com/segmentio/ksuid"
 	"gorm.io/gorm"
 )
+
+const dbNamespacePrefix = "openshell-db-"
 
 type ManagedDatabase struct {
 	api.Meta
 	Name             string  `json:"name"`
 	FleetId          string  `json:"fleet_id"`
 	Provider         string  `json:"provider"`
+	Namespace        string  `json:"namespace"`
 	Region           *string `json:"region"`
 	Engine           *string `json:"engine"`
 	EngineVersion    *string `json:"engine_version"`
@@ -31,6 +38,12 @@ func (l ManagedDatabaseList) Index() ManagedDatabaseIndex {
 
 func (d *ManagedDatabase) BeforeCreate(tx *gorm.DB) error {
 	d.ID = api.NewID()
+
+	id, err := ksuid.Parse(d.ID)
+	if err != nil {
+		return fmt.Errorf("parse generated managed database ID: %w", err)
+	}
+	d.Namespace = dbNamespacePrefix + hex.EncodeToString(id.Payload()[:8])
 	return nil
 }
 
