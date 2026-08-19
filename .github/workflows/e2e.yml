@@ -287,15 +287,28 @@ jobs:
       # real gateway workflow in the deployed console, then assert one trace in
       # Jaeger joins the browser and the BFF. Reuses the same Node + Chromium
       # setup the web-console lint job uses.
+      #
+      # These steps run on pull_request, push, and workflow_dispatch -- NOT
+      # merge_group. resolve-images maps an ephemeral merge-queue commit to
+      # on-pr-<merge_sha>, which Konflux never builds, so merge_group always
+      # falls back to the baseline web-console image. That baseline lags main
+      # and cannot contain not-yet-merged tracing code, so the deployed console
+      # emits no spans and the assertion would test the wrong artifact. The
+      # trace path is gated at pull_request time against the freshly built PR
+      # image and re-verified on push to main against the post-merge image.
       - name: Set up Node.js
+        if: github.event_name != 'merge_group'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
       - name: Install pinned pnpm
+        if: github.event_name != 'merge_group'
         run: bash scripts/bootstrap_pnpm.sh
       - name: Install dependencies
+        if: github.event_name != 'merge_group'
         run: pnpm install --frozen-lockfile
       - name: Install Chromium
+        if: github.event_name != 'merge_group'
         run: |
           # Cap apt network timeouts so a flaky Azure mirror doesn't hang the job.
           sudo tee /etc/apt/apt.conf.d/99-timeout <<'APT'
@@ -305,6 +318,7 @@ jobs:
           APT
           pnpm --filter @openshift-online/hypershell-web-console exec playwright install --with-deps chromium
       - name: Verify end-to-end traces reach Jaeger
+        if: github.event_name != 'merge_group'
         run: pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
 
       - name: Collect diagnostics
