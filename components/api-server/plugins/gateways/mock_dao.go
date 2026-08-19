@@ -77,6 +77,16 @@ func (d *gatewayDaoMock) SetActiveSandboxCount(ctx context.Context, namespace st
 	return count, nil
 }
 
+func (d *gatewayDaoMock) CountByPhase(ctx context.Context) (map[string]int64, error) {
+	counts := make(map[string]int64)
+	for _, gw := range d.gateways {
+		if gw.Phase != nil {
+			counts[*gw.Phase]++
+		}
+	}
+	return counts, nil
+}
+
 func (d *gatewayDaoMock) findByNamespace(namespace string) *Gateway {
 	for _, gateway := range d.gateways {
 		if gateway.Namespace == namespace {

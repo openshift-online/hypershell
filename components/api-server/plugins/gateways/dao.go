@@ -33,6 +33,8 @@ type GatewayDao interface {
 	// gateway in the given namespace to an absolute value, floored at zero. Its
 	// return and event-emission contract matches AdjustActiveSandboxCount.
 	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (resulting int, err error)
+
+	CountByPhase(ctx context.Context) (map[string]int64, error)
 }
 
 // sandboxCountRow captures the gateway identity and count returned by the
@@ -210,4 +212,21 @@ func derefCount(v *int) int {
 		return 0
 	}
 	return *v
+}
+
+func (d *sqlGatewayDao) CountByPhase(ctx context.Context) (map[string]int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	type row struct {
+		Phase string
+		Count int64
+	}
+	var rows []row
+	if err := g2.Model(&Gateway{}).Select("phase, count(*) as count").Group("phase").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		counts[r.Phase] = r.Count
+	}
+	return counts, nil
 }
