@@ -149,6 +149,7 @@ func init() {
 	db.RegisterMigration(migrationDropFleetsTable())
 	db.RegisterMigration(migrationAddTraceContext())
 	db.RegisterMigration(migrationAddProvisioningConditions())
+	db.RegisterMigration(migrationAddGenerationTracking())
 	db.RegisterMigration(migrationDropDatabaseId())
 	db.RegisterMigration(migrationDropManagedDatabasesTable())
 }
