@@ -34,14 +34,18 @@ func TestReconcileKeycloakClientUpdatesExistingClient(t *testing.T) {
 				t.Errorf("clientId query = %q, want %q", got, clientID)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"id":"client-uuid","clientId":"gateway-id"}]`))
+			if _, err := w.Write([]byte(`[{"id":"client-uuid","clientId":"gateway-id"}]`)); err != nil {
+				t.Errorf("write client list response: %v", err)
+			}
 		case r.URL.Path == "/admin/realms/hypershell/clients/"+clientUUID && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{
+			if _, err := w.Write([]byte(`{
 				"id":"client-uuid",
 				"clientId":"gateway-id",
 				"attributes":{"pkce.code.challenge.method":"S256"}
-			}`))
+			}`)); err != nil {
+				t.Errorf("write existing client response: %v", err)
+			}
 		case r.URL.Path == "/admin/realms/hypershell/clients/"+clientUUID && r.Method == http.MethodPut:
 			var representation map[string]json.RawMessage
 			if err := json.NewDecoder(r.Body).Decode(&representation); err != nil {

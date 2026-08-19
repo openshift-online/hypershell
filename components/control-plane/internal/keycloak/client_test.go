@@ -87,12 +87,14 @@ func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 			writeTokenResponse(t, w, accessToken)
 		case r.URL.Path == testClientPath && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{
+			if _, err := w.Write([]byte(`{
 				"id":"client-uuid",
 				"clientId":"gateway-id",
 				"standardFlowEnabled":true,
 				"attributes":{"pkce.code.challenge.method":"S256"}
-			}`))
+			}`)); err != nil {
+				t.Errorf("write existing client response: %v", err)
+			}
 		case r.URL.Path == testClientPath && r.Method == http.MethodPut:
 			var representation map[string]json.RawMessage
 			if err := json.NewDecoder(r.Body).Decode(&representation); err != nil {
@@ -152,11 +154,13 @@ func TestEnsureDeviceAuthorizationGrantSkipsEnabledClient(t *testing.T) {
 			writeTokenResponse(t, w, accessToken)
 		case r.URL.Path == testClientPath && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{
+			if _, err := w.Write([]byte(`{
 				"id":"client-uuid",
 				"clientId":"gateway-id",
 				"attributes":{"oauth2.device.authorization.grant.enabled":"true"}
-			}`))
+			}`)); err != nil {
+				t.Errorf("write enabled client response: %v", err)
+			}
 		case r.URL.Path == testClientPath && r.Method == http.MethodPut:
 			updated <- struct{}{}
 			w.WriteHeader(http.StatusNoContent)
