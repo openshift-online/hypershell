@@ -13,9 +13,22 @@ const (
 	testClientPath = "/admin/realms/hypershell/clients/client-uuid"
 )
 
+func writeTokenResponse(t *testing.T, w http.ResponseWriter, accessToken string) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"access_token": accessToken,
+		"expires_in":   300,
+	}); err != nil {
+		t.Errorf("encode token response: %v", err)
+	}
+}
+
 func TestCreateClientEnablesDeviceAuthorizationGrant(t *testing.T) {
 	t.Parallel()
 
+	accessToken := t.Name()
+	clientCredential := t.Name()
 	var received struct {
 		ClientID   string            `json:"clientId"`
 		Attributes map[string]string `json:"attributes"`
@@ -23,19 +36,19 @@ func TestCreateClientEnablesDeviceAuthorizationGrant(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/realms/hypershell/protocol/openid-connect/token":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"admin-token","expires_in":300}`))
+		case testTokenPath:
+			writeTokenResponse(t, w, accessToken)
 		case "/admin/realms/hypershell/clients":
-			if got := r.Header.Get("Authorization"); got != "Bearer admin-token" {
-				t.Errorf("Authorization header = %q, want Bearer admin-token", got)
+			wantAuthorization := "Bearer " + accessToken
+			if got := r.Header.Get("Authorization"); got != wantAuthorization {
+				t.Errorf("Authorization header = %q, want %q", got, wantAuthorization)
 			}
 			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
 				t.Errorf("decode client payload: %v", err)
 				http.Error(w, "invalid payload", http.StatusBadRequest)
 				return
 			}
-			w.Header().Set("Location", "/admin/realms/hypershell/clients/client-uuid")
+			w.Header().Set("Location", testClientPath)
 			w.WriteHeader(http.StatusCreated)
 		default:
 			http.NotFound(w, r)
@@ -43,7 +56,7 @@ func TestCreateClientEnablesDeviceAuthorizationGrant(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "hypershell", "provisioner", "secret")
+	client := NewClient(server.URL, "hypershell", "provisioner", clientCredential)
 	uuid, err := client.createClient(context.Background(), "gateway-id")
 	if err != nil {
 		t.Fatalf("createClient() error = %v", err)
@@ -65,12 +78,13 @@ func TestCreateClientEnablesDeviceAuthorizationGrant(t *testing.T) {
 func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	t.Parallel()
 
+	accessToken := t.Name()
+	clientCredential := t.Name()
 	updated := make(chan map[string]json.RawMessage, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == testTokenPath:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"admin-token","expires_in":300}`))
+			writeTokenResponse(t, w, accessToken)
 		case r.URL.Path == testClientPath && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
@@ -94,7 +108,7 @@ func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "hypershell", "provisioner", "secret")
+	client := NewClient(server.URL, "hypershell", "provisioner", clientCredential)
 	if err := client.EnsureDeviceAuthorizationGrant(context.Background(), "client-uuid"); err != nil {
 		t.Fatalf("EnsureDeviceAuthorizationGrant() error = %v", err)
 	}
@@ -129,12 +143,13 @@ func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 func TestEnsureDeviceAuthorizationGrantSkipsEnabledClient(t *testing.T) {
 	t.Parallel()
 
+	accessToken := t.Name()
+	clientCredential := t.Name()
 	updated := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == testTokenPath:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"admin-token","expires_in":300}`))
+			writeTokenResponse(t, w, accessToken)
 		case r.URL.Path == testClientPath && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
@@ -151,7 +166,7 @@ func TestEnsureDeviceAuthorizationGrantSkipsEnabledClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "hypershell", "provisioner", "secret")
+	client := NewClient(server.URL, "hypershell", "provisioner", clientCredential)
 	if err := client.EnsureDeviceAuthorizationGrant(context.Background(), "client-uuid"); err != nil {
 		t.Fatalf("EnsureDeviceAuthorizationGrant() error = %v", err)
 	}

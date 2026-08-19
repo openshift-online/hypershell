@@ -15,13 +15,20 @@ func TestReconcileKeycloakClientUpdatesExistingClient(t *testing.T) {
 		clientID   = "gateway-id"
 		clientUUID = "client-uuid"
 	)
+	accessToken := t.Name()
+	clientCredential := t.Name()
 
 	updated := make(chan map[string]json.RawMessage, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/realms/hypershell/protocol/openid-connect/token":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"admin-token","expires_in":300}`))
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"access_token": accessToken,
+				"expires_in":   300,
+			}); err != nil {
+				t.Errorf("encode token response: %v", err)
+			}
 		case r.URL.Path == "/admin/realms/hypershell/clients" && r.Method == http.MethodGet:
 			if got := r.URL.Query().Get("clientId"); got != clientID {
 				t.Errorf("clientId query = %q, want %q", got, clientID)
@@ -55,7 +62,7 @@ func TestReconcileKeycloakClientUpdatesExistingClient(t *testing.T) {
 			ServerURL:    server.URL,
 			Realm:        "hypershell",
 			ClientID:     "provisioner",
-			ClientSecret: "secret",
+			ClientSecret: clientCredential,
 		},
 		GatewayName: "gateway",
 		GatewayID:   "id",
