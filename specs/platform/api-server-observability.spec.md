@@ -22,6 +22,7 @@ The API server SHALL initialize the OpenTelemetry SDK at startup, configuring a 
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | OTLP transport (`grpc` or `http/protobuf`); the API server exports over OTLP/gRPC by default |
 | `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Root-trace sampling ratio (`0.0` to `1.0`) for the parent-based sampler |
 | `OTEL_SERVICE_NAME` | `hypershell-api-server` | Service name reported in spans and metrics |
+| `OTEL_METRICS_EXPORTER` | (unset -- metrics enabled) | Set to `none` to export traces only and skip the OTLP metric exporter; use against a trace-only backend such as Jaeger, which has no OTLP metrics service |
 
 The SDK SHALL use a parent-based trace-id-ratio sampler so a child span inherits the parent's sampling decision and only a root span is subject to the configured ratio. The SDK SHALL install a W3C Trace Context propagator, composed with baggage, as the global propagator.
 
