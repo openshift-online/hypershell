@@ -1,5 +1,11 @@
-import { Alert, Content, Skeleton, Title } from "@patternfly/react-core";
-
+import {
+  Alert,
+  AlertActionLink,
+  Content,
+  Skeleton,
+  Title,
+} from "@patternfly/react-core";
+import { ExternalLinkAltIcon } from "@patternfly/react-icons";
 import { type ReactNode, useState } from "react";
 import { useIntl } from "react-intl";
 
@@ -72,6 +78,21 @@ export function GatewayConnectionSteps({
         title={intl.formatMessage(messages.connectionSetupTitle)}
       >
         <Alert
+          actionLinks={
+            <AlertActionLink
+              aria-label={intl.formatMessage(
+                messages.connectionInstallLinkNewTab,
+              )}
+              component="a"
+              href={installDocsUrl}
+              icon={<ExternalLinkAltIcon aria-hidden />}
+              iconPosition="end"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {intl.formatMessage(messages.connectionInstallLink)}
+            </AlertActionLink>
+          }
           className={styles.prereqAlert}
           component="h3"
           isInline
@@ -79,14 +100,6 @@ export function GatewayConnectionSteps({
           variant="info"
         >
           {intl.formatMessage(messages.connectionInstallPrereq)}
-          <a
-            href={installDocsUrl}
-            rel="noopener noreferrer"
-            style={{ marginInlineStart: "0.25rem" }}
-            target="_blank"
-          >
-            {intl.formatMessage(messages.connectionInstallLink)}
-          </a>
         </Alert>
         {setupTemplate && setupCopy ? (
           <EditableCommand

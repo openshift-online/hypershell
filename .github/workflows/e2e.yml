@@ -76,9 +76,33 @@ jobs:
               e2e_changed="${DETECT_E2E:-false}"
               pr_test_changed="${DETECT_PR_TEST:-false}"
 
+              # Determine which components need a Konflux-built image.
+              # detect-components uses broad paths (includes Makefile, .github/,
+              # sdk-typescript, lockfiles, etc.) which is correct for lint but
+              # NOT for "will Konflux build an image" or "should Kind e2e run".
+              # Konflux web-console builds on components/web-console/ or
+              # packages/gateway-management-ui/; other DETECT_WEB_CONSOLE paths
+              # (for example sdk-typescript) do not produce a PR image.
+              #
+              # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...${PR_HEAD_SHA}"
+              # compares the PR head against the point where this PR forked from the
+              # base branch. A two-dot "${PR_BASE_SHA} HEAD" diff (where HEAD is a
+              # merge commit) would also report component changes that landed on the
+              # base branch *after* this PR forked, misattributing them to the PR --
+              # then we would wait for a Konflux build that only ever runs for files
+              # this PR actually touched.
+              changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
+              api_konflux=false
+              cp_konflux=false
+              wc_konflux=false
+              if grep -q '^components/api-server/'    <<<"${changed_files}"; then api_konflux=true; fi
+              if grep -q '^components/control-plane/' <<<"${changed_files}"; then cp_konflux=true; fi
+              if grep -qE '^(components/web-console/|packages/gateway-management-ui/)' <<<"${changed_files}"; then wc_konflux=true; fi
+
               e2e_relevant=false
               if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || \
-                    "${e2e_changed}" == "true" || "${pr_test_changed}" == "true" ]]; then
+                    "${e2e_changed}" == "true" || "${pr_test_changed}" == "true" || \
+                    "${wc_konflux}" == "true" ]]; then
                 e2e_relevant=true
               fi
 
@@ -87,27 +111,6 @@ jobs:
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
-
-              # Determine which components need a Konflux-built image.
-              # detect-components uses broad paths (includes Makefile, .github/,
-              # etc.) which is correct for "should we re-run e2e" but NOT for
-              # "will Konflux build an image".  Konflux only triggers on files
-              # under components/<name>/ -- check the actual diff.
-              #
-              # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...HEAD"
-              # compares HEAD against the point where this PR forked from the
-              # base branch. A two-dot "${PR_BASE_SHA} HEAD" diff would also
-              # report component changes that landed on the base branch *after*
-              # this PR forked, misattributing them to the PR -- then we would
-              # wait for a Konflux build that only ever runs for files this PR
-              # actually touched.
-              changed_files="$(git diff --name-only "${PR_BASE_SHA}...HEAD")"
-              api_konflux=false
-              cp_konflux=false
-              wc_konflux=false
-              if grep -q '^components/api-server/'    <<<"${changed_files}"; then api_konflux=true; fi
-              if grep -q '^components/control-plane/' <<<"${changed_files}"; then cp_konflux=true; fi
-              if grep -q '^components/web-console/'   <<<"${changed_files}"; then wc_konflux=true; fi
 
               if [[ "${api_konflux}" != "true" && "${cp_konflux}" != "true" && "${wc_konflux}" != "true" ]]; then
                 echo "No source components changed -- using latest Konflux on-push images from main"
