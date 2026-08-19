@@ -17,6 +17,7 @@ type GatewayDao interface {
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, error)
 	All(ctx context.Context) (GatewayList, error)
+	CountByPhase(ctx context.Context) (map[string]int64, error)
 }
 
 var _ GatewayDao = &sqlGatewayDao{}
@@ -90,4 +91,21 @@ func (d *sqlGatewayDao) All(ctx context.Context) (GatewayList, error) {
 		return nil, err
 	}
 	return gateways, nil
+}
+
+func (d *sqlGatewayDao) CountByPhase(ctx context.Context) (map[string]int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	type row struct {
+		Phase string
+		Count int64
+	}
+	var rows []row
+	if err := g2.Model(&Gateway{}).Select("phase, count(*) as count").Group("phase").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		counts[r.Phase] = r.Count
+	}
+	return counts, nil
 }

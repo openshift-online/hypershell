@@ -176,7 +176,7 @@ The API server exposes Prometheus metrics on its metrics port (default `:8080/me
 
 | Metric | Type | Description |
 |---|---|---|
-| `hypershell_gateways_running` | Gauge | Current number of running gateways. Queried live from the database on each scrape. |
+| `hypershell_gateways_total{phase="Running"|"Provisioning"|"Degraded"|"Failed"}` | Gauge | Number of gateways by phase. Queried live from the database on each scrape. |
 
 ### Grafana dashboard
 
