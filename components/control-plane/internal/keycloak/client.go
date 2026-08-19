@@ -233,7 +233,8 @@ func (c *Client) createClient(ctx context.Context, gatewayName string) (string, 
 		"fullScopeAllowed":          false,
 		"redirectUris":              []string{"http://127.0.0.1:*", "http://localhost:*"},
 		"attributes": map[string]string{
-			"pkce.code.challenge.method": "S256",
+			"pkce.code.challenge.method":                "S256",
+			"oauth2.device.authorization.grant.enabled": "true",
 		},
 		"defaultClientScopes": []string{
 			"openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr",

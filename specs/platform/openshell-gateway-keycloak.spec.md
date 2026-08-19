@@ -212,6 +212,7 @@ The client SHALL be created with the following properties:
 | `fullScopeAllowed` | `false` | **CRITICAL** -- prevents cross-gateway role leakage |
 | `redirectUris` | `["http://127.0.0.1:*", "http://localhost:*"]` | CLI callback URIs |
 | `attributes.pkce.code.challenge.method` | `S256` | PKCE challenge method |
+| `attributes.oauth2.device.authorization.grant.enabled` | `true` | Enables OAuth 2.0 Device Authorization Grant for browserless CLI authentication |
 | `defaultClientScopes` | `["openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr"]` | Standard scopes plus `gateway-roles` |
 
 > **`fullScopeAllowed` MUST be `false`.** Keycloak defaults to `true`, which leaks every client's roles into every token. Combined with the built-in `oidc-audience-resolve-mapper`, a token from any client would carry all other gateways' client IDs in `aud` plus their admin roles, breaking per-gateway isolation entirely.
@@ -227,6 +228,7 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 - THEN it SHALL create a Keycloak client with `clientId = "my-gateway-2FhMpQzXBz"`
 - AND the client SHALL have `fullScopeAllowed = false`
 - AND the client SHALL have `publicClient = true` with `pkce.code.challenge.method = S256`
+- AND OAuth 2.0 Device Authorization Grant SHALL be enabled
 - AND the `gateway-roles` client scope SHALL be included in `defaultClientScopes`
 
 #### Scenario: Creator receives admin role on new gateway
