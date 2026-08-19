@@ -126,7 +126,7 @@ func (h *GatewayHealthReconciler) listAllGateways(ctx context.Context, client pb
 		all = append(all, items...)
 
 		meta := resp.GetMetadata()
-		if len(items) == 0 || (meta != nil && int32(len(all)) >= meta.GetTotal()) || int32(len(items)) < defaultListGatewaysPageSize {
+		if len(items) == 0 || (meta != nil && int64(len(all)) >= int64(meta.GetTotal())) || len(items) < int(defaultListGatewaysPageSize) {
 			break
 		}
 		page++

@@ -206,6 +206,12 @@ func TestListAllGateways_Pagination(t *testing.T) {
 	if len(got) != total {
 		t.Fatalf("got %d gateways, want %d", len(got), total)
 	}
+	for i, gw := range got {
+		if gw.GetMetadata().GetId() != allGWs[i].GetMetadata().GetId() {
+			t.Fatalf("gateway[%d] = %q, want %q",
+				i, gw.GetMetadata().GetId(), allGWs[i].GetMetadata().GetId())
+		}
+	}
 
 	expectedPages := []int32{1, 2, 3}
 	if len(requestedPages) != len(expectedPages) {
