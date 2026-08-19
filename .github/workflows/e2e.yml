@@ -57,6 +57,7 @@ jobs:
           DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
           DETECT_E2E: ${{ steps.detect.outputs.e2e }}
           DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
@@ -164,8 +165,48 @@ jobs:
               echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
               ;;
 
+            merge_group)
+              # Merge queue: extract PR number and fetch the actual PR head SHA
+              # Queue branch format: gh-readonly-queue/main/pr-{number}-{merge_commit_sha}
+              # The SHA in the branch name is the temporary merge commit, not the PR head.
+              queue_branch="${{ github.head_ref }}"
+              if [[ "${queue_branch}" =~ pr-([0-9]+)- ]]; then
+                pr_number="${BASH_REMATCH[1]}"
+                echo "Merge queue: detected PR #${pr_number} from ${queue_branch}"
+
+                # Fetch the actual PR head SHA using gh CLI
+                pr_head_sha=$(gh pr view "${pr_number}" --json headRefOid --jq '.headRefOid')
+                if [[ -z "${pr_head_sha}" ]]; then
+                  echo "ERROR: Could not fetch PR head SHA for PR #${pr_number}"
+                  exit 1
+                fi
+                echo "Merge queue: using PR #${pr_number} head SHA ${pr_head_sha:0:7}"
+
+                # Use the same on-pr images that were built and tested for the PR
+                pr_tag="on-pr-${pr_head_sha}"
+                konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${pr_tag}"
+
+                if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
+                  echo "Using PR head Konflux images (${pr_head_sha:0:7})"
+                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                  echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
+                  echo "control_plane_image=${KONFLUX_REGISTRY}/hypershell-control-plane-main:${pr_tag}" >> "${GITHUB_OUTPUT}"
+                  echo "web_console_image=${KONFLUX_REGISTRY}/hypershell-web-console-main:${pr_tag}" >> "${GITHUB_OUTPUT}"
+                else
+                  echo "PR head Konflux images not found -- falling back to baseline"
+                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                  echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
+                  echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
+                  echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                fi
+              else
+                echo "ERROR: Could not parse PR number from merge queue branch: ${queue_branch}"
+                exit 1
+              fi
+              ;;
+
             *)
-              # push, merge_group, workflow_dispatch -- use latest Konflux on-push images
+              # push, workflow_dispatch -- use latest Konflux on-push images
               push_tag="on-pr-${PUSH_SHA}"
               konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${push_tag}"
               if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
