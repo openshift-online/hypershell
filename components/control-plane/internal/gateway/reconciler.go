@@ -355,6 +355,7 @@ func deployGateway(
 		"certgen-job.yaml",
 		"database.yaml",
 		"service.yaml",
+		"statefulset.yaml",
 		"deployment.yaml",
 		"networkpolicy.yaml",
 	}
@@ -393,15 +394,15 @@ func deployGateway(
 				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
 			}
 
-			if obj.GetKind() == "Deployment" {
+			if obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet" {
 				applyConfigHashAnnotation(ctx, clientset, obj, nsConfig.Name)
 			}
 
-			if hasTrustedCA && obj.GetKind() == "Deployment" {
+			if hasTrustedCA && (obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet") {
 				applyTrustedCAOverrides(obj)
 			}
 
-			if opts.IsOpenShift && obj.GetKind() == "Deployment" {
+			if opts.IsOpenShift && (obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet") {
 				applyOpenShiftOverrides(obj)
 			}
 
