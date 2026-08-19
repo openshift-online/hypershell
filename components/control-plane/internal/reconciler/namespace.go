@@ -257,7 +257,9 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 // namespace being deleted, giving operators a durable record.
 func (r *NamespaceGCReconciler) recordGCEvent(ctx context.Context, namespace, message string) error {
 	if r.cpNamespace == "" {
-		return nil
+		// No control-plane namespace means no durable record is possible. A reap
+		// without an audit Event is not allowed, so fail closed.
+		return fmt.Errorf("no control-plane namespace configured; cannot record the required GC Event for %s", namespace)
 	}
 	now := metav1.NewTime(r.now())
 	event := &corev1.Event{
