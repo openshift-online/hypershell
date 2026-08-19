@@ -17,6 +17,7 @@ type JWTRoleSyncer interface {
 type contextKey string
 
 const ContextUserIDKey contextKey = "rbac_user_id"
+const ContextJWTRolesKey contextKey = "rbac_jwt_roles"
 
 type UserProvisioner interface {
 	UpsertFromJWT(ctx context.Context, payload *auth.Payload) (userID string, err error)
@@ -45,9 +46,10 @@ func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSynce
 
 			ctx := context.WithValue(r.Context(), ContextUserIDKey, userID)
 
-			if syncer != nil {
-				jwtRoles := extractJWTRoles(r)
-				if len(jwtRoles) > 0 {
+			jwtRoles := extractJWTRoles(r)
+			if len(jwtRoles) > 0 {
+				ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
+				if syncer != nil {
 					if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
 						glog.Warningf("JWT role sync failed for %q: %v", payload.Username, syncErr)
 					}
@@ -105,4 +107,24 @@ func GetUserIDFromContext(ctx context.Context) string {
 		return ""
 	}
 	return v.(string)
+}
+
+func HasPlatformAdminRole(ctx context.Context, userID string) bool {
+	if userID == "" {
+		return false
+	}
+	v := ctx.Value(ContextJWTRolesKey)
+	if v == nil {
+		return false
+	}
+	jwtRoles, ok := v.([]string)
+	if !ok {
+		return false
+	}
+	for _, role := range jwtRoles {
+		if role == "platform:admin" {
+			return true
+		}
+	}
+	return false
 }

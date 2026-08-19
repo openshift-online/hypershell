@@ -85,11 +85,11 @@ Server-side rendering, React Server Components, and a Next.js application SHALL 
 
 HyperShell SHALL provide one focused application experience. Its landing page SHALL list every gateway visible to the authenticated user and provide gateway provisioning without a separate directory, administration shell, overview, or cluster collection. Gateway details SHALL combine operational configuration with direct OpenShell console and CLI connection actions.
 
-The API server SHALL scope gateway visibility by per-gateway RBAC RoleBindings -- each user sees only gateways where they have a `gateway:owner` or `gateway:viewer` binding (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) for scope-aware filtering and [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge). The console SHALL present exactly the gateways the API returns without additional client-side filtering. The API SHALL remain the authorization boundary for every read and mutation; route presence and visible controls SHALL NOT grant access. Capability-based UI controls MAY be introduced when the API exposes an authorization contract, without adding a separate `/admin` route hierarchy.
+The API server SHALL scope gateway visibility by per-gateway RBAC RoleBindings and the platform:admin global role -- users see gateways where they have a `gateway:owner` or `gateway:viewer` binding, or ALL gateways if they have the `platform:admin` role (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) for scope-aware filtering, platform:admin global access, and the UI pagination/search requirements, and [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge). The console SHALL present exactly the gateways the API returns without additional client-side filtering. The API SHALL remain the authorization boundary for every read and mutation; route presence and visible controls SHALL NOT grant access. Capability-based UI controls (such as delete actions for platform:admin users) MAY be introduced when the API exposes an authorization contract, without adding a separate `/admin` route hierarchy.
 
 The masthead and browser page titles SHALL use HyperShell product branding and the shared product mark. OpenShell terminology SHALL identify gateways, consoles, and CLI connection workflows rather than the enclosing web application.
 
-Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering MAY replace the client-side behavior without changing the interaction pattern when collection size requires it. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source.
+Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering SHALL be used for the gateway collection to support platform:admin users viewing all gateways across the platform. The gateway list SHALL default to 20 items per page and allow selection up to 100 items per page. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source. The gateway search input SHALL filter by gateway name, ID, or fleet, be debounced for 300 milliseconds, and cancel in-flight requests when a new search is initiated.
 
 Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 
@@ -278,9 +278,9 @@ The production BFF SHALL forward the gateway management UI package's `/api/hyper
 
 TanStack Query SHALL own REST response data, asynchronous request state, caching, invalidation, and mutations. Query keys SHALL be factories that include resource kind, resource identifier, and normalized request parameters. Mutation success SHALL update or invalidate only affected keys.
 
-Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. Incremental gateway search SHALL debounce rapid input for 250 milliseconds so one typing burst produces one authoritative request. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded. Related placement names for the visible page SHALL be resolved with at most one additional managed-cluster list request after non-empty cluster identifiers have been normalized and deduplicated. The collection SHALL NOT issue one managed-cluster request per gateway row.
+Gateway collection queries SHALL request exactly one authoritative API page and SHALL retain `page`, `size`, and `total` metadata. Search and sort values SHALL be normalized before entering both the application port and query key. Incremental gateway search SHALL debounce rapid input for 300 milliseconds so one typing burst produces one authoritative request. The default gateway collection experience SHALL NOT call an all-pages helper or loop until the API total has been loaded. Related placement names for the visible page SHALL be resolved with at most one additional managed-cluster list request after non-empty cluster identifiers have been normalized and deduplicated. The collection SHALL NOT issue one managed-cluster request per gateway row.
 
-Gateway placement searches SHALL debounce rapid input for 250 milliseconds and request exactly one authoritative managed-cluster API page for the normalized search value. Placement search and detail results SHALL remain fresh for 60 seconds so reopening the selector or remounting a placement name within that window does not issue another request. Search text SHALL retain literal semantics for API filter quotation, wildcard, and escape characters. The placement selector SHALL NOT call an all-pages helper or exhaust the managed-cluster collection before rendering. When more matching clusters exist than the returned page, the interface SHALL tell the user to refine the search rather than presenting the page as the complete result set.
+Gateway placement searches SHALL debounce rapid input for 300 milliseconds and request exactly one authoritative managed-cluster API page for the normalized search value. Placement search and detail results SHALL remain fresh for 60 seconds so reopening the selector or remounting a placement name within that window does not issue another request. Search text SHALL retain literal semantics for API filter quotation, wildcard, and escape characters. The placement selector SHALL NOT call an all-pages helper or exhaust the managed-cluster collection before rendering. When more matching clusters exist than the returned page, the interface SHALL tell the user to refine the search rather than presenting the page as the complete result set.
 
 React Router loaders MAY verify session and route access and prefill the Query client. Loader data and React Context SHALL NOT become competing REST caches. Redux, Zustand, MobX, or another global state store SHALL NOT be added until a recorded design decision demonstrates cross-route client-only state that React, URL state, and TanStack Query cannot manage clearly.
 
@@ -351,6 +351,74 @@ Gateway status presentation SHALL use an explicit bounded mapping and the compac
 While the active gateway collection page contains a gateway whose lifecycle is pending, transitional, or not yet initialized, the UI SHALL poll that page with one list request approximately every five seconds. It SHALL NOT issue one polling request per row or poll inactive pagination requests. The gateway detail page SHALL poll its selected gateway at the same interval while that gateway is pending, transitional, or awaiting its initial lifecycle value. Rapid polling SHALL stop when the current response contains only terminal states, when the owning view unmounts, or while the document is in the background.
 
 **Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic inline indicators with visible text and no label or chip container. Return an uninitialized lifecycle followed by Pending, Provisioning, and Running responses; verify the active collection page uses one periodic list request, detail uses one periodic detail request, each view updates to Running without user input, and polling then stops. Verify inactive pages and background documents do not poll. Verify creation dates are localized and sort through the API's creation-timestamp field. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior. At the responsive table breakpoint, verify the row actions trigger occupies the top-end action-cell position and does not appear below the labeled row values.
+
+### Requirement WEB-UI-03A: Platform Admin Gateway List
+
+Users with the `platform:admin` role SHALL see all gateways in the platform through the gateway collection view. The gateway list SHALL use server-side pagination with API-backed filtering to efficiently handle large gateway collections.
+
+The gateway list SHALL:
+
+- Display all gateways visible to the authenticated user (scoped per RBAC as defined in `security/rbac-enforcement.spec.md`)
+- Default to 20 items per page
+- Allow page size selection up to 100 items per page
+- Include a search input that filters by gateway name, ID, or fleet
+- Debounce search input for 300 milliseconds
+- Cancel in-flight search requests when new search input is received
+- Display total gateway count across all pages
+- Show pagination controls (page number, previous/next, items per page selector)
+- Render delete actions on all gateway rows for platform:admin users
+- Require confirmation via a modal dialog before deleting any gateway
+- Display a platform:admin indicator (badge or status) when the user has this role
+
+Platform administrators SHALL be able to delete any gateway from the list view. The delete action SHALL:
+
+- Trigger a confirmation modal with the gateway name
+- On confirmation, call `DELETE /api/hypershell/v1/gateways/{id}`
+- On success, remove the gateway from the list and display a success notification
+- Invalidate the gateway collection query to refresh the list
+- Handle failures with clear error messaging and recovery guidance
+
+**Verification:** Authenticate as a platform:admin user with 100+ gateways in the system. Verify the list displays 20 items by default, search filters results with 300ms debounce, pagination controls work correctly, total count is accurate, and delete actions are visible and functional. Verify rapid search input cancels previous requests. Authenticate as a non-admin user and verify delete actions are not visible and the list shows only owned/viewable gateways.
+
+#### Scenario: Platform admin sees all gateways with pagination
+
+- GIVEN user A has `platform:admin`
+- AND there are 50 gateways in the platform owned by various users
+- WHEN user A navigates to the gateway list page
+- THEN all 50 gateways are accessible through pagination
+- AND the page shows "Showing 1-20 of 50"
+- AND pagination controls allow navigation to additional pages
+
+#### Scenario: Platform admin searches for a gateway
+
+- GIVEN user A has `platform:admin`
+- AND there are 100 gateways in the platform
+- WHEN user A types "prod" in the search input
+- THEN the input is debounced for 300ms
+- AND only one API request is sent after the debounce period
+- AND only gateways matching "prod" in name, ID, or fleet are displayed
+- AND the total count reflects filtered results
+
+#### Scenario: Platform admin deletes a gateway from list
+
+- GIVEN user A has `platform:admin`
+- AND user A is viewing the gateway list
+- WHEN user A clicks the delete action for gateway "test-gw-1"
+- THEN a confirmation modal appears with the gateway name
+- WHEN user A confirms deletion
+- THEN `DELETE /api/hypershell/v1/gateways/test-gw-1` is called
+- AND on success, the gateway is removed from the list
+- AND a success notification is displayed
+- AND the list is refreshed
+
+#### Scenario: Non-admin user does not see delete actions
+
+- GIVEN user A has `gateway:owner` on gw-1 only
+- AND user A does NOT have `platform:admin`
+- WHEN user A views the gateway list
+- THEN user A sees only gw-1
+- AND the delete action is not visible in the row actions menu
+- AND user A cannot delete gateways they do not own
 
 ### Requirement WEB-UI-04: Gateway Placement Selection
 
@@ -553,7 +621,8 @@ Browser errors and metrics SHOULD be accepted through a same-origin BFF endpoint
 Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, creation timestamp, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
-- gateway list, search, pagination, sort, and filter semantics;
+- gateway list, search, pagination, sort, and filter semantics, including page size (default 20, max 100), page number, search query (filters by name, ID, or fleet), sort field and direction, and response metadata (page, size, total count);
+- platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner` or `gateway:viewer` bindings;
 - a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
 - authorization behavior and browser-safe capability/permission metadata;
@@ -564,7 +633,7 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 
 The UI SHALL NOT infer authorization solely from object visibility, guess whether a write conflicted from timestamps, or invent terminal states not defined by the API. An authenticated event contract is required before replacing polling with SSE or WebSockets.
 
-The API server scopes gateway visibility by per-gateway RoleBindings -- the gateway list returns only gateways where the authenticated user has a `gateway:owner` or `gateway:viewer` binding (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)). The provisioning action SHALL be available in the primary gateway experience. The gateway provisioning form SHALL NOT collect OIDC configuration -- the control plane auto-provisions Keycloak OIDC clients and populates OIDC fields when a gateway is created. Gateway provisioning requires the `gateway:creator` role (from Keycloak); the creator automatically becomes `gateway:owner` on the new gateway, which provides admin-tier access via the OIDC Role Bridge (see [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md)).
+The API server scopes gateway visibility by per-gateway RoleBindings and the platform:admin global role -- the gateway list returns gateways where the authenticated user has a `gateway:owner` or `gateway:viewer` binding, or ALL gateways if the user has the `platform:admin` role (see [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)). The provisioning action SHALL be available in the primary gateway experience. The gateway provisioning form SHALL NOT collect OIDC configuration -- the control plane auto-provisions Keycloak OIDC clients and populates OIDC fields when a gateway is created. Gateway provisioning requires the `gateway:creator` role (from Keycloak); the creator automatically becomes `gateway:owner` on the new gateway, which provides admin-tier access via the OIDC Role Bridge (see [`platform/openshell-gateway-keycloak.spec.md`](../platform/openshell-gateway-keycloak.spec.md)).
 
 The gateway table SHALL identify an empty `cluster_id` as `Hub cluster` in a sortable Cluster column. The provisioning form SHALL expose the hub as `Hub cluster (default)` and list existing managed clusters as remote placement choices, without offering cluster creation or registration. Hub placement SHALL send an empty `cluster_id`; managed-cluster placement SHALL send the selected cluster identifier. The form SHALL NOT collect `fleet_id`, `release_id`, `database_id`, or `namespace`; it SHALL send the first three identifiers as empty strings and omit namespace because the API server owns its assignment. Preview OIDC and console values MAY support design work, but production builds SHALL NOT use those placeholders as operational defaults.
 

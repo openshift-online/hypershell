@@ -195,6 +195,56 @@ assign_gateway_client_role() {
   fi
 }
 
+# assign_realm_role - grant a user a realm role (e.g., platform:admin, gateway:creator).
+# Realm roles are global to the realm, unlike client roles which are scoped to a
+# specific client. Used for platform-wide RBAC roles.
+# Idempotent: re-granting an existing role mapping is a no-op on the Keycloak side.
+# Usage: assign_realm_role <username> <role>
+assign_realm_role() {
+  local username="${1:?username required}"
+  local role="${2:?role required}"
+
+  local base realm
+  base="$(_kc_base)"
+  realm="$(_kc_realm)"
+
+  if ! _kc_admin_token; then
+    red "  Failed to obtain Keycloak admin token (user=${E2E_KC_ADMIN_USER})"
+    return 1
+  fi
+
+  local user_uuid role_json
+  user_uuid=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+    "${base}/admin/realms/${realm}/users?username=${username}&exact=true" 2>/dev/null \
+    | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
+  if [[ -z "$user_uuid" ]]; then
+    red "  Keycloak user not found: ${username}"
+    return 1
+  fi
+
+  role_json=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+    "${base}/admin/realms/${realm}/roles/${role}" 2>/dev/null || true)
+  local role_id role_name
+  role_id=$(echo "$role_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+  role_name=$(echo "$role_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)
+  if [[ -z "$role_id" || -z "$role_name" ]]; then
+    red "  Keycloak realm role not found: ${role}"
+    return 1
+  fi
+
+  local code
+  code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    "${base}/admin/realms/${realm}/users/${user_uuid}/role-mappings/realm" \
+    -d "[{\"id\":\"${role_id}\",\"name\":\"${role_name}\"}]" 2>/dev/null || true)
+  # 204 = created; Keycloak also returns 204 when the mapping already exists.
+  if [[ "$code" != "204" && "$code" != "200" ]]; then
+    red "  Failed to assign realm role ${role} to ${username} (HTTP ${code})"
+    return 1
+  fi
+}
+
 # _token_has_role - check whether a JWT carries a client role in the nested
 # hypershell.roles claim (the claim path the gateway is configured with). Falls
 # back to a flat "hypershell.roles" key for robustness. Returns 0 if present.
