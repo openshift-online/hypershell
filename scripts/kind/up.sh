@@ -327,9 +327,15 @@ if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   # BFF; 4317 is OTLP/gRPC reserved for the API server). Setting the endpoint on
   # the Deployment opts the API server into tracing; a swapped-in working-tree
   # image keeps this env, so browser -> BFF -> API traces join in Jaeger.
+  # Jaeger ingests traces only; its OTLP endpoint has no metrics service, so the
+  # API server's metric exporter would log a periodic "Unimplemented" upload
+  # error. Turn metrics off in the dev cluster (OTEL_METRICS_EXPORTER=none) while
+  # keeping trace export on; production points at a full collector that accepts
+  # both.
   info "Patching API server with OTEL_EXPORTER_OTLP_ENDPOINT..."
   kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
-    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317"
+    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317" \
+    OTEL_METRICS_EXPORTER="none"
   info "Waiting for Jaeger..."
   kube wait --for=condition=available deployment/jaeger -n "${KIND_NAMESPACE}" --timeout=120s
   success "Jaeger ready"
@@ -361,7 +367,7 @@ else
   fi
   if deployment_exists hypershell-api-server; then
     kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
-      OTEL_EXPORTER_OTLP_ENDPOINT-
+      OTEL_EXPORTER_OTLP_ENDPOINT- OTEL_METRICS_EXPORTER-
     if api_server_otel_endpoint_set; then
       error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
       exit 1

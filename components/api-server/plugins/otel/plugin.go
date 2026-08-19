@@ -109,6 +109,20 @@ func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 	)
 	otel.SetTracerProvider(tp)
 
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	// Metrics are opt-out via the standard OTEL_METRICS_EXPORTER=none. A
+	// trace-only backend (Jaeger in the dev cluster) rejects the OTLP metrics
+	// service, so this lets an operator disable metric export without losing
+	// tracing. When metrics are off the global meter stays the no-op, and the
+	// gRPC interceptors' recordRPCDuration becomes a no-op.
+	if os.Getenv("OTEL_METRICS_EXPORTER") == "none" {
+		return tp.Shutdown, nil
+	}
+
 	metricExporter, err := otlpmetricgrpc.New(ctx)
 	if err != nil {
 		// Flush the already-started trace provider before returning so a
@@ -121,11 +135,6 @@ func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 		sdkmetric.WithResource(res),
 	)
 	otel.SetMeterProvider(mp)
-
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	return func(ctx context.Context) error {
 		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx))
