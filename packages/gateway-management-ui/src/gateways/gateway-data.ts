@@ -99,6 +99,9 @@ export function toGatewayConnection(
       : healthStatus || phase;
 
   return {
+    ...(typeof gateway.activeSandboxCount === "number"
+      ? { activeSandboxCount: gateway.activeSandboxCount }
+      : {}),
     ...(clusterId ? { clusterId } : {}),
     clusterName: clusterId ? "" : hubClusterName,
     ...(gateway.consoleUrl ? { consoleUrl: gateway.consoleUrl } : {}),

@@ -136,63 +136,23 @@ func ReconcileGateway(
 	return nil
 }
 
+// DeleteGatewayResources cleans up the resources a gateway owns that live
+// OUTSIDE its namespace and are therefore not reclaimed when the namespace is
+// deleted. Everything inside the gateway's namespace (Deployments, Services,
+// Secrets, ConfigMaps, PVCs, Jobs, Roles, RoleBindings, and cert-manager /
+// Gateway API objects) is garbage-collected by Kubernetes as a side effect of
+// deleting the namespace itself, so those are not enumerated here. The
+// out-of-namespace resources handled below are:
+//   - the cluster-scoped ClusterRoleBinding created for the gateway,
+//   - the gateway's external Keycloak client, and
+//   - any credential RBAC the gateway created in a separate credential namespace.
 func DeleteGatewayResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
-	clientset *kubernetes.Clientset,
 	namespace string,
 	opts ReconcileOpts,
 	credentialNamespaces ...string,
 ) error {
-	labelSelector := "hypershell.redhat.io/managed=true"
-
-	namespacedResources := []schema.GroupVersionResource{
-		{Group: "apps", Version: "v1", Resource: "deployments"},
-		{Version: "v1", Resource: "services"},
-		{Version: "v1", Resource: "configmaps"},
-		{Version: "v1", Resource: "serviceaccounts"},
-		{Version: "v1", Resource: "secrets"},
-		{Version: "v1", Resource: "persistentvolumeclaims"},
-		{Group: "batch", Version: "v1", Resource: "jobs"},
-		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
-	}
-
-	if opts.HasCertManager {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
-		)
-	}
-
-	if opts.HasGatewayAPI {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
-		)
-	}
-
-	for _, gvr := range namespacedResources {
-		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				continue
-			}
-			log.Printf("WARN failed to list %s in %s: %v", gvr.Resource, namespace, err)
-			continue
-		}
-		for _, item := range list.Items {
-			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-				log.Printf("WARN failed to delete %s %s in %s: %v", gvr.Resource, item.GetName(), namespace, err)
-			} else {
-				log.Printf("INFO deleted %s %s from %s", gvr.Resource, item.GetName(), namespace)
-			}
-		}
-	}
-
 	crbGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
 		Version:  "v1",
@@ -223,8 +183,91 @@ func DeleteGatewayResources(
 		}
 	}
 
-	log.Printf("INFO gateway resources cleaned up from namespace %s", namespace)
+	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
 	return nil
+}
+
+// DeleteLabeledNamespaceResources reclaims this gateway's own in-namespace
+// resources when the namespace itself survives gateway deletion. Kubernetes only
+// garbage-collects namespaced objects as a side effect of deleting the namespace,
+// so on the delete path we normally rely on DeleteManagedNamespace to cascade
+// them. This is the fallback for when the namespace is NOT reaped: most
+// importantly a pre-existing namespace the control plane does not manage (it is
+// missing the management labels, so DeleteManagedNamespace leaves it and the
+// NamespaceGCReconciler ignores it too). Without this sweep the workloads the
+// gateway created inside such a namespace would be orphaned.
+//
+// Only resources carrying hypershell.redhat.io/managed=true (the label the
+// gateway stamps on everything it creates) are deleted, so co-tenant workloads
+// sharing the namespace are never touched: the same no-collateral guarantee that
+// keeps GC from reaping a shared namespace. The namespace itself is never
+// deleted here. It is best-effort - per-resource failures are logged and do not
+// abort the sweep, matching DeleteGatewayResources - and the caller invokes it
+// only when the namespace was left in place.
+func DeleteLabeledNamespaceResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	namespace string,
+	opts ReconcileOpts,
+) {
+	labelSelector := fmt.Sprintf("%s=%s", ManagedLabel, ManagedLabelValue)
+
+	namespacedResources := []schema.GroupVersionResource{
+		{Group: "apps", Version: "v1", Resource: "deployments"},
+		{Group: "apps", Version: "v1", Resource: "statefulsets"},
+		{Version: "v1", Resource: "services"},
+		{Version: "v1", Resource: "configmaps"},
+		{Version: "v1", Resource: "serviceaccounts"},
+		{Version: "v1", Resource: "secrets"},
+		{Version: "v1", Resource: "persistentvolumeclaims"},
+		{Group: "batch", Version: "v1", Resource: "jobs"},
+		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
+	}
+	if opts.IsOpenShift {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
+		)
+	}
+	if opts.HasCertManager {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
+		)
+	}
+	if opts.HasGatewayAPI {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
+		)
+	}
+
+	for _, gvr := range namespacedResources {
+		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			// A missing CRD/resource type is expected on clusters without the
+			// optional APIs; skip it rather than treating it as a failure.
+			if k8serrors.IsNotFound(err) {
+				continue
+			}
+			log.Printf("WARN failed to list %s in namespace %s for cleanup: %v", gvr.Resource, namespace, err)
+			continue
+		}
+		for i := range list.Items {
+			name := list.Items[i].GetName()
+			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+				if !k8serrors.IsNotFound(err) {
+					log.Printf("WARN failed to delete %s %s in namespace %s: %v", gvr.Resource, name, namespace, err)
+				}
+				continue
+			}
+			log.Printf("INFO deleted %s %s from namespace %s", gvr.Resource, name, namespace)
+		}
+	}
 }
 
 func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
@@ -281,8 +324,8 @@ func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, names
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "hypershell-control-plane",
-				"hypershell.redhat.io/managed": "true",
+				ManagedByLabel: ManagedByValue,
+				ManagedLabel:   ManagedLabelValue,
 			},
 		},
 	}
@@ -312,6 +355,7 @@ func deployGateway(
 		"certgen-job.yaml",
 		"database.yaml",
 		"service.yaml",
+		"statefulset.yaml",
 		"deployment.yaml",
 		"networkpolicy.yaml",
 	}
@@ -350,15 +394,15 @@ func deployGateway(
 				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
 			}
 
-			if obj.GetKind() == "Deployment" {
+			if obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet" {
 				applyConfigHashAnnotation(ctx, clientset, obj, nsConfig.Name)
 			}
 
-			if hasTrustedCA && obj.GetKind() == "Deployment" {
+			if hasTrustedCA && (obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet") {
 				applyTrustedCAOverrides(obj)
 			}
 
-			if opts.IsOpenShift && obj.GetKind() == "Deployment" {
+			if opts.IsOpenShift && (obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet") {
 				applyOpenShiftOverrides(obj)
 			}
 
@@ -811,12 +855,6 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		"name": "trusted-ca",
 		"configMap": map[string]interface{}{
 			"name": "gateway-trusted-ca",
-			"items": []interface{}{
-				map[string]interface{}{
-					"key":  "ca-bundle.crt",
-					"path": "ca-bundle.crt",
-				},
-			},
 		},
 	}
 	volumes = append(volumes, caVolume)
@@ -839,7 +877,7 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		volumeMounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
 		volumeMounts = append(volumeMounts, map[string]interface{}{
 			"name":      "trusted-ca",
-			"mountPath": "/etc/pki/tls/certs/ca-bundle.crt",
+			"mountPath": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
 			"subPath":   "ca-bundle.crt",
 			"readOnly":  true,
 		})
@@ -848,7 +886,7 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		env, _, _ := unstructured.NestedSlice(container, "env")
 		env = append(env, map[string]interface{}{
 			"name":  "SSL_CERT_FILE",
-			"value": "/etc/pki/tls/certs/ca-bundle.crt",
+			"value": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
 		})
 		_ = unstructured.SetNestedSlice(container, env, "env")
 

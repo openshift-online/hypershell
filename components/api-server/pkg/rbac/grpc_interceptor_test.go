@@ -1,8 +1,32 @@
 package rbac
 
 import (
+	"context"
 	"testing"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
+
+// fakeLookup and fakeProvisioner stand in for the DB-backed role-binding lookup
+// and JWT user provisioner so the interceptor can be exercised without a live
+// database or auth stack.
+type fakeLookup struct {
+	bindings []BindingSummary
+}
+
+func (f fakeLookup) FindBindingsByUserID(_ context.Context, _ string) ([]BindingSummary, error) {
+	return f.bindings, nil
+}
+
+type fakeProvisioner struct{ userID string }
+
+func (f fakeProvisioner) UpsertFromJWT(_ context.Context, _ *auth.Payload) (string, error) {
+	return f.userID, nil
+}
 
 func TestGrpcMethodIsRead(t *testing.T) {
 	tests := []struct {
@@ -111,6 +135,88 @@ func TestIsServiceAccount_EmptyUsernameNeverMatches(t *testing.T) {
 func TestIsServiceAccount_EmptyListNeverMatches(t *testing.T) {
 	if isServiceAccount("service-account-hypershell-control-plane", nil) {
 		t.Error("nil service accounts list must not match")
+	}
+}
+
+func TestIsServiceAccountOnlyMethod(t *testing.T) {
+	tests := []struct {
+		method string
+		want   bool
+	}{
+		{"/hypershell.v1.GatewayService/AdjustActiveSandboxCount", true},
+		{"/hypershell.v1.GatewayService/SetActiveSandboxCount", true},
+		{"/hypershell.v1.GatewayService/UpdateGateway", false},
+		{"/hypershell.v1.GatewayService/CreateGateway", false},
+		{"/hypershell.v1.GatewayService/GetGateway", false},
+		{"malformed", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			if got := isServiceAccountOnlyMethod(tt.method); got != tt.want {
+				t.Errorf("isServiceAccountOnlyMethod(%q) = %v, want %v", tt.method, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestUnaryInterceptor_SandboxCountRestrictedToServiceAccount locks in the guard
+// that keeps the control-plane-only sandbox-count writes out of reach of ordinary
+// role bindings: with an allowlist configured, only an allowlisted service account
+// may call them; an owner/creator (who otherwise passes isGRPCAuthorized for every
+// non-read method) is denied. With no allowlist, the guard falls back to the
+// standard role check so single-tenant/dev deployments keep working.
+func TestUnaryInterceptor_SandboxCountRestrictedToServiceAccount(t *testing.T) {
+	const adjust = "/hypershell.v1.GatewayService/AdjustActiveSandboxCount"
+	const create = "/hypershell.v1.GatewayService/CreateGateway"
+	const sa = "service-account-hypershell-control-plane"
+
+	// An owner binding authorizes every non-read method under isGRPCAuthorized.
+	ownerLookup := fakeLookup{bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")}}}
+	prov := fakeProvisioner{userID: "user-1"}
+
+	tests := []struct {
+		name            string
+		username        string
+		method          string
+		serviceAccounts []string
+		wantAllowed     bool
+	}{
+		{"owner denied Adjust when allowlist set", "human-owner", adjust, []string{sa}, false},
+		{"service account allowed Adjust", sa, adjust, []string{sa}, true},
+		{"owner allowed Adjust when no allowlist", "human-owner", adjust, nil, true},
+		{"owner still allowed non-restricted method", "human-owner", create, []string{sa}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			interceptor := RBACUnaryInterceptor(ownerLookup, prov, nil, AuthzConfig{
+				EnforceRBAC:     true,
+				ServiceAccounts: tt.serviceAccounts,
+			})
+			ctx := auth.SetUsernameContext(context.Background(), tt.username)
+			called := false
+			handler := func(context.Context, interface{}) (interface{}, error) {
+				called = true
+				return "ok", nil
+			}
+			_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: tt.method}, handler)
+
+			if tt.wantAllowed {
+				if err != nil {
+					t.Fatalf("expected call allowed, got error %v", err)
+				}
+				if !called {
+					t.Error("expected handler to be invoked")
+				}
+				return
+			}
+			if called {
+				t.Error("handler must not be invoked when denied")
+			}
+			if status.Code(err) != codes.PermissionDenied {
+				t.Errorf("got %v, want PermissionDenied", err)
+			}
+		})
 	}
 }
 

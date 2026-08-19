@@ -343,6 +343,19 @@ export function GatewaysPage({
       width: 25,
     },
     {
+      // active_sandbox_count is control-plane-owned and advisory; the API does
+      // not sort on it, so this column is not sortable. An unset value renders
+      // the localized not-available fallback rather than a misleading zero.
+      id: "activeSandboxes",
+      label: intl.formatMessage(messages.activeSandboxes),
+      render: ({ activeSandboxCount }) =>
+        typeof activeSandboxCount === "number"
+          ? String(activeSandboxCount)
+          : intl.formatMessage(messages.notAvailable),
+      sortable: false,
+      width: 10,
+    },
+    {
       id: "cluster",
       label: intl.formatMessage(messages.cluster),
       render: (gateway) => (

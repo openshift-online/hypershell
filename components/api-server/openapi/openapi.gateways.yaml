@@ -283,6 +283,11 @@ components:
             credential_driver:
               type: string
               description: JSON-encoded credential storage driver configuration
+            active_sandbox_count:
+              type: integer
+              format: int32
+              readOnly: true
+              description: Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
     GatewayCreateRequest:
       type: object
       required:

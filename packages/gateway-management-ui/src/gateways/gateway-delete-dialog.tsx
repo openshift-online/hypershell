@@ -18,6 +18,7 @@ import { messages } from "../messages";
 import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
 
 interface GatewayDeleteDialogProps {
+  activeSandboxCount?: number;
   gatewayId: string;
   gatewayName: string;
   isOpen: boolean;
@@ -26,6 +27,7 @@ interface GatewayDeleteDialogProps {
 }
 
 export function GatewayDeleteDialog({
+  activeSandboxCount,
   gatewayId,
   gatewayName,
   isOpen,
@@ -78,6 +80,18 @@ export function GatewayDeleteDialog({
               values={{ gatewayName }}
             />
           </StackItem>
+          {activeSandboxCount && activeSandboxCount > 0 ? (
+            <StackItem>
+              <Alert
+                isInline
+                title={intl.formatMessage(
+                  messages.deleteGatewayActiveSandboxWarning,
+                  { count: activeSandboxCount },
+                )}
+                variant="warning"
+              />
+            </StackItem>
+          ) : null}
           {deletion.isError ? (
             <StackItem>
               <Alert

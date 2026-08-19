@@ -51,6 +51,31 @@ case "${COMPONENT}" in
     ;;
 esac
 
+# restore_web_console_from_overlay: re-apply the web-console's Kind-overlay
+# resources (base + the OIDC env patch from deploy/kind) rather than the bare
+# deploy/base manifest. The base manifest carries no OIDC_ISSUER/OIDC_CLIENT_ID/
+# SESSION_SECRET, so applying it strips the OIDC env off the running deployment
+# and breaks the next dev swap: the hot-reload /api proxy then forwards without a
+# bearer token and the OIDC-enforcing API server returns 401. Render the overlay
+# to a temp dir and apply ONLY the web-console's own resources, so a concurrently
+# swapped api-server or control-plane is never reset to its baseline image.
+restore_web_console_from_overlay() {
+  local out applied=false f
+  out="$(mktemp -d)"
+  if kustomize build "${REPO_ROOT}/deploy/kind" -o "${out}" 2>/dev/null; then
+    for f in "${out}"/*hypershell-web-console*.yaml; do
+      [[ -e "${f}" ]] || continue
+      kube apply -f "${f}" && applied=true
+    done
+  fi
+  rm -rf "${out}"
+  if [[ "${applied}" == "true" ]]; then
+    return 0
+  fi
+  warn "Could not render web-console from the deploy/kind overlay; applying the base manifest (no OIDC env)."
+  kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml"
+}
+
 swap_up() {
   # Web console hot reload mode: run Vite dev server on the host,
   # redirect the in-cluster Service so the Gateway routes to it.
@@ -114,8 +139,16 @@ swap_up() {
         export SESSION_SECRET="${SECRET_VAL}"
       fi
     fi
+    # Dev identity for the Vite /api proxy's Keycloak token minting. The proxy
+    # mints a bearer token as this user (resource owner password grant) so the
+    # hot-reload console can reach the OIDC-enforcing API server. Override to
+    # test other roles, e.g.:
+    #   KIND_DEV_USER=developer KIND_DEV_PASSWORD=developer make kind-web-console-up
+    export KIND_DEV_USER="${KIND_DEV_USER:-admin}"
+    export KIND_DEV_PASSWORD="${KIND_DEV_PASSWORD:-admin}"
     if [[ -n "${OIDC_ISSUER:-}" ]]; then
       info "OIDC env vars loaded from deployment"
+      info "Dev API requests authenticate as '${KIND_DEV_USER}' (KIND_DEV_USER/KIND_DEV_PASSWORD to change)"
     fi
 
     info "Scaling down in-cluster web console..."
@@ -125,17 +158,21 @@ swap_up() {
     kube patch service "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --type=json \
       -p='[{"op": "remove", "path": "/spec/selector"}]' 2>/dev/null || true
     kube apply -f - <<EOF
-apiVersion: v1
-kind: Endpoints
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
 metadata:
   name: ${DEPLOYMENT}
   namespace: ${KIND_NAMESPACE}
-subsets:
+  labels:
+    kubernetes.io/service-name: ${DEPLOYMENT}
+addressType: IPv4
+endpoints:
   - addresses:
-      - ip: ${HOST_IP}
-    ports:
-      - name: http
-        port: ${DEV_PORT}
+      - ${HOST_IP}
+ports:
+  - name: http
+    port: ${DEV_PORT}
+    protocol: TCP
 EOF
 
     # The console's /api proxy targets localhost:8000, so the API server must be
@@ -186,7 +223,7 @@ EOF
       rm -f "${API_PF_STOPFILE}" 2>/dev/null || true
       info "Restoring in-cluster web console..."
       kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-      kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml" || true
+      restore_web_console_from_overlay || true
       kube rollout restart "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" || true
       info "Waiting for web console to become available..."
       kube wait --for=condition=available "deployment/${DEPLOYMENT}" \
@@ -207,14 +244,23 @@ EOF
     echo ""
     success "Web Console: https://${CONSOLE_HOSTNAME}"
     info "To use rebuild-and-replace instead: KIND_HOT_RELOAD=false make kind-web-console-up"
-    info "Starting dev server (Ctrl+C to stop and revert)..."
     echo ""
 
-    (cd "${REPO_ROOT}" && pnpm install --frozen-lockfile && \
+    # Prepare the workspace, then run Vite. Announce each phase so the wait is
+    # legible: before the server is up there are four pnpm steps (install + three
+    # dependency builds), each emitting Node's NODE_TLS_REJECT_UNAUTHORIZED
+    # warning (expected in dev). The first `dev` run then pre-bundles the large,
+    # PatternFly-heavy dependency graph and prints no "Local:" banner until that
+    # finishes -- up to ~1 minute on a cold cache, which is easily mistaken for a
+    # hang.
+    (cd "${REPO_ROOT}" && \
+      info "Installing workspace dependencies (pnpm install)..." && \
+      pnpm install --frozen-lockfile --reporter=append-only && \
       info "Building workspace dependencies (sdk → domain-probes → gateway-management-ui)..." && \
       pnpm --filter @openshift-online/hypershell-sdk build && \
       pnpm --filter @openshift-online/hypershell-domain-probes build && \
       pnpm --filter @openshift-online/hypershell-gateway-management-ui build && \
+      info "Starting dev server (first run optimizes dependencies, up to ~1 min with no output; Ctrl+C to stop and revert)..." && \
       DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev) || true
     exit 0
   fi
@@ -275,7 +321,7 @@ swap_down() {
 
   if [[ "${COMPONENT}" == "web-console" ]]; then
     kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
-    kube apply -f deploy/base/web-console.yaml
+    restore_web_console_from_overlay
   else
     local set_image_args=""
     for container in ${CONTAINERS}; do

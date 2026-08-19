@@ -785,6 +785,34 @@ describe("gateway shell pages", () => {
     ).toBe("/gateways/new");
   });
 
+  it("shows the active sandbox count with a not-available fallback when unset", () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          {
+            ...previewGateway,
+            activeSandboxCount: 3,
+            id: "gw-busy",
+            name: "gw-busy",
+          },
+          // activeSandboxCount deliberately omitted: an unset count must render
+          // the not-available fallback rather than a misleading zero.
+          { ...previewGateway, id: "gw-idle", name: "gw-idle" },
+        ]}
+      />
+    ));
+
+    expect(
+      screen.getByRole("columnheader", { name: "Active sandboxes" }),
+    ).toBeTruthy();
+
+    const busyRow = screen.getByRole("row", { name: /gw-busy/u });
+    expect(within(busyRow).getByText("3")).toBeTruthy();
+
+    const idleRow = screen.getByRole("row", { name: /gw-idle/u });
+    expect(within(idleRow).getByText("Not available")).toBeTruthy();
+  });
+
   it("sorts the gateway list by creation date", async () => {
     const user = userEvent.setup();
     const onCollectionStateChange = vi.fn();
@@ -1046,6 +1074,54 @@ describe("gateway shell pages", () => {
         name: "Delete openshell-gateway-test?",
       }),
     ).toBeNull();
+  });
+
+  it("warns about active sandboxes without blocking deletion", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewaysPage gateways={[{ ...previewGateway, activeSandboxCount: 3 }]} />
+    ));
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for openshell-gateway-test",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Delete openshell-gateway-test?",
+    });
+    expect(
+      within(dialog).getByText(
+        "This gateway has 3 active sandboxes that will be disrupted by deletion.",
+      ),
+    ).toBeTruthy();
+
+    // The warning is advisory: the delete button is still actionable.
+    await user.click(
+      within(dialog).getByRole("button", { name: "Delete gateway" }),
+    );
+    await waitFor(() => {
+      expect(deleteGatewayMock).toHaveBeenCalledWith("openshell-gateway-test");
+    });
+  });
+
+  it("omits the sandbox warning when no sandboxes are active", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewaysPage gateways={[{ ...previewGateway, activeSandboxCount: 0 }]} />
+    ));
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for openshell-gateway-test",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Delete openshell-gateway-test?",
+    });
+    expect(within(dialog).queryByText(/active sandbox/u)).toBeNull();
   });
 
   it("validates and recovers from a failed gateway rename", async () => {

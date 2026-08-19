@@ -94,3 +94,20 @@ func migrationAddSupervisorImage() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddActiveSandboxCount() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		ActiveSandboxCount *int
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026081712000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "active_sandbox_count")
+		},
+	}
+}

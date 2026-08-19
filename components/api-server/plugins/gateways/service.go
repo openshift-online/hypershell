@@ -20,6 +20,16 @@ type GatewayService interface {
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	All(ctx context.Context) (GatewayList, *errors.ServiceError)
 
+	// AdjustActiveSandboxCount applies a relative delta to the
+	// active_sandbox_count of the gateway backing the given namespace and returns
+	// the resulting count. It is a no-op returning 0 when no live gateway backs
+	// the namespace.
+	AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, *errors.ServiceError)
+
+	// SetActiveSandboxCount sets the active_sandbox_count of the gateway backing
+	// the given namespace to an absolute value and returns it (self-heal path).
+	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError)
+
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
@@ -117,6 +127,25 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	}
 
 	return gateway, nil
+}
+
+func (s *sqlGatewayService) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, *errors.ServiceError) {
+	// The DAO emits the Gateway update Event in the same transaction as the count
+	// mutation (transactional outbox), so there is no separate event write here to
+	// drift from the persisted value.
+	count, err := s.gatewayDao.AdjustActiveSandboxCount(ctx, namespace, delta)
+	if err != nil {
+		return 0, services.HandleUpdateError("Gateway", err)
+	}
+	return count, nil
+}
+
+func (s *sqlGatewayService) SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError) {
+	resulting, err := s.gatewayDao.SetActiveSandboxCount(ctx, namespace, count)
+	if err != nil {
+		return 0, services.HandleUpdateError("Gateway", err)
+	}
+	return resulting, nil
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {
