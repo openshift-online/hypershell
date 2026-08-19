@@ -598,6 +598,52 @@ echo ""
 OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
 if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+
+  # Exercise the real Keycloak device authorization endpoint for the client
+  # provisioned by the control plane. A successful authorization response proves
+  # that oauth2.device.authorization.grant.enabled reached Keycloak; polling once
+  # after the advertised interval proves that Keycloak recognizes the device code.
+  DEVICE_DISCOVERY=$(curl -sk "${E2E_OIDC_ISSUER}/.well-known/openid-configuration" 2>/dev/null || true)
+  DEVICE_AUTH_ENDPOINT=$(echo "$DEVICE_DISCOVERY" | python3 -c "import json,sys; print(json.load(sys.stdin).get('device_authorization_endpoint',''))" 2>/dev/null || true)
+  if [[ -z "$DEVICE_AUTH_ENDPOINT" ]]; then
+    fail_test "OIDC discovery did not advertise a device authorization endpoint"
+    exit 1
+  fi
+
+  show_cmd "# OAuth 2.0 Device Authorization Grant → ${DEVICE_AUTH_ENDPOINT} (client: ${GW_KC_CLIENT_ID})"
+  DEVICE_AUTH_RESPONSE=$(curl -sk -X POST "$DEVICE_AUTH_ENDPOINT" \
+    -d "client_id=${GW_KC_CLIENT_ID}" \
+    -d "scope=openid" 2>/dev/null || true)
+  DEVICE_CODE=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('device_code',''))" 2>/dev/null || true)
+  DEVICE_USER_CODE=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('user_code',''))" 2>/dev/null || true)
+  DEVICE_VERIFICATION_URI=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('verification_uri',''))" 2>/dev/null || true)
+  DEVICE_INTERVAL=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('interval',5))" 2>/dev/null || true)
+  if [[ -z "$DEVICE_CODE" || -z "$DEVICE_USER_CODE" || -z "$DEVICE_VERIFICATION_URI" ]]; then
+    DEVICE_AUTH_ERROR=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','invalid device authorization response'))" 2>/dev/null || echo "invalid device authorization response")
+    fail_test "Per-gateway client rejected Device Authorization Grant: ${DEVICE_AUTH_ERROR}"
+    exit 1
+  fi
+  pass "Per-gateway client started OAuth 2.0 Device Authorization Grant"
+
+  if [[ ! "$DEVICE_INTERVAL" =~ ^[0-9]+$ || "$DEVICE_INTERVAL" -gt 30 ]]; then
+    fail_test "Device Authorization Grant returned invalid polling interval"
+    exit 1
+  fi
+  sleep "$DEVICE_INTERVAL"
+
+  DEVICE_TOKEN_RESPONSE=$(curl -sk -X POST "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
+    -d "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+    -d "client_id=${GW_KC_CLIENT_ID}" \
+    -d "device_code=${DEVICE_CODE}" 2>/dev/null || true)
+  DEVICE_TOKEN_ERROR=$(echo "$DEVICE_TOKEN_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || true)
+  if [[ "$DEVICE_TOKEN_ERROR" == "authorization_pending" ]]; then
+    pass "Keycloak accepted the issued device code"
+  else
+    DEVICE_TOKEN_DESCRIPTION=$(echo "$DEVICE_TOKEN_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','unexpected device token response'))" 2>/dev/null || echo "unexpected device token response")
+    fail_test "Device code poll did not return authorization_pending: ${DEVICE_TOKEN_DESCRIPTION}"
+    exit 1
+  fi
+
   show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
   if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
     OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
