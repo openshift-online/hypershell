@@ -68,7 +68,7 @@ API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
 KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
-KEYCLOAK_OIDC_ISSUER?=http://$(KEYCLOAK_HOSTNAME):8080/realms/hypershell
+KEYCLOAK_OIDC_ISSUER?=https://$(KEYCLOAK_HOSTNAME)/realms/hypershell
 
 # ============================================================================
 # Help
