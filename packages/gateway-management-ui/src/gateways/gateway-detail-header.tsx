@@ -150,6 +150,7 @@ function GatewayDetailActions({
                   setIsActionsOpen((open) => !open);
                 }}
                 ref={toggleRef}
+                variant="secondary"
               >
                 <FormattedMessage {...messages.actions} />
               </MenuToggle>
