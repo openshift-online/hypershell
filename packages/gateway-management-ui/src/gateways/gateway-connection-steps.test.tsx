@@ -54,11 +54,12 @@ describe("GatewayConnectionSteps", () => {
     ).toBeTruthy();
 
     const link = screen.getByRole("link", {
-      name: /Install the OpenShell CLI/,
+      name: "Install the OpenShell CLI (opens in a new tab)",
     });
     expect(link.getAttribute("href")).toBe(installDocsUrl);
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
+    expect(link.textContent).toContain("Install the OpenShell CLI");
   });
 
   it("highlights both command blocks with Shiki once they resolve", async () => {

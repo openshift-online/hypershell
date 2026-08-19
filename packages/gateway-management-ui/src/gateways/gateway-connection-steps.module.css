@@ -157,6 +157,16 @@
   margin-block: var(--pf-t--global--spacer--sm);
 }
 
+/*
+ * AlertActionLink uses the default link token, which fails AA contrast on the
+ * info-alert surface in dark theme. Regular text on that surface meets 4.5:1;
+ * pf-m-link keeps the underline so the control is still identifiable as a link.
+ */
+.prereqAlert:global(.pf-v6-c-alert)
+  :global(.pf-v6-c-alert__action-group .pf-v6-c-button.pf-m-link) {
+  color: var(--pf-t--global--text--color--regular);
+}
+
 .commandPending {
   background-color: var(--pf-t--global--background--color--primary--default);
   border: var(--pf-t--global--border--width--box--default) solid

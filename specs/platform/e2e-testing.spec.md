@@ -300,17 +300,26 @@ The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml
 
 #### Scenario: Skip for Irrelevant Changes
 
-- GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/`, `packages/gateway-management-ui/`, or `components/sdk-typescript/`)
+- GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/` or `components/sdk-typescript/`)
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN the e2e job SHALL be skipped
 - AND the workflow SHALL report `success` (to avoid blocking merges)
 
 #### Scenario: Infrastructure-Only Changes (No Source Components)
 
-- GIVEN the PR modifies e2e-relevant files (Makefile, `.github/`, `deploy/`, `tests/e2e/`) but no files under `components/api-server/`, `components/control-plane/`, or `components/web-console/`
+- GIVEN the PR modifies e2e-relevant files (Makefile, `.github/`, `deploy/`, `tests/e2e/`) but no files under `components/api-server/`, `components/control-plane/`, `components/web-console/`, or `packages/gateway-management-ui/`
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN the e2e job SHALL run using baseline registry images (no Konflux build wait)
 - AND the workflow SHALL NOT poll for Konflux check runs
+
+#### Scenario: Gateway Management UI Package Changed
+
+- GIVEN the PR modifies files only in `packages/gateway-management-ui/`
+- AND Konflux has built and pushed the web console image
+- WHEN the e2e workflow runs
+- THEN it SHALL wait for the web-console Konflux on-pull-request build
+- AND it SHALL pull the Konflux-built web console image
+- AND the API server and control plane SHALL use baseline registry images
 
 #### Scenario: Workflow Timeout
 
