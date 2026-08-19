@@ -59,13 +59,20 @@ jobs:
           wait_control_plane=false
           wait_web_console=false
 
-          if grep -q '^components/api-server/' <<<"${changed_files}"; then
+          # These patterns MUST mirror each component's merge-queue Konflux CEL
+          # trigger in .tekton/hypershell-<component>-main-merge-queue.yaml. A
+          # merge-queue push that changes the pipeline file itself (or, for
+          # control-plane, the root Dockerfile) also fires that component's build,
+          # so we must wait for it -- otherwise the plan step below silently maps
+          # the component to a baseline image and skips the on-merge-queue image
+          # the merge queue actually produced.
+          if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-merge-queue\.yaml$' <<<"${changed_files}"; then
             wait_api_server=true
           fi
-          if grep -q '^components/control-plane/' <<<"${changed_files}"; then
+          if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-merge-queue\.yaml$|^Dockerfile$' <<<"${changed_files}"; then
             wait_control_plane=true
           fi
-          if grep -qE '^(components/web-console/|packages/gateway-management-ui/)' <<<"${changed_files}"; then
+          if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-merge-queue\.yaml$' <<<"${changed_files}"; then
             wait_web_console=true
           fi
 
@@ -150,13 +157,17 @@ jobs:
               e2e_changed="${DETECT_E2E:-false}"
               pr_test_changed="${DETECT_PR_TEST:-false}"
 
-              # Determine which components need a Konflux-built image.
+              # Determine which components need a Konflux-built image. These
+              # patterns MUST mirror each component's pull-request Konflux CEL
+              # trigger in .tekton/hypershell-<component>-main-pull-request.yaml.
               # detect-components uses broad paths (includes Makefile, .github/,
               # sdk-typescript, lockfiles, etc.) which is correct for lint but
               # NOT for "will Konflux build an image" or "should Kind e2e run".
-              # Konflux web-console builds on components/web-console/ or
-              # packages/gateway-management-ui/; other DETECT_WEB_CONSOLE paths
-              # (for example sdk-typescript) do not produce a PR image.
+              # A PR that changes only the pipeline file itself (or, for
+              # control-plane, the root Dockerfile) still triggers that
+              # component's on-pr build, so we must wait for it -- otherwise we
+              # silently fall back to main's image and skip the on-pr image this
+              # PR actually produces.
               #
               # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...${PR_HEAD_SHA}"
               # compares the PR head against the point where this PR forked from the
@@ -169,9 +180,9 @@ jobs:
               api_konflux=false
               cp_konflux=false
               wc_konflux=false
-              if grep -q '^components/api-server/'    <<<"${changed_files}"; then api_konflux=true; fi
-              if grep -q '^components/control-plane/' <<<"${changed_files}"; then cp_konflux=true; fi
-              if grep -qE '^(components/web-console/|packages/gateway-management-ui/)' <<<"${changed_files}"; then wc_konflux=true; fi
+              if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-pull-request\.yaml$' <<<"${changed_files}"; then api_konflux=true; fi
+              if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-pull-request\.yaml$|^Dockerfile$' <<<"${changed_files}"; then cp_konflux=true; fi
+              if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
 
               e2e_relevant=false
               if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || \

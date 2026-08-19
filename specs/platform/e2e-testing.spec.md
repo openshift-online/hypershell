@@ -380,9 +380,18 @@ The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml
 #### Scenario: Infrastructure-Only Changes (No Source Components)
 
 - GIVEN the PR modifies e2e-relevant files (Makefile, `.github/`, `deploy/`, `tests/e2e/`) but no files under `components/api-server/`, `components/control-plane/`, `components/web-console/`, or `packages/gateway-management-ui/`
+- AND the PR does not change any component's Konflux pipeline definition (`.tekton/hypershell-<component>-main-pull-request.yaml`) or the root `Dockerfile`
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN the e2e job SHALL run using baseline registry images (no Konflux build wait)
 - AND the workflow SHALL NOT poll for Konflux check runs
+
+#### Scenario: Component Pipeline Definition Changed
+
+- GIVEN the PR changes a component's Konflux pull-request pipeline definition (`.tekton/hypershell-<component>-main-pull-request.yaml`), or the root `Dockerfile` for control-plane, without touching that component's source tree
+- AND Konflux therefore fires that component's on-pull-request build, because its CEL trigger matches the pipeline file itself
+- WHEN the `e2e` workflow evaluates the change detection outputs
+- THEN it SHALL wait for that component's on-pull-request build and consume its `on-pr-<head_sha>` image, exactly as if the component source had changed
+- AND the workflow's build detection SHALL mirror each component's Konflux CEL trigger, so it never falls back to a baseline image while Konflux is building an on-pr image the PR produced
 
 #### Scenario: Gateway Management UI Package Changed
 
