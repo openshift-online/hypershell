@@ -368,6 +368,9 @@ kind-env:
 	@echo "export KEYCLOAK_HOSTNAME=$(KEYCLOAK_HOSTNAME)"
 	@echo "export KEYCLOAK_OIDC_ISSUER=$(KEYCLOAK_OIDC_ISSUER)"
 	@echo "export KIND_DNS_PORT=$(KIND_DNS_PORT)"
+	@echo "export API_SERVER_IMAGE=$(API_SERVER_IMAGE)"
+	@echo "export CONTROL_PLANE_IMAGE=$(CONTROL_PLANE_IMAGE)"
+	@echo "export WEB_CONSOLE_IMAGE=$(WEB_CONSOLE_IMAGE)"
 
 .PHONY: kind-up
 kind-up:
