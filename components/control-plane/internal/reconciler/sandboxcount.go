@@ -175,6 +175,9 @@ func (r *SandboxCountReconciler) onAdd(obj interface{}) {
 // transition (e.g. Pending -> Running) and a resync of an unchanged pod are
 // no-ops.
 func (r *SandboxCountReconciler) onUpdate(oldObj, newObj interface{}) {
+	if !r.synced.Load() {
+		return
+	}
 	oldPod, ok := oldObj.(*corev1.Pod)
 	if !ok {
 		return
@@ -197,6 +200,9 @@ func (r *SandboxCountReconciler) onUpdate(oldObj, newObj interface{}) {
 // whose final state was missed arrives wrapped in a tombstone, which is
 // unwrapped so a delete is never dropped.
 func (r *SandboxCountReconciler) onDelete(obj interface{}) {
+	if !r.synced.Load() {
+		return
+	}
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		tombstone, tok := obj.(cache.DeletedFinalStateUnknown)

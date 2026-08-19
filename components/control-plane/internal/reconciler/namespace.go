@@ -28,6 +28,15 @@ const (
 	// gatewayListTimeout bounds each paginated Gateway inventory read so a stalled
 	// API server cannot block an entire GC sweep forever.
 	gatewayListTimeout = 30 * time.Second
+
+	// namespaceListTimeout bounds each managed-namespace list operation so a hung
+	// API server cannot block the GC loop.
+	namespaceListTimeout = 30 * time.Second
+
+	// namespaceOperationTimeout bounds each per-namespace API operation (label
+	// patches, summaries, event writes, and deletes). On timeout, the sweep item
+	// is deferred and retried later.
+	namespaceOperationTimeout = 30 * time.Second
 )
 
 // NamespaceGCReconciler periodically garbage-collects gateway namespaces that
@@ -81,6 +90,7 @@ func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.Client
 // Run drives the garbage-collection loop until the context is cancelled.
 func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
 	log.Printf("INFO namespace GC reconciler started (interval=%s grace=%s)", r.interval, r.gracePeriod)
+	r.reconcileOnce(ctx)
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 
@@ -104,9 +114,11 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 		return
 	}
 
-	namespaces, err := r.client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+	listCtx, cancel := context.WithTimeout(ctx, namespaceListTimeout)
+	namespaces, err := r.client.CoreV1().Namespaces().List(listCtx, metav1.ListOptions{
 		LabelSelector: gateway.ManagedNamespaceSelector,
 	})
+	cancel()
 	if err != nil {
 		log.Printf("WARN namespace gc: list managed namespaces: %v", err)
 		return
@@ -169,11 +181,15 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	// Backed by a live Gateway: not orphaned. Reset any grace timer left from a
 	// prior orphaned observation (e.g. the Gateway was recreated).
 	if _, ok := live[ns.Name]; ok {
-		return gateway.ClearGCEligible(ctx, r.client, ns)
+		clearCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
+		defer cancel()
+		return gateway.ClearGCEligible(clearCtx, r.client, ns)
 	}
 
 	// Orphaned. Start (or read) the grace timer, persisted on the namespace.
-	eligibleSince, err := gateway.MarkGCEligible(ctx, r.client, ns, r.now())
+	markCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
+	defer cancel()
+	eligibleSince, err := gateway.MarkGCEligible(markCtx, r.client, ns, r.now())
 	if err != nil {
 		return err
 	}
@@ -197,17 +213,23 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	}
 	if _, ok := freshLive[ns.Name]; ok {
 		log.Printf("INFO namespace gc: %s became live again before reap; clearing grace timer", ns.Name)
-		return gateway.ClearGCEligible(ctx, r.client, ns)
+		clearCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
+		defer cancel()
+		return gateway.ClearGCEligible(clearCtx, r.client, ns)
 	}
 
 	// Confirmed still orphaned past grace: summarize workloads for debuggability,
 	// record an event, and reap. Summaries are best-effort; failure to gather them
 	// must not block the reap of an already-orphaned namespace.
-	summary, sErr := gateway.SummarizeNamespace(ctx, r.client, ns.Name)
+	summaryCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
+	summary, sErr := gateway.SummarizeNamespace(summaryCtx, r.client, ns.Name)
+	cancel()
 	if sErr != nil {
 		log.Printf("WARN namespace gc: %s: summarize pods: %v", ns.Name, sErr)
 	}
-	activeSandboxes, aErr := gateway.CountActiveSandboxes(ctx, r.client, ns.Name)
+	countCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
+	activeSandboxes, aErr := gateway.CountActiveSandboxes(countCtx, r.client, ns.Name)
+	cancel()
 	if aErr != nil {
 		log.Printf("WARN namespace gc: %s: count sandboxes: %v", ns.Name, aErr)
 	}
@@ -215,11 +237,16 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	reason := fmt.Sprintf("orphaned for %s (no live gateway); workloads: %s; active sandboxes: %d",
 		elapsed.Round(time.Second), summary.String(), activeSandboxes)
 	log.Printf("INFO namespace gc: reaping namespace %s: %s", ns.Name, reason)
-	if err := r.recordGCEvent(ctx, ns.Name, reason); err != nil {
+	eventCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
+	if err := r.recordGCEvent(eventCtx, ns.Name, reason); err != nil {
+		cancel()
 		return fmt.Errorf("record GC event for %s: %w", ns.Name, err)
 	}
+	cancel()
 
-	if _, err := gateway.DeleteManagedNamespace(ctx, r.client, ns.Name); err != nil {
+	deleteCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
+	defer cancel()
+	if _, err := gateway.DeleteManagedNamespace(deleteCtx, r.client, ns.Name); err != nil {
 		return err
 	}
 	return nil
