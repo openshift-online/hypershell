@@ -75,16 +75,20 @@ jobs:
 
       # Wait for merge-queue Konflux builds BEFORE the plan step maps images.
       # GitHub merge queue pushes to gh-readonly-queue/main/..., which Konflux
-      # builds through the *pull-request* pipelines (see #155), not the on-push
-      # pipelines -- those require target_branch == "main", which is never true
-      # for a merge-queue branch. So wait for the -on-pull-request checks here,
-      # keyed on the merge-commit SHA that Konflux built.
+      # builds through the dedicated *merge-queue* pipelines
+      # (.tekton/*-merge-queue.yaml). Those fire only on a push whose
+      # target_branch starts with gh-readonly-queue/main/ and push an ephemeral
+      # on-merge-queue-<merge_sha> tag, kept distinct from the PR pipelines'
+      # on-pr-<head_sha> images so a merge-queue build is never confused with an
+      # already-tested PR image. The on-push pipelines require
+      # target_branch == "main" and never fire here. So wait for the
+      # -on-merge-queue checks, keyed on the merge-commit SHA Konflux built.
       - name: Wait for api-server Konflux build (merge-group)
         if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-api-server-main-on-pull-request$
+          check-regexp: hypershell-api-server-main-on-merge-queue$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -95,7 +99,7 @@ jobs:
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-control-plane-main-on-pull-request$
+          check-regexp: hypershell-control-plane-main-on-merge-queue$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -106,7 +110,7 @@ jobs:
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-web-console-main-on-pull-request$
+          check-regexp: hypershell-web-console-main-on-merge-queue$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -238,17 +242,19 @@ jobs:
               ;;
 
             merge_group)
-              # GitHub merge queue builds images through the Konflux
-              # pull-request pipelines (see #155): a push to
+              # GitHub merge queue builds images through the dedicated Konflux
+              # merge-queue pipelines (.tekton/*-merge-queue.yaml): a push to
               # gh-readonly-queue/main/... runs
-              # hypershell-<component>-main-on-pull-request and pushes
-              # on-pr-<merge_sha>. The on-push pipelines require
-              # target_branch == "main" and never fire here, so mirror the
-              # pull_request path: use on-pr-<merge_sha> for each component the
-              # merge queue rebuilt (the wait steps above proved the image was
-              # pushed) and the stable baseline image for the rest. Always run
-              # e2e -- this is the merge gate.
-              tag="on-pr-${PUSH_SHA}"
+              # hypershell-<component>-main-on-merge-queue and pushes an
+              # ephemeral on-merge-queue-<merge_sha>, distinct from the PR
+              # pipelines' on-pr-<head_sha> so a merge-queue image is never
+              # confused with an already-tested PR image. The on-push pipelines
+              # require target_branch == "main" and never fire here, so mirror
+              # the pull_request path: use on-merge-queue-<merge_sha> for each
+              # component the merge queue rebuilt (the wait steps above proved
+              # the image was pushed) and the stable baseline image for the
+              # rest. Always run e2e -- this is the merge gate.
+              tag="on-merge-queue-${PUSH_SHA}"
               api_img="${baseline_api}"
               cp_img="${baseline_cp}"
               wc_img="${baseline_wc}"
@@ -296,7 +302,7 @@ jobs:
       # cannot be skipped (the failure mode of the previous hand-rolled poll).
       # A non-success conclusion fails the step -> the job -> the E2E gate.
       # pull_request waits are isolated here. merge_group waits are handled by
-      # the dedicated on-push wait steps above, keyed on github.sha.
+      # the dedicated merge-group wait steps above, keyed on github.sha.
       - name: Wait for api-server Konflux build
         if: github.event_name == 'pull_request' && steps.plan.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
@@ -401,13 +407,15 @@ jobs:
       # setup the web-console lint job uses.
       #
       # These steps run on pull_request, push, and workflow_dispatch -- NOT
-      # merge_group. resolve-images maps an ephemeral merge-queue commit to
-      # on-pr-<merge_sha>, which Konflux never builds, so merge_group always
-      # falls back to the baseline web-console image. That baseline lags main
-      # and cannot contain not-yet-merged tracing code, so the deployed console
-      # emits no spans and the assertion would test the wrong artifact. The
-      # trace path is gated at pull_request time against the freshly built PR
-      # image and re-verified on push to main against the post-merge image.
+      # merge_group. The trace path is already gated at pull_request time
+      # against the freshly built PR image and re-verified on push to main
+      # against the post-merge image, so re-running it on the merge gate is
+      # redundant coverage that would add a Node install, a Chromium download,
+      # and a Playwright run to every merge. It is also not always testable
+      # there: when a merge batch does not touch web-console the console image
+      # falls back to baseline, which lags main and cannot contain
+      # not-yet-merged tracing code, so the deployed console would emit no
+      # spans and the assertion would test the wrong artifact.
       - name: Set up Node.js
         if: github.event_name != 'merge_group'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0

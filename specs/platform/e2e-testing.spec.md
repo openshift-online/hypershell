@@ -348,7 +348,7 @@ The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT d
 
 ### Requirement: CI E2E Workflow
 
-The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster on every pull request and push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). The workflow SHALL gate on Konflux image builds completing and pull those images by digest -- it SHALL NOT rebuild component images itself.
+The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). The workflow SHALL gate on Konflux image builds completing and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
 #### Scenario: PR Triggers Workflow
 
@@ -392,6 +392,24 @@ The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml
 - THEN it SHALL wait for the web-console Konflux on-pull-request build
 - AND it SHALL pull the Konflux-built web console image
 - AND the API server and control plane SHALL use baseline registry images
+
+#### Scenario: Merge Queue Gate
+
+- GIVEN a pull request enters the GitHub merge queue
+- AND the merge queue pushes the batched merge commit to a `gh-readonly-queue/main/...` branch
+- WHEN the `e2e` workflow triggers on the `merge_group` event
+- THEN it SHALL always run the e2e job (the merge queue is the pre-merge gate, so change detection SHALL NOT skip it)
+- AND for each component whose source the merge batch changed it SHALL wait for that component's dedicated merge-queue Konflux build, keyed on the merge-commit SHA (`github.sha`)
+- AND components the merge batch did not change SHALL use baseline registry images
+- AND the browser distributed-trace verification SHALL NOT run on `merge_group` (it is covered at pull-request time and re-verified on push to `main`)
+
+#### Scenario: Merge Queue Images Are Distinct and Ephemeral
+
+- GIVEN the merge queue builds images through the dedicated Konflux merge-queue pipelines (`.tekton/hypershell-<component>-main-merge-queue.yaml`)
+- WHEN a merge-queue pipeline fires on a push whose target branch starts with `gh-readonly-queue/main/`
+- THEN it SHALL push an ephemeral `on-merge-queue-<merge_sha>` image tag (`image-expires-after` set) that is distinct from the pull-request pipelines' `on-pr-<head_sha>` tag, so a merge-queue build is never confused with an already-tested PR image
+- AND the merge-queue pipeline SHALL NOT auto-release (`release.appstudio.openshift.io/auto-release: "false"`)
+- AND the pull-request pipelines SHALL fire only on the `pull_request` event, not on merge-queue pushes
 
 #### Scenario: Workflow Timeout
 

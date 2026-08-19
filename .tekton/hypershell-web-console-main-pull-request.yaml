@@ -6,19 +6,15 @@ metadata:
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/cancel-in-progress: "false"
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: (event == "pull_request" && target_branch
+    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
       == "main" && ( "components/web-console/***".pathChanged() || "packages/gateway-management-ui/***".pathChanged()
-      || ".tekton/hypershell-web-console-main-pull-request.yaml".pathChanged() ))
-      || (event == "push" && target_branch.startsWith("gh-readonly-queue/main/")
-      && ( "components/web-console/***".pathChanged() || "packages/gateway-management-ui/***".pathChanged()
-      || ".tekton/hypershell-web-console-main-pull-request.yaml".pathChanged() ))
+      || ".tekton/hypershell-web-console-main-pull-request.yaml".pathChanged() )
   labels:
     appstudio.openshift.io/application: hypershell-main
     appstudio.openshift.io/component: hypershell-web-console-main
     pipelines.appstudio.openshift.io/type: build
-    release.appstudio.openshift.io/auto-release: "false"
   name: hypershell-web-console-main-on-pull-request
   namespace: hcm-eng-prod-tenant
 spec:
