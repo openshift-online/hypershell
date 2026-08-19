@@ -184,8 +184,8 @@ A pre-built Grafana dashboard is provided at `dashboards/hypershell-dashboard.ym
 
 The dashboard includes:
 
-- **Running Gateways** — stat panel showing the current gateway count
-- **Running Gateways Over Time** — timeseries graph of gateway count over the selected time range
+- **Running Gateways** - stat panel showing the current gateway count
+- **Running Gateways Over Time** - timeseries graph of gateway count over the selected time range
 
 To deploy the dashboard, apply the ConfigMap to the namespace where Grafana is running:
 
