@@ -73,36 +73,40 @@ jobs:
           echo "wait_control_plane=${wait_control_plane}" >> "${GITHUB_OUTPUT}"
           echo "wait_web_console=${wait_web_console}" >> "${GITHUB_OUTPUT}"
 
-      # Wait for merge-queue Konflux builds BEFORE checking if images exist.
-      # This ensures the skopeo inspect in the plan step will find the images.
-      - name: Wait for api-server Konflux on-push build (merge-group)
+      # Wait for merge-queue Konflux builds BEFORE the plan step maps images.
+      # GitHub merge queue pushes to gh-readonly-queue/main/..., which Konflux
+      # builds through the *pull-request* pipelines (see #155), not the on-push
+      # pipelines -- those require target_branch == "main", which is never true
+      # for a merge-queue branch. So wait for the -on-pull-request checks here,
+      # keyed on the merge-commit SHA that Konflux built.
+      - name: Wait for api-server Konflux build (merge-group)
         if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-api-server-main-on-push$
+          check-regexp: hypershell-api-server-main-on-pull-request$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
           allowed-conclusions: success
 
-      - name: Wait for control-plane Konflux on-push build (merge-group)
+      - name: Wait for control-plane Konflux build (merge-group)
         if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_control_plane == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-control-plane-main-on-push$
+          check-regexp: hypershell-control-plane-main-on-pull-request$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
           allowed-conclusions: success
 
-      - name: Wait for web-console Konflux on-push build (merge-group)
+      - name: Wait for web-console Konflux build (merge-group)
         if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_web_console == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-web-console-main-on-push$
+          check-regexp: hypershell-web-console-main-on-pull-request$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -120,6 +124,9 @@ jobs:
           DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
           DETECT_E2E: ${{ steps.detect.outputs.e2e }}
           DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
+          MQ_API_SERVER: ${{ steps.detect-merge-queue.outputs.wait_api_server }}
+          MQ_CONTROL_PLANE: ${{ steps.detect-merge-queue.outputs.wait_control_plane }}
+          MQ_WEB_CONSOLE: ${{ steps.detect-merge-queue.outputs.wait_web_console }}
         run: |
           baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
@@ -230,8 +237,41 @@ jobs:
               echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
               ;;
 
+            merge_group)
+              # GitHub merge queue builds images through the Konflux
+              # pull-request pipelines (see #155): a push to
+              # gh-readonly-queue/main/... runs
+              # hypershell-<component>-main-on-pull-request and pushes
+              # on-pr-<merge_sha>. The on-push pipelines require
+              # target_branch == "main" and never fire here, so mirror the
+              # pull_request path: use on-pr-<merge_sha> for each component the
+              # merge queue rebuilt (the wait steps above proved the image was
+              # pushed) and the stable baseline image for the rest. Always run
+              # e2e -- this is the merge gate.
+              tag="on-pr-${PUSH_SHA}"
+              api_img="${baseline_api}"
+              cp_img="${baseline_cp}"
+              wc_img="${baseline_wc}"
+              if [[ "${MQ_API_SERVER}" == "true" ]]; then
+                api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+                echo "  api-server -> ${api_img}"
+              fi
+              if [[ "${MQ_CONTROL_PLANE}" == "true" ]]; then
+                cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+                echo "  control-plane -> ${cp_img}"
+              fi
+              if [[ "${MQ_WEB_CONSOLE}" == "true" ]]; then
+                wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+                echo "  web-console -> ${wc_img}"
+              fi
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
+              ;;
+
             *)
-              # push, merge_group, workflow_dispatch -- use latest Konflux on-push images
+              # push, workflow_dispatch -- use latest Konflux on-push images
               push_tag="${PUSH_SHA}"
               konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${push_tag}"
               if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
