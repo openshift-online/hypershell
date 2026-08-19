@@ -370,9 +370,9 @@ secrets are unnecessary):
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://ghcr.io/nvidia/openshell/gateway:0.0.101    docker://$REG/openshift/openshell-gateway:0.0.101
+  docker://ghcr.io/nvidia/openshell/gateway:0.0.106    docker://$REG/openshift/openshell-gateway:0.0.106
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://ghcr.io/nvidia/openshell/supervisor:0.0.101 docker://$REG/openshift/openshell-supervisor:0.0.101
+  docker://ghcr.io/nvidia/openshell/supervisor:0.0.106 docker://$REG/openshift/openshell-supervisor:0.0.106
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, postgres
 ```
 
@@ -416,8 +416,8 @@ API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.hos
 curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' -d '{
   "name":"ibm-test-gw","fleet_id":"...","cluster_id":"...","release_id":"...","database_id":"...",
   "namespace":"openshell-ibmtest",
-  "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.101",
-  "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.101",
+  "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.106",
+  "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.106",
   "route":"{\"enabled\": true}"
 }'
 ```
@@ -463,7 +463,7 @@ plane grants the tenant SA RBAC *against* `agents.x-k8s.io` and mints the
 per-tenant sandbox SA + privileged-SCC binding, but it does **not** install the
 CRD/controller - that is a cluster prerequisite, like cert-manager. Verified on
 `hysh-ibm-01` (2026-08-15) with `agent-sandbox` **v0.5.5** (first line to serve
-`v1beta1`, which gateway 0.0.101 prefers).
+`v1beta1`, which gateway 0.0.106 prefers).
 
 Same ROKS constraint as everything else: the controller image
 (`registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.5.5`) and the tenant

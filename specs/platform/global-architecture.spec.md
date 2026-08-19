@@ -124,11 +124,11 @@ graph TB
 - Prometheus - aggregates metrics from this cloud's ManagedClusters
 - Grafana - cloud-level dashboards
 
-**Operational Role**: The control plane is the reconciliation engine for the fleet. It watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters — not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, CNPG databases, and supporting workloads each gateway depends on. ArgoCD defines and provisions the ManagedClusters themselves (cluster infrastructure and the operator stack); the control plane then reconciles tenant-managed resources onto them.
+**Operational Role**: The control plane is the reconciliation engine for the fleet. It watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters - not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, CNPG databases, and supporting workloads each gateway depends on. ArgoCD defines and provisions the ManagedClusters themselves (cluster infrastructure and the operator stack); the control plane then reconciles tenant-managed resources onto them.
 
 ### Tier 3: ManagedCluster
 
-**Purpose**: Hosts OpenShell Gateway workloads — the OpenShell Gateway pod, its Supervisor, and the Sandboxes it launches to execute user sessions. Multiple per cloud, deployed close to users (regional).
+**Purpose**: Hosts OpenShell Gateway workloads - the OpenShell Gateway pod, its Supervisor, and the Sandboxes it launches to execute user sessions. Multiple per cloud, deployed close to users (regional).
 
 **Components**:
 - Keycloak - federates to Cloud Hub Keycloak, holds OIDC clients for OpenShell Gateways on this cluster
@@ -228,7 +228,7 @@ sequenceDiagram
 ```
 
 **Key Points**:
-- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources — Fleet, Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
+- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources - Fleet, Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
 - Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams
 - Control Plane reconciles resources into ManagedClusters via kubeconfig secrets
@@ -244,7 +244,7 @@ HyperShell utilizes a **dual-ingress strategy** on OpenShift clusters, separatin
 Traffic destined for HyperShell management services (API Server, Web Console, Keycloak) uses the default OpenShift routing tier.
 
 - **Domain:** Standard OpenShift wildcard domain (e.g., `*.apps.rosa...`)
-- **Load Balancer:** The cloud's own load balancer fronting the OpenShift router. This is provider-specific: **AWS** uses an internal Network Load Balancer (NLB); **IBM Cloud** (our ROKS clusters) uses a VPC Load Balancer. The same pattern recurs on any cloud we onboard — an Azure Load Balancer equivalent would slot in here — so we describe the role generically and name the concrete instances we run today. (Azure is listed only when we actually deploy there.)
+- **Load Balancer:** The cloud's own load balancer fronting the OpenShift router. This is provider-specific: **AWS** uses an internal Network Load Balancer (NLB); **IBM Cloud** (our ROKS clusters) uses a VPC Load Balancer. The same pattern recurs on any cloud we onboard - an Azure Load Balancer equivalent would slot in here - so we describe the role generically and name the concrete instances we run today. (Azure is listed only when we actually deploy there.)
 - **Routing Object:** OpenShift `Route` (HAProxy)
 - **Mechanism:** The wildcard DNS resolves to the cloud load balancer, which forwards traffic to the OpenShift router pods. HAProxy uses hostname-based routing to direct traffic to the correct service.
 
@@ -273,7 +273,7 @@ environment (see the deploy overlays), so the tenant-gateway ingress path is a
 Both modes converge on the **same** tenant workload: the OpenShell Gateway pod
 terminates TLS with its per-tenant self-signed CA (`openshell-ca` →
 `openshell-server-tls`). Client **identity** is established by OIDC (Keycloak
-bearer tokens), not client certificates — HyperShell does not require or support
+bearer tokens), not client certificates - HyperShell does not require or support
 client mTLS. TLS here is server-side transport encryption only; callers are
 authenticated by OIDC, so they need no client certificate. In `route` mode the
 `Route` is `passthrough`, so the
@@ -656,7 +656,7 @@ NOT install the CRD/controller, which is a cluster prerequisite on par with
 cert-manager. The gateway's Kubernetes compute driver watches this CRD; when it is
 absent the sandbox RPCs surface as gRPC `Unimplemented` and the driver logs `no
 supported Agent Sandbox API version is available`. The version installed SHALL
-serve the API version the gateway requires (`v1beta1` for gateway 0.0.101; upstream
+serve the API version the gateway requires (`v1beta1` for gateway 0.0.106; upstream
 `v0.5.x`).
 
 #### Requirement: Sandbox Base Image Supports an In-Cluster Registry

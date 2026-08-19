@@ -73,6 +73,7 @@ Support skills available at any point:
 - `/ui-standards` -- UI/UX audit or intent-driven design guidance
 - `/align` -- convention health check
 - `/maintain-ci` -- CI workflow and component registration maintenance
+- `/update-openshell` -- sync HyperShell to a new upstream OpenShell release (self-reinforcing)
 - `/memory` -- project memory management
 
 ## Commands

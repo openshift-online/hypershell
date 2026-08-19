@@ -23,8 +23,8 @@ const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:l
 
 type StaticImageDefaults struct{}
 
-const defaultGatewayImage = "ghcr.io/nvidia/openshell/gateway:0.0.101"
-const defaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:0.0.101"
+const defaultGatewayImage = "ghcr.io/nvidia/openshell/gateway:0.0.106"
+const defaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:0.0.106"
 
 // DefaultGatewayImage resolves the gateway server (and certgen) image used when
 // a Gateway resource does not specify one. Overridable via GATEWAY_IMAGE so
