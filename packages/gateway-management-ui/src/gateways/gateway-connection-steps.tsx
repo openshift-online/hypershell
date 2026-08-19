@@ -78,23 +78,16 @@ export function GatewayConnectionSteps({
         title={intl.formatMessage(messages.connectionSetupTitle)}
       >
         <Alert
-          actionLinks={
-            <AlertActionLink
-              component="a"
-              href={installDocsUrl}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              {intl.formatMessage(messages.connectionInstallLink)}
-            </AlertActionLink>
-          }
           className={styles.prereqAlert}
           component="h3"
           isInline
           title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
           variant="info"
         >
-          {intl.formatMessage(messages.connectionInstallPrereq)}
+          {intl.formatMessage(messages.connectionInstallPrereq)}{" "}
+          <a href={installDocsUrl} rel="noopener noreferrer" target="_blank">
+            {intl.formatMessage(messages.connectionInstallLink)}
+          </a>
         </Alert>
         {setupTemplate && setupCopy ? (
           <EditableCommand
