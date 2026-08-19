@@ -189,6 +189,10 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		return nil, errors.Forbidden("gateway:creator can only be assigned via Keycloak")
 	}
 
+	if role.Name == roles.RolePlatformAdmin {
+		return nil, errors.Forbidden("platform:admin can only be assigned via Keycloak")
+	}
+
 	rb, createErr := s.rbDao.Create(ctx, rb)
 	if createErr != nil {
 		return nil, services.HandleCreateError("RoleBinding", createErr)

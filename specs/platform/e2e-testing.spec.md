@@ -372,17 +372,26 @@ The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml
 
 #### Scenario: Skip for Irrelevant Changes
 
-- GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/`, `packages/gateway-management-ui/`, or `components/sdk-typescript/`)
+- GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/` or `components/sdk-typescript/`)
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN the e2e job SHALL be skipped
 - AND the workflow SHALL report `success` (to avoid blocking merges)
 
 #### Scenario: Infrastructure-Only Changes (No Source Components)
 
-- GIVEN the PR modifies e2e-relevant files (Makefile, `.github/`, `deploy/`, `tests/e2e/`) but no files under `components/api-server/`, `components/control-plane/`, or `components/web-console/`
+- GIVEN the PR modifies e2e-relevant files (Makefile, `.github/`, `deploy/`, `tests/e2e/`) but no files under `components/api-server/`, `components/control-plane/`, `components/web-console/`, or `packages/gateway-management-ui/`
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN the e2e job SHALL run using baseline registry images (no Konflux build wait)
 - AND the workflow SHALL NOT poll for Konflux check runs
+
+#### Scenario: Gateway Management UI Package Changed
+
+- GIVEN the PR modifies files only in `packages/gateway-management-ui/`
+- AND Konflux has built and pushed the web console image
+- WHEN the e2e workflow runs
+- THEN it SHALL wait for the web-console Konflux on-pull-request build
+- AND it SHALL pull the Konflux-built web console image
+- AND the API server and control plane SHALL use baseline registry images
 
 #### Scenario: Workflow Timeout
 
@@ -552,6 +561,8 @@ deploy/
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
 | `OPENSHELL_BIN` | `openshell` | Path to the openshell CLI binary |
 | `SSL_CERT_FILE` | (set by the suite) | Path to the extracted cluster CA so the openshell CLI trusts the gateway's TLS cert (replaces the removed `OPENSHELL_GATEWAY_INSECURE` bypass) |
+| `E2E_CONSOLE_URL` | `https://console.hypershell.localhost` | Base URL of the deployed web console for the browser trace verification |
+| `E2E_JAEGER_URL` | `https://jaeger.hypershell.localhost` | Base URL of the Jaeger query API queried by the trace verification |
 
 ### Requirement: OIDC Authentication in E2E Tests
 
@@ -596,6 +607,30 @@ The test suite SHALL verify OIDC integration as part of its standard flow:
 - GIVEN the CI e2e workflow
 - WHEN the Kind cluster is created
 - THEN `make kind-up` SHALL be invoked with `KIND_ENABLE_OIDC=true`
+
+### Requirement: Web Console Distributed Trace Verification
+
+The CI e2e workflow SHALL verify web console distributed tracing end to end, satisfying `web-console/tracing.spec.md` (`WEB-TRACE-11`). The Kind cluster SHALL be created with tracing enabled (`KIND_JAEGER=true`) so Jaeger is deployed and the web-console BFF exports to it. After the bash suite runs, the workflow SHALL drive a representative gateway workflow through a real browser against the deployed console and assert that Jaeger holds one trace joining the browser and the BFF. The check SHALL use the same Node and Chromium setup as the web-console lint job and SHALL run from the deployed console, not a mocked dev server. The trace check SHALL fail the workflow if no cross-service trace appears within a bounded polling window, and failure diagnostics SHALL include Jaeger workload status and logs and the web-console tracing configuration.
+
+#### Scenario: Tracing Enabled for E2E
+
+- GIVEN the CI e2e workflow
+- WHEN the Kind cluster is created
+- THEN `make kind-up` SHALL be invoked with `KIND_JAEGER=true`
+- AND Jaeger SHALL be deployed and the web-console BFF SHALL be configured to export to it
+
+#### Scenario: Cross-Service Trace Asserted
+
+- GIVEN the cluster is running with tracing enabled and the console is reachable
+- WHEN the trace verification drives a gateway workflow in a real browser and queries Jaeger
+- THEN it SHALL find one trace whose spans include a bounded browser workflow span and the BFF server span joined by the same trace identifier
+- AND the workflow SHALL fail if no such trace appears within the polling window
+
+#### Scenario: Trace Failure Diagnostics
+
+- GIVEN the trace verification fails
+- WHEN the workflow reaches its post-test phase
+- THEN it SHALL collect Jaeger workload status and logs and the web-console tracing configuration alongside the existing diagnostics
 
 ## Design Decisions
 

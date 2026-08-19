@@ -106,6 +106,8 @@ retry_until() {
 : "${E2E_OIDC_PASSWORD:=admin}"
 : "${E2E_DEV_USERNAME:=developer}"
 : "${E2E_DEV_PASSWORD:=developer}"
+: "${E2E_PLATFORM_ADMIN_USERNAME:=platform-admin}"
+: "${E2E_PLATFORM_ADMIN_PASSWORD:=platform-admin}"
 # Keycloak admin credentials for test-setup helpers that provision per-gateway
 # client role grants (e.g. granting the developer openshell-user on the gateway's
 # own Keycloak client, mirroring what the RoleBinding reconciler does in prod).

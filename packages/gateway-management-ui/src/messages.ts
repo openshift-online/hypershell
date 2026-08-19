@@ -88,6 +88,12 @@ export const messages = defineMessages({
     description:
       "Link text pointing to the NVIDIA OpenShell installation documentation.",
   },
+  connectionInstallLinkNewTab: {
+    id: "app.gateway.connection.installLinkNewTab",
+    defaultMessage: "Install the OpenShell CLI (opens in a new tab)",
+    description:
+      "Accessible name for the OpenShell CLI install docs link, including that it opens in a new tab.",
+  },
   connectionInstallPrereq: {
     id: "app.gateway.connection.installPrereq",
     defaultMessage:

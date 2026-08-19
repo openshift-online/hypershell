@@ -2,6 +2,19 @@ import { SDKClient } from "@openshift-online/hypershell-sdk";
 
 export const gatewayCorrelationHeader = "x-hypershell-correlation-id";
 
+/** W3C Trace Context headers a request carries to the BFF for propagation. */
+export interface RequestTraceContext {
+  traceparent: string;
+  tracestate?: string;
+}
+
+/**
+ * Supplies the W3C trace context for the in-flight workflow, or `undefined`
+ * when tracing is disabled or no span is active. Injected so the API adapter
+ * stays free of any tracing vendor dependency.
+ */
+export type TraceContextProvider = () => RequestTraceContext | undefined;
+
 /** The BFF's machine-readable request to restart authentication at the IdP. */
 export interface ReauthSignal {
   loginUrl: string;
@@ -71,10 +84,18 @@ export function createCorrelatedFetch(
   correlationId: string,
   fetchImplementation: typeof globalThis.fetch = globalThis.fetch,
   onReauthRequired?: ReauthHandler,
+  traceContext?: TraceContextProvider,
 ): typeof globalThis.fetch {
   return async (input, init) => {
     const headers = new Headers(init?.headers);
     headers.set(gatewayCorrelationHeader, correlationId);
+    const trace = traceContext?.();
+    if (trace !== undefined) {
+      headers.set("traceparent", trace.traceparent);
+      if (trace.tracestate !== undefined && trace.tracestate !== "") {
+        headers.set("tracestate", trace.tracestate);
+      }
+    }
     const response = await fetchImplementation(input, { ...init, headers });
     if (onReauthRequired) {
       const signal = await readReauthSignal(response);
@@ -94,6 +115,7 @@ export function createCorrelatedFetch(
 export function createApiClient(
   correlationId: string,
   onReauthRequired: ReauthHandler = redirectToLogin,
+  traceContext?: TraceContextProvider,
 ): SDKClient {
   return new SDKClient({
     baseUrl: "",
@@ -102,6 +124,7 @@ export function createApiClient(
       correlationId,
       globalThis.fetch,
       onReauthRequired,
+      traceContext,
     ),
   });
 }

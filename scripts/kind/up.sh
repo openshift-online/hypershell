@@ -253,6 +253,92 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   success "Keycloak ready"
 fi
 
+# --- Jaeger (optional, for OTel trace inspection) ---
+# Deploys an all-in-one Jaeger v2 for local trace inspection alongside the API
+# server observability work (HYPERSHELL-26). The web console browser and BFF
+# export over OTLP/HTTP (4318) because browsers cannot speak OTLP gRPC; the API
+# server uses gRPC (4317).
+# Renders deploy/kind/jaeger.yaml into the selected namespace with sed, the same
+# portable substitution used for the Kind cluster config. Using sed instead of
+# GNU envsubst keeps bring-up working on stock macOS, where envsubst is absent.
+render_jaeger() {
+  sed "s|__KIND_NAMESPACE__|${KIND_NAMESPACE}|g" deploy/kind/jaeger.yaml
+}
+
+# Reports whether the named deployment exists, distinguishing a genuine NotFound
+# from an API, auth, or authorization error. --ignore-not-found makes kubectl
+# exit 0 with empty output when the resource is absent and nonzero for every
+# other failure, so absence is read from an empty successful result rather than
+# by matching error text: a client-side failure such as "kubectl: command not
+# found" no longer masquerades as absence. Any nonzero exit propagates and
+# aborts, since reading a swallowed lookup error as "absent" would silently skip
+# the tracing-disable reconciliation and leave the BFF exporting to a dead
+# collector. Stderr flows to the terminal so a real failure stays diagnosable.
+deployment_exists() {
+  local name="$1" out
+  if ! out=$(kube get "deployment/${name}" -n "${KIND_NAMESPACE}" \
+    --ignore-not-found -o name); then
+    error "checking for deployment/${name} failed"
+    exit 1
+  fi
+  [[ -n "${out}" ]]
+}
+
+# Reports 0 when the web console BFF still carries an OTLP exporter endpoint, so
+# the disabled-state reconciliation can verify it actually removed the endpoint
+# rather than trusting that the unset command had any effect. A lookup failure is
+# propagated rather than read as "endpoint absent", which would let a silent API
+# error masquerade as a successful disable.
+bff_otel_endpoint_set() {
+  local names
+  if ! names=$(kube get deployment/hypershell-web-console -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="web-console")].env[*].name}' \
+    2>&1); then
+    error "verifying OTLP endpoint removal: ${names}"
+    exit 1
+  fi
+  tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
+}
+
+if [[ "${KIND_JAEGER:-}" == "true" ]]; then
+  header "Jaeger"
+  info "Deploying Jaeger..."
+  render_jaeger | kube apply -f -
+  info "Patching web console BFF with OTEL_EXPORTER_OTLP_ENDPOINT..."
+  kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
+    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4318"
+  info "Waiting for Jaeger..."
+  kube wait --for=condition=available deployment/jaeger -n "${KIND_NAMESPACE}" --timeout=120s
+  success "Jaeger ready"
+  echo ""
+else
+  # Reconcile the disabled state, do not create-or-skip: a cluster brought up
+  # once with KIND_JAEGER=true keeps the Jaeger workload and the BFF exporter
+  # endpoint until they are removed. On a reused cluster with tracing turned
+  # off, tear Jaeger down and unset the endpoint so the BFF stops exporting to a
+  # collector that is no longer there. Both steps are idempotent on a cluster
+  # that never had Jaeger, but a failure other than absence must surface rather
+  # than leave the BFF exporting to a collector that is gone.
+  info "KIND_JAEGER not enabled - ensuring Jaeger is removed and tracing is off..."
+  # --ignore-not-found tolerates the resources being absent; any other kubectl
+  # failure propagates through the pipe (pipefail) and aborts the run.
+  render_jaeger | kube delete --ignore-not-found -f -
+  # Unset the exporter endpoint only when the deployment exists; on a cluster
+  # that has it, removing an already-absent variable is a no-op, then verify the
+  # variable is actually gone so a silent failure cannot leave tracing enabled.
+  # deployment_exists tolerates only a true NotFound; an API, auth, or
+  # authorization error aborts rather than being mistaken for absence.
+  if deployment_exists hypershell-web-console; then
+    kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
+      OTEL_EXPORTER_OTLP_ENDPOINT-
+    if bff_otel_endpoint_set; then
+      error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
+      exit 1
+    fi
+  fi
+  echo ""
+fi
+
 # --- Gateway trusted CA (self-signed CA for OIDC over HTTPS) ---
 # The gateway pod validates OIDC tokens against the canonical HTTPS issuer
 # (https://keycloak.hypershell.localhost). That endpoint is served by the
@@ -701,6 +787,10 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
     info "Keycloak:     ${KIND_KEYCLOAK_URL}"
   fi
 
+  if [[ "${KIND_JAEGER:-}" == "true" ]]; then
+    info "Jaeger UI:    https://jaeger.hypershell.localhost${PORT_SUFFIX}"
+  fi
+
   info "Login:        https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
 else
@@ -712,6 +802,10 @@ else
     info "Keycloak:     http://localhost:8080 (admin/admin)"
   else
     info "Keycloak:     ${KIND_KEYCLOAK_URL}"
+  fi
+
+  if [[ "${KIND_JAEGER:-}" == "true" ]]; then
+    info "Jaeger UI:    http://localhost:16686"
   fi
 
   info "Login:        http://localhost:3000/auth/login"

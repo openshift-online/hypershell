@@ -29,6 +29,7 @@ import {
 import { GatewayDeleteDialog } from "./gateway-delete-dialog";
 import { GatewayRenameDialog } from "./gateway-rename-dialog";
 import { GatewayStatus } from "./gateway-status";
+import styles from "./gateway-detail-header.module.css";
 
 export function GatewayCliCopy({ gateway }: { gateway: GatewayConnection }) {
   const intl = useIntl();
@@ -145,6 +146,7 @@ function GatewayDetailActions({
             shouldFocusToggleOnSelect
             toggle={(toggleRef) => (
               <MenuToggle
+                className={styles.actionsToggle}
                 isExpanded={isActionsOpen}
                 onClick={() => {
                   setIsActionsOpen((open) => !open);

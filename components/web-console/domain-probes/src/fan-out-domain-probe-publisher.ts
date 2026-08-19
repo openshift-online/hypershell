@@ -87,21 +87,37 @@ export class FanOutDomainProbePublisher<
       try {
         sink.publish(immutableProbe);
       } catch (error) {
-        const failure = Object.freeze({
-          errorType: errorType(error),
-          probeName: immutableProbe.name,
-          schemaVersion: immutableProbe.schemaVersion,
-          sinkId: sink.id,
-        });
-        this.#deliveryFailureCount += 1;
-        this.#lastFailure = failure;
-
-        try {
-          this.#failureReporter.report(failure);
-        } catch {
-          this.#diagnosticFailureCount += 1;
-        }
+        this.#recordFailure(
+          Object.freeze({
+            errorType: errorType(error),
+            probeName: immutableProbe.name,
+            schemaVersion: immutableProbe.schemaVersion,
+            sinkId: sink.id,
+          }),
+        );
       }
+    }
+  }
+
+  /**
+   * Records a delivery failure discovered outside the synchronous publish path,
+   * such as an asynchronous span export that a transport sink could not
+   * complete after buffering. It feeds the same health accounting as an inline
+   * sink failure, so an out-of-band loss is observable through
+   * {@link healthSnapshot} rather than silently dropped.
+   */
+  reportDeliveryFailure(failure: Readonly<ProbeDeliveryFailure>): void {
+    this.#recordFailure(Object.freeze({ ...failure }));
+  }
+
+  #recordFailure(failure: Readonly<ProbeDeliveryFailure>): void {
+    this.#deliveryFailureCount += 1;
+    this.#lastFailure = failure;
+
+    try {
+      this.#failureReporter.report(failure);
+    } catch {
+      this.#diagnosticFailureCount += 1;
     }
   }
 

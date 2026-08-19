@@ -116,6 +116,15 @@ func hasGatewayCreator(bindings []BindingSummary) bool {
 	return false
 }
 
+func hasPlatformAdmin(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == "platform:admin" {
+			return true
+		}
+	}
+	return false
+}
+
 func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
 	route := mux.CurrentRoute(r)
 	if route == nil {
@@ -163,7 +172,7 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	}
 
 	if resource == "gateways" && gatewayID == "" {
-		return len(bindings) > 0
+		return hasPlatformAdmin(bindings) || len(bindings) > 0
 	}
 
 	if resource == "role_bindings" {
@@ -174,6 +183,10 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 }
 
 func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSummary) bool {
+	if hasPlatformAdmin(bindings) && (method == http.MethodGet || method == http.MethodDelete) {
+		return true
+	}
+
 	for _, b := range bindings {
 		if b.Scope != "gateway" || b.GatewayID == nil || *b.GatewayID != gatewayID {
 			continue

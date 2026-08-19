@@ -76,9 +76,33 @@ jobs:
               e2e_changed="${DETECT_E2E:-false}"
               pr_test_changed="${DETECT_PR_TEST:-false}"
 
+              # Determine which components need a Konflux-built image.
+              # detect-components uses broad paths (includes Makefile, .github/,
+              # sdk-typescript, lockfiles, etc.) which is correct for lint but
+              # NOT for "will Konflux build an image" or "should Kind e2e run".
+              # Konflux web-console builds on components/web-console/ or
+              # packages/gateway-management-ui/; other DETECT_WEB_CONSOLE paths
+              # (for example sdk-typescript) do not produce a PR image.
+              #
+              # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...${PR_HEAD_SHA}"
+              # compares the PR head against the point where this PR forked from the
+              # base branch. A two-dot "${PR_BASE_SHA} HEAD" diff (where HEAD is a
+              # merge commit) would also report component changes that landed on the
+              # base branch *after* this PR forked, misattributing them to the PR --
+              # then we would wait for a Konflux build that only ever runs for files
+              # this PR actually touched.
+              changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
+              api_konflux=false
+              cp_konflux=false
+              wc_konflux=false
+              if grep -q '^components/api-server/'    <<<"${changed_files}"; then api_konflux=true; fi
+              if grep -q '^components/control-plane/' <<<"${changed_files}"; then cp_konflux=true; fi
+              if grep -qE '^(components/web-console/|packages/gateway-management-ui/)' <<<"${changed_files}"; then wc_konflux=true; fi
+
               e2e_relevant=false
               if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || \
-                    "${e2e_changed}" == "true" || "${pr_test_changed}" == "true" ]]; then
+                    "${e2e_changed}" == "true" || "${pr_test_changed}" == "true" || \
+                    "${wc_konflux}" == "true" ]]; then
                 e2e_relevant=true
               fi
 
@@ -87,27 +111,6 @@ jobs:
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
-
-              # Determine which components need a Konflux-built image.
-              # detect-components uses broad paths (includes Makefile, .github/,
-              # etc.) which is correct for "should we re-run e2e" but NOT for
-              # "will Konflux build an image".  Konflux only triggers on files
-              # under components/<name>/ -- check the actual diff.
-              #
-              # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...HEAD"
-              # compares HEAD against the point where this PR forked from the
-              # base branch. A two-dot "${PR_BASE_SHA} HEAD" diff would also
-              # report component changes that landed on the base branch *after*
-              # this PR forked, misattributing them to the PR -- then we would
-              # wait for a Konflux build that only ever runs for files this PR
-              # actually touched.
-              changed_files="$(git diff --name-only "${PR_BASE_SHA}...HEAD")"
-              api_konflux=false
-              cp_konflux=false
-              wc_konflux=false
-              if grep -q '^components/api-server/'    <<<"${changed_files}"; then api_konflux=true; fi
-              if grep -q '^components/control-plane/' <<<"${changed_files}"; then cp_konflux=true; fi
-              if grep -q '^components/web-console/'   <<<"${changed_files}"; then wc_konflux=true; fi
 
               if [[ "${api_konflux}" != "true" && "${cp_konflux}" != "true" && "${wc_konflux}" != "true" ]]; then
                 echo "No source components changed -- using latest Konflux on-push images from main"
@@ -236,7 +239,10 @@ jobs:
     needs: resolve-images
     if: needs.resolve-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The browser-driven trace verification adds a Node install, a Chromium
+    # download, and a Playwright run on top of the bash suite, so allow a wider
+    # ceiling than the 20 minutes the bash-only suite needed.
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -263,6 +269,9 @@ jobs:
           CONTROL_PLANE_IMAGE: ${{ needs.resolve-images.outputs.control_plane_image }}
           WEB_CONSOLE_IMAGE: ${{ needs.resolve-images.outputs.web_console_image }}
           KIND_ENABLE_OIDC: "true"
+          # Deploy Jaeger and point the web-console BFF at it so the browser
+          # trace verification below has a collector to export to (WEB-TRACE-10).
+          KIND_JAEGER: "true"
         run: make kind-up
 
       - name: Run e2e tests
@@ -276,6 +285,61 @@ jobs:
           TERM: dumb
           NO_COLOR: "1"
         run: bash tests/e2e/e2e-openshell.sh
+
+      # Browser-driven distributed-trace verification (WEB-TRACE-10): drive a
+      # real gateway workflow in the deployed console, then assert one trace in
+      # Jaeger joins the browser and the BFF. Reuses the same Node + Chromium
+      # setup the web-console lint job uses.
+      #
+      # These steps run on pull_request, push, and workflow_dispatch -- NOT
+      # merge_group. resolve-images maps an ephemeral merge-queue commit to
+      # on-pr-<merge_sha>, which Konflux never builds, so merge_group always
+      # falls back to the baseline web-console image. That baseline lags main
+      # and cannot contain not-yet-merged tracing code, so the deployed console
+      # emits no spans and the assertion would test the wrong artifact. The
+      # trace path is gated at pull_request time against the freshly built PR
+      # image and re-verified on push to main against the post-merge image.
+      - name: Set up Node.js
+        if: github.event_name != 'merge_group'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        if: github.event_name != 'merge_group'
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        if: github.event_name != 'merge_group'
+        run: pnpm install --frozen-lockfile
+      - name: Get Playwright version
+        id: playwright-version
+        if: github.event_name != 'merge_group'
+        run: echo "version=$(pnpm --filter @openshift-online/hypershell-web-console exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # Install Chromium without `--with-deps` so the flaky apt phase
+      # (actions/runner-images#11347) never lands on the critical path -- the
+      # ubuntu-24.04 runner image already ships Chromium's system libraries.
+      # Cache the browser download too, keyed on the resolved Playwright
+      # version; only the default branch writes the cache, so PR runs cannot
+      # poison it.
+      - name: Restore Chromium cache
+        id: playwright-chromium-cache
+        if: github.event_name != 'merge_group'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - name: Install Chromium
+        if: github.event_name != 'merge_group'
+        timeout-minutes: 5
+        run: pnpm --filter @openshift-online/hypershell-web-console exec playwright install chromium
+      - name: Save Chromium cache
+        if: github.event_name != 'merge_group' && github.ref == 'refs/heads/main' && steps.playwright-chromium-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-chromium-cache.outputs.cache-primary-key }}
+      - name: Verify end-to-end traces reach Jaeger
+        if: github.event_name != 'merge_group'
+        run: pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
 
       - name: Collect diagnostics
         if: failure()
@@ -300,6 +364,16 @@ jobs:
 
           echo "::group::Keycloak logs"
           kubectl logs --all-containers --prefix --tail=100 -l app=keycloak -n keycloak 2>&1 | tee e2e-diagnostics/keycloak-logs.txt || true
+          echo "::endgroup::"
+
+          echo "::group::Tracing (Jaeger) diagnostics"
+          {
+            kubectl get pods,svc,httproutes -l app=jaeger -n hypershell-system -o wide 2>&1 || true
+            kubectl logs --all-containers --prefix --tail=100 -l app=jaeger -n hypershell-system 2>&1 || true
+            echo "--- web-console OTEL env ---"
+            kubectl get deployment/hypershell-web-console -n hypershell-system \
+              -o jsonpath='{range .spec.template.spec.containers[*].env[*]}{.name}={.value}{"\n"}{end}' 2>&1 | grep -i otel || true
+          } | tee e2e-diagnostics/tracing.txt
           echo "::endgroup::"
 
           echo "::group::Events (hypershell-system)"

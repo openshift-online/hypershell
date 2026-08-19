@@ -291,6 +291,21 @@ Client                   Networking Gateway              Gateway Pod
 | gRPC hostname pattern | `<gateway-name>.gw.localhost` | `<gateway-name>-<namespace>.gw.<base-domain>` |
 | DNS resolution | CoreDNS container + OS resolver + pfctl/iptables port forwarding | Cluster DNS / external DNS |
 
+### Development Tracing (Jaeger)
+
+The local environment SHALL deploy a Jaeger all-in-one instance so a developer can view distributed traces produced by the web console and the API server (see `web-console/tracing.spec.md` and HYPERSHELL-26). Jaeger all-in-one exposes an OTLP receiver and a query UI in one workload; a separate OpenTelemetry Collector is not required for local development. Trace storage uses in-memory storage, which is cleared on restart and is appropriate for development only.
+
+`make kind-up` SHALL deploy Jaeger into the target namespace with its OTLP receiver enabled, and SHALL create an HTTPRoute that exposes the Jaeger UI at `jaeger.hypershell.localhost`. The Jaeger workload SHALL expose both the OTLP/gRPC receiver (`4317`) used by the API server and the OTLP/HTTP receiver (`4318`) used by the web console, because browsers cannot speak OTLP gRPC. The web console BFF SHALL be configured to export traces to the Jaeger OTLP/HTTP endpoint through the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable on the web-console Deployment. The browser exports through the same-origin BFF telemetry endpoint (see `web-console/tracing.spec.md`), so the browser does not reach Jaeger directly.
+
+| Setting | Value |
+|---------|-------|
+| Workload | `jaeger` Deployment (all-in-one, in-memory storage) |
+| OTLP receiver (API server) | `jaeger.<namespace>.svc.cluster.local:4317` (OTLP/gRPC) |
+| OTLP receiver (web console BFF) | `http://jaeger.<namespace>.svc.cluster.local:4318` (OTLP/HTTP) |
+| Query UI | `https://jaeger.hypershell.localhost` |
+
+Deployment of Jaeger SHALL be gated by the `KIND_JAEGER` environment variable (opt-in; unset or any value other than `true` skips it). When Jaeger is not deployed, `make kind-up` SHALL skip the Jaeger workload and its route and SHALL leave `OTEL_EXPORTER_OTLP_ENDPOINT` unset on the web-console Deployment, so the BFF starts with tracing disabled without failing readiness.
+
 ## Requirements
 
 ### Requirement: Single-Command Environment Setup
@@ -441,6 +456,7 @@ All services SHALL be accessible via `.localhost` hostnames routed through the n
 | HTTP API | `https://api.hypershell.localhost` | REST API access |
 | Web Console | `https://console.hypershell.localhost` | Browser UI |
 | Health | `https://health.hypershell.localhost` | Health check endpoint |
+| Jaeger UI | `https://jaeger.hypershell.localhost` | Distributed tracing UI (when `KIND_JAEGER=true`) |
 | gRPC | `https://<gateway-name>.gw.localhost` | gRPC streaming (control plane, CLI) |
 
 The self-signed TLS certificate issued by cert-manager must be trusted by the developer's browser or CLI tool (e.g. `curl --cacert`).
@@ -655,6 +671,31 @@ All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (def
 - THEN the API server SHALL be swapped only in the `hypershell-feature-add-auth` namespace
 - AND the default deployment SHALL remain unchanged
 
+### Requirement: Development Tracing
+
+The system SHALL deploy a Jaeger all-in-one instance in the local environment and configure the web console BFF to export traces to it, so a developer can verify one end-to-end trace. Deployment SHALL be gated by `KIND_JAEGER` (opt-in; deployed only when set to `true`).
+
+#### Scenario: Jaeger Available After Setup
+- GIVEN `KIND_JAEGER` is `true`
+- WHEN a developer runs `make kind-up`
+- THEN a Jaeger all-in-one workload SHALL be deployed into the target namespace
+- AND the workload SHALL expose the OTLP/gRPC receiver on `4317` and the OTLP/HTTP receiver on `4318`
+- AND an HTTPRoute SHALL expose the Jaeger UI at `jaeger.hypershell.localhost`
+- AND the web console BFF SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the Jaeger OTLP/HTTP receiver
+
+#### Scenario: End-to-End Trace Visible
+- GIVEN the local environment is running with tracing enabled
+- WHEN a developer completes a gateway workflow in the web console
+- THEN one trace SHALL be visible in the Jaeger UI
+- AND it SHALL contain the browser workflow span and the BFF server span joined by the same trace identifier
+
+#### Scenario: Tracing Disabled
+- GIVEN `KIND_JAEGER` is unset (or any value other than `true`)
+- WHEN a developer runs `make kind-up`
+- THEN the Jaeger workload and its route SHALL NOT be deployed
+- AND `OTEL_EXPORTER_OTLP_ENDPOINT` SHALL be left unset on the web-console Deployment
+- AND the web console BFF SHALL start with tracing disabled without failing readiness
+
 ## Environment Variable Reference
 
 | Env Var | Default | Description |
@@ -678,6 +719,7 @@ All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (def
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18` | Database image for Gateway resource; override for OSS dev (unsupported) |
 | `KIND_NAMESPACE` | `hypershell-system` | Target namespace for all `kind-*` targets |
+| `KIND_JAEGER` | (unset) | Set to `true` to deploy Jaeger all-in-one for distributed tracing (OTLP gRPC `4317` + HTTP `4318`) and export web console traces to it |
 
 ## Make Targets Summary
 
@@ -710,6 +752,7 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
 | Web console as first-class component | Node.js frontend (`components/web-console/`) deployed alongside API server and control plane; supports hot reload via `KIND_HOT_RELOAD` for rapid UI iteration |
+| Jaeger all-in-one for local tracing | One workload provides both OTLP receivers (gRPC `4317` for the API server, HTTP `4318` for the web console) and the query UI with in-memory storage; avoids a separate OpenTelemetry Collector in development. The BFF exports over OTLP/HTTP; the browser exports through the same-origin BFF endpoint. `KIND_JAEGER=true` opts in |
 | Hot reload on by default | Swap targets for supported components (web console) mount host source and run a dev server in an interactive TTY by default; `KIND_HOT_RELOAD=false` opts out to rebuild-and-replace. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
 | Database provisioned by control plane | Gateway configured with HI postgresql image; control plane reconciler provisions the database via GatewayReconciler (`specs/platform/openshell-gateway-database.spec.md`, implemented in [#14](https://github.com/openshift-online/hypershell/pull/14)), exercising the same path as production. The API server's own database (`deploy/kind/postgres.yaml`) is always deployed directly by `kind-up` |

@@ -158,5 +158,12 @@ export interface GatewayOperations {
 /** Application-owned port for nondeterministic workflow context. */
 export interface GatewayWorkflowRuntime {
   createCorrelationId(): string;
+  /**
+   * Creates the W3C trace identifier (16-byte value as 32 lowercase hex
+   * digits) that identifies one workflow invocation across the browser, the
+   * BFF, and the API. A trace sink adopts this value as the span trace id, so
+   * probe consumers can join a workflow to its trace.
+   */
+  createTraceId(): string;
   now(): string;
 }

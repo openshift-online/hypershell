@@ -413,3 +413,14 @@ e2e:
 		E2E_PROVISION_TIMEOUT=300 \
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-openshell.sh
+
+# Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
+# cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
+# Jaeger is deployed and the web-console BFF exports to it.
+.PHONY: e2e-tracing
+e2e-tracing:
+	@echo ""
+	@echo "==> Verifying end-to-end traces reach Jaeger (Kind)"
+	@echo "    (requires: KIND_JAEGER=true make kind-up)"
+	@echo ""
+	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:live

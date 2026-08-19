@@ -167,3 +167,90 @@ func TestIsAuthorized_GatewayCreatorCanAccessFleets(t *testing.T) {
 func strPtr(s string) *string {
 	return &s
 }
+
+// Platform Admin tests
+func TestIsAuthorized_PlatformAdminCanListAllGateways(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateways", "", "", bindings) {
+		t.Error("platform:admin should be authorized to list all gateways")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCanReadAnyGateway(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings) {
+		t.Error("platform:admin should be authorized to read any gateway")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCanDeleteAnyGateway(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings) {
+		t.Error("platform:admin should be authorized to delete any gateway")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCannotModifyGateway(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings) {
+		t.Error("platform:admin must not be able to PATCH gateways without gateway:owner")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCannotCreateGateways(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodPost, "gateways", "", "", bindings) {
+		t.Error("platform:admin must not be able to create gateways without gateway:creator")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminWithGatewayCreatorCanCreate(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+		{RoleName: "gateway:creator", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodPost, "gateways", "", "", bindings) {
+		t.Error("platform:admin + gateway:creator should be able to create gateways")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminWithOwnershipCanModify(t *testing.T) {
+	gwID := "gw-owned"
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: &gwID},
+	}
+
+	if !isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings) {
+		t.Error("platform:admin + gateway:owner should be able to modify owned gateway")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCanAccessRoleBindings(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "role_bindings", "", "", bindings) {
+		t.Error("platform:admin should be able to access role_bindings")
+	}
+}

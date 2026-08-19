@@ -135,6 +135,10 @@
     "defaultMessage": "Install the OpenShell CLI",
     "description": "Link text pointing to the NVIDIA OpenShell installation documentation."
   },
+  "app.gateway.connection.installLinkNewTab": {
+    "defaultMessage": "Install the OpenShell CLI (opens in a new tab)",
+    "description": "Accessible name for the OpenShell CLI install docs link, including that it opens in a new tab."
+  },
   "app.gateway.connection.installPrereq": {
     "defaultMessage": "The OpenShell CLI must be installed before running the commands below.",
     "description": "Prerequisite note shown above the connection steps directing operators to install the CLI first."
