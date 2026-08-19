@@ -122,6 +122,7 @@ help:
 	@echo "    check-dependency-pins    Verify dependency version pins"
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
+	@echo "    check-kustomize-overlays Validate kustomize overlays render correctly"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -198,8 +199,12 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: check-kustomize-overlays
+check-kustomize-overlays:
+	python3 scripts/check_kustomize_overlays.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-kustomize-overlays
 
 # ============================================================================
 # Git hooks

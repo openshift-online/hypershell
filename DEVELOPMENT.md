@@ -29,7 +29,7 @@ This creates a Kind cluster and deploys:
 1. Gateway API CRDs (experimental channel, includes BackendTLSPolicy)
 2. cloud-provider-kind (LoadBalancer + Gateway API controller)
 3. cert-manager (TLS certificate lifecycle)
-4. Keycloak (OIDC identity provider, optimized image with pre-built providers)
+4. Keycloak (OIDC identity provider; set `KIND_KEYCLOAK_OPTIMIZED=true` for faster startup)
 5. Networking Gateway with wildcard TLS certificates
 6. HTTPRoutes for all services
 7. API server (with DB migration init container)
@@ -126,13 +126,14 @@ plane are Go services that require a full rebuild (`make kind-api-server-up` /
 ## Keycloak
 
 The local Keycloak instance mirrors the downstream Keycloak topology used in
-production. It uses an optimized image (`deploy/kind/keycloak/Dockerfile`) that
-runs `kc.sh build` at image build time so the provider registry, config parsing,
-and DB resource generation happen once -- not on every pod start. At runtime
-Keycloak starts with `--optimized`, skipping the build phase entirely and cutting
-startup from ~60s to ~15s. `make kind-up` builds and loads this image
-automatically (reusing it on subsequent runs); rebuild manually with
-`make kind-keycloak-build`.
+production. By default `make kind-up` uses the stock upstream image. Set
+`KIND_KEYCLOAK_OPTIMIZED=true` to use an optimized image
+(`deploy/kind/keycloak/Dockerfile`) that runs `kc.sh build` at image build time
+so the provider registry, config parsing, and DB resource generation happen
+once -- not on every pod start. At runtime Keycloak starts with `--optimized`,
+skipping the build phase entirely and cutting startup from ~60s to ~15s. The
+optimized image is built and loaded on first run and reused on subsequent runs;
+rebuild manually with `make kind-keycloak-build`.
 
 | Setting | Value |
 |---------|-------|
