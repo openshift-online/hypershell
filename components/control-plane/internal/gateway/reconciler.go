@@ -921,7 +921,6 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 			"capabilities": map[string]interface{}{
 				"drop": []interface{}{"ALL"},
 			},
-			"runAsNonRoot": true,
 		},
 		"resources": map[string]interface{}{
 			"requests": map[string]interface{}{
