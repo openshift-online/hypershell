@@ -610,10 +610,17 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
     exit 1
   fi
 
-  show_cmd "# OAuth 2.0 Device Authorization Grant → ${DEVICE_AUTH_ENDPOINT} (client: ${GW_KC_CLIENT_ID})"
+  # This public client requires PKCE S256 for every authorization flow. Keep the
+  # verifier private and send only its SHA-256 challenge to the device endpoint.
+  DEVICE_CODE_VERIFIER=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+  DEVICE_CODE_CHALLENGE=$(DEVICE_CODE_VERIFIER="$DEVICE_CODE_VERIFIER" python3 -c "import base64,hashlib,os; print(base64.urlsafe_b64encode(hashlib.sha256(os.environ['DEVICE_CODE_VERIFIER'].encode()).digest()).rstrip(b'=').decode())")
+
+  show_cmd "# OAuth 2.0 Device Authorization Grant with PKCE S256 → ${DEVICE_AUTH_ENDPOINT} (client: ${GW_KC_CLIENT_ID})"
   DEVICE_AUTH_RESPONSE=$(curl -sk -X POST "$DEVICE_AUTH_ENDPOINT" \
-    -d "client_id=${GW_KC_CLIENT_ID}" \
-    -d "scope=openid" 2>/dev/null || true)
+    --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
+    --data-urlencode "scope=openid" \
+    --data-urlencode "code_challenge=${DEVICE_CODE_CHALLENGE}" \
+    --data-urlencode "code_challenge_method=S256" 2>/dev/null || true)
   DEVICE_CODE=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('device_code',''))" 2>/dev/null || true)
   DEVICE_USER_CODE=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('user_code',''))" 2>/dev/null || true)
   DEVICE_VERIFICATION_URI=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('verification_uri',''))" 2>/dev/null || true)
@@ -632,9 +639,10 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   sleep "$DEVICE_INTERVAL"
 
   DEVICE_TOKEN_RESPONSE=$(curl -sk -X POST "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
-    -d "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
-    -d "client_id=${GW_KC_CLIENT_ID}" \
-    -d "device_code=${DEVICE_CODE}" 2>/dev/null || true)
+    --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+    --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
+    --data-urlencode "device_code=${DEVICE_CODE}" \
+    --data-urlencode "code_verifier=${DEVICE_CODE_VERIFIER}" 2>/dev/null || true)
   DEVICE_TOKEN_ERROR=$(echo "$DEVICE_TOKEN_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || true)
   if [[ "$DEVICE_TOKEN_ERROR" == "authorization_pending" ]]; then
     pass "Keycloak accepted the issued device code"
