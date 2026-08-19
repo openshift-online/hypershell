@@ -231,6 +231,14 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 - AND OAuth 2.0 Device Authorization Grant SHALL be enabled
 - AND the `gateway-roles` client scope SHALL be included in `defaultClientScopes`
 
+#### Scenario: Reconciler enables device authorization on an existing client
+
+- GIVEN a gateway's Keycloak client was provisioned before Device Authorization Grant was enabled
+- WHEN the GatewayReconciler reconciles the existing gateway
+- THEN it SHALL enable OAuth 2.0 Device Authorization Grant on the existing Keycloak client
+- AND it SHALL preserve all other client attributes and settings
+- AND subsequent reconciliations SHALL NOT update the client when the grant is already enabled
+
 #### Scenario: Creator receives admin role on new gateway
 
 - GIVEN user-a has `gateway:creator` (from Keycloak) and creates Gateway `gw-new` (id=`xyz789`)

@@ -932,7 +932,10 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	}
 
 	if existingUUID != "" {
-		log.Printf("INFO keycloak client %s already exists (uuid=%s), skipping provisioning", kcClientID, existingUUID)
+		if err := kc.EnsureDeviceAuthorizationGrant(ctx, existingUUID); err != nil {
+			return fmt.Errorf("reconcile device authorization grant on keycloak client %s: %w", kcClientID, err)
+		}
+		log.Printf("INFO reconciled keycloak client %s (uuid=%s)", kcClientID, existingUUID)
 	} else {
 		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)
 		if err != nil {
