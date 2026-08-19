@@ -866,7 +866,6 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 	if !found {
 		return
 	}
-	gatewayImage := ""
 	for i, c := range containers {
 		container, ok := c.(map[string]interface{})
 		if !ok {
@@ -875,9 +874,6 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		name, _, _ := unstructured.NestedString(container, "name")
 		if name != "openshell-gateway" {
 			continue
-		}
-		if image, ok := container["image"].(string); ok {
-			gatewayImage = image
 		}
 
 		volumeMounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
@@ -904,13 +900,10 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 	}
 	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 
-	if gatewayImage == "" {
-		return
-	}
 	initContainers, _, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "initContainers")
 	initContainers = append(initContainers, map[string]interface{}{
 		"name":  "merge-trusted-ca-bundle",
-		"image": gatewayImage,
+		"image": "registry.access.redhat.com/ubi9/ubi-minimal:latest",
 		"command": []interface{}{
 			"sh",
 			"-c",
