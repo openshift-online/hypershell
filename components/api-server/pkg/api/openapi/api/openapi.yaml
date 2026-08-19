@@ -2377,6 +2377,18 @@ components:
               \ from RBAC role bindings"
             readOnly: true
             type: string
+          generation:
+            description: "Monotonic desired-state revision, incremented by the API\
+              \ server on any desired-spec change"
+            format: int64
+            readOnly: true
+            type: integer
+          observed_generation:
+            description: Generation the control plane last successfully applied; converged
+              when equal to generation
+            format: int64
+            readOnly: true
+            type: integer
         required:
         - cluster_id
         - name
@@ -2396,7 +2408,9 @@ components:
         href: href
         gateway_version: gateway_version
         external_dns: external_dns
+        observed_generation: 2
         phase: phase
+        generation: 5
         image: image
         observed_release_id: observed_release_id
         active_sandbox_count: 5
@@ -2450,7 +2464,9 @@ components:
           href: href
           gateway_version: gateway_version
           external_dns: external_dns
+          observed_generation: 2
           phase: phase
+          generation: 5
           image: image
           observed_release_id: observed_release_id
           active_sandbox_count: 5
@@ -2485,7 +2501,9 @@ components:
           href: href
           gateway_version: gateway_version
           external_dns: external_dns
+          observed_generation: 2
           phase: phase
+          generation: 5
           image: image
           observed_release_id: observed_release_id
           active_sandbox_count: 5
