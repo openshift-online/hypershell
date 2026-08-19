@@ -179,6 +179,16 @@ header "Infrastructure"
 # TCPRoute/UDPRoute).  Delete them first so the apply can re-create them
 # with the correct spec.versions.
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
+  # If deletion is delayed or blocked, force storedVersions to match an
+  # existing served version so server-side apply does not fail validation.
+  if kube get crd "$crd" >/dev/null 2>&1; then
+    served_versions=$(kube get crd "$crd" -o jsonpath='{range .spec.versions[?(@.served==true)]}{.name}{" "}{end}' 2>/dev/null || true)
+    first_served_version="${served_versions%% *}"
+    if [[ -n "${first_served_version}" ]]; then
+      kube patch crd "$crd" --subresource=status --type=merge \
+        -p "{\"status\":{\"storedVersions\":[\"${first_served_version}\"]}}" >/dev/null 2>&1 || true
+    fi
+  fi
   kube delete crd "$crd" --ignore-not-found 2>/dev/null || true
 done
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do

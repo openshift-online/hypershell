@@ -158,17 +158,21 @@ swap_up() {
     kube patch service "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --type=json \
       -p='[{"op": "remove", "path": "/spec/selector"}]' 2>/dev/null || true
     kube apply -f - <<EOF
-apiVersion: v1
-kind: Endpoints
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
 metadata:
   name: ${DEPLOYMENT}
   namespace: ${KIND_NAMESPACE}
-subsets:
+  labels:
+    kubernetes.io/service-name: ${DEPLOYMENT}
+addressType: IPv4
+endpoints:
   - addresses:
-      - ip: ${HOST_IP}
-    ports:
-      - name: http
-        port: ${DEV_PORT}
+      - ${HOST_IP}
+ports:
+  - name: http
+    port: ${DEV_PORT}
+    protocol: TCP
 EOF
 
     # The console's /api proxy targets localhost:8000, so the API server must be

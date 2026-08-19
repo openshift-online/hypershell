@@ -856,12 +856,17 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		},
 	}
 	volumes = append(volumes, caVolume)
+	volumes = append(volumes, map[string]interface{}{
+		"name":    "merged-ca",
+		"emptyDir": map[string]interface{}{},
+	})
 	_ = unstructured.SetNestedSlice(obj.Object, volumes, "spec", "template", "spec", "volumes")
 
 	containers, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
 	if !found {
 		return
 	}
+	gatewayImage := ""
 	for i, c := range containers {
 		container, ok := c.(map[string]interface{})
 		if !ok {
@@ -871,26 +876,60 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		if name != "openshell-gateway" {
 			continue
 		}
+		if image, ok := container["image"].(string); ok {
+			gatewayImage = image
+		}
 
 		volumeMounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
 		volumeMounts = append(volumeMounts, map[string]interface{}{
 			"name":      "trusted-ca",
-			"mountPath": "/etc/pki/tls/certs/ca-bundle.crt",
+			"mountPath": "/etc/pki/tls/certs/hypershell-extra-ca.crt",
 			"subPath":   "ca-bundle.crt",
 			"readOnly":  true,
+		})
+		volumeMounts = append(volumeMounts, map[string]interface{}{
+			"name":      "merged-ca",
+			"mountPath": "/var/run/hypershell-ca",
 		})
 		_ = unstructured.SetNestedSlice(container, volumeMounts, "volumeMounts")
 
 		env, _, _ := unstructured.NestedSlice(container, "env")
 		env = append(env, map[string]interface{}{
 			"name":  "SSL_CERT_FILE",
-			"value": "/etc/pki/tls/certs/ca-bundle.crt",
+			"value": "/var/run/hypershell-ca/ca-bundle.crt",
 		})
 		_ = unstructured.SetNestedSlice(container, env, "env")
 
 		containers[i] = container
 	}
 	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
+
+	if gatewayImage == "" {
+		return
+	}
+	initContainers, _, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "initContainers")
+	initContainers = append(initContainers, map[string]interface{}{
+		"name":  "merge-trusted-ca-bundle",
+		"image": gatewayImage,
+		"command": []interface{}{
+			"sh",
+			"-c",
+			"cat /etc/pki/tls/certs/ca-bundle.crt /etc/pki/tls/certs/hypershell-extra-ca.crt > /var/run/hypershell-ca/ca-bundle.crt",
+		},
+		"volumeMounts": []interface{}{
+			map[string]interface{}{
+				"name":      "trusted-ca",
+				"mountPath": "/etc/pki/tls/certs/hypershell-extra-ca.crt",
+				"subPath":   "ca-bundle.crt",
+				"readOnly":  true,
+			},
+			map[string]interface{}{
+				"name":      "merged-ca",
+				"mountPath": "/var/run/hypershell-ca",
+			},
+		},
+	})
+	_ = unstructured.SetNestedSlice(obj.Object, initContainers, "spec", "template", "spec", "initContainers")
 }
 
 func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Clientset, namespace string, dbImage string) error {
