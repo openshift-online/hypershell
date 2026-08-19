@@ -6,7 +6,7 @@
 
 ## Purpose
 
-HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all baseline images from the local `main` branch instead of pulling from the registry.
+HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all images from the working tree instead of pulling from the registry. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
 
@@ -486,6 +486,8 @@ The system SHALL support both Podman and Docker as container engines. The engine
 
 All image names and tags used across Makefile targets, Kind load commands, and Kubernetes manifests SHALL resolve to the same artifacts. This reinforces the cross-cutting convention in `specs/standards/platform/cross-cutting.spec.md`.
 
+When `LOCAL_IMAGES=true`, the deployed image refs are the `localhost/` names (e.g. `localhost/hypershell-controller:dev`), not the registry refs. The substitution happens at kustomize apply time via an `images` transformer, so manifests reach the cluster with the correct refs  -- no post-apply patching, no wasted rollout.
+
 ### Requirement: Security Context Compliance
 
 All containers in the Kind deployment manifests SHALL set restricted security contexts per `specs/standards/security/security.spec.md`: `runAsNonRoot: true`, `capabilities.drop: ["ALL"]`, and `allowPrivilegeEscalation: false`.
@@ -585,28 +587,49 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 
 ### Requirement: Offline Development (LOCAL_IMAGES)
 
-The system SHALL support offline development by building all baseline images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from `origin/main` and load them into the Kind cluster. Repeated `kind-up` invocations with `LOCAL_IMAGES=true` SHALL rebuild from `origin/main`, picking up any new commits - analogous to a `git fetch` for images.
+The system SHALL support offline development by building all images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from the working tree (current branch), load them into the Kind cluster, and apply manifests with `localhost/` image refs so that pods start with local images on the first rollout. This ensures the deployed images match the scripts, manifests, and seed data on the current branch  -- and `kubectl describe pod` shows the actual local image name (e.g. `localhost/hypershell-controller:dev`) rather than a registry ref that could be mistaken for a remote pull. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
+
+Image ref substitution SHALL happen at manifest-apply time via a kustomize `images` transformer, not as a post-apply `kubectl set image` patch. This avoids a wasted rollout where pods first start with registry refs (potentially failing to pull) and then get killed and replaced with local refs. The kustomize transformer maps each registry image name to its `localhost/` equivalent before the manifests reach the API server.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build baseline images from the local repository instead of pulling from the container registry |
+| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build images locally instead of pulling from the container registry |
+| `BUILD_SOURCE` | `worktree` | Image build source: `worktree` (current branch) or `baseline` (`origin/main`) |
+
+Local image names:
+
+| Component | Registry Ref | Local Image Ref |
+|-----------|-------------|----------------|
+| API server | `${IMAGE_REGISTRY}/hypershell-api-server-main` | `localhost/hypershell:dev` |
+| Control plane | `${IMAGE_REGISTRY}/hypershell-control-plane-main` | `localhost/hypershell-controller:dev` |
+| Web console | `${IMAGE_REGISTRY}/hypershell-web-console-main` | `localhost/hypershell-web-console:dev` |
 
 #### Scenario: First Run - Offline
 - GIVEN no Kind cluster exists
 - AND the developer has no access to the container registry
 - AND `LOCAL_IMAGES=true` is set
 - WHEN the developer runs `make kind-up`
-- THEN all component images SHALL be built from the local repository
-- AND images SHALL be loaded into the Kind cluster
+- THEN all component images SHALL be built from the working tree with `localhost/` image names
+- AND images SHALL be loaded into the Kind cluster via tarball archive
+- AND kustomize SHALL apply manifests with a `localhost/` images transformer so pods start with local refs
 - AND the cluster SHALL reach a ready state without any registry pulls for platform components
+- AND `kubectl get pods -o jsonpath='{.items[*].spec.containers[*].image}'` SHALL show `localhost/` refs for locally-built components
 
-#### Scenario: Subsequent Run - Rebuild from Main
+#### Scenario: Subsequent Run - Rebuild from Working Tree
 - GIVEN a Kind cluster is running with locally-built images
 - AND `LOCAL_IMAGES=true` is set
 - WHEN the developer runs `make kind-up` again
-- THEN all non-swapped component images SHALL be rebuilt from `origin/main`
+- THEN all non-swapped component images SHALL be rebuilt from the working tree
 - AND updated images SHALL be loaded into the Kind cluster
+- AND kustomize SHALL apply manifests with the `localhost/` images transformer
 - AND swapped components SHALL be preserved
+
+#### Scenario: Baseline Build from origin/main
+- GIVEN `LOCAL_IMAGES=true` and `BUILD_SOURCE=baseline` are set
+- WHEN the developer runs `make kind-up`
+- THEN all component images SHALL be built from `origin/main` with `localhost/` image names
+- AND images SHALL be loaded into the Kind cluster
+- AND kustomize SHALL apply manifests with the `localhost/` images transformer
 
 ### Requirement: Red Hat Hardened Images
 
@@ -668,7 +691,8 @@ All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (def
 | `KIND_PULL_SECRET` | (unset) | Path to a Kubernetes pull secret YAML file; applied to the target namespace for HI image access |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry path for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
-| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build baseline images from `origin/main` instead of pulling from registry |
+| `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build images locally instead of pulling from registry |
+| `BUILD_SOURCE` | `worktree` | Image build source when `LOCAL_IMAGES=true`: `worktree` (current branch) or `baseline` (`origin/main`) |
 | `CONTAINER_ENGINE` | Auto-detected (Podman preferred) | Container engine (`podman` or `docker`) |
 | `GATEWAY_API_VERSION` | (pinned in Makefile) | Gateway API CRD release version |
 | `CLOUD_PROVIDER_KIND_REPO` | (pinned in Makefile) | Git repository URL for cloud-provider-kind fork (BackendTLSPolicy + ALPN h2 support) |
@@ -702,12 +726,13 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | Decision | Rationale |
 |----------|-----------|
 | Registry pull for baseline images | Faster setup; no local build required for baseline; per-component swap handles local development |
-| Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` serves a separate purpose - offline baseline builds from `main` when registry access is unavailable |
+| Per-component swap for iterative development | More ergonomic than blanket rebuild; discoverable via tab-completion; `LOCAL_IMAGES=true` builds from the working tree by default so images match the branch's scripts and manifests; `BUILD_SOURCE=baseline` optionally builds from `origin/main` for comparison |
 | Hostname routing via networking Gateway as default | All component services route through the networking Gateway using HTTPRoute resources at `*.hypershell.localhost`. Developers access services by name (`api.hypershell.localhost`) instead of memorizing port numbers. Multi-namespace deployments get distinct hostnames without any per-hostname configuration thanks to wildcard DNS |
 | CoreDNS for wildcard DNS | A CoreDNS container resolves all `*.localhost` to loopback, eliminating per-hostname `/etc/hosts` management. OS resolver config routes `.localhost` queries to CoreDNS (macOS: `/etc/resolver/localhost`; Linux: `resolvectl`). Multi-namespace hostnames work automatically |
 | OS-native port forwarding (pfctl/iptables) | Redirects host:443 to cloud-provider-kind's ephemeral port, enabling clean `https://` URLs. Workaround until cloud-provider-kind supports publishing on specific host ports. Graceful fallback: if sudo fails, URLs show the ephemeral port suffix |
 | Pre-check cluster existence for idempotency | Check `kind get clusters` for the target name before attempting creation; skip if already present. Avoids `\|\| true` which swallows real failures (Docker not running, resource exhaustion) |
-| Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency |
+| Images loaded via tarball archive | Compatible with both Podman and Docker; avoids registry dependency. `kind load docker-image` is Podman-incompatible; `kind load image-archive` works with any container engine |
+| Localhost image refs for LOCAL_IMAGES via kustomize transformer | Local builds use `localhost/` image names (e.g. `localhost/hypershell-controller:dev`). A kustomize `images` transformer maps registry refs to localhost refs at manifest-apply time, so pods start with the correct image on the first rollout  -- no wasted deploy-then-patch cycle. `kubectl describe pod` shows the actual local image, not a registry ref that could be mistaken for a remote pull |
 | Rebuild-and-replace on every swap call | Each `kind-<component>-up` rebuilds from the working tree and replaces the deployment, even if already swapped; developers iterate by re-running the same target |
 | Web console as first-class component | Node.js frontend (`components/web-console/`) deployed alongside API server and control plane; supports hot reload via `KIND_HOT_RELOAD` for rapid UI iteration |
 | Hot reload on by default | Swap targets for supported components (web console) mount host source and run a dev server in an interactive TTY by default; `KIND_HOT_RELOAD=false` opts out to rebuild-and-replace. Keeps the same `kind-<component>-up` entrypoint for both workflows |

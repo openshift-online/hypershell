@@ -84,6 +84,8 @@ help:
 	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
 	@echo ""
 	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
+	@echo "                             LOCAL_IMAGES=true: build from working tree (default)"
+	@echo "                             LOCAL_IMAGES=true BUILD_SOURCE=baseline: build from origin/main"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
@@ -282,7 +284,7 @@ test-all: install-js
 # ============================================================================
 
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
-export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
+export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES BUILD_SOURCE
 export KIND_PULL_SECRET KIND_DB_IMAGE
 export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
