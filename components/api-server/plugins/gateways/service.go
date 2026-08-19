@@ -102,6 +102,27 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
+	// generation is API-server-owned: increment it iff a desired-spec field
+	// changed, and never trust a client-supplied value. observed_generation is a
+	// monotonic convergence latch written only by the control plane. See
+	// data-model.spec.md § Gateway Generation Tracking.
+	current, getErr := s.gatewayDao.Get(ctx, gateway.ID)
+	if getErr != nil {
+		return nil, services.HandleGetError("Gateway", "id", gateway.ID, getErr)
+	}
+	newGeneration := current.Generation
+	if desiredStateChanged(current, gateway) {
+		newGeneration = current.Generation + 1
+	}
+	gateway.Generation = newGeneration
+	if gateway.ObservedGeneration != current.ObservedGeneration {
+		if gateway.ObservedGeneration < current.ObservedGeneration || gateway.ObservedGeneration > newGeneration {
+			return nil, errors.BadRequest(
+				"observed_generation %d out of range [%d, %d]",
+				gateway.ObservedGeneration, current.ObservedGeneration, newGeneration)
+		}
+	}
+
 	gateway, err = s.gatewayDao.Replace(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleUpdateError("Gateway", err)
@@ -117,6 +138,34 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	}
 
 	return gateway, nil
+}
+
+// desiredStateChanged reports whether any workload-altering (desired-spec) field
+// differs between the persisted Gateway and the incoming update. Observed fields
+// (status, phase, route_address, generation, observed_generation) and identity
+// fields (name, fleet_id, namespace) are excluded: they do not alter the live
+// workload and must not advance generation. See data-model.spec.md.
+func desiredStateChanged(current, next *Gateway) bool {
+	return current.ClusterId != next.ClusterId ||
+		current.ReleaseId != next.ReleaseId ||
+		current.DatabaseId != next.DatabaseId ||
+		!strEq(current.ExternalDns, next.ExternalDns) ||
+		!strEq(current.TlsMode, next.TlsMode) ||
+		!strEq(current.ServiceType, next.ServiceType) ||
+		!strEq(current.Image, next.Image) ||
+		!strEq(current.SupervisorImage, next.SupervisorImage) ||
+		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
+		!strEq(current.Oidc, next.Oidc) ||
+		!strEq(current.Route, next.Route) ||
+		!strEq(current.DatabaseConfig, next.DatabaseConfig) ||
+		!strEq(current.CredentialDriver, next.CredentialDriver)
+}
+
+func strEq(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {

@@ -2554,6 +2554,18 @@ components:
           credential_driver:
             description: JSON-encoded credential storage driver configuration
             type: string
+          generation:
+            description: "Monotonic desired-state revision, incremented by the API\
+              \ server on any desired-spec change"
+            format: int64
+            readOnly: true
+            type: integer
+          observed_generation:
+            description: Generation the control plane last successfully applied; converged
+              when equal to generation
+            format: int64
+            readOnly: true
+            type: integer
         required:
         - cluster_id
         - database_id
@@ -2563,31 +2575,33 @@ components:
         - release_id
         type: object
       example:
-        phase: phase
         release_id: release_id
-        image: image
-        kind: kind
         server_dns_names:
         - server_dns_names
         - server_dns_names
         created_at: 2000-01-23T04:56:07.000+00:00
         credential_driver: credential_driver
-        route_address: route_address
-        oidc: oidc
-        supervisor_image: supervisor_image
         cluster_id: cluster_id
-        service_type: service_type
-        tls_mode: tls_mode
-        route: route
         updated_at: 2000-01-23T04:56:07.000+00:00
-        database_id: database_id
         database_config: database_config
-        name: name
-        namespace: namespace
         id: id
         href: href
         fleet_id: fleet_id
         external_dns: external_dns
+        observed_generation: 5
+        phase: phase
+        generation: 5
+        image: image
+        kind: kind
+        route_address: route_address
+        oidc: oidc
+        supervisor_image: supervisor_image
+        service_type: service_type
+        tls_mode: tls_mode
+        route: route
+        database_id: database_id
+        name: name
+        namespace: namespace
         status: status
     GatewayList:
       allOf:
@@ -2608,57 +2622,61 @@ components:
         id: id
         href: href
         items:
-        - phase: phase
-          release_id: release_id
-          image: image
-          kind: kind
+        - release_id: release_id
           server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
-          route_address: route_address
-          oidc: oidc
-          supervisor_image: supervisor_image
           cluster_id: cluster_id
-          service_type: service_type
-          tls_mode: tls_mode
-          route: route
           updated_at: 2000-01-23T04:56:07.000+00:00
-          database_id: database_id
           database_config: database_config
-          name: name
-          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
           external_dns: external_dns
+          observed_generation: 5
+          phase: phase
+          generation: 5
+          image: image
+          kind: kind
+          route_address: route_address
+          oidc: oidc
+          supervisor_image: supervisor_image
+          service_type: service_type
+          tls_mode: tls_mode
+          route: route
+          database_id: database_id
+          name: name
+          namespace: namespace
           status: status
-        - phase: phase
-          release_id: release_id
-          image: image
-          kind: kind
+        - release_id: release_id
           server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
-          route_address: route_address
-          oidc: oidc
-          supervisor_image: supervisor_image
           cluster_id: cluster_id
-          service_type: service_type
-          tls_mode: tls_mode
-          route: route
           updated_at: 2000-01-23T04:56:07.000+00:00
-          database_id: database_id
           database_config: database_config
-          name: name
-          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
           external_dns: external_dns
+          observed_generation: 5
+          phase: phase
+          generation: 5
+          image: image
+          kind: kind
+          route_address: route_address
+          oidc: oidc
+          supervisor_image: supervisor_image
+          service_type: service_type
+          tls_mode: tls_mode
+          route: route
+          database_id: database_id
+          name: name
+          namespace: namespace
           status: status
     GatewayPatchRequest:
       example:

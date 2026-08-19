@@ -55,6 +55,10 @@ type Gateway struct {
 	DatabaseConfig *string `json:"database_config,omitempty"`
 	// JSON-encoded credential storage driver configuration
 	CredentialDriver *string `json:"credential_driver,omitempty"`
+	// Monotonic desired-state revision, incremented by the API server on any desired-spec change
+	Generation *int64 `json:"generation,omitempty"`
+	// Generation the control plane last successfully applied; converged when equal to generation
+	ObservedGeneration *int64 `json:"observed_generation,omitempty"`
 }
 
 type _Gateway Gateway
@@ -802,6 +806,70 @@ func (o *Gateway) SetCredentialDriver(v string) {
 	o.CredentialDriver = &v
 }
 
+// GetGeneration returns the Generation field value if set, zero value otherwise.
+func (o *Gateway) GetGeneration() int64 {
+	if o == nil || IsNil(o.Generation) {
+		var ret int64
+		return ret
+	}
+	return *o.Generation
+}
+
+// GetGenerationOk returns a tuple with the Generation field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetGenerationOk() (*int64, bool) {
+	if o == nil || IsNil(o.Generation) {
+		return nil, false
+	}
+	return o.Generation, true
+}
+
+// HasGeneration returns a boolean if a field has been set.
+func (o *Gateway) HasGeneration() bool {
+	if o != nil && !IsNil(o.Generation) {
+		return true
+	}
+
+	return false
+}
+
+// SetGeneration gets a reference to the given int64 and assigns it to the Generation field.
+func (o *Gateway) SetGeneration(v int64) {
+	o.Generation = &v
+}
+
+// GetObservedGeneration returns the ObservedGeneration field value if set, zero value otherwise.
+func (o *Gateway) GetObservedGeneration() int64 {
+	if o == nil || IsNil(o.ObservedGeneration) {
+		var ret int64
+		return ret
+	}
+	return *o.ObservedGeneration
+}
+
+// GetObservedGenerationOk returns a tuple with the ObservedGeneration field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetObservedGenerationOk() (*int64, bool) {
+	if o == nil || IsNil(o.ObservedGeneration) {
+		return nil, false
+	}
+	return o.ObservedGeneration, true
+}
+
+// HasObservedGeneration returns a boolean if a field has been set.
+func (o *Gateway) HasObservedGeneration() bool {
+	if o != nil && !IsNil(o.ObservedGeneration) {
+		return true
+	}
+
+	return false
+}
+
+// SetObservedGeneration gets a reference to the given int64 and assigns it to the ObservedGeneration field.
+func (o *Gateway) SetObservedGeneration(v int64) {
+	o.ObservedGeneration = &v
+}
+
 func (o Gateway) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -871,6 +939,12 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver
+	}
+	if !IsNil(o.Generation) {
+		toSerialize["generation"] = o.Generation
+	}
+	if !IsNil(o.ObservedGeneration) {
+		toSerialize["observed_generation"] = o.ObservedGeneration
 	}
 	return toSerialize, nil
 }

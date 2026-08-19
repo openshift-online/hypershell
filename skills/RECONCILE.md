@@ -106,6 +106,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | DM-5 | Canary release strategy fields | Present | Fields exist; no logic implements canary | `plugins/gatewayReleases/model.go` | Future |
 | DM-6 | Network topology fields | Present | Fields exist; reconciler is a stub | `plugins/gatewayNetworks/model.go` | Future |
 | DM-7 | API endpoints (all 6 resources) | Present | - | `plugins/*/` | - |
+| DM-8 | Gateway Generation Tracking (generation/observed_generation) | Present | int64 fields; BeforeCreate inits 1/0; service.Replace increments generation on desired-spec change and bounds observed_generation as a monotonic latch | `plugins/gateways/model.go`, `service.go`, `migration.go` | GEN ✅ |
 
 ### control-plane.spec.md
 
@@ -121,6 +122,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | CP-2g | Canary release rollout | Missing | Stub: only logs | `reconciler.go:99-124` | Future |
 | CP-2h | Update resource status/phase | Partial | Only updates `phase`, not `status` | `updateGatewayPhase()` | Future |
 | CP-2i | Read provisioning fields from proto | Present | GatewayReconciler populates GatewayConfig from proto fields via JSON unmarshal | `reconciler.go:248-280` | W5 ✅ |
+| CP-2j | Convergence-gated re-provisioning | Present | GatewayReconciler.Handle gates on observed_generation==generation (not phase); writes observed_generation after successful ReconcileGateway | `reconciler.go:261-270,366` | GEN ✅ |
 | CP-3 | Delete K8s resources on Gateway deletion | Present | Label-based deletion of all namespaced resources + per-tenant ClusterRoleBinding | `gateway/reconciler.go:DeleteGatewayResources()` | W6 ✅ |
 | CP-4 | Status synchronization / health checks | Missing | No periodic health polling | - | Future |
 | CP-5 | Multi-cluster client pool | Missing | Single in-cluster client for all gateways | `main.go:58-68` | Future |
@@ -531,3 +533,4 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 | 2026-08-12 | working tree | OIDC always-on + Keycloak stability | 77% | Removed KIND_ENABLE_OIDC toggle; OIDC unconditional in kind-up; Keycloak memory 1Gi→2Gi + startup/liveness probes |
 | 2026-08-13 | 1055647 | Gap analysis for keycloak + secret-rotation specs | 73% | 2 new specs: keycloak (9 reqs, 6 deferred, 1 partial), secret-rotation (8 reqs, 6 deferred, 1 present, 1 partial). OIDC spec updated: 2 new requirements (O8 read-only, O9 auto-provisioned roles) deferred to KC wave. Data model spec: Sector→Fleet naming aligned. 4 new waves planned (KC-W1/W2/W3, SR-W1). Overall coverage drops from 78% to 73% due to new spec requirements. |
 | 2026-08-13 | working tree | Executed KC-W1/W2/W3 + SR-W1 | 80% | Keycloak Admin REST API client (token cache, atomic provisioning, cleanup). RoleBinding gRPC watch stream with role name enrichment. RoleBindingReconciler for OIDC Role Bridge (gateway:owner→openshell-admin, gateway:viewer→openshell-user). Gateway visibility filtering via FindGatewayIDsByUserID. Database password rotation (ALTER ROLE, config-hash). Coverage: 138/183 present (80%), keycloak 100%, secret-rotation 69%. |
+| 2026-08-19 | 8444b24 | Executed GEN wave: gateway desired-state convergence | 80% | Downstream of PR #151 spec. generation/observed_generation added to OpenAPI+proto (regenerated stubs/SDKs); BeforeCreate inits 1/0; service.Replace increments generation on desired-spec change (desiredStateChanged) and enforces observed_generation monotonic latch (reject <current or >generation); gRPC UpdateGateway accepts observed_generation write-back; control-plane reconciler gates on convergence instead of phase and acks generation on apply success. Per-component commits; api-server unit tests pass; gateways integration suite pre-broken on main (unrelated plugin migration param bug). |

@@ -22,29 +22,31 @@ const (
 )
 
 type Gateway struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Metadata         *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId          string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
-	ClusterId        string                 `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	ReleaseId        string                 `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
-	DatabaseId       string                 `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
-	Namespace        string                 `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	ExternalDns      *string                `protobuf:"bytes,8,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
-	TlsMode          *string                `protobuf:"bytes,9,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
-	ServiceType      *string                `protobuf:"bytes,10,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
-	Status           *string                `protobuf:"bytes,11,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	Phase            *string                `protobuf:"bytes,12,opt,name=phase,proto3,oneof" json:"phase,omitempty"`
-	Image            *string                `protobuf:"bytes,13,opt,name=image,proto3,oneof" json:"image,omitempty"`
-	SupervisorImage  *string                `protobuf:"bytes,19,opt,name=supervisor_image,json=supervisorImage,proto3,oneof" json:"supervisor_image,omitempty"`
-	ServerDnsNames   []string               `protobuf:"bytes,14,rep,name=server_dns_names,json=serverDnsNames,proto3" json:"server_dns_names,omitempty"`
-	RouteAddress     *string                `protobuf:"bytes,15,opt,name=route_address,json=routeAddress,proto3,oneof" json:"route_address,omitempty"`
-	Oidc             *string                `protobuf:"bytes,16,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
-	Route            *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
-	DatabaseConfig   *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
-	CredentialDriver *string                `protobuf:"bytes,20,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Metadata           *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Name               string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	FleetId            string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
+	ClusterId          string                 `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	ReleaseId          string                 `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
+	DatabaseId         string                 `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
+	Namespace          string                 `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	ExternalDns        *string                `protobuf:"bytes,8,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
+	TlsMode            *string                `protobuf:"bytes,9,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
+	ServiceType        *string                `protobuf:"bytes,10,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
+	Status             *string                `protobuf:"bytes,11,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	Phase              *string                `protobuf:"bytes,12,opt,name=phase,proto3,oneof" json:"phase,omitempty"`
+	Image              *string                `protobuf:"bytes,13,opt,name=image,proto3,oneof" json:"image,omitempty"`
+	SupervisorImage    *string                `protobuf:"bytes,19,opt,name=supervisor_image,json=supervisorImage,proto3,oneof" json:"supervisor_image,omitempty"`
+	ServerDnsNames     []string               `protobuf:"bytes,14,rep,name=server_dns_names,json=serverDnsNames,proto3" json:"server_dns_names,omitempty"`
+	RouteAddress       *string                `protobuf:"bytes,15,opt,name=route_address,json=routeAddress,proto3,oneof" json:"route_address,omitempty"`
+	Oidc               *string                `protobuf:"bytes,16,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
+	Route              *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
+	DatabaseConfig     *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
+	CredentialDriver   *string                `protobuf:"bytes,20,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
+	Generation         int64                  `protobuf:"varint,21,opt,name=generation,proto3" json:"generation,omitempty"`
+	ObservedGeneration *int64                 `protobuf:"varint,22,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -215,6 +217,20 @@ func (x *Gateway) GetCredentialDriver() string {
 		return *x.CredentialDriver
 	}
 	return ""
+}
+
+func (x *Gateway) GetGeneration() int64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *Gateway) GetObservedGeneration() int64 {
+	if x != nil && x.ObservedGeneration != nil {
+		return *x.ObservedGeneration
+	}
+	return 0
 }
 
 type CreateGatewayRequest struct {
@@ -522,28 +538,29 @@ func (x *GetGatewayResponse) GetGateway() *Gateway {
 }
 
 type UpdateGatewayRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name             *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	FleetId          *string                `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3,oneof" json:"fleet_id,omitempty"`
-	ClusterId        *string                `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
-	ReleaseId        *string                `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3,oneof" json:"release_id,omitempty"`
-	DatabaseId       *string                `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3,oneof" json:"database_id,omitempty"`
-	ExternalDns      *string                `protobuf:"bytes,7,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
-	TlsMode          *string                `protobuf:"bytes,8,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
-	ServiceType      *string                `protobuf:"bytes,9,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
-	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	Phase            *string                `protobuf:"bytes,11,opt,name=phase,proto3,oneof" json:"phase,omitempty"`
-	Image            *string                `protobuf:"bytes,12,opt,name=image,proto3,oneof" json:"image,omitempty"`
-	SupervisorImage  *string                `protobuf:"bytes,13,opt,name=supervisor_image,json=supervisorImage,proto3,oneof" json:"supervisor_image,omitempty"`
-	ServerDnsNames   []string               `protobuf:"bytes,14,rep,name=server_dns_names,json=serverDnsNames,proto3" json:"server_dns_names,omitempty"`
-	RouteAddress     *string                `protobuf:"bytes,15,opt,name=route_address,json=routeAddress,proto3,oneof" json:"route_address,omitempty"`
-	Oidc             *string                `protobuf:"bytes,16,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
-	Route            *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
-	DatabaseConfig   *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
-	CredentialDriver *string                `protobuf:"bytes,19,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name               *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	FleetId            *string                `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3,oneof" json:"fleet_id,omitempty"`
+	ClusterId          *string                `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
+	ReleaseId          *string                `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3,oneof" json:"release_id,omitempty"`
+	DatabaseId         *string                `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3,oneof" json:"database_id,omitempty"`
+	ExternalDns        *string                `protobuf:"bytes,7,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
+	TlsMode            *string                `protobuf:"bytes,8,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
+	ServiceType        *string                `protobuf:"bytes,9,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
+	Status             *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	Phase              *string                `protobuf:"bytes,11,opt,name=phase,proto3,oneof" json:"phase,omitempty"`
+	Image              *string                `protobuf:"bytes,12,opt,name=image,proto3,oneof" json:"image,omitempty"`
+	SupervisorImage    *string                `protobuf:"bytes,13,opt,name=supervisor_image,json=supervisorImage,proto3,oneof" json:"supervisor_image,omitempty"`
+	ServerDnsNames     []string               `protobuf:"bytes,14,rep,name=server_dns_names,json=serverDnsNames,proto3" json:"server_dns_names,omitempty"`
+	RouteAddress       *string                `protobuf:"bytes,15,opt,name=route_address,json=routeAddress,proto3,oneof" json:"route_address,omitempty"`
+	Oidc               *string                `protobuf:"bytes,16,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
+	Route              *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
+	DatabaseConfig     *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
+	CredentialDriver   *string                `protobuf:"bytes,19,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
+	ObservedGeneration *int64                 `protobuf:"varint,20,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -707,6 +724,13 @@ func (x *UpdateGatewayRequest) GetCredentialDriver() string {
 		return *x.CredentialDriver
 	}
 	return ""
+}
+
+func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
+	if x != nil && x.ObservedGeneration != nil {
+		return *x.ObservedGeneration
+	}
+	return 0
 }
 
 type UpdateGatewayResponse struct {
@@ -1037,7 +1061,7 @@ var File_hypershell_v1_gateways_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
-	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xfe\x06\n" +
+	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xec\a\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -1063,7 +1087,11 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x05route\x18\x11 \x01(\tH\tR\x05route\x88\x01\x01\x12,\n" +
 	"\x0fdatabase_config\x18\x12 \x01(\tH\n" +
 	"R\x0edatabaseConfig\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x14 \x01(\tH\vR\x10credentialDriver\x88\x01\x01B\x0f\n" +
+	"\x11credential_driver\x18\x14 \x01(\tH\vR\x10credentialDriver\x88\x01\x01\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x15 \x01(\x03R\n" +
+	"generation\x124\n" +
+	"\x13observed_generation\x18\x16 \x01(\x03H\fR\x12observedGeneration\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1075,7 +1103,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x12\n" +
 	"\x10_database_configB\x14\n" +
-	"\x12_credential_driver\"\xf5\x05\n" +
+	"\x12_credential_driverB\x16\n" +
+	"\x14_observed_generation\"\xf5\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x1d\n" +
@@ -1115,7 +1144,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x9e\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xec\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
@@ -1140,7 +1169,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x04oidc\x18\x10 \x01(\tH\rR\x04oidc\x88\x01\x01\x12\x19\n" +
 	"\x05route\x18\x11 \x01(\tH\x0eR\x05route\x88\x01\x01\x12,\n" +
 	"\x0fdatabase_config\x18\x12 \x01(\tH\x0fR\x0edatabaseConfig\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x13 \x01(\tH\x10R\x10credentialDriver\x88\x01\x01B\a\n" +
+	"\x11credential_driver\x18\x13 \x01(\tH\x10R\x10credentialDriver\x88\x01\x01\x124\n" +
+	"\x13observed_generation\x18\x14 \x01(\x03H\x11R\x12observedGeneration\x88\x01\x01B\a\n" +
 	"\x05_nameB\v\n" +
 	"\t_fleet_idB\r\n" +
 	"\v_cluster_idB\r\n" +
@@ -1157,7 +1187,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x12\n" +
 	"\x10_database_configB\x14\n" +
-	"\x12_credential_driver\"I\n" +
+	"\x12_credential_driverB\x16\n" +
+	"\x14_observed_generation\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"&\n" +
 	"\x14DeleteGatewayRequest\x12\x0e\n" +

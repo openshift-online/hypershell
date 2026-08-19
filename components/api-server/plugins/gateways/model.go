@@ -13,25 +13,27 @@ const gatewayNamespacePrefix = "openshell-"
 
 type Gateway struct {
 	api.Meta
-	Name             string  `json:"name"`
-	FleetId          string  `json:"fleet_id"`
-	ClusterId        string  `json:"cluster_id"`
-	ReleaseId        string  `json:"release_id"`
-	DatabaseId       string  `json:"database_id"`
-	Namespace        string  `json:"namespace"`
-	ExternalDns      *string `json:"external_dns"`
-	TlsMode          *string `json:"tls_mode"`
-	ServiceType      *string `json:"service_type"`
-	Status           *string `json:"status"`
-	Phase            *string `json:"phase"`
-	Image            *string `json:"image"`
-	SupervisorImage  *string `json:"supervisor_image"`
-	ServerDnsNames   *string `json:"server_dns_names" gorm:"type:jsonb"`
-	RouteAddress     *string `json:"route_address"`
-	Oidc             *string `json:"oidc" gorm:"type:jsonb"`
-	Route            *string `json:"route" gorm:"type:jsonb"`
-	DatabaseConfig   *string `json:"database_config" gorm:"type:jsonb"`
-	CredentialDriver *string `json:"credential_driver" gorm:"type:jsonb"`
+	Name               string  `json:"name"`
+	FleetId            string  `json:"fleet_id"`
+	ClusterId          string  `json:"cluster_id"`
+	ReleaseId          string  `json:"release_id"`
+	DatabaseId         string  `json:"database_id"`
+	Namespace          string  `json:"namespace"`
+	ExternalDns        *string `json:"external_dns"`
+	TlsMode            *string `json:"tls_mode"`
+	ServiceType        *string `json:"service_type"`
+	Status             *string `json:"status"`
+	Phase              *string `json:"phase"`
+	Image              *string `json:"image"`
+	SupervisorImage    *string `json:"supervisor_image"`
+	ServerDnsNames     *string `json:"server_dns_names" gorm:"type:jsonb"`
+	RouteAddress       *string `json:"route_address"`
+	Oidc               *string `json:"oidc" gorm:"type:jsonb"`
+	Route              *string `json:"route" gorm:"type:jsonb"`
+	DatabaseConfig     *string `json:"database_config" gorm:"type:jsonb"`
+	CredentialDriver   *string `json:"credential_driver" gorm:"type:jsonb"`
+	Generation         int64   `json:"generation" gorm:"not null;default:1"`
+	ObservedGeneration int64   `json:"observed_generation" gorm:"not null;default:1"`
 }
 
 type GatewayList []*Gateway
@@ -53,6 +55,8 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 		return fmt.Errorf("parse generated gateway ID: %w", err)
 	}
 	d.Namespace = gatewayNamespacePrefix + hex.EncodeToString(id.Payload()[:8])
+	d.Generation = 1
+	d.ObservedGeneration = 0
 	return nil
 }
 

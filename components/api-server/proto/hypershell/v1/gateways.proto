@@ -27,6 +27,8 @@ message Gateway {
   optional string route = 17;
   optional string database_config = 18;
   optional string credential_driver = 20;
+  int64 generation = 21;
+  optional int64 observed_generation = 22;
 }
 
 message CreateGatewayRequest {
@@ -81,6 +83,7 @@ message UpdateGatewayRequest {
   optional string route = 17;
   optional string database_config = 18;
   optional string credential_driver = 19;
+  optional int64 observed_generation = 20;
 }
 
 message UpdateGatewayResponse {

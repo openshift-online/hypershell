@@ -28,6 +28,8 @@ Name | Type | Description | Notes
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
+**Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
+**ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
 
 ## Methods
 
@@ -617,6 +619,56 @@ SetCredentialDriver sets CredentialDriver field to given value.
 `func (o *Gateway) HasCredentialDriver() bool`
 
 HasCredentialDriver returns a boolean if a field has been set.
+
+### GetGeneration
+
+`func (o *Gateway) GetGeneration() int64`
+
+GetGeneration returns the Generation field if non-nil, zero value otherwise.
+
+### GetGenerationOk
+
+`func (o *Gateway) GetGenerationOk() (*int64, bool)`
+
+GetGenerationOk returns a tuple with the Generation field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetGeneration
+
+`func (o *Gateway) SetGeneration(v int64)`
+
+SetGeneration sets Generation field to given value.
+
+### HasGeneration
+
+`func (o *Gateway) HasGeneration() bool`
+
+HasGeneration returns a boolean if a field has been set.
+
+### GetObservedGeneration
+
+`func (o *Gateway) GetObservedGeneration() int64`
+
+GetObservedGeneration returns the ObservedGeneration field if non-nil, zero value otherwise.
+
+### GetObservedGenerationOk
+
+`func (o *Gateway) GetObservedGenerationOk() (*int64, bool)`
+
+GetObservedGenerationOk returns a tuple with the ObservedGeneration field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetObservedGeneration
+
+`func (o *Gateway) SetObservedGeneration(v int64)`
+
+SetObservedGeneration sets ObservedGeneration field to given value.
+
+### HasObservedGeneration
+
+`func (o *Gateway) HasObservedGeneration() bool`
+
+HasObservedGeneration returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

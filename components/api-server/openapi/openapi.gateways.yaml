@@ -283,6 +283,16 @@ components:
             credential_driver:
               type: string
               description: JSON-encoded credential storage driver configuration
+            generation:
+              type: integer
+              format: int64
+              readOnly: true
+              description: Monotonic desired-state revision, incremented by the API server on any desired-spec change
+            observed_generation:
+              type: integer
+              format: int64
+              readOnly: true
+              description: Generation the control plane last successfully applied; converged when equal to generation
     GatewayCreateRequest:
       type: object
       required:

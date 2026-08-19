@@ -97,6 +97,8 @@ erDiagram
         string service_type
         string status
         string phase
+        int generation
+        int observed_generation
         time created_at
         time updated_at
         time deleted_at
@@ -196,6 +198,79 @@ A Gateway SHALL track its deployment lifecycle through the `phase` field. The `s
 - WHEN the control plane provisions it on the target cluster
 - THEN the phase SHALL transition to "Provisioning"
 - AND upon successful deployment, to "Running"
+
+### Requirement: Gateway Generation Tracking
+
+A Gateway SHALL carry a monotonic `generation` and an `observed_generation`
+that together let the control plane distinguish a genuine desired-state change
+from a redundant reconciliation event.
+
+The API server SHALL increment `generation` whenever any field of the Gateway's
+desired spec changes, including `image`, `supervisor_image`, `server_dns_names`,
+`oidc`, `route`, `database`, `credential_driver`, `external_dns`, `tls_mode`,
+`service_type`, `release_id`, `database_id`, and `cluster_id`. It SHALL NOT
+increment `generation` for changes to control-plane-owned observed fields
+(`status`, `phase`, `route_address`, `observed_generation`).
+
+On creation, a Gateway SHALL initialize with `generation = 1` and
+`observed_generation = 0`, so that a newly created Gateway is never spuriously
+*converged* (`observed_generation < generation`) and always undergoes initial
+provisioning.
+
+`observed_generation` is control-plane-owned. The control plane SHALL set it to
+the `generation` it last successfully applied to the cluster. A Gateway is
+*converged* when `observed_generation == generation`.
+
+The two fields differ in contract writability:
+
+- `generation` SHALL be read-only across all client-facing REST and gRPC
+  contracts (create, update, and patch); it is managed exclusively by the API
+  server.
+- `observed_generation` SHALL be read-only in the REST API and in all create
+  requests, but SHALL be writable by the control plane through the gRPC
+  `UpdateGatewayRequest` (the same back-channel by which the control plane
+  reports `phase`, `status`, and `route_address`).
+
+The API server SHALL treat `observed_generation` as a monotonic convergence
+latch. On an `UpdateGatewayRequest` it SHALL accept a new `observed_generation`
+only when `current observed_generation <= new <= generation`, and SHALL reject a
+write that regresses the value below the current `observed_generation` or
+exceeds the current `generation`. This prevents a stale or reordered update from
+regressing the marker, and prevents any write from declaring a `generation`
+converged before it has been applied — a false-converged state would otherwise
+permanently mask drift.
+
+#### Scenario: New gateway starts unconverged
+- GIVEN a valid Gateway create request
+- WHEN the API server persists the Gateway
+- THEN it SHALL set `generation = 1` and `observed_generation = 0`
+- AND the Gateway SHALL NOT be *converged*, so the control plane provisions it
+
+#### Scenario: Spec change advances generation
+- GIVEN a Gateway with `generation` N that has been applied
+  (`observed_generation == N`)
+- WHEN a client updates a desired-spec field (e.g. `image`)
+- THEN the API server SHALL increment `generation` to N+1
+- AND `observed_generation` SHALL remain N until the control plane re-applies
+
+#### Scenario: Control plane writes observed_generation back
+- GIVEN a Gateway with `generation` N+1 and `observed_generation` N
+- WHEN the control plane successfully re-applies the manifests
+- THEN it SHALL set `observed_generation` to N+1 via `UpdateGatewayRequest`
+- AND the API server SHALL accept the write despite `observed_generation` being
+  read-only to REST clients
+
+#### Scenario: Out-of-range observed_generation is rejected
+- GIVEN a Gateway with `generation` N+1 and `observed_generation` N
+- WHEN an `UpdateGatewayRequest` sets `observed_generation` below N or above N+1
+- THEN the API server SHALL reject the write
+- AND `observed_generation` SHALL remain N
+
+#### Scenario: Health update does not advance generation
+- GIVEN a converged Gateway with `generation` N
+- WHEN the control plane writes an observed `phase`/`status`/`route_address`
+- THEN `generation` SHALL remain N
+- AND the Gateway SHALL remain converged
 
 ### Requirement: Canary Release Strategy
 

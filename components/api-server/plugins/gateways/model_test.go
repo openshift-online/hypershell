@@ -38,3 +38,57 @@ func TestBeforeCreateAssignsUniqueKubernetesNamespaces(t *testing.T) {
 		t.Errorf("two gateways received the same namespace %q", first.Namespace)
 	}
 }
+
+func TestBeforeCreateInitializesGenerationUnconverged(t *testing.T) {
+	gw := &Gateway{}
+	if err := gw.BeforeCreate(nil); err != nil {
+		t.Fatalf("assign gateway identity: %v", err)
+	}
+	if gw.Generation != 1 {
+		t.Errorf("generation = %d, want 1", gw.Generation)
+	}
+	if gw.ObservedGeneration != 0 {
+		t.Errorf("observed_generation = %d, want 0", gw.ObservedGeneration)
+	}
+	if gw.ObservedGeneration >= gw.Generation {
+		t.Errorf("new gateway must be unconverged: observed %d >= generation %d",
+			gw.ObservedGeneration, gw.Generation)
+	}
+}
+
+func TestDesiredStateChanged(t *testing.T) {
+	str := func(s string) *string { return &s }
+	base := func() *Gateway {
+		return &Gateway{
+			Name: "gw", FleetId: "f1", ClusterId: "c1", ReleaseId: "r1", DatabaseId: "d1",
+			Image: str("img:1"), Oidc: str(`{"issuer":"a"}`),
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Gateway)
+		want   bool
+	}{
+		{"no change", func(*Gateway) {}, false},
+		{"identity name ignored", func(g *Gateway) { g.Name = "renamed" }, false},
+		{"identity fleet ignored", func(g *Gateway) { g.FleetId = "f2" }, false},
+		{"observed phase ignored", func(g *Gateway) { g.Phase = str("Running") }, false},
+		{"observed route_address ignored", func(g *Gateway) { g.RouteAddress = str("grpcs://x") }, false},
+		{"observed generation ignored", func(g *Gateway) { g.ObservedGeneration = 5 }, false},
+		{"desired image changed", func(g *Gateway) { g.Image = str("img:2") }, true},
+		{"desired cluster changed", func(g *Gateway) { g.ClusterId = "c2" }, true},
+		{"desired oidc changed", func(g *Gateway) { g.Oidc = str(`{"issuer":"b"}`) }, true},
+		{"desired route set from nil", func(g *Gateway) { g.Route = str(`{"host":"h"}`) }, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			current := base()
+			next := base()
+			tc.mutate(next)
+			if got := desiredStateChanged(current, next); got != tc.want {
+				t.Errorf("desiredStateChanged = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

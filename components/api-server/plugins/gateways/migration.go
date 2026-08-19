@@ -94,3 +94,26 @@ func migrationAddSupervisorImage() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddGenerationTracking() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		Generation         int64 `gorm:"not null;default:1"`
+		ObservedGeneration int64 `gorm:"not null;default:1"`
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026081912000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			for _, col := range []string{"generation", "observed_generation"} {
+				if err := tx.Migrator().DropColumn(&Gateway{}, col); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+}

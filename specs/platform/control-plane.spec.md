@@ -95,7 +95,7 @@ When a Gateway is deleted, the control plane SHALL clean up all associated Kuber
 
 ### Requirement: Status Synchronization
 
-The control plane SHALL continuously reconcile the `phase` and `status` fields of Gateway resources in the API server to reflect actual cluster state, even after a Gateway has reached `Running`. The phase gate that prevents redundant re-provisioning SHALL NOT suppress these health updates. Full lifecycle semantics are defined in the [health spec](./openshell-gateway-health.spec.md).
+The control plane SHALL continuously reconcile the `phase` and `status` fields of Gateway resources in the API server to reflect actual cluster state, even after a Gateway has reached `Running`. The provisioning gate that prevents redundant re-provisioning SHALL NOT suppress these health updates, and SHALL gate re-application on convergence (`observed_generation == generation`) rather than on `phase`, so that a desired-spec change falls through the gate and triggers re-application regardless of phase. Full lifecycle semantics are defined in the [health spec](./openshell-gateway-health.spec.md).
 
 #### Scenario: Gateway Health Check
 - GIVEN a Gateway with `phase` `Running` on a managed cluster
@@ -103,6 +103,12 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 - THEN it SHALL update the Gateway's `status` in the API server
 - AND set `phase` to `Degraded` when ready replicas fall below desired
 - AND set `phase` back to `Running` when the workload recovers
+
+#### Scenario: Spec Change to a Running Gateway
+- GIVEN a converged Gateway with `phase` `Running` (`observed_generation == generation`)
+- WHEN its desired spec changes and the API server advances `generation`
+- THEN the control plane SHALL re-apply the gateway manifests despite the `Running` phase
+- AND set `observed_generation` to the applied `generation` upon success
 
 ## Design Decisions
 
