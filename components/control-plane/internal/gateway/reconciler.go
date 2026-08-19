@@ -857,7 +857,7 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 	}
 	volumes = append(volumes, caVolume)
 	volumes = append(volumes, map[string]interface{}{
-		"name":    "merged-ca",
+		"name":     "merged-ca",
 		"emptyDir": map[string]interface{}{},
 	})
 	_ = unstructured.SetNestedSlice(obj.Object, volumes, "spec", "template", "spec", "volumes")
