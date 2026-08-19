@@ -23,18 +23,18 @@ env:
   BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
 
 jobs:
-  resolve-images:
-    name: Wait for component image builds
+  plan-images:
+    name: Plan component images
     runs-on: ubuntu-24.04
-    # Bounds the total time spent waiting on Konflux builds. The old bash poll
-    # loop enforced its own 1200s ceiling; wait-on-check-action relies on the
-    # job timeout instead.
-    timeout-minutes: 25
+    timeout-minutes: 5
     outputs:
       should_run: ${{ steps.plan.outputs.should_run }}
       api_server_image: ${{ steps.plan.outputs.api_server_image }}
       control_plane_image: ${{ steps.plan.outputs.control_plane_image }}
       web_console_image: ${{ steps.plan.outputs.web_console_image }}
+      wait_api_server: ${{ steps.plan.outputs.wait_api_server }}
+      wait_control_plane: ${{ steps.plan.outputs.wait_control_plane }}
+      wait_web_console: ${{ steps.plan.outputs.wait_web_console }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,9 +143,9 @@ jobs:
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
           baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
 
-          # Default: nothing to wait for. The wait-on-check-action steps below
-          # only run when a component's own source tree changed on a PR, which is
-          # what triggers a Konflux on-pull-request build for that component.
+          # Default: nothing to wait for. The e2e-kind job starts Konflux waits
+          # in the background while kind-up runs when a component's own source
+          # tree changed on a PR.
           echo "wait_api_server=false"    >> "${GITHUB_OUTPUT}"
           echo "wait_control_plane=false" >> "${GITHUB_OUTPUT}"
           echo "wait_web_console=false"   >> "${GITHUB_OUTPUT}"
@@ -222,8 +222,8 @@ jobs:
               fi
 
               # Source components changed. The image ref is deterministic
-              # (on-pr-<head_sha>); the wait-on-check-action steps below block
-              # until the matching Konflux build has finished pushing it.
+              # (on-pr-<head_sha>); e2e-kind waits for the matching Konflux build
+              # in parallel with kind-up, then swaps the image in.
               # Components that did not change keep the stable baseline image.
               tag="on-pr-${PR_HEAD_SHA}"
               api_img="${baseline_api}"
@@ -307,59 +307,10 @@ jobs:
               ;;
           esac
 
-      # Block until each changed component's Konflux on-pull-request build has
-      # concluded. wait-on-check-action waits for the *named* check to both
-      # appear and finish, so a build whose check has not been created yet
-      # cannot be skipped (the failure mode of the previous hand-rolled poll).
-      # A non-success conclusion fails the step -> the job -> the E2E gate.
-      # pull_request waits are isolated here. merge_group waits are handled by
-      # the dedicated merge-group wait steps above, keyed on github.sha.
-      - name: Wait for api-server Konflux build
-        if: github.event_name == 'pull_request' && steps.plan.outputs.wait_api_server == 'true'
-        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-regexp: hypershell-api-server-main-on-pull-request$
-          repo-token: ${{ github.token }}
-          wait-interval: 30
-          checks-discovery-timeout: 900
-          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
-          # The action defaults to "success,skipped"; a skipped build never
-          # pushes the image, so pin strict success to keep the image guarantee.
-          allowed-conclusions: success
-
-      - name: Wait for control-plane Konflux build
-        if: github.event_name == 'pull_request' && steps.plan.outputs.wait_control_plane == 'true'
-        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-regexp: hypershell-control-plane-main-on-pull-request$
-          repo-token: ${{ github.token }}
-          wait-interval: 30
-          checks-discovery-timeout: 900
-          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
-          # The action defaults to "success,skipped"; a skipped build never
-          # pushes the image, so pin strict success to keep the image guarantee.
-          allowed-conclusions: success
-
-      - name: Wait for web-console Konflux build
-        if: github.event_name == 'pull_request' && steps.plan.outputs.wait_web_console == 'true'
-        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-regexp: hypershell-web-console-main-on-pull-request$
-          repo-token: ${{ github.token }}
-          wait-interval: 30
-          checks-discovery-timeout: 900
-          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
-          # The action defaults to "success,skipped"; a skipped build never
-          # pushes the image, so pin strict success to keep the image guarantee.
-          allowed-conclusions: success
-
   e2e-kind:
     name: E2E Kind
-    needs: resolve-images
-    if: needs.resolve-images.outputs.should_run == 'true'
+    needs: plan-images
+    if: needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
     # The browser-driven trace verification adds a Node install, a Chromium
     # download, and a Playwright run on top of the bash suite, so allow a wider
@@ -387,9 +338,6 @@ jobs:
 
       - name: Create Kind cluster with OIDC
         env:
-          API_SERVER_IMAGE: ${{ needs.resolve-images.outputs.api_server_image }}
-          CONTROL_PLANE_IMAGE: ${{ needs.resolve-images.outputs.control_plane_image }}
-          WEB_CONSOLE_IMAGE: ${{ needs.resolve-images.outputs.web_console_image }}
           KIND_ENABLE_OIDC: "true"
           # Deploy Jaeger and point the web-console BFF at it so the browser
           # trace verification below has a collector to export to (WEB-TRACE-10).
@@ -399,6 +347,46 @@ jobs:
           make kind-env
           echo "::endgroup::"
           make kind-up
+
+      - name: Wait for api-server Konflux build
+        if: github.event_name == 'pull_request' && needs.plan-images.outputs.wait_api_server == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: hypershell-api-server-main-on-pull-request$
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for control-plane Konflux build
+        if: github.event_name == 'pull_request' && needs.plan-images.outputs.wait_control_plane == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: hypershell-control-plane-main-on-pull-request$
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for web-console Konflux build
+        if: github.event_name == 'pull_request' && needs.plan-images.outputs.wait_web_console == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: hypershell-web-console-main-on-pull-request$
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Swap component images
+        env:
+          API_SERVER_IMAGE: ${{ needs.plan-images.outputs.api_server_image }}
+          CONTROL_PLANE_IMAGE: ${{ needs.plan-images.outputs.control_plane_image }}
+          WEB_CONSOLE_IMAGE: ${{ needs.plan-images.outputs.web_console_image }}
+        run: bash scripts/kind/set-component-images.sh
 
       - name: Run e2e tests
         env:
@@ -541,16 +529,16 @@ jobs:
     name: E2E CI gate
     if: ${{ always() && !cancelled() }}
     needs:
-      - resolve-images
+      - plan-images
       - e2e-kind
     runs-on: ubuntu-24.04
     steps:
       - name: Check e2e results
         env:
-          RESOLVE_RESULT: ${{ needs.resolve-images.result }}
+          PLAN_RESULT: ${{ needs.plan-images.result }}
           E2E_KIND_RESULT: ${{ needs.e2e-kind.result }}
         run: |
-          for result in "${RESOLVE_RESULT}" "${E2E_KIND_RESULT}"; do
+          for result in "${PLAN_RESULT}" "${E2E_KIND_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more e2e jobs failed or were cancelled."
               exit 1
