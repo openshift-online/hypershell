@@ -46,12 +46,75 @@ jobs:
         if: github.event_name == 'pull_request'
         run: bash .github/scripts/detect-components.sh
 
+      - name: Detect changed components for merge queue
+        id: detect-merge-queue
+        if: github.event_name == 'merge_group'
+        env:
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          changed_files="$(git diff --name-only "${MERGE_GROUP_BASE_SHA}...${PUSH_SHA}")"
+
+          wait_api_server=false
+          wait_control_plane=false
+          wait_web_console=false
+
+          if grep -q '^components/api-server/' <<<"${changed_files}"; then
+            wait_api_server=true
+          fi
+          if grep -q '^components/control-plane/' <<<"${changed_files}"; then
+            wait_control_plane=true
+          fi
+          if grep -qE '^(components/web-console/|packages/gateway-management-ui/)' <<<"${changed_files}"; then
+            wait_web_console=true
+          fi
+
+          echo "wait_api_server=${wait_api_server}" >> "${GITHUB_OUTPUT}"
+          echo "wait_control_plane=${wait_control_plane}" >> "${GITHUB_OUTPUT}"
+          echo "wait_web_console=${wait_web_console}" >> "${GITHUB_OUTPUT}"
+
+      # Wait for merge-queue Konflux builds BEFORE checking if images exist.
+      # This ensures the skopeo inspect in the plan step will find the images.
+      - name: Wait for api-server Konflux on-push build (merge-group)
+        if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_api_server == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.sha }}
+          check-regexp: hypershell-api-server-main-on-push$
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for control-plane Konflux on-push build (merge-group)
+        if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_control_plane == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.sha }}
+          check-regexp: hypershell-control-plane-main-on-push$
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for web-console Konflux on-push build (merge-group)
+        if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_web_console == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.sha }}
+          check-regexp: hypershell-web-console-main-on-push$
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
       - name: Plan images and required Konflux builds
         id: plan
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_SHA: ${{ github.sha }}
           DETECT_API_SERVER: ${{ steps.detect.outputs.api_server }}
           DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
@@ -115,7 +178,7 @@ jobs:
               if [[ "${api_konflux}" != "true" && "${cp_konflux}" != "true" && "${wc_konflux}" != "true" ]]; then
                 echo "No source components changed -- using latest Konflux on-push images from main"
                 main_sha=$(git rev-parse origin/main)
-                main_tag="on-pr-${main_sha}"
+                main_tag="${main_sha}"
                 konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${main_tag}"
                 konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${main_tag}"
                 konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${main_tag}"
@@ -169,7 +232,7 @@ jobs:
 
             *)
               # push, merge_group, workflow_dispatch -- use latest Konflux on-push images
-              push_tag="on-pr-${PUSH_SHA}"
+              push_tag="${PUSH_SHA}"
               konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${push_tag}"
               if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
                 echo "Using Konflux on-push images (${PUSH_SHA:0:7})"
@@ -192,8 +255,10 @@ jobs:
       # appear and finish, so a build whose check has not been created yet
       # cannot be skipped (the failure mode of the previous hand-rolled poll).
       # A non-success conclusion fails the step -> the job -> the E2E gate.
+      # pull_request waits are isolated here. merge_group waits are handled by
+      # the dedicated on-push wait steps above, keyed on github.sha.
       - name: Wait for api-server Konflux build
-        if: steps.plan.outputs.wait_api_server == 'true'
+        if: github.event_name == 'pull_request' && steps.plan.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -207,7 +272,7 @@ jobs:
           allowed-conclusions: success
 
       - name: Wait for control-plane Konflux build
-        if: steps.plan.outputs.wait_control_plane == 'true'
+        if: github.event_name == 'pull_request' && steps.plan.outputs.wait_control_plane == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -221,7 +286,7 @@ jobs:
           allowed-conclusions: success
 
       - name: Wait for web-console Konflux build
-        if: steps.plan.outputs.wait_web_console == 'true'
+        if: github.event_name == 'pull_request' && steps.plan.outputs.wait_web_console == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
