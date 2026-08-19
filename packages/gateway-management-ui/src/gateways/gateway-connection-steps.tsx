@@ -1,10 +1,4 @@
-import {
-  Alert,
-  AlertActionLink,
-  Content,
-  Skeleton,
-  Title,
-} from "@patternfly/react-core";
+import { Alert, Content, Skeleton, Title } from "@patternfly/react-core";
 
 import { type ReactNode, useState } from "react";
 import { useIntl } from "react-intl";
@@ -84,8 +78,13 @@ export function GatewayConnectionSteps({
           title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
           variant="info"
         >
-          {intl.formatMessage(messages.connectionInstallPrereq)}{" "}
-          <a href={installDocsUrl} rel="noopener noreferrer" target="_blank">
+          {intl.formatMessage(messages.connectionInstallPrereq)}
+          <a
+            href={installDocsUrl}
+            rel="noopener noreferrer"
+            style={{ marginInlineStart: "0.25rem" }}
+            target="_blank"
+          >
             {intl.formatMessage(messages.connectionInstallLink)}
           </a>
         </Alert>
