@@ -50,15 +50,10 @@ ${CONTAINER_ENGINE} build -t "${web_console_local}" \
 
 success "All images built"
 
-info "Tagging images with registry refs..."
-${CONTAINER_ENGINE} tag "${api_server_local}" "${api_server_ref}"
-${CONTAINER_ENGINE} tag "${control_plane_local}" "${control_plane_ref}"
-${CONTAINER_ENGINE} tag "${web_console_local}" "${web_console_ref}"
-
 if cluster_exists; then
   info "Loading images into Kind cluster..."
   tmpdir=$(mktemp -d /tmp/kind-images-XXXXXX)
-  for img in "${api_server_ref}" "${control_plane_ref}" "${web_console_ref}"; do
+  for img in "${api_server_local}" "${control_plane_local}" "${web_console_local}"; do
     archive="${tmpdir}/$(echo "${img}" | tr '/:' '__').tar"
     ${CONTAINER_ENGINE} save "${img}" -o "${archive}"
     kind load image-archive "${archive}" --name "${KIND_CLUSTER_NAME}"

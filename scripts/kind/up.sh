@@ -199,7 +199,6 @@ echo ""
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   header "Local Images"
-  info "Building baseline images from origin/main..."
   "${SCRIPT_DIR}/build-images.sh"
   FORCE_ROLLOUT=true
   echo ""
@@ -240,8 +239,33 @@ echo ""
 
 # --- Deploy all components via kustomize ---
 header "Deploying Components"
-info "Applying Kind manifests via kustomize..."
-kustomize build deploy/kind | kube apply -f -
+if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
+  info "Applying Kind manifests with localhost image refs..."
+  _kustomize_dir="deploy/.local-images"
+  mkdir -p "${_kustomize_dir}"
+  _registry="${IMAGE_REGISTRY:-quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
+  cat > "${_kustomize_dir}/kustomization.yaml" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../kind
+images:
+  - name: ${_registry}/hypershell-api-server-main
+    newName: ${api_server_local%%:*}
+    newTag: ${api_server_local##*:}
+  - name: ${_registry}/hypershell-control-plane-main
+    newName: ${control_plane_local%%:*}
+    newTag: ${control_plane_local##*:}
+  - name: ${_registry}/hypershell-web-console-main
+    newName: ${web_console_local%%:*}
+    newTag: ${web_console_local##*:}
+EOF
+  kustomize build "${_kustomize_dir}" | kube apply -f -
+  rm -rf "${_kustomize_dir}"
+else
+  info "Applying Kind manifests via kustomize..."
+  kustomize build deploy/kind | kube apply -f -
+fi
 
 info "Waiting for PostgreSQL..."
 kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=300s
@@ -286,9 +310,12 @@ echo ""
 # started before Keycloak was serving keys it is stuck in CrashLoopBackoff;
 # restart it now that Keycloak is ready so a fresh pod (with no backoff delay)
 # comes up on the first try instead of waiting out the backoff timer.
+_api_restarted=""
+_cp_restarted=""
 if ! is_swapped api-server; then
   info "Restarting API server now that Keycloak serves JWKS..."
   kube rollout restart deployment/hypershell-api-server -n "${KIND_NAMESPACE}"
+  _api_restarted=true
 fi
 
 # The controller's gRPC watch streams must connect to a running API server.
@@ -303,6 +330,7 @@ fi
 if ! is_swapped control-plane; then
   info "Restarting control plane to establish watch streams..."
   kube rollout restart deployment/hypershell-controller -n "${KIND_NAMESPACE}"
+  _cp_restarted=true
   kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 fi
 
@@ -353,6 +381,10 @@ if [[ "${FORCE_ROLLOUT}" == "true" ]]; then
     dep="${pair%%:*}"
     comp="${pair##*:}"
     if ! is_swapped "${comp}"; then
+      case "${dep}" in
+        hypershell-api-server)  [[ -n "${_api_restarted}" ]] && continue ;;
+        hypershell-controller)  [[ -n "${_cp_restarted}" ]]  && continue ;;
+      esac
       kube rollout restart "deployment/${dep}" -n "${KIND_NAMESPACE}"
     fi
   done
