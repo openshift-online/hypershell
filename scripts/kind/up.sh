@@ -667,6 +667,16 @@ api_post() {
     -d "${data}" 2>&1 || true
 }
 
+api_get() {
+  local url="$1"
+  local auth_args=()
+  if [[ -n "${API_AUTH_HEADER}" ]]; then
+    auth_args=(-H "${API_AUTH_HEADER}")
+  fi
+  curl -sS -w "\n%{http_code}" -X GET "${url}" \
+    ${auth_args[@]+"${auth_args[@]}"} 2>&1 || true
+}
+
 extract_id() {
   local id
   id=$(echo "$1" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
@@ -738,20 +748,36 @@ if [[ -z "${seed_failed}" ]]; then
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  info "Creating Gateway with OIDC..."
-  OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
-  # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
-  # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-  GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
-    "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${OIDC_JSON}\"}")
-  GW_HTTP=$(echo "${GW_RAW}" | tail -1)
-  GW_RESP=$(echo "${GW_RAW}" | sed '$d')
-  GATEWAY_ID=$(extract_id "${GW_RESP}")
+  # Check if dev-gateway already exists before creating
+  info "Checking for existing dev-gateway..."
+  EXISTING_GW_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateways")
+  EXISTING_GW_HTTP=$(echo "${EXISTING_GW_RAW}" | tail -1)
+  EXISTING_GW_RESP=$(echo "${EXISTING_GW_RAW}" | sed '$d')
+
+  if [[ "${EXISTING_GW_HTTP}" == "200" ]]; then
+    EXISTING_GW_ID=$(echo "${EXISTING_GW_RESP}" | grep -o '"name":"dev-gateway"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${EXISTING_GW_ID}" ]]; then
+      success "dev-gateway already exists: ${EXISTING_GW_ID}"
+      GATEWAY_ID="${EXISTING_GW_ID}"
+    fi
+  fi
 
   if [[ -z "${GATEWAY_ID}" ]]; then
-    warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
-  else
-    success "Gateway created with OIDC: ${GATEWAY_ID}"
+    info "Creating Gateway with OIDC..."
+    OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+    # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
+    # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
+    GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
+      "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${OIDC_JSON}\"}")
+    GW_HTTP=$(echo "${GW_RAW}" | tail -1)
+    GW_RESP=$(echo "${GW_RAW}" | sed '$d')
+    GATEWAY_ID=$(extract_id "${GW_RESP}")
+
+    if [[ -z "${GATEWAY_ID}" ]]; then
+      warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
+    else
+      success "Gateway created with OIDC: ${GATEWAY_ID}"
+    fi
   fi
 fi
 
