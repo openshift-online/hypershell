@@ -26,6 +26,7 @@ web_console_ref=$(IMAGE_REGISTRY)/hypershell-web-console-main:$(IMAGE_TAG)
 api_server_local=localhost/hypershell:dev
 control_plane_local=localhost/hypershell-controller:dev
 web_console_local=localhost/hypershell-web-console:dev
+keycloak_local=localhost/hypershell-keycloak:dev-optimized
 
 # --- Kind cluster configuration ---
 KIND_CLUSTER_NAME?=hypershell-dev
@@ -62,6 +63,7 @@ AGENT_SANDBOX_VERSION?=v0.5.4
 # Kind config
 KIND_CONFIG=deploy/kind/kind-config.yaml
 KIND_DNS_PORT?=5553
+KIND_KEYCLOAK_OPTIMIZED?=false
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
@@ -87,6 +89,7 @@ help:
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
+	@echo "    kind-keycloak-build      Build optimized Keycloak image (pre-built providers)"
 	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
 	@echo "    kind-api-server-up       Build + swap API server from working tree"
 	@echo "    kind-api-server-down     Revert API server to baseline image"
@@ -119,6 +122,7 @@ help:
 	@echo "    check-dependency-pins    Verify dependency version pins"
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
+	@echo "    check-kustomize-overlays Validate kustomize overlays render correctly"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -195,8 +199,12 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: check-kustomize-overlays
+check-kustomize-overlays:
+	python3 scripts/check_kustomize_overlays.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-kustomize-overlays
 
 # ============================================================================
 # Git hooks
@@ -288,10 +296,10 @@ export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
-export api_server_local control_plane_local web_console_local
+export api_server_local control_plane_local web_console_local keycloak_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
-export KIND_DNS_PORT
+export KIND_DNS_PORT KIND_KEYCLOAK_OPTIMIZED
 
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
 # (TLS re-encryption to backends).  The fork also bundles the podman 6+ kind
@@ -335,6 +343,11 @@ kind-prereqs:
 	  rm -rf "$$tmpdir" && \
 	  printf '%s\n' "$$built" > bin/.cloud-provider-kind.sha && \
 	  echo "==> Done - binary in ./bin/cloud-provider-kind ($$built)"
+
+.PHONY: kind-keycloak-build
+kind-keycloak-build:
+	@echo "==> Building optimized Keycloak image ($(keycloak_local))"
+	$(CONTAINER_ENGINE) build -t $(keycloak_local) deploy/kind/keycloak
 
 .PHONY: kind-up
 kind-up:

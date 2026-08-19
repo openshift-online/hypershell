@@ -98,6 +98,7 @@ pnpm --filter @openshift-online/hypershell-gateway-management-ui check  # Verify
 make kind-up                                   # Start local Kind cluster
 make kind-down                                 # Destroy Kind cluster
 make kind-status                               # Show cluster status
+make kind-keycloak-build                       # Build optimized Keycloak image
 make lint                                      # Lint all Go code
 ```
 
