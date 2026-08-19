@@ -80,49 +80,6 @@ jobs:
           echo "wait_control_plane=${wait_control_plane}" >> "${GITHUB_OUTPUT}"
           echo "wait_web_console=${wait_web_console}" >> "${GITHUB_OUTPUT}"
 
-      # Wait for merge-queue Konflux builds BEFORE the plan step maps images.
-      # GitHub merge queue pushes to gh-readonly-queue/main/..., which Konflux
-      # builds through the dedicated *merge-queue* pipelines
-      # (.tekton/*-merge-queue.yaml). Those fire only on a push whose
-      # target_branch starts with gh-readonly-queue/main/ and push an ephemeral
-      # on-merge-queue-<merge_sha> tag, kept distinct from the PR pipelines'
-      # on-pr-<head_sha> images so a merge-queue build is never confused with an
-      # already-tested PR image. The on-push pipelines require
-      # target_branch == "main" and never fire here. So wait for the
-      # -on-merge-queue checks, keyed on the merge-commit SHA Konflux built.
-      - name: Wait for api-server Konflux build (merge-group)
-        if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_api_server == 'true'
-        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
-        with:
-          ref: ${{ github.sha }}
-          check-regexp: hypershell-api-server-main-on-merge-queue$
-          repo-token: ${{ github.token }}
-          wait-interval: 30
-          checks-discovery-timeout: 900
-          allowed-conclusions: success
-
-      - name: Wait for control-plane Konflux build (merge-group)
-        if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_control_plane == 'true'
-        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
-        with:
-          ref: ${{ github.sha }}
-          check-regexp: hypershell-control-plane-main-on-merge-queue$
-          repo-token: ${{ github.token }}
-          wait-interval: 30
-          checks-discovery-timeout: 900
-          allowed-conclusions: success
-
-      - name: Wait for web-console Konflux build (merge-group)
-        if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_web_console == 'true'
-        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
-        with:
-          ref: ${{ github.sha }}
-          check-regexp: hypershell-web-console-main-on-merge-queue$
-          repo-token: ${{ github.token }}
-          wait-interval: 30
-          checks-discovery-timeout: 900
-          allowed-conclusions: success
-
       - name: Plan images and required Konflux builds
         id: plan
         env:
@@ -143,8 +100,8 @@ jobs:
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
           baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
 
-          # Default: nothing to wait for. The e2e-kind job starts Konflux waits
-          # in the background while kind-up runs when a component's own source
+          # Default: nothing to wait for. The e2e-kind job waits for Konflux builds
+          # sequentially before e2e tests when a component's own source
           # tree changed on a PR.
           echo "wait_api_server=false"    >> "${GITHUB_OUTPUT}"
           echo "wait_control_plane=false" >> "${GITHUB_OUTPUT}"
@@ -262,13 +219,16 @@ jobs:
               # confused with an already-tested PR image. The on-push pipelines
               # require target_branch == "main" and never fire here, so mirror
               # the pull_request path: use on-merge-queue-<merge_sha> for each
-              # component the merge queue rebuilt (the wait steps above proved
-              # the image was pushed) and the stable baseline image for the
+              # component the merge queue rebuilt and the stable baseline image for the
               # rest. Always run e2e -- this is the merge gate.
               tag="on-merge-queue-${PUSH_SHA}"
               api_img="${baseline_api}"
               cp_img="${baseline_cp}"
               wc_img="${baseline_wc}"
+              echo "wait_api_server=${MQ_API_SERVER}" >> "${GITHUB_OUTPUT}"
+              echo "wait_control_plane=${MQ_CONTROL_PLANE}" >> "${GITHUB_OUTPUT}"
+              echo "wait_web_console=${MQ_WEB_CONSOLE}" >> "${GITHUB_OUTPUT}"
+
               if [[ "${MQ_API_SERVER}" == "true" ]]; then
                 api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
                 echo "  api-server -> ${api_img}"
@@ -307,18 +267,26 @@ jobs:
               ;;
           esac
 
+
   e2e-kind:
     name: E2E Kind
     needs: plan-images
     if: needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
-    # The browser-driven trace verification adds a Node install, a Chromium
-    # download, and a Playwright run on top of the bash suite, so allow a wider
-    # ceiling than the 20 minutes the bash-only suite needed.
-    timeout-minutes: 25
+    # This job now also absorbs the Konflux build wait that plan-images used to
+    # hold: kind-up runs first and overlaps the remote build, the
+    # wait-on-check-action steps then block for whatever build time is left (up
+    # to the 900s discovery ceiling plus the build itself), and only then does
+    # the bash e2e suite run followed by the browser trace verification (Node
+    # install, Chromium download, Playwright run). 45 minutes covers that
+    # combined budget with headroom; 25 min was the ceiling before the wait
+    # moved in, so a tighter value (e.g. 30) risks tripping on a slow build.
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -333,7 +301,7 @@ jobs:
 
       - name: Install openshell CLI
         run: |
-          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | sh
           openshell --version
 
       - name: Create Kind cluster with OIDC
@@ -342,43 +310,53 @@ jobs:
           # Deploy Jaeger and point the web-console BFF at it so the browser
           # trace verification below has a collector to export to (WEB-TRACE-10).
           KIND_JAEGER: "true"
-        run: |
-          echo "::group::Kind environment configuration"
-          make kind-env
-          echo "::endgroup::"
-          make kind-up
+        run: make kind-up
 
+      # Block until each changed component's Konflux on-pull-request build has
+      # concluded. wait-on-check-action waits for the *named* check to both
+      # appear and finish, so a build whose check has not been created yet
+      # cannot be skipped (the failure mode of the previous hand-rolled poll).
+      # A non-success conclusion fails the step -> the job -> the E2E gate.
       - name: Wait for api-server Konflux build
-        if: github.event_name == 'pull_request' && needs.plan-images.outputs.wait_api_server == 'true'
+        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.plan-images.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-regexp: hypershell-api-server-main-on-pull-request$
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-regexp: hypershell-api-server-main-on-(pull-request|merge-queue)$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
+          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # The action defaults to "success,skipped"; a skipped build never
+          # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
 
       - name: Wait for control-plane Konflux build
-        if: github.event_name == 'pull_request' && needs.plan-images.outputs.wait_control_plane == 'true'
+        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.plan-images.outputs.wait_control_plane == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-regexp: hypershell-control-plane-main-on-pull-request$
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-regexp: hypershell-control-plane-main-on-(pull-request|merge-queue)$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
+          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # The action defaults to "success,skipped"; a skipped build never
+          # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
 
       - name: Wait for web-console Konflux build
-        if: github.event_name == 'pull_request' && needs.plan-images.outputs.wait_web_console == 'true'
+        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.plan-images.outputs.wait_web_console == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-regexp: hypershell-web-console-main-on-pull-request$
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-regexp: hypershell-web-console-main-on-(pull-request|merge-queue)$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
+          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # The action defaults to "success,skipped"; a skipped build never
+          # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
 
       - name: Swap component images
@@ -386,7 +364,11 @@ jobs:
           API_SERVER_IMAGE: ${{ needs.plan-images.outputs.api_server_image }}
           CONTROL_PLANE_IMAGE: ${{ needs.plan-images.outputs.control_plane_image }}
           WEB_CONSOLE_IMAGE: ${{ needs.plan-images.outputs.web_console_image }}
-        run: bash scripts/kind/set-component-images.sh
+        run: |
+          bash scripts/kind/set-component-images.sh
+          echo "::group::Kind environment configuration"
+          make kind-env
+          echo "::endgroup::"
 
       - name: Run e2e tests
         env:
@@ -415,6 +397,7 @@ jobs:
       # falls back to baseline, which lags main and cannot contain
       # not-yet-merged tracing code, so the deployed console would emit no
       # spans and the assertion would test the wrong artifact.
+
       - name: Set up Node.js
         if: github.event_name != 'merge_group'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
