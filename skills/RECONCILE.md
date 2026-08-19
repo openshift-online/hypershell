@@ -61,7 +61,7 @@ skills/
 | Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
 | Platform - Gateway Keycloak | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
-| Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 0 | 2 | 69% |
+| Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 1 | 2 | 63% |
 | Platform - Namespace GC | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
@@ -70,7 +70,7 @@ skills/
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **30** | **195** | **150** | **18** | **27** | **5** | **82%** |
+| **TOTAL** | **30** | **195** | **145** | **18** | **26** | **5** | **74%** |
 
 ### Spec Dependency Order
 

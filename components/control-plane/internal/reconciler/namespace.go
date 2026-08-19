@@ -24,6 +24,10 @@ const (
 	// namespace during a transient window (e.g. a delete event that is quickly
 	// followed by a recreate, or an API server blip).
 	defaultNamespaceGCGracePeriod = 10 * time.Minute
+
+	// gatewayListTimeout bounds each paginated Gateway inventory read so a stalled
+	// API server cannot block an entire GC sweep forever.
+	gatewayListTimeout = 30 * time.Second
 )
 
 // NamespaceGCReconciler periodically garbage-collects gateway namespaces that
@@ -44,6 +48,13 @@ type NamespaceGCReconciler struct {
 	cpNamespace string
 	// now is overridable in tests for deterministic grace-period evaluation.
 	now func() time.Time
+	// liveNamespaces returns the set of namespaces currently backed by a live
+	// Gateway. It seeds each sweep and, critically, is re-read immediately before
+	// a destructive delete to guard against a Gateway created for the namespace
+	// after the sweep captured its (now stale) live set. It is a seam so the
+	// reap logic is testable without a live gRPC server; the default pages the
+	// whole Gateway fleet.
+	liveNamespaces func(ctx context.Context) (map[string]struct{}, error)
 }
 
 // NewNamespaceGCReconciler builds a NamespaceGCReconciler, applying defaults for
@@ -55,7 +66,7 @@ func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.Client
 	if gracePeriod <= 0 {
 		gracePeriod = defaultNamespaceGCGracePeriod
 	}
-	return &NamespaceGCReconciler{
+	r := &NamespaceGCReconciler{
 		client:      client,
 		grpcConn:    grpcConn,
 		interval:    interval,
@@ -63,6 +74,8 @@ func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.Client
 		cpNamespace: cpNamespace,
 		now:         time.Now,
 	}
+	r.liveNamespaces = r.grpcLiveNamespaces
+	return r
 }
 
 // Run drives the garbage-collection loop until the context is cancelled.
@@ -84,30 +97,11 @@ func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
 func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	// Build the set of namespaces backed by a live Gateway. If we cannot list
 	// gateways we must abort the whole sweep: an empty or failed list would make
-	// every managed namespace look orphaned and risk reaping live ones. The list
-	// is paginated, so page through the entire fleet; a truncated (first-page)
-	// view would omit later gateways from the live set and orphan their live
-	// namespaces.
-	client := pb.NewGatewayServiceClient(r.grpcConn)
-	gateways, err := listAllGateways(ctx, client)
+	// every managed namespace look orphaned and risk reaping live ones.
+	live, err := r.liveNamespaces(ctx)
 	if err != nil {
-		log.Printf("WARN namespace gc: list gateways: %v", err)
+		log.Printf("WARN namespace gc: build live gateway set: %v", err)
 		return
-	}
-	live := make(map[string]struct{}, len(gateways))
-	for _, gw := range gateways {
-		// This is a destructive path: the live set must key on the real
-		// namespace, never a synthesized guess. A live gateway with no namespace
-		// means we cannot know which namespace backs it, so building the set
-		// without it would risk reaping a namespace that is actually in use.
-		// Abort the whole sweep rather than guess (do not fall back to
-		// gatewayNamespace here).
-		ns := gw.GetNamespace()
-		if ns == "" {
-			log.Printf("WARN namespace gc: gateway %s has no namespace; aborting sweep to avoid reaping a live namespace", gw.GetMetadata().GetId())
-			return
-		}
-		live[ns] = struct{}{}
 	}
 
 	namespaces, err := r.client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
@@ -124,6 +118,38 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 			log.Printf("WARN namespace gc: %s: %v", ns.Name, err)
 		}
 	}
+}
+
+// grpcLiveNamespaces returns the set of namespaces backed by a live Gateway,
+// paging the entire fleet behind a bounded timeout. It is the default
+// liveNamespaces seam and is called both to seed a sweep and to re-confirm
+// liveness immediately before a delete.
+//
+// The list is paginated, so it pages through the entire fleet; a truncated
+// (first-page) view would omit later gateways from the live set and orphan
+// their live namespaces. This is a destructive path, so the live set must key
+// on the real namespace, never a synthesized guess: a live gateway with no
+// namespace means we cannot know which namespace backs it, so it returns an
+// error rather than a partial set (do not fall back to gatewayNamespace here).
+// The caller aborts the sweep, or defers the delete, on that error rather than
+// risk reaping a namespace that is actually in use.
+func (r *NamespaceGCReconciler) grpcLiveNamespaces(ctx context.Context) (map[string]struct{}, error) {
+	listCtx, cancel := context.WithTimeout(ctx, gatewayListTimeout)
+	defer cancel()
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	gateways, err := listAllGateways(listCtx, client)
+	if err != nil {
+		return nil, fmt.Errorf("list gateways: %w", err)
+	}
+	live := make(map[string]struct{}, len(gateways))
+	for _, gw := range gateways {
+		ns := gw.GetNamespace()
+		if ns == "" {
+			return nil, fmt.Errorf("gateway %s has no namespace; refusing to build a live set that could orphan a live namespace", gw.GetMetadata().GetId())
+		}
+		live[ns] = struct{}{}
+	}
+	return live, nil
 }
 
 // reconcileNamespace evaluates a single managed namespace against the set of
@@ -159,9 +185,24 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 		return nil
 	}
 
-	// Grace elapsed: summarize workloads for debuggability, record an event, and
-	// reap. Summaries are best-effort; failure to gather them must not block the
-	// reap of an already-orphaned namespace.
+	// Grace elapsed, but the `live` set was captured at the start of the sweep and
+	// can be minutes stale by the time this namespace is reached. Re-confirm
+	// liveness now, immediately before the destructive delete, so a Gateway
+	// created for this namespace since the sweep began is not reaped.
+	freshLive, err := r.liveNamespaces(ctx)
+	if err != nil {
+		// Cannot confirm liveness: defer the reap to a later sweep rather than
+		// delete on a possibly stale view.
+		return fmt.Errorf("re-check liveness before reaping %s: %w", ns.Name, err)
+	}
+	if _, ok := freshLive[ns.Name]; ok {
+		log.Printf("INFO namespace gc: %s became live again before reap; clearing grace timer", ns.Name)
+		return gateway.ClearGCEligible(ctx, r.client, ns)
+	}
+
+	// Confirmed still orphaned past grace: summarize workloads for debuggability,
+	// record an event, and reap. Summaries are best-effort; failure to gather them
+	// must not block the reap of an already-orphaned namespace.
 	summary, sErr := gateway.SummarizeNamespace(ctx, r.client, ns.Name)
 	if sErr != nil {
 		log.Printf("WARN namespace gc: %s: summarize pods: %v", ns.Name, sErr)
@@ -174,7 +215,9 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	reason := fmt.Sprintf("orphaned for %s (no live gateway); workloads: %s; active sandboxes: %d",
 		elapsed.Round(time.Second), summary.String(), activeSandboxes)
 	log.Printf("INFO namespace gc: reaping namespace %s: %s", ns.Name, reason)
-	r.recordGCEvent(ctx, ns.Name, reason)
+	if err := r.recordGCEvent(ctx, ns.Name, reason); err != nil {
+		return fmt.Errorf("record GC event for %s: %w", ns.Name, err)
+	}
 
 	if _, err := gateway.DeleteManagedNamespace(ctx, r.client, ns.Name); err != nil {
 		return err
@@ -184,11 +227,10 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 
 // recordGCEvent records a Kubernetes Event describing a garbage-collection
 // action. The Event is created in the control-plane namespace so it outlives the
-// namespace being deleted, giving operators a durable record. Best-effort:
-// event creation failures are logged, never fatal.
-func (r *NamespaceGCReconciler) recordGCEvent(ctx context.Context, namespace, message string) {
+// namespace being deleted, giving operators a durable record.
+func (r *NamespaceGCReconciler) recordGCEvent(ctx context.Context, namespace, message string) error {
 	if r.cpNamespace == "" {
-		return
+		return nil
 	}
 	now := metav1.NewTime(r.now())
 	event := &corev1.Event{
@@ -209,6 +251,7 @@ func (r *NamespaceGCReconciler) recordGCEvent(ctx context.Context, namespace, me
 		Count:          1,
 	}
 	if _, err := r.client.CoreV1().Events(r.cpNamespace).Create(ctx, event, metav1.CreateOptions{}); err != nil {
-		log.Printf("WARN namespace gc: record event for %s: %v", namespace, err)
+		return err
 	}
+	return nil
 }

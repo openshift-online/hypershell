@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,10 @@ const defaultSandboxCountResyncInterval = 2 * time.Minute
 // whether from an informer event handler or a self-heal pass, so a wedged API
 // server cannot stall pod-event delivery or the self-heal loop.
 const sandboxCountRPCTimeout = 10 * time.Second
+
+// sandboxCountGatewayListTimeout bounds each paginated gateway namespace read
+// so a stalled API server cannot block the entire self-heal pass forever.
+const sandboxCountGatewayListTimeout = 30 * time.Second
 
 // SandboxCountReconciler maintains each Gateway's active_sandbox_count from a
 // single label-selected informer over agent sandbox pods, rather than a periodic
@@ -64,6 +69,19 @@ type SandboxCountReconciler struct {
 	// baseCtx is the reconciler's run context, captured so event handlers (which
 	// receive no context of their own) issue RPCs that are cancelled on shutdown.
 	baseCtx context.Context
+
+	// nsLocks serializes the reconciler's own count mutations per gateway
+	// namespace, so an event-driven delta and a periodic self-heal SET for the
+	// same gateway never issue overlapping RPCs and a self-heal reads its cache
+	// snapshot and writes it back without a delta interleaving in between. This
+	// orders the control plane's writes per gateway; it does not claim global
+	// real-time consistency, and any residual drift from a delta that races the
+	// snapshot is corrected by the next self-heal pass (the count is advisory,
+	// per openshell-gateway-sandbox-count.spec.md). The map is keyed by namespace
+	// and grows only with the gateway namespaces observed, so it is bounded by
+	// fleet size. nsMu guards the map itself, not the per-namespace locks.
+	nsMu    sync.Mutex
+	nsLocks map[string]*sync.Mutex
 }
 
 // NewSandboxCountReconciler builds a SandboxCountReconciler, applying the default
@@ -77,6 +95,7 @@ func NewSandboxCountReconciler(client kubernetes.Interface, grpcConn *grpc.Clien
 		grpcConn:       grpcConn,
 		resyncInterval: resyncInterval,
 		baseCtx:        context.Background(),
+		nsLocks:        make(map[string]*sync.Mutex),
 	}
 	r.adjust = r.grpcAdjust
 	r.set = r.grpcSet
@@ -195,9 +214,13 @@ func (r *SandboxCountReconciler) onDelete(obj interface{}) {
 }
 
 // applyDelta issues a single atomic adjust RPC, bounded by a timeout derived from
-// the run context. Adjusting an unknown namespace is a no-op at the API server,
-// so a sandbox pod outside any gateway namespace costs only a cheap round trip.
+// the run context. It holds the per-namespace lock so a delta and a concurrent
+// self-heal SET for the same gateway are serialized rather than racing at the API
+// server. Adjusting an unknown namespace is a no-op at the API server, so a
+// sandbox pod outside any gateway namespace costs only a cheap round trip.
 func (r *SandboxCountReconciler) applyDelta(namespace string, delta int) {
+	unlock := r.lockNamespace(namespace)
+	defer unlock()
 	ctx, cancel := context.WithTimeout(r.baseCtx, sandboxCountRPCTimeout)
 	defer cancel()
 	if err := r.adjust(ctx, namespace, delta); err != nil {
@@ -205,35 +228,76 @@ func (r *SandboxCountReconciler) applyDelta(namespace string, delta int) {
 	}
 }
 
+// lockNamespace locks and returns an unlock func for the given namespace's
+// mutex, creating it on first use. It serializes the reconciler's own count
+// mutations (event-driven deltas and self-heal SETs) for one gateway without
+// blocking other gateways.
+func (r *SandboxCountReconciler) lockNamespace(namespace string) func() {
+	r.nsMu.Lock()
+	mu := r.nsLocks[namespace]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		r.nsLocks[namespace] = mu
+	}
+	r.nsMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
 // selfHeal reconciles every gateway's stored count to the absolute number of
 // active sandbox pods held in the informer cache. It reads the cache (never the
 // Kubernetes API) and sets a count for every gateway namespace - including those
-// with zero cached sandboxes - so drift is corrected in both directions. Each set
-// RPC is bounded by sandboxCountRPCTimeout so a single hung call cannot stall the
-// rest of the pass.
+// with zero cached sandboxes - so drift is corrected in both directions. Each
+// namespace is read from the cache and SET immediately before the next, under the
+// per-namespace lock, so the value written reflects the freshest cache snapshot
+// for that gateway and no event-driven delta interleaves between the read and the
+// write. Each set RPC is bounded by sandboxCountRPCTimeout so a single hung call
+// cannot stall the rest of the pass.
 func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelisters.PodLister) {
-	pods, err := lister.List(labels.Everything())
-	if err != nil {
-		log.Printf("WARN sandbox count: list watch cache: %v", err)
-		return
-	}
-	active := activeSandboxesByNamespace(pods)
-
-	namespaces, err := r.namespaces(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, sandboxCountGatewayListTimeout)
+	namespaces, err := r.namespaces(listCtx)
+	cancel()
 	if err != nil {
 		log.Printf("WARN sandbox count: list gateway namespaces: %v", err)
 		return
 	}
-	// A defer-per-iteration would leak cancels until the loop ends, so bound each
-	// set RPC with an explicit timeout and cancel it before the next iteration.
 	for _, ns := range namespaces {
-		rpcCtx, cancel := context.WithTimeout(ctx, sandboxCountRPCTimeout)
-		err := r.set(rpcCtx, ns, active[ns])
-		cancel()
-		if err != nil {
-			log.Printf("WARN sandbox count: set %s to %d: %v", ns, active[ns], err)
-		}
+		r.healNamespace(ctx, lister, ns)
 	}
+}
+
+// healNamespace reconciles a single gateway's stored count to the absolute
+// number of active sandbox pods currently in the informer cache for its
+// namespace. It reads the cache and issues the SET while holding the namespace
+// lock, so an event-driven delta for the same gateway cannot interleave between
+// the read and the write, and the control plane never issues two overlapping
+// count RPCs for one gateway.
+func (r *SandboxCountReconciler) healNamespace(ctx context.Context, lister corelisters.PodLister, namespace string) {
+	unlock := r.lockNamespace(namespace)
+	defer unlock()
+
+	count, err := countActiveSandboxes(lister, namespace)
+	if err != nil {
+		log.Printf("WARN sandbox count: read cache for %s: %v", namespace, err)
+		return
+	}
+	rpcCtx, cancel := context.WithTimeout(ctx, sandboxCountRPCTimeout)
+	defer cancel()
+	if err := r.set(rpcCtx, namespace, count); err != nil {
+		log.Printf("WARN sandbox count: set %s to %d: %v", namespace, count, err)
+	}
+}
+
+// countActiveSandboxes tallies the active sandbox pods a namespace holds in the
+// informer cache. The informer is label-selected to sandbox pods, so the cache
+// holds only sandbox pods; the accounting reuses activeSandboxesByNamespace so
+// the active-pod filter has a single source of truth.
+func countActiveSandboxes(lister corelisters.PodLister, namespace string) (int, error) {
+	pods, err := lister.Pods(namespace).List(labels.Everything())
+	if err != nil {
+		return 0, err
+	}
+	return activeSandboxesByNamespace(pods)[namespace], nil
 }
 
 // activeSandboxesByNamespace tallies active sandbox pods per namespace from a

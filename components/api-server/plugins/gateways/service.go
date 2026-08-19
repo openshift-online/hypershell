@@ -130,38 +130,22 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 }
 
 func (s *sqlGatewayService) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, *errors.ServiceError) {
-	gatewayID, count, changed, err := s.gatewayDao.AdjustActiveSandboxCount(ctx, namespace, delta)
+	// The DAO emits the Gateway update Event in the same transaction as the count
+	// mutation (transactional outbox), so there is no separate event write here to
+	// drift from the persisted value.
+	count, err := s.gatewayDao.AdjustActiveSandboxCount(ctx, namespace, delta)
 	if err != nil {
 		return 0, services.HandleUpdateError("Gateway", err)
 	}
-	return s.emitSandboxCountEvent(ctx, gatewayID, count, changed)
+	return count, nil
 }
 
 func (s *sqlGatewayService) SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError) {
-	gatewayID, resulting, changed, err := s.gatewayDao.SetActiveSandboxCount(ctx, namespace, count)
+	resulting, err := s.gatewayDao.SetActiveSandboxCount(ctx, namespace, count)
 	if err != nil {
 		return 0, services.HandleUpdateError("Gateway", err)
 	}
-	return s.emitSandboxCountEvent(ctx, gatewayID, resulting, changed)
-}
-
-// emitSandboxCountEvent publishes a Gateway update event so watchers (the
-// console, the control plane) observe the new count, but only when a live
-// gateway backed the namespace and its stored count actually changed. This
-// keeps steady-state self-heal from churning events when nothing moved.
-func (s *sqlGatewayService) emitSandboxCountEvent(ctx context.Context, gatewayID string, count int, changed bool) (int, *errors.ServiceError) {
-	if !changed || gatewayID == "" {
-		return count, nil
-	}
-	_, evErr := s.events.Create(ctx, &api.Event{
-		Source:    "Gateways",
-		SourceID:  gatewayID,
-		EventType: api.UpdateEventType,
-	})
-	if evErr != nil {
-		return 0, services.HandleUpdateError("Gateway", evErr)
-	}
-	return count, nil
+	return resulting, nil
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {

@@ -39,11 +39,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  # Events need create/patch so the namespace reaper can write a durable audit
-  # record (see recordGCEvent); patch supports event aggregation/de-duplication.
+  # Events need create so the namespace reaper can write a durable audit record.
   - apiGroups: [""]
     resources: ["events"]
-    verbs: ["get", "list", "watch", "create", "patch"]
+    verbs: ["get", "list", "watch", "create"]
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
     verbs: ["create"]

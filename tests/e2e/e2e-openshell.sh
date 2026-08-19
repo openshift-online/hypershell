@@ -91,6 +91,13 @@ cleanup() {
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
   fi
+  if [[ -n "${SB2_CREATE_PID:-}" ]]; then
+    kill "$SB2_CREATE_PID" 2>/dev/null || true
+    wait "$SB2_CREATE_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${SB2_CREATE_LOG:-}" ]]; then
+    rm -f "$SB2_CREATE_LOG" 2>/dev/null || true
+  fi
   if [[ -n "${E2E_GW_PF_PID:-}" ]]; then
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
@@ -930,7 +937,9 @@ if [[ "$SANDBOX_FOUND" == "true" ]]; then
   done
   kill "$SB2_CREATE_PID" 2>/dev/null || true
   wait "$SB2_CREATE_PID" 2>/dev/null || true
+  SB2_CREATE_PID=""
   rm -f "${SB2_CREATE_LOG}" 2>/dev/null || true
+  SB2_CREATE_LOG=""
 
   if [[ "$SANDBOX2_RUNNING" == "true" ]]; then
     show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # active_sandbox_count == 2"

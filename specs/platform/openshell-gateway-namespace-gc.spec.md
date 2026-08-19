@@ -186,6 +186,14 @@ still exists SHALL NOT be reaped regardless of the gateway's `phase` (including
 `Degraded` or `Failed`); the health of an existing gateway is owned by the health
 reconciler, and reclamation is triggered only by the Gateway ceasing to exist.
 
+The liveness set that seeds a sweep is a point-in-time snapshot and can be many
+minutes stale by the time a given namespace is evaluated for deletion. To close
+that window, the control plane SHALL re-confirm liveness immediately before the
+destructive delete: if a Gateway now maps to the namespace, it SHALL NOT delete
+it and SHALL clear the `gc-eligible-since` annotation instead. If it cannot
+re-confirm liveness at that point (the Gateway list fails), it SHALL defer the
+delete to a later sweep rather than delete on a stale view.
+
 #### Scenario: Gateway list failure aborts the sweep
 
 - GIVEN the API server is unreachable
@@ -198,6 +206,24 @@ reconciler, and reclamation is triggered only by the Gateway ceasing to exist.
 - WHEN the garbage-collection reconciler sweeps
 - THEN it SHALL NOT delete that namespace, because the Gateway still exists
 
+#### Scenario: Gateway created after the sweep began is spared at delete time
+
+- GIVEN a managed namespace observed orphaned past its grace period when the
+  sweep captured its liveness snapshot
+- AND a Gateway is created for that namespace before the reconciler reaches the
+  delete
+- WHEN the reconciler re-confirms liveness immediately before deleting
+- THEN it SHALL NOT delete the namespace
+- AND it SHALL clear the `gc-eligible-since` annotation
+
+#### Scenario: Liveness re-check failure defers the delete
+
+- GIVEN a managed namespace orphaned past its grace period by the sweep snapshot
+- AND the Gateway list fails when liveness is re-confirmed before the delete
+- WHEN the reconciler handles that namespace
+- THEN it SHALL NOT delete the namespace in that pass
+- AND it SHALL defer the reap to a later sweep
+
 ### Requirement: Preserve a Durable Record Before Deletion
 
 Before deleting an orphaned namespace, the control plane SHALL record a
@@ -206,7 +232,9 @@ the namespace is gone. The Event SHALL be created in the control-plane namespace
 (so it outlives the deleted namespace), with reason `GarbageCollected`, and its
 message SHALL summarize how long the namespace was orphaned, the state of its
 pods, and the number of active sandboxes it held. Gathering the summary is
-best-effort: failure to collect it SHALL NOT block the reap.
+best-effort: failure to collect it SHALL NOT block the reap. If recording the
+Event itself fails, the reconciler SHALL defer deletion and retry in a later
+sweep so the durable record is preserved.
 
 #### Scenario: GC event recorded on reap
 
@@ -215,6 +243,14 @@ best-effort: failure to collect it SHALL NOT block the reap.
 - THEN it SHALL create a `GarbageCollected` Event in the control-plane namespace
   identifying the namespace and summarizing its workloads and active sandbox count
 - AND then delete the namespace
+
+#### Scenario: Event write failure defers deletion
+
+- GIVEN an orphaned managed namespace past its grace period
+- AND Event creation in the control-plane namespace fails
+- WHEN the reconciler handles that namespace
+- THEN it SHALL return an error for the current sweep item
+- AND it SHALL NOT delete the namespace in that pass
 
 ### Requirement: Surface Active Sandbox Count Before Deletion
 

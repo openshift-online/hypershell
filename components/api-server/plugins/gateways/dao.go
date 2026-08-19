@@ -3,6 +3,7 @@ package gateways
 import (
 	"context"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -20,16 +21,18 @@ type GatewayDao interface {
 
 	// AdjustActiveSandboxCount atomically applies delta to the
 	// active_sandbox_count of the live gateway in the given namespace, flooring
-	// the result at zero and treating a NULL count as zero. It returns the
-	// resolved gateway ID (empty when no live gateway backs the namespace), the
-	// resulting count, and whether the stored value actually changed (so the
-	// caller can skip emitting a redundant event).
-	AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (gatewayID string, count int, changed bool, err error)
+	// the result at zero and treating a NULL count as zero, and returns the
+	// resulting count (zero when no live gateway backs the namespace). When the
+	// stored value actually changes it also emits the Gateway update Event in the
+	// SAME transaction as the count mutation (transactional outbox), so a
+	// committed change always has its notification and a rolled-back one never
+	// emits.
+	AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (count int, err error)
 
 	// SetActiveSandboxCount atomically sets the active_sandbox_count of the live
 	// gateway in the given namespace to an absolute value, floored at zero. Its
-	// return contract matches AdjustActiveSandboxCount.
-	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (gatewayID string, resulting int, changed bool, err error)
+	// return and event-emission contract matches AdjustActiveSandboxCount.
+	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (resulting int, err error)
 }
 
 // sandboxCountRow captures the gateway identity and count returned by the
@@ -116,13 +119,13 @@ func (d *sqlGatewayDao) All(ctx context.Context) (GatewayList, error) {
 	return gateways, nil
 }
 
-func (d *sqlGatewayDao) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (string, int, bool, error) {
+func (d *sqlGatewayDao) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, error) {
 	// A single UPDATE ... RETURNING is atomic at the row level, so concurrent
 	// deltas serialize on the row lock and never lose an increment. GREATEST/
 	// COALESCE floor the result at zero and treat an unset (NULL) count as zero.
 	// The IS DISTINCT FROM guard skips the write (and thus the returned row) when
-	// the value would not change - e.g. a decrement already at zero - so the
-	// caller emits no redundant event.
+	// the value would not change - e.g. a decrement already at zero - so no
+	// redundant event is emitted.
 	const stmt = `
 UPDATE gateways
 SET active_sandbox_count = GREATEST(0, COALESCE(active_sandbox_count, 0) + ?)
@@ -132,7 +135,7 @@ RETURNING id, active_sandbox_count`
 	return d.execSandboxCount(ctx, namespace, stmt, delta, namespace, delta)
 }
 
-func (d *sqlGatewayDao) SetActiveSandboxCount(ctx context.Context, namespace string, count int) (string, int, bool, error) {
+func (d *sqlGatewayDao) SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, error) {
 	const stmt = `
 UPDATE gateways
 SET active_sandbox_count = GREATEST(0, ?)
@@ -142,33 +145,64 @@ RETURNING id, active_sandbox_count`
 	return d.execSandboxCount(ctx, namespace, stmt, count, namespace, count)
 }
 
-// execSandboxCount runs a guarded sandbox-count UPDATE ... RETURNING and, when
-// it matched no row (either the value was unchanged or no live gateway exists),
-// falls back to a lookup by namespace to distinguish "unchanged" from
-// "not found" and to report the current stored value.
-func (d *sqlGatewayDao) execSandboxCount(ctx context.Context, namespace, stmt string, args ...interface{}) (string, int, bool, error) {
+// execSandboxCount runs a guarded sandbox-count UPDATE ... RETURNING inside a
+// single transaction. When the UPDATE changes the stored value it emits the
+// Gateway update Event in that same transaction (transactional outbox), so the
+// count mutation and its notification commit atomically - the framework's
+// EventBroker fans the event out to gRPC watchers. When no row is updated
+// (either the guard excluded an unchanged value or no live gateway backs the
+// namespace) it falls back to a read to report the current stored value and
+// emits nothing, because nothing changed.
+func (d *sqlGatewayDao) execSandboxCount(ctx context.Context, namespace, stmt string, args ...interface{}) (int, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 
-	var row sandboxCountRow
-	if err := g2.Raw(stmt, args...).Scan(&row).Error; err != nil {
-		db.MarkForRollback(ctx, err)
-		return "", 0, false, err
-	}
-	if row.ID != "" {
-		return row.ID, derefCount(row.ActiveSandboxCount), true, nil
-	}
+	var count int
+	txErr := g2.Transaction(func(tx *gorm.DB) error {
+		var row sandboxCountRow
+		if err := tx.Raw(stmt, args...).Scan(&row).Error; err != nil {
+			return err
+		}
+		if row.ID != "" {
+			count = derefCount(row.ActiveSandboxCount)
+			return emitGatewayEventTx(tx, row.ID)
+		}
 
-	// No row updated: either the guard excluded an unchanged value or the
-	// namespace has no live gateway. Resolve which without mutating anything.
-	var current sandboxCountRow
-	if err := g2.Raw(
-		`SELECT id, active_sandbox_count FROM gateways WHERE namespace = ? AND deleted_at IS NULL`,
-		namespace,
-	).Scan(&current).Error; err != nil {
-		db.MarkForRollback(ctx, err)
-		return "", 0, false, err
+		// No row updated: either the guard excluded an unchanged value or the
+		// namespace has no live gateway. Resolve the current value without
+		// mutating anything, and emit no event.
+		var current sandboxCountRow
+		if err := tx.Raw(
+			`SELECT id, active_sandbox_count FROM gateways WHERE namespace = ? AND deleted_at IS NULL`,
+			namespace,
+		).Scan(&current).Error; err != nil {
+			return err
+		}
+		count = derefCount(current.ActiveSandboxCount)
+		return nil
+	})
+	if txErr != nil {
+		db.MarkForRollback(ctx, txErr)
+		return 0, txErr
 	}
-	return current.ID, derefCount(current.ActiveSandboxCount), false, nil
+	return count, nil
+}
+
+// emitGatewayEventTx inserts a Gateway update Event and fires its pg_notify
+// within the given transaction, mirroring the framework EventDao.Create but
+// bound to tx so the event and the state change that produced it commit
+// atomically. The events table plus NOTIFY is the outbox the EventBroker
+// consumes; Postgres buffers pg_notify until commit, so a rolled-back
+// transaction emits nothing.
+func emitGatewayEventTx(tx *gorm.DB, gatewayID string) error {
+	event := &api.Event{
+		Source:    "Gateways",
+		SourceID:  gatewayID,
+		EventType: api.UpdateEventType,
+	}
+	if err := tx.Omit(clause.Associations).Create(event).Error; err != nil {
+		return err
+	}
+	return tx.Exec("select pg_notify('events', ?)", event.ID).Error
 }
 
 func derefCount(v *int) int {
