@@ -18,10 +18,11 @@ get_changed_files() {
   case "${GITHUB_EVENT_NAME:-}" in
     pull_request)
       base_sha="$(jq -r '.pull_request.base.sha' "${GITHUB_EVENT_PATH}")"
+      head_sha="$(jq -r '.pull_request.head.sha' "${GITHUB_EVENT_PATH}")"
       # Three-dot (merge-base) diff so component changes that landed on the base
       # branch after this PR forked are not misattributed to the PR. A two-dot
-      # "${base_sha} HEAD" diff would flag base-branch drift as PR changes.
-      git diff --name-only "${base_sha}...HEAD"
+      # "${base_sha} HEAD" diff (when HEAD is a merge commit) would flag base-branch drift as PR changes.
+      git diff --name-only "${base_sha}...${head_sha}"
       ;;
     merge_group)
       base_sha="$(jq -r '.merge_group.base_sha' "${GITHUB_EVENT_PATH}")"

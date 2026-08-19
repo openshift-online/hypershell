@@ -94,14 +94,14 @@ jobs:
               # "will Konflux build an image".  Konflux only triggers on files
               # under components/<name>/ -- check the actual diff.
               #
-              # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...HEAD"
-              # compares HEAD against the point where this PR forked from the
-              # base branch. A two-dot "${PR_BASE_SHA} HEAD" diff would also
-              # report component changes that landed on the base branch *after*
-              # this PR forked, misattributing them to the PR -- then we would
-              # wait for a Konflux build that only ever runs for files this PR
-              # actually touched.
-              changed_files="$(git diff --name-only "${PR_BASE_SHA}...HEAD")"
+              # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...${PR_HEAD_SHA}"
+              # compares the PR head against the point where this PR forked from the
+              # base branch. A two-dot "${PR_BASE_SHA} HEAD" diff (where HEAD is a
+              # merge commit) would also report component changes that landed on the
+              # base branch *after* this PR forked, misattributing them to the PR --
+              # then we would wait for a Konflux build that only ever runs for files
+              # this PR actually touched.
+              changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
               api_konflux=false
               cp_konflux=false
               wc_konflux=false
