@@ -51,3 +51,13 @@ func (d *gatewayDaoMock) FindByIDs(ctx context.Context, ids []string) (GatewayLi
 func (d *gatewayDaoMock) All(ctx context.Context) (GatewayList, error) {
 	return d.gateways, nil
 }
+
+func (d *gatewayDaoMock) CountByPhase(ctx context.Context) (map[string]int64, error) {
+	counts := make(map[string]int64)
+	for _, gw := range d.gateways {
+		if gw.Phase != nil {
+			counts[*gw.Phase]++
+		}
+	}
+	return counts, nil
+}

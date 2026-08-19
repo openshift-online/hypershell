@@ -25,10 +25,12 @@ import (
 type ServiceLocator func() GatewayService
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
+	dao := NewGatewayDao(&env.Database.SessionFactory)
+	RegisterGatewayMetrics(dao)
 	return func() GatewayService {
 		return NewGatewayService(
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
-			NewGatewayDao(&env.Database.SessionFactory),
+			dao,
 			events.Service(&env.Services),
 		)
 	}
