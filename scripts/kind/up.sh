@@ -684,66 +684,130 @@ extract_id() {
 }
 
 seed_failed=""
+FLEET_ID=""
+CLUSTER_ID=""
+RELEASE_ID=""
+DATABASE_ID=""
 
-info "Creating default Fleet..."
-FLEET_RAW=$(api_post "${API_URL}/api/hypershell/v1/fleets" \
-  '{"name":"default","description":"Local development fleet"}')
-FLEET_HTTP=$(echo "${FLEET_RAW}" | tail -1)
-FLEET_RESP=$(echo "${FLEET_RAW}" | sed '$d')
-FLEET_ID=$(extract_id "${FLEET_RESP}")
+# Check for existing Fleet first
+info "Checking for existing default Fleet..."
+EXISTING_FLEET_RAW=$(api_get "${API_URL}/api/hypershell/v1/fleets")
+EXISTING_FLEET_HTTP=$(echo "${EXISTING_FLEET_RAW}" | tail -1)
+EXISTING_FLEET_RESP=$(echo "${EXISTING_FLEET_RAW}" | sed '$d')
+
+if [[ "${EXISTING_FLEET_HTTP}" == "200" ]]; then
+  FLEET_ID=$(echo "${EXISTING_FLEET_RESP}" | grep -o '"name":"default"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+  if [[ -n "${FLEET_ID}" ]]; then
+    success "default Fleet already exists: ${FLEET_ID}"
+  fi
+fi
 
 if [[ -z "${FLEET_ID}" ]]; then
-  warn "Fleet creation failed (HTTP ${FLEET_HTTP}): ${FLEET_RESP:-no response}"
-  seed_failed=true
+  info "Creating default Fleet..."
+  FLEET_RAW=$(api_post "${API_URL}/api/hypershell/v1/fleets" \
+    '{"name":"default","description":"Local development fleet"}')
+  FLEET_HTTP=$(echo "${FLEET_RAW}" | tail -1)
+  FLEET_RESP=$(echo "${FLEET_RAW}" | sed '$d')
+  FLEET_ID=$(extract_id "${FLEET_RESP}")
+
+  if [[ -z "${FLEET_ID}" ]]; then
+    warn "Fleet creation failed (HTTP ${FLEET_HTTP}): ${FLEET_RESP:-no response}"
+    seed_failed=true
+  else
+    success "Fleet created: ${FLEET_ID}"
+  fi
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  success "Fleet created: ${FLEET_ID}"
+  # Check for existing ManagedCluster
+  info "Checking for existing local-kind ManagedCluster..."
+  EXISTING_MC_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_clusters")
+  EXISTING_MC_HTTP=$(echo "${EXISTING_MC_RAW}" | tail -1)
+  EXISTING_MC_RESP=$(echo "${EXISTING_MC_RAW}" | sed '$d')
 
-  info "Creating ManagedCluster..."
-  MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
-    "{\"name\":\"local-kind\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
-  MC_HTTP=$(echo "${MC_RAW}" | tail -1)
-  MC_RESP=$(echo "${MC_RAW}" | sed '$d')
-  CLUSTER_ID=$(extract_id "${MC_RESP}")
+  if [[ "${EXISTING_MC_HTTP}" == "200" ]]; then
+    CLUSTER_ID=$(echo "${EXISTING_MC_RESP}" | grep -o '"name":"local-kind"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${CLUSTER_ID}" ]]; then
+      success "local-kind ManagedCluster already exists: ${CLUSTER_ID}"
+    fi
+  fi
 
   if [[ -z "${CLUSTER_ID}" ]]; then
-    warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
-    seed_failed=true
-  else
-    success "ManagedCluster created: ${CLUSTER_ID}"
+    info "Creating ManagedCluster..."
+    MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
+      "{\"name\":\"local-kind\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
+    MC_HTTP=$(echo "${MC_RAW}" | tail -1)
+    MC_RESP=$(echo "${MC_RAW}" | sed '$d')
+    CLUSTER_ID=$(extract_id "${MC_RESP}")
+
+    if [[ -z "${CLUSTER_ID}" ]]; then
+      warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
+      seed_failed=true
+    else
+      success "ManagedCluster created: ${CLUSTER_ID}"
+    fi
   fi
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  info "Creating GatewayRelease..."
-  GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
-    "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")
-  GR_HTTP=$(echo "${GR_RAW}" | tail -1)
-  GR_RESP=$(echo "${GR_RAW}" | sed '$d')
-  RELEASE_ID=$(extract_id "${GR_RESP}")
+  # Check for existing GatewayRelease
+  info "Checking for existing dev-release GatewayRelease..."
+  EXISTING_GR_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateway_releases")
+  EXISTING_GR_HTTP=$(echo "${EXISTING_GR_RAW}" | tail -1)
+  EXISTING_GR_RESP=$(echo "${EXISTING_GR_RAW}" | sed '$d')
+
+  if [[ "${EXISTING_GR_HTTP}" == "200" ]]; then
+    RELEASE_ID=$(echo "${EXISTING_GR_RESP}" | grep -o '"name":"dev-release"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${RELEASE_ID}" ]]; then
+      success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
+    fi
+  fi
 
   if [[ -z "${RELEASE_ID}" ]]; then
-    warn "GatewayRelease creation failed (HTTP ${GR_HTTP}): ${GR_RESP:-no response}"
-    seed_failed=true
-  else
-    success "GatewayRelease created: ${RELEASE_ID}"
+    info "Creating GatewayRelease..."
+    GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
+      "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")
+    GR_HTTP=$(echo "${GR_RAW}" | tail -1)
+    GR_RESP=$(echo "${GR_RAW}" | sed '$d')
+    RELEASE_ID=$(extract_id "${GR_RESP}")
+
+    if [[ -z "${RELEASE_ID}" ]]; then
+      warn "GatewayRelease creation failed (HTTP ${GR_HTTP}): ${GR_RESP:-no response}"
+      seed_failed=true
+    else
+      success "GatewayRelease created: ${RELEASE_ID}"
+    fi
   fi
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  info "Creating ManagedDatabase..."
-  MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-    "{\"name\":\"local-postgres\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"local\"}")
-  MD_HTTP=$(echo "${MD_RAW}" | tail -1)
-  MD_RESP=$(echo "${MD_RAW}" | sed '$d')
-  DATABASE_ID=$(extract_id "${MD_RESP}")
+  # Check for existing ManagedDatabase
+  info "Checking for existing local-postgres ManagedDatabase..."
+  EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
+  EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
+  EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
+
+  if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
+    DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"local-postgres"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${DATABASE_ID}" ]]; then
+      success "local-postgres ManagedDatabase already exists: ${DATABASE_ID}"
+    fi
+  fi
 
   if [[ -z "${DATABASE_ID}" ]]; then
-    warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
-    seed_failed=true
-  else
-    success "ManagedDatabase created: ${DATABASE_ID}"
+    info "Creating ManagedDatabase..."
+    MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
+      "{\"name\":\"local-postgres\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"local\"}")
+    MD_HTTP=$(echo "${MD_RAW}" | tail -1)
+    MD_RESP=$(echo "${MD_RAW}" | sed '$d')
+    DATABASE_ID=$(extract_id "${MD_RESP}")
+
+    if [[ -z "${DATABASE_ID}" ]]; then
+      warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
+      seed_failed=true
+    else
+      success "ManagedDatabase created: ${DATABASE_ID}"
+    fi
   fi
 fi
 
