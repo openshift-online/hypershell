@@ -91,7 +91,7 @@ data:
               "refId": "A"
             }
           ],
-          "title": "Running Sandboxes",
+          "title": "Running Gateways",
           "transparent": true,
           "type": "stat"
         },
@@ -108,7 +108,7 @@ data:
                 "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
-                "axisLabel": "Sandboxes",
+                "axisLabel": "Gateways",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
                 "drawStyle": "line",
@@ -153,7 +153,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Running Sandboxes"
+                  "options": "Running Gateways"
                 },
                 "properties": [
                   {
@@ -192,11 +192,11 @@ data:
               "exemplar": true,
               "expr": "sum(hypershell_gateways_running)",
               "interval": "",
-              "legendFormat": "Running Sandboxes",
+              "legendFormat": "Running Gateways",
               "refId": "A"
             }
           ],
-          "title": "Running Sandboxes Over Time",
+          "title": "Running Gateways Over Time",
           "transparent": true,
           "type": "timeseries"
         }
