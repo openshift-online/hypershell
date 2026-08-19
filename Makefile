@@ -83,6 +83,7 @@ help:
 	@echo "  Local Development (Kind)"
 	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
 	@echo ""
+	@echo "    kind-env                 Print environment variables for local setup"
 	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
@@ -336,6 +337,37 @@ kind-prereqs:
 	  rm -rf "$$tmpdir" && \
 	  printf '%s\n' "$$built" > bin/.cloud-provider-kind.sha && \
 	  echo "==> Done - binary in ./bin/cloud-provider-kind ($$built)"
+
+.PHONY: kind-env
+kind-env:
+	@echo "# Environment variables for local Kind cluster setup"
+	@echo "# Copy the export block below to run 'make kind-up' with these settings:"
+	@echo ""
+	@echo "export CONTAINER_ENGINE=$(CONTAINER_ENGINE)"
+	@echo "export KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME)"
+	@echo "export KIND_NAMESPACE=$(KIND_NAMESPACE)"
+	@echo "export KIND_HOT_RELOAD=$(KIND_HOT_RELOAD)"
+	@echo "export KIND_HOST_MOUNT_PATH=$(KIND_HOST_MOUNT_PATH)"
+	@echo "export KIND_KEYCLOAK_URL=$(KIND_KEYCLOAK_URL)"
+	@echo "export LOCAL_IMAGES=$(LOCAL_IMAGES)"
+	@echo "export KIND_PULL_SECRET=$(KIND_PULL_SECRET)"
+	@echo "export KIND_DB_IMAGE=$(KIND_DB_IMAGE)"
+	@echo "export GATEWAY_API_VERSION=$(GATEWAY_API_VERSION)"
+	@echo "export KIND_VERSION=$(KIND_VERSION)"
+	@echo "export CLOUD_PROVIDER_KIND_REPO=$(CLOUD_PROVIDER_KIND_REPO)"
+	@echo "export CLOUD_PROVIDER_KIND_REF=$(CLOUD_PROVIDER_KIND_REF)"
+	@echo "export CLOUD_PROVIDER_KIND_BRANCH=$(CLOUD_PROVIDER_KIND_BRANCH)"
+	@echo "export CERT_MANAGER_VERSION=$(CERT_MANAGER_VERSION)"
+	@echo "export AGENT_SANDBOX_VERSION=$(AGENT_SANDBOX_VERSION)"
+	@echo "export IMAGE_REGISTRY=$(IMAGE_REGISTRY)"
+	@echo "export IMAGE_TAG=$(IMAGE_TAG)"
+	@echo "export KIND_CONFIG=$(KIND_CONFIG)"
+	@echo "export API_HOSTNAME=$(API_HOSTNAME)"
+	@echo "export CONSOLE_HOSTNAME=$(CONSOLE_HOSTNAME)"
+	@echo "export HEALTH_HOSTNAME=$(HEALTH_HOSTNAME)"
+	@echo "export KEYCLOAK_HOSTNAME=$(KEYCLOAK_HOSTNAME)"
+	@echo "export KEYCLOAK_OIDC_ISSUER=$(KEYCLOAK_OIDC_ISSUER)"
+	@echo "export KIND_DNS_PORT=$(KIND_DNS_PORT)"
 
 .PHONY: kind-up
 kind-up:
