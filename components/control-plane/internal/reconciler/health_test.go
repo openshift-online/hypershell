@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	"google.golang.org/grpc"
 )
 
 // fakeExposure is a stub Gateway Exposure port for driving the health
@@ -148,5 +149,129 @@ func TestIsRoutedGateway(t *testing.T) {
 				t.Fatalf("isRoutedGateway(%v) = %v, want %v", c.route, got, c.want)
 			}
 		})
+	}
+}
+
+type fakeGatewayClient struct {
+	pb.GatewayServiceClient
+	listFn func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error)
+}
+
+func (f *fakeGatewayClient) ListGateways(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+	if f.listFn != nil {
+		return f.listFn(ctx, in, opts...)
+	}
+	return &pb.ListGatewaysResponse{}, nil
+}
+
+func TestListAllGateways_Pagination(t *testing.T) {
+	// 250 gateways distributed across 3 pages (100, 100, 50).
+	total := 250
+	allGWs := make([]*pb.Gateway, total)
+	for i := 0; i < total; i++ {
+		allGWs[i] = &pb.Gateway{
+			Metadata: &pb.ObjectReference{Id: strings.Repeat("a", 10) + string(rune(i))},
+			Name:     "gw-" + strings.Repeat("x", 5),
+		}
+	}
+
+	var requestedPages []int32
+	client := &fakeGatewayClient{
+		listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+			requestedPages = append(requestedPages, in.Page)
+			pageSize := int(in.Size)
+			start := (int(in.Page) - 1) * pageSize
+			if start >= total {
+				return &pb.ListGatewaysResponse{
+					Metadata: &pb.ListMeta{Page: in.Page, Size: in.Size, Total: int32(total)},
+				}, nil
+			}
+			end := start + pageSize
+			if end > total {
+				end = total
+			}
+			return &pb.ListGatewaysResponse{
+				Items:    allGWs[start:end],
+				Metadata: &pb.ListMeta{Page: in.Page, Size: in.Size, Total: int32(total)},
+			}, nil
+		},
+	}
+
+	h := &GatewayHealthReconciler{}
+	got, err := h.listAllGateways(context.Background(), client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(got) != total {
+		t.Fatalf("got %d gateways, want %d", len(got), total)
+	}
+
+	expectedPages := []int32{1, 2, 3}
+	if len(requestedPages) != len(expectedPages) {
+		t.Fatalf("got requested pages %v, want %v", requestedPages, expectedPages)
+	}
+	for i, p := range expectedPages {
+		if requestedPages[i] != p {
+			t.Errorf("page[%d] = %d, want %d", i, requestedPages[i], p)
+		}
+	}
+}
+
+func TestListAllGateways_SinglePage(t *testing.T) {
+	total := 5
+	items := make([]*pb.Gateway, total)
+	for i := 0; i < total; i++ {
+		items[i] = &pb.Gateway{
+			Metadata: &pb.ObjectReference{Id: "id"},
+		}
+	}
+
+	var callCount int
+	client := &fakeGatewayClient{
+		listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+			callCount++
+			return &pb.ListGatewaysResponse{
+				Items:    items,
+				Metadata: &pb.ListMeta{Page: 1, Size: in.Size, Total: int32(total)},
+			}, nil
+		},
+	}
+
+	h := &GatewayHealthReconciler{}
+	got, err := h.listAllGateways(context.Background(), client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != total {
+		t.Fatalf("got %d gateways, want %d", len(got), total)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 call, got %d", callCount)
+	}
+}
+
+func TestListAllGateways_Empty(t *testing.T) {
+	var callCount int
+	client := &fakeGatewayClient{
+		listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+			callCount++
+			return &pb.ListGatewaysResponse{
+				Items:    nil,
+				Metadata: &pb.ListMeta{Page: 1, Size: in.Size, Total: 0},
+			}, nil
+		},
+	}
+
+	h := &GatewayHealthReconciler{}
+	got, err := h.listAllGateways(context.Background(), client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %d gateways, want 0", len(got))
+	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 call, got %d", callCount)
 	}
 }
