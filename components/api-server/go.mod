@@ -8,9 +8,10 @@ require (
 	github.com/golang/glog v1.2.5
 	github.com/gorilla/mux v1.7.3
 	github.com/onsi/gomega v1.27.1
-	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260803221848-ee905fbd54a8
+	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260819203335-5798cb607fcb
 	github.com/segmentio/ksuid v1.0.2
 	github.com/spf13/pflag v1.0.5
+	github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2
 	github.com/yaacov/tree-search-language v0.0.0-20190923184055-1c2dad2e354b
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0
 	go.opentelemetry.io/otel v1.44.0
@@ -99,6 +100,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.33.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect

@@ -2,8 +2,8 @@
   {
     "kind": "go",
     "name": "github.com/openshift-online/rh-trex-ai",
-    "version": "v0.0.32-0.20260803221848-ee905fbd54a8",
-    "reason": "HyperShell requires the framework test account API introduced after the cooldown cutoff.",
+    "version": "v0.0.32-0.20260819203335-5798cb607fcb",
+    "reason": "HyperShell requires the framework GORM plugin registry (openshift-online/rh-trex-ai#51) that installs API server database query tracing, merged inside the cooldown window.",
     "compensatingVerification": "The dependency is commit-pinned; API server formatting, vet, and golangci-lint run against that exact commit."
   },
   {

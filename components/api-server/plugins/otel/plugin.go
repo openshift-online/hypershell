@@ -73,6 +73,11 @@ func init() {
 	pkgserver.RegisterPreAuthGRPCUnaryInterceptor(otelUnaryServerInterceptor())
 	pkgserver.RegisterPreAuthGRPCStreamInterceptor(otelStreamServerInterceptor())
 
+	// Database: register the GORM query-tracing plugin now that the global
+	// TracerProvider is installed (see db.go). The framework applies it once when
+	// the session factory opens its base connection.
+	registerDBTracing()
+
 	go awaitShutdown(shutdown)
 
 	glog.Infof("OpenTelemetry instrumentation enabled, exporting to %s", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))

@@ -231,8 +231,8 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
-github.com/openshift-online/rh-trex-ai v0.0.32-0.20260803221848-ee905fbd54a8 h1:1DUgGIycZc1+JSZDbft/KRIj7ypoq+/XfgE9VO+iorY=
-github.com/openshift-online/rh-trex-ai v0.0.32-0.20260803221848-ee905fbd54a8/go.mod h1:bg13aORX6znydbb1wOtClX2MZBy7iUzc0+j4bd0rGiU=
+github.com/openshift-online/rh-trex-ai v0.0.32-0.20260819203335-5798cb607fcb h1:UpFcCR6NSPkuLp/RrIdUCLb1kuYU6X9XxWmF32WKORU=
+github.com/openshift-online/rh-trex-ai v0.0.32-0.20260819203335-5798cb607fcb/go.mod h1:bg13aORX6znydbb1wOtClX2MZBy7iUzc0+j4bd0rGiU=
 github.com/openzipkin/zipkin-go v0.1.6/go.mod h1:QgAqvLzwWbR/WpD4A3cGpPtJrZXNIiJc5AZX7/PBEpw=
 github.com/pelletier/go-toml v1.2.0/go.mod h1:5z9KED0ma1S8pY6P1sdut58dfprrGBbd/94hg7ilaic=
 github.com/pierrec/lz4 v2.0.5+incompatible/go.mod h1:pdkljMzZIN41W+lC3N2tnIh5sFi+IEE17M5jbnwPHcY=
@@ -306,6 +306,10 @@ github.com/tklauser/go-sysconf v0.3.12/go.mod h1:Ho14jnntGE1fpdOqQEEaiKRpvIavV0h
 github.com/tklauser/numcpus v0.6.1 h1:ng9scYS7az0Bk4OZLvrNXNSAO2Pxr1XXRAPyjhIx+Fk=
 github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9fESEdAacY=
 github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8/go.mod h1:VFNgLljTbGfSG7qAOspJ7OScBnGdDN/yBr0sguwnwf0=
+github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2 h1:Jjn3zoRz13f8b1bR6LrXWglx93Sbh4kYfwgmPju3E2k=
+github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2/go.mod h1:wocb5pNrj/sjhWB9J5jctnC0K2eisSdz/nJJBNFHo+A=
+github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2 h1:ZjUj9BLYf9PEqBn8W/OapxhPjVRdC6CsXTdULHsyk5c=
+github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2/go.mod h1:O8bHQfyinKwTXKkiKNGmLQS7vRsqRxIQTFZpYpHK3IQ=
 github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c/go.mod h1:lB8K/P019DLNhemzwFU4jHLhdvlE6uDZjXFejJXr49I=
 github.com/xdg/stringprep v1.0.0/go.mod h1:Jhud4/sHMO4oL310DaZAKk9ZaJ08SJfe+sJh0HrGL1Y=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
