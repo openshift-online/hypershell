@@ -167,3 +167,28 @@ Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
 | `GATEWAY_MANIFESTS_DIR` | `/manifests/gateway` | Path to gateway manifest templates |
+
+## Observability
+
+### Prometheus metrics
+
+The API server exposes Prometheus metrics on its metrics port (default `:8080/metrics`).
+
+| Metric | Type | Description |
+|---|---|---|
+| `hypershell_gateways_running` | Gauge | Current number of running gateways. Queried live from the database on each scrape. |
+
+### Grafana dashboard
+
+A pre-built Grafana dashboard is provided at `dashboards/hypershell-dashboard.yml`. It is packaged as a Kubernetes ConfigMap with the `grafana_dashboard: "true"` label so it is picked up automatically by the Grafana sidecar.
+
+The dashboard includes:
+
+- **Running Gateways** — stat panel showing the current gateway count
+- **Running Gateways Over Time** — timeseries graph of gateway count over the selected time range
+
+To deploy the dashboard, apply the ConfigMap to the namespace where Grafana is running:
+
+```shell
+kubectl apply -f dashboards/hypershell-dashboard.yml
+```
