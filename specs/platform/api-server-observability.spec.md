@@ -1,7 +1,7 @@
 # API Server Observability
 
 **Status:** Active
-**Applies to:** `components/api-server` HTTP and gRPC servers, the OTel bootstrap and instrumentation it registers, and the local development observability workflow
+**Applies to:** `components/api-server` HTTP and gRPC servers, its database access layer, the OTel bootstrap and instrumentation it registers, and the local development observability workflow
 **Jira:** HYPERSHELL-26
 
 ## Purpose
@@ -189,6 +189,39 @@ When local development tracing is enabled (`KIND_JAEGER=true`), the API server D
 - THEN the API server Deployment SHALL NOT be given a collector endpoint
 - AND the API server SHALL run without OTel instrumentation
 
+### Requirement: API-OBS-08 -- Database Client Spans
+
+The API server SHALL instrument its database access layer so that every query issued while handling a request produces a client span nested under that request's server span, joining one trace from the HTTP or gRPC entry point down to the database. Like the HTTP and gRPC instrumentation, this SHALL be applied once as a cross-cutting concern, not per data-access object: the instrumentation SHALL be installed on the base database connection so every plugin's queries are traced without per-plugin changes. Because the request context already flows into each database session, a database span SHALL be a child of the active request span and SHALL inherit the parent-based sampling decision of `API-OBS-01`, so an unsampled request produces no database spans and a disabled SDK produces none.
+
+Database client spans SHALL follow the OpenTelemetry semantic conventions for database clients and SHALL record at least the database system and the target table. The span name SHALL be bounded by the operation, and SHALL NOT contain raw SQL text, a resource identifier, or any other high-cardinality value, per `API-OBS-06`. When a span records the statement, it SHALL record the parameterized statement only; bound parameter values SHALL NOT be captured, and no credential, secret, connection string, or personal data SHALL appear in any database span attribute, per `API-OBS-06` and `standards/security/security.spec.md`. Instrumentation SHALL be opt-in on the same collector-endpoint presence as the rest of the SDK, and one-off schema migrations MAY be left uninstrumented.
+
+Database instrumentation MAY additionally export database client metrics over OTLP. When it does, metric attributes SHALL be bounded to the operation and table and SHALL NOT carry raw SQL or identifiers, and the metrics SHALL complement, and SHALL NOT replace, the framework's existing Prometheus database metrics.
+
+**Verification:** Drive a representative request that reads and writes the database with tracing enabled; confirm each query yields a client span that is a child of the request span, that the spans share one trace identifier, that span names are bounded by operation with no raw SQL or identifier, and that no bound value, credential, or secret appears in any database span attribute. Issue the same request with tracing disabled and confirm no database spans are produced.
+
+#### Scenario: Query during a request produces a nested database span
+
+- GIVEN the OTel SDK is initialized
+- AND a client sends a request that reads from the database
+- WHEN the API server handles the request
+- THEN each database query SHALL produce a client span that is a child of the request server span
+- AND the database span, the request span, and any propagated upstream spans SHALL share one trace identifier
+- AND the database span name SHALL be bounded by the operation and SHALL NOT contain raw SQL or a resource identifier
+
+#### Scenario: Database span excludes bound values and secrets
+
+- GIVEN the OTel SDK is initialized
+- WHEN the API server issues a query whose parameters include a resource identifier
+- THEN no database span attribute SHALL contain a bound parameter value, a database credential, or a connection string
+- AND a recorded statement SHALL be the parameterized statement without interpolated values
+
+#### Scenario: No database spans when telemetry is disabled
+
+- GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set
+- WHEN the API server handles a request that queries the database
+- THEN no database client span SHALL be created
+- AND the database access layer SHALL operate with no observability overhead
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -202,6 +235,9 @@ When local development tracing is enabled (`KIND_JAEGER=true`), the API server D
 | OTLP/gRPC on 4317 for the API server | The development Jaeger reserves 4317 (OTLP/gRPC) for the API server and 4318 (OTLP/HTTP) for the web console; exporting over gRPC matches that contract |
 | Correlate the existing operation identifier onto the span | The framework already returns `operation_id`; recording it on the span joins a user-visible failure to server evidence without new caller-facing surface |
 | OTLP export for traces, Prometheus preserved for metrics | Traces require push-based export over OTLP; the existing framework Prometheus metrics are kept as-is |
+| Database spans via a GORM plugin on the base connection, not per data-access object | A GORM plugin installs callbacks once on the base connection, so every plugin's queries are traced without per-plugin changes and callbacks are never duplicated per request; this mirrors the server-level HTTP and gRPC instrumentation |
+| Database instrumentation registered through a framework plugin registry | The base connection is owned by the rh-trex-ai `SessionFactory`; a registry (mirroring the framework's pre-auth middleware and interceptor registries) lets the API server opt into query tracing without coupling every framework consumer to the tracing dependency |
+| Operation-and-table span names, parameterized statement as an attribute | Keeps span-name cardinality bounded like the HTTP route templates while still allowing per-trace query detail; bound values and secrets are excluded per API-OBS-06 |
 
 ## Primary Basis
 
