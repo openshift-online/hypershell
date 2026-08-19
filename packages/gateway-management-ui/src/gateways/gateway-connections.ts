@@ -72,6 +72,9 @@ export function buildGatewayAddCommand(
  */
 export const vertexProviderName = "my-gcp";
 
+export const installDocsUrl =
+  "https://docs.nvidia.com/openshell/about/installation";
+
 /** Default sandbox name shown in the copyable create-sandbox command. */
 export const sandboxName = "mysand";
 

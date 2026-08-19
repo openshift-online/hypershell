@@ -153,6 +153,10 @@
   outline-offset: 2px;
 }
 
+.prereqAlert {
+  margin-block: var(--pf-t--global--spacer--sm);
+}
+
 .commandPending {
   background-color: var(--pf-t--global--background--color--primary--default);
   border: var(--pf-t--global--border--width--box--default) solid

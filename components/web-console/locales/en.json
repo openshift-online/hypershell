@@ -127,6 +127,18 @@
     "defaultMessage": "Sandbox name (editable)",
     "description": "Accessible label for the inline-editable sandbox name in the create-sandbox command."
   },
+  "app.gateway.connection.installLink": {
+    "defaultMessage": "Install the OpenShell CLI",
+    "description": "Link text pointing to the NVIDIA OpenShell installation documentation."
+  },
+  "app.gateway.connection.installPrereq": {
+    "defaultMessage": "The OpenShell CLI must be installed before running the commands below.",
+    "description": "Prerequisite note shown above the connection steps directing operators to install the CLI first."
+  },
+  "app.gateway.connection.installPrereqTitle": {
+    "defaultMessage": "Prerequisite",
+    "description": "Title for the CLI installation prerequisite alert."
+  },
   "app.gateway.connection.login.unavailable": {
     "defaultMessage": "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     "description": "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase."
