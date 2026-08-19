@@ -2,229 +2,176 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	ir "github.com/openshift-online/hypershell/scripts/openapi-ir"
 )
 
-type openAPIDoc struct {
-	Info struct {
-		Title string `yaml:"title"`
-	} `yaml:"info"`
-	Paths      map[string]interface{} `yaml:"paths"`
-	Components struct {
-		Schemas map[string]interface{} `yaml:"schemas"`
-	} `yaml:"components"`
-}
-
-type subSpecDoc struct {
-	Paths      map[string]interface{} `yaml:"paths"`
-	Components struct {
-		Schemas map[string]interface{} `yaml:"schemas"`
-	} `yaml:"components"`
-}
-
 func parseSpec(specPath, apiPrefix string) (*Spec, error) {
-	mainData, err := os.ReadFile(specPath)
+	document, err := ir.Load(specPath, ir.LoadOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("read spec: %w", err)
+		return nil, fmt.Errorf("load canonical OpenAPI IR: %w", err)
+	}
+	if err := document.ValidateProjectionNames(); err != nil {
+		return nil, fmt.Errorf("validate SDK projection: %w", err)
 	}
 
-	var mainDoc openAPIDoc
-	if err := yaml.Unmarshal(mainData, &mainDoc); err != nil {
-		return nil, fmt.Errorf("parse main spec: %w", err)
-	}
-
-	specDir := filepath.Dir(specPath)
-
-	resourceSpecs, err := discoverResources(specDir, &mainDoc, apiPrefix)
-	if err != nil {
-		return nil, fmt.Errorf("discover resources: %w", err)
-	}
-
-	var resources []Resource
-	for name, info := range resourceSpecs {
-		resource, err := extractResource(name, info.pathSegment, info.doc)
-		if err != nil {
-			return nil, fmt.Errorf("extract resource %s: %w", name, err)
+	resourceViews := primaryCollectionViews(document, apiPrefix)
+	resources := make([]Resource, 0, len(resourceViews))
+	for _, view := range resourceViews {
+		schema := document.Schema(view.SchemaRef)
+		if schema == nil || schema.Name == "" {
+			continue
 		}
-		resources = append(resources, *resource)
+		if schema.Name == "ObjectReference" {
+			continue
+		}
+		resource, err := projectResource(document, schema, view)
+		if err != nil {
+			return nil, fmt.Errorf("project resource %s: %w", schema.Name, err)
+		}
+		resources = append(resources, resource)
 	}
-
-	sort.Slice(resources, func(i, j int) bool {
-		return resources[i].Name < resources[j].Name
-	})
-
+	sort.Slice(resources, func(i, j int) bool { return resources[i].Name < resources[j].Name })
 	return &Spec{Resources: resources, APIPrefix: apiPrefix}, nil
 }
 
-type resourceInfo struct {
-	pathSegment string
-	doc         *subSpecDoc
-}
+func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.ResourceView) (Resource, error) {
+	fields, required := projectFields(document, schema.Ref, true)
+	patchFields, _ := projectFieldsByName(document, schema.Name+"PatchRequest", false)
+	statusPatchFields, _ := projectFieldsByName(document, schema.Name+"StatusPatchRequest", false)
 
-func discoverResources(specDir string, mainDoc *openAPIDoc, apiPrefix string) (map[string]resourceInfo, error) {
-	discovered := make(map[string]resourceInfo)
-	loadedFiles := make(map[string]*subSpecDoc)
-
-	for schemaName, schemaVal := range mainDoc.Components.Schemas {
-		if strings.HasSuffix(schemaName, "List") || strings.HasSuffix(schemaName, "PatchRequest") ||
-			strings.HasSuffix(schemaName, "StatusPatchRequest") {
+	resource := Resource{
+		Name: schema.Name, Plural: resourcePlural(schema.Name), PathSegment: lastLiteralSegment(collection.Path),
+		Fields: fields, RequiredFields: required, PatchFields: patchFields,
+		StatusPatchFields: statusPatchFields, HasStatusPatch: len(statusPatchFields) > 0,
+	}
+	for _, view := range document.ResourceViews {
+		if view.SchemaRef != schema.Ref {
 			continue
 		}
-
-		if schemaName == "ObjectReference" || schemaName == "List" || schemaName == "Error" {
+		resource.HasDelete = resource.HasDelete || view.Capabilities.Has(ir.CapabilityDelete)
+		resource.HasPatch = resource.HasPatch || view.Capabilities.Has(ir.CapabilityUpdate)
+	}
+	for _, operation := range document.Operations {
+		if !operation.Capabilities.Has(ir.CapabilityAction) || !strings.Contains(operation.Path, "/"+resource.PathSegment+"/") {
 			continue
 		}
-
-		refMap, ok := schemaVal.(map[string]interface{})
-		if !ok {
-			continue
+		action := lastLiteralSegment(operation.Path)
+		if colon := strings.LastIndex(action, ":"); colon >= 0 {
+			action = action[colon+1:]
 		}
-
-		refStr, ok := refMap["$ref"].(string)
-		if !ok {
-			continue
-		}
-
-		parts := strings.SplitN(refStr, "#", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		subFile := parts[0]
-		subPath := filepath.Join(specDir, subFile)
-
-		subDoc, loaded := loadedFiles[subFile]
-		if !loaded {
-			data, err := os.ReadFile(subPath)
-			if err != nil {
-				return nil, fmt.Errorf("read sub-spec %s: %w", subFile, err)
-			}
-			subDoc = &subSpecDoc{}
-			if err := yaml.Unmarshal(data, subDoc); err != nil {
-				return nil, fmt.Errorf("parse sub-spec %s: %w", subFile, err)
-			}
-			loadedFiles[subFile] = subDoc
-		}
-
-		pathSegment := inferPathSegment(mainDoc.Paths, apiPrefix, schemaName)
-		if pathSegment == "" {
-			pathSegment = toSnakeCase(schemaName) + "s"
-		}
-
-		discovered[schemaName] = resourceInfo{
-			pathSegment: pathSegment,
-			doc:         subDoc,
+		if action != "" && action != "status" {
+			resource.Actions = append(resource.Actions, action)
 		}
 	}
-
-	return discovered, nil
+	sort.Strings(resource.Actions)
+	return resource, nil
 }
 
-func inferPathSegment(paths map[string]interface{}, apiPrefix, resourceName string) string {
-	for pathKey := range paths {
-		if !strings.HasPrefix(pathKey, apiPrefix+"/") {
+func projectFieldsByName(document *ir.Document, name string, includeReadOnly bool) ([]Field, []string) {
+	for _, schema := range document.Schemas {
+		if schema.Name == name {
+			return projectFields(document, schema.Ref, includeReadOnly)
+		}
+	}
+	return nil, nil
+}
+
+func projectFields(document *ir.Document, schemaRef string, includeReadOnly bool) ([]Field, []string) {
+	properties := document.EffectiveProperties(schemaRef)
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var fields []Field
+	var required []string
+	for _, name := range names {
+		property := properties[name]
+		if isObjectReferenceField(name) || (!includeReadOnly && property.ReadOnly) {
 			continue
 		}
-
-		remainder := strings.TrimPrefix(pathKey, apiPrefix+"/")
-		segments := strings.Split(remainder, "/")
-		if len(segments) >= 1 {
-			segment := segments[0]
-			segmentPascal := toPascalCase(segment)
-			if segmentPascal == resourceName || segmentPascal == resourceName+"s" {
-				return segment
-			}
+		propertySchema := document.Schema(property.Schema.Ref)
+		openAPIType, format := schemaType(propertySchema)
+		field := Field{
+			Name: name, GoName: toGoName(name), PythonName: name, TSName: toCamelCase(name),
+			Type: openAPIType, Format: format,
+			GoType: toGoType(openAPIType, format), PythonType: toPythonType(openAPIType, format), TSType: toTSType(openAPIType, format),
+			Required: property.Required, ReadOnly: property.ReadOnly, JSONTag: jsonTag(name, property.Required),
+		}
+		if !includeReadOnly {
+			field.Required = false
+			field.JSONTag = jsonTag(name, false)
+		}
+		fields = append(fields, field)
+		if property.Required {
+			required = append(required, name)
 		}
 	}
-	return ""
+	return fields, required
 }
 
-func toPascalCase(s string) string {
-	if len(s) == 0 {
-		return s
+func primaryCollectionViews(document *ir.Document, apiPrefix string) []*ir.ResourceView {
+	bySchema := make(map[string]*ir.ResourceView)
+	for _, view := range document.ResourceViews {
+		if view.Kind != ir.ResourceCollection || !view.Capabilities.Has(ir.CapabilityList) {
+			continue
+		}
+		remainder := strings.TrimPrefix(view.Path, strings.TrimSuffix(apiPrefix, "/")+"/")
+		if remainder == view.Path || remainder == "" || strings.Contains(remainder, "/") {
+			continue
+		}
+		if current := bySchema[view.SchemaRef]; current == nil || view.Path < current.Path {
+			bySchema[view.SchemaRef] = view
+		}
 	}
-	parts := strings.FieldsFunc(s, func(r rune) bool {
-		return r == '_' || r == '-'
+	result := make([]*ir.ResourceView, 0, len(bySchema))
+	for _, view := range bySchema {
+		result = append(result, view)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left, right := document.Schema(result[i].SchemaRef), document.Schema(result[j].SchemaRef)
+		return left.Name < right.Name
 	})
-	var result strings.Builder
-	for _, part := range parts {
-		if len(part) > 0 {
-			if upper, ok := commonAcronyms[strings.ToUpper(part)]; ok {
-				result.WriteString(upper)
-			} else {
-				result.WriteString(strings.ToUpper(string(part[0])) + part[1:])
-			}
-		}
-	}
-	return result.String()
+	return result
 }
 
-func extractResource(name, pathSegment string, doc *subSpecDoc) (*Resource, error) {
-	schema, ok := doc.Components.Schemas[name]
-	if !ok {
-		return nil, fmt.Errorf("schema %s not found", name)
+func schemaType(schema *ir.Schema) (string, string) {
+	if schema == nil {
+		return "", ""
 	}
-
-	schemaMap, ok := schema.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("schema %s is not a map", name)
+	typeName := ""
+	if len(schema.Types) > 0 {
+		typeName = schema.Types[0]
 	}
+	return typeName, schema.Format
+}
 
-	fields, requiredFields, err := extractFields(schemaMap)
+func lastLiteralSegment(path string) string {
+	path = strings.TrimSuffix(path, "/")
+	if index := strings.LastIndexByte(path, '/'); index >= 0 {
+		path = path[index+1:]
+	}
+	return strings.Trim(path, "{}")
+}
+
+func inferAPIPrefixFromIR(specPath string) string {
+	document, err := ir.Load(specPath, ir.LoadOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("extract fields for %s: %w", name, err)
+		return "/api/v1"
 	}
-
-	patchName := name + "PatchRequest"
-	patchSchema, ok := doc.Components.Schemas[patchName]
-	var patchFields []Field
-	if ok {
-		patchMap, ok := patchSchema.(map[string]interface{})
-		if ok {
-			patchFields, _, err = extractPatchFields(patchMap)
-			if err != nil {
-				return nil, fmt.Errorf("extract patch fields for %s: %w", name, err)
+	for _, operation := range document.Operations {
+		if strings.HasPrefix(operation.Path, "/api/") {
+			parts := strings.Split(operation.Path, "/")
+			if len(parts) >= 4 {
+				return "/" + parts[1] + "/" + parts[2] + "/" + parts[3]
 			}
 		}
 	}
-
-	statusPatchName := name + "StatusPatchRequest"
-	statusPatchSchema, ok := doc.Components.Schemas[statusPatchName]
-	var statusPatchFields []Field
-	hasStatusPatch := false
-	if ok {
-		statusPatchMap, ok := statusPatchSchema.(map[string]interface{})
-		if ok {
-			statusPatchFields, _, err = extractPatchFields(statusPatchMap)
-			if err != nil {
-				return nil, fmt.Errorf("extract status patch fields for %s: %w", name, err)
-			}
-			hasStatusPatch = len(statusPatchFields) > 0
-		}
-	}
-
-	hasDelete := checkHasOperation(doc.Paths, pathSegment, "delete")
-	hasPatch := checkHasOperation(doc.Paths, pathSegment, "patch")
-	actions := detectActions(doc.Paths, pathSegment)
-
-	return &Resource{
-		Name:              name,
-		Plural:            resourcePlural(name),
-		PathSegment:       pathSegment,
-		Fields:            fields,
-		RequiredFields:    requiredFields,
-		PatchFields:       patchFields,
-		StatusPatchFields: statusPatchFields,
-		HasDelete:         hasDelete,
-		HasPatch:          hasPatch,
-		HasStatusPatch:    hasStatusPatch,
-		Actions:           actions,
-	}, nil
+	return "/api/v1"
 }
 
 func resourcePlural(name string) string {
@@ -245,269 +192,8 @@ func resourcePlural(name string) string {
 	return name + "s"
 }
 
-func extractFields(schemaMap map[string]interface{}) ([]Field, []string, error) {
-	allOf, ok := schemaMap["allOf"]
-	if !ok {
-		return extractDirectFields(schemaMap)
-	}
-
-	allOfList, ok := allOf.([]interface{})
-	if !ok {
-		return nil, nil, fmt.Errorf("allOf is not a list")
-	}
-
-	var fields []Field
-	var requiredFields []string
-
-	for _, item := range allOfList {
-		itemMap, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		if _, hasRef := itemMap["$ref"]; hasRef {
-			continue
-		}
-
-		if req, ok := itemMap["required"]; ok {
-			if reqList, ok := req.([]interface{}); ok {
-				for _, r := range reqList {
-					if s, ok := r.(string); ok {
-						requiredFields = append(requiredFields, s)
-					}
-				}
-			}
-		}
-
-		props, ok := itemMap["properties"]
-		if !ok {
-			continue
-		}
-
-		propsMap, ok := props.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		for propName, propVal := range propsMap {
-			if isObjectReferenceField(propName) {
-				continue
-			}
-
-			propMap, ok := propVal.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			propType, _ := propMap["type"].(string)
-			propFormat, _ := propMap["format"].(string)
-			readOnly, _ := propMap["readOnly"].(bool)
-
-			isRequired := false
-			for _, r := range requiredFields {
-				if r == propName {
-					isRequired = true
-					break
-				}
-			}
-
-			f := Field{
-				Name:       propName,
-				GoName:     toGoName(propName),
-				PythonName: propName,
-				TSName:     toCamelCase(propName),
-				Type:       propType,
-				Format:     propFormat,
-				GoType:     toGoType(propType, propFormat),
-				PythonType: toPythonType(propType, propFormat),
-				TSType:     toTSType(propType, propFormat),
-				Required:   isRequired,
-				ReadOnly:   readOnly,
-				JSONTag:    jsonTag(propName, isRequired),
-			}
-
-			fields = append(fields, f)
-		}
-	}
-
-	sort.Slice(fields, func(i, j int) bool {
-		return fields[i].Name < fields[j].Name
-	})
-
-	return fields, requiredFields, nil
-}
-
-func extractDirectFields(schemaMap map[string]interface{}) ([]Field, []string, error) {
-	props, ok := schemaMap["properties"]
-	if !ok {
-		return nil, nil, nil
-	}
-
-	propsMap, ok := props.(map[string]interface{})
-	if !ok {
-		return nil, nil, nil
-	}
-
-	var requiredFields []string
-	if req, ok := schemaMap["required"]; ok {
-		if reqList, ok := req.([]interface{}); ok {
-			for _, r := range reqList {
-				if s, ok := r.(string); ok {
-					requiredFields = append(requiredFields, s)
-				}
-			}
-		}
-	}
-
-	var fields []Field
-	for propName, propVal := range propsMap {
-		if isObjectReferenceField(propName) {
-			continue
-		}
-
-		propMap, ok := propVal.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		propType, _ := propMap["type"].(string)
-		propFormat, _ := propMap["format"].(string)
-		readOnly, _ := propMap["readOnly"].(bool)
-
-		isRequired := false
-		for _, r := range requiredFields {
-			if r == propName {
-				isRequired = true
-				break
-			}
-		}
-
-		f := Field{
-			Name:       propName,
-			GoName:     toGoName(propName),
-			PythonName: propName,
-			TSName:     toCamelCase(propName),
-			Type:       propType,
-			Format:     propFormat,
-			GoType:     toGoType(propType, propFormat),
-			PythonType: toPythonType(propType, propFormat),
-			TSType:     toTSType(propType, propFormat),
-			Required:   isRequired,
-			ReadOnly:   readOnly,
-			JSONTag:    jsonTag(propName, isRequired),
-		}
-
-		fields = append(fields, f)
-	}
-
-	sort.Slice(fields, func(i, j int) bool {
-		return fields[i].Name < fields[j].Name
-	})
-
-	return fields, requiredFields, nil
-}
-
-func extractPatchFields(schemaMap map[string]interface{}) ([]Field, []string, error) {
-	props, ok := schemaMap["properties"]
-	if !ok {
-		return nil, nil, nil
-	}
-
-	propsMap, ok := props.(map[string]interface{})
-	if !ok {
-		return nil, nil, nil
-	}
-
-	var fields []Field
-	for propName, propVal := range propsMap {
-		propMap, ok := propVal.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		propType, _ := propMap["type"].(string)
-		propFormat, _ := propMap["format"].(string)
-
-		f := Field{
-			Name:       propName,
-			GoName:     toGoName(propName),
-			PythonName: propName,
-			TSName:     toCamelCase(propName),
-			Type:       propType,
-			Format:     propFormat,
-			GoType:     toGoType(propType, propFormat),
-			PythonType: toPythonType(propType, propFormat),
-			TSType:     toTSType(propType, propFormat),
-			Required:   false,
-			JSONTag:    jsonTag(propName, false),
-		}
-
-		fields = append(fields, f)
-	}
-
-	sort.Slice(fields, func(i, j int) bool {
-		return fields[i].Name < fields[j].Name
-	})
-
-	return fields, nil, nil
-}
-
-func checkHasOperation(paths map[string]interface{}, pathSegment, operation string) bool {
-	for pathKey, pathVal := range paths {
-		if !strings.Contains(pathKey, "/"+pathSegment+"/{id}") {
-			continue
-		}
-		segments := strings.Split(pathKey, "/")
-		if len(segments) > 0 && segments[len(segments)-1] != "{id}" {
-			continue
-		}
-
-		pathMap, ok := pathVal.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		if _, has := pathMap[operation]; has {
-			return true
-		}
-	}
-	return false
-}
-
-func detectActions(paths map[string]interface{}, pathSegment string) []string {
-	var found []string
-	for pathKey, pathVal := range paths {
-		if !strings.Contains(pathKey, "/"+pathSegment+"/{id}/") {
-			continue
-		}
-
-		segments := strings.Split(pathKey, "/")
-		if len(segments) < 2 {
-			continue
-		}
-		lastSegment := segments[len(segments)-1]
-		if lastSegment == "{id}" || lastSegment == "status" {
-			continue
-		}
-
-		pathMap, ok := pathVal.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if _, hasPost := pathMap["post"]; hasPost {
-			found = append(found, lastSegment)
-		}
-	}
-	sort.Strings(found)
-	return found
-}
-
 var objectReferenceFields = map[string]bool{
-	"id":         true,
-	"kind":       true,
-	"href":       true,
-	"created_at": true,
-	"updated_at": true,
+	"id": true, "kind": true, "href": true, "created_at": true, "updated_at": true,
 }
 
 func isObjectReferenceField(name string) bool {

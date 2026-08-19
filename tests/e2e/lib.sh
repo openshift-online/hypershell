@@ -18,6 +18,14 @@ if [[ -z "${NO_COLOR:-}" ]] && [[ -t 1 ]]; then
   _NC='\033[0m'
 else
   _BOLD='' _GREEN='' _RED='' _DIM='' _CYAN='' _ORANGE='' _NC=''
+  # Non-interactive (CI, piped, or NO_COLOR set): force child CLIs into plain
+  # mode too. In particular the openshell CLI renders diagnostics with a
+  # miette-style graphical handler that, off a TTY, assumes an 80-column width
+  # and wraps long errors with a box-drawing gutter (e.g. "... the specified │
+  # operation"). Exporting NO_COLOR and TERM=dumb makes those renderers emit
+  # flat, single-stream text so captured logs stay clean and greppable.
+  export NO_COLOR=1
+  export TERM=dumb
 fi
 
 bold()   { printf "${_BOLD}%s${_NC}\n" "$*"; }
@@ -91,8 +99,16 @@ retry_until() {
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"
 : "${E2E_KEYCLOAK_NAMESPACE:=keycloak}"
-: "${E2E_OIDC_ISSUER:=http://keycloak.hypershell.localhost:8080/realms/hypershell}"
-: "${E2E_OIDC_ISSUER_INTERNAL:=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell}"
+: "${E2E_OIDC_ISSUER:=https://keycloak.hypershell.localhost/realms/hypershell}"
 : "${E2E_OIDC_CLIENT_ID:=hypershell-frontend}"
 : "${E2E_OIDC_USERNAME:=admin}"
 : "${E2E_OIDC_PASSWORD:=admin}"
+: "${E2E_DEV_USERNAME:=developer}"
+: "${E2E_DEV_PASSWORD:=developer}"
+: "${E2E_PLATFORM_ADMIN_USERNAME:=platform-admin}"
+: "${E2E_PLATFORM_ADMIN_PASSWORD:=platform-admin}"
+# Keycloak admin credentials for test-setup helpers that provision per-gateway
+# client role grants (e.g. granting the developer openshell-user on the gateway's
+# own Keycloak client, mirroring what the RoleBinding reconciler does in prod).
+: "${E2E_KC_ADMIN_USER:=admin}"
+: "${E2E_KC_ADMIN_PASSWORD:=admin}"

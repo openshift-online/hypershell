@@ -1,0 +1,47 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	"{{.Module}}/cmd/{{.Binary}}/completion"
+	"{{.Module}}/cmd/{{.Binary}}/config"
+	"{{.Module}}/cmd/{{.Binary}}/create"
+	"{{.Module}}/cmd/{{.Binary}}/get"
+	"{{.Module}}/cmd/{{.Binary}}/list"
+	"{{.Module}}/cmd/{{.Binary}}/login"
+	"{{.Module}}/cmd/{{.Binary}}/logout"
+	"{{.Module}}/cmd/{{.Binary}}/version"
+)
+
+var root = &cobra.Command{
+	Use:           "{{.Binary}}",
+	Short:         "{{.Project}} CLI",
+	Long:          "Command line tool for the {{.Project}} API server.",
+	SilenceUsage:  true,
+	SilenceErrors: true,
+}
+
+func init() {
+	root.AddCommand(completion.Cmd)
+	root.AddCommand(config.Cmd)
+	root.AddCommand(create.Cmd)
+	root.AddCommand(get.Cmd)
+	root.AddCommand(list.Cmd)
+	root.AddCommand(login.Cmd)
+	root.AddCommand(logout.Cmd)
+	root.AddCommand(version.Cmd)
+}
+
+func main() {
+	root.SetArgs(os.Args[1:])
+	err := root.Execute()
+	if err == nil {
+		os.Exit(0)
+	}
+
+	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+	os.Exit(1)
+}

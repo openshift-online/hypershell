@@ -28,6 +28,13 @@ class ForbiddenTermsTest(unittest.TestCase):
             ),
         )
 
+    def test_excludes_generated_lockfile(self):
+        self.assertFalse(CHECKER._scannable("pnpm-lock.yaml"))
+        self.assertTrue(CHECKER._scannable("components/api-server/main.go"))
+
+    def test_excludes_the_whitelist_itself(self):
+        self.assertFalse(CHECKER._scannable(CHECKER.WHITELIST_PATH.name))
+
 
 if __name__ == "__main__":
     unittest.main()

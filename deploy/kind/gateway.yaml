@@ -28,12 +28,8 @@ spec:
           - name: hypershell-gw-tls
             kind: Secret
       allowedRoutes:
-        namespaces:
-          from: All
-    - name: http-keycloak
-      hostname: "keycloak.hypershell.localhost"
-      port: 8080
-      protocol: HTTP
-      allowedRoutes:
+        kinds:
+          - group: gateway.networking.k8s.io
+            kind: GRPCRoute
         namespaces:
           from: All

@@ -48,13 +48,11 @@ func (b *{{$.Resource.Name}}Builder) {{.GoName}}(v {{.GoType}}) *{{$.Resource.Na
 
 func (b *{{.Resource.Name}}Builder) Build() (*{{.Resource.Name}}, error) {
 {{- range .Resource.Fields}}
-	{{- if isWritable .}}
 	{{- if .Required}}
 	{{- if eq .GoType "string"}}
 	if b.resource.{{.GoName}} == "" {
 		b.errors = append(b.errors, fmt.Errorf("{{.Name}} is required"))
 	}
-	{{- end}}
 	{{- end}}
 	{{- end}}
 {{- end}}

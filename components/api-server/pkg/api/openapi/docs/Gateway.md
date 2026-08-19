@@ -27,6 +27,7 @@ Name | Type | Description | Notes
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
+**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
 
 ## Methods
 
@@ -591,6 +592,31 @@ SetDatabaseConfig sets DatabaseConfig field to given value.
 `func (o *Gateway) HasDatabaseConfig() bool`
 
 HasDatabaseConfig returns a boolean if a field has been set.
+
+### GetCredentialDriver
+
+`func (o *Gateway) GetCredentialDriver() string`
+
+GetCredentialDriver returns the CredentialDriver field if non-nil, zero value otherwise.
+
+### GetCredentialDriverOk
+
+`func (o *Gateway) GetCredentialDriverOk() (*string, bool)`
+
+GetCredentialDriverOk returns a tuple with the CredentialDriver field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCredentialDriver
+
+`func (o *Gateway) SetCredentialDriver(v string)`
+
+SetCredentialDriver sets CredentialDriver field to given value.
+
+### HasCredentialDriver
+
+`func (o *Gateway) HasCredentialDriver() bool`
+
+HasCredentialDriver returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

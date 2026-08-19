@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       api_server: ${{ steps.detect.outputs.api_server }}
+      cli: ${{ steps.detect.outputs.cli }}
       control_plane: ${{ steps.detect.outputs.control_plane }}
       gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
       pr_test: ${{ steps.detect.outputs.pr_test }}
@@ -78,6 +79,40 @@ jobs:
           version: v2.12.2
           install-mode: goinstall
           working-directory: hypershell/components/api-server
+          args: --timeout=5m
+
+  lint-cli:
+    name: Go lint - CLI
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cli == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/cli/go.mod
+          cache-dependency-path: components/cli/go.sum
+      - name: Check formatting
+        working-directory: components/cli
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "${unformatted}" ]]; then
+            echo "The following CLI files are not formatted:"
+            echo "${unformatted}"
+            echo "Run 'gofmt -w .' in components/cli and commit the result."
+            exit 1
+          fi
+      - name: Run go vet
+        working-directory: components/cli
+        run: go vet ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          install-mode: goinstall
+          working-directory: components/cli
           args: --timeout=5m
 
   lint-control-plane:
@@ -183,8 +218,30 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run static, unit, Storybook, and production build gates
         run: pnpm check:web
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm --filter @openshift-online/hypershell-web-console exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # Install Chromium without `--with-deps` so the flaky apt phase
+      # (actions/runner-images#11347) never lands on the critical path -- the
+      # ubuntu-24.04 runner image already ships Chromium's system libraries.
+      # Cache the browser download too, keyed on the resolved Playwright
+      # version; only the default branch writes the cache, so PR runs cannot
+      # poison it.
+      - name: Restore Chromium cache
+        id: playwright-chromium-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
       - name: Install Chromium
-        run: pnpm --filter @openshift-online/hypershell-web-console exec playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: pnpm --filter @openshift-online/hypershell-web-console exec playwright install chromium
+      - name: Save Chromium cache
+        if: github.ref == 'refs/heads/main' && steps.playwright-chromium-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-chromium-cache.outputs.cache-primary-key }}
       - name: Run critical Chromium journey
         run: pnpm test:e2e:chromium
 
@@ -194,6 +251,7 @@ jobs:
     needs:
       - detect-changes
       - lint-api-server
+      - lint-cli
       - lint-control-plane
       - lint-gateway-management-ui
       - lint-pr-test
@@ -205,13 +263,14 @@ jobs:
         env:
           DETECTION_RESULT: ${{ needs.detect-changes.result }}
           API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
+          CLI_RESULT: ${{ needs.lint-cli.result }}
           CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
           GATEWAY_MANAGEMENT_UI_RESULT: ${{ needs.lint-gateway-management-ui.result }}
           PR_TEST_RESULT: ${{ needs.lint-pr-test.result }}
           SDK_TYPESCRIPT_RESULT: ${{ needs.lint-sdk-typescript.result }}
           WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
+          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CLI_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more lint jobs failed or were cancelled."
               exit 1

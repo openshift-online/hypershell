@@ -1,17 +1,17 @@
 [
   {
-    "filename": "pnpm-lock.yaml",
-    "line": 1511,
-    "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
+    "filename": "scripts/cli-generator/go.sum",
+    "line": 32,
+    "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
   },
   {
-    "filename": "pnpm-lock.yaml",
-    "line": 1675,
-    "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
+    "filename": "scripts/openapi-ir/go.sum",
+    "line": 32,
+    "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
   },
   {
-    "filename": "pnpm-lock.yaml",
-    "line": 3266,
-    "rationale": "Immutable upstream registry integrity digest contains an incidental byte sequence; changing it would invalidate the lockfile."
+    "filename": "scripts/sdk-generator/go.sum",
+    "line": 32,
+    "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
   }
 ]

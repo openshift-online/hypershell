@@ -3,7 +3,16 @@ import type { FastifyInstance } from "fastify";
 import * as oidc from "openid-client";
 
 import type { ServerConfig } from "./config.js";
+import {
+  createRefresher,
+  sanitizeReturnTo,
+  toTokenSet,
+  type Refresher,
+  type TokenSet,
+} from "./tokens.js";
 
+// Fields held in the hot-path identity cookie (`session`), read on every
+// proxied `/api/*` request, plus the short-lived login-flow fields.
 declare module "@fastify/secure-session" {
   interface SessionData {
     accessToken?: string;
@@ -13,10 +22,56 @@ declare module "@fastify/secure-session" {
     nonce?: string;
     pkceVerifier?: string;
     preferredUsername?: string;
+    returnTo?: string;
     roles?: string[];
     state?: string;
     sub?: string;
   }
+}
+
+// Bulkier tokens live in a second cookie (`session_tok`) read only on refresh
+// and logout, so no single cookie approaches the browser per-cookie size limit.
+interface TokenSessionData {
+  idToken?: string;
+  refreshToken?: string;
+}
+
+declare module "fastify" {
+  interface FastifyInstance {
+    // Exchanges a refresh token for a fresh token set. Present only when OIDC
+    // is configured; the `/api/*` proxy guards on `config.oidcIssuer`.
+    refreshAccessToken?: Refresher;
+  }
+  interface FastifyRequest {
+    tokenSession: secureSession.Session<TokenSessionData>;
+  }
+}
+
+/** Persists a refreshed token set across the two session cookies. */
+export function persistTokenSet(
+  request: {
+    session: secureSession.Session;
+    tokenSession: secureSession.Session<TokenSessionData>;
+  },
+  tokens: TokenSet,
+): void {
+  request.session.set("accessToken", tokens.accessToken);
+  request.session.set("expiresAt", tokens.expiresAt);
+  if (tokens.refreshToken !== undefined) {
+    request.tokenSession.set("refreshToken", tokens.refreshToken);
+  }
+  if (tokens.idToken !== undefined) {
+    request.tokenSession.set("idToken", tokens.idToken);
+  }
+}
+
+/** Clears both session cookies on terminal authentication failure. */
+export function clearSession(request: {
+  session: secureSession.Session;
+  tokenSession: secureSession.Session<TokenSessionData>;
+}): void {
+  request.session.delete();
+  request.tokenSession.delete();
 }
 
 /**
@@ -55,19 +110,34 @@ export async function registerAuth(
     execute.length > 0 ? { execute } : undefined,
   );
 
-  // --- Encrypted cookie session ---
+  // --- Encrypted cookie sessions (chunked to stay under the browser limit) ---
 
-  await app.register(secureSession, {
-    key: config.sessionSecret,
-    cookie: {
-      httpOnly: true,
-      path: "/",
-      sameSite: "lax",
-      secure: true,
+  const cookie = {
+    httpOnly: true,
+    path: "/",
+    sameSite: "lax" as const,
+    secure: true,
+  };
+
+  await app.register(secureSession, [
+    {
+      key: config.sessionSecret,
+      cookie,
+      cookieName: "session",
+      expiry: config.sessionTtlSeconds,
+      sessionName: "session",
     },
-    cookieName: "session",
-    expiry: config.sessionTtlSeconds,
-  });
+    {
+      key: config.sessionSecret,
+      cookie,
+      cookieName: "session_tok",
+      expiry: config.sessionTtlSeconds,
+      sessionName: "tokenSession",
+    },
+  ]);
+
+  // Single-flight refresher shared by the API proxy for silent token refresh.
+  app.decorate("refreshAccessToken", createRefresher(oidcConfig));
 
   const configuredRedirectUri = config.oidcRedirectUri;
 
@@ -78,10 +148,16 @@ export async function registerAuth(
     const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
     const state = oidc.randomState();
     const nonce = oidc.randomNonce();
+    const returnTo = sanitizeReturnTo(
+      (request.query as { return_to?: unknown }).return_to,
+    );
 
     request.session.set("pkceVerifier", codeVerifier);
     request.session.set("state", state);
     request.session.set("nonce", nonce);
+    if (returnTo !== undefined) {
+      request.session.set("returnTo", returnTo);
+    }
     request.session.options({ maxAge: 300 });
 
     const effectiveRedirectUri =
@@ -104,6 +180,7 @@ export async function registerAuth(
     const storedState = request.session.get("state");
     const storedNonce = request.session.get("nonce");
     const storedVerifier = request.session.get("pkceVerifier");
+    const storedReturnTo = sanitizeReturnTo(request.session.get("returnTo"));
 
     if (!storedState || !storedNonce || !storedVerifier) {
       reply.code(400);
@@ -129,10 +206,12 @@ export async function registerAuth(
 
       const claims = tokens.claims();
 
-      // Replace login session data with auth session data
+      // Replace login session data with auth session data. Rotate both cookies
+      // so no pre-login value survives (session fixation defense).
       request.session.regenerate();
+      request.tokenSession.regenerate();
 
-      request.session.set("accessToken", tokens.access_token);
+      persistTokenSet(request, toTokenSet(tokens));
       if (claims) {
         request.session.set("sub", claims.sub);
         if (typeof claims.preferred_username === "string") {
@@ -151,31 +230,28 @@ export async function registerAuth(
         request.session.set("roles", roles);
       }
 
-      const expiresIn = tokens.expiresIn();
-      if (expiresIn !== undefined) {
-        request.session.set(
-          "expiresAt",
-          Math.floor(Date.now() / 1000) + expiresIn,
-        );
-      }
-
       request.session.options({ maxAge: config.sessionTtlSeconds });
+      request.tokenSession.options({ maxAge: config.sessionTtlSeconds });
 
-      reply.redirect("/");
+      reply.redirect(storedReturnTo ?? "/");
     } catch (error) {
       request.log.error({ err: error }, "OIDC callback failed");
-      request.session.delete();
+      clearSession(request);
       reply.code(401);
       return { error: "Authentication failed", statusCode: 401 };
     }
   });
 
   app.get("/auth/logout", async (request, reply) => {
-    request.session.delete();
+    const idToken = request.tokenSession.get("idToken");
+    clearSession(request);
 
     const serverMetadata = oidcConfig.serverMetadata();
     if (serverMetadata.end_session_endpoint) {
       const params: Record<string, string> = {};
+      if (idToken) {
+        params.id_token_hint = idToken;
+      }
       if (config.oidcPostLogoutRedirectUri) {
         params.post_logout_redirect_uri = config.oidcPostLogoutRedirectUri;
       }
@@ -195,12 +271,11 @@ export async function registerAuth(
       return { authenticated: false };
     }
 
+    // An expired access token is not terminal: the proxy refreshes it silently
+    // on the next `/api/*` call, and an unrefreshable session is surfaced there
+    // as a re-authentication signal. The session resource still reports
+    // `expires_at` so the browser can display re-authentication state.
     const expiresAt = request.session.get("expiresAt");
-    if (expiresAt !== undefined && expiresAt < Math.floor(Date.now() / 1000)) {
-      request.session.delete();
-      return { authenticated: false };
-    }
-
     const roles = request.session.get("roles") ?? [];
 
     return {

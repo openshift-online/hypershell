@@ -12,6 +12,9 @@ if pgrep -f "cloud-provider-kind" >/dev/null 2>&1; then
   sudo pkill -f "cloud-provider-kind" 2>/dev/null || pkill -f "cloud-provider-kind" || true
   success "cloud-provider-kind stopped"
 fi
+# Drop the running-instance marker so the next `make kind-up` doesn't compare
+# against a SHA from a torn-down environment.
+rm -f "${CPK_SHA_MARKER}"
 
 stop_port_forward
 stop_kubectl_port_forwards

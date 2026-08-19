@@ -1,6 +1,11 @@
 import { defineMessages } from "react-intl";
 
 export const messages = defineMessages({
+  account: {
+    id: "app.account",
+    defaultMessage: "Account",
+    description: "Fallback label for the identity menu when no name is known.",
+  },
   breadcrumbLabel: {
     id: "app.breadcrumb.ariaLabel",
     defaultMessage: "Breadcrumb",
@@ -25,6 +30,11 @@ export const messages = defineMessages({
     id: "app.hello.title",
     defaultMessage: "Hello world",
     description: "Main heading on the initial web-console landing page.",
+  },
+  logout: {
+    id: "app.logout",
+    defaultMessage: "Log out",
+    description: "Sign-out action in the masthead identity menu.",
   },
   notFoundBody: {
     id: "app.notFound.body",

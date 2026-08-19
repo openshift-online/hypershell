@@ -213,6 +213,61 @@ func TestGatewayPaging(t *testing.T) {
 	Expect(list.GetPage()).To(Equal(int32(2)))
 }
 
+func TestGatewayPostWithCredentialDriver(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	credDriver := `{"type":"kubernetes-secrets","kubernetes_secrets":{"namespace":"creds-ns"}}`
+	gatewayInput := openapi.GatewayCreateRequest{
+		Name:             "test-cred-driver",
+		FleetId:          "test-fleet_id",
+		ClusterId:        "test-cluster_id",
+		ReleaseId:        "test-release_id",
+		DatabaseId:       "test-database_id",
+		CredentialDriver: openapi.PtrString(credDriver),
+	}
+
+	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with credential_driver: %v", err)
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(gatewayOutput.CredentialDriver).NotTo(BeNil())
+	Expect(*gatewayOutput.CredentialDriver).To(Equal(credDriver))
+
+	retrieved, resp, err := client.DefaultAPI.GetGateway(ctx, *gatewayOutput.Id).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(retrieved.CredentialDriver).NotTo(BeNil())
+	Expect(*retrieved.CredentialDriver).To(Equal(credDriver))
+}
+
+func TestGatewayPatchCredentialDriver(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gatewayModel, err := newGateway(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	credDriver := `{"type":"vault","vault":{"address":"https://vault.example.com","role":"gw-role"}}`
+	patchReq := openapi.GatewayPatchRequest{
+		CredentialDriver: openapi.PtrString(credDriver),
+	}
+
+	gatewayOutput, resp, err := client.DefaultAPI.UpdateGateway(ctx, gatewayModel.ID).GatewayPatchRequest(patchReq).Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error patching credential_driver: %v", err)
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(gatewayOutput.CredentialDriver).NotTo(BeNil())
+	Expect(*gatewayOutput.CredentialDriver).To(Equal(credDriver))
+
+	retrieved, resp, err := client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(*retrieved.CredentialDriver).To(Equal(credDriver))
+}
+
 func TestGatewayListSearch(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 

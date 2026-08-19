@@ -44,15 +44,25 @@ describe("gateway presentation data", () => {
 
   it("maps gateway values into the connection view", () => {
     expect(
-      toGatewayConnection(gateway(), "Localized hub cluster"),
+      toGatewayConnection(
+        gateway({ phase: "Running" }),
+        "Localized hub cluster",
+      ),
     ).toMatchObject({
       clusterName: "Localized hub cluster",
       createdAt: "2026-08-10T14:30:00Z",
       endpoint: "https://gateway.example.com:443",
       id: "gateway-1",
       name: "Team gateway",
+      phase: "Running",
       status: "Ready",
     });
+  });
+
+  it("omits phase when the gateway has not reported one", () => {
+    expect(
+      toGatewayConnection(gateway({ phase: "" }), "Hub cluster").phase,
+    ).toBe(undefined);
   });
 
   it("polls transitional gateway lifecycle states at a bounded interval", () => {
@@ -65,6 +75,9 @@ describe("gateway presentation data", () => {
       true,
     );
     expect(gatewayNeedsStatusPolling(gateway({ status: "Updating" }))).toBe(
+      true,
+    );
+    expect(gatewayNeedsStatusPolling(gateway({ phase: "Degraded" }))).toBe(
       true,
     );
   });

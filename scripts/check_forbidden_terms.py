@@ -16,6 +16,13 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 WHITELIST_PATH = REPOSITORY_ROOT / ".forbidden-terms-whitelist.json"
 WHITELIST_GUIDANCE = "scripts/README.md#whitelist-guidance"
 
+# Generated dependency lockfiles are excluded wholesale: they carry immutable
+# upstream integrity digests whose base64 bytes incidentally match forbidden
+# terms, and every dependency change shifts their line numbers, so line-based
+# whitelisting is unmaintainable. Nothing in a lockfile is human-authored prose,
+# so excluding it loses no meaningful terminology coverage.
+EXCLUDED_PATHS = frozenset({"pnpm-lock.yaml"})
+
 _TERM_PARTS = (
     ("a", "cp"),
     ("agent", "-control", "-plane"),
@@ -58,6 +65,11 @@ def _tracked_files() -> list[str]:
         for raw_path in result.stdout.split(b"\0")
         if raw_path
     ]
+
+
+def _scannable(relative_path: str) -> bool:
+    """Whether a tracked file should be scanned for forbidden terms."""
+    return relative_path != WHITELIST_PATH.name and relative_path not in EXCLUDED_PATHS
 
 
 def _read_text(relative_path: str) -> str | None:
@@ -164,7 +176,7 @@ def main() -> int:
         whitelist = _load_whitelist()
         all_matches: dict[tuple[str, int], set[str]] = {}
         for relative_path in _tracked_files():
-            if relative_path == WHITELIST_PATH.name:
+            if not _scannable(relative_path):
                 continue
             content = _read_text(relative_path)
             if content is not None:

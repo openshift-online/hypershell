@@ -79,6 +79,33 @@
       ".github/workflows/lint.yml"
     ]
   },
+  "cli": {
+    "directory": "components/cli",
+    "lint_job": "lint-cli",
+    "paths": [
+      "components/cli/**",
+      "components/api-server/openapi/**",
+      "components/api-server/Makefile",
+      "scripts/cli-generator/**",
+      "scripts/openapi-ir/**",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
+  },
+  "sdk_go": {
+    "directory": "components/sdk-go",
+    "paths": [
+      "components/sdk-go/**",
+      "components/api-server/openapi/**",
+      "components/api-server/Makefile",
+      "scripts/sdk-generator/**",
+      "scripts/openapi-ir/**",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh"
+    ]
+  },
   "web_console": {
     "directory": "components/web-console",
     "lint_job": "lint-web-console",

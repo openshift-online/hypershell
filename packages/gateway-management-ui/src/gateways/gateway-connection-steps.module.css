@@ -1,0 +1,179 @@
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--lg);
+  margin: 0;
+  max-width: 60rem;
+  padding: 0;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.steps :global(.pf-v6-c-code-block) {
+  position: relative;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: var(--pf-t--global--border--width--box--default) solid
+    var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--medium);
+  /*
+   * Shiki's <pre> paints its own square-cornered background edge to edge (the
+   * content padding is 0), which would cover the rounded corners. Clip children
+   * to the border radius so the rounding shows through.
+   */
+  overflow: hidden;
+}
+
+.steps :global(.pf-v6-c-code-block__header) {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  border-block-end: 0;
+  background-color: transparent;
+  padding: var(--pf-t--global--spacer--xs);
+  z-index: 1;
+}
+
+.steps :global(.pf-v6-c-code-block__content) {
+  padding-inline-end: 3rem;
+}
+
+/*
+ * When Shiki highlights a block it replaces the plain <code> with its own
+ * <pre class="shiki">; let that pre supply padding (leaving room for the copy
+ * button) so the highlighted markup fills the content surface.
+ */
+.steps :global(.pf-v6-c-code-block__content):has(.highlighted) {
+  padding: 0;
+}
+
+.highlighted :global(.shiki) {
+  margin: 0;
+  padding-block: var(--pf-t--global--spacer--md);
+  padding-inline: var(--pf-t--global--spacer--md) 3rem;
+  overflow-x: auto;
+  background-color: #ffffff;
+  color: #0e1116;
+}
+
+/*
+ * The hardened CSP (style-src-attr 'none') strips Shiki's inline token styles,
+ * so highlightTemplate() carries them as hl-fg-* and hl-dfg-* classes and this
+ * stylesheet paints them: the github-light-high-contrast palette applies by
+ * default and github-dark-high-contrast (foreground and its paired background)
+ * swaps in under the PatternFly dark theme, keeping AA contrast in both. Keep
+ * this palette in sync with the themes -- command-highlight.test.ts fails if
+ * Shiki emits a color without a matching rule here.
+ */
+:global(html.pf-v6-theme-dark) .highlighted :global(.shiki) {
+  background-color: #0a0c10;
+  color: #f0f3f6;
+}
+
+.highlighted :global(.hl-fg-66707b) {
+  color: #66707b;
+}
+
+.highlighted :global(.hl-fg-702c00) {
+  color: #702c00;
+}
+
+.highlighted :global(.hl-fg-032563) {
+  color: #032563;
+}
+
+.highlighted :global(.hl-fg-a0111f) {
+  color: #a0111f;
+}
+
+.highlighted :global(.hl-fg-023b95) {
+  color: #023b95;
+}
+
+.highlighted :global(.hl-fg-0e1116) {
+  color: #0e1116;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-bdc4cc) {
+  color: #bdc4cc;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-ffb757) {
+  color: #ffb757;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-addcff) {
+  color: #addcff;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-ff9492) {
+  color: #ff9492;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-91cbff) {
+  color: #91cbff;
+}
+
+:global(html.pf-v6-theme-dark) .highlighted :global(.hl-dfg-f0f3f6) {
+  color: #f0f3f6;
+}
+
+/*
+ * Inline editable value slots. They keep the surrounding token color (the
+ * dashed underline uses currentColor) so they read as code while signalling
+ * that they can be edited; hover and focus add a subtle background and a visible
+ * focus ring for keyboard users.
+ */
+.field {
+  cursor: text;
+  text-decoration: underline dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
+  border-radius: var(--pf-t--global--border--radius--small);
+  outline: none;
+  white-space: pre;
+}
+
+.field:empty {
+  min-width: 1ch;
+}
+
+.field:hover {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+.field:focus-visible {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.prereqAlert {
+  margin-block: var(--pf-t--global--spacer--sm);
+}
+
+/*
+ * AlertActionLink uses the default link token, which fails AA contrast on the
+ * info-alert surface in dark theme. Regular text on that surface meets 4.5:1;
+ * pf-m-link keeps the underline so the control is still identifiable as a link.
+ */
+.prereqAlert:global(.pf-v6-c-alert)
+  :global(.pf-v6-c-alert__action-group .pf-v6-c-button.pf-m-link) {
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.commandPending {
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: var(--pf-t--global--border--width--box--default) solid
+    var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--medium);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+  padding: var(--pf-t--global--spacer--md);
+}

@@ -133,3 +133,64 @@ func TestIsGRPCDeleteMethod(t *testing.T) {
 		})
 	}
 }
+
+// Platform Admin gRPC tests
+func TestIsGRPCAuthorized_PlatformAdminCanRead(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isGRPCAuthorized("/hypershell.v1.GatewayService/GetGateway", bindings) {
+		t.Error("platform:admin should be authorized for Get")
+	}
+	if !isGRPCAuthorized("/hypershell.v1.GatewayService/ListGateways", bindings) {
+		t.Error("platform:admin should be authorized for List")
+	}
+	if !isGRPCAuthorized("/hypershell.v1.GatewayService/WatchGateways", bindings) {
+		t.Error("platform:admin should be authorized for Watch")
+	}
+}
+
+func TestIsGRPCAuthorized_PlatformAdminCanDelete(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isGRPCAuthorized("/hypershell.v1.GatewayService/DeleteGateway", bindings) {
+		t.Error("platform:admin should be authorized for Delete")
+	}
+}
+
+func TestIsGRPCAuthorized_PlatformAdminCannotCreate(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
+		t.Error("platform:admin must not be authorized for Create without gateway:creator")
+	}
+}
+
+func TestIsGRPCAuthorized_PlatformAdminCannotUpdate(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if isGRPCAuthorized("/hypershell.v1.GatewayService/UpdateGateway", bindings) {
+		t.Error("platform:admin must not be authorized for Update without gateway:owner")
+	}
+	if isGRPCAuthorized("/hypershell.v1.GatewayService/PatchGateway", bindings) {
+		t.Error("platform:admin must not be authorized for Patch without gateway:owner")
+	}
+}
+
+func TestIsGRPCAuthorized_PlatformAdminWithCreatorCanCreate(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+		{RoleName: "gateway:creator", Scope: "global"},
+	}
+
+	if !isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
+		t.Error("platform:admin + gateway:creator should be authorized for Create")
+	}
+}

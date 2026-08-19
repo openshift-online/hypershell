@@ -26,39 +26,13 @@ The [Gateway API](https://gateway-api.sigs.k8s.io/) CRDs must be installed if ex
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/latest/download/standard-install.yaml
 ```
 
-### GatewayClass
+### Shared Gateway
 
-A GatewayClass must exist on the cluster for per-tenant Gateway resources to reference. On OpenShift, the `openshift-default` GatewayClass is provided automatically. On other clusters (e.g., Kind with [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind)), install the appropriate GatewayClass for your ingress controller.
+A pre-existing Gateway resource must be provisioned by an administrator before the control plane can create tenant GRPCRoutes. The Gateway should use a wildcard hostname and a cert-manager-issued wildcard TLS certificate. All tenant GRPCRoutes attach to this shared Gateway.
 
-The GatewayClass name is configurable via the `GATEWAY_API_GATEWAY_CLASS` environment variable (default: `openshift-default`).
+See `deploy/openshift/infrastructure/GATEWAY-SETUP.md` for step-by-step setup instructions including cert-manager configuration.
 
-### TLS certificate Secret (`grpc-gateway-certs`)
-
-A wildcard TLS Secret named `grpc-gateway-certs` must be present in the `openshift-ingress` namespace. Per-tenant Gateway API Gateway resources are created in `openshift-ingress` and reference this Secret for HTTPS termination. The ingress operator auto-creates DNS records for Gateways in this namespace, which is why the Gateway (and the cert) live here.
-
-The Secret must contain `tls.crt` and `tls.key` entries covering all tenant hostnames under the base domain (e.g., `*.apps.<cluster>.<domain>`).
-
-```shell
-kubectl -n openshift-ingress create secret tls grpc-gateway-certs \
-  --cert=/path/to/wildcard.crt \
-  --key=/path/to/wildcard.key
-```
-
-On OpenShift, if you want gateways to share the same FQDN base as the cluster's other ingresses (e.g., `*.apps.<cluster>.<domain>`), you can copy the cluster's default wildcard certificate. The Ingress Operator already stores it in `openshift-ingress`:
-
-```shell
-# Find the default ingress certificate Secret name
-oc get ingresscontroller default -n openshift-ingress-operator \
-  -o jsonpath='{.spec.defaultCertificate.name}'
-
-# If no custom cert is set, the operator generates one automatically:
-oc get secret -n openshift-ingress -l app=router --no-headers -o name
-
-# Copy it within openshift-ingress under the name grpc-gateway-certs
-oc get secret <secret-name> -n openshift-ingress -o json \
-  | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.labels) | .metadata.name = "grpc-gateway-certs"' \
-  | oc apply -n openshift-ingress -f -
-```
+The Gateway name is configured via the `GATEWAY_API_GATEWAY_NAME` environment variable (required).
 
 ### Trusted CA bundle (optional)
 
@@ -66,6 +40,101 @@ If the gateway needs to interact with an OIDC issuer (e.g., Keycloak) that uses 
 
 ```shell
 kubectl -n hypershell create configmap gateway-trusted-ca --from-file=ca-bundle.crt=/path/to/ca.crt
+```
+
+### Keycloak OIDC client provisioning (`hypershell-keycloak-admin`)
+
+The control plane provisions an OIDC client in Keycloak for each gateway it reconciles. It authenticates to Keycloak using a confidential client whose credentials are read from a Secret named `hypershell-keycloak-admin` in the control plane namespace (default: `hypershell`). If this Secret is absent at startup, Keycloak integration is silently disabled for the lifetime of that pod.
+
+#### 1. Create a realm
+
+Log in to the Keycloak Admin Console and create a realm for HyperShell (e.g., `hypershell`), or use an existing realm. You can also do this via the REST API:
+
+```shell
+KEYCLOAK_URL="https://keycloak.example.com"
+ADMIN_TOKEN=$(curl -s -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=admin-cli&username=admin&password=<admin-password>&grant_type=password" \
+  | jq -r '.access_token')
+
+curl -s -X POST "$KEYCLOAK_URL/admin/realms" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"realm": "hypershell", "enabled": true, "displayName": "HyperShell"}'
+```
+
+#### 2. Create a confidential client
+
+Create a client named `hypershell-control-plane` in the realm. It must use service-account authentication (no standard or direct-grant flows):
+
+```shell
+curl -s -X POST "$KEYCLOAK_URL/admin/realms/hypershell/clients" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clientId": "hypershell-control-plane",
+    "name": "HyperShell Control Plane",
+    "enabled": true,
+    "clientAuthenticatorType": "client-secret",
+    "serviceAccountsEnabled": true,
+    "standardFlowEnabled": false,
+    "directAccessGrantsEnabled": false,
+    "publicClient": false
+  }'
+```
+
+#### 3. Grant realm-management roles to the service account
+
+The control plane needs `manage-clients`, `manage-users`, and `view-users` from the built-in `realm-management` client so it can create and delete gateway OIDC clients:
+
+```shell
+# Retrieve IDs
+CLIENT_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients?clientId=hypershell-control-plane" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.[0].id')
+SA_USER_ID=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients/$CLIENT_UUID/service-account-user" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.id')
+RM_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients?clientId=realm-management" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.[0].id')
+
+# Fetch the three role objects and assign them
+ROLES=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients/$RM_UUID/roles" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | jq '[.[] | select(.name | IN("manage-clients","manage-users","view-users"))]')
+
+curl -s -X POST "$KEYCLOAK_URL/admin/realms/hypershell/users/$SA_USER_ID/role-mappings/clients/$RM_UUID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$ROLES"
+```
+
+#### 4. Create the Secret
+
+Retrieve the generated client secret and create the Kubernetes Secret in the control plane namespace:
+
+```shell
+CLIENT_SECRET=$(curl -s "$KEYCLOAK_URL/admin/realms/hypershell/clients/$CLIENT_UUID/client-secret" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.value')
+
+kubectl -n hypershell create secret generic hypershell-keycloak-admin \
+  --from-literal=server-url="$KEYCLOAK_URL/" \
+  --from-literal=realm="hypershell" \
+  --from-literal=client-id="hypershell-control-plane" \
+  --from-literal=client-secret="$CLIENT_SECRET"
+```
+
+If you need to rotate the client secret or update any value, delete and recreate the Secret then restart the control plane pod -- the Secret is read once at startup.
+
+```shell
+kubectl -n hypershell delete secret hypershell-keycloak-admin
+# recreate with updated values, then:
+kubectl -n hypershell rollout restart deployment/hypershell-control-plane
+```
+
+Confirm the control plane picked up the configuration:
+
+```shell
+kubectl -n hypershell logs deployment/hypershell-control-plane | grep -i keycloak
+# Expected: INFO keycloak integration enabled: server=... realm=hypershell
 ```
 
 ### Base domain (`GATEWAY_API_BASE_DOMAIN`)
@@ -94,7 +163,7 @@ Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the
 | `HYPERSHELL_GRPC_SERVER_ADDR` | `localhost:9000` | gRPC address of the API server |
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | HTTP address of the API server |
 | `HYPERSHELL_NAMESPACE` | `hypershell` | Namespace the control plane runs in (used for trusted CA bundle source) |
-| `GATEWAY_API_GATEWAY_CLASS` | `openshift-default` | GatewayClass name for per-tenant Gateway resources |
-| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where per-tenant Gateway API Gateway resources are created |
-| `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for auto-derived hostnames (e.g., `apps.cluster.example.com`) |
+| `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
+| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
+| `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
 | `GATEWAY_MANIFESTS_DIR` | `/manifests/gateway` | Path to gateway manifest templates |

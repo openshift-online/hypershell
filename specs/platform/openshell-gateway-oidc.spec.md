@@ -38,11 +38,13 @@ Each gateway receives a dedicated Keycloak OIDC client provisioned automatically
 
 ```
 Realm:       configurable via Keycloak service account secret (e.g., hypershell, hypershell-stage)
-Client:      {gateway-name} (public, PKCE, fullScopeAllowed=false)
-Audience:    {gateway-name} (matches clientId)
+Client:      {name}-{id} (public, PKCE, fullScopeAllowed=false)
+Audience:    {name}-{id} (matches clientId)
 Roles claim: hypershell.roles (via client-roles mapper from resource_access.{clientId}.roles)
 Roles:       openshell-admin, openshell-user (client-scoped)
 ```
+
+> **Client ID format:** The Keycloak `clientId` is `{name}-{id}` (e.g., `my-gateway-2FhMpQzXBz`) to prevent name clashes. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for details.
 
 > **Realm naming:** The realm name is not hardcoded. Each HyperShell instance reads the realm from the `hypershell-keycloak-admin` Secret's `realm` key. Environments MAY use distinct realm names (e.g., `hypershell-int`, `hypershell-stage`, `hypershell-prod`) or share a realm name when regional Keycloak instances federate to a global instance.
 
@@ -59,7 +61,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 | Field | Type | Auto-Populated Value | Description |
 |---|---|---|---|
 | `oidc.issuer` | string | `{keycloak-url}/realms/{realm}` | OIDC issuer URL |
-| `oidc.audience` | string | `{gateway-name}` | Expected `aud` claim value in JWT (matches Keycloak clientId) |
+| `oidc.audience` | string | `{name}-{id}` | Expected `aud` claim value in JWT (matches Keycloak clientId) |
 | `oidc.jwks_ttl` | integer | `3600` | JWKS key cache retention in seconds |
 | `oidc.roles_claim` | string | `"hypershell.roles"` | Dot-delimited path to roles array in JWT claims |
 | `oidc.admin_role` | string | `"openshell-admin"` | Role name conferring admin access |
@@ -111,7 +113,7 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
 
   [openshell.gateway.oidc]
   issuer        = "https://keycloak.example.com/realms/hypershell"
-  audience      = "my-gateway"
+  audience      = "my-gateway-2FhMpQzXBz"
   jwks_ttl_secs = 3600
   roles_claim   = "hypershell.roles"
   admin_role    = "openshell-admin"
@@ -151,11 +153,12 @@ The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a g
 
 ```bash
 # 1. Get OIDC token (password grant for CI automation, browser PKCE flow for interactive)
-#    client_id is the per-gateway Keycloak client (public, no client_secret needed for PKCE)
+#    client_id is the per-gateway Keycloak client ({name}-{id}, public, no client_secret needed for PKCE)
+#    The client_id is available from the gateway's oidc.client_id field.
 TOKEN=$(curl -sk -X POST \
   "https://${KC_HOST}/realms/hypershell/protocol/openid-connect/token" \
   -d "grant_type=password" \
-  -d "client_id=${GATEWAY_NAME}" \
+  -d "client_id=${GATEWAY_OIDC_CLIENT_ID}" \
   -d "username=${KC_USERNAME}" \
   -d "password=${KC_PASSWORD}" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
 

@@ -191,20 +191,23 @@ Each driver script SHALL export the following shell functions. The main test scr
 
 ### Requirement: E2E Test Suite Coverage
 
-The e2e test suite SHALL validate the following 6 areas, preserving the existing test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
+The e2e test suite SHALL validate the following 7 areas, extending the original test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
 
 1. **Gateway provisioning via HyperShell API** -- create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
 2. **Gateway infrastructure verification** -- confirm the gateway deployment, service, TLS secret, and certgen job exist and are healthy
 3. **Route discovery + openshell CLI registration** -- discover the gateway endpoint via the driver, register it with the openshell CLI
-4. **Gateway connectivity** -- verify the openshell CLI can connect to the gateway and report status
-5. **Sandbox lifecycle** -- create a sandbox, wait for the pod to reach `Running` state
+4. **Gateway connectivity** -- verify the openshell CLI can connect to the gateway and report status (over trusted TLS, no insecure bypass -- see Gateway TLS Trust)
+5. **Sandbox lifecycle** -- create a sandbox as the admin user, wait for the pod to reach `Running` state
 6. **Sandbox interaction** -- execute commands inside the sandbox (`uname -a`, `ls /workspace`)
+7. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
+
+The admin-user OIDC flow that authenticates areas 1--6 is validated separately (see OIDC Authentication in E2E Tests).
 
 #### Scenario: Full Suite Execution
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all 6 test areas SHALL be executed in sequence
+- THEN all 7 test areas SHALL be executed in sequence
 - AND results SHALL be reported as pass/fail counts with per-test detail
 
 #### Scenario: Gateway Provisioning
@@ -226,6 +229,50 @@ The e2e test suite SHALL validate the following 6 areas, preserving the existing
 - WHEN `sandbox create --name <name>` is invoked
 - THEN a pod matching `default--<name>` SHALL appear in the gateway namespace
 - AND the pod SHALL reach `Running` state within `E2E_SANDBOX_TIMEOUT` seconds
+
+### Requirement: Developer RBAC Enforcement
+
+The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`. This tier is a legitimate *user* of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator`, so it MUST NOT be able to create gateways via the HyperShell API. The suite SHALL assert both halves -- the allowed operation succeeds and the denied operation returns `403 Forbidden`.
+
+#### Scenario: Openshell User May Create a Sandbox
+
+- GIVEN a valid OIDC token has been acquired for the `developer` user
+- AND the openshell CLI is registered against the gateway with that token
+- WHEN `sandbox create` is invoked
+- THEN a sandbox pod matching `default--<name>` SHALL be created within `E2E_SANDBOX_TIMEOUT` seconds
+- AND the test SHALL record a pass and delete the sandbox to leave a clean state
+
+#### Scenario: Openshell User May Not Create a Gateway
+
+- GIVEN a valid OIDC token has been acquired for the `developer` user
+- WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
+- THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
+- AND the test SHALL record a pass for the denial
+
+#### Scenario: Unexpected Success Is a Failure
+
+- GIVEN the `developer` user attempts to create a gateway
+- WHEN the API returns a 2xx status despite the missing `gateway:creator` role
+- THEN the test SHALL record a failure (RBAC not enforced)
+- AND the test SHALL delete the erroneously-created gateway to leave a clean state
+
+### Requirement: Gateway TLS Trust (No Insecure Bypass)
+
+The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT disable certificate verification. The `OPENSHELL_GATEWAY_INSECURE=true` bypass SHALL NOT be used. Instead, the suite SHALL trust the cluster's self-signed CA: it extracts the CA certificate issued by cert-manager (the same CA that signs the gateway's serving certificate and the `*.gw.localhost` wildcard listener cert) and points the openshell CLI at it via `SSL_CERT_FILE`. This ensures the e2e path exercises the same TLS trust chain a real client uses, rather than skipping validation.
+
+#### Scenario: CLI Trusts the Cluster CA
+
+- GIVEN the cluster CA certificate has been extracted from the cert-manager-issued secret
+- AND `SSL_CERT_FILE` points the openshell CLI at that CA
+- WHEN the CLI connects to the gateway gRPC endpoint over TLS
+- THEN the connection SHALL succeed with certificate verification enabled
+- AND `OPENSHELL_GATEWAY_INSECURE` SHALL NOT be set
+
+#### Scenario: Insecure Bypass Removed
+
+- GIVEN the e2e test scripts (`tests/e2e/e2e-openshell.sh`, `components/pr-test/e2e-openshell.sh`)
+- WHEN they establish a gateway connection
+- THEN they SHALL NOT set `OPENSHELL_GATEWAY_INSECURE=true`
 
 ### Requirement: CI E2E Workflow
 
@@ -253,17 +300,26 @@ The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml
 
 #### Scenario: Skip for Irrelevant Changes
 
-- GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/`, `packages/gateway-management-ui/`, or `components/sdk-typescript/`)
+- GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/` or `components/sdk-typescript/`)
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN the e2e job SHALL be skipped
 - AND the workflow SHALL report `success` (to avoid blocking merges)
 
 #### Scenario: Infrastructure-Only Changes (No Source Components)
 
-- GIVEN the PR modifies e2e-relevant files (Makefile, `.github/`, `deploy/`, `tests/e2e/`) but no files under `components/api-server/`, `components/control-plane/`, or `components/web-console/`
+- GIVEN the PR modifies e2e-relevant files (Makefile, `.github/`, `deploy/`, `tests/e2e/`) but no files under `components/api-server/`, `components/control-plane/`, `components/web-console/`, or `packages/gateway-management-ui/`
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN the e2e job SHALL run using baseline registry images (no Konflux build wait)
 - AND the workflow SHALL NOT poll for Konflux check runs
+
+#### Scenario: Gateway Management UI Package Changed
+
+- GIVEN the PR modifies files only in `packages/gateway-management-ui/`
+- AND Konflux has built and pushed the web console image
+- WHEN the e2e workflow runs
+- THEN it SHALL wait for the web-console Konflux on-pull-request build
+- AND it SHALL pull the Konflux-built web console image
+- AND the API server and control plane SHALL use baseline registry images
 
 #### Scenario: Workflow Timeout
 
@@ -426,7 +482,14 @@ deploy/
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
+| `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--6 |
+| `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only) |
+| `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
+| `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
 | `OPENSHELL_BIN` | `openshell` | Path to the openshell CLI binary |
+| `SSL_CERT_FILE` | (set by the suite) | Path to the extracted cluster CA so the openshell CLI trusts the gateway's TLS cert (replaces the removed `OPENSHELL_GATEWAY_INSECURE` bypass) |
+| `E2E_CONSOLE_URL` | `https://console.hypershell.localhost` | Base URL of the deployed web console for the browser trace verification |
+| `E2E_JAEGER_URL` | `https://jaeger.hypershell.localhost` | Base URL of the Jaeger query API queried by the trace verification |
 
 ### Requirement: OIDC Authentication in E2E Tests
 
@@ -471,6 +534,30 @@ The test suite SHALL verify OIDC integration as part of its standard flow:
 - GIVEN the CI e2e workflow
 - WHEN the Kind cluster is created
 - THEN `make kind-up` SHALL be invoked with `KIND_ENABLE_OIDC=true`
+
+### Requirement: Web Console Distributed Trace Verification
+
+The CI e2e workflow SHALL verify web console distributed tracing end to end, satisfying `web-console/tracing.spec.md` (`WEB-TRACE-11`). The Kind cluster SHALL be created with tracing enabled (`KIND_JAEGER=true`) so Jaeger is deployed and the web-console BFF exports to it. After the bash suite runs, the workflow SHALL drive a representative gateway workflow through a real browser against the deployed console and assert that Jaeger holds one trace joining the browser and the BFF. The check SHALL use the same Node and Chromium setup as the web-console lint job and SHALL run from the deployed console, not a mocked dev server. The trace check SHALL fail the workflow if no cross-service trace appears within a bounded polling window, and failure diagnostics SHALL include Jaeger workload status and logs and the web-console tracing configuration.
+
+#### Scenario: Tracing Enabled for E2E
+
+- GIVEN the CI e2e workflow
+- WHEN the Kind cluster is created
+- THEN `make kind-up` SHALL be invoked with `KIND_JAEGER=true`
+- AND Jaeger SHALL be deployed and the web-console BFF SHALL be configured to export to it
+
+#### Scenario: Cross-Service Trace Asserted
+
+- GIVEN the cluster is running with tracing enabled and the console is reachable
+- WHEN the trace verification drives a gateway workflow in a real browser and queries Jaeger
+- THEN it SHALL find one trace whose spans include a bounded browser workflow span and the BFF server span joined by the same trace identifier
+- AND the workflow SHALL fail if no such trace appears within the polling window
+
+#### Scenario: Trace Failure Diagnostics
+
+- GIVEN the trace verification fails
+- WHEN the workflow reaches its post-test phase
+- THEN it SHALL collect Jaeger workload status and logs and the web-console tracing configuration alongside the existing diagnostics
 
 ## Design Decisions
 

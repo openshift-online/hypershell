@@ -1,0 +1,20 @@
+package get
+
+import (
+	"github.com/spf13/cobra"
+{{range .Resources}}
+	"{{$.Module}}/cmd/{{$.Binary}}/get/{{.NameLower}}"
+{{- end}}
+)
+
+var Cmd = &cobra.Command{
+	Use:   "get RESOURCE ID",
+	Short: "Get a specific resource by ID",
+	Long:  "Get a specific resource by ID",
+}
+
+func init() {
+{{- range .Resources}}
+	Cmd.AddCommand({{.NameLower}}.Cmd)
+{{- end}}
+}

@@ -194,13 +194,13 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 |---|-------------|--------|-----|---------------|------|
 | R1 | Router NetworkPolicy | Partial | Uses namespaceSelector not podSelector; created unconditionally | `reconcileRouterNetworkPolicy()` | W7 |
 | R2 | Gateway API detection at startup | Present | - | `DetectGatewayAPI()` | W4 ✅ |
-| R3 | `GATEWAY_API_GATEWAY_CLASS` env var | Missing | Code uses NAME/NAMESPACE instead | - | W8 |
+| R3 | `GATEWAY_API_GATEWAY_NAME` env var (required) | Present | Controller requires this env var to reference the pre-existing shared Gateway | `reconciler.go` | W8 ✅ |
 | R4 | Gateway API not available: disable + log | Present | - | `reconciler.go:76-80` | W4 ✅ |
 | R5 | `route` config field (host, enabled) | Present | - | `config.go:17-20` | W4 ✅ |
 | R6 | Auto-derived hostname convention | Partial | Extra `.hsgw.` subdomain vs spec | `reconciler.go:727-731` | W8 |
 | R7 | DNS label validation (63-char limit) | Not needed | Shortened namespace (26 chars) + `gw-` prefix keeps all derived names under 63 chars | - | - |
 | R8 | GRPCRoute provisioning | Present | - | `reconciler.go:735-769` | W4 ✅ |
-| R9 | GRPCRoute parentRefs: per-tenant Gateway | Partial | Points to shared gateway, not per-tenant | `reconciler.go:749-753` | W8 |
+| R9 | GRPCRoute parentRefs: shared Gateway with sectionName | Present | Points to shared gateway with `sectionName: grpc` | `reconciler.go` | W8 ✅ |
 | R10 | GRPCRoute managed label for cleanup | Present | Spec updated: `hypershell.redhat.io/managed` label replaces ownerReferences; cleanup via `deleteGatewayAPIResources()` | `gateway/reconciler.go` | W6 ✅ |
 | R11 | BackendTLSPolicy + CA ConfigMap | Present | - | `reconciler.go:813-849` | W4 ✅ |
 | R12 | Per-tenant K8s Gateway resource | Missing | Not created at all | - | W8 |
@@ -397,15 +397,13 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 **Scope:** G18, R3, R6, R9, R12, R13, R15, R16, R18
 **Dependency:** Wave 5, Wave 6
 
-1. Add `"Gateway": "gateways"` to `kindToResource` mapping
-2. Add `GATEWAY_API_GATEWAY_CLASS` env var (default `openshift-default`)
-3. Create per-tenant `gateway.networking.k8s.io/v1 Gateway` resource with gatewayClassName, listener, hostname, TLS termination
-4. Copy wildcard cert Secret (`grpc-gateway-certs`) from CP namespace to tenant namespace
-5. Update GRPCRoute `parentRefs` to reference per-tenant Gateway (same namespace)
-6. Fix hostname convention: `gw-<ns>.<base-domain>` (shortened prefix)
-7. Implement routeAddress discovery: poll Gateway status for `Accepted: True` + `Programmed: True`, extract address
-8. PATCH `routeAddress` field back to API server via gRPC
-9. Verify: `go build ./...`, `go vet ./...`
+1. Require `GATEWAY_API_GATEWAY_NAME` env var -- controller fails if unset
+2. GRPCRoute parentRef uses cross-namespace reference to the shared Gateway with `sectionName: grpc`
+3. Fix hostname convention: `gw-<ns>.<base-domain>` (shortened prefix)
+4. Derive routeAddress deterministically from hostname, PATCH to API server via gRPC
+5. Remove per-tenant Gateway creation, cert-manager certificate cleanup, and `GATEWAY_API_GATEWAY_CLASS` env var
+6. Simplify NetworkPolicy to allow any source (shared Gateway proxy may run outside tenant namespace)
+7. Verify: `go build ./...`, `go vet ./...`
 
 ### Wave E2E-W1: Deploy Base/Overlay + Image Overrides ✅
 

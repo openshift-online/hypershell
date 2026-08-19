@@ -16,6 +16,7 @@ const gatewayPollingStates = new Set([
   "provisioning",
   "reconciling",
   "updating",
+  "degraded",
 ]);
 const gatewayFailedLifecycleStates = new Set(["error", "failed"]);
 
@@ -108,6 +109,7 @@ export function toGatewayConnection(
     ...(gateway.oidcAudience ? { oidcAudience: gateway.oidcAudience } : {}),
     ...(gateway.oidcClientId ? { oidcClientId: gateway.oidcClientId } : {}),
     ...(gateway.oidcIssuer ? { oidcIssuer: gateway.oidcIssuer } : {}),
+    ...(phase ? { phase } : {}),
     status: status || "Unknown",
   };
 }

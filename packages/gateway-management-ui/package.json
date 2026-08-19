@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@hookform/resolvers": "5.5.7",
-    "@openshift-online/hypershell-domain-probes": "workspace:0.0.0"
+    "@openshift-online/hypershell-domain-probes": "workspace:0.0.0",
+    "shiki": "4.4.1"
   },
   "peerDependencies": {
     "@patternfly/react-core": "6.6.0",

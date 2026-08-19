@@ -51,6 +51,7 @@ function failureOutcome(error: unknown): GatewayProbeOutcome {
 function probe(
   action: GatewayAction,
   correlationId: string,
+  traceId: string,
   failure: ReturnType<typeof failureKind> | null,
   name: GatewayProbe["name"],
   occurredAt: string,
@@ -61,6 +62,7 @@ function probe(
   return Object.freeze({
     context: Object.freeze({
       correlationId,
+      traceId,
       ...(operationId === undefined ? {} : { operationId }),
       ...(parentInvocationId === undefined ? {} : { parentInvocationId }),
     }),
@@ -82,6 +84,7 @@ export function createGatewayOperations({
     task: (context: GatewayInvocationContext) => Promise<T>,
   ): Promise<T> {
     const correlationId = runtime.createCorrelationId();
+    const traceId = runtime.createTraceId();
     const context: GatewayInvocationContext = {
       correlationId,
       ...(signal === undefined ? {} : { signal }),
@@ -90,6 +93,7 @@ export function createGatewayOperations({
       probe(
         action,
         correlationId,
+        traceId,
         null,
         "gateway.workflow.started",
         runtime.now(),
@@ -100,6 +104,7 @@ export function createGatewayOperations({
       probe(
         action,
         correlationId,
+        traceId,
         null,
         "gateway.dependency.attempted",
         runtime.now(),
@@ -115,6 +120,7 @@ export function createGatewayOperations({
         probe(
           action,
           correlationId,
+          traceId,
           null,
           "gateway.dependency.completed",
           runtime.now(),
@@ -127,6 +133,7 @@ export function createGatewayOperations({
         probe(
           action,
           correlationId,
+          traceId,
           null,
           "gateway.workflow.completed",
           runtime.now(),
@@ -143,6 +150,7 @@ export function createGatewayOperations({
         probe(
           action,
           correlationId,
+          traceId,
           kind,
           "gateway.dependency.completed",
           runtime.now(),
@@ -155,6 +163,7 @@ export function createGatewayOperations({
         probe(
           action,
           correlationId,
+          traceId,
           kind,
           "gateway.workflow.completed",
           runtime.now(),

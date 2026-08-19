@@ -70,6 +70,9 @@ function setup() {
         correlation += 1;
         return `correlation-${String(correlation)}`;
       },
+      createTraceId() {
+        return `trace-${String(correlation)}`;
+      },
       now() {
         return "2026-08-06T18:00:00.000Z";
       },
@@ -162,6 +165,9 @@ describe("gateway application operations", () => {
         ({ context }) => context.correlationId === "correlation-1",
       ),
     ).toBe(true);
+    expect(received.every(({ context }) => context.traceId === "trace-1")).toBe(
+      true,
+    );
   });
 
   it("publishes a conflicted terminal outcome and preserves the typed failure", async () => {
@@ -208,5 +214,13 @@ describe("gateway application operations", () => {
       "gateway.dependency.attempted",
       "gateway.dependency.completed",
     ]);
+  });
+
+  it("declares trace as an allowed consumer for every gateway probe", () => {
+    expect(
+      gatewayProbeCatalog.every(({ allowedConsumers }) =>
+        allowedConsumers.includes("trace"),
+      ),
+    ).toBe(true);
   });
 });

@@ -76,6 +76,69 @@ export const messages = defineMessages({
     defaultMessage: "Region: {region}",
     description: "Region context that distinguishes a managed cluster option.",
   },
+  connectionInstallLink: {
+    id: "app.gateway.connection.installLink",
+    defaultMessage: "Install the OpenShell CLI",
+    description:
+      "Link text pointing to the NVIDIA OpenShell installation documentation.",
+  },
+  connectionInstallLinkNewTab: {
+    id: "app.gateway.connection.installLinkNewTab",
+    defaultMessage: "Install the OpenShell CLI (opens in a new tab)",
+    description:
+      "Accessible name for the OpenShell CLI install docs link, including that it opens in a new tab.",
+  },
+  connectionInstallPrereq: {
+    id: "app.gateway.connection.installPrereq",
+    defaultMessage:
+      "The OpenShell CLI must be installed before running the commands below.",
+    description:
+      "Prerequisite note shown above the connection steps directing operators to install the CLI first.",
+  },
+  connectionInstallPrereqTitle: {
+    id: "app.gateway.connection.installPrereqTitle",
+    defaultMessage: "Prerequisite",
+    description: "Title for the CLI installation prerequisite alert.",
+  },
+  connectionLoginUnavailable: {
+    id: "app.gateway.connection.login.unavailable",
+    defaultMessage:
+      "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
+    description:
+      "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
+  },
+  connectionSandboxDescription: {
+    id: "app.gateway.connection.sandbox.description",
+    defaultMessage:
+      "Once setup is done, run this whenever you want a fresh sandbox running Claude through this gateway.",
+    description: "Supporting text for the create-sandbox connection step.",
+  },
+  connectionSandboxTitle: {
+    id: "app.gateway.connection.sandbox.title",
+    defaultMessage: "Create a sandbox",
+    description: "Title for the create-sandbox connection step.",
+  },
+  connectionSetupDescription: {
+    id: "app.gateway.connection.setup.description",
+    defaultMessage:
+      "Run these once to log in, add the Claude on Vertex AI provider, and select the model.",
+    description: "Supporting text for the one-time setup connection step.",
+  },
+  connectionSetupTitle: {
+    id: "app.gateway.connection.setup.title",
+    defaultMessage: "One-time setup",
+    description: "Title for the consolidated one-time setup connection step.",
+  },
+  connectionTab: {
+    id: "app.gateway.connection.tab",
+    defaultMessage: "Connection",
+    description: "Label for the default gateway detail Connection tab.",
+  },
+  connectionTabsLabel: {
+    id: "app.gateway.connection.tabsLabel",
+    defaultMessage: "Gateway connection and details",
+    description: "Accessible label for the gateway detail tabs.",
+  },
   copied: {
     id: "app.clipboard.copied",
     defaultMessage: "Copied",
@@ -103,6 +166,17 @@ export const messages = defineMessages({
     description:
       "Accessible label for copying a specific gateway's network endpoint.",
   },
+  copySandboxCommand: {
+    id: "app.gateway.connection.copySandboxCommand",
+    defaultMessage: "Copy the create-sandbox command",
+    description: "Accessible label for copying the create-sandbox command.",
+  },
+  copySetupCommand: {
+    id: "app.gateway.connection.copySetupCommand",
+    defaultMessage: "Copy the one-time setup commands",
+    description:
+      "Accessible label for copying the consolidated one-time setup script.",
+  },
   created: {
     id: "app.table.column.created",
     defaultMessage: "Created",
@@ -128,6 +202,29 @@ export const messages = defineMessages({
     id: "app.gateway.delete.pending",
     defaultMessage: "Deleting gateway",
     description: "Accessible progress text while a gateway is being deleted.",
+  },
+  detailsTab: {
+    id: "app.gateway.detailsTab",
+    defaultMessage: "Details",
+    description: "Label for the gateway detail Details tab.",
+  },
+  editModel: {
+    id: "app.gateway.connection.editModel",
+    defaultMessage: "Model (editable)",
+    description:
+      "Accessible label for the inline-editable model name in the setup command.",
+  },
+  editProviderName: {
+    id: "app.gateway.connection.editProviderName",
+    defaultMessage: "Provider name (editable)",
+    description:
+      "Accessible label for the inline-editable provider name in the setup command.",
+  },
+  editSandboxName: {
+    id: "app.gateway.connection.editSandboxName",
+    defaultMessage: "Sandbox name (editable)",
+    description:
+      "Accessible label for the inline-editable sandbox name in the create-sandbox command.",
   },
   error: {
     id: "app.status.error",
@@ -161,9 +258,8 @@ export const messages = defineMessages({
   },
   gatewayDescription: {
     id: "app.page.gateway.description",
-    defaultMessage:
-      "Review this gateway's configuration and operational status.",
-    description: "Supporting text on the gateway detail page.",
+    defaultMessage: "Connect to this gateway and review its configuration.",
+    description: "Metadata description for the gateway detail page.",
   },
   gatewayDetailsTitle: {
     id: "app.page.gatewayDetails.title",

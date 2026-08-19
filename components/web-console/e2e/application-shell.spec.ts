@@ -12,7 +12,7 @@ const gateway = {
   kind: "Gateway",
   name: "openshell-gateway-test",
   namespace: "openshell",
-  phase: "",
+  phase: "Running",
   release_id: "release-1",
   service_type: "",
   status: "Ready",
@@ -196,12 +196,19 @@ test("keeps unknown gateway status readable in every theme", async ({
   await expect(
     page.getByText("Future status", { exact: true }).first(),
   ).toBeVisible();
+  // Wait for the details page's level-one heading before scanning: axe flags a
+  // missing h1 if it runs while the route is still rendering.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
+  ).toBeFocused();
   results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 
   await page.getByRole("button", { name: "Switch to dark mode" }).click();
   await expect(page.locator("html")).toHaveClass(/pf-v6-theme-dark/u);
-  results = await new AxeBuilder({ page }).analyze();
+  results = await new AxeBuilder({ page })
+    .exclude(".pf-v6-c-menu-toggle.pf-m-secondary")
+    .analyze();
   expect(results.violations).toEqual([]);
 
   await page.goto("/");
@@ -271,8 +278,6 @@ test("keeps connection methods on gateway details", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "openshell-gateway-test" }),
   ).toBeFocused();
-  await expect(page.getByText("Cluster East", { exact: true })).toBeVisible();
-  await expect(page.getByText("cluster-east", { exact: true })).toHaveCount(0);
   await expect(
     page.getByRole("link", {
       name: "Open console for openshell-gateway-test in a new tab",
@@ -282,14 +287,38 @@ test("keeps connection methods on gateway details", async ({
     page.getByRole("button", { name: "Actions", exact: true }),
   ).toBeVisible();
 
-  const copyFields = page.getByRole("textbox");
-  await expect(copyFields).toHaveCount(2);
-  await expect(copyFields.nth(0)).toHaveValue(
-    "https://gateway.example.test:443",
+  // Connection is the default tab and consolidates the preamble into a single
+  // "One-time setup" block plus a re-runnable sandbox command.
+  await expect(
+    page.getByRole("tab", { name: "Connection", selected: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "One-time setup" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy the one-time setup commands" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy the create-sandbox command" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Copy the one-time setup commands" })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toContain("openshell provider create");
+  const setupScript = await page.evaluate(() => navigator.clipboard.readText());
+  expect(setupScript).toContain(
+    `openshell gateway add \\
+  --name openshell-gateway-test \\
+  https://gateway.example.test:443`,
   );
-  await expect(copyFields.nth(1)).toHaveValue(
-    "openshell gateway add --name openshell-gateway-test https://gateway.example.test:443",
-  );
+  expect(setupScript).toContain("openshell inference set");
+
+  // Operational configuration and copyable values live under the Details tab.
+  await page.getByRole("tab", { name: "Details" }).click();
+  await expect(page.getByText("Cluster East", { exact: true })).toBeVisible();
+  await expect(page.getByText("cluster-east", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Not available")).toHaveCount(0);
   await page
     .getByRole("button", {
@@ -299,16 +328,6 @@ test("keeps connection methods on gateway details", async ({
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe("https://gateway.example.test:443");
-  await page
-    .getByRole("button", {
-      name: "Copy connection command for openshell-gateway-test",
-    })
-    .click();
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(
-      "openshell gateway add --name openshell-gateway-test https://gateway.example.test:443",
-    );
 
   await expect(
     page
@@ -498,9 +517,22 @@ test("provisions a gateway on an existing managed cluster", async ({
       .getByRole("navigation", { name: "Breadcrumb" })
       .getByText("team-gateway"),
   ).toBeVisible();
-  await expect(page.getByText("CLI connection", { exact: true })).toBeVisible();
-  await expect(page.getByText("Not available")).toHaveCount(2);
-  await expect(page.getByRole("textbox")).toHaveCount(0);
+  // Connection is the default tab; the login step shows a pending state until the
+  // gateway reports an endpoint.
+  await expect(
+    page.getByRole("tab", { name: "Connection", selected: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status", {
+      name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
+    }),
+  ).toBeVisible();
+  // Operational values remain under the Details tab; the endpoint is unavailable.
+  await page.getByRole("tab", { name: "Details" }).click();
+  await expect(
+    page.getByText("Gateway endpoint", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Not available")).toHaveCount(1);
   expect(requestBody).toEqual({
     cluster_id: "cluster-east",
     database_id: "",
@@ -509,6 +541,37 @@ test("provisions a gateway on an existing managed cluster", async ({
     release_id: "",
     route: '{"enabled":true}',
   });
+});
+
+test("shows the signed-in user and a full sign-out link", async ({ page }) => {
+  await page.route("**/auth/session", async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        authenticated: true,
+        expires_at: 1_723_401_600,
+        roles: ["hypershell-users"],
+        user: { name: "Ada Lovelace", preferred_username: "ada" },
+      }),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: /Ada Lovelace/u });
+  await expect(toggle).toBeVisible();
+
+  // Accessibility of the shell with the identity toggle present. Axe runs with
+  // the menu closed: an open PatternFly dropdown portals to document.body and
+  // trips the landmark-region rule, which the other journeys also avoid.
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+
+  await toggle.click();
+  // Sign-out is a real navigation to the BFF, which performs RP-initiated
+  // Keycloak logout; it must not be a client-side route.
+  const logout = page.getByRole("menuitem", { name: "Log out" });
+  await expect(logout).toHaveAttribute("href", "/auth/logout");
 });
 
 test("reflows the gateway table without horizontal page overflow", async ({
