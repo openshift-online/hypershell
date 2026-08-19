@@ -218,15 +218,30 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run static, unit, Storybook, and production build gates
         run: pnpm check:web
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm --filter @openshift-online/hypershell-web-console exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # Install Chromium without `--with-deps` so the flaky apt phase
+      # (actions/runner-images#11347) never lands on the critical path -- the
+      # ubuntu-24.04 runner image already ships Chromium's system libraries.
+      # Cache the browser download too, keyed on the resolved Playwright
+      # version; only the default branch writes the cache, so PR runs cannot
+      # poison it.
+      - name: Restore Chromium cache
+        id: playwright-chromium-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
       - name: Install Chromium
-        run: |
-          # Cap apt network timeouts so a flaky Azure mirror doesn't hang the job.
-          sudo tee /etc/apt/apt.conf.d/99-timeout <<'APT'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "30";
-          Acquire::https::Timeout "30";
-          APT
-          pnpm --filter @openshift-online/hypershell-web-console exec playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: pnpm --filter @openshift-online/hypershell-web-console exec playwright install chromium
+      - name: Save Chromium cache
+        if: github.ref == 'refs/heads/main' && steps.playwright-chromium-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-chromium-cache.outputs.cache-primary-key }}
       - name: Run critical Chromium journey
         run: pnpm test:e2e:chromium
 
