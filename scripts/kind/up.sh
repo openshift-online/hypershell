@@ -750,6 +750,7 @@ fi
 if [[ -z "${seed_failed}" ]]; then
   # Check if dev-gateway already exists before creating
   info "Checking for existing dev-gateway..."
+  GATEWAY_ID=""
   EXISTING_GW_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateways")
   EXISTING_GW_HTTP=$(echo "${EXISTING_GW_RAW}" | tail -1)
   EXISTING_GW_RESP=$(echo "${EXISTING_GW_RAW}" | sed '$d')
