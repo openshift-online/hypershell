@@ -634,6 +634,48 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(apiRequests).toHaveLength(1);
   });
 
+  it("allows a same-origin request that the browser reports via Sec-Fetch-Site even when Origin is null", async () => {
+    // Firefox sends `Origin: null` on same-origin beacons under this app's
+    // no-referrer policy; Sec-Fetch-Site: same-origin proves it is not a
+    // cross-site request, so the telemetry beacon must be accepted.
+    const cookie = authenticateSession();
+    const response = await app.inject({
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        host: "console.hypershell.localhost",
+        origin: "null",
+        "sec-fetch-site": "same-origin",
+      },
+      method: "POST",
+      payload: { name: "test" },
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).not.toBe(403);
+    expect(apiRequests).toHaveLength(1);
+  });
+
+  it("rejects a cross-site request reported via Sec-Fetch-Site", async () => {
+    const cookie = authenticateSession();
+    const response = await app.inject({
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        host: "console.hypershell.localhost",
+        origin: "https://evil.example.com",
+        "sec-fetch-site": "cross-site",
+      },
+      method: "POST",
+      payload: { name: "test" },
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ statusCode: 403 });
+    expect(apiRequests).toHaveLength(0);
+  });
+
   // -----------------------------------------------------------------------
   // Proxy auth header injection
   // -----------------------------------------------------------------------
