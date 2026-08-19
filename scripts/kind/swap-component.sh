@@ -251,7 +251,7 @@ EOF
     # hang.
     (cd "${REPO_ROOT}" && \
       info "Installing workspace dependencies (pnpm install)..." && \
-      pnpm install --frozen-lockfile && \
+      pnpm install --frozen-lockfile --reporter=append-only && \
       info "Building workspace dependencies (sdk → domain-probes → gateway-management-ui)..." && \
       pnpm --filter @openshift-online/hypershell-sdk build && \
       pnpm --filter @openshift-online/hypershell-domain-probes build && \
