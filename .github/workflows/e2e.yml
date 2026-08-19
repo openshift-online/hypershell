@@ -328,9 +328,6 @@ jobs:
           curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
           openshell --version
 
-      - name: Print Kind environment configuration
-        run: make kind-env
-
       - name: Create Kind cluster with OIDC
         env:
           API_SERVER_IMAGE: ${{ needs.resolve-images.outputs.api_server_image }}
@@ -340,7 +337,11 @@ jobs:
           # Deploy Jaeger and point the web-console BFF at it so the browser
           # trace verification below has a collector to export to (WEB-TRACE-10).
           KIND_JAEGER: "true"
-        run: make kind-up
+        run: |
+          echo "::group::Kind environment configuration"
+          make kind-env
+          echo "::endgroup::"
+          make kind-up
 
       - name: Run e2e tests
         env:
