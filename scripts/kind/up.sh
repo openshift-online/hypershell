@@ -300,6 +300,22 @@ bff_otel_endpoint_set() {
   tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
 }
 
+# Reports 0 when the API server still carries an OTLP exporter endpoint, so the
+# disabled-state reconciliation can verify it actually removed the endpoint
+# rather than trusting that the unset command had any effect. A lookup failure is
+# propagated rather than read as "endpoint absent", which would let a silent API
+# error masquerade as a successful disable.
+api_server_otel_endpoint_set() {
+  local names
+  if ! names=$(kube get deployment/hypershell-api-server -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="api-server")].env[*].name}' \
+    2>&1); then
+    error "verifying OTLP endpoint removal: ${names}"
+    exit 1
+  fi
+  tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
+}
+
 if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   header "Jaeger"
   info "Deploying Jaeger..."
@@ -307,6 +323,13 @@ if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   info "Patching web console BFF with OTEL_EXPORTER_OTLP_ENDPOINT..."
   kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
     OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4318"
+  # The API server exports over OTLP/gRPC (4318 is OTLP/HTTP for the browser and
+  # BFF; 4317 is OTLP/gRPC reserved for the API server). Setting the endpoint on
+  # the Deployment opts the API server into tracing; a swapped-in working-tree
+  # image keeps this env, so browser -> BFF -> API traces join in Jaeger.
+  info "Patching API server with OTEL_EXPORTER_OTLP_ENDPOINT..."
+  kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
+    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317"
   info "Waiting for Jaeger..."
   kube wait --for=condition=available deployment/jaeger -n "${KIND_NAMESPACE}" --timeout=120s
   success "Jaeger ready"
@@ -332,6 +355,14 @@ else
     kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
       OTEL_EXPORTER_OTLP_ENDPOINT-
     if bff_otel_endpoint_set; then
+      error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
+      exit 1
+    fi
+  fi
+  if deployment_exists hypershell-api-server; then
+    kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
+      OTEL_EXPORTER_OTLP_ENDPOINT-
+    if api_server_otel_endpoint_set; then
       error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
       exit 1
     fi
