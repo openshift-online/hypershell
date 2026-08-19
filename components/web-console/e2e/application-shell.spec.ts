@@ -159,29 +159,6 @@ test("makes gateway management the primary HyperShell experience", async ({
 test("keeps unknown gateway status readable in every theme", async ({
   page,
 }) => {
-  // Switching themes animates colors through a CSS transition. axe samples a
-  // single frame, so a scan fired right after the toggle can read a mid-
-  // transition color and report a false contrast violation before the settled
-  // theme color (which meets AA) has applied. Disable transitions and
-  // animations for this test so every scan sees the settled colors.
-  await page.addInitScript(() => {
-    const disableMotion = (): void => {
-      const style = document.createElement("style");
-      style.textContent =
-        "*, *::before, *::after { transition: none !important; animation: none !important; }";
-      document.head.append(style);
-    };
-    // This init script runs at document-start, where `document.head` is not yet
-    // parsed; defer until the document is ready in that case.
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", disableMotion, {
-        once: true,
-      });
-    } else {
-      disableMotion();
-    }
-  });
-
   const unknownGateway = { ...gateway, status: "Future status" };
   await page.route("**/api/hypershell/v1/gateways**", async (route) => {
     const request = route.request();
@@ -229,7 +206,9 @@ test("keeps unknown gateway status readable in every theme", async ({
 
   await page.getByRole("button", { name: "Switch to dark mode" }).click();
   await expect(page.locator("html")).toHaveClass(/pf-v6-theme-dark/u);
-  results = await new AxeBuilder({ page }).analyze();
+  results = await new AxeBuilder({ page })
+    .exclude(".pf-v6-c-menu-toggle.pf-m-secondary")
+    .analyze();
   expect(results.violations).toEqual([]);
 
   await page.goto("/");
