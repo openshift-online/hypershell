@@ -700,8 +700,8 @@ All container images deployed into the Kind cluster SHALL use [Red Hat Hardened 
 Developers SHALL provide a pull secret file via the `KIND_PULL_SECRET` environment variable to authenticate against `registry.access.redhat.com`. When set, `make kind-up` SHALL apply the secret to the target namespace and patch the default ServiceAccount with `imagePullSecrets` so that pods can pull HI images without per-pod secret references.
 
 > **Database images:** Two environment variables control PostgreSQL images for the two CNPG provisioning paths:
-> - `HYPERSHELL_DATABASE_IMAGE` — configures the API server's static `hypershell-db` CNPG Cluster. `make kind-up` patches the Cluster with this image after applying manifests. When unset, CNPG uses its built-in default image.
-> - `OPENSHELL_DATABASE_IMAGE` — configures gateway database CNPG Clusters created dynamically by the ManagedDatabaseReconciler. Set this on the control plane process (or in the Kind deployment environment) before provisioning gateways. When unset, CNPG uses its built-in default image.
+> - `HYPERSHELL_DATABASE_IMAGE` - configures the API server's static `hypershell-db` CNPG Cluster. `make kind-up` patches the Cluster with this image after applying manifests. When unset, CNPG uses its built-in default image.
+> - `OPENSHELL_DATABASE_IMAGE` - configures gateway database CNPG Clusters created dynamically by the ManagedDatabaseReconciler. Set this on the control plane process (or in the Kind deployment environment) before provisioning gateways. When unset, CNPG uses its built-in default image.
 >
 > To satisfy the all-images HI requirement, set **both** variables to the HI PostgreSQL image before running `make kind-up`.
 
