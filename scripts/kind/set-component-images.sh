@@ -8,6 +8,10 @@
 #   API_SERVER_IMAGE
 #   CONTROL_PLANE_IMAGE
 #   WEB_CONSOLE_IMAGE
+#   ROLLOUT_TIMEOUT     per-deployment `kubectl rollout status` ceiling as a Go
+#                       duration (default 300s). Raise it when a PR image is
+#                       large or the registry is throttling so a slow image
+#                       pull does not trip the rollout wait.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,6 +23,7 @@ require_cluster
 _api_img="${API_SERVER_IMAGE:-}"
 _cp_img="${CONTROL_PLANE_IMAGE:-}"
 _wc_img="${WEB_CONSOLE_IMAGE:-}"
+: "${ROLLOUT_TIMEOUT:=300s}"
 
 if [[ -z "${_api_img}" && -z "${_cp_img}" && -z "${_wc_img}" ]]; then
   info "No component image overrides set; nothing to swap."
@@ -37,10 +42,11 @@ swap_deployment() {
   local containers=("$@")
 
   [[ -n "${image}" ]] || return 0
-  if is_swapped "${component}"; then
-    return 0
-  fi
 
+  # Idempotent: if every container already runs the target image, skip the
+  # re-apply and its rollout wait. (This does not consult the local-dev
+  # .kind-swaps ledger -- CI never writes it, so the live image is the only
+  # source of truth here.)
   local current="${image}"
   for container in "${containers[@]}"; do
     local running
@@ -63,7 +69,7 @@ swap_deployment() {
   done
   # shellcheck disable=SC2068
   kube set image "deployment/${deployment}" ${set_image_args[@]} -n "${KIND_NAMESPACE}"
-  kube rollout status "deployment/${deployment}" -n "${KIND_NAMESPACE}" --timeout=300s
+  kube rollout status "deployment/${deployment}" -n "${KIND_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
 }
 
 header "Component Image Swap"
