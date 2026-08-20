@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const deviceAuthorizationGrantAttribute = "oauth2.device.authorization.grant.enabled"
+
 // Client wraps the Keycloak Admin REST API for gateway OIDC provisioning.
 type Client struct {
 	serverURL    string
@@ -247,7 +249,8 @@ func (c *Client) createClient(ctx context.Context, gatewayName string) (string, 
 		"fullScopeAllowed":          false,
 		"redirectUris":              []string{"http://127.0.0.1:*", "http://localhost:*"},
 		"attributes": map[string]string{
-			"pkce.code.challenge.method": "S256",
+			"pkce.code.challenge.method":      "S256",
+			deviceAuthorizationGrantAttribute: "true",
 		},
 		"defaultClientScopes": []string{
 			"openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr",
@@ -288,6 +291,50 @@ func (c *Client) createClient(ctx context.Context, gatewayName string) (string, 
 		return "", fmt.Errorf("no client UUID in Location header")
 	}
 	return parts[len(parts)-1], nil
+}
+
+// EnsureDeviceAuthorizationGrant enables OAuth 2.0 Device Authorization Grant
+// on an existing Keycloak client. The full representation is fetched and
+// updated so unrelated client settings and attributes are preserved.
+func (c *Client) EnsureDeviceAuthorizationGrant(ctx context.Context, clientUUID string) error {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s", c.realm, clientUUID)
+	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("get keycloak client %s: %w", clientUUID, err)
+	}
+
+	var representation map[string]json.RawMessage
+	if err := json.Unmarshal(respBody, &representation); err != nil {
+		return fmt.Errorf("parse keycloak client %s: %w", clientUUID, err)
+	}
+
+	attributes := make(map[string]string)
+	if rawAttributes, ok := representation["attributes"]; ok &&
+		len(rawAttributes) > 0 && !bytes.Equal(bytes.TrimSpace(rawAttributes), []byte("null")) {
+		if err := json.Unmarshal(rawAttributes, &attributes); err != nil {
+			return fmt.Errorf("parse attributes for keycloak client %s: %w", clientUUID, err)
+		}
+	}
+
+	if attributes[deviceAuthorizationGrantAttribute] == "true" {
+		return nil
+	}
+	attributes[deviceAuthorizationGrantAttribute] = "true"
+
+	rawAttributes, err := json.Marshal(attributes)
+	if err != nil {
+		return fmt.Errorf("marshal attributes for keycloak client %s: %w", clientUUID, err)
+	}
+	representation["attributes"] = rawAttributes
+
+	body, err := json.Marshal(representation)
+	if err != nil {
+		return fmt.Errorf("marshal keycloak client %s: %w", clientUUID, err)
+	}
+	if _, err := c.doRequest(ctx, http.MethodPut, path, body); err != nil {
+		return fmt.Errorf("enable device authorization grant on keycloak client %s: %w", clientUUID, err)
+	}
+	return nil
 }
 
 func (c *Client) createClientRoles(ctx context.Context, clientUUID string) error {
