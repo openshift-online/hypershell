@@ -31,7 +31,7 @@
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 925,
+    "line": 981,
     "rationale": "Example filename 'rosa-vteam.yaml' in a directory-tree illustration references a real external GitOps path; it is an example path, not the discouraged term."
   }
 ]

@@ -98,19 +98,34 @@ func main() {
 		}
 	}
 
-	// The Gateway Exposure port decouples route address resolution and readiness
-	// observation from the concrete exposure backend. The Gateway API adapter is
-	// enabled only when the cluster supports the Gateway API; on clusters without
-	// it the port stays nil and routed gateways are gated on Deployment readiness
-	// alone. See specs/platform/openshell-gateway-routing.spec.md.
+	// The Gateway Exposure port decouples route-address resolution and readiness
+	// observation from the concrete ingress backend. Select the adapter by the
+	// SAME effective ingress mode the reconciler uses to emit ingress resources
+	// (gateway.IngressMode), not by raw CRD presence: IBM Cloud ROKS ships the
+	// Gateway API CRDs but runs Route mode, so keying off CRD presence would wire
+	// the Gateway API readiness observer for a gateway that is actually exposed
+	// through an OpenShift Route -- leaving it stuck in Provisioning forever
+	// ("per-tenant Gateway not found"). In "none" mode the port stays nil and
+	// routed gateways are gated on Deployment readiness alone.
+	// See specs/platform/openshell-gateway-routing.spec.md.
 	var exposurePort exposure.Port
-	if clientset != nil && k8sConfig != nil && gateway.DetectGatewayAPI(clientset) {
-		gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
-		if gwErr != nil {
-			log.Fatalf("creating gateway-api client: %v", gwErr)
+	if clientset != nil && k8sConfig != nil {
+		hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
+		isOpenShift := gateway.DetectOpenShift(clientset)
+		switch gateway.IngressMode(hasGatewayAPI, isOpenShift) {
+		case gateway.IngressModeGatewayAPI:
+			gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
+			if gwErr != nil {
+				log.Fatalf("creating gateway-api client: %v", gwErr)
+			}
+			exposurePort = exposure.NewGatewayAPIExposure(gwClient)
+			log.Printf("INFO gateway exposure port enabled (gateway-api adapter)")
+		case gateway.IngressModeRoute:
+			exposurePort = exposure.NewRouteExposure(dynamicClient)
+			log.Printf("INFO gateway exposure port enabled (route adapter)")
+		default:
+			log.Printf("INFO gateway exposure port disabled (ingress mode none); routed gateways gated on Deployment readiness only")
 		}
-		exposurePort = exposure.NewGatewayAPIExposure(gwClient)
-		log.Printf("INFO gateway exposure port enabled (gateway-api adapter)")
 	}
 
 	fleetReconciler := reconciler.NewFleetReconciler()

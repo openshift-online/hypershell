@@ -16,40 +16,40 @@ func TestGatewayIngressMode(t *testing.T) {
 			name:   "explicit route override wins over capabilities",
 			setEnv: true, envValue: "route",
 			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
-			want: ingressModeRoute,
+			want: IngressModeRoute,
 		},
 		{
 			name:   "explicit gateway-api override",
 			setEnv: true, envValue: "gateway-api",
 			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: true},
-			want: ingressModeGatewayAPI,
+			want: IngressModeGatewayAPI,
 		},
 		{
 			name:   "routes alias maps to route",
 			setEnv: true, envValue: "Routes",
 			opts: ReconcileOpts{IsOpenShift: true},
-			want: ingressModeRoute,
+			want: IngressModeRoute,
 		},
 		{
 			name:   "none disables managed ingress",
 			setEnv: true, envValue: "none",
 			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
-			want: ingressModeNone,
+			want: IngressModeNone,
 		},
 		{
 			name: "auto-detect prefers Gateway API when present",
 			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
-			want: ingressModeGatewayAPI,
+			want: IngressModeGatewayAPI,
 		},
 		{
 			name: "auto-detect falls back to Route on OpenShift without Gateway API",
 			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: true},
-			want: ingressModeRoute,
+			want: IngressModeRoute,
 		},
 		{
 			name: "auto-detect yields none on a plain cluster",
 			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: false},
-			want: ingressModeNone,
+			want: IngressModeNone,
 		},
 	}
 

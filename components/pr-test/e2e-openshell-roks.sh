@@ -26,31 +26,46 @@ set -euo pipefail
 # so the defaults target the live IBM cluster layout. Every value is still
 # env-overridable for other clusters.
 CLI="${OC:-oc}"
-OPENSHELL="${OPENSHELL_BIN:-/bin/openshell}"
+# openshell CLI: must be new enough to support `workspace member add` (>= 0.0.98).
+# The system /bin/openshell on some hosts is 0.0.55 and lacks the `workspace`
+# subcommand, so default to the user-local install that has it.
+OPENSHELL="${OPENSHELL_BIN:-$HOME/.local/bin/openshell}"
 HSCTL="${HSCTL_BIN:-/home/mturansk/projects/bin/hsctl}"
 HS_NAMESPACE="${HYPERSHELL_NAMESPACE:-hypershell}"
 GW_NAMESPACE=""
 GW_NAME="${GATEWAY_NAME:-e2e-oidc-gw}"
-SANDBOX_TIMEOUT="${SANDBOX_TIMEOUT:-150}"
+SANDBOX_TIMEOUT="${SANDBOX_TIMEOUT:-240}"
+# After the sandbox POD is Running, the openshell runner still needs to reach
+# its own Ready phase before exec works. ROKS init is slow, so allow extra time.
+SANDBOX_READY_TIMEOUT="${SANDBOX_READY_TIMEOUT:-150}"
 PROVISION_TIMEOUT="${PROVISION_TIMEOUT:-180}"
 SKIP_CLEANUP="${SKIP_CLEANUP:-}"
 LAUNCH_TUI="${LAUNCH_TUI:-0}"
 PAUSE="${PAUSE:-0}"
 
 KC_NAMESPACE="${KEYCLOAK_NAMESPACE:-keycloak-system}"
-OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-hypershell-frontend}"
+# Management-plane client: used only for the hsctl login below. The ROKS API
+# server runs with --enable-jwt=false, so this token is advisory (the API server
+# does not validate it), but hsctl still wants a bearer to attach.
+MGMT_CLIENT_ID="${MGMT_CLIENT_ID:-${OIDC_CLIENT_ID:-hypershell-frontend}}"
+# Keycloak admin service account secret. Read to perform the per-gateway client
+# role assignment the control plane's OIDC Role Bridge would normally drive from
+# a RoleBinding (see the Role Bridge section below).
+KC_ADMIN_SECRET="${KC_ADMIN_SECRET:-hypershell-keycloak-admin}"
 OIDC_USERNAME="${OIDC_USERNAME:-admin}"
 OIDC_PASSWORD="${OIDC_PASSWORD:-admin}"
 DEV_USERNAME="${DEV_USERNAME:-developer}"
 DEV_PASSWORD="${DEV_PASSWORD:-developer}"
+# Per-gateway Keycloak client id ({name}-{id}); resolved once the gateway id is
+# known. This is the OIDC audience the gateway pod validates and the client the
+# openshell CLI authenticates against -- NOT the management-plane client.
+GW_OIDC_CLIENT_ID=""
 
 # Mirrored gateway images (ROKS nodes can only pull the internal registry). Used
 # only when this run has to CREATE the gateway; ignored when it already exists.
 REG_MIRROR="${REG_MIRROR:-image-registry.openshift-image-registry.svc:5000/openshift}"
-GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.0.106}"
-GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.0.106}"
-# ROKS Keycloak realm emits a top-level 'roles' claim (not 'groups').
-OIDC_ROLES_CLAIM="${OIDC_ROLES_CLAIM:-roles}"
+GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.0.109}"
+GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.0.109}"
 
 PASS=0
 FAIL=0
@@ -114,13 +129,127 @@ if [[ -z "$KC_HOST" ]]; then
   exit 1
 fi
 OIDC_ISSUER="https://${KC_HOST}/realms/hypershell"
+TOKEN_ENDPOINT="${OIDC_ISSUER}/protocol/openid-connect/token"
+
+# ── Keycloak admin service account (OIDC Role Bridge equivalent) ────────────
+# The gateway pod validates data-plane tokens against its own per-gateway
+# Keycloak client ({name}-{id}): audience = that client id, roles read from the
+# hypershell.roles claim (openshell-admin / openshell-user). Those client roles
+# are normally assigned by the control plane's OIDC Role Bridge, which is driven
+# by a gateway:owner / gateway:viewer RoleBinding. On this cluster the API server
+# runs with --enable-authz=false --enable-jwt=false, so no authenticated creator
+# exists, no RoleBinding is auto-provisioned, and the Role Bridge never fires.
+# The e2e therefore performs the same assignment the bridge would, using the
+# hypershell-keycloak-admin service account.
+# See specs/platform/openshell-gateway-keycloak.spec.md (RBAC Role Bridge).
+KC_REALM=""
+KC_SA_TOKEN=""
+kc_sa_bootstrap() {
+  local sec realm cid csec
+  sec=$($CLI get secret "$KC_ADMIN_SECRET" -n "$HS_NAMESPACE" -o json 2>/dev/null || true)
+  if [[ -z "$sec" ]]; then return 1; fi
+  realm=$(echo "$sec" | python3 -c "import json,sys,base64; d=json.load(sys.stdin)['data']; print(base64.b64decode(d['realm']).decode())" 2>/dev/null || true)
+  cid=$(echo "$sec" | python3 -c "import json,sys,base64; d=json.load(sys.stdin)['data']; print(base64.b64decode(d['client-id']).decode())" 2>/dev/null || true)
+  csec=$(echo "$sec" | python3 -c "import json,sys,base64; d=json.load(sys.stdin)['data']; print(base64.b64decode(d['client-secret']).decode())" 2>/dev/null || true)
+  [[ -n "$realm" && -n "$cid" && -n "$csec" ]] || return 1
+  KC_REALM="$realm"
+  KC_SA_TOKEN=$(curl -sk -X POST "https://${KC_HOST}/realms/${KC_REALM}/protocol/openid-connect/token" \
+    -d grant_type=client_credentials -d "client_id=${cid}" -d "client_secret=${csec}" 2>/dev/null \
+    | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+  [[ -n "$KC_SA_TOKEN" ]]
+}
+
+# assign_gateway_role <username> <openshell-admin|openshell-user>
+# Idempotently assigns a per-gateway Keycloak client role to a realm user,
+# mirroring RoleBindingReconciler.AssignClientRole.
+assign_gateway_role() {
+  local username="$1" role="$2"
+  local uuid user_id role_json
+  uuid=$(curl -sk "https://${KC_HOST}/admin/realms/${KC_REALM}/clients?clientId=${GW_OIDC_CLIENT_ID}" \
+    -H "Authorization: Bearer ${KC_SA_TOKEN}" 2>/dev/null \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null || true)
+  user_id=$(curl -sk "https://${KC_HOST}/admin/realms/${KC_REALM}/users?username=${username}&exact=true" \
+    -H "Authorization: Bearer ${KC_SA_TOKEN}" 2>/dev/null \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null || true)
+  if [[ -z "$uuid" || -z "$user_id" ]]; then return 1; fi
+  role_json=$(curl -sk "https://${KC_HOST}/admin/realms/${KC_REALM}/clients/${uuid}/roles/${role}" \
+    -H "Authorization: Bearer ${KC_SA_TOKEN}" 2>/dev/null || true)
+  echo "$role_json" | python3 -c "import json,sys; json.load(sys.stdin)['id']" &>/dev/null || return 1
+  curl -sk -o /dev/null -X POST \
+    "https://${KC_HOST}/admin/realms/${KC_REALM}/users/${user_id}/role-mappings/clients/${uuid}" \
+    -H "Authorization: Bearer ${KC_SA_TOKEN}" -H "Content-Type: application/json" \
+    -d "[${role_json}]" 2>/dev/null
+}
+
+# mint_gw_token <username> <password> -> prints a data-plane access token for the
+# per-gateway Keycloak client (resource-owner password grant; the client has
+# directAccessGrantsEnabled=true).
+mint_gw_token() {
+  curl -sk -X POST "${TOKEN_ENDPOINT}" \
+    -d grant_type=password -d "client_id=${GW_OIDC_CLIENT_ID}" \
+    -d "username=$1" -d "password=$2" 2>/dev/null \
+    | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
+}
+
+# write_openshell_config <local_name> <config_dir> <access_token>
+# Writes the openshell CLI gateway metadata + token in OIDC mode against the
+# per-gateway client.
+write_openshell_config() {
+  local local_name="$1" config_dir="$2" token="$3"
+  mkdir -p "$config_dir"
+  GW_LOCAL_NAME="$local_name" GW_ENDPOINT="$GW_ENDPOINT" \
+    OIDC_ISSUER="$OIDC_ISSUER" OIDC_CLIENT_ID="$GW_OIDC_CLIENT_ID" \
+    OIDC_TOKEN="$token" GW_CONFIG_DIR="$config_dir" python3 -c "
+import json, os
+config_dir = os.environ['GW_CONFIG_DIR']
+meta = {
+    'name': os.environ['GW_LOCAL_NAME'],
+    'gateway_endpoint': os.environ['GW_ENDPOINT'],
+    'is_remote': True,
+    'gateway_port': 0,
+    'auth_mode': 'oidc',
+    'oidc_issuer': os.environ['OIDC_ISSUER'],
+    'oidc_client_id': os.environ['OIDC_CLIENT_ID']
+}
+with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
+    json.dump(meta, f, indent=2)
+token = {
+    'access_token': os.environ['OIDC_TOKEN'],
+    'issuer': os.environ['OIDC_ISSUER'],
+    'client_id': os.environ['OIDC_CLIENT_ID']
+}
+with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
+    json.dump(token, f, indent=2)
+os.chmod(os.path.join(config_dir, 'metadata.json'), 0o600)
+os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
+"
+}
+
+# sandbox_exec <local_name> <sandbox> <ready_timeout> -- <cmd...>
+# Runs an openshell exec, retrying while the sandbox runner is still starting
+# ("not ready" / "Provisioning"). The k8s pod reaching Running precedes the
+# openshell sandbox reaching Ready, so exec must tolerate that lag. Prints the
+# command output (stdout+stderr) and returns the exec's exit status.
+sandbox_exec() {
+  local ln="$1" sb="$2" to="$3"; shift 3
+  local deadline=$(( $(date +%s) + to ))
+  local out rc
+  while :; do
+    out=$("${OPENSHELL}" -g "$ln" sandbox exec -n "$sb" "$@" 2>&1); rc=$?
+    if [[ $rc -eq 0 ]]; then printf '%s' "$out"; return 0; fi
+    if echo "$out" | grep -qiE 'not ready|provisioning|not found' && [[ $(date +%s) -lt $deadline ]]; then
+      sleep 5; continue
+    fi
+    printf '%s' "$out"; return $rc
+  done
+}
 
 # Log the hypershell CLI into THIS cluster. hsctl 0.1.0 requires --url and a
 # bearer token via --token-file; mint one from Keycloak (admin) so the run is
 # self-contained rather than depending on a previously-saved config.
 dim "Logging in to hypershell CLI (${API_HOST})..."
-LOGIN_TOKEN=$(curl -sk -X POST "${OIDC_ISSUER}/protocol/openid-connect/token" \
-  -d "grant_type=password" -d "client_id=${OIDC_CLIENT_ID}" \
+LOGIN_TOKEN=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
+  -d "grant_type=password" -d "client_id=${MGMT_CLIENT_ID}" \
   -d "username=${OIDC_USERNAME}" -d "password=${OIDC_PASSWORD}" 2>/dev/null \
   | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
 if [[ -n "$LOGIN_TOKEN" ]]; then
@@ -134,8 +263,9 @@ bold "HyperShell OpenShell Gateway End-to-End Test"
 sep
 echo ""
 printf '  %s\n' "1. Gateway provisioning via HyperShell API (OIDC)"
+printf '  %s\n' "1b. OIDC Role Bridge (per-gateway client roles)"
 printf '  %s\n' "2. Gateway infrastructure verification"
-printf '  %s\n' "3. OIDC token acquisition"
+printf '  %s\n' "3. OIDC token acquisition (per-gateway client)"
 printf '  %s\n' "3a. CA certificate setup"
 printf '  %s\n' "4. Route discovery + openshell CLI registration"
 printf '  %s\n' "5. Gateway connectivity"
@@ -190,8 +320,12 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
   show_cmd "curl -sk -X POST https://${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
-  GW_CREATE_BODY=$(OIDC_ISSUER="$OIDC_ISSUER" OIDC_CLIENT_ID="$OIDC_CLIENT_ID" GW_NAME="$GW_NAME" \
-    OIDC_ROLES_CLAIM="$OIDC_ROLES_CLAIM" GW_IMAGE="$GW_IMAGE" GW_SUPERVISOR_IMAGE="$GW_SUPERVISOR_IMAGE" python3 -c "
+  # OIDC configuration is system-managed: the control plane provisions the
+  # per-gateway Keycloak client and populates oidc.* itself (read-only in the
+  # API). Per openshell-gateway-keycloak.spec.md the create request MUST NOT
+  # supply oidc -- we only ask for the gateway and its Route.
+  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" \
+    GW_IMAGE="$GW_IMAGE" GW_SUPERVISOR_IMAGE="$GW_SUPERVISOR_IMAGE" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
@@ -201,13 +335,6 @@ body = {
     'database_id': 'e2e-db',
     'image': os.environ['GW_IMAGE'],
     'supervisor_image': os.environ['GW_SUPERVISOR_IMAGE'],
-    'oidc': json.dumps({
-        'issuer': os.environ['OIDC_ISSUER'],
-        'audience': os.environ['OIDC_CLIENT_ID'],
-        'roles_claim': os.environ['OIDC_ROLES_CLAIM'],
-        'admin_role': 'hypershell-admins',
-        'user_role': 'hypershell-users'
-    }),
     'route': json.dumps({
         'enabled': True
     })
@@ -255,6 +382,35 @@ if [[ -z "$GW_NAMESPACE" ]]; then
   exit 1
 fi
 dim "  Gateway namespace: ${GW_NAMESPACE}"
+
+# Per-gateway Keycloak client id, per openshell-gateway-keycloak.spec.md.
+GW_OIDC_CLIENT_ID="${GW_NAME}-${GW_ID}"
+dim "  Per-gateway OIDC client: ${GW_OIDC_CLIENT_ID}"
+sep
+
+# ── 1b. OIDC Role Bridge (per-gateway client role assignment) ──────────────
+
+echo ""
+bold "1b. OIDC Role Bridge"
+echo ""
+
+show_cmd "# assign openshell-admin/openshell-user on client ${GW_OIDC_CLIENT_ID}"
+if kc_sa_bootstrap; then
+  pass "Keycloak admin service account ready (realm: ${KC_REALM})"
+  if assign_gateway_role "$OIDC_USERNAME" openshell-admin; then
+    pass "Assigned openshell-admin to ${OIDC_USERNAME} on ${GW_OIDC_CLIENT_ID}"
+  else
+    fail_test "Failed to assign openshell-admin to ${OIDC_USERNAME}"
+  fi
+  if assign_gateway_role "$DEV_USERNAME" openshell-user; then
+    pass "Assigned openshell-user to ${DEV_USERNAME} on ${GW_OIDC_CLIENT_ID}"
+  else
+    fail_test "Failed to assign openshell-user to ${DEV_USERNAME}"
+  fi
+else
+  fail_test "Keycloak admin service account not available (${KC_ADMIN_SECRET})"
+  dim "  Cannot assign per-gateway client roles; sandbox operations will fail auth"
+fi
 sep
 
 # ── 2. gateway infrastructure ──────────────────────────────────────────────
@@ -316,21 +472,26 @@ echo ""
 bold "3. OIDC Token Acquisition"
 echo ""
 
-show_cmd "# resource-owner password grant → ${OIDC_ISSUER}"
-TOKEN_ENDPOINT="${OIDC_ISSUER}/protocol/openid-connect/token"
-OIDC_RESPONSE=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
-  -d "grant_type=password" \
-  -d "client_id=${OIDC_CLIENT_ID}" \
-  -d "username=${OIDC_USERNAME}" \
-  -d "password=${OIDC_PASSWORD}" 2>/dev/null || true)
-
-OIDC_TOKEN=$(echo "$OIDC_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+show_cmd "# resource-owner password grant (client=${GW_OIDC_CLIENT_ID}) → ${OIDC_ISSUER}"
+OIDC_TOKEN=$(mint_gw_token "$OIDC_USERNAME" "$OIDC_PASSWORD")
 if [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "None" ]]; then
-  pass "OIDC token acquired (user: ${OIDC_USERNAME})"
+  # Confirm the data-plane claims match what the gateway validates: aud must be
+  # the per-gateway client and hypershell.roles must carry openshell-admin.
+  CLAIMS=$(echo "$OIDC_TOKEN" | python3 -c "
+import sys,base64,json
+t=sys.stdin.read().strip().split('.')[1]; t+='='*(-len(t)%4)
+c=json.loads(base64.urlsafe_b64decode(t))
+print(c.get('aud',''), ','.join(c.get('hypershell',{}).get('roles',[])))
+" 2>/dev/null || true)
+  TOK_AUD=$(echo "$CLAIMS" | awk '{print $1}')
+  TOK_ROLES=$(echo "$CLAIMS" | awk '{print $2}')
+  if [[ "$TOK_AUD" == "$GW_OIDC_CLIENT_ID" && "$TOK_ROLES" == *"openshell-admin"* ]]; then
+    pass "OIDC token acquired (user: ${OIDC_USERNAME}, aud=${TOK_AUD}, roles=${TOK_ROLES})"
+  else
+    fail_test "OIDC token has wrong claims (aud=${TOK_AUD:-none}, roles=${TOK_ROLES:-none})"
+  fi
 else
   fail_test "Failed to acquire OIDC token from Keycloak"
-  TOKEN_ERR=$(echo "$OIDC_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','unknown'))" 2>/dev/null || echo 'no response')
-  dim "    ${TOKEN_ERR}"
   exit 1
 fi
 sep
@@ -405,34 +566,8 @@ show_cmd "${OPENSHELL} gateway remove ${GW_LOCAL_NAME}"
 "${OPENSHELL}" gateway remove "${GW_LOCAL_NAME}" 2>/dev/null || true
 mkdir -p "${GW_CONFIG_DIR}"
 
-show_cmd "# write gateway metadata (OIDC mode)"
-GW_LOCAL_NAME="$GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
-  OIDC_ISSUER="$OIDC_ISSUER" OIDC_CLIENT_ID="$OIDC_CLIENT_ID" \
-  OIDC_TOKEN="$OIDC_TOKEN" GW_CONFIG_DIR="$GW_CONFIG_DIR" \
-  python3 -c "
-import json, os
-config_dir = os.environ['GW_CONFIG_DIR']
-meta = {
-    'name': os.environ['GW_LOCAL_NAME'],
-    'gateway_endpoint': os.environ['GW_ENDPOINT'],
-    'is_remote': True,
-    'gateway_port': 0,
-    'auth_mode': 'oidc',
-    'oidc_issuer': os.environ['OIDC_ISSUER'],
-    'oidc_client_id': os.environ['OIDC_CLIENT_ID']
-}
-with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
-    json.dump(meta, f, indent=2)
-token = {
-    'access_token': os.environ['OIDC_TOKEN'],
-    'issuer': os.environ['OIDC_ISSUER'],
-    'client_id': os.environ['OIDC_CLIENT_ID']
-}
-with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
-    json.dump(token, f, indent=2)
-os.chmod(os.path.join(config_dir, 'metadata.json'), 0o600)
-os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
-"
+show_cmd "# write gateway metadata (OIDC mode, client=${GW_OIDC_CLIENT_ID})"
+write_openshell_config "$GW_LOCAL_NAME" "$GW_CONFIG_DIR" "$OIDC_TOKEN"
 
 if [[ -f "${GW_CONFIG_DIR}/metadata.json" && -f "${GW_CONFIG_DIR}/oidc_token.json" ]]; then
   pass "openshell CLI registered (OIDC mode)"
@@ -484,6 +619,14 @@ echo ""
 
 RUN_ID=$(date +%s | tail -c5)
 SANDBOX_NAME="e2e-${RUN_ID}"
+
+# Refresh the data-plane token so it stays valid across the create+exec window
+# (Keycloak access tokens are short-lived).
+FRESH_TOKEN=$(mint_gw_token "$OIDC_USERNAME" "$OIDC_PASSWORD")
+if [[ -n "$FRESH_TOKEN" && "$FRESH_TOKEN" != "None" ]]; then
+  OIDC_TOKEN="$FRESH_TOKEN"
+  write_openshell_config "$GW_LOCAL_NAME" "$GW_CONFIG_DIR" "$OIDC_TOKEN"
+fi
 
 show_cmd "${OPENSHELL} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
 dim "  Creating sandbox (timeout: ${SANDBOX_TIMEOUT}s)..."
@@ -538,7 +681,8 @@ echo ""
 GW_FLAG="-g ${GW_LOCAL_NAME}"
 
 show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
-if SB_EXEC_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
+dim "  Waiting for sandbox runner Ready (up to ${SANDBOX_READY_TIMEOUT}s)..."
+if SB_EXEC_OUTPUT=$(sandbox_exec "${GW_LOCAL_NAME}" "${SANDBOX_NAME}" "${SANDBOX_READY_TIMEOUT}" -- uname -a); then
   CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
   if [[ -n "$CLEAN_EXEC" ]]; then
     pass "Sandbox exec: command executed inside sandbox"
@@ -592,16 +736,15 @@ echo ""
 bold "8. Developer User RBAC Verification"
 echo ""
 
-show_cmd "# acquire OIDC token for developer user"
-DEV_RESPONSE=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
-  -d "grant_type=password" \
-  -d "client_id=${OIDC_CLIENT_ID}" \
-  -d "username=${DEV_USERNAME}" \
-  -d "password=${DEV_PASSWORD}" 2>/dev/null || true)
-
-DEV_TOKEN=$(echo "$DEV_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+show_cmd "# acquire developer OIDC token (client=${GW_OIDC_CLIENT_ID})"
+DEV_TOKEN=$(mint_gw_token "$DEV_USERNAME" "$DEV_PASSWORD")
 if [[ -n "$DEV_TOKEN" && "$DEV_TOKEN" != "None" ]]; then
-  pass "Developer OIDC token acquired (user: ${DEV_USERNAME})"
+  DEV_ROLES=$(echo "$DEV_TOKEN" | python3 -c "
+import sys,base64,json
+t=sys.stdin.read().strip().split('.')[1]; t+='='*(-len(t)%4)
+print(','.join(json.loads(base64.urlsafe_b64decode(t)).get('hypershell',{}).get('roles',[])))
+" 2>/dev/null || true)
+  pass "Developer OIDC token acquired (user: ${DEV_USERNAME}, roles=${DEV_ROLES:-none})"
 else
   fail_test "Failed to acquire developer OIDC token"
 fi
@@ -615,33 +758,7 @@ if [[ -n "$DEV_TOKEN" && "$DEV_TOKEN" != "None" ]]; then
   mkdir -p "${DEV_CONFIG_DIR}"
 
   show_cmd "# register gateway as developer user"
-  DEV_GW_LOCAL_NAME="$DEV_GW_LOCAL_NAME" GW_ENDPOINT="$GW_ENDPOINT" \
-    OIDC_ISSUER="$OIDC_ISSUER" OIDC_CLIENT_ID="$OIDC_CLIENT_ID" \
-    DEV_TOKEN="$DEV_TOKEN" DEV_CONFIG_DIR="$DEV_CONFIG_DIR" \
-    python3 -c "
-import json, os
-config_dir = os.environ['DEV_CONFIG_DIR']
-meta = {
-    'name': os.environ['DEV_GW_LOCAL_NAME'],
-    'gateway_endpoint': os.environ['GW_ENDPOINT'],
-    'is_remote': True,
-    'gateway_port': 0,
-    'auth_mode': 'oidc',
-    'oidc_issuer': os.environ['OIDC_ISSUER'],
-    'oidc_client_id': os.environ['OIDC_CLIENT_ID']
-}
-with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
-    json.dump(meta, f, indent=2)
-token = {
-    'access_token': os.environ['DEV_TOKEN'],
-    'issuer': os.environ['OIDC_ISSUER'],
-    'client_id': os.environ['OIDC_CLIENT_ID']
-}
-with open(os.path.join(config_dir, 'oidc_token.json'), 'w') as f:
-    json.dump(token, f, indent=2)
-os.chmod(os.path.join(config_dir, 'metadata.json'), 0o600)
-os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
-"
+  write_openshell_config "$DEV_GW_LOCAL_NAME" "$DEV_CONFIG_DIR" "$DEV_TOKEN"
 
   if [[ -f "${DEV_CONFIG_DIR}/metadata.json" && -f "${DEV_CONFIG_DIR}/oidc_token.json" ]]; then
     pass "Developer gateway registered (OIDC mode)"
@@ -657,6 +774,56 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
   else
     fail_test "Developer user: gateway not reachable"
     echo "$DEV_STATUS" | while IFS= read -r line; do dim "    $line"; done
+  fi
+
+  # ── admin grants the developer 'user' membership on the 'default' workspace ──
+  # OpenShell applies two independent authorization systems. The developer's OIDC
+  # token carries the gateway user_role (openshell-user), but that role alone does
+  # NOT confer workspace access: membership is a separate, explicit record that is
+  # not claim-derived. A Platform Admin (implicit access to 'default') must add the
+  # developer as a 'user' member before it can create sandboxes there. Without this
+  # the create fails with "not a member of workspace 'default'". Mirrors the Kind
+  # e2e (tests/e2e/e2e-openshell.sh) and the upstream oidc_pkce prepare_workspace.
+  #
+  # Resolve the subject the gateway checks membership against. Prefer `whoami`
+  # (the gateway-validated identity); fall back to decoding the JWT `sub` claim if
+  # the CLI predates `whoami`.
+  DEV_SUBJECT=$("${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" whoami --output json 2>/dev/null \
+    | python3 -c "import json,sys
+try:
+    print(json.load(sys.stdin).get('subject','') or '')
+except Exception:
+    pass" 2>/dev/null || true)
+  if [[ -z "$DEV_SUBJECT" ]]; then
+    DEV_SUBJECT=$(DEV_TOKEN="$DEV_TOKEN" python3 -c "
+import os, json, base64
+try:
+    part = os.environ['DEV_TOKEN'].split('.')[1]
+    part += '=' * (-len(part) % 4)
+    print(json.loads(base64.urlsafe_b64decode(part)).get('sub','') or '')
+except Exception:
+    pass" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$DEV_SUBJECT" ]]; then
+    fail_test "Developer user: could not resolve OIDC subject for workspace membership"
+  else
+    show_cmd "${OPENSHELL} -g ${GW_LOCAL_NAME} workspace member add --workspace default --subject ${DEV_SUBJECT} --role user"
+    dim "  Admin grants developer 'user' membership on 'default' (OpenShell requires an explicit membership record; OIDC user role alone does not confer workspace access)..."
+    DEV_MEMBER_LOG=$(mktemp)
+    if "${OPENSHELL}" -g "${GW_LOCAL_NAME}" workspace member add \
+        --workspace default --subject "${DEV_SUBJECT}" --role user >"${DEV_MEMBER_LOG}" 2>&1; then
+      pass "Developer granted 'user' membership on 'default' workspace"
+    else
+      DEV_MEMBER_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_MEMBER_LOG}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
+      if echo "$DEV_MEMBER_ERR" | grep -qiE "already|exists"; then
+        pass "Developer already a 'user' member of 'default' workspace"
+      else
+        fail_test "Developer user: failed to grant workspace membership (admin)"
+        dim "    ${DEV_MEMBER_ERR:0:200}"
+      fi
+    fi
+    rm -f "${DEV_MEMBER_LOG}" 2>/dev/null || true
   fi
 
   DEV_SANDBOX="e2e-dev-$(date +%s | tail -c5)"
@@ -687,7 +854,8 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
     pass "Developer user: sandbox created"
 
     show_cmd "${OPENSHELL} -g ${DEV_GW_LOCAL_NAME} sandbox exec -n ${DEV_SANDBOX} -- uname -a"
-    if DEV_EXEC=$("${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox exec -n "${DEV_SANDBOX}" -- uname -a 2>&1); then
+    dim "  Waiting for developer sandbox runner Ready (up to ${SANDBOX_READY_TIMEOUT}s)..."
+    if DEV_EXEC=$(sandbox_exec "${DEV_GW_LOCAL_NAME}" "${DEV_SANDBOX}" "${SANDBOX_READY_TIMEOUT}" -- uname -a); then
       DEV_EXEC_CLEAN=$(echo "$DEV_EXEC" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
       if [[ -n "$DEV_EXEC_CLEAN" ]]; then
         pass "Developer user: sandbox exec succeeded"

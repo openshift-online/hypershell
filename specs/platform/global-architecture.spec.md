@@ -252,7 +252,7 @@ Traffic destined for HyperShell management services (API Server, Web Console, Ke
 
 Traffic destined for the actual managed gRPC gateways bypasses the default OpenShift router and uses a dedicated ingress path managed by the Kubernetes Gateway API (backed by Istio).
 
-- **Domain:** Dedicated base domain (e.g., `*.openshell.stage.devshift.net`)
+- **Domain:** Dedicated base domain (e.g., `*.openshell.stage.example.com`)
 - **Load Balancer:** Dedicated AWS Classic ELB (provisioned by the Gateway API controller)
 - **Routing Object:** `GRPCRoute` attached to a central `Gateway`
 - **Mechanism:** A single shared Gateway (Gateway API resource) `openshell-grpc-gateway` in the `openshift-ingress` namespace terminates TLS using a wildcard certificate. When the control plane provisions a new OpenShell Gateway in a tenant namespace, it creates a `GRPCRoute` that automatically attaches to this shared Gateway (Gateway API resource). External DNS (e.g., Route53) manages the CNAME mapping the wildcard domain to the AWS ELB address.
@@ -270,19 +270,41 @@ environment (see the deploy overlays), so the tenant-gateway ingress path is a
 | **`gateway-api`** (reference) | `GRPCRoute` → shared `Gateway` | Gateway API GA and functional (AWS/ROSA, OCP ≥ 4.19 with working CIO Istio) | Shared `Gateway` + wildcard cert + Route53 CNAME |
 | **`route`** | OpenShift `Route` (`passthrough`) | Gateway API absent or non-functional (IBM Cloud ROKS - HyperShift-hosted, cannot pull OSSM images, IDMS owned by the HostedCluster) | Cluster's default router (HAProxy) on the platform wildcard |
 
-Both modes converge on the **same** tenant workload: the OpenShell Gateway pod
-terminates TLS with its per-tenant self-signed CA (`openshell-ca` →
-`openshell-server-tls`). Client **identity** is established by OIDC (Keycloak
-bearer tokens), not client certificates - HyperShell does not require or support
-client mTLS. TLS here is server-side transport encryption only; callers are
-authenticated by OIDC, so they need no client certificate. In `route` mode the
-`Route` is `passthrough`, so the
-router forwards the encrypted connection SNI-routed end-to-end - no wildcard
-certificate, cert-manager `ClusterIssuer`, or external DNS integration is
-required, and it works on the cloud's free ingress wildcard (e.g. IBM's
-`*.containers.appdomain.cloud`). In `gateway-api` mode the shared `Gateway`
-terminates the client's TLS and re-encrypts to the backend, validated by a
-`BackendTLSPolicy`.
+Both modes converge on the **same** tenant workload, which presents two server
+certificates by SNI (the dual-certificate model from
+[NVIDIA/OpenShell#2468](https://github.com/NVIDIA/OpenShell/pull/2468)):
+
+1. **Internal cert** - the per-tenant self-signed CA (`openshell-ca` →
+   `openshell-server-tls`) covering the cluster-local Service names on the
+   supervisor↔gateway path. Supervisors trust **only** this per-tenant chart CA
+   (never WebPKI); that is what blocks a malicious sandbox image from MITM-ing
+   the supervisor connection. This internal CA is always present.
+2. **External cert** - a certificate signed by a **trusted CA**, minted by an
+   **operator-configured** cert-manager `Issuer`/`ClusterIssuer` (for example
+   ACME / Let's Encrypt), covering the **public SANs**
+   (`gw-<tenant>.<base-domain>`) used by the `openshell` CLI and the OpenShift
+   `Route`. Because it chains to a publicly trusted root, the CLI needs no custom
+   CA bundle.
+
+Client **identity** is established by OIDC (Keycloak bearer tokens), never client
+certificates - HyperShell does not require or support client mTLS. TLS is
+server-side transport encryption only; callers are authenticated by OIDC.
+
+In `route` mode the `Route` is `passthrough`: the router forwards the encrypted
+connection SNI-routed end-to-end and the gateway pod serves the **external
+trusted cert** on the public SAN. No shared `Gateway`, wildcard certificate, or
+GRPCRoute machinery is required - only the operator-configured `Issuer` for the
+external cert. In `gateway-api` mode the shared `Gateway` terminates the client's
+TLS and re-encrypts to the backend, validated by a `BackendTLSPolicy`.
+
+> **Current limitation (tracked).** The external trusted cert requires an
+> ACME-solvable domain the operator controls. On a Cloud Hub that only exposes
+> the provider's shared ingress wildcard it does not own (for example IBM ROKS'
+> `*.containers.appdomain.cloud`), a publicly trusted cert is not yet issuable,
+> so `route` mode there still serves the internal `openshell-ca` and the CLI must
+> pin that CA. Wiring the operator-configured external `Issuer`
+> (`serverIssuerRef` / `external_server_names`, per OpenShell#2468) end-to-end is
+> tracked follow-up work.
 
 The mode is set by the control-plane env var `GATEWAY_INGRESS_MODE`
 (`gateway-api` | `route` | `none`). When unset it is auto-detected from cluster
@@ -302,7 +324,7 @@ kustomize overlay (`deploy/ibm`). See "Requirement: Control Plane Ingress Mode".
 
 ```mermaid
 graph LR
-    CLI[openshell CLI] -->|"gw-...devshift.net:443"| DNS[Route53 wildcard CNAME]
+    CLI[openshell CLI] -->|"gw-...example.com:443"| DNS[Route53 wildcard CNAME]
     DNS --> ELB[Cloud LB<br/>AWS Classic ELB]
     ELB --> IGW[Istio ingress gateway pod<br/>openshift-ingress]
     IGW -->|match GRPCRoute host| SVC[Service openshell-gateway:8080]
@@ -342,7 +364,7 @@ spec:
   gatewayClassName: openshift-default
   listeners:
     - name: grpc
-      hostname: "*.openshell.stage.devshift.net"   # per-env base domain
+      hostname: "*.openshell.stage.example.com"   # per-env base domain
       port: 443
       protocol: HTTPS
       allowedRoutes:
@@ -355,7 +377,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: wildcard-openshell-stage-devshift-tls
+            name: wildcard-openshell-stage-example-tls
 ```
 
 #### Manifest 2 - Per-tenant GRPCRoute (control plane creates one per gateway)
@@ -375,7 +397,7 @@ metadata:
     hypershell.redhat.io/managed: "true"
 spec:
   hostnames:
-    - "gw-openshell-<tenant-hash>.openshell.stage.devshift.net"
+    - "gw-openshell-<tenant-hash>.openshell.stage.example.com"
   parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
@@ -396,43 +418,43 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: wildcard-openshell-stage-devshift
+  name: wildcard-openshell-stage-example
   namespace: openshift-ingress
 spec:
-  secretName: wildcard-openshell-stage-devshift-tls
+  secretName: wildcard-openshell-stage-example-tls
   dnsNames:
-    - "*.openshell.stage.devshift.net"
+    - "*.openshell.stage.example.com"
   issuerRef:
     kind: ClusterIssuer
-    name: letsencrypt-devshiftnet-dns
+    name: letsencrypt-examplecom-dns
 ```
 
 #### Manifest 4 - ClusterIssuer (ACME / Let's Encrypt, DNS-01 via Route53)
 
-The `devshift.net` zone is centrally hosted in AWS Route53, so the DNS-01 solver
+The `example.com` zone is centrally hosted in AWS Route53, so the DNS-01 solver
 is Route53 **regardless of which cloud the cluster runs in**. This is the key that
-lets an IBM Cloud cluster obtain a `*.devshift.net` certificate without any
+lets an IBM Cloud cluster obtain a `*.example.com` certificate without any
 IBM-native DNS integration.
 
 ```yaml
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: letsencrypt-devshiftnet-dns
+  name: letsencrypt-examplecom-dns
 spec:
   acme:
     solvers:
       - selector:
-          dnsZones: ["devshift.net"]
+          dnsZones: ["example.com"]
         dns01:
           route53:
             region: global
             hostedZoneID: Z05758033SZ8IESGUOY8E
             accessKeyIDSecretRef:
-              name: certmgr-<cluster>-devshift-net-sa
+              name: certmgr-<cluster>-example-com-sa
               key: aws_access_key_id
             secretAccessKeySecretRef:
-              name: certmgr-<cluster>-devshift-net-sa
+              name: certmgr-<cluster>-example-com-sa
               key: aws_secret_access_key
 ```
 
@@ -443,7 +465,7 @@ There is **no `external-dns` controller** on the AWS cluster; the Gateway report
 Route53 entry:
 
 ```
-*.openshell.stage.devshift.net.  CNAME  <cloud-LB-hostname>
+*.openshell.stage.example.com.  CNAME  <cloud-LB-hostname>
 ```
 
 resolving to the Gateway's provisioned LB. It must be created (once per cluster)
@@ -455,11 +477,11 @@ after the LB hostname is known.
 |---------|----------------|-------|
 | Gateway API impl | `openshift-default` GatewayClass, CIO-managed Istio | Not a manual Istio install |
 | Shared Gateway | `openshell-grpc-gateway` / `openshift-ingress` | one per cluster |
-| Listener | `*.openshell.stage.devshift.net`, 443, HTTPS, TLS Terminate | GRPCRoute from All namespaces |
+| Listener | `*.openshell.stage.example.com`, 443, HTTPS, TLS Terminate | GRPCRoute from All namespaces |
 | External LB | AWS Classic ELB (auto-provisioned) | via `Service type: LoadBalancer` + CCM |
 | Per-tenant route | `GRPCRoute` `openshell-gateway`, host `gw-openshell-<hash>...`, backend `Service openshell-gateway:8080` | created by control plane |
-| Wildcard cert | cert-manager `Certificate` → secret `wildcard-openshell-stage-devshift-tls` | 90-day Let's Encrypt, auto-renew |
-| Issuer | `letsencrypt-devshiftnet-dns` (ACME, DNS-01, Route53 zone `devshift.net`) | cloud-agnostic |
+| Wildcard cert | cert-manager `Certificate` → secret `wildcard-openshell-stage-example-tls` | 90-day Let's Encrypt, auto-renew |
+| Issuer | `letsencrypt-examplecom-dns` (ACME, DNS-01, Route53 zone `example.com`) | cloud-agnostic |
 | DNS record | static Route53 wildcard CNAME → LB | no external-dns |
 
 ### IBM Cloud Cloud Hub - Route ingress mode (verified 2026-08-15)
@@ -507,11 +529,18 @@ Steps (Route mode on ROKS):
    The tenant workload images (gateway, supervisor, gateway database) must be
    **node-reachable**; on ROKS they are mirrored into the internal registry and
    referenced by its in-cluster service address (see `ibm-cluster` Step 5).
-4. **Verify:** the `Route` reports `Admitted=True`; the served passthrough
-   certificate chains to the per-tenant `openshell-ca` and its SANs include
+4. **Verify:** the `Route` reports `Admitted=True`; its SANs include
    `gw-<tenant>.<base-domain>` (the control plane injects the derived ingress
    hostname into the certificate SANs automatically - operators do not set it by
-   hand). A client with that CA connects over `gw-<tenant>.<base-domain>:443`.
+   hand). The **target** state (per
+   [NVIDIA/OpenShell#2468](https://github.com/NVIDIA/OpenShell/pull/2468)) is that
+   the passthrough serves the **external trusted cert** from an
+   operator-configured `Issuer`, so the CLI connects with no custom CA. On ROKS
+   today that cert is not issuable on IBM's shared `*.containers.appdomain.cloud`
+   wildcard (the operator does not control the zone, so ACME cannot solve it), so
+   the passthrough currently chains to the per-tenant self-signed `openshell-ca`
+   and a client must pin that CA to connect over `gw-<tenant>.<base-domain>:443`.
+   Wiring the external `Issuer` end-to-end is tracked follow-up work.
 
 To later switch a cloud to `gateway-api` mode (e.g. if IBM fixes HostedCluster
 mirroring), unset `GATEWAY_INGRESS_MODE` (or set it to `gateway-api`) and complete
@@ -575,9 +604,9 @@ balancer manifest SHALL be required.
 
 #### Requirement: Wildcard TLS via Central Route53 DNS-01
 
-Wildcard certificates for the `devshift.net` base domain SHALL be issued by
+Wildcard certificates for the `example.com` base domain SHALL be issued by
 cert-manager using the ACME DNS-01 challenge against the central Route53
-`devshift.net` hosted zone, independent of the cluster's cloud provider.
+`example.com` hosted zone, independent of the cluster's cloud provider.
 
 #### Requirement: Control Plane Ingress Mode
 
@@ -615,6 +644,32 @@ absent.
 - WHEN the control plane reconciles a tenant gateway
 - THEN it SHALL return an error and SHALL NOT deploy the gateway workload
 
+#### Requirement: Public Ingress Uses a Trusted External Certificate
+
+Per [NVIDIA/OpenShell#2468](https://github.com/NVIDIA/OpenShell/pull/2468), the
+certificate served on the **public** ingress hostname (`gw-<tenant>.<base-domain>`)
+SHALL chain to a **publicly trusted CA**, minted by an **operator-configured**
+cert-manager `Issuer`/`ClusterIssuer` (for example ACME / Let's Encrypt) whose
+DNS-01/HTTP-01 challenge the operator can solve for a zone it controls. The
+gateway pod SHALL present this external cert (via `external_cert_path` /
+`external_key_path` / `external_server_names`, selected by SNI) so the `openshell`
+CLI connects with **no custom CA bundle**. This is independent of the per-tenant
+self-signed `openshell-ca`, which is retained for the supervisor↔gateway path
+(supervisors trust only the chart CA, blocking MITM from a malicious sandbox
+image). Where the operator does not control the ingress zone (for example IBM
+ROKS' shared `*.containers.appdomain.cloud` wildcard), no publicly trusted cert is
+issuable; the gateway SHALL fall back to serving the internal `openshell-ca` and
+the CLI SHALL pin it. Wiring the external `Issuer` (`serverIssuerRef` /
+`external_server_names`) end-to-end is tracked follow-up work.
+
+##### Scenario: CLI connects to a trusted public endpoint without a custom CA
+
+- GIVEN an operator-configured external `Issuer` for a zone the operator controls
+- AND a tenant gateway provisioned with a public SAN under that zone
+- WHEN the `openshell` CLI connects to `gw-<tenant>.<base-domain>:443`
+- THEN the served certificate SHALL chain to a publicly trusted root
+- AND the CLI SHALL verify it using only the system trust store
+
 #### Requirement: Gateway Server Certificate Covers the Ingress Hostname
 
 Because both ingress modes carry the gateway pod's TLS through unmodified (Route
@@ -629,10 +684,11 @@ certificate - operators SHALL NOT be required to set `external_dns`/
 
 - GIVEN a tenant gateway with ingress enabled and `GATEWAY_API_BASE_DOMAIN` set
 - WHEN the control plane provisions it
-- THEN the per-tenant `openshell-server` `Certificate` SHALL include both the
-  in-cluster service DNS name and `gw-<tenant>.<base-domain>` as SANs
-- AND the certificate served over the ingress hostname SHALL verify against the
-  per-tenant `openshell-ca` with hostname verification enabled
+- THEN the certificate served over the ingress hostname SHALL include
+  `gw-<tenant>.<base-domain>` as a SAN, with hostname verification enabled
+- AND that certificate SHALL chain to the operator-configured external trusted CA
+  where one is available for the zone, otherwise to the per-tenant `openshell-ca`
+  (which the CLI must then pin)
 
 #### Requirement: Image References Support an In-Cluster Registry
 
@@ -656,7 +712,7 @@ NOT install the CRD/controller, which is a cluster prerequisite on par with
 cert-manager. The gateway's Kubernetes compute driver watches this CRD; when it is
 absent the sandbox RPCs surface as gRPC `Unimplemented` and the driver logs `no
 supported Agent Sandbox API version is available`. The version installed SHALL
-serve the API version the gateway requires (`v1beta1` for gateway 0.0.106; upstream
+serve the API version the gateway requires (`v1beta1` for gateway 0.0.109; upstream
 `v0.5.x`).
 
 #### Requirement: Sandbox Base Image Supports an In-Cluster Registry
@@ -678,13 +734,13 @@ the gateway database.
 ### Open Questions (for implementer review)
 
 1. **[RESOLVED] ROKS Gateway API availability.** Verified on 2026-08-15 across two clusters: on the old 4.17 cluster the CRDs were absent; on the new `hysh-ibm-01` (4.21.27) the CRDs and feature gates are present but the Gateway API is **non-functional** (CIO `istiod` cannot pull OSSM images; IDMS denied by the HostedCluster; CIO reverts patches; OperatorHub broken). **Decision:** the IBM Cloud Hub uses the `route` ingress mode (`deploy/ibm`, `GATEWAY_INGRESS_MODE=route`), not Gateway API. See "IBM Cloud Cloud Hub - Route ingress mode".
-2. **IBM base domain.** What exact subdomain - e.g. `openshell.ibm-stage.devshift.net`?
-   Confirm it is delegated within the Route53 `devshift.net` zone.
+2. **IBM base domain.** What exact subdomain - e.g. `openshell.ibm-stage.example.com`?
+   Confirm it is delegated within the Route53 `example.com` zone.
 3. **[RESOLVED - BUG] Control-plane config surface.** Verified on 2026-08-15: The Go code reads `GATEWAY_API_BASE_DOMAIN` and `GATEWAY_API_GATEWAY_CLASS`. However, it **completely ignores** the gateway name and namespace config. `internal/gateway/reconciler.go` currently hardcodes the `GRPCRoute` `parentRefs` to `name: openshell-gateway` inside the tenant's own namespace. This is a severe bug that provisions one Load Balancer per tenant. This code must be patched to respect `GATEWAY_API_GATEWAY_NAME` and `GATEWAY_API_GATEWAY_NAMESPACE` to use the shared ingress gateway.
 4. **DNS record creation.** Reproduce the AWS pattern (static Route53 wildcard
    CNAME, no external-dns), or introduce `external-dns` to automate it on IBM?
-5. **Route53 credentials on IBM.** Provision the `certmgr-<cluster>-devshift-net-sa`
-   secret (IAM user scoped to the `devshift.net` zone) on the IBM cluster.
+5. **Route53 credentials on IBM.** Provision the `certmgr-<cluster>-example-com-sa`
+   secret (IAM user scoped to the `example.com` zone) on the IBM cluster.
 6. **[RESOLVED] VPC LB scope.** Verified on 2026-08-15: The default OpenShift router on this IBM cluster uses a public VPC Load Balancer (`service.kubernetes.io/ibm-load-balancer-cloud-provider-ip-type: public`). We will match this public exposure for the Gateway API VPC LB.
 7. **Legacy Route-based gateways.** The AWS cluster still has older tenants on
    `Route`/`passthrough` under `*.apps.rosa...`. Is a migration of existing tenants

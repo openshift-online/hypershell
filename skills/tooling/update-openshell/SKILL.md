@@ -225,6 +225,43 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
 
+- **v0.0.109 (2026-08-19, second run, 0.0.106 -> 0.0.109; validated on ROKS):**
+  Unlike 106, this bump was NOT config-schema-neutral - three regressions only
+  surfaced running the full ROKS e2e (`components/pr-test/e2e-openshell-roks.sh`),
+  which ended at **22/22 passing**. Pin-only diffing would have missed all three;
+  the lesson is to run the live sandbox e2e on a version bump, not just `make check`.
+  - **Sandbox client TLS is required in `combined` topology.** A prior mTLS-removal
+    sweep had conflated two distinct concerns and deleted BOTH: (A) external-client
+    mTLS (`client_ca_path`, `tls-client-ca` volume) - correctly removed for
+    Route+OIDC; and (B) sandbox client-TLS provisioning (`client_tls_secret_name` +
+    the `openshell-client` cert-manager Certificate) - **wrongly** removed. 0.0.109's
+    Combined topology needs (B) so sandbox runners get `OPENSHELL_TLS_CA` to verify
+    the gateway server cert; without it the sandbox agent crash-loops on
+    `OPENSHELL_TLS_CA is required`. Restored the `openshell-client` Certificate in
+    `components/control-plane/internal/gateway/reconciler.go` and
+    `client_tls_secret_name` in `manifests/gateway/configmap.yaml`, each with a
+    comment stating it is internal sandbox↔gateway TLS, NOT external mTLS.
+  - **StatefulSet/Deployment collision.** `manifests/gateway/statefulset.yaml` was
+    still in the deploy `order` slice alongside the Deployment, racing it and
+    leaving an orphaned crash-looping `openshell-gateway-0`. Removed the entry from
+    the order slice in `reconciler.go` and `git rm`'d the file (spec: "Always
+    Deployment"). Verify a fresh tenant NS has a Deployment and no StatefulSet.
+  - **Workspace membership is a second, non-claim-derived authz layer.** 0.0.109
+    gates `sandbox create` on BOTH the OIDC role AND an explicit workspace
+    membership record. A standard `openshell-user` is not implicitly a member of
+    `default`, so create fails with `not a member of workspace 'default'` until an
+    admin runs `openshell workspace member add --workspace default --subject <sub>
+    --role user`. Added that grant to the ROKS e2e's developer-RBAC step (mirrors
+    `tests/e2e/e2e-openshell.sh`) and documented it in `ibm-cluster/SKILL.md` §5.9.
+  - **No downloadable 0.0.109 CLI.** `install.sh` with `OPENSHELL_VERSION=0.0.109`
+    404s; only the gateway *container image* is published at 0.0.109. The 0.0.98
+    CLI reads the same config format and drives a 0.0.109 gateway fine (and has the
+    `workspace` subcommand that the ancient system `/bin/openshell` 0.0.55 lacks),
+    so the e2e now defaults `OPENSHELL` to `~/.local/bin/openshell`.
+  - **v1beta1 confirmed** (the 106-entry's unverified claim): the running 0.0.109
+    gateway serves sandboxes via `agents.x-k8s.io/v1beta1` (agent-sandbox v0.5.5),
+    matching the note in `global-architecture.spec.md` / `ibm-cluster/SKILL.md`.
+
 - **v0.0.106 (2026-08-19, initial skill + first run, 0.0.101 -> 0.0.106):**
   - Range 102-106 was mechanically safe for the pin bump; no config-schema,
     Sandbox-API, or credential-driver break observed in the release notes.

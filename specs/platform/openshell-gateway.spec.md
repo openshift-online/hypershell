@@ -671,7 +671,7 @@ topology                   = "single-cluster"
 image = "<supervisor-image>"
 ```
 
-The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.106`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
+The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.109`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
 
 #### OIDC Section (conditional)
 
@@ -786,8 +786,8 @@ Control Plane
 |---|---|---|---|
 | `name` | Yes | - | Resource name (typically `openshell-gateway`) |
 | `namespace` | No | API assigned | Read-only Kubernetes namespace derived from the Gateway identifier |
-| `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.106` | Gateway container image reference |
-| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.106` | Supervisor sidecar container image |
+| `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.109` | Gateway container image reference |
+| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.109` | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
 | `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
 | `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |

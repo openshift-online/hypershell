@@ -76,7 +76,7 @@ func ReconcileGateway(
 	// hostname as a SAN or clients fail verification. The controller derives
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
-	if mode := gatewayIngressMode(opts); mode != ingressModeNone && nsConfig.Gateway.Route.Enabled {
+	if mode := gatewayIngressMode(opts); mode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
 		hostname, err := deriveGatewayHostname(nsConfig)
 		if err != nil {
 			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
@@ -140,7 +140,7 @@ func ReconcileGateway(
 	// Tenant ingress is environment-adaptive: Gateway API where available,
 	// OpenShift Routes where it is not. See gatewayIngressMode.
 	switch mode := gatewayIngressMode(opts); mode {
-	case ingressModeGatewayAPI:
+	case IngressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile Gateway API resources in %s: %v", nsConfig.Name, err)
@@ -150,7 +150,7 @@ func ReconcileGateway(
 				log.Printf("WARN failed to remove Gateway API resources in %s: %v", nsConfig.Name, err)
 			}
 		}
-	case ingressModeRoute:
+	case IngressModeRoute:
 		if nsConfig.Gateway.Route.Enabled {
 			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
@@ -1461,13 +1461,17 @@ func gatewayIngressName() string {
 }
 
 // Ingress modes select how a tenant gateway is exposed for external traffic.
+// Exported so the controller entrypoint can select the matching Gateway Exposure
+// adapter (Gateway API vs Route) by the same rule the reconciler uses to emit
+// ingress resources.
 const (
-	ingressModeGatewayAPI = "gateway-api"
-	ingressModeRoute      = "route"
-	ingressModeNone       = ""
+	IngressModeGatewayAPI = "gateway-api"
+	IngressModeRoute      = "route"
+	IngressModeNone       = ""
 )
 
-// gatewayIngressMode decides how tenant-gateway ingress is provisioned.
+// IngressMode resolves how tenant-gateway ingress is provisioned from
+// GATEWAY_INGRESS_MODE, falling back to a capability-based default.
 //
 // HyperShell is environment-adaptive: it emits Kubernetes Gateway API resources
 // (a GRPCRoute onto a shared Gateway) where the Gateway API is available and
@@ -1482,24 +1486,37 @@ const (
 // present, otherwise fall back to Routes on OpenShift. Note that on some
 // platforms the Gateway API CRDs exist but do not function (ROKS); those
 // operators must set GATEWAY_INGRESS_MODE=route explicitly.
-func gatewayIngressMode(opts ReconcileOpts) string {
+//
+// This is the single source of truth for ingress-mode selection: both the
+// reconciler (which ingress resources to emit) and the controller entrypoint
+// (which exposure adapter to observe readiness through) resolve the mode here,
+// so the emitted resource and the observed resource cannot diverge -- the ROKS
+// bug where a Route-exposed gateway was observed through the Gateway API adapter
+// (because the Gateway API CRDs happened to be present) is thereby impossible.
+func IngressMode(hasGatewayAPI, isOpenShift bool) string {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_INGRESS_MODE"))) {
-	case ingressModeGatewayAPI, "gatewayapi":
-		return ingressModeGatewayAPI
-	case ingressModeRoute, "routes":
-		return ingressModeRoute
+	case IngressModeGatewayAPI, "gatewayapi":
+		return IngressModeGatewayAPI
+	case IngressModeRoute, "routes":
+		return IngressModeRoute
 	case "none", "off", "disabled":
-		return ingressModeNone
+		return IngressModeNone
 	}
 
 	// Auto-detect from cluster capabilities when no explicit override is set.
-	if opts.HasGatewayAPI {
-		return ingressModeGatewayAPI
+	if hasGatewayAPI {
+		return IngressModeGatewayAPI
 	}
-	if opts.IsOpenShift {
-		return ingressModeRoute
+	if isOpenShift {
+		return IngressModeRoute
 	}
-	return ingressModeNone
+	return IngressModeNone
+}
+
+// gatewayIngressMode resolves the ingress mode for a reconcile pass from the
+// detected cluster capabilities carried on opts.
+func gatewayIngressMode(opts ReconcileOpts) string {
+	return IngressMode(opts.HasGatewayAPI, opts.IsOpenShift)
 }
 
 // deriveGatewayHostname resolves the external hostname for a tenant gateway,
@@ -1909,6 +1926,14 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 		return fmt.Errorf("reconcile server certificate: %w", err)
 	}
 
+	// The client certificate is NOT for external-client mTLS (external clients
+	// authenticate via OIDC over the Route). It exists so sandbox runners can
+	// verify the gateway's TLS server cert: openshell 0.0.109's Kubernetes driver
+	// mounts this secret into every sandbox and sets OPENSHELL_TLS_CA from its
+	// ca.crt whenever gateway.toml sets client_tls_secret_name. Because it is
+	// issued by the same openshell-ca-issuer as the server cert, its ca.crt
+	// chains to the gateway's server certificate. Without it the sandbox agent
+	// crashloops ("OPENSHELL_TLS_CA is required") and never reaches Ready.
 	clientCert := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "cert-manager.io/v1",
