@@ -437,11 +437,7 @@ generate-cli:
 		--module github.com/openshift-online/hypershell/components/cli
 
 generate-sdk-go:
-	cd scripts/sdk-generator && go run . \
-		--spec ../../components/api-server/openapi/openapi.yaml \
-		--go-out ../../components/sdk-go \
-		--module github.com/openshift-online/hypershell/components/sdk-go \
-		--ts-out ../../components/sdk-typescript
+	$(MAKE) -C components/api-server generate-sdk
 # ============================================================================
 # E2E Tests
 # ============================================================================

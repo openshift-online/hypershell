@@ -6,7 +6,7 @@
 
 ## Purpose
 
-HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all images from the working tree instead of pulling from the registry. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
+HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. Database provisioning follows two paths: `kind-up` applies the static `hypershell-db` CNPG Cluster for the API server, while the ManagedDatabaseReconciler in the control plane provisions gateway databases dynamically. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all images from the working tree instead of pulling from the registry. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
 
@@ -699,7 +699,11 @@ All container images deployed into the Kind cluster SHALL use [Red Hat Hardened 
 
 Developers SHALL provide a pull secret file via the `KIND_PULL_SECRET` environment variable to authenticate against `registry.access.redhat.com`. When set, `make kind-up` SHALL apply the secret to the target namespace and patch the default ServiceAccount with `imagePullSecrets` so that pods can pull HI images without per-pod secret references.
 
-> **Database images:** The API server database uses the CloudNativePG operator. The PostgreSQL image is configured via `HYPERSHELL_DATABASE_IMAGE`. When unset, CNPG uses its built-in default image. To use Red Hat Hardened Images, set this variable to the HI PostgreSQL image before running `make kind-up`. Gateway database CNPG Clusters are created dynamically by the ManagedDatabaseReconciler; their image is controlled by the CNPG operator defaults.
+> **Database images:** Two environment variables control PostgreSQL images for the two CNPG provisioning paths:
+> - `HYPERSHELL_DATABASE_IMAGE` — configures the API server's static `hypershell-db` CNPG Cluster. `make kind-up` patches the Cluster with this image after applying manifests. When unset, CNPG uses its built-in default image.
+> - `OPENSHELL_DATABASE_IMAGE` — configures gateway database CNPG Clusters created dynamically by the ManagedDatabaseReconciler. Set this on the control plane process (or in the Kind deployment environment) before provisioning gateways. When unset, CNPG uses its built-in default image.
+>
+> To satisfy the all-images HI requirement, set **both** variables to the HI PostgreSQL image before running `make kind-up`.
 
 ### Requirement: Multiple Namespace Deployments
 

@@ -553,8 +553,8 @@ label-selected pod informer.
 | RBAC-5 | Platform Admin Bootstrap | Security | First admin created via DB migration; no CLI by design |
 | G2 | Shared Kustomize Library + CLI | Gateway | Architectural; needs design |
 | G17 | SSH Payload Delivery | Gateway | New feature; needs design |
-| D6 | Database Field Immutability | DB | API server validation |
-| D7 | Gateway Deletion Protection | DB | API server validation |
+| D13 | Database Field Immutability | DB | API server validation |
+| D14 | Gateway Deletion Protection | DB | API server validation |
 | D12 | DROP COLUMN migration for `database_config` | DB | Column still in DB schema; destructive migration deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
 | SR-5 | KEK Rotation | Secret Rotation | Requires gateway re-encryption API (Day-2) |
