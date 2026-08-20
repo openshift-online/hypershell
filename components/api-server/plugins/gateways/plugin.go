@@ -114,5 +114,6 @@ func init() {
 	db.RegisterMigration(migrationAddProvisioningFields())
 	db.RegisterMigration(migrationAddSupervisorImage())
 	db.RegisterMigration(migrationAddCredentialDriver())
+	db.RegisterMigration(migrationAddConsoleAddress())
 	db.RegisterMigration(migrationAddActiveSandboxCount())
 }

@@ -28,6 +28,7 @@ message Gateway {
   optional string database_config = 18;
   optional string credential_driver = 20;
   optional int32 active_sandbox_count = 21;
+  optional string console_address = 22;
 }
 
 message CreateGatewayRequest {
@@ -86,6 +87,7 @@ message UpdateGatewayRequest {
   // owned and written only through AdjustActiveSandboxCount / SetActiveSandboxCount
   // so the whole-row UpdateGateway path can never clobber it. See
   // openshell-gateway-sandbox-count.spec.md.
+  optional string console_address = 20;
 }
 
 message UpdateGatewayResponse {

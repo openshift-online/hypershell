@@ -223,6 +223,20 @@ func (c *Client) GetClientUUID(ctx context.Context, gatewayName string) (string,
 	return uuid, nil
 }
 
+// GetConsoleClientSecret returns the client secret for an existing console
+// client by clientId. The console reconciler calls it when the console client
+// already exists and the secret must be written into the console Secret again.
+func (c *Client) GetConsoleClientSecret(ctx context.Context, consoleClientID string) (string, error) {
+	clientUUID, err := c.getClientUUID(ctx, consoleClientID)
+	if err != nil {
+		return "", err
+	}
+	if clientUUID == "" {
+		return "", &ClientNotFoundError{ClientID: consoleClientID}
+	}
+	return c.getClientSecret(ctx, clientUUID)
+}
+
 func (c *Client) createClient(ctx context.Context, gatewayName string) (string, error) {
 	payload := map[string]interface{}{
 		"clientId":                  gatewayName,
@@ -340,6 +354,122 @@ func (c *Client) getClientUUID(ctx context.Context, clientID string) (string, er
 		}
 	}
 	return "", nil
+}
+
+func (c *Client) listClientRoles(ctx context.Context, clientUUID string) ([]keycloakRole, error) {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/roles", c.realm, clientUUID)
+	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var roles []keycloakRole
+	if err := json.Unmarshal(respBody, &roles); err != nil {
+		return nil, fmt.Errorf("parse client roles: %w", err)
+	}
+	return roles, nil
+}
+
+// EnsureConsoleClientConfig reconciles the full desired configuration of an
+// existing console client so drift is corrected on every reconcile rather than
+// only at creation. It updates the redirect URIs and web origins (which change
+// when the console host / base domain changes -- a stale value breaks the OIDC
+// redirect and CORS), re-asserts fullScopeAllowed=false and the confidential
+// standard-flow flags (per-gateway isolation depends on fullScopeAllowed being
+// false), upserts the protocol mappers (audience, client-roles, sub), and
+// re-grants the gateway-client scope mappings. It is idempotent and safe to run
+// each pass.
+func (c *Client) EnsureConsoleClientConfig(ctx context.Context, consoleClientID, gatewayClientID, redirectURI, webOrigin string) error {
+	consoleUUID, err := c.getClientUUID(ctx, consoleClientID)
+	if err != nil {
+		return fmt.Errorf("resolve console client %s: %w", consoleClientID, err)
+	}
+	if consoleUUID == "" {
+		return fmt.Errorf("console client %s not found", consoleClientID)
+	}
+	if err := c.updateConsoleClientRepresentation(ctx, consoleUUID, consoleClientID, redirectURI, webOrigin); err != nil {
+		return err
+	}
+	if err := c.ensureConsoleProtocolMappers(ctx, consoleUUID, gatewayClientID); err != nil {
+		return err
+	}
+	return c.addConsoleScopeMappings(ctx, consoleUUID, gatewayClientID)
+}
+
+// updateConsoleClientRepresentation GET-merges the desired config fields onto the
+// existing console client representation and PUTs it back, so fields Keycloak
+// manages outside this set (e.g. the client secret) are preserved while the
+// console-owned settings are reconciled to their desired values.
+func (c *Client) updateConsoleClientRepresentation(ctx context.Context, consoleUUID, consoleClientID, redirectURI, webOrigin string) error {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s", c.realm, consoleUUID)
+	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("get console client %s: %w", consoleClientID, err)
+	}
+	var rep map[string]interface{}
+	if err := json.Unmarshal(respBody, &rep); err != nil {
+		return fmt.Errorf("parse console client %s: %w", consoleClientID, err)
+	}
+
+	rep["publicClient"] = false
+	rep["standardFlowEnabled"] = true
+	rep["directAccessGrantsEnabled"] = false
+	rep["serviceAccountsEnabled"] = false
+	rep["fullScopeAllowed"] = false
+	rep["redirectUris"] = []string{redirectURI}
+	rep["webOrigins"] = []string{webOrigin}
+
+	attrs, _ := rep["attributes"].(map[string]interface{})
+	if attrs == nil {
+		attrs = map[string]interface{}{}
+	}
+	attrs["pkce.code.challenge.method"] = "S256"
+	rep["attributes"] = attrs
+	rep["defaultClientScopes"] = []string{
+		"openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr",
+	}
+
+	body, err := json.Marshal(rep)
+	if err != nil {
+		return fmt.Errorf("marshal console client %s: %w", consoleClientID, err)
+	}
+	if _, err := c.doRequest(ctx, http.MethodPut, path, body); err != nil {
+		return fmt.Errorf("update console client %s: %w", consoleClientID, err)
+	}
+	return nil
+}
+
+// addConsoleScopeMappings grants the console client (by UUID) scope for every
+// role defined on the gateway client. With fullScopeAllowed=false (required for
+// per-gateway isolation), Keycloak filters every role mapper's output to the
+// requesting client's scope, so without this grant the console access token
+// omits hypershell.roles entirely and the gateway denies every request with
+// "role 'openshell-user' required". Idempotent (re-POSTing existing scope
+// mappings is a Keycloak no-op) and grants only this one gateway client's roles,
+// so isolation is preserved. See EnsureConsoleClientConfig / ProvisionConsoleClient.
+func (c *Client) addConsoleScopeMappings(ctx context.Context, consoleUUID, gatewayClientID string) error {
+	gatewayUUID, err := c.getClientUUID(ctx, gatewayClientID)
+	if err != nil {
+		return fmt.Errorf("resolve gateway client %s: %w", gatewayClientID, err)
+	}
+	if gatewayUUID == "" {
+		return fmt.Errorf("gateway client %s not found", gatewayClientID)
+	}
+	roles, err := c.listClientRoles(ctx, gatewayUUID)
+	if err != nil {
+		return fmt.Errorf("list roles on gateway client %s: %w", gatewayClientID, err)
+	}
+	if len(roles) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(roles)
+	if err != nil {
+		return fmt.Errorf("marshal scope mapping roles: %w", err)
+	}
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/scope-mappings/clients/%s", c.realm, consoleUUID, gatewayUUID)
+	if _, err := c.doRequest(ctx, http.MethodPost, path, body); err != nil {
+		return fmt.Errorf("add console scope mappings from gateway client %s: %w", gatewayClientID, err)
+	}
+	return nil
 }
 
 func (c *Client) getClientRoleUUID(ctx context.Context, clientUUID, roleName string) (string, error) {
@@ -470,4 +600,250 @@ func (c *Client) doRequestRaw(ctx context.Context, method, path string, body []b
 	}
 
 	return c.httpClient.Do(req)
+}
+
+// ProvisionConsoleClient creates a confidential Keycloak OIDC client for the
+// web console, wires it to the given gateway client for audience and role
+// mappers, and returns the new client's UUID and generated client secret.
+func (c *Client) ProvisionConsoleClient(ctx context.Context, consoleClientID, gatewayClientID, redirectURI, webOrigin string) (clientUUID string, clientSecret string, err error) {
+	log.Printf("INFO keycloak: creating confidential console client %s in realm %s", consoleClientID, c.realm)
+	clientUUID, err = c.createConsoleClient(ctx, consoleClientID, gatewayClientID, redirectURI, webOrigin)
+	if err != nil {
+		return "", "", fmt.Errorf("create console keycloak client: %w", err)
+	}
+	log.Printf("INFO keycloak: created console client %s (uuid=%s)", consoleClientID, clientUUID)
+
+	log.Printf("INFO keycloak: creating protocol mappers on console client %s", consoleClientID)
+	if err = c.createConsoleProtocolMappers(ctx, clientUUID, gatewayClientID); err != nil {
+		log.Printf("WARN keycloak: protocol mapper creation failed for %s, rolling back client: %v", consoleClientID, err)
+		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
+			log.Printf("WARN keycloak: failed to rollback console client %s after mapper creation failure: %v", consoleClientID, rollbackErr)
+		}
+		return "", "", fmt.Errorf("create console protocol mappers: %w", err)
+	}
+	log.Printf("INFO keycloak: created protocol mappers on console client %s", consoleClientID)
+
+	log.Printf("INFO keycloak: granting console client %s scope for gateway client %s roles", consoleClientID, gatewayClientID)
+	if err = c.addConsoleScopeMappings(ctx, clientUUID, gatewayClientID); err != nil {
+		log.Printf("WARN keycloak: scope mapping failed for %s, rolling back client: %v", consoleClientID, err)
+		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
+			log.Printf("WARN keycloak: failed to rollback console client %s after scope mapping failure: %v", consoleClientID, rollbackErr)
+		}
+		return "", "", fmt.Errorf("grant console scope mappings: %w", err)
+	}
+	log.Printf("INFO keycloak: granted console client %s scope for gateway client %s roles", consoleClientID, gatewayClientID)
+
+	log.Printf("INFO keycloak: fetching client secret for console client %s", consoleClientID)
+	clientSecret, err = c.getClientSecret(ctx, clientUUID)
+	if err != nil {
+		log.Printf("WARN keycloak: secret fetch failed for %s, rolling back client: %v", consoleClientID, err)
+		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
+			log.Printf("WARN keycloak: failed to rollback console client %s after secret fetch failure: %v", consoleClientID, rollbackErr)
+		}
+		return "", "", fmt.Errorf("get console client secret: %w", err)
+	}
+	log.Printf("INFO keycloak: provisioned console client %s (uuid=%s)", consoleClientID, clientUUID)
+
+	return clientUUID, clientSecret, nil
+}
+
+// DeleteConsoleClient removes the Keycloak client for a web console.
+// Returns nil if the client does not exist.
+func (c *Client) DeleteConsoleClient(ctx context.Context, consoleClientID string) error {
+	log.Printf("INFO keycloak: looking up console client %s for deletion", consoleClientID)
+	clientUUID, err := c.getClientUUID(ctx, consoleClientID)
+	if err != nil {
+		return err
+	}
+	if clientUUID == "" {
+		log.Printf("INFO keycloak: console client %s not found, nothing to delete", consoleClientID)
+		return nil
+	}
+	log.Printf("INFO keycloak: deleting console client %s (uuid=%s)", consoleClientID, clientUUID)
+	if err := c.deleteClientByUUID(ctx, clientUUID); err != nil {
+		return err
+	}
+	log.Printf("INFO keycloak: deleted console client %s", consoleClientID)
+	return nil
+}
+
+// ConsoleClientExists reports whether a Keycloak console client with the given
+// clientId currently exists in the realm. It underpins the health loop's
+// converged teardown-settled check: the console client lives in the realm, not
+// the gateway namespace, so a Kubernetes-only absence probe cannot observe a
+// client a stale provisioning pass recreated. Returns an error when existence
+// cannot be observed so callers treat unknown state as "not absent" (re-run
+// teardown) rather than as settled.
+func (c *Client) ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error) {
+	clientUUID, err := c.getClientUUID(ctx, consoleClientID)
+	if err != nil {
+		return false, err
+	}
+	return clientUUID != "", nil
+}
+
+func (c *Client) createConsoleClient(ctx context.Context, consoleClientID, gatewayClientID, redirectURI, webOrigin string) (string, error) {
+	payload := map[string]interface{}{
+		"clientId":                  consoleClientID,
+		"name":                      consoleClientID,
+		"publicClient":              false,
+		"standardFlowEnabled":       true,
+		"directAccessGrantsEnabled": false,
+		"serviceAccountsEnabled":    false,
+		"fullScopeAllowed":          false,
+		"redirectUris":              []string{redirectURI},
+		"webOrigins":                []string{webOrigin},
+		"attributes": map[string]string{
+			"pkce.code.challenge.method": "S256",
+		},
+		"defaultClientScopes": []string{
+			"openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr",
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	path := fmt.Sprintf("/admin/realms/%s/clients", c.realm)
+	resp, err := c.doRequestRaw(ctx, http.MethodPost, path, body)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusConflict {
+		return "", fmt.Errorf("keycloak client %s already exists", consoleClientID)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("create console client returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	location := resp.Header.Get("Location")
+	parts := strings.Split(location, "/")
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no client UUID in Location header")
+	}
+	return parts[len(parts)-1], nil
+}
+
+// desiredConsoleProtocolMappers is the canonical set of protocol mappers a
+// console client must carry: the audience mapper (so the gateway accepts the
+// token), the client-roles mapper (so hypershell.roles is populated), and the
+// sub mapper. It is the single source of truth shared by the create and the
+// reconcile (upsert) paths.
+func desiredConsoleProtocolMappers(gatewayClientID string) []map[string]interface{} {
+	return []map[string]interface{}{
+		{
+			"name":           "audience",
+			"protocol":       "openid-connect",
+			"protocolMapper": "oidc-audience-mapper",
+			"config": map[string]string{
+				"included.client.audience": gatewayClientID,
+				"id.token.claim":           "false",
+				"access.token.claim":       "true",
+			},
+		},
+		{
+			"name":           "client-roles",
+			"protocol":       "openid-connect",
+			"protocolMapper": "oidc-usermodel-client-role-mapper",
+			"config": map[string]string{
+				"claim.name":                           "hypershell.roles",
+				"multivalued":                          "true",
+				"jsonType.label":                       "String",
+				"id.token.claim":                       "true",
+				"access.token.claim":                   "true",
+				"usermodel.clientRoleMapping.clientId": gatewayClientID,
+			},
+		},
+		{
+			"name":           "sub",
+			"protocol":       "openid-connect",
+			"protocolMapper": "oidc-sub-mapper",
+			"config": map[string]string{
+				"access.token.claim": "true",
+			},
+		},
+	}
+}
+
+func (c *Client) createConsoleProtocolMappers(ctx context.Context, clientUUID, gatewayClientID string) error {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", c.realm, clientUUID)
+	for _, mapper := range desiredConsoleProtocolMappers(gatewayClientID) {
+		body, _ := json.Marshal(mapper)
+		if _, err := c.doRequest(ctx, http.MethodPost, path, body); err != nil {
+			return fmt.Errorf("create console mapper %s: %w", mapper["name"], err)
+		}
+	}
+	return nil
+}
+
+// ensureConsoleProtocolMappers upserts the desired protocol mappers on an
+// existing console client: a mapper missing by name is created, and one present
+// is updated in place so a stale audience or client-roles config is corrected.
+// Idempotent, so it is safe to run on every reconcile.
+func (c *Client) ensureConsoleProtocolMappers(ctx context.Context, clientUUID, gatewayClientID string) error {
+	existing, err := c.listClientProtocolMappers(ctx, clientUUID)
+	if err != nil {
+		return fmt.Errorf("list console protocol mappers: %w", err)
+	}
+	base := fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", c.realm, clientUUID)
+	for _, mapper := range desiredConsoleProtocolMappers(gatewayClientID) {
+		name, _ := mapper["name"].(string)
+		if id, ok := existing[name]; ok {
+			// PUT the desired representation over the existing mapper (Keycloak
+			// requires the id in both the path and the body).
+			mapper["id"] = id
+			body, _ := json.Marshal(mapper)
+			if _, err := c.doRequest(ctx, http.MethodPut, base+"/"+id, body); err != nil {
+				return fmt.Errorf("update console mapper %s: %w", name, err)
+			}
+			continue
+		}
+		body, _ := json.Marshal(mapper)
+		if _, err := c.doRequest(ctx, http.MethodPost, base, body); err != nil {
+			return fmt.Errorf("create console mapper %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// listClientProtocolMappers returns the existing protocol mappers on a client,
+// keyed by mapper name.
+func (c *Client) listClientProtocolMappers(ctx context.Context, clientUUID string) (map[string]string, error) {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", c.realm, clientUUID)
+	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var mappers []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(respBody, &mappers); err != nil {
+		return nil, fmt.Errorf("parse protocol mappers: %w", err)
+	}
+	out := make(map[string]string, len(mappers))
+	for _, m := range mappers {
+		out[m.Name] = m.ID
+	}
+	return out, nil
+}
+
+func (c *Client) getClientSecret(ctx context.Context, clientUUID string) (string, error) {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/client-secret", c.realm, clientUUID)
+	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", err
+	}
+
+	var secret struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(respBody, &secret); err != nil {
+		return "", fmt.Errorf("parse client secret response: %w", err)
+	}
+	if secret.Value == "" {
+		return "", fmt.Errorf("empty client secret returned for client uuid %s", clientUUID)
+	}
+	return secret.Value, nil
 }

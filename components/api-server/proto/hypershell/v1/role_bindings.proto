@@ -24,6 +24,19 @@ message WatchRoleBindingsResponse {
   string resource_id = 3;
 }
 
+message ListRoleBindingsRequest {
+  // Filters to the active role bindings for this user. Required: the control
+  // plane uses this to recompute a user's effective Keycloak roles on a gateway.
+  optional string user_id = 1;
+  // Optional additional filter to a single gateway.
+  optional string gateway_id = 2;
+}
+
+message ListRoleBindingsResponse {
+  repeated RoleBinding items = 1;
+}
+
 service RoleBindingService {
   rpc WatchRoleBindings(WatchRoleBindingsRequest) returns (stream WatchRoleBindingsResponse);
+  rpc ListRoleBindings(ListRoleBindingsRequest) returns (ListRoleBindingsResponse);
 }

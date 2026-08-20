@@ -27,6 +27,7 @@ import {
   type GatewaySortField,
 } from "../application/gateway-types";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
+import { useConsoleWaitTracker } from "../gateways/console-wait-tracker";
 import { type GatewayConnection } from "../gateways/gateway-connections";
 import { GatewayConnectionSteps } from "../gateways/gateway-connection-steps";
 import {
@@ -243,6 +244,7 @@ export function GatewaysPage({
 }: GatewaysPageProps = {}) {
   const intl = useIntl();
   const { gateways: gatewayOperations, navigation } = useGatewayUi();
+  const trackConsoleWait = useConsoleWaitTracker();
   const createLink = useGatewayLink(navigation.createHref);
   const [deletedGatewayName, setDeletedGatewayName] = useState<string>();
   const [isInitialDeletionDismissed, setIsInitialDeletionDismissed] =
@@ -272,7 +274,18 @@ export function GatewaysPage({
         items: result.items.map((gateway) =>
           toGatewayConnection(gateway, intl.formatMessage(messages.hubCluster)),
         ),
-        shouldPollStatus: result.items.some(gatewayNeedsStatusPolling),
+        // Map before reducing: trackConsoleWait records each gateway's
+        // console-wait start as a side effect, so every returned gateway must be
+        // observed. some() short-circuits, which would leave later gateways
+        // without a wait clock.
+        shouldPollStatus: result.items
+          .map((gateway) =>
+            gatewayNeedsStatusPolling(
+              gateway,
+              trackConsoleWait(gateway.id, gateway),
+            ),
+          )
+          .some(Boolean),
       };
     },
     queryKey: gatewayListQueryKey(gatewayRequest),
@@ -515,6 +528,7 @@ export function GatewayPage({
 }: GatewayPageProps) {
   const intl = useIntl();
   const { gateways, navigation } = useGatewayUi();
+  const trackConsoleWait = useConsoleWaitTracker();
   const [localTab, setLocalTab] = useState<GatewayDetailTab>("connection");
   const currentTab = activeTab ?? localTab;
   const changeTab = (tab: GatewayDetailTab) => {
@@ -529,10 +543,17 @@ export function GatewayPage({
     enabled: gateway === undefined && gatewayId.length > 0,
     queryFn: ({ signal }) => gateways.getGateway(gatewayId, signal),
     queryKey: gatewayQueryKey(gatewayId),
-    refetchInterval: ({ state }) =>
-      state.data && gatewayNeedsStatusPolling(state.data)
+    refetchInterval: ({ state }) => {
+      if (!state.data) {
+        return false;
+      }
+      return gatewayNeedsStatusPolling(
+        state.data,
+        trackConsoleWait(state.data.id, state.data),
+      )
         ? gatewayStatusPollMilliseconds
-        : false,
+        : false;
+    },
     refetchIntervalInBackground: false,
   });
   const visibleGateway = gateway ?? gatewayQuery.data;
@@ -551,6 +572,13 @@ export function GatewayPage({
     visibleGateway,
     intl.formatMessage(messages.hubCluster),
   );
+  // Anchor the console-ready deadline the detail header shows to when the UI
+  // first observed this gateway awaiting its console, matching the polling clock
+  // above rather than the gateway's createdAt.
+  const consoleWaitStartedAt = trackConsoleWait(
+    visibleGateway.id,
+    visibleGateway,
+  );
 
   return (
     <>
@@ -562,6 +590,7 @@ export function GatewayPage({
       />
       <PageSection hasBodyWrapper={false}>
         <GatewayDetailHeader
+          consoleWaitStartedAt={consoleWaitStartedAt}
           gateway={connection}
           onDeleted={() => {
             if (onDeleted) {

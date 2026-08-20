@@ -259,6 +259,10 @@
     "defaultMessage": "Open console for {gatewayName} in a new tab",
     "description": "Accessible label for opening a specific gateway console in a new tab."
   },
+  "app.gateway.provisioningConsole": {
+    "defaultMessage": "Provisioning console...",
+    "description": "Tooltip on the disabled console button while the console is not yet ready."
+  },
   "app.gateway.releaseId": {
     "defaultMessage": "Gateway release ID",
     "description": "Label for a gateway's release identifier."
@@ -294,6 +298,10 @@
   "app.gateway.singular": {
     "defaultMessage": "Gateway",
     "description": "Fallback breadcrumb label while a gateway is loading."
+  },
+  "app.gateway.unavailableConsole": {
+    "defaultMessage": "Console unavailable for this gateway",
+    "description": "Tooltip on the disabled console button once the console failed to become available within the expected time."
   },
   "app.gateways.refresh": {
     "defaultMessage": "Refresh gateways",

@@ -25,7 +25,7 @@ rules:
     resources: ["issuers", "certificates"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["gateway.networking.k8s.io"]
-    resources: ["gateways", "grpcroutes", "backendtlspolicies"]
+    resources: ["gateways", "grpcroutes", "httproutes", "backendtlspolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["route.openshift.io"]
     resources: ["routes"]

@@ -27,9 +27,18 @@ spec:
         certificateRefs:
           - name: hypershell-gw-tls
             kind: Secret
+      # This listener carries both the gateway gRPC traffic (GRPCRoute at
+      # gw-<ns>.gw.localhost) and the per-gateway console (HTTPRoute at
+      # console-<ns>.gw.localhost). Both hostnames fall under the *.gw.localhost
+      # wildcard cert, so the console reuses this listener rather than needing a
+      # second HTTPS listener on the same host/port (which would conflict). The
+      # controller sets GATEWAY_API_HTTP_LISTENER_NAME=grpc so console HTTPRoutes
+      # attach here by sectionName.
       allowedRoutes:
         kinds:
           - group: gateway.networking.k8s.io
             kind: GRPCRoute
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
         namespaces:
           from: All

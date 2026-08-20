@@ -44,6 +44,7 @@ type Gateway struct {
 	DatabaseConfig     *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
 	CredentialDriver   *string                `protobuf:"bytes,20,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
 	ActiveSandboxCount *int32                 `protobuf:"varint,21,opt,name=active_sandbox_count,json=activeSandboxCount,proto3,oneof" json:"active_sandbox_count,omitempty"`
+	ConsoleAddress     *string                `protobuf:"bytes,22,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -223,6 +224,13 @@ func (x *Gateway) GetActiveSandboxCount() int32 {
 		return *x.ActiveSandboxCount
 	}
 	return 0
+}
+
+func (x *Gateway) GetConsoleAddress() string {
+	if x != nil && x.ConsoleAddress != nil {
+		return *x.ConsoleAddress
+	}
+	return ""
 }
 
 type CreateGatewayRequest struct {
@@ -550,8 +558,13 @@ type UpdateGatewayRequest struct {
 	Route            *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
 	DatabaseConfig   *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
 	CredentialDriver *string                `protobuf:"bytes,19,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// active_sandbox_count is intentionally absent: the count is control-plane
+	// owned and written only through AdjustActiveSandboxCount / SetActiveSandboxCount
+	// so the whole-row UpdateGateway path can never clobber it. See
+	// openshell-gateway-sandbox-count.spec.md.
+	ConsoleAddress *string `protobuf:"bytes,20,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -713,6 +726,13 @@ func (x *UpdateGatewayRequest) GetDatabaseConfig() string {
 func (x *UpdateGatewayRequest) GetCredentialDriver() string {
 	if x != nil && x.CredentialDriver != nil {
 		return *x.CredentialDriver
+	}
+	return ""
+}
+
+func (x *UpdateGatewayRequest) GetConsoleAddress() string {
+	if x != nil && x.ConsoleAddress != nil {
+		return *x.ConsoleAddress
 	}
 	return ""
 }
@@ -1245,7 +1265,7 @@ var File_hypershell_v1_gateways_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
-	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xce\a\n" +
+	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\x90\b\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -1272,7 +1292,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x0fdatabase_config\x18\x12 \x01(\tH\n" +
 	"R\x0edatabaseConfig\x88\x01\x01\x120\n" +
 	"\x11credential_driver\x18\x14 \x01(\tH\vR\x10credentialDriver\x88\x01\x01\x125\n" +
-	"\x14active_sandbox_count\x18\x15 \x01(\x05H\fR\x12activeSandboxCount\x88\x01\x01B\x0f\n" +
+	"\x14active_sandbox_count\x18\x15 \x01(\x05H\fR\x12activeSandboxCount\x88\x01\x01\x12,\n" +
+	"\x0fconsole_address\x18\x16 \x01(\tH\rR\x0econsoleAddress\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1285,7 +1306,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x12\n" +
 	"\x10_database_configB\x14\n" +
 	"\x12_credential_driverB\x17\n" +
-	"\x15_active_sandbox_count\"\xf5\x05\n" +
+	"\x15_active_sandbox_countB\x12\n" +
+	"\x10_console_address\"\xf5\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x1d\n" +
@@ -1325,7 +1347,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x9e\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xe0\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
@@ -1350,7 +1372,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x04oidc\x18\x10 \x01(\tH\rR\x04oidc\x88\x01\x01\x12\x19\n" +
 	"\x05route\x18\x11 \x01(\tH\x0eR\x05route\x88\x01\x01\x12,\n" +
 	"\x0fdatabase_config\x18\x12 \x01(\tH\x0fR\x0edatabaseConfig\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x13 \x01(\tH\x10R\x10credentialDriver\x88\x01\x01B\a\n" +
+	"\x11credential_driver\x18\x13 \x01(\tH\x10R\x10credentialDriver\x88\x01\x01\x12,\n" +
+	"\x0fconsole_address\x18\x14 \x01(\tH\x11R\x0econsoleAddress\x88\x01\x01B\a\n" +
 	"\x05_nameB\v\n" +
 	"\t_fleet_idB\r\n" +
 	"\v_cluster_idB\r\n" +
@@ -1367,7 +1390,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x12\n" +
 	"\x10_database_configB\x14\n" +
-	"\x12_credential_driver\"I\n" +
+	"\x12_credential_driverB\x12\n" +
+	"\x10_console_address\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

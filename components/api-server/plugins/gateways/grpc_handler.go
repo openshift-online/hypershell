@@ -186,6 +186,9 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.RouteAddress != nil {
 		gateway.RouteAddress = req.RouteAddress
 	}
+	if req.ConsoleAddress != nil {
+		gateway.ConsoleAddress = req.ConsoleAddress
+	}
 	if req.Oidc != nil {
 		gateway.Oidc = req.Oidc
 	}
@@ -282,6 +285,15 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
 	glog.V(4).Infof("WatchGateways: subscriber %s connected", sub.ID)
+
+	// Flush the stream header now that the subscription is live. This turns opening
+	// the stream into a real subscription handshake: a client that blocks on the
+	// response header (the control-plane watcher does) knows no event can be missed
+	// once Header() returns, and can then safely LIST to seed its state without a
+	// list-watch gap. Sending an empty header is a no-op for clients that ignore it.
+	if err := stream.SendHeader(nil); err != nil {
+		return status.Errorf(codes.Unavailable, "failed to send watch header: %v", err)
+	}
 
 	for {
 		select {
