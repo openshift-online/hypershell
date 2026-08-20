@@ -127,3 +127,20 @@ func migrationAddActiveSandboxCount() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationDropDatabaseConfig() *gormigrate.Migration {
+	type Gateway struct{ db.Model }
+
+	return &gormigrate.Migration{
+		ID: "2026082012000001",
+		Migrate: func(tx *gorm.DB) error {
+			if tx.Migrator().HasColumn(&Gateway{}, "database_config") {
+				return tx.Migrator().DropColumn(&Gateway{}, "database_config")
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
+		},
+	}
+}

@@ -166,4 +166,5 @@ func init() {
 	db.RegisterMigration(migrationAddCredentialDriver())
 	db.RegisterMigration(migrationAddConsoleAddress())
 	db.RegisterMigration(migrationAddActiveSandboxCount())
+	db.RegisterMigration(migrationDropDatabaseConfig())
 }
