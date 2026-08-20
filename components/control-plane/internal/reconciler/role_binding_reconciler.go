@@ -10,6 +10,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 )
@@ -64,6 +65,10 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		return nil
 	}
 
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "RoleBinding", event.Type.String())
+	var reconcileErr error
+	defer func() { endSpan(reconcileErr) }()
+
 	if rb.GatewayId == nil || *rb.GatewayId == "" {
 		log.Printf("DEBUG role binding %s: no gateway_id (global scope), skipping keycloak sync", event.ResourceID)
 		return nil
@@ -83,7 +88,8 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	kcClientID, err := r.resolveKeycloakClientID(ctx, *rb.GatewayId)
 	if err != nil {
-		return fmt.Errorf("resolve keycloak client id for role binding %s: %w", event.ResourceID, err)
+		reconcileErr = fmt.Errorf("resolve keycloak client id for role binding %s: %w", event.ResourceID, err)
+		return reconcileErr
 	}
 
 	switch event.Type {
@@ -91,7 +97,8 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		for _, kcRole := range kcRoles {
 			log.Printf("INFO assigning keycloak role %s to user %s on client %s", kcRole, username, kcClientID)
 			if err := r.assignClientRoleWithRetry(ctx, kcClientID, username, kcRole); err != nil {
-				return fmt.Errorf("assign keycloak role %s to user %s on client %s: %w", kcRole, username, kcClientID, err)
+				reconcileErr = fmt.Errorf("assign keycloak role %s to user %s on client %s: %w", kcRole, username, kcClientID, err)
+				return reconcileErr
 			}
 		}
 
@@ -104,7 +111,8 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		// backed by any remaining binding.
 		stillDesired, err := r.stillDesiredKcRoles(ctx, rb)
 		if err != nil {
-			return fmt.Errorf("recompute effective keycloak roles for role binding %s: %w", event.ResourceID, err)
+			reconcileErr = fmt.Errorf("recompute effective keycloak roles for role binding %s: %w", event.ResourceID, err)
+			return reconcileErr
 		}
 		for _, kcRole := range kcRoles {
 			if stillDesired[kcRole] {
@@ -113,7 +121,8 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 			}
 			log.Printf("INFO removing keycloak role %s from user %s on client %s", kcRole, username, kcClientID)
 			if err := r.keycloakClient.RemoveClientRole(ctx, kcClientID, username, kcRole); err != nil {
-				return fmt.Errorf("remove keycloak role %s from user %s on client %s: %w", kcRole, username, kcClientID, err)
+				reconcileErr = fmt.Errorf("remove keycloak role %s from user %s on client %s: %w", kcRole, username, kcClientID, err)
+				return reconcileErr
 			}
 		}
 	}

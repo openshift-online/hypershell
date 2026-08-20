@@ -21,6 +21,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 
@@ -42,9 +43,16 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	otelShutdown, otelErr := cpotel.Init(ctx)
+	if otelErr != nil {
+		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
+	}
+	defer cpotel.Shutdown(otelShutdown)
+
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
+	dialOpts = append(dialOpts, cpotel.GRPCDialOptions()...)
 
 	oidcIssuer := os.Getenv("OIDC_ISSUER")
 	if oidcIssuer != "" {
@@ -81,6 +89,10 @@ func main() {
 	k8sConfig, err := rest.InClusterConfig()
 	if err != nil {
 		log.Printf("WARN not running in-cluster, gateway reconciliation will be limited: %v", err)
+	}
+
+	if k8sConfig != nil {
+		k8sConfig = cpotel.InstrumentK8sConfig(k8sConfig)
 	}
 
 	var clientset *kubernetes.Clientset

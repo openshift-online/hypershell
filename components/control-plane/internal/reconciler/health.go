@@ -12,6 +12,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -164,12 +165,17 @@ func (h *GatewayHealthReconciler) Run(ctx context.Context) error {
 }
 
 func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "gateway-health", "reconcile")
+	var tickErr error
+	defer func() { endSpan(tickErr) }()
+
 	client := pb.NewGatewayServiceClient(h.grpcConn)
 	// Page through the whole fleet: the list endpoint is server-side paginated
 	// (default page size 20), so an unpaged request would only ever refresh the
 	// health of the first page of gateways.
 	gateways, err := h.listAllGateways(ctx, client)
 	if err != nil {
+		tickErr = err
 		log.Printf("WARN gateway health: list gateways: %v", err)
 		return
 	}

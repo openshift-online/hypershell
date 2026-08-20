@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -105,6 +106,10 @@ func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
 }
 
 func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "namespace-gc", "reconcile")
+	var tickErr error
+	defer func() { endSpan(tickErr) }()
+
 	// Build the set of namespaces backed by a live Gateway. If we cannot list
 	// gateways we must abort the whole sweep: an empty or failed list would make
 	// every managed namespace look orphaned and risk reaping live ones.
