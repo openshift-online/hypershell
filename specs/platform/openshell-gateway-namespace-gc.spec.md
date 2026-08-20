@@ -138,10 +138,10 @@ Reaping SHALL be best-effort and idempotent, and SHALL only ever delete managed
 gateway workload namespaces (matching the gateway prefix, not the database
 prefix).
 
-#### Scenario: Orphaned namespace reaped after grace period
+#### Scenario: Orphaned gateway namespace reaped after grace period
 
-- GIVEN a gateway namespace (`openshell-<hex>`, not `openshell-db-<hex>`) with no
-  live Gateway
+- GIVEN a managed namespace with a gateway-prefixed name (`openshell-<hex>`, not
+  `openshell-db-<hex>`) with no live Gateway
 - AND it has been continuously orphaned for longer than the grace period
 - WHEN the garbage-collection reconciler sweeps
 - THEN it SHALL delete the namespace

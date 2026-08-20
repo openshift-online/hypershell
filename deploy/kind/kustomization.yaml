@@ -52,7 +52,7 @@ patches:
                     value: "true"
                   # Shorten periodic namespace GC for e2e (production defaults 5m/10m).
                   # Go time.ParseDuration accepts seconds too (e.g. 30s, 1m30s).
-                  # tests/e2e seeds a synthetic orphan after gateway provisioning; step 11a asserts the reaper deleted it.
+                  # tests/e2e seeds a synthetic orphan after gateway provisioning (after step 2); step 11a asserts the reaper deleted it.
                   - name: GATEWAY_NAMESPACE_GC_INTERVAL
                     value: "30s"
                   - name: GATEWAY_NAMESPACE_GC_GRACE_PERIOD
