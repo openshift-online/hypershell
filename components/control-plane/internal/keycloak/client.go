@@ -472,7 +472,7 @@ func (c *Client) updateConsoleClientRepresentation(ctx context.Context, consoleU
 	attrs["pkce.code.challenge.method"] = "S256"
 	rep["attributes"] = attrs
 	rep["defaultClientScopes"] = []string{
-		"openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr",
+		"profile", "email", "roles", "web-origins", "acr",
 	}
 
 	body, err := json.Marshal(rep)
@@ -744,7 +744,7 @@ func (c *Client) createConsoleClient(ctx context.Context, consoleClientID, gatew
 			"pkce.code.challenge.method": "S256",
 		},
 		"defaultClientScopes": []string{
-			"openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr",
+			"profile", "email", "roles", "web-origins", "acr",
 		},
 	}
 
