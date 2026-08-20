@@ -2,15 +2,152 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stesting "k8s.io/client-go/testing"
+
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
+
+// routeResourceListKinds registers a list kind for every GVR RouteResourcesAbsent
+// probes through the dynamic client, so the fake can resolve each Get.
+func routeResourceListKinds() map[schema.GroupVersionResource]string {
+	return map[schema.GroupVersionResource]string{
+		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}:         "GRPCRouteList",
+		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}: "BackendTLSPolicyList",
+		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}:         "HTTPRouteList",
+		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}:            "NetworkPolicyList",
+		{Group: "apps", Version: "v1", Resource: "deployments"}:                             "DeploymentList",
+	}
+}
+
+// TestRouteResourcesAbsent is the health loop's convergence backstop: teardown
+// trusts its completion marker only while these probes confirm every route- and
+// console-owned resource is actually gone, so a stale provisioning pass that
+// recreates one after teardown cannot hide behind cleared address fields.
+func TestRouteResourcesAbsent(t *testing.T) {
+	const ns = "openshell-abc"
+
+	t.Run("all absent returns true", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !absent {
+			t.Fatal("want absent=true when no owned resources exist")
+		}
+	})
+
+	t.Run("a resurrected dynamic resource returns false", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
+			labeledResource("gateway.networking.k8s.io/v1", "GRPCRoute", ns, "openshell-gateway", true),
+		)
+		cs := k8sfake.NewSimpleClientset()
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if absent {
+			t.Fatal("want absent=false when the GRPCRoute reappeared")
+		}
+	})
+
+	t.Run("a resurrected typed resource returns false", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "openshell-backend-ca"},
+		})
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if absent {
+			t.Fatal("want absent=false when the backend-CA ConfigMap reappeared")
+		}
+	})
+
+	t.Run("an unobservable probe returns an error, never false-absent", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+		cs.PrependReactor("get", "configmaps", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, fmt.Errorf("apiserver unavailable")
+		})
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		if err == nil {
+			t.Fatal("want an error when a probe cannot observe the resource")
+		}
+		if absent {
+			t.Fatal("unknown state must never be reported as absent")
+		}
+	})
+
+	// The Keycloak console client is a realm object, not a namespaced one: a stale
+	// provisioning pass that recreated only the client would slip past every
+	// Kubernetes probe above, so its residual existence must still block absence.
+	t.Run("a residual keycloak console client returns false", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+		checker := &fakeConsoleClientChecker{exists: true}
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if absent {
+			t.Fatal("want absent=false when the Keycloak console client still exists")
+		}
+	})
+
+	// An unreachable Keycloak realm must surface as an error, never as absence:
+	// teardown must re-run, not settle on an unknown external state.
+	t.Run("an unobservable keycloak probe returns an error, never false-absent", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+		checker := &fakeConsoleClientChecker{err: fmt.Errorf("keycloak unreachable")}
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		if err == nil {
+			t.Fatal("want an error when the Keycloak client cannot be observed")
+		}
+		if absent {
+			t.Fatal("unknown external state must never be reported as absent")
+		}
+	})
+
+	// With every Kubernetes resource gone and the console client also deleted,
+	// teardown is genuinely settled -- including the external realm.
+	t.Run("all absent including keycloak returns true", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+		checker := &fakeConsoleClientChecker{exists: false}
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !absent {
+			t.Fatal("want absent=true when no Kubernetes resources and no console client remain")
+		}
+	})
+}
+
+// fakeConsoleClientChecker is a stub ConsoleClientChecker for driving the
+// Keycloak console-client probe in RouteResourcesAbsent.
+type fakeConsoleClientChecker struct {
+	exists bool
+	err    error
+}
+
+func (f *fakeConsoleClientChecker) ConsoleClientExists(context.Context, string) (bool, error) {
+	return f.exists, f.err
+}
 
 // labeledResource builds an unstructured namespaced object, optionally carrying
 // the hypershell.redhat.io/managed label the gateway stamps on everything it

@@ -449,6 +449,12 @@ export const messages = defineMessages({
     defaultMessage: "Provisioning gateway",
     description: "Accessible progress text while a gateway is provisioning.",
   },
+  provisioningGatewayConsole: {
+    id: "app.gateway.provisioningConsole",
+    defaultMessage: "Provisioning console...",
+    description:
+      "Tooltip on the disabled console button while the console is not yet ready.",
+  },
   refreshGateways: {
     id: "app.gateways.refresh",
     defaultMessage: "Refresh gateways",
@@ -493,5 +499,11 @@ export const messages = defineMessages({
     id: "app.table.column.status",
     defaultMessage: "Status",
     description: "Heading for a resource status column.",
+  },
+  unavailableGatewayConsole: {
+    id: "app.gateway.unavailableConsole",
+    defaultMessage: "Console unavailable for this gateway",
+    description:
+      "Tooltip on the disabled console button once the console failed to become available within the expected time.",
   },
 });

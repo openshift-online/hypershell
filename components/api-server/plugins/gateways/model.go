@@ -28,6 +28,7 @@ type Gateway struct {
 	SupervisorImage    *string `json:"supervisor_image"`
 	ServerDnsNames     *string `json:"server_dns_names" gorm:"type:jsonb"`
 	RouteAddress       *string `json:"route_address"`
+	ConsoleAddress     *string `json:"console_address"`
 	Oidc               *string `json:"oidc" gorm:"type:jsonb"`
 	Route              *string `json:"route" gorm:"type:jsonb"`
 	DatabaseConfig     *string `json:"database_config" gorm:"type:jsonb"`

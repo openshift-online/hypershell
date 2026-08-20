@@ -18,6 +18,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | PostgreSQL provisioning, credential security, manual rotation, deletion protection |
 | [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (encrypted DB, Kubernetes Secrets, Vault), RBAC, TOML generation |
 | [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) | Automated per-gateway Keycloak OIDC client provisioning, RBAC-driven role assignment, visibility scoping |
+| [`openshell-gateway-console.spec.md`](./openshell-gateway-console.spec.md) | Per-gateway Gateway Console (OpenShell dashboard) with an oauth2-proxy sidecar, deployed when the gateway has a route |
 
 ---
 

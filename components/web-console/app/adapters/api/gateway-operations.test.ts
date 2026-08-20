@@ -41,6 +41,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
   return {
     active_sandbox_count: 0,
     cluster_id: "",
+    console_address: "",
     created_at: null,
     credential_driver: "",
     database_config: "",
@@ -371,6 +372,28 @@ describe("gateway API operations adapter", () => {
     ).resolves.toMatchObject({
       externalDns: "openshell-gw-test.apps.example.com:443",
     });
+  });
+
+  it("maps console_address to the console URL so the open-console action renders", async () => {
+    gatewayApi.get.mockResolvedValue(
+      gateway({
+        console_address: "https://console-openshell-abc123.gw.localhost",
+      }),
+    );
+
+    await expect(
+      controlPlane.getGateway("gateway-1", context),
+    ).resolves.toMatchObject({
+      consoleUrl: "https://console-openshell-abc123.gw.localhost",
+    });
+  });
+
+  it("leaves the console URL unavailable when console_address is absent", async () => {
+    gatewayApi.get.mockResolvedValue(gateway({ console_address: "" }));
+
+    const result = await controlPlane.getGateway("gateway-1", context);
+
+    expect(result.consoleUrl).toBeUndefined();
   });
 
   it("keeps malformed OIDC connection values unavailable", async () => {

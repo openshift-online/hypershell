@@ -16,6 +16,7 @@ import {
   FlexItem,
   MenuToggle,
   Title,
+  Tooltip,
 } from "@patternfly/react-core";
 import { ExternalLinkAltIcon } from "@patternfly/react-icons";
 import { type ReactNode, useId, useState } from "react";
@@ -25,7 +26,9 @@ import { messages } from "../messages";
 import {
   buildGatewayAddCommand,
   type GatewayConnection,
+  isGatewayReadyToConnect,
 } from "./gateway-connections";
+import { isGatewayConsolePastDeadline } from "./gateway-data";
 import { GatewayDeleteDialog } from "./gateway-delete-dialog";
 import { GatewayRenameDialog } from "./gateway-rename-dialog";
 import { GatewayStatus } from "./gateway-status";
@@ -102,10 +105,12 @@ export function GatewayEndpointCopy({
 }
 
 function GatewayDetailActions({
+  consoleWaitStartedAt,
   gateway,
   onDeleted,
   onRenamed,
 }: {
+  consoleWaitStartedAt?: number;
   gateway: GatewayConnection;
   onDeleted: () => void;
   onRenamed: (gatewayName: string) => void;
@@ -118,22 +123,45 @@ function GatewayDetailActions({
   return (
     <>
       <ActionList>
-        {gateway.consoleUrl ? (
+        {isGatewayReadyToConnect(gateway) ? (
           <ActionListItem>
-            <Button
-              aria-label={intl.formatMessage(messages.openGatewayConsoleFor, {
-                gatewayName: gateway.name,
-              })}
-              component="a"
-              href={gateway.consoleUrl}
-              icon={<ExternalLinkAltIcon />}
-              iconPosition="end"
-              rel="noreferrer"
-              target="_blank"
-              variant="primary"
-            >
-              <FormattedMessage {...messages.openGatewayConsole} />
-            </Button>
+            {gateway.consoleUrl ? (
+              <Button
+                aria-label={intl.formatMessage(messages.openGatewayConsoleFor, {
+                  gatewayName: gateway.name,
+                })}
+                component="a"
+                href={gateway.consoleUrl}
+                icon={<ExternalLinkAltIcon />}
+                iconPosition="end"
+                rel="noreferrer"
+                target="_blank"
+                variant="primary"
+              >
+                <FormattedMessage {...messages.openGatewayConsole} />
+              </Button>
+            ) : (
+              <Tooltip
+                content={intl.formatMessage(
+                  isGatewayConsolePastDeadline(consoleWaitStartedAt)
+                    ? messages.unavailableGatewayConsole
+                    : messages.provisioningGatewayConsole,
+                )}
+              >
+                <Button
+                  aria-label={intl.formatMessage(
+                    messages.openGatewayConsoleFor,
+                    { gatewayName: gateway.name },
+                  )}
+                  icon={<ExternalLinkAltIcon />}
+                  iconPosition="end"
+                  isAriaDisabled
+                  variant="primary"
+                >
+                  <FormattedMessage {...messages.openGatewayConsole} />
+                </Button>
+              </Tooltip>
+            )}
           </ActionListItem>
         ) : null}
         <ActionListItem>
@@ -210,11 +238,13 @@ function GatewayDetailActions({
 }
 
 export function GatewayDetailHeader({
+  consoleWaitStartedAt,
   description,
   gateway,
   onDeleted,
   onRenamed,
 }: {
+  consoleWaitStartedAt?: number;
   description?: ReactNode;
   gateway: GatewayConnection;
   onDeleted: () => void;
@@ -241,6 +271,7 @@ export function GatewayDetailHeader({
       </FlexItem>
       <FlexItem>
         <GatewayDetailActions
+          consoleWaitStartedAt={consoleWaitStartedAt}
           gateway={gateway}
           onDeleted={onDeleted}
           onRenamed={onRenamed}

@@ -24,6 +24,7 @@ Name | Type | Description | Notes
 **SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
+**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
@@ -518,6 +519,31 @@ SetRouteAddress sets RouteAddress field to given value.
 `func (o *Gateway) HasRouteAddress() bool`
 
 HasRouteAddress returns a boolean if a field has been set.
+
+### GetConsoleAddress
+
+`func (o *Gateway) GetConsoleAddress() string`
+
+GetConsoleAddress returns the ConsoleAddress field if non-nil, zero value otherwise.
+
+### GetConsoleAddressOk
+
+`func (o *Gateway) GetConsoleAddressOk() (*string, bool)`
+
+GetConsoleAddressOk returns a tuple with the ConsoleAddress field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetConsoleAddress
+
+`func (o *Gateway) SetConsoleAddress(v string)`
+
+SetConsoleAddress sets ConsoleAddress field to given value.
+
+### HasConsoleAddress
+
+`func (o *Gateway) HasConsoleAddress() bool`
+
+HasConsoleAddress returns a boolean if a field has been set.
 
 ### GetOidc
 

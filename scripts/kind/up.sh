@@ -215,6 +215,11 @@ if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   echo ""
 fi
 
+# The per-gateway console images (the OpenShell dashboard and its oauth2-proxy
+# sidecar) are public registry images -- the dashboard is published to quay.io,
+# pinned by digest in the control plane's ImageDefaults -- so console pods pull
+# them at start (imagePullPolicy IfNotPresent) with no build or pre-load step.
+
 # --- Apply pull secret (if configured) ---
 if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
   header "Pull Secret"

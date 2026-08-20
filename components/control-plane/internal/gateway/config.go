@@ -16,10 +16,24 @@ type ImageDefaults interface {
 	DefaultSupervisorImage() string
 	DefaultDatabaseImage() string
 	DefaultSandboxImage() string
+	DefaultConsoleImage() string
+	DefaultOAuth2ProxyImage() string
 }
 
 const defaultDatabaseImage = "postgres:18"
 const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
+
+// defaultConsoleImage is the OpenShell dashboard image (the per-gateway
+// console). The upstream project publishes it to quay.io, so clusters pull it
+// directly (imagePullPolicy IfNotPresent) rather than building from source.
+// Pinned by digest to the sha-07f1b13 build for reproducibility; bump
+// deliberately when adopting a new dashboard contract. Overridable via
+// HYPERSHELL_CONSOLE_IMAGE (e.g. a platform-registry mirror in production).
+const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:cb5e5b18b4cdf62efb1ce33e2ae73ed646d3cdf438966cae3c328f1c04cce0b4"
+
+// defaultOAuth2ProxyImage is the oauth2-proxy sidecar image. Overridable via
+// HYPERSHELL_OAUTH2_PROXY_IMAGE.
+const defaultOAuth2ProxyImage = "quay.io/oauth2-proxy/oauth2-proxy:v7.7.1"
 
 type StaticImageDefaults struct{}
 
@@ -63,6 +77,20 @@ func (StaticImageDefaults) DefaultSandboxImage() string {
 		return v
 	}
 	return defaultSandboxImage
+}
+
+func (StaticImageDefaults) DefaultConsoleImage() string {
+	if v := os.Getenv("HYPERSHELL_CONSOLE_IMAGE"); v != "" {
+		return v
+	}
+	return defaultConsoleImage
+}
+
+func (StaticImageDefaults) DefaultOAuth2ProxyImage() string {
+	if v := os.Getenv("HYPERSHELL_OAUTH2_PROXY_IMAGE"); v != "" {
+		return v
+	}
+	return defaultOAuth2ProxyImage
 }
 
 type NamespaceConfig struct {
@@ -131,6 +159,11 @@ type DatabaseConfig struct {
 // is provided by the top-level reconciler which owns the gRPC connection.
 type RouteAddressUpdater func(ctx context.Context, routeAddress string) error
 
+// ConsoleAddressUpdater is called by the gateway reconciler to update the
+// console_address field on the API-server Gateway resource. The implementation
+// is provided by the top-level reconciler which owns the gRPC connection.
+type ConsoleAddressUpdater func(ctx context.Context, consoleAddress string) error
+
 // KeycloakConfig holds Keycloak Admin REST API connection parameters read
 // from the hypershell-keycloak-admin Secret in the control-plane namespace.
 type KeycloakConfig struct {
@@ -160,6 +193,9 @@ type ReconcileOpts struct {
 	// UpdateRouteAddress is an optional callback that PATCHes the route_address
 	// field on the API-server Gateway.  Nil means no update will be attempted.
 	UpdateRouteAddress RouteAddressUpdater
+	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
+	// field on the API-server Gateway. Nil means no update will be attempted.
+	UpdateConsoleAddress ConsoleAddressUpdater
 	// RotateDBCredentials is the value of the hypershell.redhat.io/rotate-db-credentials
 	// annotation on the Gateway resource. Empty means no rotation requested.
 	RotateDBCredentials string
@@ -178,9 +214,17 @@ type ReconcileOpts struct {
 	// address. Nil when no exposure backend is configured (e.g. clusters without
 	// the Gateway API), in which case no route address is published.
 	Exposure exposure.Port
+	// RouteStillDesired, when set, reports whether the Gateway is still routed
+	// according to its current API-server record (false if it has since been
+	// un-routed or deleted). The provisioning path calls it after the potentially
+	// long TLS-secret wait, before creating the remaining route- and console-owned
+	// resources, so an in-flight pass does not recreate them behind a concurrent
+	// health-loop teardown. Nil disables the re-check (the pass proceeds).
+	RouteStillDesired func(ctx context.Context) (bool, error)
 }
 
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.
 type KeycloakClientAPI interface {
 	DeleteGatewayClient(ctx context.Context, gatewayName string) error
+	DeleteConsoleClient(ctx context.Context, consoleClientID string) error
 }

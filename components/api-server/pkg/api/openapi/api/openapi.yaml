@@ -2540,6 +2540,10 @@ components:
             description: External route address populated by the control plane
             readOnly: true
             type: string
+          console_address:
+            description: Web console address populated by the control plane
+            readOnly: true
+            type: string
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -2586,6 +2590,7 @@ components:
         image: image
         active_sandbox_count: 5
         kind: kind
+        console_address: console_address
         route_address: route_address
         oidc: oidc
         supervisor_image: supervisor_image
@@ -2632,6 +2637,7 @@ components:
           image: image
           active_sandbox_count: 5
           kind: kind
+          console_address: console_address
           route_address: route_address
           oidc: oidc
           supervisor_image: supervisor_image
@@ -2659,6 +2665,7 @@ components:
           image: image
           active_sandbox_count: 5
           kind: kind
+          console_address: console_address
           route_address: route_address
           oidc: oidc
           supervisor_image: supervisor_image

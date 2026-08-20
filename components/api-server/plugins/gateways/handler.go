@@ -130,6 +130,11 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.RouteAddress != nil {
 				found.RouteAddress = patch.RouteAddress
 			}
+			// console_address is a control-plane-owned, readOnly field. It is the
+			// trusted "Open gateway console" link shown to viewers, so it must not
+			// be settable through the public REST PATCH (a gateway owner could
+			// otherwise store an arbitrary phishing URL). It is written only via
+			// the internal gRPC UpdateGateway path used by the control plane.
 			// active_sandbox_count is a control-plane-owned observability signal
 			// written only via the gRPC AdjustActiveSandboxCount / SetActiveSandboxCount
 			// RPCs (readOnly on the REST Gateway schema); it is intentionally not

@@ -95,6 +95,23 @@ func migrationAddSupervisorImage() *gormigrate.Migration {
 	}
 }
 
+func migrationAddConsoleAddress() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		ConsoleAddress *string
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026081112000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "console_address")
+		},
+	}
+}
+
 func migrationAddActiveSandboxCount() *gormigrate.Migration {
 	type Gateway struct {
 		db.Model
