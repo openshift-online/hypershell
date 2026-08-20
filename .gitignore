@@ -28,12 +28,20 @@ test-results/
 
 # Agent Package Manager cache
 apm_modules/
+.claude/agents
+.claude/commands
+.claude/skills
 
 # Claude Code working state
 .claude/
 
 # Kind swap tracking
 .kind-swaps
+
+# Security audit / threat-model working artifacts
+security-audit/
+.threat-model-state/
+.skillspector-reports/
 
 # Local tool binaries (built by make kind-prereqs)
 bin/
