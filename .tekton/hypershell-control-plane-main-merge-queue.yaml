@@ -4,18 +4,18 @@ metadata:
   annotations:
     build.appstudio.openshift.io/repo: https://github.com/openshift-online/hypershell?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
-    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
-      == "main" && ( "components/api-server/***".pathChanged() || ".tekton/hypershell-api-server-main-pull-request.yaml".pathChanged()
-      )
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch.startsWith("gh-readonly-queue/main/")
+      && ( "components/control-plane/***".pathChanged() || ".tekton/hypershell-control-plane-main-merge-queue.yaml".pathChanged()
+      || "Dockerfile".pathChanged() )
   labels:
     appstudio.openshift.io/application: hypershell-main
-    appstudio.openshift.io/component: hypershell-api-server-main
+    appstudio.openshift.io/component: hypershell-control-plane-main
     pipelines.appstudio.openshift.io/type: build
-  name: hypershell-api-server-main-on-pull-request
+    release.appstudio.openshift.io/auto-release: "false"
+  name: hypershell-control-plane-main-on-merge-queue
   namespace: hcm-eng-prod-tenant
 spec:
   params:
@@ -24,13 +24,13 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:on-pr-{{revision}}
+    value: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:on-merge-queue-{{revision}}
   - name: image-expires-after
     value: 5d
   - name: dockerfile
-    value: Dockerfile
+    value: components/control-plane/Dockerfile
   - name: path-context
-    value: components/api-server
+    value: .
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.
@@ -536,7 +536,7 @@ spec:
     - name: netrc
       optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-hypershell-api-server-main
+    serviceAccountName: build-pipeline-hypershell-control-plane-main
   workspaces:
   - name: workspace
     volumeClaimTemplate:

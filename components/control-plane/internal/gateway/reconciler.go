@@ -1738,9 +1738,10 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 				},
 			},
 			"spec": map[string]interface{}{
-				"isCA":       true,
-				"commonName": "openshell-ca",
-				"secretName": "openshell-ca-tls",
+				"isCA":           true,
+				"commonName":     "openshell-ca",
+				"secretName":     "openshell-ca-tls",
+				"rotationPolicy": "Always",
 				"privateKey": map[string]interface{}{
 					"algorithm": "ECDSA",
 					"size":      int64(256),

@@ -59,13 +59,20 @@ jobs:
           wait_control_plane=false
           wait_web_console=false
 
-          if grep -q '^components/api-server/' <<<"${changed_files}"; then
+          # These patterns MUST mirror each component's merge-queue Konflux CEL
+          # trigger in .tekton/hypershell-<component>-main-merge-queue.yaml. A
+          # merge-queue push that changes the pipeline file itself (or, for
+          # control-plane, the root Dockerfile) also fires that component's build,
+          # so we must wait for it -- otherwise the plan step below silently maps
+          # the component to a baseline image and skips the on-merge-queue image
+          # the merge queue actually produced.
+          if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-merge-queue\.yaml$' <<<"${changed_files}"; then
             wait_api_server=true
           fi
-          if grep -q '^components/control-plane/' <<<"${changed_files}"; then
+          if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-merge-queue\.yaml$|^Dockerfile$' <<<"${changed_files}"; then
             wait_control_plane=true
           fi
-          if grep -qE '^(components/web-console/|packages/gateway-management-ui/)' <<<"${changed_files}"; then
+          if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-merge-queue\.yaml$' <<<"${changed_files}"; then
             wait_web_console=true
           fi
 
@@ -73,36 +80,44 @@ jobs:
           echo "wait_control_plane=${wait_control_plane}" >> "${GITHUB_OUTPUT}"
           echo "wait_web_console=${wait_web_console}" >> "${GITHUB_OUTPUT}"
 
-      # Wait for merge-queue Konflux builds BEFORE checking if images exist.
-      # This ensures the skopeo inspect in the plan step will find the images.
-      - name: Wait for api-server Konflux on-push build (merge-group)
+      # Wait for merge-queue Konflux builds BEFORE the plan step maps images.
+      # GitHub merge queue pushes to gh-readonly-queue/main/..., which Konflux
+      # builds through the dedicated *merge-queue* pipelines
+      # (.tekton/*-merge-queue.yaml). Those fire only on a push whose
+      # target_branch starts with gh-readonly-queue/main/ and push an ephemeral
+      # on-merge-queue-<merge_sha> tag, kept distinct from the PR pipelines'
+      # on-pr-<head_sha> images so a merge-queue build is never confused with an
+      # already-tested PR image. The on-push pipelines require
+      # target_branch == "main" and never fire here. So wait for the
+      # -on-merge-queue checks, keyed on the merge-commit SHA Konflux built.
+      - name: Wait for api-server Konflux build (merge-group)
         if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-api-server-main-on-push$
+          check-regexp: hypershell-api-server-main-on-merge-queue$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
           allowed-conclusions: success
 
-      - name: Wait for control-plane Konflux on-push build (merge-group)
+      - name: Wait for control-plane Konflux build (merge-group)
         if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_control_plane == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-control-plane-main-on-push$
+          check-regexp: hypershell-control-plane-main-on-merge-queue$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
           allowed-conclusions: success
 
-      - name: Wait for web-console Konflux on-push build (merge-group)
+      - name: Wait for web-console Konflux build (merge-group)
         if: github.event_name == 'merge_group' && steps.detect-merge-queue.outputs.wait_web_console == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: hypershell-web-console-main-on-push$
+          check-regexp: hypershell-web-console-main-on-merge-queue$
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -120,6 +135,9 @@ jobs:
           DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
           DETECT_E2E: ${{ steps.detect.outputs.e2e }}
           DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
+          MQ_API_SERVER: ${{ steps.detect-merge-queue.outputs.wait_api_server }}
+          MQ_CONTROL_PLANE: ${{ steps.detect-merge-queue.outputs.wait_control_plane }}
+          MQ_WEB_CONSOLE: ${{ steps.detect-merge-queue.outputs.wait_web_console }}
         run: |
           baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
@@ -139,13 +157,17 @@ jobs:
               e2e_changed="${DETECT_E2E:-false}"
               pr_test_changed="${DETECT_PR_TEST:-false}"
 
-              # Determine which components need a Konflux-built image.
+              # Determine which components need a Konflux-built image. These
+              # patterns MUST mirror each component's pull-request Konflux CEL
+              # trigger in .tekton/hypershell-<component>-main-pull-request.yaml.
               # detect-components uses broad paths (includes Makefile, .github/,
               # sdk-typescript, lockfiles, etc.) which is correct for lint but
               # NOT for "will Konflux build an image" or "should Kind e2e run".
-              # Konflux web-console builds on components/web-console/ or
-              # packages/gateway-management-ui/; other DETECT_WEB_CONSOLE paths
-              # (for example sdk-typescript) do not produce a PR image.
+              # A PR that changes only the pipeline file itself (or, for
+              # control-plane, the root Dockerfile) still triggers that
+              # component's on-pr build, so we must wait for it -- otherwise we
+              # silently fall back to main's image and skip the on-pr image this
+              # PR actually produces.
               #
               # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...${PR_HEAD_SHA}"
               # compares the PR head against the point where this PR forked from the
@@ -158,9 +180,9 @@ jobs:
               api_konflux=false
               cp_konflux=false
               wc_konflux=false
-              if grep -q '^components/api-server/'    <<<"${changed_files}"; then api_konflux=true; fi
-              if grep -q '^components/control-plane/' <<<"${changed_files}"; then cp_konflux=true; fi
-              if grep -qE '^(components/web-console/|packages/gateway-management-ui/)' <<<"${changed_files}"; then wc_konflux=true; fi
+              if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-pull-request\.yaml$' <<<"${changed_files}"; then api_konflux=true; fi
+              if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-pull-request\.yaml$|^Dockerfile$' <<<"${changed_files}"; then cp_konflux=true; fi
+              if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
 
               e2e_relevant=false
               if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || \
@@ -230,8 +252,43 @@ jobs:
               echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
               ;;
 
+            merge_group)
+              # GitHub merge queue builds images through the dedicated Konflux
+              # merge-queue pipelines (.tekton/*-merge-queue.yaml): a push to
+              # gh-readonly-queue/main/... runs
+              # hypershell-<component>-main-on-merge-queue and pushes an
+              # ephemeral on-merge-queue-<merge_sha>, distinct from the PR
+              # pipelines' on-pr-<head_sha> so a merge-queue image is never
+              # confused with an already-tested PR image. The on-push pipelines
+              # require target_branch == "main" and never fire here, so mirror
+              # the pull_request path: use on-merge-queue-<merge_sha> for each
+              # component the merge queue rebuilt (the wait steps above proved
+              # the image was pushed) and the stable baseline image for the
+              # rest. Always run e2e -- this is the merge gate.
+              tag="on-merge-queue-${PUSH_SHA}"
+              api_img="${baseline_api}"
+              cp_img="${baseline_cp}"
+              wc_img="${baseline_wc}"
+              if [[ "${MQ_API_SERVER}" == "true" ]]; then
+                api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+                echo "  api-server -> ${api_img}"
+              fi
+              if [[ "${MQ_CONTROL_PLANE}" == "true" ]]; then
+                cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+                echo "  control-plane -> ${cp_img}"
+              fi
+              if [[ "${MQ_WEB_CONSOLE}" == "true" ]]; then
+                wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+                echo "  web-console -> ${wc_img}"
+              fi
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
+              ;;
+
             *)
-              # push, merge_group, workflow_dispatch -- use latest Konflux on-push images
+              # push, workflow_dispatch -- use latest Konflux on-push images
               push_tag="${PUSH_SHA}"
               konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${push_tag}"
               if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
@@ -256,7 +313,7 @@ jobs:
       # cannot be skipped (the failure mode of the previous hand-rolled poll).
       # A non-success conclusion fails the step -> the job -> the E2E gate.
       # pull_request waits are isolated here. merge_group waits are handled by
-      # the dedicated on-push wait steps above, keyed on github.sha.
+      # the dedicated merge-group wait steps above, keyed on github.sha.
       - name: Wait for api-server Konflux build
         if: github.event_name == 'pull_request' && steps.plan.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
@@ -361,13 +418,15 @@ jobs:
       # setup the web-console lint job uses.
       #
       # These steps run on pull_request, push, and workflow_dispatch -- NOT
-      # merge_group. resolve-images maps an ephemeral merge-queue commit to
-      # on-pr-<merge_sha>, which Konflux never builds, so merge_group always
-      # falls back to the baseline web-console image. That baseline lags main
-      # and cannot contain not-yet-merged tracing code, so the deployed console
-      # emits no spans and the assertion would test the wrong artifact. The
-      # trace path is gated at pull_request time against the freshly built PR
-      # image and re-verified on push to main against the post-merge image.
+      # merge_group. The trace path is already gated at pull_request time
+      # against the freshly built PR image and re-verified on push to main
+      # against the post-merge image, so re-running it on the merge gate is
+      # redundant coverage that would add a Node install, a Chromium download,
+      # and a Playwright run to every merge. It is also not always testable
+      # there: when a merge batch does not touch web-console the console image
+      # falls back to baseline, which lags main and cannot contain
+      # not-yet-merged tracing code, so the deployed console would emit no
+      # spans and the assertion would test the wrong artifact.
       - name: Set up Node.js
         if: github.event_name != 'merge_group'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
