@@ -1561,8 +1561,8 @@ else
     fail_test "Namespace ${GW_NAMESPACE} not garbage collected after ${E2E_GC_TIMEOUT}s"
     dim "  --- namespace GC diagnostics ---"
     $CLI get namespace "$GW_NAMESPACE" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
-    dim "  Control plane logs:"
-    $CLI logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=40 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    dim "  Namespace GC controller logs:"
+    e2e_dump_namespace_gc_logs "${E2E_HS_NAMESPACE}" "$CLI"
   fi
 
   # 11a. Periodic reaper (NamespaceGCReconciler + recordGCEvent). Orphan namespace
@@ -1593,8 +1593,8 @@ else
       fail_test "Orphan namespace ${ORPHAN_NS} not garbage collected within ${E2E_ORPHAN_GC_TIMEOUT}s of seeding"
       dim "  --- orphan namespace GC diagnostics ---"
       $CLI get namespace "$ORPHAN_NS" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
-      dim "  Control plane logs:"
-      $CLI logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=40 2>&1 | while IFS= read -r line; do dim "    $line"; done
+      dim "  Namespace GC controller logs:"
+      e2e_dump_namespace_gc_logs "${E2E_HS_NAMESPACE}" "$CLI"
     fi
 
     if [[ "$ORPHAN_GONE" == "true" ]]; then

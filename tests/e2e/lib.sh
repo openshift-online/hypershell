@@ -124,3 +124,14 @@ e2e_gc_eligible_since_backdate() {
     date -u -d "${minutes} minutes ago" +%Y-%m-%dT%H:%M:%SZ
   fi
 }
+
+# Print allowlisted namespace-GC lines from controller logs. Avoids dumping raw
+# controller output that may contain OIDC endpoints or other sensitive config.
+e2e_dump_namespace_gc_logs() {
+  local hs_namespace="${1:-hypershell-system}"
+  local cli="${2:-kubectl}"
+  "$cli" logs -l app=hypershell-controller -n "$hs_namespace" --tail=200 2>/dev/null \
+    | grep -E 'namespace gc:|GarbageCollected|recordGCEvent|deleted namespace' \
+    | tail -20 \
+    | while IFS= read -r line; do dim "    $line"; done || true
+}

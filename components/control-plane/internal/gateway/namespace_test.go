@@ -46,6 +46,30 @@ func TestIsManagedNamespace(t *testing.T) {
 	}
 }
 
+func TestIsGatewayNamespaceForGC(t *testing.T) {
+	tests := []struct {
+		name string
+		ns   string
+		want bool
+	}{
+		{"gateway namespace", "openshell-a14873d1631f1b74", true},
+		{"e2e orphan", "openshell-e2e-orphan-123", true},
+		{"managed database namespace", "openshell-db-a1b2c3d4e5f67890", false},
+		{"unmanaged", "openshell-gw", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ns := managedNamespace(tt.ns, nil)
+			if tt.name == "unmanaged" {
+				ns.Labels = nil
+			}
+			if got := IsGatewayNamespaceForGC(ns); got != tt.want {
+				t.Errorf("IsGatewayNamespaceForGC() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeleteManagedNamespace(t *testing.T) {
 	ctx := context.Background()
 

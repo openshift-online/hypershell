@@ -133,6 +133,9 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 		t.Fatalf("event count = %d, want 1", len(events.Items))
 	}
 	ev := events.Items[0]
+	if ev.InvolvedObject.APIVersion != "v1" {
+		t.Errorf("involvedObject.apiVersion = %q, want v1", ev.InvolvedObject.APIVersion)
+	}
 	if ev.Namespace != "hypershell-stage" {
 		t.Errorf("event namespace = %q, want hypershell-stage", ev.Namespace)
 	}
@@ -141,6 +144,24 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 	}
 	if ev.InvolvedObject.Name != "openshell-gw" {
 		t.Errorf("involvedObject.name = %q, want openshell-gw", ev.InvolvedObject.Name)
+	}
+}
+
+func TestReconcileNamespace_SkipsManagedDatabaseNamespace(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	ns := managedNS("openshell-db-a1b2c3d4e5f67890", map[string]string{
+		gateway.GCEligibleSinceAnnotation: now.Add(-20 * time.Minute).Format(time.RFC3339),
+	})
+	client := fake.NewSimpleClientset(ns)
+	r := newTestGC(client, now)
+
+	if err := r.reconcileNamespace(ctx, ns, map[string]struct{}{}); err != nil {
+		t.Fatalf("reconcileNamespace() error = %v", err)
+	}
+
+	if !nsExists(t, client, "openshell-db-a1b2c3d4e5f67890") {
+		t.Fatalf("ManagedDatabase namespace deleted by gateway GC, want retained")
 	}
 }
 

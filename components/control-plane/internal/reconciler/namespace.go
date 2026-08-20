@@ -168,9 +168,10 @@ func (r *NamespaceGCReconciler) grpcLiveNamespaces(ctx context.Context) (map[str
 // namespaces backed by a live Gateway and reaps it if it has been orphaned past
 // the grace period. It is best-effort and idempotent.
 func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *corev1.Namespace, live map[string]struct{}) error {
-	// Defense in depth: only ever act on namespaces this control plane manages,
-	// even if the server-side label selector over-returns.
-	if !gateway.IsManagedNamespace(ns) {
+	// Defense in depth: only gateway workload namespaces are subject to this
+	// reconciler. ManagedDatabase CNPG namespaces share management labels but
+	// are owned by the ManagedDatabase reconciler.
+	if !gateway.IsGatewayNamespaceForGC(ns) {
 		return nil
 	}
 	// A namespace already terminating needs no further action.

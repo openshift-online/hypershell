@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +23,11 @@ const (
 	ManagedLabel      = "hypershell.redhat.io/managed"
 	ManagedLabelValue = "true"
 
+	// GatewayNamespacePrefix is the API-assigned prefix for gateway workload namespaces.
+	GatewayNamespacePrefix = "openshell-"
+	// DatabaseNamespacePrefix is the API-assigned prefix for ManagedDatabase CNPG namespaces.
+	DatabaseNamespacePrefix = "openshell-db-"
+
 	// GCEligibleSinceAnnotation records, in RFC3339, when a managed namespace was
 	// first observed orphaned (no live Gateway). The grace period is measured
 	// from this timestamp so it survives control-plane restarts.
@@ -37,6 +43,18 @@ var ManagedNamespaceSelector = fmt.Sprintf("%s=%s,%s=%s",
 func IsManagedNamespace(ns *corev1.Namespace) bool {
 	return ns.Labels[ManagedLabel] == ManagedLabelValue &&
 		ns.Labels[ManagedByLabel] == ManagedByValue
+}
+
+// IsGatewayNamespaceForGC reports whether ns is a gateway workload namespace
+// subject to gateway namespace garbage collection. ManagedDatabase CNPG
+// namespaces (openshell-db-*) carry the same management labels but are owned by
+// the ManagedDatabase reconciler.
+func IsGatewayNamespaceForGC(ns *corev1.Namespace) bool {
+	if !IsManagedNamespace(ns) {
+		return false
+	}
+	return strings.HasPrefix(ns.Name, GatewayNamespacePrefix) &&
+		!strings.HasPrefix(ns.Name, DatabaseNamespacePrefix)
 }
 
 // DeleteManagedNamespace deletes a gateway namespace, best-effort and
