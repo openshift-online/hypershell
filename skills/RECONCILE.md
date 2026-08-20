@@ -56,7 +56,7 @@ skills/
 | Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
 | Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
-| Platform - Gateway DB | 1 | 9 | 5 | 0 | 4 | 0 | 56% |
+| Platform - Gateway DB | 1 | 14 | 11 | 0 | 3 | 0 | 79% |
 | Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
 | Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
@@ -103,7 +103,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | DM-3c | Gateway field: `oidc` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3d | Gateway field: `route` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3e | Gateway field: `route_address` (read-only) | Present | Added to model, OpenAPI (readOnly), proto, migration | `plugins/gateways/model.go` | W5 ✅ |
-| DM-3f | Gateway field: `database` (JSONB) | Present | Added to model, OpenAPI, proto, migration; CP struct has `externalSecretRef` | `plugins/gateways/model.go` | W5 ✅ |
+| DM-3f | Gateway `database_config` column removal | Partial | Field removed from Go/API (W8); DROP COLUMN migration not yet added | `plugins/gateways/migration.go` | W8 |
 | DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
 | DM-5 | Canary release strategy fields | Present | Fields exist; no logic implements canary | `plugins/gatewayReleases/model.go` | Future |
 | DM-6 | Network topology fields | Present | Fields exist; reconciler is a stub | `plugins/gatewayNetworks/model.go` | Future |
@@ -115,7 +115,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 |---|-------------|--------|-----|---------------|------|
 | CP-1 | gRPC watch streams (6 kinds) | Present | No checkpoint/resume-token on reconnect | `watcher/watcher.go` | - |
 | CP-2a | Deploy Gateway workloads | Present | - | `gateway/reconciler.go` | - |
-| CP-2b | Provision PostgreSQL | Present | - | `reconcileDatabaseCredentials()` | - |
+| CP-2b | Provision database via CNPG | Present | ManagedDatabaseReconciler creates CNPG Cluster; GatewayReconciler creates DatabaseRole/Database/Kubernetes Secret CRs | `reconciler.go`, `gateway/reconciler.go` | W8 ✅ |
 | CP-2c | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | - |
 | CP-2d | GRPCRoute + BackendTLSPolicy | Present | - | `reconcileGatewayAPIResources()` | - |
 | CP-2e | OIDC config injection | Present | - | `ApplyConfigOverrides()` | - |
@@ -131,7 +131,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| G1 | Gateway as API Resource | Present | CRUD + all provisioning fields (image, server_dns_names, oidc, route, route_address, database_config) | `gateways.proto` | W5 ✅ |
+| G1 | Gateway as API Resource | Present | CRUD + all provisioning fields (image, server_dns_names, oidc, route, route_address) | `gateways.proto` | W5 ✅ |
 | G2 | Shared Kustomize Library | Missing | No library, no CLI, no examples | - | Future |
 | G3 | GatewayReconciler | Present | DELETED handler with namespace cache and full resource cleanup | `reconciler.go` | W6 ✅ |
 | G4 | Gateway Manifest Templating | Present | - | `manifests.go` | W1 ✅ |
@@ -154,15 +154,20 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| D1 | Database config fields (storageSize, image) | Present | - | `config.go:32-33` | W1 ✅ |
-| D2 | PostgreSQL resource provisioning (PVC, Deployment, Service, NP) | Present | - | `database.yaml` | W1 ✅ |
-| D3 | Database credential security (crypto/rand) | Present | - | `reconcileDatabaseCredentials()` | W1 ✅ |
-| D4 | Manual credential rotation | Missing | No rotation annotation handler | - | Future |
-| D5 | Gateway uses Deployment + env from Secret | Present | - | `deployment.yaml` | W1 ✅ |
-| D6 | Database field immutability | Missing | No API validation | - | Future |
-| D7 | Gateway deletion protection | Missing | No sandbox check on delete | - | Future |
-| D8 | `externalSecretRef` (Phase 2 reserved) | Missing | Not in `DatabaseConfig` struct | - | Future |
-| D9 | Label-based cleanup on deletion | Present | Spec updated: label-based deletion via `DeleteGatewayResources()` replaces ownerReferences | `gateway/reconciler.go` | W6 ✅ |
+| D1 | ManagedDatabase Reconciliation (provider=cnpg) | Present | ManagedDatabaseReconciler creates CNPG Cluster CRs | `reconciler.go` | W8 ✅ |
+| D2 | Per-gateway Database/DatabaseRole/Secret CRs | Present | GatewayReconciler provisions CNPG Database+DatabaseRole+Secret in ManagedDB namespace | `gateway/reconciler.go` | W8 ✅ |
+| D3 | ManagedDatabase Deletion Protection | Present | API rejects delete (409) when gateways reference it | `plugins/managedDatabases/service.go` | W8 ✅ |
+| D4 | Gateway Database Resolution (auto fleet+db) | Present | fleet_id auto-resolved from cluster_id; database_id auto-assigned when sole DB in fleet | `plugins/gateways/service.go` | W8 ✅ |
+| D5 | Gateway Credentials Secret (tenant namespace) | Present | `openshell-gateway-db-credentials` created in tenant NS with host/port/dbname/user/password/uri | `gateway/reconciler.go` | W8 ✅ |
+| D6 | Database Provisioning Readiness | Present | `waitForCNPGDatabase()` waits 2min for CNPG Database CR `status.applied: true` | `gateway/reconciler.go` | W8 ✅ |
+| D7 | Database Credential Security (crypto/rand) | Present | 32-byte hex password; create-or-skip semantics | `gateway/reconciler.go` | W8 ✅ |
+| D8 | Manual Credential Rotation (CNPG-based) | Present | `rotateCNPGDatabaseCredentials()` updates CNPG password Secret; CNPG applies to PostgreSQL | `gateway/reconciler.go` | W8 ✅ |
+| D9 | Gateway workload uses Deployment + env from Secret | Present | openshell-gateway-db-credentials Secret referenced in Deployment | `deployment.yaml` | W1 ✅ |
+| D10 | CNPG Operator Detection at startup | Present | `DetectCNPG()` checks for `postgresql.cnpg.io/v1` API group | `gateway/config.go`, `reconciler.go` | W8 ✅ |
+| D11 | Label-based cleanup on deletion (CNPG resources) | Present | CNPG resources in ManagedDB namespace cleaned via `hypershell.redhat.io/gateway-namespace` label | `gateway/reconciler.go` | W8 ✅ |
+| D12 | DROP COLUMN migration for database_config | Missing | database_config column still in DB schema; no DROP COLUMN migration added | - | Future |
+| D13 | Database field immutability | Missing | No API validation prevents database_id reassignment | - | Future |
+| D14 | Gateway Deletion Protection (active sandboxes) | Missing | No sandbox check on delete | - | Future |
 
 ### openshell-gateway-tls.spec.md
 
@@ -312,10 +317,9 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| SR-1 | Database Password Rotation (annotation-triggered) | Present | `rotateDatabaseCredentials()` checks `rotate-db-credentials` annotation vs `last-db-rotation`; generates new password, ALTER ROLE, updates Secret | `gateway/reconciler.go` | SR-W1 ✅ |
-| SR-2 | Database Rotation Failure Handling (ALTER ROLE first, then Secret) | Present | ALTER ROLE executes before Secret update; if ALTER fails, Secret is unchanged; if Secret update fails, ALTER is idempotent on retry | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-1 | Database Password Rotation (annotation-triggered) | Present | `rotateCNPGDatabaseCredentials()` updates CNPG password Secret; CNPG applies to PostgreSQL; updates gateway credentials Secret | `gateway/reconciler.go` | W8 ✅ |
+| SR-2 | Database Rotation Failure Handling | Present | CNPG password Secret updated first, then gateway credentials Secret; retry is safe because mismatch detected via annotation | `gateway/reconciler.go` | W8 ✅ |
 | SR-3 | Config-Hash Coverage for Database Credentials | Present | `applyConfigHashAnnotation` now loops over both `openshell-server-tls` AND `openshell-gateway-db-credentials` Secrets | `gateway/reconciler.go` | SR-W1 ✅ |
-| SR-4 | PostgreSQL Connection for ALTER ROLE | Present | `database/sql` + `lib/pq` imported; direct PostgreSQL connection for ALTER ROLE | `gateway/reconciler.go` | SR-W1 ✅ |
 | SR-5 | KEK Rotation (Day-2) | Deferred | Explicitly deferred in spec; no gateway re-encryption API exists | - | Future |
 | SR-6 | TLS Certificate Rotation (cert-manager) | Present | cert-manager handles renewal; `applyConfigHashAnnotation` includes TLS Secret; config-hash triggers restart | `reconciler.go:540-554` | W7 ✅ |
 | SR-7 | Provider Credential Rotation by Driver Type | Deferred | Credential driver fields not yet implemented in reconciler; driver-specific rotation is platform-managed (K8s SA, Vault) | - | Future |
@@ -370,7 +374,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | L14 | Hot Reload Support | Present | Web console: scale down, redirect Service → host Vite via Endpoints, pnpm dev with trap | `scripts/kind/swap-component.sh` |
 | L15 | Container Registry | Present | `IMAGE_REGISTRY` + `IMAGE_TAG` configurable | `Makefile` |
 | L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` builds all images from `origin/main` via git worktree | `scripts/kind/build-images.sh` |
-| L17 | Red Hat HI Images | Present | `hi/postgresql:18.4` digest-pinned; `KIND_DB_IMAGE` override for OSS contributors | `deploy/kind/postgres.yaml`, `Makefile` |
+| L17 | Red Hat HI Images | Present | Hub DB uses CNPG Cluster manifest with `HYPERSHELL_DATABASE_IMAGE`; gateway DBs use `OPENSHELL_DATABASE_IMAGE` | `deploy/base/hypershell-db-cluster.yaml`, `Makefile` |
 | L18 | Gateway API CRDs | Present | Experimental channel from upstream at `GATEWAY_API_VERSION` (v1.5.1) | `scripts/kind/up.sh` |
 | L19 | cloud-provider-kind | Present | Patched build (podman 6+ fix); `--enable-lb-port-mapping`; verified in PATH | `Makefile`, `scripts/kind/up.sh` |
 | L20 | cert-manager | Present | Installed from release manifest; waits for deployments ready | `scripts/kind/up.sh` |
@@ -396,7 +400,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | W5 | Gateway Proto Schema + API Fields | ✅ Complete |
 | W6 | Gateway Deletion + Cleanup + Route Removal | ✅ Complete |
 
-**Wave 5 summary:** Added 6 gateway provisioning fields (image, server_dns_names, route_address, oidc, route, database_config) across proto, OpenAPI, model, migration, presenters, and gRPC/HTTP handlers. Control plane reconciler populates GatewayConfig from proto fields. Added ExternalSecretRef to DatabaseConfig.
+**Wave 5 summary:** Added 5 gateway provisioning fields (image, server_dns_names, route_address, oidc, route) across proto, OpenAPI, model, migration, presenters, and gRPC/HTTP handlers. Control plane reconciler populates GatewayConfig from proto fields. (`database_config` field added in W5 was superseded by CNPG ManagedDatabase integration in W8 and has been removed.)
 
 **Wave 6 summary:** Implemented `DeleteGatewayResources()` with label-based deletion of all namespaced resources + per-tenant ClusterRoleBinding cleanup. Added in-memory namespace cache for DELETED event handling (gRPC DELETE events have nil resource). Changed ClusterRoleBinding to per-tenant naming (`...-<namespace>`). Added `deleteGatewayAPIResources()` for route removal when routing disabled. ownerReferences deferred - explicit deletion covers the cleanup need.
 
@@ -417,18 +421,23 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 10. ~~DNS label validation~~ Not needed: shortened namespace (26 chars) + `gw-` prefix keeps all derived names under 63 chars
 11. Verify: `go build ./...`, `go vet ./...`
 
-### Wave 8: Per-Tenant Gateway API Resources + routeAddress
+### Wave 8: CNPG Integration + Per-Tenant Gateway API Resources + routeAddress
 
-**Scope:** G18, R3, R6, R9, R12, R13, R15, R16, R18
+**Scope:** D1-D11, D-SR updates, G18, R3, R6, R9, R12, R13, R15, R16, R18
 **Dependency:** Wave 5, Wave 6
 
-1. Require `GATEWAY_API_GATEWAY_NAME` env var -- controller fails if unset
-2. GRPCRoute parentRef uses cross-namespace reference to the shared Gateway with `sectionName: grpc`
+**Wave 8 partial summary (d1fc36b):** CNPG operator integration complete: ManagedDatabaseReconciler (Cluster CRs), GatewayReconciler (DatabaseRole/Database/Secret CRs), ManagedDatabase deletion protection, gateway fleet/database auto-resolution, CNPG operator detection, credential rotation updated to CNPG Secret approach (no ALTER ROLE). `database_config` field removed from API, SDK, CLI (pb.go + OpenAPI models still need `make proto` + `make generate`). Items R12, R13, R15, R16, R18 (routing) and G18 remain pending.
+
+Remaining routing items:
+1. ~~Require `GATEWAY_API_GATEWAY_NAME` env var~~ R3: already Present
+2. ~~GRPCRoute parentRef with sectionName~~ R9: already Present
 3. Fix hostname convention: `gw-<ns>.<base-domain>` (shortened prefix)
 4. Derive routeAddress deterministically from hostname, PATCH to API server via gRPC
-5. Remove per-tenant Gateway creation, cert-manager certificate cleanup, and `GATEWAY_API_GATEWAY_CLASS` env var
-6. Simplify NetworkPolicy to allow any source (shared Gateway proxy may run outside tenant namespace)
-7. Verify: `go build ./...`, `go vet ./...`
+5. Per-tenant K8s Gateway resource (R12)
+6. Wildcard cert copy `grpc-gateway-certs` to tenant namespace (R13)
+7. Wait for Gateway Accepted+Programmed (R16)
+8. Add `kindToResource` mapping for Gateway kind (R18)
+9. Verify: `go build ./...`, `go vet ./...`
 
 ### Wave E2E-W1: Deploy Base/Overlay + Image Overrides ✅
 
@@ -544,13 +553,14 @@ label-selected pod informer.
 | RBAC-5 | Platform Admin Bootstrap | Security | First admin created via DB migration; no CLI by design |
 | G2 | Shared Kustomize Library + CLI | Gateway | Architectural; needs design |
 | G17 | SSH Payload Delivery | Gateway | New feature; needs design |
-| D6 | Database Field Immutability | DB | API server validation |
-| D7 | Gateway Deletion Protection | DB | API server validation |
-| D8 | `externalSecretRef` (Phase 2) | DB | Intentionally deferred |
+| D13 | Database Field Immutability | DB | API server validation |
+| D14 | Gateway Deletion Protection | DB | API server validation |
+| D12 | DROP COLUMN migration for `database_config` | DB | Column still in DB schema; destructive migration deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
 | SR-5 | KEK Rotation | Secret Rotation | Requires gateway re-encryption API (Day-2) |
 | SR-7 | Provider Credential Rotation | Secret Rotation | Platform-managed (K8s SA, Vault); no CP action needed |
 | DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
+| lib/pq dead dep | `lib/pq` in go.mod but not imported | CP | Run `go mod tidy` in control-plane to remove dead dependency |
 | DM-5 | Canary release logic | Data Model | GatewayReleaseReconciler is stub |
 | DM-6 | Network mesh logic | Data Model | GatewayNetworkReconciler is stub |
 | CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
@@ -583,7 +593,7 @@ label-selected pod informer.
 | 2026-08-06 | working tree | Local-dev reconciliation | 73% | Kind cluster scripts, deploy manifests, REST API seeding, controller RBAC, DEVELOPMENT.md |
 | 2026-08-06 | f27730f | Rebased on main (PR #14 gateway reconciler merged) | 73% | Gateway reconciler in codebase; updated Dockerfiles with dropreplace + -mod=mod; control-plane Dockerfile with manifests COPY |
 | 2026-08-07 | b83c635 | Full re-analysis after spec expansion | 62% | 22 specs (was 9); 165 requirements; local-dev and web-console specs added; gateway core spec detailed with 18 requirements; routing gaps surfaced |
-| 2026-08-07 | working tree | Executed Wave 5: Gateway Proto Schema + API Fields | 60% | 6 provisioning fields added to proto/OpenAPI/model/migration; CP reconciler populates GatewayConfig from proto; ExternalSecretRef added to DatabaseConfig |
+| 2026-08-07 | working tree | Executed Wave 5: Gateway Proto Schema + API Fields | 60% | 5 provisioning fields added to proto/OpenAPI/model/migration; CP reconciler populates GatewayConfig from proto |
 | 2026-08-07 | working tree | Executed Wave 6: Gateway Deletion + Cleanup + Route Removal | 60% | DeleteGatewayResources() with label-based cleanup; namespace cache for DELETED events; per-tenant ClusterRoleBinding; deleteGatewayAPIResources() for route disable; ownerReferences deferred |
 | 2026-08-11 | working tree | Local-dev spec reconciliation | 73% | KIND_DB_IMAGE env var wired through Makefile/lib.sh/controller.yaml; spec updated: Gateway creation is user-initiated (not automatic in kind-up); DEVELOPMENT.md env var table updated; gap table refreshed - 23/25 requirements present (was 3/24); only multi-namespace deployments remain |
 | 2026-08-11 | 049d1a8 | Gap analysis for e2e-testing.spec.md | 58% | New spec: 8 requirements (0 present, 1 partial, 7 missing); 3 waves planned (deploy restructuring, test framework, CI workflow) |
@@ -596,3 +606,5 @@ label-selected pod informer.
 | 2026-08-13 | 1055647 | Gap analysis for keycloak + secret-rotation specs | 73% | 2 new specs: keycloak (9 reqs, 6 deferred, 1 partial), secret-rotation (8 reqs, 6 deferred, 1 present, 1 partial). OIDC spec updated: 2 new requirements (O8 read-only, O9 auto-provisioned roles) deferred to KC wave. Data model spec: Sector→Fleet naming aligned. 4 new waves planned (KC-W1/W2/W3, SR-W1). Overall coverage drops from 78% to 73% due to new spec requirements. |
 | 2026-08-13 | working tree | Executed KC-W1/W2/W3 + SR-W1 | 80% | Keycloak Admin REST API client (token cache, atomic provisioning, cleanup). RoleBinding gRPC watch stream with role name enrichment. RoleBindingReconciler for OIDC Role Bridge (gateway:owner→openshell-admin, gateway:viewer→openshell-user). Gateway visibility filtering via FindGatewayIDsByUserID. Database password rotation (ALTER ROLE, config-hash). Coverage: 138/183 present (80%), keycloak 100%, secret-rotation 69%. |
 | 2026-08-18 | 432b210 | Reconciled namespace-gc + sandbox-count sub-specs | 82% | 2 new platform sub-specs (namespace-gc 6 reqs, sandbox-count 6 reqs), both 100% present. Namespace GC reconciler (dual-label managed-namespace reaping, durable gc-eligible-since grace timer, abort-on-list-failure, GarbageCollected Event, env-configurable). Event-driven sandbox count: atomic Adjust/Set gRPC RPCs (nullable readOnly column), label-selected pod informer with synced-gate + self-heal (drift-to-zero + restart recovery), health reconciler's LIST-based counting removed, legacy `openshell.ai/managed-by` label dropped from code+spec, non-sortable console column adjacent to name with N/A fallback. Coverage: 150/195 present (82%). |
+| 2026-08-19 | d1fc36b | CNPG operator integration (Wave 8 partial) | ~74% | ManagedDatabaseReconciler + GatewayReconciler CNPG provisioning; ManagedDatabase deletion protection; auto fleet/db resolution; CNPG operator detection; credential rotation updated to CNPG Secret (no ALTER ROLE); specs updated (gateway-database, control-plane, local-dev, secret-rotation, gateway core) |
+| 2026-08-20 | working tree | Remove `database_config` field from API, SDK, CLI | ~74% | Field removed from proto/OpenAPI/model/migration/handlers/presenters/sdk-go/cli; pb.go and OpenAPI models regenerated via `make proto` + `make generate` |

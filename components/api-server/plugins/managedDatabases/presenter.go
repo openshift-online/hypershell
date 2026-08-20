@@ -42,6 +42,7 @@ func PresentManagedDatabase(managedDatabase *ManagedDatabase) openapi.ManagedDat
 		Name:             managedDatabase.Name,
 		FleetId:          managedDatabase.FleetId,
 		Provider:         managedDatabase.Provider,
+		Namespace:        &managedDatabase.Namespace,
 		Region:           managedDatabase.Region,
 		Engine:           managedDatabase.Engine,
 		EngineVersion:    managedDatabase.EngineVersion,

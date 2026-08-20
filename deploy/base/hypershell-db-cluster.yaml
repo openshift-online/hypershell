@@ -1,0 +1,20 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: hypershell-db
+  namespace: hypershell-system
+spec:
+  instances: 1
+  bootstrap:
+    initdb:
+      database: hypershell
+      owner: hypershell
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

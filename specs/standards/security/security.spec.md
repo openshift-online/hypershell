@@ -45,11 +45,11 @@ All containers must set:
 - `Capabilities.Drop: ["ALL"]`
 - `runAsNonRoot: true`
 
-**Exception:** Third-party database images (e.g. upstream `postgres`) that run as
-root by default are exempt from `runAsNonRoot`. The gateway database manifest omits
-this constraint so operators can choose any compatible image via `HYPERSHELL_DATABASE_IMAGE`.
-When using images that support non-root (such as Red Hat Hardened Images), configure
-`runAsNonRoot` at the pod or namespace level instead.
+**Note:** All PostgreSQL databases (API server and per-gateway) are provisioned by
+the CloudNativePG (CNPG) operator, which manages its own PostgreSQL pods with
+appropriate security contexts. The CNPG operator enforces non-root execution and
+drops capabilities by default. No database container security configuration is
+needed on the HyperShell side.
 
 ### Fleet Isolation
 

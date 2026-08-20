@@ -57,7 +57,11 @@ CLOUD_PROVIDER_KIND_REF?=08ce4ea4cc10bce8ffbcf4f859a086bb6b292230
 # actually resolved to, so up.sh restarts to pick up a moved branch tip.
 CLOUD_PROVIDER_KIND_BRANCH?=
 CERT_MANAGER_VERSION?=v1.21.1
+CNPG_VERSION?=v1.30.0
 AGENT_SANDBOX_VERSION?=v0.5.4
+
+# PostgreSQL image for API server CNPG cluster (unset = CNPG default)
+HYPERSHELL_DATABASE_IMAGE?=
 
 # Kind config
 KIND_CONFIG=deploy/kind/kind-config.yaml
@@ -85,6 +89,8 @@ help:
 	@echo ""
 	@echo "    kind-env                 Print environment variables for local setup"
 	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
+	@echo "                             LOCAL_IMAGES=true: build from working tree (default)"
+	@echo "                             LOCAL_IMAGES=true BUILD_SOURCE=baseline: build from origin/main"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
@@ -284,9 +290,10 @@ test-all: install-js
 # ============================================================================
 
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
-export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES
-export KIND_PULL_SECRET KIND_DB_IMAGE
-export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
+export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES BUILD_SOURCE
+export KIND_PULL_SECRET
+export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION CNPG_VERSION AGENT_SANDBOX_VERSION
+export HYPERSHELL_DATABASE_IMAGE
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
@@ -430,11 +437,7 @@ generate-cli:
 		--module github.com/openshift-online/hypershell/components/cli
 
 generate-sdk-go:
-	cd scripts/sdk-generator && go run . \
-		--spec ../../components/api-server/openapi/openapi.yaml \
-		--go-out ../../components/sdk-go \
-		--module github.com/openshift-online/hypershell/components/sdk-go \
-		--ts-out ../../components/sdk-typescript
+	$(MAKE) -C components/api-server generate-sdk
 # ============================================================================
 # E2E Tests
 # ============================================================================

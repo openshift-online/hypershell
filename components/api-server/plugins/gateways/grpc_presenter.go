@@ -33,7 +33,6 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		ConsoleAddress:   d.ConsoleAddress,
 		Oidc:             d.Oidc,
 		Route:            d.Route,
-		DatabaseConfig:   d.DatabaseConfig,
 		CredentialDriver: d.CredentialDriver,
 		ActiveSandboxCount: func() *int32 {
 			if d.ActiveSandboxCount != nil {

@@ -52,7 +52,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("release_id", req.ReleaseId, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("database_id", req.DatabaseId, true); err != nil {
+	if err := grpcutil.ValidateStringField("database_id", req.DatabaseId, false); err != nil {
 		return nil, err
 	}
 	var serverDnsNamesJSON *string
@@ -77,7 +77,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		ServerDnsNames: serverDnsNamesJSON,
 		Oidc:           req.Oidc,
 		Route:          req.Route,
-		DatabaseConfig: req.DatabaseConfig,
 	}
 	result, svcErr := h.service.Create(ctx, gateway)
 	if svcErr != nil {
@@ -194,9 +193,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.Route != nil {
 		gateway.Route = req.Route
-	}
-	if req.DatabaseConfig != nil {
-		gateway.DatabaseConfig = req.DatabaseConfig
 	}
 	// active_sandbox_count is deliberately not settable here: it is
 	// control-plane owned and mutated only via AdjustActiveSandboxCount /

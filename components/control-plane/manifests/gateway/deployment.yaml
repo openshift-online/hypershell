@@ -57,7 +57,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: openshell-gateway-db-credentials
-                  key: url
+                  key: uri
             - name: OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

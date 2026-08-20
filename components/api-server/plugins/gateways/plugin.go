@@ -9,6 +9,8 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
@@ -24,14 +26,62 @@ import (
 
 type ServiceLocator func() GatewayService
 
+type managedDatabaseAdapter struct {
+	svc managedDatabases.ManagedDatabaseService
+}
+
+func (a *managedDatabaseAdapter) FindSoleInFleet(ctx context.Context, fleetID string) (string, error) {
+	db, svcErr := a.svc.FindSoleInFleet(ctx, fleetID)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	if db == nil {
+		return "", nil
+	}
+	return db.ID, nil
+}
+
+func (a *managedDatabaseAdapter) FindSole(ctx context.Context) (string, string, error) {
+	all, svcErr := a.svc.All(ctx)
+	if svcErr != nil {
+		return "", "", svcErr
+	}
+	if len(all) == 1 {
+		return all[0].ID, all[0].FleetId, nil
+	}
+	return "", "", nil
+}
+
+type clusterFleetAdapter struct {
+	svc managedClusters.ManagedClusterService
+}
+
+func (a *clusterFleetAdapter) FleetIDForCluster(ctx context.Context, clusterID string) (string, error) {
+	cluster, svcErr := a.svc.Get(ctx, clusterID)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	return cluster.FleetId, nil
+}
+
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewGatewayDao(&env.Database.SessionFactory)
 	RegisterGatewayMetrics(dao)
 	return func() GatewayService {
+		var dbFinder FleetDatabaseFinder
+		if mdSvc := managedDatabases.Service(&env.Services); mdSvc != nil {
+			dbFinder = &managedDatabaseAdapter{svc: mdSvc}
+		}
+		var clusterResolver ClusterFleetResolver
+		if mcSvc := managedClusters.Service(&env.Services); mcSvc != nil {
+			clusterResolver = &clusterFleetAdapter{svc: mcSvc}
+		}
 		return NewGatewayService(
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 			dao,
 			events.Service(&env.Services),
+			dbFinder,
+			clusterResolver,
 		)
 	}
 }
@@ -116,4 +166,5 @@ func init() {
 	db.RegisterMigration(migrationAddCredentialDriver())
 	db.RegisterMigration(migrationAddConsoleAddress())
 	db.RegisterMigration(migrationAddActiveSandboxCount())
+	db.RegisterMigration(migrationDropDatabaseConfig())
 }

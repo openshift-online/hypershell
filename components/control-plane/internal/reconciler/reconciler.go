@@ -19,7 +19,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
@@ -79,12 +82,27 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 }
 
 type ManagedDatabaseReconciler struct {
-	mu     sync.Mutex
-	active map[string]struct{}
+	mu            sync.Mutex
+	active        map[string]struct{}
+	dynamicClient dynamic.Interface
+	clientset     *kubernetes.Clientset
+	grpcConn      *grpc.ClientConn
+	hasCNPG       bool
 }
 
-func NewManagedDatabaseReconciler() *ManagedDatabaseReconciler {
-	return &ManagedDatabaseReconciler{active: make(map[string]struct{})}
+func NewManagedDatabaseReconciler(
+	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
+	grpcConn *grpc.ClientConn,
+) *ManagedDatabaseReconciler {
+	hasCNPG := gateway.DetectCNPG(clientset)
+	return &ManagedDatabaseReconciler{
+		active:        make(map[string]struct{}),
+		dynamicClient: dynamicClient,
+		clientset:     clientset,
+		grpcConn:      grpcConn,
+		hasCNPG:       hasCNPG,
+	}
 }
 
 func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) error {
@@ -101,8 +119,255 @@ func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Ev
 		r.mu.Unlock()
 	}()
 
-	log.Printf("INFO reconciling ManagedDatabase %s (event=%d)", event.ResourceID, event.Type)
+	db := event.Resource
+	if db == nil {
+		log.Printf("WARN ManagedDatabase event %s has nil resource, skipping", event.ResourceID)
+		return nil
+	}
+
+	if db.Provider != "cnpg" {
+		log.Printf("WARN ManagedDatabase %s has unsupported provider %q, skipping", event.ResourceID, db.Provider)
+		return nil
+	}
+
+	if event.Type == watcher.EventDeleted {
+		log.Printf("INFO ManagedDatabase %s deleted, cleaning up CNPG cluster in namespace %s", event.ResourceID, db.Namespace)
+		r.deleteCNPGCluster(ctx, db.Namespace)
+		return nil
+	}
+
+	log.Printf("INFO reconciling ManagedDatabase %s name=%s namespace=%s (event=%d)",
+		event.ResourceID, db.Name, db.Namespace, event.Type)
+
+	if !r.hasCNPG {
+		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), "Failed: CNPG operator not available")
+		return fmt.Errorf("CNPG operator is required but not available on the cluster")
+	}
+
+	clusterName := managedDatabaseCNPGClusterName()
+	currentStatus := managedDatabaseStatus(db)
+	clusterReady, err := r.isCNPGClusterReady(ctx, db.Namespace, clusterName)
+	if err != nil {
+		return fmt.Errorf("check CNPG Cluster readiness for ManagedDatabase %s: %w", db.Name, err)
+	}
+
+	if clusterReady {
+		if currentStatus == "Ready" {
+			log.Printf("DEBUG ManagedDatabase %s status=Ready and CNPG cluster healthy, skipping reconciliation", event.ResourceID)
+			return nil
+		}
+		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, currentStatus, "Ready")
+		log.Printf("INFO ManagedDatabase %s CNPG cluster already ready in namespace %s", event.ResourceID, db.Namespace)
+		return nil
+	}
+
+	if currentStatus == "Ready" {
+		log.Printf("WARN ManagedDatabase %s status=Ready but CNPG cluster not healthy, re-reconciling", event.ResourceID)
+	}
+
+	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, currentStatus, "Provisioning")
+
+	if err := r.reconcileCNPGCluster(ctx, db); err != nil {
+		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", fmt.Sprintf("Failed: %v", err))
+		return fmt.Errorf("reconcile CNPG cluster for ManagedDatabase %s: %w", db.Name, err)
+	}
+
+	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", "Ready")
+	log.Printf("INFO ManagedDatabase %s CNPG cluster provisioned in namespace %s", event.ResourceID, db.Namespace)
 	return nil
+}
+
+func (r *ManagedDatabaseReconciler) reconcileCNPGCluster(ctx context.Context, db *pb.ManagedDatabase) error {
+	namespace := db.Namespace
+
+	if !gateway.NamespaceExists(ctx, r.clientset, namespace) {
+		if err := gateway.CreateManagedNamespace(ctx, r.clientset, namespace); err != nil {
+			return fmt.Errorf("create namespace %s: %w", namespace, err)
+		}
+	}
+
+	clusterName := managedDatabaseCNPGClusterName()
+
+	spec := map[string]interface{}{
+		"instances": int64(1),
+		"storage": map[string]interface{}{
+			"size": "1Gi",
+		},
+		"resources": map[string]interface{}{
+			"requests": map[string]interface{}{
+				"memory": "256Mi",
+			},
+			"limits": map[string]interface{}{
+				"memory": "512Mi",
+			},
+		},
+	}
+
+	if image := os.Getenv("OPENSHELL_DATABASE_IMAGE"); image != "" {
+		spec["imageName"] = image
+	}
+
+	cluster := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "postgresql.cnpg.io/v1",
+			"kind":       "Cluster",
+			"metadata": map[string]interface{}{
+				"name":      clusterName,
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": spec,
+		},
+	}
+
+	clusterGVR := cnpgClusterGVR()
+	existing, err := r.dynamicClient.Resource(clusterGVR).Namespace(namespace).Get(ctx, clusterName, metav1.GetOptions{})
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("get CNPG Cluster: %w", err)
+		}
+		if _, err := r.dynamicClient.Resource(clusterGVR).Namespace(namespace).Create(ctx, cluster, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create CNPG Cluster: %w", err)
+		}
+		log.Printf("INFO created CNPG Cluster %s in namespace %s", clusterName, namespace)
+	} else if cnpgClusterReadyFromObject(existing) {
+		log.Printf("INFO CNPG Cluster %s in namespace %s already exists and is ready", clusterName, namespace)
+	} else {
+		cluster.SetResourceVersion(existing.GetResourceVersion())
+		if _, err := r.dynamicClient.Resource(clusterGVR).Namespace(namespace).Update(ctx, cluster, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update CNPG Cluster: %w", err)
+		}
+		log.Printf("INFO updated CNPG Cluster %s in namespace %s", clusterName, namespace)
+	}
+
+	if err := r.waitForCNPGClusterReady(ctx, namespace, clusterName, 3*time.Minute); err != nil {
+		return fmt.Errorf("wait for CNPG Cluster ready: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ManagedDatabaseReconciler) waitForCNPGClusterReady(ctx context.Context, namespace, name string, timeout time.Duration) error {
+	if ready, err := r.isCNPGClusterReady(ctx, namespace, name); err != nil {
+		return err
+	} else if ready {
+		return nil
+	}
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for CNPG Cluster %s/%s to become ready", namespace, name)
+		case <-ticker.C:
+			ready, err := r.isCNPGClusterReady(ctx, namespace, name)
+			if err != nil {
+				if k8serrors.IsNotFound(err) {
+					log.Printf("DEBUG CNPG Cluster %s/%s not found yet", namespace, name)
+					continue
+				}
+				return err
+			}
+			if ready {
+				return nil
+			}
+		}
+	}
+}
+
+func (r *ManagedDatabaseReconciler) isCNPGClusterReady(ctx context.Context, namespace, name string) (bool, error) {
+	obj, err := r.dynamicClient.Resource(cnpgClusterGVR()).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return cnpgClusterReadyFromObject(obj), nil
+}
+
+func managedDatabaseCNPGClusterName() string {
+	return "openshell-db"
+}
+
+func managedDatabaseStatus(db *pb.ManagedDatabase) string {
+	if db == nil || db.Status == nil {
+		return ""
+	}
+	return *db.Status
+}
+
+func cnpgClusterReadyFromObject(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+	phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
+	if phase == "Cluster in healthy state" || phase == "Cluster is Ready" {
+		log.Printf("INFO CNPG Cluster %s/%s is ready (phase=%s)", obj.GetNamespace(), obj.GetName(), phase)
+		return true
+	}
+	readyInstances, _, _ := unstructured.NestedInt64(obj.Object, "status", "readyInstances")
+	instances, _, _ := unstructured.NestedInt64(obj.Object, "status", "instances")
+	if readyInstances > 0 && readyInstances >= instances {
+		log.Printf("INFO CNPG Cluster %s/%s is ready (readyInstances=%d/%d)", obj.GetNamespace(), obj.GetName(), readyInstances, instances)
+		return true
+	}
+	log.Printf("DEBUG CNPG Cluster %s/%s not ready yet (phase=%s ready=%d/%d)", obj.GetNamespace(), obj.GetName(), phase, readyInstances, instances)
+	return false
+}
+
+func (r *ManagedDatabaseReconciler) deleteCNPGCluster(ctx context.Context, namespace string) {
+	clusterName := managedDatabaseCNPGClusterName()
+
+	if err := r.dynamicClient.Resource(cnpgClusterGVR()).Namespace(namespace).Delete(ctx, clusterName, metav1.DeleteOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete CNPG Cluster %s/%s: %v", namespace, clusterName, err)
+		}
+	} else {
+		log.Printf("INFO deleted CNPG Cluster %s/%s", namespace, clusterName)
+	}
+
+	if err := r.clientset.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete namespace %s: %v", namespace, err)
+		}
+	} else {
+		log.Printf("INFO deleted namespace %s", namespace)
+	}
+}
+
+func (r *ManagedDatabaseReconciler) updateManagedDatabaseStatusIfChanged(ctx context.Context, id, current, desired string) {
+	if current == desired {
+		return
+	}
+	r.updateManagedDatabaseStatus(ctx, id, desired)
+}
+
+func (r *ManagedDatabaseReconciler) updateManagedDatabaseStatus(ctx context.Context, id, status string) {
+	client := pb.NewManagedDatabaseServiceClient(r.grpcConn)
+	_, err := client.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{
+		Id:     id,
+		Status: &status,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update ManagedDatabase %s status to %s: %v", id, status, err)
+	}
+}
+
+func cnpgClusterGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "postgresql.cnpg.io",
+		Version:  "v1",
+		Resource: "clusters",
+	}
 }
 
 type GatewayReleaseReconciler struct {
@@ -143,6 +408,7 @@ type GatewayReconciler struct {
 	hasCertManager        bool
 	hasGatewayAPI         bool
 	skipNetworkPolicies   bool
+	hasCNPG               bool
 	manifestsDir          string
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
@@ -167,11 +433,8 @@ func NewGatewayReconciler(
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
-	// Dev clusters (Kind) opt out of the per-tenant gateway NetworkPolicies:
-	// their out-of-cluster proxy source IP cannot be matched by the policies'
-	// selectors, so the policies would blackhole gateway ingress. Defaults to
-	// enforced (empty/unset) so production/OpenShift keeps tenant isolation.
 	skipNetworkPolicies := os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true"
+	hasCNPG := gateway.DetectCNPG(clientset)
 
 	var kcClient *keycloak.Client
 	if keycloakConfig != nil {
@@ -184,8 +447,8 @@ func NewGatewayReconciler(
 		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
 	}
 
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v keycloak=%v netpol=%v",
-		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, kcClient != nil, !skipNetworkPolicies)
+	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v cnpg=%v keycloak=%v netpol=%v",
+		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, hasCNPG, kcClient != nil, !skipNetworkPolicies)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -197,6 +460,7 @@ func NewGatewayReconciler(
 		hasCertManager:        hasCertManager,
 		hasGatewayAPI:         hasGatewayAPI,
 		skipNetworkPolicies:   skipNetworkPolicies,
+		hasCNPG:               hasCNPG,
 		manifestsDir:          manifestsDir,
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
@@ -236,12 +500,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			return nil
 		}
 
+		deleteCNPGConfig, cnpgErr := r.resolveCNPGConfig(ctx, gw)
+		if cnpgErr != nil {
+			log.Printf("WARN gateway %s deleted but could not resolve CNPG config: %v; CNPG resources may require manual cleanup", event.ResourceID, cnpgErr)
+		}
 		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
 		opts := gateway.ReconcileOpts{
 			IsOpenShift:           r.isOpenShift,
 			HasCertManager:        r.hasCertManager,
 			HasGatewayAPI:         r.hasGatewayAPI,
 			SkipNetworkPolicies:   r.skipNetworkPolicies,
+			HasCNPG:               r.hasCNPG,
+			CNPG:                  deleteCNPGConfig,
 			ControlPlaneNamespace: r.controlPlaneNamespace,
 			KeycloakClient:        r.keycloakClient,
 			GatewayID:             event.ResourceID,
@@ -258,7 +528,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				}
 			}
 		}
-		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, namespace, opts, credentialNamespaces...); err != nil {
+		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
 			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
 		}
 		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
@@ -296,6 +566,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
 		log.Printf("DEBUG gateway %s phase=%s, skipping reconciliation", event.ResourceID, *gw.Phase)
 		return nil
+	}
+
+	cnpgConfig, resolveErr := r.resolveCNPGConfig(ctx, gw)
+	if resolveErr != nil {
+		return fmt.Errorf("resolve CNPG config for gateway %s: %w", gw.Name, resolveErr)
 	}
 
 	namespace, err := gatewayNamespace(gw)
@@ -347,14 +622,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gwConfig.Route = routeConfig
 	}
 
-	if gw.DatabaseConfig != nil && *gw.DatabaseConfig != "" {
-		var dbConfig gateway.DatabaseConfig
-		if err := json.Unmarshal([]byte(*gw.DatabaseConfig), &dbConfig); err != nil {
-			return fmt.Errorf("invalid database config for gateway %s: %w", gw.Name, err)
-		}
-		gwConfig.Database = dbConfig
-	}
-
 	if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
 		var credDriverConfig gateway.CredentialDriverConfig
 		decoder := json.NewDecoder(bytes.NewReader([]byte(*gw.CredentialDriver)))
@@ -375,6 +642,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		HasCertManager:        r.hasCertManager,
 		HasGatewayAPI:         r.hasGatewayAPI,
 		SkipNetworkPolicies:   r.skipNetworkPolicies,
+		HasCNPG:               r.hasCNPG,
+		CNPG:                  cnpgConfig,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
 		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
@@ -767,6 +1036,34 @@ func (r *GatewayReconciler) updateConsoleAddress(ctx context.Context, gatewayID 
 		return fmt.Errorf("update gateway %s console_address to %s: %w", gatewayID, consoleAddress, err)
 	}
 	return nil
+}
+
+func (r *GatewayReconciler) resolveCNPGConfig(ctx context.Context, gw *pb.Gateway) (gateway.CNPGConfig, error) {
+	if gw.DatabaseId == "" {
+		return gateway.CNPGConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the fleet")
+	}
+
+	client := pb.NewManagedDatabaseServiceClient(r.grpcConn)
+	resp, err := client.GetManagedDatabase(ctx, &pb.GetManagedDatabaseRequest{Id: gw.DatabaseId})
+	if err != nil {
+		return gateway.CNPGConfig{}, fmt.Errorf("resolve ManagedDatabase %s: %w", gw.DatabaseId, err)
+	}
+
+	db := resp.ManagedDatabase
+	if db == nil {
+		return gateway.CNPGConfig{}, fmt.Errorf("gateway configuration error: ManagedDatabase %s returned empty payload", gw.DatabaseId)
+	}
+	if db.Provider != "cnpg" {
+		return gateway.CNPGConfig{}, fmt.Errorf("gateway database_id references a non-CNPG managed database; only provider=cnpg is supported")
+	}
+	if db.Namespace == "" {
+		return gateway.CNPGConfig{}, fmt.Errorf("ManagedDatabase %s has no namespace assigned", gw.DatabaseId)
+	}
+
+	return gateway.CNPGConfig{
+		ClusterName:      "openshell-db",
+		ClusterNamespace: db.Namespace,
+	}, nil
 }
 
 func (r *GatewayReconciler) makeOIDCUpdater(gatewayID string) func(ctx context.Context, oidcJSON string) error {

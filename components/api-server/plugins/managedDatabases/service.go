@@ -20,6 +20,7 @@ type ManagedDatabaseService interface {
 	All(ctx context.Context) (ManagedDatabaseList, *errors.ServiceError)
 
 	FindByIDs(ctx context.Context, ids []string) (ManagedDatabaseList, *errors.ServiceError)
+	FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
@@ -69,6 +70,10 @@ func (s *sqlManagedDatabaseService) Get(ctx context.Context, id string) (*Manage
 }
 
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {
+	if managedDatabase.Provider != "cnpg" {
+		return nil, errors.Validation("unsupported provider %q: only \"cnpg\" is supported", managedDatabase.Provider)
+	}
+
 	managedDatabase, err := s.managedDatabaseDao.Create(ctx, managedDatabase)
 	if err != nil {
 		return nil, services.HandleCreateError("ManagedDatabase", err)
@@ -115,6 +120,14 @@ func (s *sqlManagedDatabaseService) Delete(ctx context.Context, id string) *erro
 		return svcErr
 	}
 
+	referenced, refErr := s.managedDatabaseDao.ExistsByDatabaseID(ctx, id)
+	if refErr != nil {
+		return errors.GeneralError("check gateway references: %s", refErr)
+	}
+	if referenced {
+		return errors.Conflict("ManagedDatabase %s is referenced by one or more gateways and cannot be deleted", id)
+	}
+
 	if err := s.managedDatabaseDao.Delete(ctx, id); err != nil {
 		return services.HandleDeleteError("ManagedDatabase", errors.GeneralError("Unable to delete managedDatabase: %s", err))
 	}
@@ -145,4 +158,12 @@ func (s *sqlManagedDatabaseService) All(ctx context.Context) (ManagedDatabaseLis
 		return nil, errors.GeneralError("Unable to get all managedDatabases: %s", err)
 	}
 	return managedDatabases, nil
+}
+
+func (s *sqlManagedDatabaseService) FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, *errors.ServiceError) {
+	managedDatabase, err := s.managedDatabaseDao.FindSoleInFleet(ctx, fleetID)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to find sole managed database in fleet: %s", err)
+	}
+	return managedDatabase, nil
 }

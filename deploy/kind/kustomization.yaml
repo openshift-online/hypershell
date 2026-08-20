@@ -50,8 +50,6 @@ patches:
                   # production/OpenShift leaves this unset to keep them enforced.
                   - name: GATEWAY_SKIP_NETWORK_POLICIES
                     value: "true"
-                  - name: HYPERSHELL_DATABASE_IMAGE
-                    value: "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
                   - name: OIDC_ISSUER
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID

@@ -68,6 +68,11 @@ func (StaticImageDefaults) DefaultDatabaseImage() string {
 	return defaultDatabaseImage
 }
 
+type CNPGConfig struct {
+	ClusterName      string
+	ClusterNamespace string
+}
+
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
 // It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
 // reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror,
@@ -103,7 +108,6 @@ type GatewayConfig struct {
 	SupervisorImage  string                  `yaml:"supervisorImage"`
 	ServerDnsNames   []string                `yaml:"serverDnsNames"`
 	ExternalDns      string                  `yaml:"externalDns"`
-	Database         DatabaseConfig          `yaml:"database"`
 	OIDC             OIDCConfig              `yaml:"oidc"`
 	Route            RouteConfig             `yaml:"route"`
 	CredentialDriver *CredentialDriverConfig `yaml:"credentialDriver"`
@@ -148,12 +152,6 @@ type OIDCConfig struct {
 	ScopesClaim string `yaml:"scopes_claim" json:"scopes_claim,omitempty"`
 }
 
-type DatabaseConfig struct {
-	StorageSize       string `yaml:"storageSize" json:"storage_size,omitempty"`
-	Image             string `yaml:"image" json:"image,omitempty"`
-	ExternalSecretRef string `yaml:"externalSecretRef" json:"external_secret_ref,omitempty"`
-}
-
 // RouteAddressUpdater is called by the gateway reconciler to update the
 // route_address field on the API-server Gateway resource.  The implementation
 // is provided by the top-level reconciler which owns the gRPC connection.
@@ -177,6 +175,8 @@ type ReconcileOpts struct {
 	IsOpenShift           bool
 	HasCertManager        bool
 	HasGatewayAPI         bool
+	HasCNPG               bool
+	CNPG                  CNPGConfig
 	ControlPlaneNamespace string
 	Images                ImageDefaults
 	// SkipNetworkPolicies disables creation of the per-tenant gateway
