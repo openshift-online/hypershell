@@ -53,7 +53,7 @@ func (r *FleetReconciler) Handle(ctx context.Context, event watcher.Event[*pb.Fl
 		r.mu.Unlock()
 	}()
 
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Fleet", event.Type.String())
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "Fleet", event.Type.String())
 	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling Fleet %s (event=%d)", event.ResourceID, event.Type)
@@ -83,7 +83,7 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 		r.mu.Unlock()
 	}()
 
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String())
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String())
 	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling ManagedCluster %s (event=%d)", event.ResourceID, event.Type)
@@ -409,7 +409,7 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 		r.mu.Unlock()
 	}()
 
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String())
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String())
 	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling GatewayRelease %s (event=%d)", event.ResourceID, event.Type)
@@ -1144,7 +1144,7 @@ func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Eve
 		r.mu.Unlock()
 	}()
 
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String())
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String())
 	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling GatewayNetwork %s (event=%d)", event.ResourceID, event.Type)
