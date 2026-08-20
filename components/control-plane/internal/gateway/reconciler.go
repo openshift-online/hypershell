@@ -188,6 +188,7 @@ func ReconcileGateway(
 func DeleteGatewayResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
 	namespace string,
 	opts ReconcileOpts,
 	credentialNamespaces ...string,

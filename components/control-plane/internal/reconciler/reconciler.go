@@ -525,7 +525,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				}
 			}
 		}
-		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, namespace, opts, credentialNamespaces...); err != nil {
+		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
 			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
 		}
 		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
