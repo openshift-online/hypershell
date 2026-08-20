@@ -227,7 +227,11 @@ func DeleteGatewayResources(
 	}
 
 	if opts.HasCNPG && opts.GatewayID != "" {
-		deleteCNPGResources(ctx, dynamicClient, clientset, opts.GatewayID, opts.CNPG)
+		if opts.CNPG.ClusterNamespace == "" {
+			log.Printf("WARN gateway %s: CNPG cluster namespace unknown; Database, DatabaseRole, and password Secret were not deleted and may require manual cleanup", opts.GatewayID)
+		} else {
+			deleteCNPGResources(ctx, dynamicClient, clientset, opts.GatewayID, opts.CNPG)
+		}
 	}
 
 	for _, credNS := range credentialNamespaces {
@@ -832,33 +836,6 @@ func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, n
 	}
 }
 
-func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
-	deadline := time.After(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline:
-			return fmt.Errorf("timed out waiting for deployment %s/%s to become ready", namespace, name)
-		case <-ticker.C:
-			deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-			if err != nil {
-				if !k8serrors.IsNotFound(err) {
-					log.Printf("WARN error checking deployment %s/%s readiness: %v", namespace, name, err)
-				}
-				continue
-			}
-			if deploy.Spec.Replicas != nil && deploy.Status.ReadyReplicas >= *deploy.Spec.Replicas {
-				log.Printf("INFO deployment %s/%s is ready", namespace, name)
-				return nil
-			}
-		}
-	}
-}
-
 func reconcileResource(ctx context.Context, dynamicClient dynamic.Interface, obj *unstructured.Unstructured) error {
 	gvk := obj.GroupVersionKind()
 	gvr := schema.GroupVersionResource{
@@ -1329,7 +1306,11 @@ func reconcileCNPGDatabaseResources(
 		if err != nil {
 			return fmt.Errorf("read CNPG password secret: %w", err)
 		}
-		password := string(cnpgSecret.Data["password"])
+		passwordBytes, ok := cnpgSecret.Data["password"]
+		if !ok || len(passwordBytes) == 0 {
+			return fmt.Errorf("CNPG password secret %s/%s has no password key", cnpg.ClusterNamespace, passwordSecretName)
+		}
+		password := string(passwordBytes)
 
 		host := fmt.Sprintf("%s-rw.%s.svc.cluster.local", cnpg.ClusterName, cnpg.ClusterNamespace)
 		dbURI := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require",

@@ -500,7 +500,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			return nil
 		}
 
-		deleteCNPGConfig, _ := r.resolveCNPGConfig(ctx, gw)
+		deleteCNPGConfig, cnpgErr := r.resolveCNPGConfig(ctx, gw)
+		if cnpgErr != nil {
+			log.Printf("WARN gateway %s deleted but could not resolve CNPG config: %v; CNPG resources may require manual cleanup", event.ResourceID, cnpgErr)
+		}
 		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
 		opts := gateway.ReconcileOpts{
 			IsOpenShift:           r.isOpenShift,
@@ -1047,6 +1050,9 @@ func (r *GatewayReconciler) resolveCNPGConfig(ctx context.Context, gw *pb.Gatewa
 	}
 
 	db := resp.ManagedDatabase
+	if db == nil {
+		return gateway.CNPGConfig{}, fmt.Errorf("gateway configuration error: ManagedDatabase %s returned empty payload", gw.DatabaseId)
+	}
 	if db.Provider != "cnpg" {
 		return gateway.CNPGConfig{}, fmt.Errorf("gateway database_id references a non-CNPG managed database; only provider=cnpg is supported")
 	}

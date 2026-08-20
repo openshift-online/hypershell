@@ -41,9 +41,9 @@ Because cloud-provider-kind publishes the gateway LoadBalancer on ephemeral host
 
 cert-manager SHALL be installed by applying the release manifest from `https://github.com/cert-manager/cert-manager/releases/download/<version>/cert-manager.yaml`, skipping if the `cert-manager` namespace already exists (idempotent), and waiting for both the `cert-manager` and `cert-manager-webhook` deployments to reach ready state before proceeding. The version SHALL be pinned via a `CERT_MANAGER_VERSION` variable (default: `v1.21.1`).
 
-The CloudNativePG (CNPG) operator SHALL be installed by applying the release manifest from `https://github.com/cloudnative-pg/cloudnative-pg/releases/download/<version>/cnpg-<version>.yaml`, skipping if the `cnpg-system` namespace already exists (idempotent), and waiting for the `cnpg-controller-manager` deployment in `cnpg-system` to reach ready state before proceeding. The version SHALL be pinned via a `CNPG_VERSION` variable (default: `v1.30.0`).
+The CloudNativePG (CNPG) operator SHALL be installed by applying the release manifest from `https://github.com/cloudnative-pg/cloudnative-pg/releases/download/<version>/cnpg-<version>.yaml` on every `kind-up` run (idempotent via server-side apply), and waiting for the `cnpg-controller-manager` deployment in `cnpg-system` to reach ready state before proceeding. The version SHALL be pinned via a `CNPG_VERSION` variable (default: `v1.30.0`).
 
-After the CNPG operator is ready, `make kind-up` SHALL create one CNPG `Cluster` resource for the API server. The gateway database CNPG Cluster is NOT static infrastructure  -- it is created dynamically by the ManagedDatabaseReconciler when the seeded `openshell-db-default` ManagedDatabase is processed by the control plane.
+After the CNPG operator is ready, `make kind-up` SHALL apply the `hypershell-db` CNPG `Cluster` resource for the API server on every run so that changes to `HYPERSHELL_DATABASE_IMAGE` are propagated without requiring a cluster teardown. The gateway database CNPG Cluster is NOT static infrastructure -- it is created dynamically by the ManagedDatabaseReconciler when the seeded `openshell-db` ManagedDatabase is processed by the control plane.
 
 #### API server CNPG Cluster
 
@@ -81,7 +81,7 @@ The API server SHALL retry database connections on startup until the database be
 
 #### Gateway Database (ManagedDatabase Seeding)
 
-The gateway database CNPG Cluster is NOT created by `kind-up` as static infrastructure. Instead, `kind-up` seeds a ManagedDatabase resource named `openshell-db-default` (provider=cnpg) via the REST API during the resource seeding step. The ManagedDatabaseReconciler in the control plane then creates the namespace and CNPG Cluster dynamically. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for the full lifecycle.
+The gateway database CNPG Cluster is NOT created by `kind-up` as static infrastructure. Instead, `kind-up` seeds a ManagedDatabase resource named `openshell-db` (provider=cnpg) via the REST API during the resource seeding step. The ManagedDatabaseReconciler in the control plane then creates the namespace and CNPG Cluster dynamically. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for the full lifecycle.
 
 `OPENSHELL_DATABASE_IMAGE` configures the PostgreSQL image for ManagedDatabase CNPG Clusters. When unset, CNPG uses its built-in default image.
 

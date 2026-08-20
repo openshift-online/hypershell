@@ -115,7 +115,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 |---|-------------|--------|-----|---------------|------|
 | CP-1 | gRPC watch streams (6 kinds) | Present | No checkpoint/resume-token on reconnect | `watcher/watcher.go` | - |
 | CP-2a | Deploy Gateway workloads | Present | - | `gateway/reconciler.go` | - |
-| CP-2b | Provision database via CNPG | Present | ManagedDatabaseReconciler creates CNPG Cluster; GatewayReconciler creates DatabaseRole/Database/Secret CRs | `reconciler.go`, `gateway/reconciler.go` | W8 ✅ |
+| CP-2b | Provision database via CNPG | Present | ManagedDatabaseReconciler creates CNPG Cluster; GatewayReconciler creates DatabaseRole/Database/Kubernetes Secret CRs | `reconciler.go`, `gateway/reconciler.go` | W8 ✅ |
 | CP-2c | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | - |
 | CP-2d | GRPCRoute + BackendTLSPolicy | Present | - | `reconcileGatewayAPIResources()` | - |
 | CP-2e | OIDC config injection | Present | - | `ApplyConfigOverrides()` | - |

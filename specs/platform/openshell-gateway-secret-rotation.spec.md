@@ -83,11 +83,11 @@ Database password rotation involves a coordinated multi-step mutation. If any st
 
 #### Step ordering rationale
 
-The CNPG password Secret is updated first, then the gateway credentials Secret. This ordering ensures:
+The CNPG password Secret is updated first, then the gateway credentials Secret. This ordering reduces risk but does not eliminate all failure windows:
 
-- If the CNPG password Secret update succeeds but the gateway credentials Secret update fails: CNPG applies the new password to PostgreSQL, but the running gateway still has the old password in its credentials Secret. On the next reconciliation attempt, the reconciler detects the mismatch (trigger annotation != last-rotation annotation) and retries the gateway credentials Secret update.
+- If the CNPG password Secret update succeeds but the gateway credentials Secret update fails: CNPG applies the new password to PostgreSQL asynchronously. Because the gateway credentials Secret annotation is not updated on failure, the next reconciliation attempt detects the mismatch (trigger annotation != last-rotation annotation) and runs the full rotation again - generating a fresh password, updating the CNPG Secret a second time, and then updating the gateway credentials Secret.
 - The gateway continues operating with the old password (still in memory from the old Secret) until the gateway credentials Secret is updated and the pod restarts.
-- Unlike direct `ALTER ROLE`, CNPG applies the password change asynchronously via the `cnpg.io/reload` label. There is a brief window where the CNPG Secret is updated but PostgreSQL hasn't applied it yet; this is safe because the gateway credentials Secret (step 3) is not updated until after the CNPG Secret.
+- Unlike direct `ALTER ROLE`, CNPG applies the password change asynchronously via the `cnpg.io/reload` label. There is a brief window where PostgreSQL has applied the new password but the gateway credentials Secret has not yet been updated; during this window gateway connections that reconnect may fail until the credentials Secret is updated.
 
 #### Scenario: CNPG password Secret update fails
 
@@ -103,8 +103,8 @@ The CNPG password Secret is updated first, then the gateway credentials Secret. 
 - GIVEN the CNPG password Secret was updated with the new password
 - AND the gateway credentials Secret update fails (e.g., Kubernetes API error)
 - WHEN the GatewayReconciler retries
-- THEN it SHALL detect the mismatch and retry the gateway credentials Secret update
-- AND the running gateway pods SHALL continue operating with the old password until they restart
+- THEN it SHALL detect the mismatch (trigger annotation != last-rotation annotation on the gateway credentials Secret) and run the full rotation again with a newly generated password - updating the CNPG password Secret and then the gateway credentials Secret
+- AND the running gateway pods SHALL continue operating with the original password until the retry completes and the pod restarts
 
 ---
 

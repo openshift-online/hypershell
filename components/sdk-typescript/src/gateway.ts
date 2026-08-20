@@ -9,7 +9,6 @@ export type Gateway = ObjectReference & {
   cluster_id: string;
   console_address: string;
   credential_driver: string;
-  database_config: string;
   database_id: string;
   external_dns: string;
   fleet_id: string;
@@ -35,7 +34,6 @@ export type GatewayList = ListMeta & {
 export type GatewayCreateRequest = {
   cluster_id: string;
   credential_driver?: string;
-  database_config?: string;
   database_id: string;
   external_dns?: string;
   fleet_id: string;
@@ -54,7 +52,6 @@ export type GatewayCreateRequest = {
 export type GatewayPatchRequest = {
   cluster_id?: string;
   credential_driver?: string;
-  database_config?: string;
   database_id?: string;
   external_dns?: string;
   fleet_id?: string;
@@ -83,11 +80,6 @@ export class GatewayBuilder {
 
   credentialDriver(value: string): this {
     this.data['credential_driver'] = value;
-    return this;
-  }
-
-  databaseConfig(value: string): this {
-    this.data['database_config'] = value;
     return this;
   }
 
@@ -190,11 +182,6 @@ export class GatewayPatchBuilder {
 
   credentialDriver(value: string): this {
     this.data['credential_driver'] = value;
-    return this;
-  }
-
-  databaseConfig(value: string): this {
-    this.data['database_config'] = value;
     return this;
   }
 
