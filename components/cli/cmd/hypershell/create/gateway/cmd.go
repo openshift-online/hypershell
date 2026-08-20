@@ -16,8 +16,8 @@ import (
 )
 
 var args struct {
-	clusterId  string
-	databaseId string
+	clusterId       string
+	databaseId      string
 	externalDns     string
 	fleetId         string
 	image           string
