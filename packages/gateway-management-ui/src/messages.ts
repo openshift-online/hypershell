@@ -6,6 +6,12 @@ export const messages = defineMessages({
     defaultMessage: "Actions",
     description: "Accessible heading for table row actions.",
   },
+  activeSandboxes: {
+    id: "app.gateway.column.activeSandboxes",
+    defaultMessage: "Active sandboxes",
+    description:
+      "Heading for the gateways table column showing the number of active sandbox sessions.",
+  },
   cancel: {
     id: "app.action.cancel",
     defaultMessage: "Cancel",
@@ -81,6 +87,12 @@ export const messages = defineMessages({
     defaultMessage: "Install the OpenShell CLI",
     description:
       "Link text pointing to the NVIDIA OpenShell installation documentation.",
+  },
+  connectionInstallLinkNewTab: {
+    id: "app.gateway.connection.installLinkNewTab",
+    defaultMessage: "Install the OpenShell CLI (opens in a new tab)",
+    description:
+      "Accessible name for the OpenShell CLI install docs link, including that it opens in a new tab.",
   },
   connectionInstallPrereq: {
     id: "app.gateway.connection.installPrereq",
@@ -180,6 +192,13 @@ export const messages = defineMessages({
     id: "app.gateway.delete",
     defaultMessage: "Delete gateway",
     description: "Action that permanently deletes a gateway.",
+  },
+  deleteGatewayActiveSandboxWarning: {
+    id: "app.gateway.delete.activeSandboxWarning",
+    defaultMessage:
+      "This gateway has {count, plural, one {# active sandbox} other {# active sandboxes}} that will be disrupted by deletion.",
+    description:
+      "Warning shown before deleting a gateway that still has running sandboxes.",
   },
   deleteGatewayConfirmation: {
     id: "app.gateway.delete.confirmation",
@@ -430,6 +449,12 @@ export const messages = defineMessages({
     defaultMessage: "Provisioning gateway",
     description: "Accessible progress text while a gateway is provisioning.",
   },
+  provisioningGatewayConsole: {
+    id: "app.gateway.provisioningConsole",
+    defaultMessage: "Provisioning console...",
+    description:
+      "Tooltip on the disabled console button while the console is not yet ready.",
+  },
   refreshGateways: {
     id: "app.gateways.refresh",
     defaultMessage: "Refresh gateways",
@@ -474,5 +499,11 @@ export const messages = defineMessages({
     id: "app.table.column.status",
     defaultMessage: "Status",
     description: "Heading for a resource status column.",
+  },
+  unavailableGatewayConsole: {
+    id: "app.gateway.unavailableConsole",
+    defaultMessage: "Console unavailable for this gateway",
+    description:
+      "Tooltip on the disabled console button once the console failed to become available within the expected time.",
   },
 });

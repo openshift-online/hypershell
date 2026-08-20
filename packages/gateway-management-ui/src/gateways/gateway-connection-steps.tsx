@@ -5,7 +5,7 @@ import {
   Skeleton,
   Title,
 } from "@patternfly/react-core";
-
+import { ExternalLinkAltIcon } from "@patternfly/react-icons";
 import { type ReactNode, useState } from "react";
 import { useIntl } from "react-intl";
 
@@ -80,8 +80,13 @@ export function GatewayConnectionSteps({
         <Alert
           actionLinks={
             <AlertActionLink
+              aria-label={intl.formatMessage(
+                messages.connectionInstallLinkNewTab,
+              )}
               component="a"
               href={installDocsUrl}
+              icon={<ExternalLinkAltIcon aria-hidden />}
+              iconPosition="end"
               rel="noopener noreferrer"
               target="_blank"
             >

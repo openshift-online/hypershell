@@ -181,6 +181,61 @@ describe("FanOutDomainProbePublisher", () => {
     expect(received[0]?.fields.outcome).toBe("started");
   });
 
+  it("records an out-of-band delivery failure into the same health accounting", () => {
+    const failures: Readonly<ProbeDeliveryFailure>[] = [];
+    const publisher = new FanOutDomainProbePublisher<TestProbe>({
+      failureReporter: recordingReporter(failures),
+      sinks: [recordingSink("first", []), recordingSink("second", [])],
+    });
+
+    publisher.reportDeliveryFailure({
+      errorType: "SpanExportError",
+      probeName: "gateway.trace.export",
+      schemaVersion: 0,
+      sinkId: "gateway-trace",
+    });
+
+    expect(failures).toEqual([
+      {
+        errorType: "SpanExportError",
+        probeName: "gateway.trace.export",
+        schemaVersion: 0,
+        sinkId: "gateway-trace",
+      },
+    ]);
+    expect(publisher.healthSnapshot()).toEqual({
+      deliveryFailureCount: 1,
+      diagnosticFailureCount: 0,
+      lastFailure: failures[0],
+    });
+    // The snapshot must not expose a mutable reference to the caller's object.
+    expect(Object.isFrozen(failures[0])).toBe(true);
+  });
+
+  it("keeps an out-of-band report non-throwing when the diagnostic reporter fails", () => {
+    const publisher = new FanOutDomainProbePublisher<TestProbe>({
+      failureReporter: {
+        report() {
+          throw new Error("diagnostic unavailable");
+        },
+      },
+      sinks: [recordingSink("first", []), recordingSink("second", [])],
+    });
+
+    expect(() => {
+      publisher.reportDeliveryFailure({
+        errorType: "SpanExportError",
+        probeName: "gateway.trace.export",
+        schemaVersion: 0,
+        sinkId: "gateway-trace",
+      });
+    }).not.toThrow();
+    expect(publisher.healthSnapshot()).toMatchObject({
+      deliveryFailureCount: 1,
+      diagnosticFailureCount: 1,
+    });
+  });
+
   it("rejects invalid sink sets", () => {
     const sink = recordingSink("structured-log", []);
     const reporter = recordingReporter([]);

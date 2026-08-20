@@ -18,6 +18,7 @@
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw)
 #   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
+#   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 set -euo pipefail
@@ -90,6 +91,13 @@ cleanup() {
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
   fi
+  if [[ -n "${SB2_CREATE_PID:-}" ]]; then
+    kill "$SB2_CREATE_PID" 2>/dev/null || true
+    wait "$SB2_CREATE_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${SB2_CREATE_LOG:-}" ]]; then
+    rm -f "$SB2_CREATE_LOG" 2>/dev/null || true
+  fi
   if [[ -n "${E2E_GW_PF_PID:-}" ]]; then
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
@@ -126,9 +134,10 @@ printf '  %s\n' "4. OIDC token acquisition + CA certificate setup"
 printf '  %s\n' "5. Route discovery + openshell CLI registration"
 printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
-printf '  %s\n' "8. Sandbox interaction"
+printf '  %s\n' "8. Sandbox interaction + active sandbox count"
 printf '  %s\n' "9. Developer user RBAC verification"
 printf '  %s\n' "10. Platform admin RBAC verification"
+printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  HyperShell API:    ${API_HOST}"
@@ -856,51 +865,160 @@ fi
 rm -f "${SB_CREATE_LOG}" 2>/dev/null || true
 sep
 
-# ── 8. sandbox interaction ────────────────────────────────────────────────
+# ── 8. sandbox interaction + active sandbox count ─────────────────────────
 
 echo ""
-bold "8. Sandbox Interaction"
+bold "8. Sandbox Interaction + Active Sandbox Count"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
 
-show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
-if SB_EXEC_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
-  CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
-  if [[ -n "$CLEAN_EXEC" ]]; then
-    pass "Sandbox exec: command executed inside sandbox"
-    echo "$CLEAN_EXEC" | while IFS= read -r line; do
-      dim "    $line"
-    done
+# The sandbox pod can report Running while the Sandbox CR is still
+# phase=Provisioning, and the openshell CLI gates `sandbox exec` on the CR
+# reaching Ready. Poll a no-op exec until it succeeds so the interaction
+# commands below don't race the sandbox controller.
+SANDBOX_READY=false
+SB_READY_ERR=""
+READY_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+dim "  Waiting for sandbox to become ready (up to ${E2E_SANDBOX_TIMEOUT}s)..."
+while [[ $(date +%s) -lt $READY_DEADLINE ]]; do
+  if SB_READY_ERR=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- true 2>&1); then
+    SANDBOX_READY=true
+    break
+  fi
+  sleep 5
+done
+
+if [[ "$SANDBOX_READY" != "true" ]]; then
+  fail_test "Sandbox did not become ready within ${E2E_SANDBOX_TIMEOUT}s"
+  dim "    ${SB_READY_ERR:0:200}"
+else
+  pass "Sandbox ready"
+
+  show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
+  if SB_EXEC_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
+    CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
+    if [[ -n "$CLEAN_EXEC" ]]; then
+      pass "Sandbox exec: command executed inside sandbox"
+      echo "$CLEAN_EXEC" | while IFS= read -r line; do
+        dim "    $line"
+      done
+    else
+      fail_test "Sandbox exec: no output from uname command"
+      dim "    ${SB_EXEC_OUTPUT:0:200}"
+    fi
   else
-    fail_test "Sandbox exec: no output from uname command"
+    fail_test "Sandbox exec: openshell command failed"
     dim "    ${SB_EXEC_OUTPUT:0:200}"
   fi
-else
-  fail_test "Sandbox exec: openshell command failed"
-  dim "    ${SB_EXEC_OUTPUT:0:200}"
+
+  show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
+  if SB_LS_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
+    CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
+    if [[ -n "$CLEAN_LS" ]]; then
+      pass "Sandbox workspace: /workspace directory listing"
+      echo "$CLEAN_LS" | while IFS= read -r line; do
+        dim "    $line"
+      done
+    else
+      fail_test "Sandbox workspace: no output from ls command"
+      dim "    ${SB_LS_OUTPUT:0:200}"
+    fi
+  else
+    if echo "$SB_LS_OUTPUT" | grep -q "No such file or directory"; then
+      dim "  - /workspace not available (using default working directory)"
+    else
+      fail_test "Sandbox workspace: openshell ls command failed"
+      dim "    ${SB_LS_OUTPUT:0:200}"
+    fi
+  fi
 fi
 
-show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
-if SB_LS_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
-  CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
-  if [[ -n "$CLEAN_LS" ]]; then
-    pass "Sandbox workspace: /workspace directory listing"
-    echo "$CLEAN_LS" | while IFS= read -r line; do
-      dim "    $line"
-    done
+# poll_active_sandbox_count <expected>: poll the HyperShell API until the
+# gateway's active_sandbox_count equals <expected>, up to E2E_SANDBOX_TIMEOUT.
+# The field is control-plane-owned and advisory (it may lag real time) and is
+# omitted from the JSON while NULL, so an absent value is treated as "not yet".
+# Echoes the last observed value; returns 0 on match, 1 on timeout.
+poll_active_sandbox_count() {
+  local expected="$1" last="" deadline
+  deadline=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $deadline ]]; do
+    last=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+      python3 -c "import json,sys; v=json.load(sys.stdin).get('active_sandbox_count'); print('' if v is None else v)" 2>/dev/null || true)
+    [[ "$last" == "$expected" ]] && { echo "$last"; return 0; }
+    dim "    active_sandbox_count: ${last:-<unset>} (want ${expected})" >&2
+    sleep 5
+  done
+  echo "$last"
+  return 1
+}
+
+# Active sandbox count accounting (e2e-testing.spec.md "Active Sandbox Count
+# Accounting"; openshell-gateway-sandbox-count.spec.md). The control plane
+# observes sandbox pods via an informer and publishes the running count on the
+# Gateway. Reuse the sandbox created above (count 1), add a second (count 2),
+# then delete it (back to 1), polling the API for each transition because the
+# value is advisory and may lag.
+if [[ "$SANDBOX_FOUND" == "true" ]]; then
+  echo ""
+  dim "  Verifying active_sandbox_count accounting..."
+
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # active_sandbox_count == 1"
+  if COUNT=$(poll_active_sandbox_count 1); then
+    pass "active_sandbox_count reflects the running sandbox (${COUNT})"
   else
-    fail_test "Sandbox workspace: no output from ls command"
-    dim "    ${SB_LS_OUTPUT:0:200}"
+    fail_test "active_sandbox_count did not reach 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
   fi
-else
-  if echo "$SB_LS_OUTPUT" | grep -q "No such file or directory"; then
-    dim "  - /workspace not available (using default working directory)"
+
+  SANDBOX_NAME_2="${SANDBOX_NAME}-2"
+  show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME_2}"
+  dim "  Creating a second sandbox to assert the count increments..."
+  SB2_CREATE_LOG=$(mktemp)
+  "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME_2}" >"${SB2_CREATE_LOG}" 2>&1 &
+  SB2_CREATE_PID=$!
+
+  SANDBOX2_RUNNING=false
+  DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $DEADLINE ]]; do
+    SB2_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${SANDBOX_NAME_2}" || true)
+    if [[ -n "$SB2_PODS" ]]; then
+      SB2_STATUS=$(echo "$SB2_PODS" | awk '{print $3}' | head -1)
+      if [[ "$SB2_STATUS" == "Running" ]]; then
+        SANDBOX2_RUNNING=true
+        break
+      fi
+      dim "    pod: default--${SANDBOX_NAME_2} (${SB2_STATUS})"
+    fi
+    sleep 5
+  done
+  kill "$SB2_CREATE_PID" 2>/dev/null || true
+  wait "$SB2_CREATE_PID" 2>/dev/null || true
+  SB2_CREATE_PID=""
+  rm -f "${SB2_CREATE_LOG}" 2>/dev/null || true
+  SB2_CREATE_LOG=""
+
+  if [[ "$SANDBOX2_RUNNING" == "true" ]]; then
+    show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # active_sandbox_count == 2"
+    if COUNT=$(poll_active_sandbox_count 2); then
+      pass "active_sandbox_count incremented on sandbox create (${COUNT})"
+    else
+      fail_test "active_sandbox_count did not reach 2 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
+    fi
   else
-    fail_test "Sandbox workspace: openshell ls command failed"
-    dim "    ${SB_LS_OUTPUT:0:200}"
+    fail_test "Second sandbox pod not Running within ${E2E_SANDBOX_TIMEOUT}s; cannot assert count increment"
+  fi
+
+  # Deleting the second sandbox must drive the count back down. This runs
+  # regardless of E2E_SKIP_CLEANUP because the decrement is the assertion.
+  show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME_2}"
+  "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME_2}" 2>&1 || true
+  if COUNT=$(poll_active_sandbox_count 1); then
+    pass "active_sandbox_count decremented on sandbox delete (${COUNT})"
+  else
+    fail_test "active_sandbox_count did not return to 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
   fi
 fi
+sep
 
 # ── cleanup ───────────────────────────────────────────────────────────────
 
@@ -1315,6 +1433,76 @@ print(json.dumps(body))
     dim "    ${PADMIN_CREATE_RESP:0:200}"
   fi
   rm -f "${PADMIN_CREATE_FILE}" 2>/dev/null || true
+fi
+sep
+
+# ── 11. gateway deletion + namespace garbage collection ────────────────────
+
+echo ""
+bold "11. Gateway Deletion + Namespace Garbage Collection"
+echo ""
+
+if [[ "$E2E_SKIP_CLEANUP" == "1" ]]; then
+  dim "  Skipped (E2E_SKIP_CLEANUP=1): preserving namespace ${GW_NAMESPACE}"
+elif [[ -z "$GW_NAMESPACE" ]]; then
+  fail_test "Cannot validate namespace GC: gateway namespace is unknown"
+else
+  # Section 10 deletes the gateway as the platform admin and clears GW_ID.
+  # Deleting the Gateway via the API drives the control-plane delete path
+  # (watch-delete-events.spec.md): DeleteGatewayResources then
+  # DeleteManagedNamespace, best-effort and idempotent. The gateway namespace is
+  # managed (carries both hypershell.redhat.io/managed=true and
+  # app.kubernetes.io/managed-by=hypershell-control-plane), so it MUST be reaped.
+  # Any namespace missed by the delete path is later swept by the
+  # NamespaceGCReconciler. See openshell-gateway-namespace-gc.spec.md
+  # (HYPERSHELL-96, HYPERSHELL-78).
+
+  # If the gateway was not already deleted (e.g. the platform-admin delete was
+  # skipped or failed), delete it now as a fallback so the namespace GC has a
+  # trigger. The platform-admin section overwrote the active token, so
+  # re-acquire the default admin token before calling the API. Accept 204
+  # (deleted now) or 404 (already gone).
+  if [[ -n "$GW_ID" ]]; then
+    acquire_oidc_token 2>/dev/null || true
+    show_cmd "api_curl -X DELETE ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}"
+    DEL_STATUS=$(api_curl -o /dev/null -w '%{http_code}' -X DELETE \
+      "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+    if [[ "$DEL_STATUS" == "204" || "$DEL_STATUS" == "404" ]]; then
+      pass "Gateway delete accepted (HTTP ${DEL_STATUS})"
+    else
+      fail_test "Expected 204 or 404 deleting gateway, got ${DEL_STATUS:-none}"
+    fi
+    GW_ID=""
+  else
+    dim "  Gateway already deleted by the platform-admin section; validating namespace GC"
+  fi
+
+  # The managed namespace must be garbage collected by the control plane. Allow
+  # headroom for the namespace to enter Terminating and finalize (pods, PVC,
+  # certificates).
+  show_cmd "$CLI get namespace ${GW_NAMESPACE} (expect NotFound)"
+  dim "  Waiting for namespace ${GW_NAMESPACE} to be garbage collected (up to ${E2E_GC_TIMEOUT}s)..."
+  NS_GONE=false
+  GC_DEADLINE=$(($(date +%s) + E2E_GC_TIMEOUT))
+  while [[ $(date +%s) -lt $GC_DEADLINE ]]; do
+    if ! $CLI get namespace "$GW_NAMESPACE" &>/dev/null; then
+      NS_GONE=true
+      break
+    fi
+    NS_PHASE=$($CLI get namespace "$GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    dim "    namespace: ${NS_PHASE:-present}"
+    sleep 5
+  done
+
+  if [[ "$NS_GONE" == "true" ]]; then
+    pass "Gateway namespace garbage collected: ${GW_NAMESPACE}"
+  else
+    fail_test "Namespace ${GW_NAMESPACE} not garbage collected after ${E2E_GC_TIMEOUT}s"
+    dim "  --- namespace GC diagnostics ---"
+    $CLI get namespace "$GW_NAMESPACE" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
+    dim "  Control plane logs:"
+    $CLI logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=40 2>&1 | while IFS= read -r line; do dim "    $line"; done
+  fi
 fi
 sep
 

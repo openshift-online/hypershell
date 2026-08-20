@@ -76,6 +76,51 @@ describe("correlated API fetch", () => {
     expect(onReauth).not.toHaveBeenCalled();
     expect(response.status).toBe(401);
   });
+
+  it("propagates the W3C trace context supplied by the provider", async () => {
+    const fetchImplementation = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const correlatedFetch = createCorrelatedFetch(
+      "44444444-4444-4444-8444-444444444444",
+      fetchImplementation,
+      undefined,
+      () => ({
+        traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        tracestate: "hypershell=1",
+      }),
+    );
+
+    await correlatedFetch("/api/hypershell/v1/gateways");
+
+    const headers = new Headers(
+      fetchImplementation.mock.calls[0]?.[1]?.headers,
+    );
+    expect(headers.get("traceparent")).toBe(
+      "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+    );
+    expect(headers.get("tracestate")).toBe("hypershell=1");
+  });
+
+  it("omits trace headers when the provider reports no active span", async () => {
+    const fetchImplementation = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const correlatedFetch = createCorrelatedFetch(
+      "55555555-5555-4555-8555-555555555555",
+      fetchImplementation,
+      undefined,
+      () => undefined,
+    );
+
+    await correlatedFetch("/api/hypershell/v1/gateways");
+
+    const headers = new Headers(
+      fetchImplementation.mock.calls[0]?.[1]?.headers,
+    );
+    expect(headers.has("traceparent")).toBe(false);
+    expect(headers.has("tracestate")).toBe(false);
+  });
 });
 
 describe("redirectToLogin", () => {

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -122,11 +123,20 @@ func ReconcileGateway(
 
 	if opts.HasGatewayAPI {
 		if nsConfig.Gateway.Route.Enabled {
+			// Propagate this error rather than logging and swallowing it: the only
+			// hard failures reconcileGatewayAPIResources returns are a TLS-secret
+			// wait timeout and a fail-closed route-intent re-check (its best-effort
+			// console/NetworkPolicy/CA steps log internally and never return). Both
+			// leave a routed gateway without a usable route, so Handle must see the
+			// error and mark the gateway Failed -- a Failed gateway is not phase-
+			// gated, so the next watch event re-provisions and rebuilds the route.
+			// Swallowing it here would strand a partial route the phase gate then
+			// blocks any later event from repairing.
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				log.Printf("WARN failed to reconcile Gateway API resources in %s: %v", nsConfig.Name, err)
+				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 			}
 		} else {
-			if err := deleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
+			if err := DeleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
 				log.Printf("WARN failed to remove Gateway API resources in %s: %v", nsConfig.Name, err)
 			}
 		}
@@ -136,63 +146,23 @@ func ReconcileGateway(
 	return nil
 }
 
+// DeleteGatewayResources cleans up the resources a gateway owns that live
+// OUTSIDE its namespace and are therefore not reclaimed when the namespace is
+// deleted. Everything inside the gateway's namespace (Deployments, Services,
+// Secrets, ConfigMaps, PVCs, Jobs, Roles, RoleBindings, and cert-manager /
+// Gateway API objects) is garbage-collected by Kubernetes as a side effect of
+// deleting the namespace itself, so those are not enumerated here. The
+// out-of-namespace resources handled below are:
+//   - the cluster-scoped ClusterRoleBinding created for the gateway,
+//   - the gateway's external Keycloak client, and
+//   - any credential RBAC the gateway created in a separate credential namespace.
 func DeleteGatewayResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
-	clientset *kubernetes.Clientset,
 	namespace string,
 	opts ReconcileOpts,
 	credentialNamespaces ...string,
 ) error {
-	labelSelector := "hypershell.redhat.io/managed=true"
-
-	namespacedResources := []schema.GroupVersionResource{
-		{Group: "apps", Version: "v1", Resource: "deployments"},
-		{Version: "v1", Resource: "services"},
-		{Version: "v1", Resource: "configmaps"},
-		{Version: "v1", Resource: "serviceaccounts"},
-		{Version: "v1", Resource: "secrets"},
-		{Version: "v1", Resource: "persistentvolumeclaims"},
-		{Group: "batch", Version: "v1", Resource: "jobs"},
-		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
-	}
-
-	if opts.HasCertManager {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
-		)
-	}
-
-	if opts.HasGatewayAPI {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
-		)
-	}
-
-	for _, gvr := range namespacedResources {
-		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				continue
-			}
-			log.Printf("WARN failed to list %s in %s: %v", gvr.Resource, namespace, err)
-			continue
-		}
-		for _, item := range list.Items {
-			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-				log.Printf("WARN failed to delete %s %s in %s: %v", gvr.Resource, item.GetName(), namespace, err)
-			} else {
-				log.Printf("INFO deleted %s %s from %s", gvr.Resource, item.GetName(), namespace)
-			}
-		}
-	}
-
 	crbGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
 		Version:  "v1",
@@ -214,6 +184,16 @@ func DeleteGatewayResources(
 		} else {
 			log.Printf("INFO deleted keycloak client %s", kcClientID)
 		}
+
+		// The console namespaced resources are swept by label above, but the
+		// console Keycloak client must be deleted explicitly (it lives in the
+		// realm, not the namespace). Best-effort: log the orphan on failure.
+		consoleClientID := kcClientID + "-console"
+		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
+			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+		} else {
+			log.Printf("INFO deleted console client %s", consoleClientID)
+		}
 	}
 
 	for _, credNS := range credentialNamespaces {
@@ -223,18 +203,112 @@ func DeleteGatewayResources(
 		}
 	}
 
-	log.Printf("INFO gateway resources cleaned up from namespace %s", namespace)
+	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
 	return nil
 }
 
-func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
+// DeleteLabeledNamespaceResources reclaims this gateway's own in-namespace
+// resources when the namespace itself survives gateway deletion. Kubernetes only
+// garbage-collects namespaced objects as a side effect of deleting the namespace,
+// so on the delete path we normally rely on DeleteManagedNamespace to cascade
+// them. This is the fallback for when the namespace is NOT reaped: most
+// importantly a pre-existing namespace the control plane does not manage (it is
+// missing the management labels, so DeleteManagedNamespace leaves it and the
+// NamespaceGCReconciler ignores it too). Without this sweep the workloads the
+// gateway created inside such a namespace would be orphaned.
+//
+// Only resources carrying hypershell.redhat.io/managed=true (the label the
+// gateway stamps on everything it creates) are deleted, so co-tenant workloads
+// sharing the namespace are never touched: the same no-collateral guarantee that
+// keeps GC from reaping a shared namespace. The namespace itself is never
+// deleted here. It is best-effort - per-resource failures are logged and do not
+// abort the sweep, matching DeleteGatewayResources - and the caller invokes it
+// only when the namespace was left in place.
+func DeleteLabeledNamespaceResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	namespace string,
+	opts ReconcileOpts,
+) {
+	labelSelector := fmt.Sprintf("%s=%s", ManagedLabel, ManagedLabelValue)
+
+	namespacedResources := []schema.GroupVersionResource{
+		{Group: "apps", Version: "v1", Resource: "deployments"},
+		{Group: "apps", Version: "v1", Resource: "statefulsets"},
+		{Version: "v1", Resource: "services"},
+		{Version: "v1", Resource: "configmaps"},
+		{Version: "v1", Resource: "serviceaccounts"},
+		{Version: "v1", Resource: "secrets"},
+		{Version: "v1", Resource: "persistentvolumeclaims"},
+		{Group: "batch", Version: "v1", Resource: "jobs"},
+		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
+	}
+	if opts.IsOpenShift {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
+		)
+	}
+	if opts.HasCertManager {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
+		)
+	}
+	if opts.HasGatewayAPI {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
+		)
+	}
+
+	for _, gvr := range namespacedResources {
+		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			// A missing CRD/resource type is expected on clusters without the
+			// optional APIs; skip it rather than treating it as a failure.
+			if k8serrors.IsNotFound(err) {
+				continue
+			}
+			log.Printf("WARN failed to list %s in namespace %s for cleanup: %v", gvr.Resource, namespace, err)
+			continue
+		}
+		for i := range list.Items {
+			name := list.Items[i].GetName()
+			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+				if !k8serrors.IsNotFound(err) {
+					log.Printf("WARN failed to delete %s %s in namespace %s: %v", gvr.Resource, name, namespace, err)
+				}
+				continue
+			}
+			log.Printf("INFO deleted %s %s from namespace %s", gvr.Resource, name, namespace)
+		}
+	}
+}
+
+// DeleteGatewayAPIResources reconciles the desired *absence* of a gateway's
+// route: it removes the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap and
+// router NetworkPolicy, tears down the console (which follows the route), and
+// clears the stored route_address. It attempts every deletion regardless of
+// individual failures and returns their joined errors (nil once everything is
+// absent), so a caller -- the provisioning path's route-disabled branch and the
+// health loop, which owns a Running gateway the provisioning path never revisits
+// -- can retry until the route and its console are fully gone rather than
+// stopping on partial cleanup. Idempotent: absent resources are ignored.
+func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
+	var errs []error
+
 	grpcRouteGVR := schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",
 		Version:  "v1",
 		Resource: "grpcroutes",
 	}
 	if err := dynamicClient.Resource(grpcRouteGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete GRPCRoute: %v", err)
+		errs = append(errs, fmt.Errorf("delete GRPCRoute in %s: %w", namespace, err))
 	}
 
 	btlsGVR := schema.GroupVersionResource{
@@ -243,11 +317,11 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		Resource: "backendtlspolicies",
 	}
 	if err := dynamicClient.Resource(btlsGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete BackendTLSPolicy: %v", err)
+		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
 	}
 
 	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "openshell-backend-ca", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete backend CA ConfigMap: %v", err)
+		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
 	}
 
 	netpolGVR := schema.GroupVersionResource{
@@ -256,19 +330,113 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		Resource: "networkpolicies",
 	}
 	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete router NetworkPolicy: %v", err)
+		errs = append(errs, fmt.Errorf("delete router NetworkPolicy in %s: %w", namespace, err))
+	}
+
+	// The console follows the route, so removing the route removes the console.
+	if err := deleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
+		errs = append(errs, err)
 	}
 
 	if opts.UpdateRouteAddress != nil {
 		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
-			log.Printf("WARN failed to clear routeAddress for gateway in %s: %v", namespace, err)
+			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
 		} else {
 			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
 		}
 	}
 
-	log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
-	return nil
+	if len(errs) == 0 {
+		log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
+	}
+	return errors.Join(errs...)
+}
+
+// ConsoleClientChecker reports whether the gateway's external Keycloak console
+// client still exists. RouteResourcesAbsent uses it so teardown's settled-state
+// check converges across BOTH Kubernetes and the external realm: the console
+// client is a realm object, not a namespaced one, so a stale provisioning pass
+// that recreated only the client -- e.g. failing before its namespaced Secret
+// and Deployment writes -- would otherwise be invisible to a Kubernetes-only
+// probe and let teardown settle while the client leaks.
+type ConsoleClientChecker interface {
+	ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error)
+}
+
+// RouteResourcesAbsent reports whether every route- and console-owned resource
+// this control plane creates for a routed gateway is absent -- both the
+// namespaced Kubernetes objects and the external Keycloak console client. It
+// lets the health loop's route teardown converge on the gateway's actual
+// observed state rather than trusting a cached completion marker: a stale
+// provisioning pass can recreate these resources after a teardown believed
+// itself finished, and cleared address fields do not prove the resources are
+// gone. Unknown state must never be read as absence.
+//
+// It returns (true, nil) only when every probed resource is confirmed absent.
+// The first resource found present short-circuits to (false, nil). Any probe
+// that fails for a reason other than Kubernetes NotFound is returned as an error
+// so the caller treats absence as unconfirmed (and re-runs teardown) rather than
+// trusting an unknown state. The Keycloak client probe is skipped when
+// consoleClient is nil or consoleClientID is empty (no Keycloak configured).
+func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
+	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
+	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
+	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	netpolGVR := schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}
+
+	dynamicProbes := []struct {
+		gvr  schema.GroupVersionResource
+		name string
+	}{
+		{grpcRouteGVR, "openshell-gateway"},
+		{btlsGVR, "openshell-gateway"},
+		{netpolGVR, "openshell-gateway-allow-router"},
+		{httpRouteGVR, consoleName},
+		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
+		{netpolGVR, "openshell-console-allow-router"},
+		{netpolGVR, "openshell-gateway-allow-console"},
+	}
+	for _, p := range dynamicProbes {
+		if _, err := dynamicClient.Resource(p.gvr).Namespace(namespace).Get(ctx, p.name, metav1.GetOptions{}); err == nil {
+			return false, nil
+		} else if !k8serrors.IsNotFound(err) {
+			return false, fmt.Errorf("probe %s/%s in %s: %w", p.gvr.Resource, p.name, namespace, err)
+		}
+	}
+
+	if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{}); err == nil {
+		return false, nil
+	} else if !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("probe configmap openshell-backend-ca in %s: %w", namespace, err)
+	}
+	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
+		return false, nil
+	} else if !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("probe service %s in %s: %w", consoleName, namespace, err)
+	}
+	if _, err := clientset.CoreV1().Secrets(namespace).Get(ctx, consoleSecretName, metav1.GetOptions{}); err == nil {
+		return false, nil
+	} else if !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("probe secret %s in %s: %w", consoleSecretName, namespace, err)
+	}
+
+	// Probe the external Keycloak console client last: it is a realm object, not a
+	// namespaced one, and a stale provisioning pass that recreated only the client
+	// -- e.g. failing before its namespaced Secret and Deployment writes -- would
+	// otherwise be invisible above and let teardown settle while the client leaks.
+	// Skipped when unconfigured (nil checker / empty ID). A probe error is returned
+	// so absence stays unconfirmed rather than being read as gone.
+	if consoleClient != nil && consoleClientID != "" {
+		exists, err := consoleClient.ConsoleClientExists(ctx, consoleClientID)
+		if err != nil {
+			return false, fmt.Errorf("probe keycloak console client %s: %w", consoleClientID, err)
+		}
+		if exists {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 func namespaceExists(ctx context.Context, clientset *kubernetes.Clientset, namespace string) bool {
@@ -281,8 +449,8 @@ func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, names
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "hypershell-control-plane",
-				"hypershell.redhat.io/managed": "true",
+				ManagedByLabel: ManagedByValue,
+				ManagedLabel:   ManagedLabelValue,
 			},
 		},
 	}
@@ -312,6 +480,7 @@ func deployGateway(
 		"certgen-job.yaml",
 		"database.yaml",
 		"service.yaml",
+		"statefulset.yaml",
 		"deployment.yaml",
 		"networkpolicy.yaml",
 	}
@@ -350,15 +519,15 @@ func deployGateway(
 				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
 			}
 
-			if obj.GetKind() == "Deployment" {
+			if obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet" {
 				applyConfigHashAnnotation(ctx, clientset, obj, nsConfig.Name)
 			}
 
-			if hasTrustedCA && obj.GetKind() == "Deployment" {
+			if hasTrustedCA && (obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet") {
 				applyTrustedCAOverrides(obj)
 			}
 
-			if opts.IsOpenShift && obj.GetKind() == "Deployment" {
+			if opts.IsOpenShift && (obj.GetKind() == "Deployment" || obj.GetKind() == "StatefulSet") {
 				applyOpenShiftOverrides(obj)
 			}
 
@@ -592,6 +761,7 @@ func kindToResource(kind string) string {
 		"Certificate":           "certificates",
 		"Gateway":               "gateways",
 		"GRPCRoute":             "grpcroutes",
+		"HTTPRoute":             "httproutes",
 		"BackendTLSPolicy":      "backendtlspolicies",
 	}
 
@@ -811,12 +981,6 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		"name": "trusted-ca",
 		"configMap": map[string]interface{}{
 			"name": "gateway-trusted-ca",
-			"items": []interface{}{
-				map[string]interface{}{
-					"key":  "ca-bundle.crt",
-					"path": "ca-bundle.crt",
-				},
-			},
 		},
 	}
 	volumes = append(volumes, caVolume)
@@ -839,7 +1003,7 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		volumeMounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
 		volumeMounts = append(volumeMounts, map[string]interface{}{
 			"name":      "trusted-ca",
-			"mountPath": "/etc/pki/tls/certs/ca-bundle.crt",
+			"mountPath": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
 			"subPath":   "ca-bundle.crt",
 			"readOnly":  true,
 		})
@@ -848,7 +1012,7 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		env, _, _ := unstructured.NestedSlice(container, "env")
 		env = append(env, map[string]interface{}{
 			"name":  "SSL_CERT_FILE",
-			"value": "/etc/pki/tls/certs/ca-bundle.crt",
+			"value": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
 		})
 		_ = unstructured.SetNestedSlice(container, env, "env")
 
@@ -1356,6 +1520,28 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		return fmt.Errorf("wait for server TLS secret in %s: %w", namespace, err)
 	}
 
+	// The wait above can run for up to a minute. A route removal (or gateway
+	// deletion) during it is observed only by the independent health loop -- the
+	// watcher phase gate blocks a re-provision -- which tears down this gateway's
+	// route and console. Re-check live route intent before creating the remaining
+	// route- and console-owned resources so this in-flight pass does not race that
+	// teardown. Fail closed: unknown intent must not authorize new resources, so a
+	// check error aborts the pass (the gateway parks at Failed and is retried on
+	// the next watch resync) rather than risk creating resources behind a
+	// concurrent teardown. The health loop's route teardown verifies actual
+	// resource absence (RouteResourcesAbsent), so it still removes anything a
+	// narrow check-then-act window lets slip through.
+	if opts.RouteStillDesired != nil {
+		desired, err := opts.RouteStillDesired(ctx)
+		if err != nil {
+			return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+		}
+		if !desired {
+			log.Printf("INFO gateway in %s no longer routed after TLS wait; skipping route/console resource creation (health loop owns teardown)", namespace)
+			return nil
+		}
+	}
+
 	caData := ""
 	tlsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
 	if err == nil {
@@ -1498,6 +1684,17 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	// The route address is published deterministically at the top of this
 	// function, so no readiness-gated discovery is required here.
 
+	// The console follows the route: it is deployed in the same pass that creates
+	// the route resources. A console failure must not fail the gateway route
+	// reconciliation, so it is logged and the reconcile continues.
+	images := opts.Images
+	if images == nil {
+		images = StaticImageDefaults{}
+	}
+	if err := reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images); err != nil {
+		log.Printf("WARN failed to reconcile console in %s: %v", namespace, err)
+	}
+
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
 	return nil
 }
@@ -1544,9 +1741,10 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 				},
 			},
 			"spec": map[string]interface{}{
-				"isCA":       true,
-				"commonName": "openshell-ca",
-				"secretName": "openshell-ca-tls",
+				"isCA":           true,
+				"commonName":     "openshell-ca",
+				"secretName":     "openshell-ca-tls",
+				"rotationPolicy": "Always",
 				"privateKey": map[string]interface{}{
 					"algorithm": "ECDSA",
 					"size":      int64(256),

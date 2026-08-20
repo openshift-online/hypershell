@@ -1,0 +1,22 @@
+/*
+ * PatternFly's secondary MenuToggle label fails AA contrast in dark theme.
+ * Keep the secondary variant for Action List pairing, and paint the control
+ * with on-surface tokens that meet 4.5:1 in both themes.
+ */
+:global(html.pf-v6-theme-dark)
+  .actionsToggle:global(.pf-v6-c-menu-toggle.pf-m-secondary) {
+  color: var(--pf-t--global--text--color--regular);
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  border-color: var(--pf-t--global--border--color--default);
+}
+
+:global(html.pf-v6-theme-dark)
+  .actionsToggle:global(.pf-v6-c-menu-toggle.pf-m-secondary):hover,
+:global(html.pf-v6-theme-dark)
+  .actionsToggle:global(.pf-v6-c-menu-toggle.pf-m-secondary):global(
+    .pf-m-expanded
+  ) {
+  color: var(--pf-t--global--text--color--regular);
+  background-color: var(--pf-t--global--background--color--secondary--hover);
+  border-color: var(--pf-t--global--border--color--hover);
+}

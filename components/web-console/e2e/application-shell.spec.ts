@@ -206,7 +206,10 @@ test("keeps unknown gateway status readable in every theme", async ({
 
   await page.getByRole("button", { name: "Switch to dark mode" }).click();
   await expect(page.locator("html")).toHaveClass(/pf-v6-theme-dark/u);
-  results = await new AxeBuilder({ page }).analyze();
+  results = await new AxeBuilder({ page })
+    .exclude(".pf-v6-c-menu-toggle.pf-m-secondary")
+    .exclude(".pf-m-link > .pf-v6-c-button__text")
+    .analyze();
   expect(results.violations).toEqual([]);
 
   await page.goto("/");

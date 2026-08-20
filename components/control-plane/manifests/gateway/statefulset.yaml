@@ -23,7 +23,7 @@ spec:
         app.kubernetes.io/instance: openshell-gateway
         app.kubernetes.io/component: gateway
         app.kubernetes.io/managed-by: hypershell-control-plane
-    hypershell.redhat.io/managed: "true"
+        hypershell.redhat.io/managed: "true"
     spec:
       terminationGracePeriodSeconds: 5
       serviceAccountName: openshell-gateway

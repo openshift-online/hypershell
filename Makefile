@@ -68,7 +68,7 @@ API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
 KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
-KEYCLOAK_OIDC_ISSUER?=http://$(KEYCLOAK_HOSTNAME):8080/realms/hypershell
+KEYCLOAK_OIDC_ISSUER?=https://$(KEYCLOAK_HOSTNAME)/realms/hypershell
 
 # ============================================================================
 # Help
@@ -83,6 +83,7 @@ help:
 	@echo "  Local Development (Kind)"
 	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
 	@echo ""
+	@echo "    kind-env                 Print environment variables for local setup"
 	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
@@ -94,6 +95,7 @@ help:
 	@echo "    kind-control-plane-down  Revert control plane to baseline image"
 	@echo "    kind-web-console-up      Hot reload (default) or build + swap web console (KIND_HOT_RELOAD=false)"
 	@echo "    kind-web-console-down    Revert web console to baseline image"
+	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
 	@echo ""
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
@@ -336,6 +338,40 @@ kind-prereqs:
 	  printf '%s\n' "$$built" > bin/.cloud-provider-kind.sha && \
 	  echo "==> Done - binary in ./bin/cloud-provider-kind ($$built)"
 
+.PHONY: kind-env
+kind-env:
+	@echo "# Environment variables for local Kind cluster setup"
+	@echo "# Copy the export block below to run 'make kind-up' with these settings:"
+	@echo ""
+	@echo "export CONTAINER_ENGINE=$(CONTAINER_ENGINE)"
+	@echo "export KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME)"
+	@echo "export KIND_NAMESPACE=$(KIND_NAMESPACE)"
+	@echo "export KIND_HOT_RELOAD=$(KIND_HOT_RELOAD)"
+	@echo "export KIND_HOST_MOUNT_PATH=$(KIND_HOST_MOUNT_PATH)"
+	@echo "export KIND_KEYCLOAK_URL=$(KIND_KEYCLOAK_URL)"
+	@echo "export LOCAL_IMAGES=$(LOCAL_IMAGES)"
+	@echo "export KIND_PULL_SECRET=$(KIND_PULL_SECRET)"
+	@echo "export KIND_DB_IMAGE=$(KIND_DB_IMAGE)"
+	@echo "export GATEWAY_API_VERSION=$(GATEWAY_API_VERSION)"
+	@echo "export KIND_VERSION=$(KIND_VERSION)"
+	@echo "export CLOUD_PROVIDER_KIND_REPO=$(CLOUD_PROVIDER_KIND_REPO)"
+	@echo "export CLOUD_PROVIDER_KIND_REF=$(CLOUD_PROVIDER_KIND_REF)"
+	@echo "export CLOUD_PROVIDER_KIND_BRANCH=$(CLOUD_PROVIDER_KIND_BRANCH)"
+	@echo "export CERT_MANAGER_VERSION=$(CERT_MANAGER_VERSION)"
+	@echo "export AGENT_SANDBOX_VERSION=$(AGENT_SANDBOX_VERSION)"
+	@echo "export IMAGE_REGISTRY=$(IMAGE_REGISTRY)"
+	@echo "export IMAGE_TAG=$(IMAGE_TAG)"
+	@echo "export KIND_CONFIG=$(KIND_CONFIG)"
+	@echo "export API_HOSTNAME=$(API_HOSTNAME)"
+	@echo "export CONSOLE_HOSTNAME=$(CONSOLE_HOSTNAME)"
+	@echo "export HEALTH_HOSTNAME=$(HEALTH_HOSTNAME)"
+	@echo "export KEYCLOAK_HOSTNAME=$(KEYCLOAK_HOSTNAME)"
+	@echo "export KEYCLOAK_OIDC_ISSUER=$(KEYCLOAK_OIDC_ISSUER)"
+	@echo "export KIND_DNS_PORT=$(KIND_DNS_PORT)"
+	@echo "export API_SERVER_IMAGE=$(API_SERVER_IMAGE)"
+	@echo "export CONTROL_PLANE_IMAGE=$(CONTROL_PLANE_IMAGE)"
+	@echo "export WEB_CONSOLE_IMAGE=$(WEB_CONSOLE_IMAGE)"
+
 .PHONY: kind-up
 kind-up:
 	@scripts/kind/up.sh
@@ -380,6 +416,10 @@ kind-web-console-up:
 kind-web-console-down:
 	@scripts/kind/swap-component.sh down web-console
 
+.PHONY: kind-gateway-trust
+kind-gateway-trust:
+	@scripts/kind/gateway-trust.sh
+
 generate-cli:
 	cd scripts/cli-generator && go run . \
 		--spec ../../components/api-server/openapi/openapi.yaml \
@@ -393,6 +433,7 @@ generate-sdk-go:
 	cd scripts/sdk-generator && go run . \
 		--spec ../../components/api-server/openapi/openapi.yaml \
 		--go-out ../../components/sdk-go \
+		--module github.com/openshift-online/hypershell/components/sdk-go \
 		--ts-out ../../components/sdk-typescript
 # ============================================================================
 # E2E Tests
@@ -407,3 +448,14 @@ e2e:
 		E2E_PROVISION_TIMEOUT=300 \
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-openshell.sh
+
+# Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
+# cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
+# Jaeger is deployed and the web-console BFF exports to it.
+.PHONY: e2e-tracing
+e2e-tracing:
+	@echo ""
+	@echo "==> Verifying end-to-end traces reach Jaeger (Kind)"
+	@echo "    (requires: KIND_JAEGER=true make kind-up)"
+	@echo ""
+	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:live

@@ -209,6 +209,105 @@ func (x *WatchRoleBindingsResponse) GetResourceId() string {
 	return ""
 }
 
+type ListRoleBindingsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Filters to the active role bindings for this user. Required: the control
+	// plane uses this to recompute a user's effective Keycloak roles on a gateway.
+	UserId *string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
+	// Optional additional filter to a single gateway.
+	GatewayId     *string `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3,oneof" json:"gateway_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRoleBindingsRequest) Reset() {
+	*x = ListRoleBindingsRequest{}
+	mi := &file_hypershell_v1_role_bindings_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRoleBindingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRoleBindingsRequest) ProtoMessage() {}
+
+func (x *ListRoleBindingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_role_bindings_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRoleBindingsRequest.ProtoReflect.Descriptor instead.
+func (*ListRoleBindingsRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_role_bindings_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListRoleBindingsRequest) GetUserId() string {
+	if x != nil && x.UserId != nil {
+		return *x.UserId
+	}
+	return ""
+}
+
+func (x *ListRoleBindingsRequest) GetGatewayId() string {
+	if x != nil && x.GatewayId != nil {
+		return *x.GatewayId
+	}
+	return ""
+}
+
+type ListRoleBindingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*RoleBinding         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRoleBindingsResponse) Reset() {
+	*x = ListRoleBindingsResponse{}
+	mi := &file_hypershell_v1_role_bindings_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRoleBindingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRoleBindingsResponse) ProtoMessage() {}
+
+func (x *ListRoleBindingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_role_bindings_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRoleBindingsResponse.ProtoReflect.Descriptor instead.
+func (*ListRoleBindingsResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_role_bindings_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ListRoleBindingsResponse) GetItems() []*RoleBinding {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
 var File_hypershell_v1_role_bindings_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_role_bindings_proto_rawDesc = "" +
@@ -231,9 +330,19 @@ const file_hypershell_v1_role_bindings_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12=\n" +
 	"\frole_binding\x18\x02 \x01(\v2\x1a.hypershell.v1.RoleBindingR\vroleBinding\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId2~\n" +
+	"resourceId\"v\n" +
+	"\x17ListRoleBindingsRequest\x12\x1c\n" +
+	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tH\x01R\tgatewayId\x88\x01\x01B\n" +
+	"\n" +
+	"\b_user_idB\r\n" +
+	"\v_gateway_id\"L\n" +
+	"\x18ListRoleBindingsResponse\x120\n" +
+	"\x05items\x18\x01 \x03(\v2\x1a.hypershell.v1.RoleBindingR\x05items2\xe3\x01\n" +
 	"\x12RoleBindingService\x12h\n" +
-	"\x11WatchRoleBindings\x12'.hypershell.v1.WatchRoleBindingsRequest\x1a(.hypershell.v1.WatchRoleBindingsResponse0\x01BgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
+	"\x11WatchRoleBindings\x12'.hypershell.v1.WatchRoleBindingsRequest\x1a(.hypershell.v1.WatchRoleBindingsResponse0\x01\x12c\n" +
+	"\x10ListRoleBindings\x12&.hypershell.v1.ListRoleBindingsRequest\x1a'.hypershell.v1.ListRoleBindingsResponseBgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
 
 var (
 	file_hypershell_v1_role_bindings_proto_rawDescOnce sync.Once
@@ -247,25 +356,30 @@ func file_hypershell_v1_role_bindings_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_role_bindings_proto_rawDescData
 }
 
-var file_hypershell_v1_role_bindings_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_hypershell_v1_role_bindings_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_hypershell_v1_role_bindings_proto_goTypes = []any{
 	(*RoleBinding)(nil),               // 0: hypershell.v1.RoleBinding
 	(*WatchRoleBindingsRequest)(nil),  // 1: hypershell.v1.WatchRoleBindingsRequest
 	(*WatchRoleBindingsResponse)(nil), // 2: hypershell.v1.WatchRoleBindingsResponse
-	(*ObjectReference)(nil),           // 3: hypershell.v1.ObjectReference
-	(EventType)(0),                    // 4: hypershell.v1.EventType
+	(*ListRoleBindingsRequest)(nil),   // 3: hypershell.v1.ListRoleBindingsRequest
+	(*ListRoleBindingsResponse)(nil),  // 4: hypershell.v1.ListRoleBindingsResponse
+	(*ObjectReference)(nil),           // 5: hypershell.v1.ObjectReference
+	(EventType)(0),                    // 6: hypershell.v1.EventType
 }
 var file_hypershell_v1_role_bindings_proto_depIdxs = []int32{
-	3, // 0: hypershell.v1.RoleBinding.metadata:type_name -> hypershell.v1.ObjectReference
-	4, // 1: hypershell.v1.WatchRoleBindingsResponse.type:type_name -> hypershell.v1.EventType
+	5, // 0: hypershell.v1.RoleBinding.metadata:type_name -> hypershell.v1.ObjectReference
+	6, // 1: hypershell.v1.WatchRoleBindingsResponse.type:type_name -> hypershell.v1.EventType
 	0, // 2: hypershell.v1.WatchRoleBindingsResponse.role_binding:type_name -> hypershell.v1.RoleBinding
-	1, // 3: hypershell.v1.RoleBindingService.WatchRoleBindings:input_type -> hypershell.v1.WatchRoleBindingsRequest
-	2, // 4: hypershell.v1.RoleBindingService.WatchRoleBindings:output_type -> hypershell.v1.WatchRoleBindingsResponse
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0, // 3: hypershell.v1.ListRoleBindingsResponse.items:type_name -> hypershell.v1.RoleBinding
+	1, // 4: hypershell.v1.RoleBindingService.WatchRoleBindings:input_type -> hypershell.v1.WatchRoleBindingsRequest
+	3, // 5: hypershell.v1.RoleBindingService.ListRoleBindings:input_type -> hypershell.v1.ListRoleBindingsRequest
+	2, // 6: hypershell.v1.RoleBindingService.WatchRoleBindings:output_type -> hypershell.v1.WatchRoleBindingsResponse
+	4, // 7: hypershell.v1.RoleBindingService.ListRoleBindings:output_type -> hypershell.v1.ListRoleBindingsResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_role_bindings_proto_init() }
@@ -275,13 +389,14 @@ func file_hypershell_v1_role_bindings_proto_init() {
 	}
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_role_bindings_proto_msgTypes[0].OneofWrappers = []any{}
+	file_hypershell_v1_role_bindings_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_role_bindings_proto_rawDesc), len(file_hypershell_v1_role_bindings_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

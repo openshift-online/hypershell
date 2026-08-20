@@ -179,6 +179,16 @@ header "Infrastructure"
 # TCPRoute/UDPRoute).  Delete them first so the apply can re-create them
 # with the correct spec.versions.
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
+  # If deletion is delayed or blocked, force storedVersions to match an
+  # existing served version so server-side apply does not fail validation.
+  if kube get crd "$crd" >/dev/null 2>&1; then
+    served_versions=$(kube get crd "$crd" -o jsonpath='{range .spec.versions[?(@.served==true)]}{.name}{" "}{end}' 2>/dev/null || true)
+    first_served_version="${served_versions%% *}"
+    if [[ -n "${first_served_version}" ]]; then
+      kube patch crd "$crd" --subresource=status --type=merge \
+        -p "{\"status\":{\"storedVersions\":[\"${first_served_version}\"]}}" >/dev/null 2>&1 || true
+    fi
+  fi
   kube delete crd "$crd" --ignore-not-found 2>/dev/null || true
 done
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
@@ -204,6 +214,11 @@ if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   FORCE_ROLLOUT=true
   echo ""
 fi
+
+# The per-gateway console images (the OpenShell dashboard and its oauth2-proxy
+# sidecar) are public registry images -- the dashboard is published to quay.io,
+# pinned by digest in the control plane's ImageDefaults -- so console pods pull
+# them at start (imagePullPolicy IfNotPresent) with no build or pre-load step.
 
 # --- Apply pull secret (if configured) ---
 if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
@@ -251,6 +266,129 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Waiting for Keycloak..."
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
   success "Keycloak ready"
+fi
+
+# --- Jaeger (optional, for OTel trace inspection) ---
+# Deploys an all-in-one Jaeger v2 for local trace inspection alongside the API
+# server observability work (HYPERSHELL-26). The web console browser and BFF
+# export over OTLP/HTTP (4318) because browsers cannot speak OTLP gRPC; the API
+# server uses gRPC (4317).
+# Renders deploy/kind/jaeger.yaml into the selected namespace with sed, the same
+# portable substitution used for the Kind cluster config. Using sed instead of
+# GNU envsubst keeps bring-up working on stock macOS, where envsubst is absent.
+render_jaeger() {
+  sed "s|__KIND_NAMESPACE__|${KIND_NAMESPACE}|g" deploy/kind/jaeger.yaml
+}
+
+# Reports whether the named deployment exists, distinguishing a genuine NotFound
+# from an API, auth, or authorization error. --ignore-not-found makes kubectl
+# exit 0 with empty output when the resource is absent and nonzero for every
+# other failure, so absence is read from an empty successful result rather than
+# by matching error text: a client-side failure such as "kubectl: command not
+# found" no longer masquerades as absence. Any nonzero exit propagates and
+# aborts, since reading a swallowed lookup error as "absent" would silently skip
+# the tracing-disable reconciliation and leave the BFF exporting to a dead
+# collector. Stderr flows to the terminal so a real failure stays diagnosable.
+deployment_exists() {
+  local name="$1" out
+  if ! out=$(kube get "deployment/${name}" -n "${KIND_NAMESPACE}" \
+    --ignore-not-found -o name); then
+    error "checking for deployment/${name} failed"
+    exit 1
+  fi
+  [[ -n "${out}" ]]
+}
+
+# Reports 0 when the web console BFF still carries an OTLP exporter endpoint, so
+# the disabled-state reconciliation can verify it actually removed the endpoint
+# rather than trusting that the unset command had any effect. A lookup failure is
+# propagated rather than read as "endpoint absent", which would let a silent API
+# error masquerade as a successful disable.
+bff_otel_endpoint_set() {
+  local names
+  if ! names=$(kube get deployment/hypershell-web-console -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="web-console")].env[*].name}' \
+    2>&1); then
+    error "verifying OTLP endpoint removal: ${names}"
+    exit 1
+  fi
+  tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
+}
+
+# Reports 0 when the API server still carries an OTLP exporter endpoint, so the
+# disabled-state reconciliation can verify it actually removed the endpoint
+# rather than trusting that the unset command had any effect. A lookup failure is
+# propagated rather than read as "endpoint absent", which would let a silent API
+# error masquerade as a successful disable.
+api_server_otel_endpoint_set() {
+  local names
+  if ! names=$(kube get deployment/hypershell-api-server -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="api-server")].env[*].name}' \
+    2>&1); then
+    error "verifying OTLP endpoint removal: ${names}"
+    exit 1
+  fi
+  tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
+}
+
+if [[ "${KIND_JAEGER:-}" == "true" ]]; then
+  header "Jaeger"
+  info "Deploying Jaeger..."
+  render_jaeger | kube apply -f -
+  info "Patching web console BFF with OTEL_EXPORTER_OTLP_ENDPOINT..."
+  kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
+    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4318"
+  # The API server exports over OTLP/gRPC (4318 is OTLP/HTTP for the browser and
+  # BFF; 4317 is OTLP/gRPC reserved for the API server). Setting the endpoint on
+  # the Deployment opts the API server into tracing; a swapped-in working-tree
+  # image keeps this env, so browser -> BFF -> API traces join in Jaeger.
+  # Jaeger ingests traces only; its OTLP endpoint has no metrics service, so the
+  # API server's metric exporter would log a periodic "Unimplemented" upload
+  # error. Turn metrics off in the dev cluster (OTEL_METRICS_EXPORTER=none) while
+  # keeping trace export on; production points at a full collector that accepts
+  # both.
+  info "Patching API server with OTEL_EXPORTER_OTLP_ENDPOINT..."
+  kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
+    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317" \
+    OTEL_METRICS_EXPORTER="none"
+  info "Waiting for Jaeger..."
+  kube wait --for=condition=available deployment/jaeger -n "${KIND_NAMESPACE}" --timeout=120s
+  success "Jaeger ready"
+  echo ""
+else
+  # Reconcile the disabled state, do not create-or-skip: a cluster brought up
+  # once with KIND_JAEGER=true keeps the Jaeger workload and the BFF exporter
+  # endpoint until they are removed. On a reused cluster with tracing turned
+  # off, tear Jaeger down and unset the endpoint so the BFF stops exporting to a
+  # collector that is no longer there. Both steps are idempotent on a cluster
+  # that never had Jaeger, but a failure other than absence must surface rather
+  # than leave the BFF exporting to a collector that is gone.
+  info "KIND_JAEGER not enabled - ensuring Jaeger is removed and tracing is off..."
+  # --ignore-not-found tolerates the resources being absent; any other kubectl
+  # failure propagates through the pipe (pipefail) and aborts the run.
+  render_jaeger | kube delete --ignore-not-found -f -
+  # Unset the exporter endpoint only when the deployment exists; on a cluster
+  # that has it, removing an already-absent variable is a no-op, then verify the
+  # variable is actually gone so a silent failure cannot leave tracing enabled.
+  # deployment_exists tolerates only a true NotFound; an API, auth, or
+  # authorization error aborts rather than being mistaken for absence.
+  if deployment_exists hypershell-web-console; then
+    kube set env deployment/hypershell-web-console -c web-console -n "${KIND_NAMESPACE}" \
+      OTEL_EXPORTER_OTLP_ENDPOINT-
+    if bff_otel_endpoint_set; then
+      error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
+      exit 1
+    fi
+  fi
+  if deployment_exists hypershell-api-server; then
+    kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
+      OTEL_EXPORTER_OTLP_ENDPOINT- OTEL_METRICS_EXPORTER-
+    if api_server_otel_endpoint_set; then
+      error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
+      exit 1
+    fi
+  fi
+  echo ""
 fi
 
 # --- Gateway trusted CA (self-signed CA for OIDC over HTTPS) ---
@@ -571,6 +709,16 @@ api_post() {
     -d "${data}" 2>&1 || true
 }
 
+api_get() {
+  local url="$1"
+  local auth_args=()
+  if [[ -n "${API_AUTH_HEADER}" ]]; then
+    auth_args=(-H "${API_AUTH_HEADER}")
+  fi
+  curl -sS -w "\n%{http_code}" -X GET "${url}" \
+    ${auth_args[@]+"${auth_args[@]}"} 2>&1 || true
+}
+
 extract_id() {
   local id
   id=$(echo "$1" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
@@ -578,84 +726,165 @@ extract_id() {
 }
 
 seed_failed=""
+FLEET_ID=""
+CLUSTER_ID=""
+RELEASE_ID=""
+DATABASE_ID=""
 
-info "Creating default Fleet..."
-FLEET_RAW=$(api_post "${API_URL}/api/hypershell/v1/fleets" \
-  '{"name":"default","description":"Local development fleet"}')
-FLEET_HTTP=$(echo "${FLEET_RAW}" | tail -1)
-FLEET_RESP=$(echo "${FLEET_RAW}" | sed '$d')
-FLEET_ID=$(extract_id "${FLEET_RESP}")
+# Check for existing Fleet first
+info "Checking for existing default Fleet..."
+EXISTING_FLEET_RAW=$(api_get "${API_URL}/api/hypershell/v1/fleets")
+EXISTING_FLEET_HTTP=$(echo "${EXISTING_FLEET_RAW}" | tail -1)
+EXISTING_FLEET_RESP=$(echo "${EXISTING_FLEET_RAW}" | sed '$d')
+
+if [[ "${EXISTING_FLEET_HTTP}" == "200" ]]; then
+  FLEET_ID=$(echo "${EXISTING_FLEET_RESP}" | grep -o '"name":"default"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+  if [[ -n "${FLEET_ID}" ]]; then
+    success "default Fleet already exists: ${FLEET_ID}"
+  fi
+fi
 
 if [[ -z "${FLEET_ID}" ]]; then
-  warn "Fleet creation failed (HTTP ${FLEET_HTTP}): ${FLEET_RESP:-no response}"
-  seed_failed=true
+  info "Creating default Fleet..."
+  FLEET_RAW=$(api_post "${API_URL}/api/hypershell/v1/fleets" \
+    '{"name":"default","description":"Local development fleet"}')
+  FLEET_HTTP=$(echo "${FLEET_RAW}" | tail -1)
+  FLEET_RESP=$(echo "${FLEET_RAW}" | sed '$d')
+  FLEET_ID=$(extract_id "${FLEET_RESP}")
+
+  if [[ -z "${FLEET_ID}" ]]; then
+    warn "Fleet creation failed (HTTP ${FLEET_HTTP}): ${FLEET_RESP:-no response}"
+    seed_failed=true
+  else
+    success "Fleet created: ${FLEET_ID}"
+  fi
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  success "Fleet created: ${FLEET_ID}"
+  # Check for existing ManagedCluster
+  info "Checking for existing local-kind ManagedCluster..."
+  EXISTING_MC_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_clusters")
+  EXISTING_MC_HTTP=$(echo "${EXISTING_MC_RAW}" | tail -1)
+  EXISTING_MC_RESP=$(echo "${EXISTING_MC_RAW}" | sed '$d')
 
-  info "Creating ManagedCluster..."
-  MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
-    "{\"name\":\"local-kind\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
-  MC_HTTP=$(echo "${MC_RAW}" | tail -1)
-  MC_RESP=$(echo "${MC_RAW}" | sed '$d')
-  CLUSTER_ID=$(extract_id "${MC_RESP}")
+  if [[ "${EXISTING_MC_HTTP}" == "200" ]]; then
+    CLUSTER_ID=$(echo "${EXISTING_MC_RESP}" | grep -o '"name":"local-kind"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${CLUSTER_ID}" ]]; then
+      success "local-kind ManagedCluster already exists: ${CLUSTER_ID}"
+    fi
+  fi
 
   if [[ -z "${CLUSTER_ID}" ]]; then
-    warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
-    seed_failed=true
-  else
-    success "ManagedCluster created: ${CLUSTER_ID}"
+    info "Creating ManagedCluster..."
+    MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
+      "{\"name\":\"local-kind\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
+    MC_HTTP=$(echo "${MC_RAW}" | tail -1)
+    MC_RESP=$(echo "${MC_RAW}" | sed '$d')
+    CLUSTER_ID=$(extract_id "${MC_RESP}")
+
+    if [[ -z "${CLUSTER_ID}" ]]; then
+      warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
+      seed_failed=true
+    else
+      success "ManagedCluster created: ${CLUSTER_ID}"
+    fi
   fi
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  info "Creating GatewayRelease..."
-  GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
-    "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")
-  GR_HTTP=$(echo "${GR_RAW}" | tail -1)
-  GR_RESP=$(echo "${GR_RAW}" | sed '$d')
-  RELEASE_ID=$(extract_id "${GR_RESP}")
+  # Check for existing GatewayRelease
+  info "Checking for existing dev-release GatewayRelease..."
+  EXISTING_GR_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateway_releases")
+  EXISTING_GR_HTTP=$(echo "${EXISTING_GR_RAW}" | tail -1)
+  EXISTING_GR_RESP=$(echo "${EXISTING_GR_RAW}" | sed '$d')
+
+  if [[ "${EXISTING_GR_HTTP}" == "200" ]]; then
+    RELEASE_ID=$(echo "${EXISTING_GR_RESP}" | grep -o '"name":"dev-release"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${RELEASE_ID}" ]]; then
+      success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
+    fi
+  fi
 
   if [[ -z "${RELEASE_ID}" ]]; then
-    warn "GatewayRelease creation failed (HTTP ${GR_HTTP}): ${GR_RESP:-no response}"
-    seed_failed=true
-  else
-    success "GatewayRelease created: ${RELEASE_ID}"
+    info "Creating GatewayRelease..."
+    GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
+      "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")
+    GR_HTTP=$(echo "${GR_RAW}" | tail -1)
+    GR_RESP=$(echo "${GR_RAW}" | sed '$d')
+    RELEASE_ID=$(extract_id "${GR_RESP}")
+
+    if [[ -z "${RELEASE_ID}" ]]; then
+      warn "GatewayRelease creation failed (HTTP ${GR_HTTP}): ${GR_RESP:-no response}"
+      seed_failed=true
+    else
+      success "GatewayRelease created: ${RELEASE_ID}"
+    fi
   fi
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  info "Creating ManagedDatabase..."
-  MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-    "{\"name\":\"local-postgres\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"local\"}")
-  MD_HTTP=$(echo "${MD_RAW}" | tail -1)
-  MD_RESP=$(echo "${MD_RAW}" | sed '$d')
-  DATABASE_ID=$(extract_id "${MD_RESP}")
+  # Check for existing ManagedDatabase
+  info "Checking for existing local-postgres ManagedDatabase..."
+  EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
+  EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
+  EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
+
+  if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
+    DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"local-postgres"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${DATABASE_ID}" ]]; then
+      success "local-postgres ManagedDatabase already exists: ${DATABASE_ID}"
+    fi
+  fi
 
   if [[ -z "${DATABASE_ID}" ]]; then
-    warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
-    seed_failed=true
-  else
-    success "ManagedDatabase created: ${DATABASE_ID}"
+    info "Creating ManagedDatabase..."
+    MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
+      "{\"name\":\"local-postgres\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"local\"}")
+    MD_HTTP=$(echo "${MD_RAW}" | tail -1)
+    MD_RESP=$(echo "${MD_RAW}" | sed '$d')
+    DATABASE_ID=$(extract_id "${MD_RESP}")
+
+    if [[ -z "${DATABASE_ID}" ]]; then
+      warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
+      seed_failed=true
+    else
+      success "ManagedDatabase created: ${DATABASE_ID}"
+    fi
   fi
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  info "Creating Gateway with OIDC..."
-  OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
-  # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
-  # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-  GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
-    "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${OIDC_JSON}\"}")
-  GW_HTTP=$(echo "${GW_RAW}" | tail -1)
-  GW_RESP=$(echo "${GW_RAW}" | sed '$d')
-  GATEWAY_ID=$(extract_id "${GW_RESP}")
+  # Check if dev-gateway already exists before creating
+  info "Checking for existing dev-gateway..."
+  GATEWAY_ID=""
+  EXISTING_GW_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateways")
+  EXISTING_GW_HTTP=$(echo "${EXISTING_GW_RAW}" | tail -1)
+  EXISTING_GW_RESP=$(echo "${EXISTING_GW_RAW}" | sed '$d')
+
+  if [[ "${EXISTING_GW_HTTP}" == "200" ]]; then
+    EXISTING_GW_ID=$(echo "${EXISTING_GW_RESP}" | grep -o '"name":"dev-gateway"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    if [[ -n "${EXISTING_GW_ID}" ]]; then
+      success "dev-gateway already exists: ${EXISTING_GW_ID}"
+      GATEWAY_ID="${EXISTING_GW_ID}"
+    fi
+  fi
 
   if [[ -z "${GATEWAY_ID}" ]]; then
-    warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
-  else
-    success "Gateway created with OIDC: ${GATEWAY_ID}"
+    info "Creating Gateway with OIDC..."
+    OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+    # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
+    # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
+    GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
+      "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${OIDC_JSON}\"}")
+    GW_HTTP=$(echo "${GW_RAW}" | tail -1)
+    GW_RESP=$(echo "${GW_RAW}" | sed '$d')
+    GATEWAY_ID=$(extract_id "${GW_RESP}")
+
+    if [[ -z "${GATEWAY_ID}" ]]; then
+      warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
+    else
+      success "Gateway created with OIDC: ${GATEWAY_ID}"
+    fi
   fi
 fi
 
@@ -701,6 +930,10 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
     info "Keycloak:     ${KIND_KEYCLOAK_URL}"
   fi
 
+  if [[ "${KIND_JAEGER:-}" == "true" ]]; then
+    info "Jaeger UI:    https://jaeger.hypershell.localhost${PORT_SUFFIX}"
+  fi
+
   info "Login:        https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
 else
@@ -712,6 +945,10 @@ else
     info "Keycloak:     http://localhost:8080 (admin/admin)"
   else
     info "Keycloak:     ${KIND_KEYCLOAK_URL}"
+  fi
+
+  if [[ "${KIND_JAEGER:-}" == "true" ]]; then
+    info "Jaeger UI:    http://localhost:16686"
   fi
 
   info "Login:        http://localhost:3000/auth/login"

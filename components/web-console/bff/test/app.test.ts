@@ -63,7 +63,7 @@ describe("web-console BFF", () => {
     await mkdir(path.join(staticRoot, "assets"));
     await writeFile(
       path.join(staticRoot, "index.html"),
-      "<!doctype html><html><body><script>globalThis.ready = true;</script><main>Hello world</main></body></html>",
+      "<!doctype html><html><head><title>console</title></head><body><script>globalThis.ready = true;</script><main>Hello world</main></body></html>",
     );
     await writeFile(
       path.join(staticRoot, "assets", "app-deadbeef.js"),
@@ -131,6 +131,52 @@ describe("web-console BFF", () => {
       expect(response.headers["permissions-policy"], route).toContain(
         "camera=()",
       );
+    }
+  });
+
+  it("injects only the allowlisted runtime config as a head meta tag", async () => {
+    // The default harness configures no collector, so the browser must be told
+    // to sample nothing rather than defaulting to recording every trace.
+    const response = await app.inject({ method: "GET", url: "/" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('name="hypershell-runtime-config"');
+    expect(response.body).toContain("&quot;sampleRatio&quot;:0");
+    // The meta tag lands in the head, before the application markup.
+    expect(response.body.indexOf("hypershell-runtime-config")).toBeLessThan(
+      response.body.indexOf("<main>"),
+    );
+    // The runtime config surface adds no inline script, so the CSP still admits
+    // only the pre-existing hashed inline script.
+    expect(response.headers["content-security-policy"]).toContain("'sha256-");
+  });
+
+  it("flows the configured sample ratio into the browser runtime config", async () => {
+    const tracedApp = await buildApp({
+      apiOrigin: "http://127.0.0.1:1",
+      apiTimeoutMs: 100,
+      host: "127.0.0.1",
+      logLevel: "silent",
+      nodeEnv: "test",
+      port: 8080,
+      sessionTtlSeconds: 28_800,
+      staticRoot,
+      tracing: {
+        collectorEndpoint: "http://collector.invalid:4318",
+        sampleRatio: 0.5,
+        serviceName: "hypershell-web-console-bff",
+        tracesEndpoint: "http://collector.invalid:4318/v1/traces",
+      },
+    });
+
+    try {
+      const response = await tracedApp.inject({ method: "GET", url: "/" });
+
+      expect(response.body).toContain("&quot;sampleRatio&quot;:0.5");
+      // The collector endpoint stays server-side and never reaches the document.
+      expect(response.body).not.toContain("collector.invalid");
+    } finally {
+      await tracedApp.close();
     }
   });
 

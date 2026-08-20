@@ -36,7 +36,12 @@ export type GatewayProbePublisher = DomainProbePublisher<GatewayProbe>;
 
 export const gatewayProbeCatalog = Object.freeze([
   {
-    allowedConsumers: ["structured-log", "performance", "product-health"],
+    allowedConsumers: [
+      "structured-log",
+      "performance",
+      "product-health",
+      "trace",
+    ],
     deliveryClass: "best-effort",
     fields: {
       action: "bounded operational enum",
@@ -49,7 +54,12 @@ export const gatewayProbeCatalog = Object.freeze([
     trigger: "A gateway application use case starts",
   },
   {
-    allowedConsumers: ["structured-log", "performance", "product-health"],
+    allowedConsumers: [
+      "structured-log",
+      "performance",
+      "product-health",
+      "trace",
+    ],
     deliveryClass: "best-effort",
     fields: {
       action: "bounded operational enum",
@@ -62,7 +72,12 @@ export const gatewayProbeCatalog = Object.freeze([
     trigger: "A gateway application use case reaches one terminal outcome",
   },
   {
-    allowedConsumers: ["structured-log", "performance", "product-health"],
+    allowedConsumers: [
+      "structured-log",
+      "performance",
+      "product-health",
+      "trace",
+    ],
     deliveryClass: "best-effort",
     fields: {
       action: "bounded operational enum",
@@ -75,7 +90,12 @@ export const gatewayProbeCatalog = Object.freeze([
     trigger: "A gateway control-plane dependency attempt starts",
   },
   {
-    allowedConsumers: ["structured-log", "performance", "product-health"],
+    allowedConsumers: [
+      "structured-log",
+      "performance",
+      "product-health",
+      "trace",
+    ],
     deliveryClass: "best-effort",
     fields: {
       action: "bounded operational enum",
