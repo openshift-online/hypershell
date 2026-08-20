@@ -123,24 +123,34 @@ the delete is processed, the delete is considered complete.
 ### Requirement: Periodic Garbage Collection of Orphaned Namespaces
 
 The control plane SHALL run a background reconciler that periodically lists
-managed namespaces and reaps any that have been orphaned (no live Gateway)
-for at least the grace period. The sweep interval defaults to 5 minutes and the
-grace period defaults to 10 minutes. Garbage collection SHALL be enabled by
-default and configurable without code changes via environment variables:
+managed namespaces and reaps gateway workload namespaces (`openshell-<hex>`,
+excluding ManagedDatabase namespaces `openshell-db-<hex>`) that have been orphaned
+(no live Gateway) for at least the grace period. The sweep interval defaults to
+5 minutes and the grace period defaults to 10 minutes. Garbage collection SHALL
+be enabled by default and configurable without code changes via environment
+variables:
 
 - `GATEWAY_NAMESPACE_GC_ENABLED` (default `true`)
 - `GATEWAY_NAMESPACE_GC_INTERVAL` (default `5m`)
 - `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` (default `10m`)
 
 Reaping SHALL be best-effort and idempotent, and SHALL only ever delete managed
-namespaces.
+gateway workload namespaces (matching the gateway prefix, not the database
+prefix).
 
 #### Scenario: Orphaned namespace reaped after grace period
 
-- GIVEN a managed namespace with no live Gateway
+- GIVEN a gateway namespace (`openshell-<hex>`, not `openshell-db-<hex>`) with no
+  live Gateway
 - AND it has been continuously orphaned for longer than the grace period
 - WHEN the garbage-collection reconciler sweeps
 - THEN it SHALL delete the namespace
+
+#### Scenario: ManagedDatabase namespace is not reaped
+
+- GIVEN a managed namespace named `openshell-db-<hex>` with no live Gateway
+- WHEN the garbage-collection reconciler sweeps
+- THEN it SHALL NOT delete that namespace
 
 #### Scenario: Failed-to-bootstrap gateway namespace is reclaimed
 

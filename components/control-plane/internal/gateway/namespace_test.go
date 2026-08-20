@@ -105,6 +105,20 @@ func TestDeleteManagedNamespace(t *testing.T) {
 		}
 	})
 
+	t.Run("skips a managed database namespace", func(t *testing.T) {
+		client := fake.NewSimpleClientset(managedNamespace("openshell-db-a1b2c3d4e5f67890", nil))
+		deleted, err := DeleteManagedNamespace(ctx, client, "openshell-db-a1b2c3d4e5f67890")
+		if err != nil {
+			t.Fatalf("DeleteManagedNamespace() error = %v", err)
+		}
+		if deleted {
+			t.Errorf("deleted = true, want false for ManagedDatabase namespace")
+		}
+		if _, err := client.CoreV1().Namespaces().Get(ctx, "openshell-db-a1b2c3d4e5f67890", metav1.GetOptions{}); err != nil {
+			t.Errorf("ManagedDatabase namespace should be preserved, err = %v", err)
+		}
+	})
+
 	t.Run("absent namespace is a no-op success", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		deleted, err := DeleteManagedNamespace(ctx, client, "gone")

@@ -70,9 +70,10 @@ func IsGatewayNamespaceForGC(ns *corev1.Namespace) bool {
 }
 
 // DeleteManagedNamespace deletes a gateway namespace, best-effort and
-// idempotent. It only deletes namespaces this control plane manages (see
-// IsManagedNamespace): an unmanaged or already-absent namespace is treated as a
-// no-op success. It returns deleted=true only when a delete call was issued.
+// idempotent. It only deletes namespaces subject to gateway namespace GC (see
+// IsGatewayNamespaceForGC): an unmanaged, non-gateway, or already-absent
+// namespace is treated as a no-op success. It returns deleted=true only when a
+// delete call was issued.
 func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, namespace string) (bool, error) {
 	ns, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
@@ -82,8 +83,8 @@ func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, na
 		}
 		return false, fmt.Errorf("get namespace %s: %w", namespace, err)
 	}
-	if !IsManagedNamespace(ns) {
-		log.Printf("INFO namespace %s is not managed by hypershell-control-plane, skipping deletion", namespace)
+	if !IsGatewayNamespaceForGC(ns) {
+		log.Printf("INFO namespace %s is not a gateway workload namespace, skipping deletion", namespace)
 		return false, nil
 	}
 	if ns.DeletionTimestamp != nil {
