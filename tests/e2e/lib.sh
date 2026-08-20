@@ -96,6 +96,7 @@ retry_until() {
 : "${E2E_SANDBOX_TIMEOUT:=120}"
 : "${E2E_PROVISION_TIMEOUT:=180}"
 : "${E2E_GC_TIMEOUT:=180}"
+: "${E2E_ORPHAN_GC_TIMEOUT:=90}"
 : "${E2E_SKIP_CLEANUP:=0}"
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"
@@ -113,3 +114,13 @@ retry_until() {
 # own Keycloak client, mirroring what the RoleBinding reconciler does in prod).
 : "${E2E_KC_ADMIN_USER:=admin}"
 : "${E2E_KC_ADMIN_PASSWORD:=admin}"
+
+# RFC3339 timestamp N minutes in the past (macOS BSD date and GNU date).
+e2e_gc_eligible_since_backdate() {
+  local minutes="${1:-3}"
+  if date -u -v-"${minutes}"M +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
+    date -u -v-"${minutes}"M +%Y-%m-%dT%H:%M:%SZ
+  else
+    date -u -d "${minutes} minutes ago" +%Y-%m-%dT%H:%M:%SZ
+  fi
+}

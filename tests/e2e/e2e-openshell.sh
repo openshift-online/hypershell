@@ -19,6 +19,7 @@
 #   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
+#   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 90)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
@@ -75,6 +76,8 @@ CLI=$(get_cli_binary)
 GW_NAME="${E2E_GATEWAY_NAME}"
 GW_NAMESPACE=""
 GW_ID=""
+ORPHAN_NS=""
+ORPHAN_GC_DEADLINE=0
 SANDBOX_NAME=""
 E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
@@ -461,6 +464,25 @@ if [[ -z "$GW_NAMESPACE" ]]; then
   exit 1
 fi
 dim "  Gateway namespace: ${GW_NAMESPACE}"
+
+# Seed a synthetic orphaned managed namespace for periodic GC. Created here so
+# steps 3–10 run while the reaper sweeps; step 11 only validates (no extra wait
+# if the reaper already ran during the suite).
+if [[ "$E2E_SKIP_CLEANUP" != "1" ]]; then
+  ORPHAN_NS="openshell-e2e-orphan-$(date +%s)"
+  ORPHAN_ELIGIBLE_SINCE=$(e2e_gc_eligible_since_backdate 3)
+  dim "  Seeding periodic GC orphan namespace: ${ORPHAN_NS}"
+  show_cmd "$CLI create namespace ${ORPHAN_NS}"
+  $CLI create namespace "$ORPHAN_NS"
+  show_cmd "$CLI label namespace ${ORPHAN_NS} hypershell.redhat.io/managed=true app.kubernetes.io/managed-by=hypershell-control-plane"
+  $CLI label namespace "$ORPHAN_NS" \
+    hypershell.redhat.io/managed=true \
+    app.kubernetes.io/managed-by=hypershell-control-plane
+  show_cmd "$CLI annotate namespace ${ORPHAN_NS} hypershell.redhat.io/gc-eligible-since=${ORPHAN_ELIGIBLE_SINCE}"
+  $CLI annotate namespace "$ORPHAN_NS" \
+    hypershell.redhat.io/gc-eligible-since="$ORPHAN_ELIGIBLE_SINCE"
+  ORPHAN_GC_DEADLINE=$(($(date +%s) + E2E_ORPHAN_GC_TIMEOUT))
+fi
 
 # Per-gateway Keycloak client id. When Keycloak provisioning is enabled (the Kind
 # path), the control-plane reconciler creates a dedicated public client named
@@ -1483,6 +1505,8 @@ if [[ "$E2E_SKIP_CLEANUP" == "1" ]]; then
 elif [[ -z "$GW_NAMESPACE" ]]; then
   fail_test "Cannot validate namespace GC: gateway namespace is unknown"
 else
+  # 11b. Delete-driven GC first so the suite is not blocked waiting for the
+  # periodic reaper; the orphan was seeded after step 2 and may already be gone.
   # Section 10 deletes the gateway as the platform admin and clears GW_ID.
   # Deleting the Gateway via the API drives the control-plane delete path
   # (watch-delete-events.spec.md): DeleteGatewayResources then
@@ -1513,6 +1537,7 @@ else
     dim "  Gateway already deleted by the platform-admin section; validating namespace GC"
   fi
 
+  dim "  11b. Delete-driven gateway namespace GC: ${GW_NAMESPACE}"
   # The managed namespace must be garbage collected by the control plane. Allow
   # headroom for the namespace to enter Terminating and finalize (pods, PVC,
   # certificates).
@@ -1538,6 +1563,50 @@ else
     $CLI get namespace "$GW_NAMESPACE" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
     dim "  Control plane logs:"
     $CLI logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=40 2>&1 | while IFS= read -r line; do dim "    $line"; done
+  fi
+
+  # 11a. Periodic reaper (NamespaceGCReconciler + recordGCEvent). Orphan namespace
+  # was seeded after gateway provisioning; validate reap + Event without blocking
+  # earlier steps on the sweep interval.
+  if [[ -n "$ORPHAN_NS" && "$ORPHAN_GC_DEADLINE" -gt 0 ]]; then
+    dim "  11a. Periodic orphan namespace GC: ${ORPHAN_NS}"
+    ORPHAN_GONE=false
+    if ! $CLI get namespace "$ORPHAN_NS" &>/dev/null; then
+      ORPHAN_GONE=true
+    else
+      REMAINING=$((ORPHAN_GC_DEADLINE - $(date +%s)))
+      if [[ $REMAINING -gt 0 ]]; then
+        dim "  Orphan still present; waiting up to ${REMAINING}s (deadline from seed time)..."
+      fi
+      while [[ $(date +%s) -lt $ORPHAN_GC_DEADLINE ]]; do
+        if ! $CLI get namespace "$ORPHAN_NS" &>/dev/null; then
+          ORPHAN_GONE=true
+          break
+        fi
+        sleep 5
+      done
+    fi
+
+    if [[ "$ORPHAN_GONE" == "true" ]]; then
+      pass "Periodic reaper garbage collected orphan namespace: ${ORPHAN_NS}"
+    else
+      fail_test "Orphan namespace ${ORPHAN_NS} not garbage collected within ${E2E_ORPHAN_GC_TIMEOUT}s of seeding"
+      dim "  --- orphan namespace GC diagnostics ---"
+      $CLI get namespace "$ORPHAN_NS" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
+      dim "  Control plane logs:"
+      $CLI logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=40 2>&1 | while IFS= read -r line; do dim "    $line"; done
+    fi
+
+    if [[ "$ORPHAN_GONE" == "true" ]]; then
+      GC_EVENT=$($CLI get events -n "${E2E_HS_NAMESPACE}" \
+        --field-selector="involvedObject.name=${ORPHAN_NS},reason=GarbageCollected" \
+        -o jsonpath='{.items[0].reason}' 2>/dev/null || true)
+      if [[ "$GC_EVENT" == "GarbageCollected" ]]; then
+        pass "GarbageCollected Event recorded for ${ORPHAN_NS} in ${E2E_HS_NAMESPACE}"
+      else
+        fail_test "Expected GarbageCollected Event for ${ORPHAN_NS} in ${E2E_HS_NAMESPACE}, got ${GC_EVENT:-none}"
+      fi
+    fi
   fi
 fi
 sep

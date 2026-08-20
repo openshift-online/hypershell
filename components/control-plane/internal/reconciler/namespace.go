@@ -268,8 +268,14 @@ func (r *NamespaceGCReconciler) recordGCEvent(ctx context.Context, namespace, me
 			Namespace:    r.cpNamespace,
 		},
 		InvolvedObject: corev1.ObjectReference{
-			Kind: "Namespace",
-			Name: namespace,
+			APIVersion: "v1",
+			Kind:       "Namespace",
+			Name:       namespace,
+			// The Event lives in the control-plane namespace so it outlives the
+			// reaped namespace. Kubernetes requires involvedObject.namespace to
+			// match event.namespace for namespaced Events; Name still identifies
+			// the gateway namespace that was garbage collected.
+			Namespace: r.cpNamespace,
 		},
 		Reason:         "GarbageCollected",
 		Message:        message,

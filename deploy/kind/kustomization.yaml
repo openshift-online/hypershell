@@ -50,6 +50,13 @@ patches:
                   # production/OpenShift leaves this unset to keep them enforced.
                   - name: GATEWAY_SKIP_NETWORK_POLICIES
                     value: "true"
+                  # Shorten periodic namespace GC for e2e (production defaults 5m/10m).
+                  # Go time.ParseDuration accepts seconds too (e.g. 30s, 1m30s).
+                  # tests/e2e step 11a creates a synthetic orphan and waits for the reaper.
+                  - name: GATEWAY_NAMESPACE_GC_INTERVAL
+                    value: "30s"
+                  - name: GATEWAY_NAMESPACE_GC_GRACE_PERIOD
+                    value: "30s"
                   - name: OIDC_ISSUER
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID

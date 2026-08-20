@@ -202,7 +202,7 @@ The e2e test suite SHALL validate the following 8 areas, extending the original 
 5. **Sandbox lifecycle** -- create a sandbox as the admin user, wait for the pod to reach `Running` state, and verify the gateway's `active_sandbox_count` accounting reflects sandbox create and delete (see Active Sandbox Count Accounting)
 6. **Sandbox interaction** -- execute commands inside the sandbox (`uname -a`, `ls /workspace`)
 7. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
-8. **Gateway deletion + namespace garbage collection** -- delete the gateway through the HyperShell API and verify the control plane removes the gateway record and reaps its managed namespace (see Gateway Deletion and Namespace GC, and `openshell-gateway-namespace-gc.spec.md`)
+8. **Gateway deletion + namespace garbage collection** -- validate both garbage-collection paths from `openshell-gateway-namespace-gc.spec.md`: (a) seed a synthetic orphaned managed namespace after gateway provisioning and validate periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event in step 11 (while steps 3–10 run in parallel with the reaper); (b) delete-driven reap of the gateway's managed namespace (see Gateway Deletion and Namespace GC)
 
 The admin-user OIDC flow that authenticates areas 1--6 and 8 is validated separately (see OIDC Authentication in E2E Tests).
 
@@ -292,21 +292,77 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 
 ### Requirement: Gateway Deletion and Namespace GC
 
-The e2e test suite SHALL validate that deleting a Gateway through the HyperShell
-API drives the control plane to remove the gateway record and reap its managed
-namespace, per `openshell-gateway-namespace-gc.spec.md`. Before deletion the suite
-SHALL confirm the gateway's managed namespace exists, so its later disappearance
-is a real garbage-collection signal rather than a namespace that never existed.
-After issuing `DELETE /api/hypershell/v1/gateways/<id>`, the suite SHALL poll
-until the gateway record returns `404` (the delete event has been processed) and
-until the managed namespace is gone, within `E2E_GC_TIMEOUT` seconds. A namespace
-that is not reaped within the timeout SHALL be reported as a test failure with GC
-diagnostics (the namespace's remaining state and control-plane logs).
+The e2e test suite SHALL validate both garbage-collection paths described in
+`openshell-gateway-namespace-gc.spec.md`:
+
+1. **Periodic reaper** -- the `NamespaceGCReconciler` sweeps managed namespaces
+   with no live Gateway, respects the grace period, records a `GarbageCollected`
+   Kubernetes Event in the control-plane namespace via `recordGCEvent`, then
+   deletes the namespace.
+2. **Delete-driven reap** -- deleting a Gateway through the HyperShell API drives
+   the control plane to remove the gateway record and reap its managed namespace
+   (`DeleteManagedNamespace`; this path does not emit the periodic GC Event).
+
+#### Periodic orphan namespace GC (Kind e2e)
+
+To exercise the periodic path without waiting for production defaults (5m sweep /
+10m grace), the Kind overlay SHALL patch the control-plane deployment with
+`GATEWAY_NAMESPACE_GC_INTERVAL` and `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` set to
+short Go duration strings (for example `30s`; any positive value accepted by
+`time.ParseDuration` is valid). Immediately after gateway provisioning succeeds,
+the suite SHALL seed a synthetic orphaned managed namespace (`openshell-e2e-orphan-*`)
+labeled with both required management labels (`hypershell.redhat.io/managed=true`
+and `app.kubernetes.io/managed-by=hypershell-control-plane`) and annotated with a
+backdated `hypershell.redhat.io/gc-eligible-since` timestamp so the next sweep can
+reap without waiting a full grace period. Steps 3–10 SHALL run while the periodic
+reaper may delete that namespace in the background, so the suite is not blocked
+waiting on the sweep interval. In step 11 the suite SHALL validate delete-driven
+gateway namespace GC first, then assert the orphan namespace was reaped and a
+`GarbageCollected` Event exists in the control-plane namespace
+(`E2E_HS_NAMESPACE`, default `hypershell-system`) with `involvedObject.name`
+equal to the orphan namespace name. The orphan reap deadline SHALL be measured
+from seed time (`E2E_ORPHAN_GC_TIMEOUT` seconds after creation); if the namespace
+is already gone when step 11 runs, validation SHALL pass without additional
+waiting. Failure to reap or to record the Event SHALL be reported with GC
+diagnostics (namespace state and control-plane logs).
+
+#### Delete-driven gateway namespace GC
+
+Before deletion the suite SHALL confirm the gateway's managed namespace exists,
+so its later disappearance is a real garbage-collection signal rather than a
+namespace that never existed. After issuing
+`DELETE /api/hypershell/v1/gateways/<id>`, the suite SHALL poll until the gateway
+record returns `404` (the delete event has been processed) and until the managed
+namespace is gone, within `E2E_GC_TIMEOUT` seconds. A namespace that is not reaped
+within the timeout SHALL be reported as a test failure with GC diagnostics (the
+namespace's remaining state and control-plane logs).
 
 Deletion SHALL NOT be gated on the gateway's active sandbox count: even with
 active sandboxes the delete is accepted and the namespace is reaped, cascading
 removal of the in-namespace sandbox resources (see
 `openshell-gateway-namespace-gc.spec.md` and `openshell-gateway-database.spec.md`).
+
+#### Scenario: Periodic orphan namespace garbage collected
+
+- GIVEN the Kind overlay has shortened `GATEWAY_NAMESPACE_GC_INTERVAL` and
+  `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` (for example `30s`)
+- AND a synthetic managed namespace was seeded after gateway provisioning with
+  both management labels and a backdated `hypershell.redhat.io/gc-eligible-since`
+  annotation, with no live Gateway backing it
+- AND steps 3–10 have run while the periodic reaper may have deleted it
+- WHEN the suite validates orphan GC in step 11 (after delete-driven GC)
+- THEN the namespace SHALL be gone within `E2E_ORPHAN_GC_TIMEOUT` seconds of
+  seeding
+- AND a namespace still present after that deadline SHALL be reported as a
+  failure with GC diagnostics
+
+#### Scenario: GarbageCollected Event recorded for periodic reap
+
+- GIVEN the periodic reaper has deleted the synthetic orphan namespace
+- WHEN the suite queries Events in the control-plane namespace
+- THEN a `GarbageCollected` Event SHALL exist with `involvedObject.name` equal to
+  the orphan namespace name
+- AND the absence of such an Event SHALL be reported as a test failure
 
 #### Scenario: Namespace present before deletion
 
@@ -485,7 +541,7 @@ The `deploy/` directory SHALL use a kustomize base/overlay structure to support 
 - GIVEN `deploy/kind/kustomization.yaml` references `../base` as a resource
 - WHEN `kustomize build deploy/kind/` is executed
 - THEN the output SHALL include all base resources (namespace, postgres, api-server, controller, controller-rbac, web-console)
-- AND Kind-specific resources: networking Gateway with `gatewayClassName: cloud-provider-kind`, cert-manager certificates for `*.hypershell.localhost` and `*.gw.localhost`, HTTPRoutes for component services, CoreDNS Corefile, OIDC secrets, and Kustomize patches for OIDC configuration (JWT flags, Keycloak hostname, control-plane and web-console OIDC env vars)
+- AND Kind-specific resources: networking Gateway with `gatewayClassName: cloud-provider-kind`, cert-manager certificates for `*.hypershell.localhost` and `*.gw.localhost`, HTTPRoutes for component services, CoreDNS Corefile, OIDC secrets, and Kustomize patches for OIDC configuration (JWT flags, Keycloak hostname, control-plane and web-console OIDC env vars) and shortened namespace GC timing (`GATEWAY_NAMESPACE_GC_INTERVAL` and `GATEWAY_NAMESPACE_GC_GRACE_PERIOD`, for example `30s`, so e2e can exercise the periodic reaper)
 
 #### Scenario: OpenShift Overlay
 
@@ -581,6 +637,7 @@ deploy/
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
+| `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in step 11) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--6 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only) |

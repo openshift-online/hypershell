@@ -107,7 +107,40 @@ func TestReconcileNamespace_OrphanPastGraceIsReaped(t *testing.T) {
 		t.Errorf("event reason = %q, want GarbageCollected", events.Items[0].Reason)
 	}
 	if events.Items[0].InvolvedObject.Name != "openshell-gw" {
-		t.Errorf("event involved object = %q, want openshell-gw", events.Items[0].InvolvedObject.Name)
+		t.Errorf("event involved object name = %q, want openshell-gw", events.Items[0].InvolvedObject.Name)
+	}
+	if events.Items[0].InvolvedObject.Namespace != "hypershell" {
+		t.Errorf("event involved object namespace = %q, want hypershell", events.Items[0].InvolvedObject.Namespace)
+	}
+}
+
+func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	client := fake.NewSimpleClientset()
+	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell-stage")
+	r.now = func() time.Time { return now }
+
+	if err := r.recordGCEvent(ctx, "openshell-gw", "test message"); err != nil {
+		t.Fatalf("recordGCEvent() error = %v", err)
+	}
+
+	events, err := client.CoreV1().Events("hypershell-stage").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events.Items) != 1 {
+		t.Fatalf("event count = %d, want 1", len(events.Items))
+	}
+	ev := events.Items[0]
+	if ev.Namespace != "hypershell-stage" {
+		t.Errorf("event namespace = %q, want hypershell-stage", ev.Namespace)
+	}
+	if ev.InvolvedObject.Namespace != ev.Namespace {
+		t.Errorf("involvedObject.namespace = %q, want %q", ev.InvolvedObject.Namespace, ev.Namespace)
+	}
+	if ev.InvolvedObject.Name != "openshell-gw" {
+		t.Errorf("involvedObject.name = %q, want openshell-gw", ev.InvolvedObject.Name)
 	}
 }
 
