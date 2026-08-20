@@ -224,7 +224,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	if event.Type == watcher.EventDeleted {
-		namespace := gatewayNamespace(gw)
+		namespace, err := gatewayNamespace(gw)
+		if err != nil {
+			// Without a recorded namespace there is nothing deterministic to
+			// clean up, and guessing one could delete the wrong (possibly live)
+			// namespace. Skip; the NamespaceGCReconciler is the backstop for any
+			// orphaned managed namespace.
+			log.Printf("WARN gateway %s deleted but %v; skipping namespace cleanup", event.ResourceID, err)
+			return nil
+		}
 
 		log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
 		opts := gateway.ReconcileOpts{
@@ -248,10 +256,30 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				}
 			}
 		}
-		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
+		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, namespace, opts, credentialNamespaces...); err != nil {
 			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
 		}
 		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
+
+		// Delete the gateway's namespace itself. This is best-effort and
+		// idempotent: DeleteManagedNamespace only removes namespaces this control
+		// plane manages and treats an already-absent namespace as success. Any
+		// namespace missed here (e.g. a delete event lost during a restart) is
+		// swept later by the NamespaceGCReconciler.
+		deleted, err := gateway.DeleteManagedNamespace(ctx, r.clientset, namespace)
+		if err != nil {
+			return fmt.Errorf("delete gateway namespace %s: %w", namespace, err)
+		}
+		if !deleted {
+			// The namespace was left in place: it is already gone, still
+			// terminating, or - the case that matters - a pre-existing namespace
+			// this control plane does not manage. In that last case deleting the
+			// namespace never cascades this gateway's in-namespace objects, and the
+			// NamespaceGCReconciler skips unmanaged namespaces too, so reclaim the
+			// resources this gateway labeled without touching the shared namespace or
+			// any co-tenant workloads.
+			gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts)
+		}
 		return nil
 	}
 
@@ -268,7 +296,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
-	namespace := gatewayNamespace(gw)
+	namespace, err := gatewayNamespace(gw)
+	if err != nil {
+		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+	}
 
 	dnsNames := gw.ServerDnsNames
 	if len(dnsNames) == 0 {
@@ -397,14 +428,52 @@ func isRoutedGateway(gw *pb.Gateway) bool {
 	return route != "" && route != "null"
 }
 
-// gatewayNamespace returns the Kubernetes namespace for a Gateway, deriving the
-// conventional `openshell-<name>` namespace when the resource does not carry an
-// explicit one.
-func gatewayNamespace(gw *pb.Gateway) string {
-	if gw.GetNamespace() != "" {
-		return gw.GetNamespace()
+// gatewayNamespace returns the Kubernetes namespace a Gateway is deployed into.
+// The namespace is assigned deterministically at creation (the API server's
+// Gateway.BeforeCreate sets `openshell-<hex(ksuid)>`) and is carried on every
+// event, so any Gateway that reaches a reconciler has one. It returns an error
+// rather than synthesizing a name from gw.Name: a guessed namespace would
+// diverge from the real `openshell-<hex(ksuid)>` scheme and, on the delete
+// path, could hand a wrong (possibly live) namespace to the destructive
+// DeleteManagedNamespace.
+func gatewayNamespace(gw *pb.Gateway) (string, error) {
+	ns := gw.GetNamespace()
+	if ns == "" {
+		return "", fmt.Errorf("gateway %s has no namespace", gw.GetMetadata().GetId())
 	}
-	return fmt.Sprintf("openshell-%s", gw.GetName())
+	return ns, nil
+}
+
+// gatewayListPageSize is the page size the reconcilers use when paging through
+// the full gateway inventory over gRPC. It matches the API server's maximum
+// page size so the common (small-fleet) case completes in a single request.
+const gatewayListPageSize = 500
+
+// listAllGateways pages through the gRPC gateway inventory and returns every
+// gateway. The list endpoint is server-side paginated (default page size 20),
+// so callers that must reason about the whole fleet (the namespace reaper and
+// the health reconciler) cannot rely on a single unpaged request.
+func listAllGateways(ctx context.Context, client pb.GatewayServiceClient) ([]*pb.Gateway, error) {
+	var all []*pb.Gateway
+	for page := int32(1); ; page++ {
+		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{
+			Page: page,
+			Size: gatewayListPageSize,
+		})
+		if err != nil {
+			return nil, err
+		}
+		items := resp.GetItems()
+		all = append(all, items...)
+
+		// Stop once we've collected the whole set (authoritative Total), or the
+		// server returns a short/empty page. The latter two are defensive so a
+		// misreported Total can never spin this loop forever.
+		total := int(resp.GetMetadata().GetTotal())
+		if len(items) == 0 || len(items) < gatewayListPageSize || (total > 0 && len(all) >= total) {
+			return all, nil
+		}
+	}
 }
 
 // updateGatewayHealth sets the Gateway `phase` and `status` together in a single

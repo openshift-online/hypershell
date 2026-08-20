@@ -61,6 +61,12 @@ func PresentGateway(gateway *Gateway) openapi.Gateway {
 		Route:            gateway.Route,
 		DatabaseConfig:   gateway.DatabaseConfig,
 		CredentialDriver: gateway.CredentialDriver,
+		ActiveSandboxCount: func() *int32 {
+			if gateway.ActiveSandboxCount != nil {
+				return openapi.PtrInt32(int32(*gateway.ActiveSandboxCount))
+			}
+			return nil
+		}(),
 	}
 
 	if gateway.ServerDnsNames != nil {

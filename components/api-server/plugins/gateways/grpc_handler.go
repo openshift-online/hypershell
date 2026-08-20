@@ -195,11 +195,42 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.DatabaseConfig != nil {
 		gateway.DatabaseConfig = req.DatabaseConfig
 	}
+	// active_sandbox_count is deliberately not settable here: it is
+	// control-plane owned and mutated only via AdjustActiveSandboxCount /
+	// SetActiveSandboxCount so this whole-row replace cannot clobber it.
 	result, svcErr := h.service.Replace(ctx, gateway)
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.UpdateGatewayResponse{Gateway: gatewayToProto(result)}, nil
+}
+
+// AdjustActiveSandboxCount applies a relative delta to the active_sandbox_count
+// of the gateway backing the given namespace. The adjustment is atomic and
+// floored at zero. A namespace with no live gateway is a no-op (count 0).
+func (h *gatewayGRPCHandler) AdjustActiveSandboxCount(ctx context.Context, req *pb.AdjustActiveSandboxCountRequest) (*pb.AdjustActiveSandboxCountResponse, error) {
+	if err := grpcutil.ValidateStringField("namespace", req.Namespace, true); err != nil {
+		return nil, err
+	}
+	count, svcErr := h.service.AdjustActiveSandboxCount(ctx, req.Namespace, int(req.Delta))
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	return &pb.AdjustActiveSandboxCountResponse{ActiveSandboxCount: int32(count)}, nil
+}
+
+// SetActiveSandboxCount sets the active_sandbox_count of the gateway backing the
+// given namespace to an absolute observed value (self-heal). The value is
+// floored at zero. A namespace with no live gateway is a no-op (count 0).
+func (h *gatewayGRPCHandler) SetActiveSandboxCount(ctx context.Context, req *pb.SetActiveSandboxCountRequest) (*pb.SetActiveSandboxCountResponse, error) {
+	if err := grpcutil.ValidateStringField("namespace", req.Namespace, true); err != nil {
+		return nil, err
+	}
+	count, svcErr := h.service.SetActiveSandboxCount(ctx, req.Namespace, int(req.Count))
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	return &pb.SetActiveSandboxCountResponse{ActiveSandboxCount: int32(count)}, nil
 }
 
 func (h *gatewayGRPCHandler) DeleteGateway(ctx context.Context, req *pb.DeleteGatewayRequest) (*pb.DeleteGatewayResponse, error) {

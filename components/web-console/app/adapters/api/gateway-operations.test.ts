@@ -39,6 +39,7 @@ const listRequest = {
 
 function gateway(overrides: Partial<Gateway> = {}): Gateway {
   return {
+    active_sandbox_count: 0,
     cluster_id: "",
     created_at: null,
     credential_driver: "",

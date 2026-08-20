@@ -107,6 +107,10 @@
     "defaultMessage": "Select a cluster",
     "description": "Accessible label and placeholder for the cluster selector."
   },
+  "app.gateway.column.activeSandboxes": {
+    "defaultMessage": "Active sandboxes",
+    "description": "Heading for the gateways table column showing the number of active sandbox sessions."
+  },
   "app.gateway.connection.copySandboxCommand": {
     "defaultMessage": "Copy the create-sandbox command",
     "description": "Accessible label for copying the create-sandbox command."
@@ -186,6 +190,10 @@
   "app.gateway.delete": {
     "defaultMessage": "Delete gateway",
     "description": "Action that permanently deletes a gateway."
+  },
+  "app.gateway.delete.activeSandboxWarning": {
+    "defaultMessage": "This gateway has {count, plural, one {# active sandbox} other {# active sandboxes}} that will be disrupted by deletion.",
+    "description": "Warning shown before deleting a gateway that still has running sandboxes."
   },
   "app.gateway.delete.confirmation": {
     "defaultMessage": "Deleting {gatewayName} will permanently remove the gateway. This action cannot be undone.",

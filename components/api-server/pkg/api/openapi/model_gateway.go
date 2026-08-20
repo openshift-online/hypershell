@@ -55,6 +55,8 @@ type Gateway struct {
 	DatabaseConfig *string `json:"database_config,omitempty"`
 	// JSON-encoded credential storage driver configuration
 	CredentialDriver *string `json:"credential_driver,omitempty"`
+	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
+	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
 }
 
 type _Gateway Gateway
@@ -802,6 +804,38 @@ func (o *Gateway) SetCredentialDriver(v string) {
 	o.CredentialDriver = &v
 }
 
+// GetActiveSandboxCount returns the ActiveSandboxCount field value if set, zero value otherwise.
+func (o *Gateway) GetActiveSandboxCount() int32 {
+	if o == nil || IsNil(o.ActiveSandboxCount) {
+		var ret int32
+		return ret
+	}
+	return *o.ActiveSandboxCount
+}
+
+// GetActiveSandboxCountOk returns a tuple with the ActiveSandboxCount field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetActiveSandboxCountOk() (*int32, bool) {
+	if o == nil || IsNil(o.ActiveSandboxCount) {
+		return nil, false
+	}
+	return o.ActiveSandboxCount, true
+}
+
+// HasActiveSandboxCount returns a boolean if a field has been set.
+func (o *Gateway) HasActiveSandboxCount() bool {
+	if o != nil && !IsNil(o.ActiveSandboxCount) {
+		return true
+	}
+
+	return false
+}
+
+// SetActiveSandboxCount gets a reference to the given int32 and assigns it to the ActiveSandboxCount field.
+func (o *Gateway) SetActiveSandboxCount(v int32) {
+	o.ActiveSandboxCount = &v
+}
+
 func (o Gateway) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -871,6 +905,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver
+	}
+	if !IsNil(o.ActiveSandboxCount) {
+		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount
 	}
 	return toSerialize, nil
 }

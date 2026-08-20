@@ -97,6 +97,9 @@ func (h *GatewayHealthReconciler) Run(ctx context.Context) error {
 
 func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 	client := pb.NewGatewayServiceClient(h.grpcConn)
+	// Page through the whole fleet: the list endpoint is server-side paginated
+	// (default page size 20), so an unpaged request would only ever refresh the
+	// health of the first page of gateways.
 	gateways, err := h.listAllGateways(ctx, client)
 	if err != nil {
 		log.Printf("WARN gateway health: list gateways: %v", err)
@@ -151,7 +154,11 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		return
 	}
 
-	namespace := gatewayNamespace(gw)
+	namespace, err := gatewayNamespace(gw)
+	if err != nil {
+		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
+		return
+	}
 	ready, reason, err := gateway.DeploymentReadiness(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
@@ -182,6 +189,9 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		desiredPhase, desiredStatus = "Running", "Healthy"
 	}
 
+	// active_sandbox_count is maintained independently by the event-driven
+	// sandbox-count reconciler (see openshell-gateway-sandbox-count.spec.md); the
+	// health reconciler only owns phase and status.
 	if phase == desiredPhase && gw.GetStatus() == desiredStatus {
 		return
 	}
