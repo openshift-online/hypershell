@@ -472,19 +472,18 @@ if [[ "$E2E_SKIP_CLEANUP" != "1" ]]; then
   ORPHAN_NS="openshell-e2e-orphan-$(date +%s)"
   ORPHAN_ELIGIBLE_SINCE=$(e2e_gc_eligible_since_backdate 3)
   dim "  Seeding periodic GC orphan namespace: ${ORPHAN_NS}"
-  show_cmd "$CLI create namespace ${ORPHAN_NS}"
-  $CLI create namespace "$ORPHAN_NS"
-  show_cmd "$CLI label namespace ${ORPHAN_NS} hypershell.redhat.io/managed=true app.kubernetes.io/managed-by=hypershell-control-plane"
-  $CLI label namespace "$ORPHAN_NS" \
-    hypershell.redhat.io/managed=true \
-    app.kubernetes.io/managed-by=hypershell-control-plane
-  # --overwrite: between labeling and annotating the namespace already matches the
-  # managed selector, so a reaper sweep can stamp its own gc-eligible-since first.
-  # Without --overwrite that follow-up annotate fails and aborts the suite (set -e);
-  # with it the backdated value wins and the next sweep reaps as intended.
-  show_cmd "$CLI annotate --overwrite namespace ${ORPHAN_NS} hypershell.redhat.io/gc-eligible-since=${ORPHAN_ELIGIBLE_SINCE}"
-  $CLI annotate --overwrite namespace "$ORPHAN_NS" \
-    hypershell.redhat.io/gc-eligible-since="$ORPHAN_ELIGIBLE_SINCE"
+  show_cmd "$CLI apply -f -  # namespace ${ORPHAN_NS} with management labels and backdated gc-eligible-since"
+  $CLI apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${ORPHAN_NS}
+  labels:
+    hypershell.redhat.io/managed: "true"
+    app.kubernetes.io/managed-by: hypershell-control-plane
+  annotations:
+    hypershell.redhat.io/gc-eligible-since: "${ORPHAN_ELIGIBLE_SINCE}"
+EOF
   ORPHAN_GC_DEADLINE=$(($(date +%s) + E2E_ORPHAN_GC_TIMEOUT))
 fi
 
