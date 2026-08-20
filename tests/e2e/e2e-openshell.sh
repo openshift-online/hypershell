@@ -20,6 +20,7 @@
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
+#   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 set -euo pipefail
 
@@ -231,6 +232,22 @@ else
   fail_test "cert-manager-webhook is not ready (readyReplicas=${CMW_REPLICAS:-0})"
 fi
 
+E2E_CNPG_NAMESPACE="${E2E_CNPG_NAMESPACE:-cnpg-system}"
+show_cmd "$CLI get deployment cnpg-controller-manager -n $E2E_CNPG_NAMESPACE"
+CNPG_REPLICAS=$($CLI get deployment cnpg-controller-manager -n "$E2E_CNPG_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [[ "${CNPG_REPLICAS:-0}" -ge 1 ]]; then
+  pass "CloudNativePG operator is ready"
+else
+  fail_test "CloudNativePG operator is not ready (readyReplicas=${CNPG_REPLICAS:-0})"
+fi
+
+show_cmd "$CLI get crd clusters.postgresql.cnpg.io"
+if $CLI get crd clusters.postgresql.cnpg.io &>/dev/null; then
+  pass "CloudNativePG CRDs installed"
+else
+  fail_test "CloudNativePG CRDs not found"
+fi
+
 show_cmd "$CLI get deployment agent-sandbox-controller -n agent-sandbox-system"
 AS_REPLICAS=$($CLI get deployment agent-sandbox-controller -n agent-sandbox-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
 if [[ "${AS_REPLICAS:-0}" -ge 1 ]]; then
@@ -333,16 +350,39 @@ for gw in data.get('items', []):
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
+  # The CNPG reconciler resolves database_id -> ManagedDatabase -> CNPG cluster
+  # namespace at reconcile time, so the gateway create body must reference a real
+  # ManagedDatabase ID; fake IDs stall provisioning in phase=unknown. Discover the
+  # existing ManagedDatabase (provisioned by kind setup) and use its ID and
+  # fleet_id so the control plane can resolve the CNPG cluster namespace.
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_databases"
+  E2E_MD_RESP=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
+  IFS=$'\t' read -r E2E_FLEET_ID E2E_DATABASE_ID <<< "$(echo "$E2E_MD_RESP" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+items = data.get('items', [])
+if items:
+    print('%s\t%s' % (items[0].get('fleet_id',''), items[0].get('id','')))
+else:
+    print('\t')
+" 2>/dev/null)" || true
+  if [[ -z "$E2E_FLEET_ID" || -z "$E2E_DATABASE_ID" ]]; then
+    fail_test "Could not discover fleet_id or database_id from ManagedDatabase API"
+    exit 1
+  fi
+  dim "  Using fleet_id=${E2E_FLEET_ID}, database_id=${E2E_DATABASE_ID}"
+
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
+    E2E_FLEET_ID="$E2E_FLEET_ID" E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
+    'fleet_id': os.environ['E2E_FLEET_ID'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-database',
+    'database_id': os.environ['E2E_DATABASE_ID'],
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -502,42 +542,38 @@ else
   dim "  - Certgen job status: ${CERTGEN_STATUS:-unknown}"
 fi
 
-show_cmd "$CLI get deployment openshell-gateway-db -n $GW_NAMESPACE"
-if $CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" &>/dev/null; then
-  dim "  Waiting for database pod to be ready (up to 120s)..."
-  DB_READY=0
-  DB_READY_DEADLINE=$(($(date +%s) + 120))
-  while [[ $(date +%s) -lt $DB_READY_DEADLINE ]]; do
-    DB_READY=$($CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
-    if [[ "${DB_READY:-0}" -ge 1 ]]; then
-      break
-    fi
-    sleep 5
-  done
-  DB_IMAGE=$($CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo unknown)
-  if [[ "${DB_READY:-0}" -ge 1 ]]; then
-    pass "Database pod ready ($DB_IMAGE)"
-  else
-    fail_test "Database pod not ready after 120s (${DB_READY:-0} replicas)"
-  fi
+# The database is now managed by the CloudNativePG operator. Discover the CNPG
+# cluster namespace by following the gateway's database_id -> ManagedDatabase API.
+CNPG_GW_NAMESPACE=""
+acquire_oidc_token 2>/dev/null || true
+GW_DB_ID=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+  python3 -c "import json,sys; print(json.load(sys.stdin).get('database_id',''))" 2>/dev/null || true)
+if [[ -n "$GW_DB_ID" ]]; then
+  CNPG_GW_NAMESPACE=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases/${GW_DB_ID}" 2>/dev/null | \
+    python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
+fi
+if [[ -n "$CNPG_GW_NAMESPACE" ]]; then
+  dim "  CNPG cluster namespace: ${CNPG_GW_NAMESPACE}"
 else
-  fail_test "Database Deployment not found in $GW_NAMESPACE"
+  fail_test "Could not resolve CNPG cluster namespace for gateway ${GW_ID}"
 fi
 
-show_cmd "$CLI get service openshell-gateway-db -n $GW_NAMESPACE"
-DB_SVC=$($CLI get service openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-if [[ -n "$DB_SVC" ]]; then
-  pass "Database service: ${DB_SVC}:5432"
+CNPG_CR_NAME="gw-$(echo "${GW_ID}" | tr '[:upper:]' '[:lower:]')"
+
+show_cmd "$CLI get database.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
+DB_APPLIED=$($CLI get database.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" \
+  -o jsonpath='{.status.applied}' 2>/dev/null || true)
+if [[ "$DB_APPLIED" == "true" ]]; then
+  pass "CNPG Database CR ready: ${CNPG_CR_NAME}"
 else
-  fail_test "Database service not found"
+  fail_test "CNPG Database CR not ready (status.applied=${DB_APPLIED:-unknown})"
 fi
 
-show_cmd "$CLI get pvc openshell-gateway-db-data -n $GW_NAMESPACE"
-PVC_PHASE=$($CLI get pvc openshell-gateway-db-data -n "$GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
-if [[ "$PVC_PHASE" == "Bound" ]]; then
-  pass "Database PVC bound"
+show_cmd "$CLI get databaserole.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
+if $CLI get databaserole.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" &>/dev/null; then
+  pass "CNPG DatabaseRole CR exists: ${CNPG_CR_NAME}"
 else
-  fail_test "Database PVC not bound (phase=${PVC_PHASE:-unknown})"
+  fail_test "CNPG DatabaseRole CR not found: ${CNPG_CR_NAME}"
 fi
 
 show_cmd "$CLI get secret openshell-gateway-db-credentials -n $GW_NAMESPACE"
