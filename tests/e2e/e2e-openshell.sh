@@ -18,7 +18,9 @@
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw)
 #   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
+#   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
+#   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 set -euo pipefail
 
@@ -90,6 +92,13 @@ cleanup() {
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
   fi
+  if [[ -n "${SB2_CREATE_PID:-}" ]]; then
+    kill "$SB2_CREATE_PID" 2>/dev/null || true
+    wait "$SB2_CREATE_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${SB2_CREATE_LOG:-}" ]]; then
+    rm -f "$SB2_CREATE_LOG" 2>/dev/null || true
+  fi
   if [[ -n "${E2E_GW_PF_PID:-}" ]]; then
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
@@ -126,9 +135,10 @@ printf '  %s\n' "4. OIDC token acquisition + CA certificate setup"
 printf '  %s\n' "5. Route discovery + openshell CLI registration"
 printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
-printf '  %s\n' "8. Sandbox interaction"
+printf '  %s\n' "8. Sandbox interaction + active sandbox count"
 printf '  %s\n' "9. Developer user RBAC verification"
 printf '  %s\n' "10. Platform admin RBAC verification"
+printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  HyperShell API:    ${API_HOST}"
@@ -220,6 +230,22 @@ if [[ "${CMW_REPLICAS:-0}" -ge 1 ]]; then
   pass "cert-manager-webhook is ready"
 else
   fail_test "cert-manager-webhook is not ready (readyReplicas=${CMW_REPLICAS:-0})"
+fi
+
+E2E_CNPG_NAMESPACE="${E2E_CNPG_NAMESPACE:-cnpg-system}"
+show_cmd "$CLI get deployment cnpg-controller-manager -n $E2E_CNPG_NAMESPACE"
+CNPG_REPLICAS=$($CLI get deployment cnpg-controller-manager -n "$E2E_CNPG_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [[ "${CNPG_REPLICAS:-0}" -ge 1 ]]; then
+  pass "CloudNativePG operator is ready"
+else
+  fail_test "CloudNativePG operator is not ready (readyReplicas=${CNPG_REPLICAS:-0})"
+fi
+
+show_cmd "$CLI get crd clusters.postgresql.cnpg.io"
+if $CLI get crd clusters.postgresql.cnpg.io &>/dev/null; then
+  pass "CloudNativePG CRDs installed"
+else
+  fail_test "CloudNativePG CRDs not found"
 fi
 
 show_cmd "$CLI get deployment agent-sandbox-controller -n agent-sandbox-system"
@@ -324,16 +350,39 @@ for gw in data.get('items', []):
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
+  # The CNPG reconciler resolves database_id -> ManagedDatabase -> CNPG cluster
+  # namespace at reconcile time, so the gateway create body must reference a real
+  # ManagedDatabase ID; fake IDs stall provisioning in phase=unknown. Discover the
+  # existing ManagedDatabase (provisioned by kind setup) and use its ID and
+  # fleet_id so the control plane can resolve the CNPG cluster namespace.
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_databases"
+  E2E_MD_RESP=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
+  IFS=$'\t' read -r E2E_FLEET_ID E2E_DATABASE_ID <<< "$(echo "$E2E_MD_RESP" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+items = data.get('items', [])
+if items:
+    print('%s\t%s' % (items[0].get('fleet_id',''), items[0].get('id','')))
+else:
+    print('\t')
+" 2>/dev/null)" || true
+  if [[ -z "$E2E_FLEET_ID" || -z "$E2E_DATABASE_ID" ]]; then
+    fail_test "Could not discover fleet_id or database_id from ManagedDatabase API"
+    exit 1
+  fi
+  dim "  Using fleet_id=${E2E_FLEET_ID}, database_id=${E2E_DATABASE_ID}"
+
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
+    E2E_FLEET_ID="$E2E_FLEET_ID" E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
+    'fleet_id': os.environ['E2E_FLEET_ID'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-database',
+    'database_id': os.environ['E2E_DATABASE_ID'],
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -493,42 +542,38 @@ else
   dim "  - Certgen job status: ${CERTGEN_STATUS:-unknown}"
 fi
 
-show_cmd "$CLI get deployment openshell-gateway-db -n $GW_NAMESPACE"
-if $CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" &>/dev/null; then
-  dim "  Waiting for database pod to be ready (up to 120s)..."
-  DB_READY=0
-  DB_READY_DEADLINE=$(($(date +%s) + 120))
-  while [[ $(date +%s) -lt $DB_READY_DEADLINE ]]; do
-    DB_READY=$($CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
-    if [[ "${DB_READY:-0}" -ge 1 ]]; then
-      break
-    fi
-    sleep 5
-  done
-  DB_IMAGE=$($CLI get deployment openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo unknown)
-  if [[ "${DB_READY:-0}" -ge 1 ]]; then
-    pass "Database pod ready ($DB_IMAGE)"
-  else
-    fail_test "Database pod not ready after 120s (${DB_READY:-0} replicas)"
-  fi
+# The database is now managed by the CloudNativePG operator. Discover the CNPG
+# cluster namespace by following the gateway's database_id -> ManagedDatabase API.
+CNPG_GW_NAMESPACE=""
+acquire_oidc_token 2>/dev/null || true
+GW_DB_ID=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+  python3 -c "import json,sys; print(json.load(sys.stdin).get('database_id',''))" 2>/dev/null || true)
+if [[ -n "$GW_DB_ID" ]]; then
+  CNPG_GW_NAMESPACE=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases/${GW_DB_ID}" 2>/dev/null | \
+    python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
+fi
+if [[ -n "$CNPG_GW_NAMESPACE" ]]; then
+  dim "  CNPG cluster namespace: ${CNPG_GW_NAMESPACE}"
 else
-  fail_test "Database Deployment not found in $GW_NAMESPACE"
+  fail_test "Could not resolve CNPG cluster namespace for gateway ${GW_ID}"
 fi
 
-show_cmd "$CLI get service openshell-gateway-db -n $GW_NAMESPACE"
-DB_SVC=$($CLI get service openshell-gateway-db -n "$GW_NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-if [[ -n "$DB_SVC" ]]; then
-  pass "Database service: ${DB_SVC}:5432"
+CNPG_CR_NAME="gw-$(echo "${GW_ID}" | tr '[:upper:]' '[:lower:]')"
+
+show_cmd "$CLI get database.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
+DB_APPLIED=$($CLI get database.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" \
+  -o jsonpath='{.status.applied}' 2>/dev/null || true)
+if [[ "$DB_APPLIED" == "true" ]]; then
+  pass "CNPG Database CR ready: ${CNPG_CR_NAME}"
 else
-  fail_test "Database service not found"
+  fail_test "CNPG Database CR not ready (status.applied=${DB_APPLIED:-unknown})"
 fi
 
-show_cmd "$CLI get pvc openshell-gateway-db-data -n $GW_NAMESPACE"
-PVC_PHASE=$($CLI get pvc openshell-gateway-db-data -n "$GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
-if [[ "$PVC_PHASE" == "Bound" ]]; then
-  pass "Database PVC bound"
+show_cmd "$CLI get databaserole.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
+if $CLI get databaserole.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" &>/dev/null; then
+  pass "CNPG DatabaseRole CR exists: ${CNPG_CR_NAME}"
 else
-  fail_test "Database PVC not bound (phase=${PVC_PHASE:-unknown})"
+  fail_test "CNPG DatabaseRole CR not found: ${CNPG_CR_NAME}"
 fi
 
 show_cmd "$CLI get secret openshell-gateway-db-credentials -n $GW_NAMESPACE"
@@ -598,6 +643,60 @@ echo ""
 OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
 if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+
+  # Exercise the real Keycloak device authorization endpoint for the client
+  # provisioned by the control plane. A successful authorization response proves
+  # that oauth2.device.authorization.grant.enabled reached Keycloak; polling once
+  # after the advertised interval proves that Keycloak recognizes the device code.
+  DEVICE_DISCOVERY=$(curl -sk "${E2E_OIDC_ISSUER}/.well-known/openid-configuration" 2>/dev/null || true)
+  DEVICE_AUTH_ENDPOINT=$(echo "$DEVICE_DISCOVERY" | python3 -c "import json,sys; print(json.load(sys.stdin).get('device_authorization_endpoint',''))" 2>/dev/null || true)
+  if [[ -z "$DEVICE_AUTH_ENDPOINT" ]]; then
+    fail_test "OIDC discovery did not advertise a device authorization endpoint"
+    exit 1
+  fi
+
+  # This public client requires PKCE S256 for every authorization flow. Keep the
+  # verifier private and send only its SHA-256 challenge to the device endpoint.
+  DEVICE_CODE_VERIFIER=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+  DEVICE_CODE_CHALLENGE=$(DEVICE_CODE_VERIFIER="$DEVICE_CODE_VERIFIER" python3 -c "import base64,hashlib,os; print(base64.urlsafe_b64encode(hashlib.sha256(os.environ['DEVICE_CODE_VERIFIER'].encode()).digest()).rstrip(b'=').decode())")
+
+  show_cmd "# OAuth 2.0 Device Authorization Grant with PKCE S256 → ${DEVICE_AUTH_ENDPOINT} (client: ${GW_KC_CLIENT_ID})"
+  DEVICE_AUTH_RESPONSE=$(curl -sk -X POST "$DEVICE_AUTH_ENDPOINT" \
+    --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
+    --data-urlencode "scope=openid" \
+    --data-urlencode "code_challenge=${DEVICE_CODE_CHALLENGE}" \
+    --data-urlencode "code_challenge_method=S256" 2>/dev/null || true)
+  DEVICE_CODE=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('device_code',''))" 2>/dev/null || true)
+  DEVICE_USER_CODE=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('user_code',''))" 2>/dev/null || true)
+  DEVICE_VERIFICATION_URI=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('verification_uri',''))" 2>/dev/null || true)
+  DEVICE_INTERVAL=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('interval',5))" 2>/dev/null || true)
+  if [[ -z "$DEVICE_CODE" || -z "$DEVICE_USER_CODE" || -z "$DEVICE_VERIFICATION_URI" ]]; then
+    DEVICE_AUTH_ERROR=$(echo "$DEVICE_AUTH_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','invalid device authorization response'))" 2>/dev/null || echo "invalid device authorization response")
+    fail_test "Per-gateway client rejected Device Authorization Grant: ${DEVICE_AUTH_ERROR}"
+    exit 1
+  fi
+  pass "Per-gateway client started OAuth 2.0 Device Authorization Grant"
+
+  if [[ ! "$DEVICE_INTERVAL" =~ ^[0-9]+$ || "$DEVICE_INTERVAL" -gt 30 ]]; then
+    fail_test "Device Authorization Grant returned invalid polling interval"
+    exit 1
+  fi
+  sleep "$DEVICE_INTERVAL"
+
+  DEVICE_TOKEN_RESPONSE=$(curl -sk -X POST "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
+    --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+    --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
+    --data-urlencode "device_code=${DEVICE_CODE}" \
+    --data-urlencode "code_verifier=${DEVICE_CODE_VERIFIER}" 2>/dev/null || true)
+  DEVICE_TOKEN_ERROR=$(echo "$DEVICE_TOKEN_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || true)
+  if [[ "$DEVICE_TOKEN_ERROR" == "authorization_pending" ]]; then
+    pass "Keycloak accepted the issued device code"
+  else
+    DEVICE_TOKEN_DESCRIPTION=$(echo "$DEVICE_TOKEN_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','unexpected device token response'))" 2>/dev/null || echo "unexpected device token response")
+    fail_test "Device code poll did not return authorization_pending: ${DEVICE_TOKEN_DESCRIPTION}"
+    exit 1
+  fi
+
   show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
   if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
     OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
@@ -802,51 +901,160 @@ fi
 rm -f "${SB_CREATE_LOG}" 2>/dev/null || true
 sep
 
-# ── 8. sandbox interaction ────────────────────────────────────────────────
+# ── 8. sandbox interaction + active sandbox count ─────────────────────────
 
 echo ""
-bold "8. Sandbox Interaction"
+bold "8. Sandbox Interaction + Active Sandbox Count"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
 
-show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
-if SB_EXEC_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
-  CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
-  if [[ -n "$CLEAN_EXEC" ]]; then
-    pass "Sandbox exec: command executed inside sandbox"
-    echo "$CLEAN_EXEC" | while IFS= read -r line; do
-      dim "    $line"
-    done
+# The sandbox pod can report Running while the Sandbox CR is still
+# phase=Provisioning, and the openshell CLI gates `sandbox exec` on the CR
+# reaching Ready. Poll a no-op exec until it succeeds so the interaction
+# commands below don't race the sandbox controller.
+SANDBOX_READY=false
+SB_READY_ERR=""
+READY_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+dim "  Waiting for sandbox to become ready (up to ${E2E_SANDBOX_TIMEOUT}s)..."
+while [[ $(date +%s) -lt $READY_DEADLINE ]]; do
+  if SB_READY_ERR=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- true 2>&1); then
+    SANDBOX_READY=true
+    break
+  fi
+  sleep 5
+done
+
+if [[ "$SANDBOX_READY" != "true" ]]; then
+  fail_test "Sandbox did not become ready within ${E2E_SANDBOX_TIMEOUT}s"
+  dim "    ${SB_READY_ERR:0:200}"
+else
+  pass "Sandbox ready"
+
+  show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
+  if SB_EXEC_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
+    CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
+    if [[ -n "$CLEAN_EXEC" ]]; then
+      pass "Sandbox exec: command executed inside sandbox"
+      echo "$CLEAN_EXEC" | while IFS= read -r line; do
+        dim "    $line"
+      done
+    else
+      fail_test "Sandbox exec: no output from uname command"
+      dim "    ${SB_EXEC_OUTPUT:0:200}"
+    fi
   else
-    fail_test "Sandbox exec: no output from uname command"
+    fail_test "Sandbox exec: openshell command failed"
     dim "    ${SB_EXEC_OUTPUT:0:200}"
   fi
-else
-  fail_test "Sandbox exec: openshell command failed"
-  dim "    ${SB_EXEC_OUTPUT:0:200}"
+
+  show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
+  if SB_LS_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
+    CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
+    if [[ -n "$CLEAN_LS" ]]; then
+      pass "Sandbox workspace: /workspace directory listing"
+      echo "$CLEAN_LS" | while IFS= read -r line; do
+        dim "    $line"
+      done
+    else
+      fail_test "Sandbox workspace: no output from ls command"
+      dim "    ${SB_LS_OUTPUT:0:200}"
+    fi
+  else
+    if echo "$SB_LS_OUTPUT" | grep -q "No such file or directory"; then
+      dim "  - /workspace not available (using default working directory)"
+    else
+      fail_test "Sandbox workspace: openshell ls command failed"
+      dim "    ${SB_LS_OUTPUT:0:200}"
+    fi
+  fi
 fi
 
-show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
-if SB_LS_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
-  CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
-  if [[ -n "$CLEAN_LS" ]]; then
-    pass "Sandbox workspace: /workspace directory listing"
-    echo "$CLEAN_LS" | while IFS= read -r line; do
-      dim "    $line"
-    done
+# poll_active_sandbox_count <expected>: poll the HyperShell API until the
+# gateway's active_sandbox_count equals <expected>, up to E2E_SANDBOX_TIMEOUT.
+# The field is control-plane-owned and advisory (it may lag real time) and is
+# omitted from the JSON while NULL, so an absent value is treated as "not yet".
+# Echoes the last observed value; returns 0 on match, 1 on timeout.
+poll_active_sandbox_count() {
+  local expected="$1" last="" deadline
+  deadline=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $deadline ]]; do
+    last=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+      python3 -c "import json,sys; v=json.load(sys.stdin).get('active_sandbox_count'); print('' if v is None else v)" 2>/dev/null || true)
+    [[ "$last" == "$expected" ]] && { echo "$last"; return 0; }
+    dim "    active_sandbox_count: ${last:-<unset>} (want ${expected})" >&2
+    sleep 5
+  done
+  echo "$last"
+  return 1
+}
+
+# Active sandbox count accounting (e2e-testing.spec.md "Active Sandbox Count
+# Accounting"; openshell-gateway-sandbox-count.spec.md). The control plane
+# observes sandbox pods via an informer and publishes the running count on the
+# Gateway. Reuse the sandbox created above (count 1), add a second (count 2),
+# then delete it (back to 1), polling the API for each transition because the
+# value is advisory and may lag.
+if [[ "$SANDBOX_FOUND" == "true" ]]; then
+  echo ""
+  dim "  Verifying active_sandbox_count accounting..."
+
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # active_sandbox_count == 1"
+  if COUNT=$(poll_active_sandbox_count 1); then
+    pass "active_sandbox_count reflects the running sandbox (${COUNT})"
   else
-    fail_test "Sandbox workspace: no output from ls command"
-    dim "    ${SB_LS_OUTPUT:0:200}"
+    fail_test "active_sandbox_count did not reach 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
   fi
-else
-  if echo "$SB_LS_OUTPUT" | grep -q "No such file or directory"; then
-    dim "  - /workspace not available (using default working directory)"
+
+  SANDBOX_NAME_2="${SANDBOX_NAME}-2"
+  show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME_2}"
+  dim "  Creating a second sandbox to assert the count increments..."
+  SB2_CREATE_LOG=$(mktemp)
+  "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME_2}" >"${SB2_CREATE_LOG}" 2>&1 &
+  SB2_CREATE_PID=$!
+
+  SANDBOX2_RUNNING=false
+  DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  while [[ $(date +%s) -lt $DEADLINE ]]; do
+    SB2_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${SANDBOX_NAME_2}" || true)
+    if [[ -n "$SB2_PODS" ]]; then
+      SB2_STATUS=$(echo "$SB2_PODS" | awk '{print $3}' | head -1)
+      if [[ "$SB2_STATUS" == "Running" ]]; then
+        SANDBOX2_RUNNING=true
+        break
+      fi
+      dim "    pod: default--${SANDBOX_NAME_2} (${SB2_STATUS})"
+    fi
+    sleep 5
+  done
+  kill "$SB2_CREATE_PID" 2>/dev/null || true
+  wait "$SB2_CREATE_PID" 2>/dev/null || true
+  SB2_CREATE_PID=""
+  rm -f "${SB2_CREATE_LOG}" 2>/dev/null || true
+  SB2_CREATE_LOG=""
+
+  if [[ "$SANDBOX2_RUNNING" == "true" ]]; then
+    show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # active_sandbox_count == 2"
+    if COUNT=$(poll_active_sandbox_count 2); then
+      pass "active_sandbox_count incremented on sandbox create (${COUNT})"
+    else
+      fail_test "active_sandbox_count did not reach 2 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
+    fi
   else
-    fail_test "Sandbox workspace: openshell ls command failed"
-    dim "    ${SB_LS_OUTPUT:0:200}"
+    fail_test "Second sandbox pod not Running within ${E2E_SANDBOX_TIMEOUT}s; cannot assert count increment"
+  fi
+
+  # Deleting the second sandbox must drive the count back down. This runs
+  # regardless of E2E_SKIP_CLEANUP because the decrement is the assertion.
+  show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME_2}"
+  "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME_2}" 2>&1 || true
+  if COUNT=$(poll_active_sandbox_count 1); then
+    pass "active_sandbox_count decremented on sandbox delete (${COUNT})"
+  else
+    fail_test "active_sandbox_count did not return to 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
   fi
 fi
+sep
 
 # ── cleanup ───────────────────────────────────────────────────────────────
 
@@ -1261,6 +1469,76 @@ print(json.dumps(body))
     dim "    ${PADMIN_CREATE_RESP:0:200}"
   fi
   rm -f "${PADMIN_CREATE_FILE}" 2>/dev/null || true
+fi
+sep
+
+# ── 11. gateway deletion + namespace garbage collection ────────────────────
+
+echo ""
+bold "11. Gateway Deletion + Namespace Garbage Collection"
+echo ""
+
+if [[ "$E2E_SKIP_CLEANUP" == "1" ]]; then
+  dim "  Skipped (E2E_SKIP_CLEANUP=1): preserving namespace ${GW_NAMESPACE}"
+elif [[ -z "$GW_NAMESPACE" ]]; then
+  fail_test "Cannot validate namespace GC: gateway namespace is unknown"
+else
+  # Section 10 deletes the gateway as the platform admin and clears GW_ID.
+  # Deleting the Gateway via the API drives the control-plane delete path
+  # (watch-delete-events.spec.md): DeleteGatewayResources then
+  # DeleteManagedNamespace, best-effort and idempotent. The gateway namespace is
+  # managed (carries both hypershell.redhat.io/managed=true and
+  # app.kubernetes.io/managed-by=hypershell-control-plane), so it MUST be reaped.
+  # Any namespace missed by the delete path is later swept by the
+  # NamespaceGCReconciler. See openshell-gateway-namespace-gc.spec.md
+  # (HYPERSHELL-96, HYPERSHELL-78).
+
+  # If the gateway was not already deleted (e.g. the platform-admin delete was
+  # skipped or failed), delete it now as a fallback so the namespace GC has a
+  # trigger. The platform-admin section overwrote the active token, so
+  # re-acquire the default admin token before calling the API. Accept 204
+  # (deleted now) or 404 (already gone).
+  if [[ -n "$GW_ID" ]]; then
+    acquire_oidc_token 2>/dev/null || true
+    show_cmd "api_curl -X DELETE ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}"
+    DEL_STATUS=$(api_curl -o /dev/null -w '%{http_code}' -X DELETE \
+      "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+    if [[ "$DEL_STATUS" == "204" || "$DEL_STATUS" == "404" ]]; then
+      pass "Gateway delete accepted (HTTP ${DEL_STATUS})"
+    else
+      fail_test "Expected 204 or 404 deleting gateway, got ${DEL_STATUS:-none}"
+    fi
+    GW_ID=""
+  else
+    dim "  Gateway already deleted by the platform-admin section; validating namespace GC"
+  fi
+
+  # The managed namespace must be garbage collected by the control plane. Allow
+  # headroom for the namespace to enter Terminating and finalize (pods, PVC,
+  # certificates).
+  show_cmd "$CLI get namespace ${GW_NAMESPACE} (expect NotFound)"
+  dim "  Waiting for namespace ${GW_NAMESPACE} to be garbage collected (up to ${E2E_GC_TIMEOUT}s)..."
+  NS_GONE=false
+  GC_DEADLINE=$(($(date +%s) + E2E_GC_TIMEOUT))
+  while [[ $(date +%s) -lt $GC_DEADLINE ]]; do
+    if ! $CLI get namespace "$GW_NAMESPACE" &>/dev/null; then
+      NS_GONE=true
+      break
+    fi
+    NS_PHASE=$($CLI get namespace "$GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    dim "    namespace: ${NS_PHASE:-present}"
+    sleep 5
+  done
+
+  if [[ "$NS_GONE" == "true" ]]; then
+    pass "Gateway namespace garbage collected: ${GW_NAMESPACE}"
+  else
+    fail_test "Namespace ${GW_NAMESPACE} not garbage collected after ${E2E_GC_TIMEOUT}s"
+    dim "  --- namespace GC diagnostics ---"
+    $CLI get namespace "$GW_NAMESPACE" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
+    dim "  Control plane logs:"
+    $CLI logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=40 2>&1 | while IFS= read -r line; do dim "    $line"; done
+  fi
 fi
 sep
 

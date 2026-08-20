@@ -12,6 +12,7 @@ Name | Type | Description | Notes
 **Name** | **string** |  | 
 **FleetId** | **string** |  | 
 **Provider** | **string** |  | 
+**Namespace** | Pointer to **string** |  | [optional] [readonly] 
 **Region** | Pointer to **string** |  | [optional] 
 **Engine** | Pointer to **string** |  | [optional] 
 **EngineVersion** | Pointer to **string** |  | [optional] 
@@ -222,6 +223,31 @@ and a boolean to check if the value has been set.
 
 SetProvider sets Provider field to given value.
 
+
+### GetNamespace
+
+`func (o *ManagedDatabase) GetNamespace() string`
+
+GetNamespace returns the Namespace field if non-nil, zero value otherwise.
+
+### GetNamespaceOk
+
+`func (o *ManagedDatabase) GetNamespaceOk() (*string, bool)`
+
+GetNamespaceOk returns a tuple with the Namespace field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetNamespace
+
+`func (o *ManagedDatabase) SetNamespace(v string)`
+
+SetNamespace sets Namespace field to given value.
+
+### HasNamespace
+
+`func (o *ManagedDatabase) HasNamespace() bool`
+
+HasNamespace returns a boolean if a field has been set.
 
 ### GetRegion
 

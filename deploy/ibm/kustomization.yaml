@@ -1,0 +1,48 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# IBM Cloud (ROKS) overlay - environment-adaptive Route ingress.
+#
+# ROKS is a HyperShift-hosted OpenShift cluster. It ships the Gateway API CRDs
+# but cannot run the CIO-managed Istio (the OSSM images are unpullable and node
+# image mirroring / IDMS is owned by the HostedCluster), so the Gateway API path
+# is unavailable. This overlay selects the Route ingress mode instead: tenant
+# gateways are exposed through OpenShift Routes (HAProxy passthrough) on IBM's
+# free "*.containers.appdomain.cloud" wildcard - no shared Gateway, wildcard
+# cert, or external DNS integration required. The gateway pod already terminates
+# TLS with its per-tenant self-signed CA, which passthrough preserves end-to-end.
+#
+# Same architecture as the AWS/OpenShift overlay, different ingress adapter,
+# chosen here purely by configuration. See:
+#   specs/platform/global-architecture.spec.md (§ Tenant Gateway Ingress modes)
+#   skills/deploy/ibm-cluster/SKILL.md
+#
+# This inherits everything from deploy/openshift (SCC, cert-manager certificates,
+# networkpolicies, controller RBAC incl. route.openshift.io/routes) and only
+# switches the controller's ingress mode + base domain.
+resources:
+  - ../openshift
+
+patches:
+  # --- select Route ingress mode for the control-plane reconciler ---
+  # Strategic-merge on the env list (merged by name): adds GATEWAY_INGRESS_MODE
+  # and overrides GATEWAY_API_BASE_DOMAIN. GATEWAY_API_GATEWAY_NAME is unused in
+  # route mode (the reconciler never looks up a shared Gateway) and is left as-is.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: controller
+                env:
+                  - name: GATEWAY_INGRESS_MODE
+                    value: route
+                  - name: GATEWAY_API_BASE_DOMAIN
+                    # OVERRIDE: set to this cluster's ingress subdomain, e.g.
+                    # hysh-ibm-01-<hash>-0000.us-east.containers.appdomain.cloud
+                    value: openshell.ibm.example.com

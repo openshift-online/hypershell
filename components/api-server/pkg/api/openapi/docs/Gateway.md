@@ -24,10 +24,11 @@ Name | Type | Description | Notes
 **SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
+**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
+**ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
 
 ## Methods
 
@@ -518,6 +519,31 @@ SetRouteAddress sets RouteAddress field to given value.
 
 HasRouteAddress returns a boolean if a field has been set.
 
+### GetConsoleAddress
+
+`func (o *Gateway) GetConsoleAddress() string`
+
+GetConsoleAddress returns the ConsoleAddress field if non-nil, zero value otherwise.
+
+### GetConsoleAddressOk
+
+`func (o *Gateway) GetConsoleAddressOk() (*string, bool)`
+
+GetConsoleAddressOk returns a tuple with the ConsoleAddress field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetConsoleAddress
+
+`func (o *Gateway) SetConsoleAddress(v string)`
+
+SetConsoleAddress sets ConsoleAddress field to given value.
+
+### HasConsoleAddress
+
+`func (o *Gateway) HasConsoleAddress() bool`
+
+HasConsoleAddress returns a boolean if a field has been set.
+
 ### GetOidc
 
 `func (o *Gateway) GetOidc() string`
@@ -568,31 +594,6 @@ SetRoute sets Route field to given value.
 
 HasRoute returns a boolean if a field has been set.
 
-### GetDatabaseConfig
-
-`func (o *Gateway) GetDatabaseConfig() string`
-
-GetDatabaseConfig returns the DatabaseConfig field if non-nil, zero value otherwise.
-
-### GetDatabaseConfigOk
-
-`func (o *Gateway) GetDatabaseConfigOk() (*string, bool)`
-
-GetDatabaseConfigOk returns a tuple with the DatabaseConfig field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetDatabaseConfig
-
-`func (o *Gateway) SetDatabaseConfig(v string)`
-
-SetDatabaseConfig sets DatabaseConfig field to given value.
-
-### HasDatabaseConfig
-
-`func (o *Gateway) HasDatabaseConfig() bool`
-
-HasDatabaseConfig returns a boolean if a field has been set.
-
 ### GetCredentialDriver
 
 `func (o *Gateway) GetCredentialDriver() string`
@@ -617,6 +618,31 @@ SetCredentialDriver sets CredentialDriver field to given value.
 `func (o *Gateway) HasCredentialDriver() bool`
 
 HasCredentialDriver returns a boolean if a field has been set.
+
+### GetActiveSandboxCount
+
+`func (o *Gateway) GetActiveSandboxCount() int32`
+
+GetActiveSandboxCount returns the ActiveSandboxCount field if non-nil, zero value otherwise.
+
+### GetActiveSandboxCountOk
+
+`func (o *Gateway) GetActiveSandboxCountOk() (*int32, bool)`
+
+GetActiveSandboxCountOk returns a tuple with the ActiveSandboxCount field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetActiveSandboxCount
+
+`func (o *Gateway) SetActiveSandboxCount(v int32)`
+
+SetActiveSandboxCount sets ActiveSandboxCount field to given value.
+
+### HasActiveSandboxCount
+
+`func (o *Gateway) HasActiveSandboxCount() bool`
+
+HasActiveSandboxCount returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

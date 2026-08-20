@@ -46,3 +46,4 @@ components/cli/hypershell
 GAP_ANALYSIS.md
 RECONCILE_COMPLETE.md
 loop.txt
+/components/cli/hsctl

@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lib/pq"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -68,17 +67,33 @@ func ReconcileGateway(
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
 
-	dbImage := nsConfig.Gateway.Database.Image
-	if dbImage == "" {
-		dbImage = images.DefaultDatabaseImage()
+	// When an ingress mode is active the gateway is reachable at an external
+	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
+	// gateway pod terminates TLS with its own per-tenant CA, and both ingress
+	// modes carry that TLS through unmodified (Route passthrough / Gateway API
+	// BackendTLSPolicy), so the server certificate must list the external
+	// hostname as a SAN or clients fail verification. The controller derives
+	// that hostname, so it -- not the operator -- injects it into the cert SANs
+	// here, before cert-manager mints the certificate below.
+	if mode := gatewayIngressMode(opts); mode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
+		hostname, err := deriveGatewayHostname(nsConfig)
+		if err != nil {
+			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
+		} else {
+			nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
+		}
 	}
 
-	if err := reconcileDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage); err != nil {
-		return fmt.Errorf("reconcile database credentials in %s: %w", nsConfig.Name, err)
+	if !opts.HasCNPG {
+		return fmt.Errorf("CNPG operator is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
+	}
+
+	if err := reconcileCNPGDatabaseResources(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID, opts.CNPG); err != nil {
+		return fmt.Errorf("reconcile CNPG database resources in %s: %w", nsConfig.Name, err)
 	}
 
 	if opts.RotateDBCredentials != "" {
-		if err := rotateDatabaseCredentials(ctx, clientset, nsConfig.Name, dbImage, opts.RotateDBCredentials); err != nil {
+		if err := rotateCNPGDatabaseCredentials(ctx, clientset, nsConfig.Name, opts.GatewayID, opts.CNPG, opts.RotateDBCredentials); err != nil {
 			return fmt.Errorf("rotate database credentials in %s: %w", nsConfig.Name, err)
 		}
 	}
@@ -120,22 +135,56 @@ func ReconcileGateway(
 		}
 	}
 
-	if opts.HasGatewayAPI {
+	// Tenant ingress is environment-adaptive: Gateway API where available,
+	// OpenShift Routes where it is not. See gatewayIngressMode.
+	switch mode := gatewayIngressMode(opts); mode {
+	case IngressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
+			// Propagate this error rather than logging and swallowing it: the only
+			// hard failures reconcileGatewayAPIResources returns are a TLS-secret
+			// wait timeout and a fail-closed route-intent re-check (its best-effort
+			// console/NetworkPolicy/CA steps log internally and never return). Both
+			// leave a routed gateway without a usable route, so Handle must see the
+			// error and mark the gateway Failed -- a Failed gateway is not phase-
+			// gated, so the next watch event re-provisions and rebuilds the route.
+			// Swallowing it here would strand a partial route the phase gate then
+			// blocks any later event from repairing.
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				log.Printf("WARN failed to reconcile Gateway API resources in %s: %v", nsConfig.Name, err)
+				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 			}
 		} else {
-			if err := deleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
+			if err := DeleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
 				log.Printf("WARN failed to remove Gateway API resources in %s: %v", nsConfig.Name, err)
 			}
 		}
+	case IngressModeRoute:
+		if nsConfig.Gateway.Route.Enabled {
+			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
+				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
+			}
+		} else {
+			if err := deleteRouteResources(ctx, dynamicClient, nsConfig.Name, opts); err != nil {
+				log.Printf("WARN failed to remove Route resources in %s: %v", nsConfig.Name, err)
+			}
+		}
+	default:
+		log.Printf("INFO no ingress mode selected for %s (not OpenShift and no Gateway API); skipping tenant ingress", nsConfig.Name)
 	}
 
 	log.Printf("INFO gateway reconciled in namespace %s", nsConfig.Name)
 	return nil
 }
 
+// DeleteGatewayResources cleans up the resources a gateway owns that live
+// OUTSIDE its namespace and are therefore not reclaimed when the namespace is
+// deleted. Everything inside the gateway's namespace (Deployments, Services,
+// Secrets, ConfigMaps, PVCs, Jobs, Roles, RoleBindings, and cert-manager /
+// Gateway API objects) is garbage-collected by Kubernetes as a side effect of
+// deleting the namespace itself, so those are not enumerated here. The
+// out-of-namespace resources handled below are:
+//   - the cluster-scoped ClusterRoleBinding created for the gateway,
+//   - the gateway's external Keycloak client, and
+//   - any credential RBAC the gateway created in a separate credential namespace.
 func DeleteGatewayResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
@@ -144,55 +193,6 @@ func DeleteGatewayResources(
 	opts ReconcileOpts,
 	credentialNamespaces ...string,
 ) error {
-	labelSelector := "hypershell.redhat.io/managed=true"
-
-	namespacedResources := []schema.GroupVersionResource{
-		{Group: "apps", Version: "v1", Resource: "deployments"},
-		{Version: "v1", Resource: "services"},
-		{Version: "v1", Resource: "configmaps"},
-		{Version: "v1", Resource: "serviceaccounts"},
-		{Version: "v1", Resource: "secrets"},
-		{Version: "v1", Resource: "persistentvolumeclaims"},
-		{Group: "batch", Version: "v1", Resource: "jobs"},
-		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
-	}
-
-	if opts.HasCertManager {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
-		)
-	}
-
-	if opts.HasGatewayAPI {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
-		)
-	}
-
-	for _, gvr := range namespacedResources {
-		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				continue
-			}
-			log.Printf("WARN failed to list %s in %s: %v", gvr.Resource, namespace, err)
-			continue
-		}
-		for _, item := range list.Items {
-			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-				log.Printf("WARN failed to delete %s %s in %s: %v", gvr.Resource, item.GetName(), namespace, err)
-			} else {
-				log.Printf("INFO deleted %s %s from %s", gvr.Resource, item.GetName(), namespace)
-			}
-		}
-	}
-
 	crbGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
 		Version:  "v1",
@@ -214,6 +214,24 @@ func DeleteGatewayResources(
 		} else {
 			log.Printf("INFO deleted keycloak client %s", kcClientID)
 		}
+
+		// The console namespaced resources are swept by label above, but the
+		// console Keycloak client must be deleted explicitly (it lives in the
+		// realm, not the namespace). Best-effort: log the orphan on failure.
+		consoleClientID := kcClientID + "-console"
+		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
+			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+		} else {
+			log.Printf("INFO deleted console client %s", consoleClientID)
+		}
+	}
+
+	if opts.HasCNPG && opts.GatewayID != "" {
+		if opts.CNPG.ClusterNamespace == "" {
+			log.Printf("WARN gateway %s: CNPG cluster namespace unknown; Database, DatabaseRole, and password Secret were not deleted and may require manual cleanup", opts.GatewayID)
+		} else {
+			deleteCNPGResources(ctx, dynamicClient, clientset, opts.GatewayID, opts.CNPG)
+		}
 	}
 
 	for _, credNS := range credentialNamespaces {
@@ -223,18 +241,112 @@ func DeleteGatewayResources(
 		}
 	}
 
-	log.Printf("INFO gateway resources cleaned up from namespace %s", namespace)
+	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
 	return nil
 }
 
-func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
+// DeleteLabeledNamespaceResources reclaims this gateway's own in-namespace
+// resources when the namespace itself survives gateway deletion. Kubernetes only
+// garbage-collects namespaced objects as a side effect of deleting the namespace,
+// so on the delete path we normally rely on DeleteManagedNamespace to cascade
+// them. This is the fallback for when the namespace is NOT reaped: most
+// importantly a pre-existing namespace the control plane does not manage (it is
+// missing the management labels, so DeleteManagedNamespace leaves it and the
+// NamespaceGCReconciler ignores it too). Without this sweep the workloads the
+// gateway created inside such a namespace would be orphaned.
+//
+// Only resources carrying hypershell.redhat.io/managed=true (the label the
+// gateway stamps on everything it creates) are deleted, so co-tenant workloads
+// sharing the namespace are never touched: the same no-collateral guarantee that
+// keeps GC from reaping a shared namespace. The namespace itself is never
+// deleted here. It is best-effort - per-resource failures are logged and do not
+// abort the sweep, matching DeleteGatewayResources - and the caller invokes it
+// only when the namespace was left in place.
+func DeleteLabeledNamespaceResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	namespace string,
+	opts ReconcileOpts,
+) {
+	labelSelector := fmt.Sprintf("%s=%s", ManagedLabel, ManagedLabelValue)
+
+	namespacedResources := []schema.GroupVersionResource{
+		{Group: "apps", Version: "v1", Resource: "deployments"},
+		{Group: "apps", Version: "v1", Resource: "statefulsets"},
+		{Version: "v1", Resource: "services"},
+		{Version: "v1", Resource: "configmaps"},
+		{Version: "v1", Resource: "serviceaccounts"},
+		{Version: "v1", Resource: "secrets"},
+		{Version: "v1", Resource: "persistentvolumeclaims"},
+		{Group: "batch", Version: "v1", Resource: "jobs"},
+		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
+	}
+	if opts.IsOpenShift {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
+		)
+	}
+	if opts.HasCertManager {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
+			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
+		)
+	}
+	if opts.HasGatewayAPI {
+		namespacedResources = append(namespacedResources,
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
+			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
+		)
+	}
+
+	for _, gvr := range namespacedResources {
+		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			// A missing CRD/resource type is expected on clusters without the
+			// optional APIs; skip it rather than treating it as a failure.
+			if k8serrors.IsNotFound(err) {
+				continue
+			}
+			log.Printf("WARN failed to list %s in namespace %s for cleanup: %v", gvr.Resource, namespace, err)
+			continue
+		}
+		for i := range list.Items {
+			name := list.Items[i].GetName()
+			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+				if !k8serrors.IsNotFound(err) {
+					log.Printf("WARN failed to delete %s %s in namespace %s: %v", gvr.Resource, name, namespace, err)
+				}
+				continue
+			}
+			log.Printf("INFO deleted %s %s from namespace %s", gvr.Resource, name, namespace)
+		}
+	}
+}
+
+// DeleteGatewayAPIResources reconciles the desired *absence* of a gateway's
+// route: it removes the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap and
+// router NetworkPolicy, tears down the console (which follows the route), and
+// clears the stored route_address. It attempts every deletion regardless of
+// individual failures and returns their joined errors (nil once everything is
+// absent), so a caller -- the provisioning path's route-disabled branch and the
+// health loop, which owns a Running gateway the provisioning path never revisits
+// -- can retry until the route and its console are fully gone rather than
+// stopping on partial cleanup. Idempotent: absent resources are ignored.
+func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
+	var errs []error
+
 	grpcRouteGVR := schema.GroupVersionResource{
 		Group:    "gateway.networking.k8s.io",
 		Version:  "v1",
 		Resource: "grpcroutes",
 	}
 	if err := dynamicClient.Resource(grpcRouteGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete GRPCRoute: %v", err)
+		errs = append(errs, fmt.Errorf("delete GRPCRoute in %s: %w", namespace, err))
 	}
 
 	btlsGVR := schema.GroupVersionResource{
@@ -243,11 +355,255 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		Resource: "backendtlspolicies",
 	}
 	if err := dynamicClient.Resource(btlsGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete BackendTLSPolicy: %v", err)
+		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
 	}
 
 	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "openshell-backend-ca", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete backend CA ConfigMap: %v", err)
+		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
+	}
+
+	netpolGVR := schema.GroupVersionResource{
+		Group:    "networking.k8s.io",
+		Version:  "v1",
+		Resource: "networkpolicies",
+	}
+	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete router NetworkPolicy in %s: %w", namespace, err))
+	}
+
+	// The console follows the route, so removing the route removes the console.
+	if err := deleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
+		errs = append(errs, err)
+	}
+
+	if opts.UpdateRouteAddress != nil {
+		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
+			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
+		} else {
+			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+		}
+	}
+
+	if len(errs) == 0 {
+		log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
+	}
+	return errors.Join(errs...)
+}
+
+// ConsoleClientChecker reports whether the gateway's external Keycloak console
+// client still exists. RouteResourcesAbsent uses it so teardown's settled-state
+// check converges across BOTH Kubernetes and the external realm: the console
+// client is a realm object, not a namespaced one, so a stale provisioning pass
+// that recreated only the client -- e.g. failing before its namespaced Secret
+// and Deployment writes -- would otherwise be invisible to a Kubernetes-only
+// probe and let teardown settle while the client leaks.
+type ConsoleClientChecker interface {
+	ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error)
+}
+
+// RouteResourcesAbsent reports whether every route- and console-owned resource
+// this control plane creates for a routed gateway is absent -- both the
+// namespaced Kubernetes objects and the external Keycloak console client. It
+// lets the health loop's route teardown converge on the gateway's actual
+// observed state rather than trusting a cached completion marker: a stale
+// provisioning pass can recreate these resources after a teardown believed
+// itself finished, and cleared address fields do not prove the resources are
+// gone. Unknown state must never be read as absence.
+//
+// It returns (true, nil) only when every probed resource is confirmed absent.
+// The first resource found present short-circuits to (false, nil). Any probe
+// that fails for a reason other than Kubernetes NotFound is returned as an error
+// so the caller treats absence as unconfirmed (and re-runs teardown) rather than
+// trusting an unknown state. The Keycloak client probe is skipped when
+// consoleClient is nil or consoleClientID is empty (no Keycloak configured).
+func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
+	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
+	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
+	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	netpolGVR := schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}
+
+	dynamicProbes := []struct {
+		gvr  schema.GroupVersionResource
+		name string
+	}{
+		{grpcRouteGVR, "openshell-gateway"},
+		{btlsGVR, "openshell-gateway"},
+		{netpolGVR, "openshell-gateway-allow-router"},
+		{httpRouteGVR, consoleName},
+		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
+		{netpolGVR, "openshell-console-allow-router"},
+		{netpolGVR, "openshell-gateway-allow-console"},
+	}
+	for _, p := range dynamicProbes {
+		if _, err := dynamicClient.Resource(p.gvr).Namespace(namespace).Get(ctx, p.name, metav1.GetOptions{}); err == nil {
+			return false, nil
+		} else if !k8serrors.IsNotFound(err) {
+			return false, fmt.Errorf("probe %s/%s in %s: %w", p.gvr.Resource, p.name, namespace, err)
+		}
+	}
+
+	if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{}); err == nil {
+		return false, nil
+	} else if !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("probe configmap openshell-backend-ca in %s: %w", namespace, err)
+	}
+	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
+		return false, nil
+	} else if !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("probe service %s in %s: %w", consoleName, namespace, err)
+	}
+	if _, err := clientset.CoreV1().Secrets(namespace).Get(ctx, consoleSecretName, metav1.GetOptions{}); err == nil {
+		return false, nil
+	} else if !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("probe secret %s in %s: %w", consoleSecretName, namespace, err)
+	}
+
+	// Probe the external Keycloak console client last: it is a realm object, not a
+	// namespaced one, and a stale provisioning pass that recreated only the client
+	// -- e.g. failing before its namespaced Secret and Deployment writes -- would
+	// otherwise be invisible above and let teardown settle while the client leaks.
+	// Skipped when unconfigured (nil checker / empty ID). A probe error is returned
+	// so absence stays unconfirmed rather than being read as gone.
+	if consoleClient != nil && consoleClientID != "" {
+		exists, err := consoleClient.ConsoleClientExists(ctx, consoleClientID)
+		if err != nil {
+			return false, fmt.Errorf("probe keycloak console client %s: %w", consoleClientID, err)
+		}
+		if exists {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// reconcileRouteResources exposes a tenant gateway through an OpenShift Route
+// (HAProxy passthrough) instead of the Gateway API. Passthrough is the least
+// invasive mode: the gateway pod already terminates TLS with its per-tenant
+// self-signed CA and performs client mTLS, so HAProxy forwards the encrypted
+// connection end-to-end (SNI-routed) with no wildcard cert, cert-manager
+// ClusterIssuer, or external DNS integration required. This is the ingress mode
+// used where the Gateway API/Istio cannot run (e.g. IBM Cloud ROKS).
+func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
+	namespace := nsConfig.Name
+
+	hostname, err := deriveGatewayHostname(nsConfig)
+	if err != nil {
+		log.Printf("WARN %v", err)
+		return nil
+	}
+
+	publishRouteAddress(ctx, opts, namespace, hostname)
+
+	route := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "route.openshift.io/v1",
+			"kind":       "Route",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+				"annotations": map[string]interface{}{
+					// gRPC streams are long-lived; extend the router timeout well
+					// beyond the 30s default so streams are not torn down.
+					"haproxy.router.openshift.io/timeout": "3600s",
+				},
+			},
+			"spec": map[string]interface{}{
+				"host": hostname,
+				"to": map[string]interface{}{
+					"kind":   "Service",
+					"name":   "openshell-gateway",
+					"weight": int64(100),
+				},
+				"port": map[string]interface{}{
+					"targetPort": "grpc",
+				},
+				"tls": map[string]interface{}{
+					// Passthrough preserves the gateway pod's own TLS + client
+					// mTLS end-to-end. No router-side certificate is involved.
+					"termination":                   "passthrough",
+					"insecureEdgeTerminationPolicy": "None",
+				},
+				"wildcardPolicy": "None",
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, route); err != nil {
+		return fmt.Errorf("reconcile Route: %w", err)
+	}
+
+	// Allow ingress from the OpenShift router namespace to the gateway ports.
+	routerNS := gatewayIngressNamespace()
+	ingressRule := map[string]interface{}{
+		"ports": []interface{}{
+			map[string]interface{}{
+				"port":     int64(8080),
+				"protocol": "TCP",
+			},
+			map[string]interface{}{
+				"port":     int64(8081),
+				"protocol": "TCP",
+			},
+		},
+		"from": []interface{}{
+			map[string]interface{}{
+				"namespaceSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"kubernetes.io/metadata.name": routerNS,
+					},
+				},
+			},
+		},
+	}
+
+	routerNetpol := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.k8s.io/v1",
+			"kind":       "NetworkPolicy",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-allow-router",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"podSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"app.kubernetes.io/instance": "openshell-gateway",
+						"app.kubernetes.io/name":     "openshell",
+					},
+				},
+				"policyTypes": []interface{}{"Ingress"},
+				"ingress":     []interface{}{ingressRule},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, routerNetpol); err != nil {
+		log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
+	}
+
+	log.Printf("INFO Route resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
+	return nil
+}
+
+func deleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, namespace string, opts ReconcileOpts) error {
+	routeGVR := schema.GroupVersionResource{
+		Group:    "route.openshift.io",
+		Version:  "v1",
+		Resource: "routes",
+	}
+	if err := dynamicClient.Resource(routeGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		log.Printf("WARN failed to delete Route: %v", err)
 	}
 
 	netpolGVR := schema.GroupVersionResource{
@@ -267,13 +623,21 @@ func deleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		}
 	}
 
-	log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
+	log.Printf("INFO Route resources removed from namespace %s", namespace)
 	return nil
 }
 
-func namespaceExists(ctx context.Context, clientset *kubernetes.Clientset, namespace string) bool {
+func NamespaceExists(ctx context.Context, clientset *kubernetes.Clientset, namespace string) bool {
 	_, err := clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	return err == nil
+}
+
+func namespaceExists(ctx context.Context, clientset *kubernetes.Clientset, namespace string) bool {
+	return NamespaceExists(ctx, clientset, namespace)
+}
+
+func CreateManagedNamespace(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
+	return createNamespace(ctx, clientset, namespace)
 }
 
 func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
@@ -281,8 +645,8 @@ func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, names
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "hypershell-control-plane",
-				"hypershell.redhat.io/managed": "true",
+				ManagedByLabel: ManagedByValue,
+				ManagedLabel:   ManagedLabelValue,
 			},
 		},
 	}
@@ -310,7 +674,6 @@ func deployGateway(
 		"serviceaccount.yaml",
 		"configmap.yaml",
 		"certgen-job.yaml",
-		"database.yaml",
 		"service.yaml",
 		"deployment.yaml",
 		"networkpolicy.yaml",
@@ -324,24 +687,12 @@ func deployGateway(
 		}
 
 		for _, manifest := range resources {
-			// Dev clusters skip the per-tenant gateway NetworkPolicies (they
-			// would blackhole ingress from an out-of-cluster proxy whose source
-			// IP no selector can match). This drops the netpol docs in both
-			// networkpolicy.yaml and database.yaml while keeping the rest.
 			if opts.SkipNetworkPolicies && manifest.GetKind() == "NetworkPolicy" {
 				logNetworkPoliciesDisabled()
 				continue
 			}
 
-			// Apply database overrides on a copy first so that
-			// DB_IMAGE_PLACEHOLDER is resolved before the generic
-			// IMAGE_PLACEHOLDER replacement runs (substring overlap).
-			raw := manifest.DeepCopy()
-			if err := ApplyDatabaseOverrides(raw, nsConfig.Gateway.Database, images); err != nil {
-				return fmt.Errorf("apply database overrides for %s: %w", filename, err)
-			}
-
-			obj, err := ApplyManifestToNamespace(raw, nsConfig.Name, nsConfig.Gateway, images)
+			obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, nsConfig.Gateway, images)
 			if err != nil {
 				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
 			}
@@ -367,12 +718,6 @@ func deployGateway(
 			}
 
 			log.Printf("DEBUG reconciled %s %s in %s", obj.GetKind(), obj.GetName(), nsConfig.Name)
-		}
-
-		if filename == "database.yaml" {
-			if err := waitForDeploymentReady(ctx, clientset, nsConfig.Name, "openshell-gateway-db", 2*time.Minute); err != nil {
-				return fmt.Errorf("wait for database in %s: %w", nsConfig.Name, err)
-			}
 		}
 	}
 
@@ -491,33 +836,6 @@ func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, n
 	}
 }
 
-func waitForDeploymentReady(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
-	deadline := time.After(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline:
-			return fmt.Errorf("timed out waiting for deployment %s/%s to become ready", namespace, name)
-		case <-ticker.C:
-			deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-			if err != nil {
-				if !k8serrors.IsNotFound(err) {
-					log.Printf("WARN error checking deployment %s/%s readiness: %v", namespace, name, err)
-				}
-				continue
-			}
-			if deploy.Spec.Replicas != nil && deploy.Status.ReadyReplicas >= *deploy.Spec.Replicas {
-				log.Printf("INFO deployment %s/%s is ready", namespace, name)
-				return nil
-			}
-		}
-	}
-}
-
 func reconcileResource(ctx context.Context, dynamicClient dynamic.Interface, obj *unstructured.Unstructured) error {
 	gvk := obj.GroupVersionKind()
 	gvr := schema.GroupVersionResource{
@@ -592,7 +910,12 @@ func kindToResource(kind string) string {
 		"Certificate":           "certificates",
 		"Gateway":               "gateways",
 		"GRPCRoute":             "grpcroutes",
+		"HTTPRoute":             "httproutes",
 		"BackendTLSPolicy":      "backendtlspolicies",
+		"Route":                 "routes",
+		"Cluster":               "clusters",
+		"Database":              "databases",
+		"DatabaseRole":          "databaseroles",
 	}
 
 	if resource, ok := mapping[kind]; ok {
@@ -811,12 +1134,6 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		"name": "trusted-ca",
 		"configMap": map[string]interface{}{
 			"name": "gateway-trusted-ca",
-			"items": []interface{}{
-				map[string]interface{}{
-					"key":  "ca-bundle.crt",
-					"path": "ca-bundle.crt",
-				},
-			},
 		},
 	}
 	volumes = append(volumes, caVolume)
@@ -839,7 +1156,7 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		volumeMounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
 		volumeMounts = append(volumeMounts, map[string]interface{}{
 			"name":      "trusted-ca",
-			"mountPath": "/etc/pki/tls/certs/ca-bundle.crt",
+			"mountPath": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
 			"subPath":   "ca-bundle.crt",
 			"readOnly":  true,
 		})
@@ -848,7 +1165,7 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 		env, _, _ := unstructured.NestedSlice(container, "env")
 		env = append(env, map[string]interface{}{
 			"name":  "SSL_CERT_FILE",
-			"value": "/etc/pki/tls/certs/ca-bundle.crt",
+			"value": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
 		})
 		_ = unstructured.SetNestedSlice(container, env, "env")
 
@@ -857,57 +1174,263 @@ func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
 	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 }
 
-func reconcileDatabaseCredentials(ctx context.Context, clientset *kubernetes.Clientset, namespace string, dbImage string) error {
-	secretName := "openshell-gateway-db-credentials"
-	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
-	if err == nil {
-		log.Printf("DEBUG database credentials secret %s already exists in %s, skipping", secretName, namespace)
-		return nil
+func cnpgResourceName(gatewayID string) string {
+	return "gw-" + strings.ToLower(gatewayID)
+}
+
+func cnpgPGName(gatewayID string) string {
+	return "gw_" + strings.ToLower(gatewayID)
+}
+
+func reconcileCNPGDatabaseResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
+	tenantNamespace string,
+	gatewayID string,
+	cnpg CNPGConfig,
+) error {
+	crName := cnpgResourceName(gatewayID)
+	pgName := cnpgPGName(gatewayID)
+	passwordSecretName := crName + "-credentials"
+
+	log.Printf("INFO CNPG provisioning: gateway=%s cr=%s db=%s cluster=%s/%s tenant=%s",
+		gatewayID, crName, pgName, cnpg.ClusterNamespace, cnpg.ClusterName, tenantNamespace)
+
+	_, err := clientset.CoreV1().Secrets(cnpg.ClusterNamespace).Get(ctx, passwordSecretName, metav1.GetOptions{})
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("get CNPG password secret: %w", err)
+		}
+
+		passwordBytes := make([]byte, 32)
+		if _, err := rand.Read(passwordBytes); err != nil {
+			return fmt.Errorf("generate database password: %w", err)
+		}
+		password := hex.EncodeToString(passwordBytes)
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      passwordSecretName,
+				Namespace: cnpg.ClusterNamespace,
+				Labels: map[string]string{
+					"cnpg.io/reload":                         "true",
+					"hypershell.redhat.io/managed":           "true",
+					"hypershell.redhat.io/gateway-namespace": tenantNamespace,
+				},
+			},
+			Type: corev1.SecretTypeBasicAuth,
+			StringData: map[string]string{
+				"username": pgName,
+				"password": password,
+			},
+		}
+		if _, err := clientset.CoreV1().Secrets(cnpg.ClusterNamespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create CNPG password secret: %w", err)
+		}
+		log.Printf("INFO created CNPG password secret %s in %s", passwordSecretName, cnpg.ClusterNamespace)
+	} else {
+		log.Printf("DEBUG CNPG password secret %s already exists in %s, skipping creation", passwordSecretName, cnpg.ClusterNamespace)
 	}
-	if !k8serrors.IsNotFound(err) {
-		return fmt.Errorf("get database credentials secret: %w", err)
-	}
 
-	passwordBytes := make([]byte, 32)
-	if _, err := rand.Read(passwordBytes); err != nil {
-		return fmt.Errorf("generate database password: %w", err)
-	}
-	password := hex.EncodeToString(passwordBytes)
-
-	dbUser := "openshell"
-	dbName := "openshell"
-	dbHost := "openshell-gateway-db"
-	dbURL := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-		dbUser, url.QueryEscape(password), dbHost, dbName)
-
-	userKey, passKey, dbKey := postgresEnvKeys(dbImage)
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/name":       "openshell",
-				"app.kubernetes.io/component":  "database",
-				"app.kubernetes.io/managed-by": "hypershell-control-plane",
-				"hypershell.redhat.io/managed": "true",
+	log.Printf("INFO reconciling CNPG DatabaseRole %s in %s (cluster=%s)", crName, cnpg.ClusterNamespace, cnpg.ClusterName)
+	role := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "postgresql.cnpg.io/v1",
+			"kind":       "DatabaseRole",
+			"metadata": map[string]interface{}{
+				"name":      crName,
+				"namespace": cnpg.ClusterNamespace,
+				"labels": map[string]interface{}{
+					"hypershell.redhat.io/managed":           "true",
+					"hypershell.redhat.io/gateway-namespace": tenantNamespace,
+				},
+			},
+			"spec": map[string]interface{}{
+				"cluster": map[string]interface{}{
+					"name": cnpg.ClusterName,
+				},
+				"name":  pgName,
+				"login": true,
+				"passwordSecret": map[string]interface{}{
+					"name": passwordSecretName,
+				},
+				"databaseRoleReclaimPolicy": "delete",
 			},
 		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			userKey: dbUser,
-			passKey: password,
-			dbKey:   dbName,
-			"url":   dbURL,
+	}
+	if err := reconcileResource(ctx, dynamicClient, role); err != nil {
+		return fmt.Errorf("reconcile CNPG DatabaseRole: %w", err)
+	}
+
+	log.Printf("INFO reconciling CNPG Database %s in %s (owner=%s)", crName, cnpg.ClusterNamespace, pgName)
+	db := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "postgresql.cnpg.io/v1",
+			"kind":       "Database",
+			"metadata": map[string]interface{}{
+				"name":      crName,
+				"namespace": cnpg.ClusterNamespace,
+				"labels": map[string]interface{}{
+					"hypershell.redhat.io/managed":           "true",
+					"hypershell.redhat.io/gateway-namespace": tenantNamespace,
+				},
+			},
+			"spec": map[string]interface{}{
+				"cluster": map[string]interface{}{
+					"name": cnpg.ClusterName,
+				},
+				"name":                  pgName,
+				"owner":                 pgName,
+				"databaseReclaimPolicy": "delete",
+			},
 		},
 	}
-
-	if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("create database credentials secret: %w", err)
+	if err := reconcileResource(ctx, dynamicClient, db); err != nil {
+		return fmt.Errorf("reconcile CNPG Database: %w", err)
 	}
 
-	log.Printf("INFO created database credentials secret %s in %s (password length=%d)", secretName, namespace, len(password))
+	log.Printf("INFO waiting for CNPG Database %s/%s to become ready (timeout=2m)", cnpg.ClusterNamespace, crName)
+	if err := waitForCNPGDatabase(ctx, dynamicClient, cnpg.ClusterNamespace, crName, 2*time.Minute); err != nil {
+		return fmt.Errorf("wait for CNPG database: %w", err)
+	}
+
+	gwSecretName := "openshell-gateway-db-credentials"
+	_, err = clientset.CoreV1().Secrets(tenantNamespace).Get(ctx, gwSecretName, metav1.GetOptions{})
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("get gateway credentials secret: %w", err)
+		}
+
+		cnpgSecret, err := clientset.CoreV1().Secrets(cnpg.ClusterNamespace).Get(ctx, passwordSecretName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("read CNPG password secret: %w", err)
+		}
+		passwordBytes, ok := cnpgSecret.Data["password"]
+		if !ok || len(passwordBytes) == 0 {
+			return fmt.Errorf("CNPG password secret %s/%s has no password key", cnpg.ClusterNamespace, passwordSecretName)
+		}
+		password := string(passwordBytes)
+
+		host := fmt.Sprintf("%s-rw.%s.svc.cluster.local", cnpg.ClusterName, cnpg.ClusterNamespace)
+		dbURI := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require",
+			pgName, url.QueryEscape(password), host, pgName)
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      gwSecretName,
+				Namespace: tenantNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "database",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+			StringData: map[string]string{
+				"host":     host,
+				"port":     "5432",
+				"dbname":   pgName,
+				"user":     pgName,
+				"password": password,
+				"uri":      dbURI,
+			},
+		}
+		if _, err := clientset.CoreV1().Secrets(tenantNamespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create gateway credentials secret: %w", err)
+		}
+		log.Printf("INFO created gateway credentials secret %s in %s (host=%s db=%s)", gwSecretName, tenantNamespace, host, pgName)
+	} else {
+		log.Printf("DEBUG gateway credentials secret %s already exists in %s, skipping creation", gwSecretName, tenantNamespace)
+	}
+
+	log.Printf("INFO CNPG database provisioning complete for gateway %s in %s", gatewayID, tenantNamespace)
 	return nil
+}
+
+func waitForCNPGDatabase(ctx context.Context, dynamicClient dynamic.Interface, namespace, name string, timeout time.Duration) error {
+	databaseGVR := schema.GroupVersionResource{
+		Group:    "postgresql.cnpg.io",
+		Version:  "v1",
+		Resource: "databases",
+	}
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for CNPG Database %s/%s to become ready", namespace, name)
+		case <-ticker.C:
+			obj, err := dynamicClient.Resource(databaseGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				if k8serrors.IsNotFound(err) {
+					log.Printf("DEBUG CNPG Database %s/%s not found yet, waiting...", namespace, name)
+				} else {
+					log.Printf("WARN error checking CNPG Database %s/%s: %v", namespace, name, err)
+				}
+				continue
+			}
+			applied, _, _ := unstructured.NestedBool(obj.Object, "status", "applied")
+			if applied {
+				log.Printf("INFO CNPG Database %s/%s is ready (status.applied=true)", namespace, name)
+				return nil
+			}
+			log.Printf("DEBUG CNPG Database %s/%s exists but not ready (status.applied=%v)", namespace, name, applied)
+		}
+	}
+}
+
+func deleteCNPGResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	clientset *kubernetes.Clientset,
+	gatewayID string,
+	cnpg CNPGConfig,
+) {
+	crName := cnpgResourceName(gatewayID)
+	ns := cnpg.ClusterNamespace
+	log.Printf("INFO deleting CNPG resources for gateway %s: cr=%s namespace=%s", gatewayID, crName, ns)
+
+	databaseGVR := schema.GroupVersionResource{
+		Group:    "postgresql.cnpg.io",
+		Version:  "v1",
+		Resource: "databases",
+	}
+	if err := dynamicClient.Resource(databaseGVR).Namespace(ns).Delete(ctx, crName, metav1.DeleteOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete CNPG Database %s: %v", crName, err)
+		}
+	} else {
+		log.Printf("INFO deleted CNPG Database %s from %s", crName, ns)
+	}
+
+	roleGVR := schema.GroupVersionResource{
+		Group:    "postgresql.cnpg.io",
+		Version:  "v1",
+		Resource: "databaseroles",
+	}
+	if err := dynamicClient.Resource(roleGVR).Namespace(ns).Delete(ctx, crName, metav1.DeleteOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete CNPG DatabaseRole %s: %v", crName, err)
+		}
+	} else {
+		log.Printf("INFO deleted CNPG DatabaseRole %s from %s", crName, ns)
+	}
+
+	passwordSecretName := crName + "-credentials"
+	if err := clientset.CoreV1().Secrets(ns).Delete(ctx, passwordSecretName, metav1.DeleteOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			log.Printf("WARN failed to delete CNPG password secret %s: %v", passwordSecretName, err)
+		}
+	} else {
+		log.Printf("INFO deleted CNPG password secret %s from %s", passwordSecretName, ns)
+	}
 }
 
 func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *NamespaceConfig) error {
@@ -932,7 +1455,10 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	}
 
 	if existingUUID != "" {
-		log.Printf("INFO keycloak client %s already exists (uuid=%s), skipping provisioning", kcClientID, existingUUID)
+		if err := kc.EnsureDeviceAuthorizationGrant(ctx, existingUUID); err != nil {
+			return fmt.Errorf("reconcile device authorization grant on keycloak client %s: %w", kcClientID, err)
+		}
+		log.Printf("INFO reconciled keycloak client %s (uuid=%s)", kcClientID, existingUUID)
 	} else {
 		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)
 		if err != nil {
@@ -973,16 +1499,23 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	return nil
 }
 
-func rotateDatabaseCredentials(ctx context.Context, clientset *kubernetes.Clientset, namespace string, dbImage string, rotateTimestamp string) error {
-	secretName := "openshell-gateway-db-credentials"
-	existing, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+func rotateCNPGDatabaseCredentials(
+	ctx context.Context,
+	clientset *kubernetes.Clientset,
+	tenantNamespace string,
+	gatewayID string,
+	cnpg CNPGConfig,
+	rotateTimestamp string,
+) error {
+	gwSecretName := "openshell-gateway-db-credentials"
+	existing, err := clientset.CoreV1().Secrets(tenantNamespace).Get(ctx, gwSecretName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("get database credentials secret for rotation: %w", err)
+		return fmt.Errorf("get gateway credentials secret for rotation: %w", err)
 	}
 
 	lastRotation := existing.Annotations["hypershell.redhat.io/last-db-rotation"]
 	if lastRotation == rotateTimestamp {
-		log.Printf("DEBUG database credentials in %s already rotated at %s, skipping", namespace, rotateTimestamp)
+		log.Printf("DEBUG database credentials in %s already rotated at %s, skipping", tenantNamespace, rotateTimestamp)
 		return nil
 	}
 
@@ -992,69 +1525,37 @@ func rotateDatabaseCredentials(ctx context.Context, clientset *kubernetes.Client
 	}
 	newPassword := hex.EncodeToString(passwordBytes)
 
-	userKey, passKey, _ := postgresEnvKeys(dbImage)
-	dbUser := string(existing.Data[userKey])
-	if dbUser == "" {
-		dbUser = "openshell"
-	}
+	crName := cnpgResourceName(gatewayID)
+	pgName := cnpgPGName(gatewayID)
+	passwordSecretName := crName + "-credentials"
 
-	dbHost := fmt.Sprintf("openshell-gateway-db.%s.svc.cluster.local", namespace)
-	connStr := fmt.Sprintf("postgresql://%s:%s@%s:5432/openshell?sslmode=disable&connect_timeout=10",
-		dbUser, url.QueryEscape(string(existing.Data[passKey])), dbHost)
-
-	db, err := sql.Open("postgres", connStr)
+	cnpgSecret, err := clientset.CoreV1().Secrets(cnpg.ClusterNamespace).Get(ctx, passwordSecretName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("open database connection for rotation: %w", err)
+		return fmt.Errorf("get CNPG password secret for rotation: %w", err)
 	}
-	defer func() { _ = db.Close() }()
-
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER ROLE %s WITH PASSWORD %s", pq.QuoteIdentifier(dbUser), pq.QuoteLiteral(newPassword))); err != nil {
-		return fmt.Errorf("ALTER ROLE during credential rotation: %w", err)
+	cnpgSecret.Data["password"] = []byte(newPassword)
+	if _, err := clientset.CoreV1().Secrets(cnpg.ClusterNamespace).Update(ctx, cnpgSecret, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update CNPG password secret: %w", err)
 	}
-	log.Printf("INFO executed ALTER ROLE for user %s in %s", dbUser, namespace)
+	log.Printf("INFO updated CNPG password secret %s in %s", passwordSecretName, cnpg.ClusterNamespace)
 
-	dbName := "openshell"
-	dbURL := fmt.Sprintf("postgresql://%s:%s@openshell-gateway-db:5432/%s?sslmode=disable",
-		dbUser, url.QueryEscape(newPassword), dbName)
+	host := fmt.Sprintf("%s-rw.%s.svc.cluster.local", cnpg.ClusterName, cnpg.ClusterNamespace)
+	newURI := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require",
+		pgName, url.QueryEscape(newPassword), host, pgName)
 
-	existing.Data[passKey] = []byte(newPassword)
-	existing.Data["url"] = []byte(dbURL)
+	existing.Data["password"] = []byte(newPassword)
+	existing.Data["uri"] = []byte(newURI)
 	if existing.Annotations == nil {
 		existing.Annotations = make(map[string]string)
 	}
 	existing.Annotations["hypershell.redhat.io/last-db-rotation"] = rotateTimestamp
 
-	if _, err := clientset.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update database credentials secret after rotation: %w", err)
+	if _, err := clientset.CoreV1().Secrets(tenantNamespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update gateway credentials secret after rotation: %w", err)
 	}
 
-	log.Printf("INFO rotated database credentials in %s (timestamp=%s)", namespace, rotateTimestamp)
+	log.Printf("INFO rotated database credentials in %s (timestamp=%s)", tenantNamespace, rotateTimestamp)
 	return nil
-}
-
-func isRHELPostgres(image string) bool {
-	return strings.Contains(image, "rhel") && strings.Contains(image, "postgresql-")
-}
-
-func postgresEnvKeys(image string) (userKey, passKey, dbKey string) {
-	if isRHELPostgres(image) {
-		return "POSTGRESQL_USER", "POSTGRESQL_PASSWORD", "POSTGRESQL_DATABASE"
-	}
-	return "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"
-}
-
-func postgresDataPath(image string) string {
-	if isRHELPostgres(image) {
-		return "/var/lib/pgsql/data"
-	}
-	return "/var/lib/postgresql/data"
-}
-
-func postgresPGDataPath(image string) string {
-	if isRHELPostgres(image) {
-		return "/var/lib/pgsql/data"
-	}
-	return "/var/lib/postgresql/data/pgdata"
 }
 
 // reconcileCredentialKEK uses create-or-skip (not update-or-create) because
@@ -1237,6 +1738,22 @@ func DetectCertManager(clientset *kubernetes.Clientset) bool {
 	return false
 }
 
+func DetectCNPG(clientset *kubernetes.Clientset) bool {
+	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
+	if err != nil {
+		log.Printf("WARN failed to discover API groups for CNPG detection: %v", err)
+		return false
+	}
+	for _, list := range resources {
+		if strings.HasPrefix(list.GroupVersion, "postgresql.cnpg.io/") {
+			log.Printf("INFO CNPG operator detected: %s", list.GroupVersion)
+			return true
+		}
+	}
+	log.Printf("WARN CNPG operator not detected: postgresql.cnpg.io API group not found in cluster discovery")
+	return false
+}
+
 func DetectGatewayAPI(clientset *kubernetes.Clientset) bool {
 	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
 	if err != nil {
@@ -1267,6 +1784,122 @@ func gatewayIngressName() string {
 		return name
 	}
 	return ""
+}
+
+// Ingress modes select how a tenant gateway is exposed for external traffic.
+// Exported so the controller entrypoint can select the matching Gateway Exposure
+// adapter (Gateway API vs Route) by the same rule the reconciler uses to emit
+// ingress resources.
+const (
+	IngressModeGatewayAPI = "gateway-api"
+	IngressModeRoute      = "route"
+	IngressModeNone       = ""
+)
+
+// IngressMode resolves how tenant-gateway ingress is provisioned from
+// GATEWAY_INGRESS_MODE, falling back to a capability-based default.
+//
+// HyperShell is environment-adaptive: it emits Kubernetes Gateway API resources
+// (a GRPCRoute onto a shared Gateway) where the Gateway API is available and
+// functional, and OpenShift Routes (HAProxy passthrough) where it is not (e.g.
+// IBM Cloud ROKS, which ships the Gateway API CRDs but cannot run the
+// CIO-managed Istio). The mode is chosen per environment via the kustomize-set
+// env var GATEWAY_INGRESS_MODE, with a sensible capability-based default when it
+// is unset.
+//
+// GATEWAY_INGRESS_MODE values: "gateway-api", "route", or "none"/"off" to
+// disable managed ingress. When unset, auto-detect: prefer the Gateway API when
+// present, otherwise fall back to Routes on OpenShift. Note that on some
+// platforms the Gateway API CRDs exist but do not function (ROKS); those
+// operators must set GATEWAY_INGRESS_MODE=route explicitly.
+//
+// This is the single source of truth for ingress-mode selection: both the
+// reconciler (which ingress resources to emit) and the controller entrypoint
+// (which exposure adapter to observe readiness through) resolve the mode here,
+// so the emitted resource and the observed resource cannot diverge -- the ROKS
+// bug where a Route-exposed gateway was observed through the Gateway API adapter
+// (because the Gateway API CRDs happened to be present) is thereby impossible.
+func IngressMode(hasGatewayAPI, isOpenShift bool) string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_INGRESS_MODE"))) {
+	case IngressModeGatewayAPI, "gatewayapi":
+		return IngressModeGatewayAPI
+	case IngressModeRoute, "routes":
+		return IngressModeRoute
+	case "none", "off", "disabled":
+		return IngressModeNone
+	}
+
+	// Auto-detect from cluster capabilities when no explicit override is set.
+	if hasGatewayAPI {
+		return IngressModeGatewayAPI
+	}
+	if isOpenShift {
+		return IngressModeRoute
+	}
+	return IngressModeNone
+}
+
+// gatewayIngressMode resolves the ingress mode for a reconcile pass from the
+// detected cluster capabilities carried on opts.
+func gatewayIngressMode(opts ReconcileOpts) string {
+	return IngressMode(opts.HasGatewayAPI, opts.IsOpenShift)
+}
+
+// deriveGatewayHostname resolves the external hostname for a tenant gateway,
+// shared by both ingress modes. An explicit Route.Host wins; otherwise it is
+// derived as gw-<namespace>.<GATEWAY_API_BASE_DOMAIN>. The gateway's server
+// certificate SANs (ServerDnsNames/ExternalDns) must cover this hostname.
+func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
+	baseDomain := os.Getenv("GATEWAY_API_BASE_DOMAIN")
+	if h := nsConfig.Gateway.Route.Host; h != "" {
+		// An explicit host that falls under the operator's shared base domain
+		// MUST be this tenant's own slot (gw-<namespace>.<base-domain>).
+		// Otherwise a tenant could set Route.Host to another tenant's derived
+		// host and hijack its route under the shared wildcard, since OpenShift
+		// Route host claiming is first-come. Hosts outside the base domain
+		// (genuine external/vanity names) are the operator's responsibility and
+		// pass through; empty base domain means no shared wildcard to protect.
+		if baseDomain != "" && strings.HasSuffix(h, "."+baseDomain) {
+			expected := fmt.Sprintf("gw-%s.%s", nsConfig.Name, baseDomain)
+			if h != expected {
+				return "", fmt.Errorf("route host %q under base domain %q must equal %q for namespace %q", h, baseDomain, expected, nsConfig.Name)
+			}
+		}
+		return h, nil
+	}
+	if baseDomain == "" {
+		return "", fmt.Errorf("cannot derive gateway hostname: set Route.Host or GATEWAY_API_BASE_DOMAIN")
+	}
+	return fmt.Sprintf("gw-%s.%s", nsConfig.Name, baseDomain), nil
+}
+
+// appendDNSNameIfMissing returns names with hostname appended, unless it is
+// empty or already present. Used to add the derived ingress hostname to the
+// gateway server certificate SANs without duplicating it.
+func appendDNSNameIfMissing(names []string, hostname string) []string {
+	if hostname == "" {
+		return names
+	}
+	for _, n := range names {
+		if n == hostname {
+			return names
+		}
+	}
+	return append(names, hostname)
+}
+
+// publishRouteAddress writes the externally reachable gRPC address back to the
+// API-server Gateway resource. Shared by both ingress modes.
+func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hostname string) {
+	if opts.UpdateRouteAddress == nil {
+		return
+	}
+	routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
+	if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+		log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+	} else {
+		log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+	}
 }
 
 func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
@@ -1351,6 +1984,28 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 
 	if err := waitForSecret(ctx, clientset, namespace, "openshell-server-tls", 60*time.Second); err != nil {
 		return fmt.Errorf("wait for server TLS secret in %s: %w", namespace, err)
+	}
+
+	// The wait above can run for up to a minute. A route removal (or gateway
+	// deletion) during it is observed only by the independent health loop -- the
+	// watcher phase gate blocks a re-provision -- which tears down this gateway's
+	// route and console. Re-check live route intent before creating the remaining
+	// route- and console-owned resources so this in-flight pass does not race that
+	// teardown. Fail closed: unknown intent must not authorize new resources, so a
+	// check error aborts the pass (the gateway parks at Failed and is retried on
+	// the next watch resync) rather than risk creating resources behind a
+	// concurrent teardown. The health loop's route teardown verifies actual
+	// resource absence (RouteResourcesAbsent), so it still removes anything a
+	// narrow check-then-act window lets slip through.
+	if opts.RouteStillDesired != nil {
+		desired, err := opts.RouteStillDesired(ctx)
+		if err != nil {
+			return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+		}
+		if !desired {
+			log.Printf("INFO gateway in %s no longer routed after TLS wait; skipping route/console resource creation (health loop owns teardown)", namespace)
+			return nil
+		}
 	}
 
 	caData := ""
@@ -1495,6 +2150,17 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	// The route address is published deterministically at the top of this
 	// function, so no readiness-gated discovery is required here.
 
+	// The console follows the route: it is deployed in the same pass that creates
+	// the route resources. A console failure must not fail the gateway route
+	// reconciliation, so it is logged and the reconcile continues.
+	images := opts.Images
+	if images == nil {
+		images = StaticImageDefaults{}
+	}
+	if err := reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images); err != nil {
+		log.Printf("WARN failed to reconcile console in %s: %v", namespace, err)
+	}
+
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
 	return nil
 }
@@ -1541,9 +2207,10 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 				},
 			},
 			"spec": map[string]interface{}{
-				"isCA":       true,
-				"commonName": "openshell-ca",
-				"secretName": "openshell-ca-tls",
+				"isCA":           true,
+				"commonName":     "openshell-ca",
+				"secretName":     "openshell-ca-tls",
+				"rotationPolicy": "Always",
 				"privateKey": map[string]interface{}{
 					"algorithm": "ECDSA",
 					"size":      int64(256),
@@ -1619,6 +2286,14 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 		return fmt.Errorf("reconcile server certificate: %w", err)
 	}
 
+	// The client certificate is NOT for external-client mTLS (external clients
+	// authenticate via OIDC over the Route). It exists so sandbox runners can
+	// verify the gateway's TLS server cert: openshell 0.0.109's Kubernetes driver
+	// mounts this secret into every sandbox and sets OPENSHELL_TLS_CA from its
+	// ca.crt whenever gateway.toml sets client_tls_secret_name. Because it is
+	// issued by the same openshell-ca-issuer as the server cert, its ca.crt
+	// chains to the gateway's server certificate. Without it the sandbox agent
+	// crashloops ("OPENSHELL_TLS_CA is required") and never reaches Ready.
 	clientCert := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "cert-manager.io/v1",

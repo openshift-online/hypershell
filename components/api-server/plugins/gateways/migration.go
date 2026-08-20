@@ -42,7 +42,6 @@ func migrationAddProvisioningFields() *gormigrate.Migration {
 		RouteAddress   *string
 		Oidc           *string `gorm:"type:jsonb"`
 		Route          *string `gorm:"type:jsonb"`
-		DatabaseConfig *string `gorm:"type:jsonb"`
 	}
 
 	return &gormigrate.Migration{
@@ -51,7 +50,7 @@ func migrationAddProvisioningFields() *gormigrate.Migration {
 			return tx.AutoMigrate(&Gateway{})
 		},
 		Rollback: func(tx *gorm.DB) error {
-			for _, col := range []string{"image", "server_dns_names", "route_address", "oidc", "route", "database_config"} {
+			for _, col := range []string{"image", "server_dns_names", "route_address", "oidc", "route"} {
 				if err := tx.Migrator().DropColumn(&Gateway{}, col); err != nil {
 					return err
 				}
@@ -91,6 +90,57 @@ func migrationAddSupervisorImage() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Migrator().DropColumn(&Gateway{}, "supervisor_image")
+		},
+	}
+}
+
+func migrationAddConsoleAddress() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		ConsoleAddress *string
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026081112000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "console_address")
+		},
+	}
+}
+
+func migrationAddActiveSandboxCount() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		ActiveSandboxCount *int
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026081712000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "active_sandbox_count")
+		},
+	}
+}
+
+func migrationDropDatabaseConfig() *gormigrate.Migration {
+	type Gateway struct{ db.Model }
+
+	return &gormigrate.Migration{
+		ID: "2026082012000001",
+		Migrate: func(tx *gorm.DB) error {
+			if tx.Migrator().HasColumn(&Gateway{}, "database_config") {
+				return tx.Migrator().DropColumn(&Gateway{}, "database_config")
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
 		},
 	}
 }

@@ -19,7 +19,6 @@ Name | Type | Description | Notes
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
 
 ## Methods
@@ -390,31 +389,6 @@ SetRoute sets Route field to given value.
 `func (o *GatewayCreateRequest) HasRoute() bool`
 
 HasRoute returns a boolean if a field has been set.
-
-### GetDatabaseConfig
-
-`func (o *GatewayCreateRequest) GetDatabaseConfig() string`
-
-GetDatabaseConfig returns the DatabaseConfig field if non-nil, zero value otherwise.
-
-### GetDatabaseConfigOk
-
-`func (o *GatewayCreateRequest) GetDatabaseConfigOk() (*string, bool)`
-
-GetDatabaseConfigOk returns a tuple with the DatabaseConfig field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetDatabaseConfig
-
-`func (o *GatewayCreateRequest) SetDatabaseConfig(v string)`
-
-SetDatabaseConfig sets DatabaseConfig field to given value.
-
-### HasDatabaseConfig
-
-`func (o *GatewayCreateRequest) HasDatabaseConfig() bool`
-
-HasDatabaseConfig returns a boolean if a field has been set.
 
 ### GetCredentialDriver
 

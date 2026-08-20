@@ -119,6 +119,9 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Image != nil {
 				found.Image = patch.Image
 			}
+			if patch.SupervisorImage != nil {
+				found.SupervisorImage = patch.SupervisorImage
+			}
 			if len(patch.ServerDnsNames) > 0 {
 				data, _ := json.Marshal(patch.ServerDnsNames)
 				s := string(data)
@@ -127,14 +130,21 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.RouteAddress != nil {
 				found.RouteAddress = patch.RouteAddress
 			}
+			// console_address is a control-plane-owned, readOnly field. It is the
+			// trusted "Open gateway console" link shown to viewers, so it must not
+			// be settable through the public REST PATCH (a gateway owner could
+			// otherwise store an arbitrary phishing URL). It is written only via
+			// the internal gRPC UpdateGateway path used by the control plane.
+			// active_sandbox_count is a control-plane-owned observability signal
+			// written only via the gRPC AdjustActiveSandboxCount / SetActiveSandboxCount
+			// RPCs (readOnly on the REST Gateway schema); it is intentionally not
+			// settable via the public REST PATCH, and gRPC UpdateGateway refuses to
+			// mutate it as well.
 			if patch.Oidc != nil {
 				found.Oidc = patch.Oidc
 			}
 			if patch.Route != nil {
 				found.Route = patch.Route
-			}
-			if patch.DatabaseConfig != nil {
-				found.DatabaseConfig = patch.DatabaseConfig
 			}
 			if patch.CredentialDriver != nil {
 				if found.CredentialDriver != nil && *found.CredentialDriver != "" && *patch.CredentialDriver != *found.CredentialDriver {

@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RoleBindingService_WatchRoleBindings_FullMethodName = "/hypershell.v1.RoleBindingService/WatchRoleBindings"
+	RoleBindingService_ListRoleBindings_FullMethodName  = "/hypershell.v1.RoleBindingService/ListRoleBindings"
 )
 
 // RoleBindingServiceClient is the client API for RoleBindingService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RoleBindingServiceClient interface {
 	WatchRoleBindings(ctx context.Context, in *WatchRoleBindingsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchRoleBindingsResponse], error)
+	ListRoleBindings(ctx context.Context, in *ListRoleBindingsRequest, opts ...grpc.CallOption) (*ListRoleBindingsResponse, error)
 }
 
 type roleBindingServiceClient struct {
@@ -56,11 +58,22 @@ func (c *roleBindingServiceClient) WatchRoleBindings(ctx context.Context, in *Wa
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RoleBindingService_WatchRoleBindingsClient = grpc.ServerStreamingClient[WatchRoleBindingsResponse]
 
+func (c *roleBindingServiceClient) ListRoleBindings(ctx context.Context, in *ListRoleBindingsRequest, opts ...grpc.CallOption) (*ListRoleBindingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRoleBindingsResponse)
+	err := c.cc.Invoke(ctx, RoleBindingService_ListRoleBindings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RoleBindingServiceServer is the server API for RoleBindingService service.
 // All implementations must embed UnimplementedRoleBindingServiceServer
 // for forward compatibility.
 type RoleBindingServiceServer interface {
 	WatchRoleBindings(*WatchRoleBindingsRequest, grpc.ServerStreamingServer[WatchRoleBindingsResponse]) error
+	ListRoleBindings(context.Context, *ListRoleBindingsRequest) (*ListRoleBindingsResponse, error)
 	mustEmbedUnimplementedRoleBindingServiceServer()
 }
 
@@ -73,6 +86,9 @@ type UnimplementedRoleBindingServiceServer struct{}
 
 func (UnimplementedRoleBindingServiceServer) WatchRoleBindings(*WatchRoleBindingsRequest, grpc.ServerStreamingServer[WatchRoleBindingsResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchRoleBindings not implemented")
+}
+func (UnimplementedRoleBindingServiceServer) ListRoleBindings(context.Context, *ListRoleBindingsRequest) (*ListRoleBindingsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRoleBindings not implemented")
 }
 func (UnimplementedRoleBindingServiceServer) mustEmbedUnimplementedRoleBindingServiceServer() {}
 func (UnimplementedRoleBindingServiceServer) testEmbeddedByValue()                            {}
@@ -106,13 +122,36 @@ func _RoleBindingService_WatchRoleBindings_Handler(srv interface{}, stream grpc.
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RoleBindingService_WatchRoleBindingsServer = grpc.ServerStreamingServer[WatchRoleBindingsResponse]
 
+func _RoleBindingService_ListRoleBindings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRoleBindingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RoleBindingServiceServer).ListRoleBindings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RoleBindingService_ListRoleBindings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RoleBindingServiceServer).ListRoleBindings(ctx, req.(*ListRoleBindingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RoleBindingService_ServiceDesc is the grpc.ServiceDesc for RoleBindingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RoleBindingService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "hypershell.v1.RoleBindingService",
 	HandlerType: (*RoleBindingServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListRoleBindings",
+			Handler:    _RoleBindingService_ListRoleBindings_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "WatchRoleBindings",

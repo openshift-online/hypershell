@@ -336,6 +336,63 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
+  it("withholds the console button until the gateway is ready to connect", () => {
+    // The console button gates on the same readiness signal as the connection
+    // command, so while the gateway is still provisioning neither the enabled
+    // link nor the disabled placeholder button is rendered.
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          consoleUrl: "https://console.example.test",
+          phase: "Provisioning",
+          status: "",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(
+      screen.queryByRole("link", {
+        name: "Open console for Team gateway in a new tab",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Open console for Team gateway in a new tab",
+      }),
+    ).toBeNull();
+  });
+
+  it("shows a disabled console button while the console is still provisioning", () => {
+    // Once the gateway is ready to connect the button appears, but until the
+    // control plane publishes the console address it stays disabled (with a
+    // "Provisioning console..." tooltip) rather than hidden, so its eventual
+    // availability is discoverable.
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          consoleUrl: undefined,
+          phase: "Running",
+          status: "Ready",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    const consoleButton = screen.getByRole("button", {
+      name: "Open console for Team gateway in a new tab",
+    });
+    expect(consoleButton.getAttribute("aria-disabled")).toBe("true");
+    // It is a disabled button, not an actionable link, so it has no destination.
+    expect(
+      screen.queryByRole("link", {
+        name: "Open console for Team gateway in a new tab",
+      }),
+    ).toBeNull();
+  });
+
   it("encodes the active tab through its host", async () => {
     const user = userEvent.setup();
     const onTabChange = vi.fn();
@@ -362,6 +419,7 @@ describe("gateway shell pages", () => {
       })
       .mockResolvedValue({
         ...gatewayResponse("gateway-1", "Team gateway"),
+        consoleUrl: "https://console.example.com",
         phase: "Running",
         status: "",
       });
@@ -384,6 +442,69 @@ describe("gateway shell pages", () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
 
+    expect(gatewayOperations.getGateway).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it("enables the console button once the console address arrives without a refresh", async () => {
+    vi.useFakeTimers();
+    // Console polling is bounded by the gateway's createdAt, so pin the clock
+    // just inside the console-ready window to exercise the still-provisioning
+    // path (a gateway created moments ago whose console is about to arrive).
+    vi.setSystemTime(new Date("2026-08-10T14:31:00Z"));
+    // A routed gateway reaches Running before its console pod can serve, so the
+    // first fetch has no console URL and the button renders disabled. The control
+    // plane publishes it a moment later; the page must keep polling and enable
+    // the button on its own.
+    gatewayOperations.getGateway
+      .mockResolvedValueOnce({
+        ...gatewayResponse("gateway-1", "Team gateway"),
+        consoleUrl: undefined,
+        phase: "Running",
+        status: "Ready",
+      })
+      .mockResolvedValue({
+        ...gatewayResponse("gateway-1", "Team gateway"),
+        consoleUrl: "https://console.example.com",
+        phase: "Running",
+        status: "Ready",
+      });
+
+    const view = renderPage(() => <GatewayPage gatewayId="gateway-1" />);
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(gatewayOperations.getGateway).toHaveBeenCalledOnce();
+    // Disabled placeholder button, not yet an actionable link.
+    expect(
+      screen
+        .getByRole("button", {
+          name: "Open console for Team gateway in a new tab",
+        })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      screen.queryByRole("link", {
+        name: "Open console for Team gateway in a new tab",
+      }),
+    ).toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(gatewayOperations.getGateway).toHaveBeenCalledTimes(2);
+    // The console URL is published, so the button becomes an actionable link.
+    expect(
+      screen.getByRole("link", {
+        name: "Open console for Team gateway in a new tab",
+      }),
+    ).toBeTruthy();
+
+    // The console URL is published, so polling stops.
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(gatewayOperations.getGateway).toHaveBeenCalledTimes(2);
     view.unmount();
   });
@@ -498,6 +619,7 @@ describe("gateway shell pages", () => {
         items: [
           {
             ...gatewayResponse("gateway-1", "Team gateway"),
+            consoleUrl: "https://console.example.com",
             phase: "Running",
             status: "",
           },
@@ -785,6 +907,34 @@ describe("gateway shell pages", () => {
     ).toBe("/gateways/new");
   });
 
+  it("shows the active sandbox count with a not-available fallback when unset", () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          {
+            ...previewGateway,
+            activeSandboxCount: 3,
+            id: "gw-busy",
+            name: "gw-busy",
+          },
+          // activeSandboxCount deliberately omitted: an unset count must render
+          // the not-available fallback rather than a misleading zero.
+          { ...previewGateway, id: "gw-idle", name: "gw-idle" },
+        ]}
+      />
+    ));
+
+    expect(
+      screen.getByRole("columnheader", { name: "Active sandboxes" }),
+    ).toBeTruthy();
+
+    const busyRow = screen.getByRole("row", { name: /gw-busy/u });
+    expect(within(busyRow).getByText("3")).toBeTruthy();
+
+    const idleRow = screen.getByRole("row", { name: /gw-idle/u });
+    expect(within(idleRow).getByText("Not available")).toBeTruthy();
+  });
+
   it("sorts the gateway list by creation date", async () => {
     const user = userEvent.setup();
     const onCollectionStateChange = vi.fn();
@@ -943,11 +1093,16 @@ describe("gateway shell pages", () => {
       }),
     );
 
+    const consoleMenuItem = screen.getByRole("menuitem", {
+      name: "Open gateway console",
+    });
+    expect(consoleMenuItem.getAttribute("href")).toBe(
+      previewGateway.consoleUrl,
+    );
+    expect(consoleMenuItem.getAttribute("target")).toBe("_blank");
     expect(
-      screen
-        .getByRole("menuitem", { name: "Open gateway console" })
-        .getAttribute("href"),
-    ).toBe(previewGateway.consoleUrl);
+      consoleMenuItem.querySelector(".pf-v6-c-menu__item-external-icon svg"),
+    ).toBeTruthy();
     await user.click(
       screen.getByRole("menuitem", {
         name: "Copy CLI connection command",
@@ -1046,6 +1201,54 @@ describe("gateway shell pages", () => {
         name: "Delete openshell-gateway-test?",
       }),
     ).toBeNull();
+  });
+
+  it("warns about active sandboxes without blocking deletion", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewaysPage gateways={[{ ...previewGateway, activeSandboxCount: 3 }]} />
+    ));
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for openshell-gateway-test",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Delete openshell-gateway-test?",
+    });
+    expect(
+      within(dialog).getByText(
+        "This gateway has 3 active sandboxes that will be disrupted by deletion.",
+      ),
+    ).toBeTruthy();
+
+    // The warning is advisory: the delete button is still actionable.
+    await user.click(
+      within(dialog).getByRole("button", { name: "Delete gateway" }),
+    );
+    await waitFor(() => {
+      expect(deleteGatewayMock).toHaveBeenCalledWith("openshell-gateway-test");
+    });
+  });
+
+  it("omits the sandbox warning when no sandboxes are active", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewaysPage gateways={[{ ...previewGateway, activeSandboxCount: 0 }]} />
+    ));
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for openshell-gateway-test",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Delete openshell-gateway-test?",
+    });
+    expect(within(dialog).queryByText(/active sandbox/u)).toBeNull();
   });
 
   it("validates and recovers from a failed gateway rename", async () => {

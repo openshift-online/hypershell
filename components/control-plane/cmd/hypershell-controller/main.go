@@ -98,24 +98,39 @@ func main() {
 		}
 	}
 
-	// The Gateway Exposure port decouples route address resolution and readiness
-	// observation from the concrete exposure backend. The Gateway API adapter is
-	// enabled only when the cluster supports the Gateway API; on clusters without
-	// it the port stays nil and routed gateways are gated on Deployment readiness
-	// alone. See specs/platform/openshell-gateway-routing.spec.md.
+	// The Gateway Exposure port decouples route-address resolution and readiness
+	// observation from the concrete ingress backend. Select the adapter by the
+	// SAME effective ingress mode the reconciler uses to emit ingress resources
+	// (gateway.IngressMode), not by raw CRD presence: IBM Cloud ROKS ships the
+	// Gateway API CRDs but runs Route mode, so keying off CRD presence would wire
+	// the Gateway API readiness observer for a gateway that is actually exposed
+	// through an OpenShift Route -- leaving it stuck in Provisioning forever
+	// ("per-tenant Gateway not found"). In "none" mode the port stays nil and
+	// routed gateways are gated on Deployment readiness alone.
+	// See specs/platform/openshell-gateway-routing.spec.md.
 	var exposurePort exposure.Port
-	if clientset != nil && k8sConfig != nil && gateway.DetectGatewayAPI(clientset) {
-		gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
-		if gwErr != nil {
-			log.Fatalf("creating gateway-api client: %v", gwErr)
+	if clientset != nil && k8sConfig != nil {
+		hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
+		isOpenShift := gateway.DetectOpenShift(clientset)
+		switch gateway.IngressMode(hasGatewayAPI, isOpenShift) {
+		case gateway.IngressModeGatewayAPI:
+			gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
+			if gwErr != nil {
+				log.Fatalf("creating gateway-api client: %v", gwErr)
+			}
+			exposurePort = exposure.NewGatewayAPIExposure(gwClient)
+			log.Printf("INFO gateway exposure port enabled (gateway-api adapter)")
+		case gateway.IngressModeRoute:
+			exposurePort = exposure.NewRouteExposure(dynamicClient)
+			log.Printf("INFO gateway exposure port enabled (route adapter)")
+		default:
+			log.Printf("INFO gateway exposure port disabled (ingress mode none); routed gateways gated on Deployment readiness only")
 		}
-		exposurePort = exposure.NewGatewayAPIExposure(gwClient)
-		log.Printf("INFO gateway exposure port enabled (gateway-api adapter)")
 	}
 
 	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	databaseReconciler := reconciler.NewManagedDatabaseReconciler()
+	databaseReconciler := reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn)
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler()
 	networkReconciler := reconciler.NewGatewayNetworkReconciler()
 
@@ -171,8 +186,9 @@ func main() {
 	if roleBindingReconciler != nil {
 		watchCount = 7
 	}
-	// +1 for the continuous gateway health reconciler goroutine.
-	errCh := make(chan error, watchCount+1)
+	// +3 for the continuous gateway health, namespace GC, and sandbox-count
+	// reconciler goroutines.
+	errCh := make(chan error, watchCount+3)
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
@@ -190,11 +206,38 @@ func main() {
 	// status synchronized with observed workload health (Running <-> Degraded).
 	// It requires an in-cluster Kubernetes client to observe Deployments.
 	if clientset != nil {
-		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, conn, exposurePort)
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig)
 		go func() { errCh <- healthReconciler.Run(ctx) }()
 		log.Printf("INFO gateway health reconciler launched")
 	} else {
 		log.Printf("WARN no kubernetes client available, gateway health reconciliation disabled")
+	}
+
+	// The sandbox-count reconciler maintains each Gateway's active_sandbox_count
+	// from an event-driven watch on sandbox pods (with a periodic self-heal from
+	// its cache), instead of a repeated full-namespace pod LIST. It requires an
+	// in-cluster Kubernetes client to watch pods.
+	if clientset != nil {
+		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0)
+		go func() { errCh <- sandboxCountReconciler.Run(ctx) }()
+		log.Printf("INFO sandbox count reconciler launched")
+	} else {
+		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")
+	}
+
+	// The namespace GC reconciler reaps gateway namespaces the control plane
+	// created but that no longer have a live Gateway (e.g. a delete event missed
+	// while the control plane was down, or a gateway that failed to bootstrap).
+	// It requires an in-cluster Kubernetes client.
+	if clientset != nil && cfg.NamespaceGCEnabled {
+		gcReconciler := reconciler.NewNamespaceGCReconciler(
+			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace,
+		)
+		go func() { errCh <- gcReconciler.Run(ctx) }()
+		log.Printf("INFO namespace GC reconciler launched (interval=%s grace=%s)",
+			cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod)
+	} else if clientset != nil {
+		log.Printf("INFO namespace GC reconciler disabled (GATEWAY_NAMESPACE_GC_ENABLED=false)")
 	}
 
 	watchErr := <-errCh

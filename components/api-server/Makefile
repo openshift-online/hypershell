@@ -70,6 +70,9 @@ generate-sdk-go:
 		--api-prefix "$(SDK_API_PREFIX)" \
 		--project hypershell \
 		--module "$(SDK_GO_MODULE)"
+	find "$(SDK_GO_DIR)" -type f -name '*.go' -exec perl -i -p \
+		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|;' \
+		-e 's|^// Generated:.*\n?||;' {} +
 
 generate-cli:
 	test -f "$(CLI_GENERATOR_DIR)/go.mod"
@@ -90,9 +93,9 @@ generate-sdk-ts:
 		--ts-out "$(SDK_TYPESCRIPT_DIR)" \
 		--api-prefix "$(SDK_API_PREFIX)" \
 		--project hypershell
-	find "$(SDK_TYPESCRIPT_DIR)/src" -type f -name '*.ts' -exec sed -i \
-		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|' \
-		-e '\|^// Generated:|d' {} +
+	find "$(SDK_TYPESCRIPT_DIR)/src" -type f -name '*.ts' -exec perl -i -p \
+		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|;' \
+		-e 's|^// Generated:.*\n?||;' {} +
 
 .PHONY: db/setup
 db/setup:

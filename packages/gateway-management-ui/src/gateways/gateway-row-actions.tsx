@@ -18,6 +18,7 @@ import {
 } from "./gateway-connections";
 import { GatewayDeleteDialog } from "./gateway-delete-dialog";
 import { GatewayRenameDialog } from "./gateway-rename-dialog";
+import styles from "./gateway-row-actions.module.css";
 
 export function GatewayRowActions({
   gateway,
@@ -76,6 +77,7 @@ export function GatewayRowActions({
         <DropdownList>
           {gateway.consoleUrl ? (
             <DropdownItem
+              className={styles.consoleLink}
               isExternalLink
               rel="noreferrer"
               to={gateway.consoleUrl}
@@ -123,6 +125,7 @@ export function GatewayRowActions({
         />
       ) : null}
       <GatewayDeleteDialog
+        activeSandboxCount={gateway.activeSandboxCount}
         gatewayId={gateway.id}
         gatewayName={gateway.name}
         isOpen={isDeleteOpen}

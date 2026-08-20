@@ -94,7 +94,10 @@ spec:
           command: ["/usr/local/bin/openshell-gateway"]
           args:
             - generate-certs
-            - --server-secret-name=openshell-server-tls
-            - --client-secret-name=openshell-client-tls
+            # cert-manager owns the server TLS Secret (openshell-server-tls) via the
+            # self-signed chart CA, and client identity is established by OIDC rather
+            # than client mTLS. certgen therefore provisions only the sandbox-JWT
+            # signing keys. --jwt-only skips the server/client TLS Secrets so it does
+            # not collide with the cert-manager-managed openshell-server-tls Secret.
+            - --jwt-only
             - --jwt-secret-name=openshell-gateway-jwt-keys
-            - --server-san=openshell-gateway.NAMESPACE_PLACEHOLDER.svc.cluster.local

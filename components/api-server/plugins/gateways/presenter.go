@@ -23,7 +23,6 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c.SupervisorImage = gateway.SupervisorImage
 	c.Oidc = gateway.Oidc
 	c.Route = gateway.Route
-	c.DatabaseConfig = gateway.DatabaseConfig
 	c.CredentialDriver = gateway.CredentialDriver
 
 	if len(gateway.ServerDnsNames) > 0 {
@@ -57,10 +56,16 @@ func PresentGateway(gateway *Gateway) openapi.Gateway {
 		Image:            gateway.Image,
 		SupervisorImage:  gateway.SupervisorImage,
 		RouteAddress:     gateway.RouteAddress,
+		ConsoleAddress:   gateway.ConsoleAddress,
 		Oidc:             gateway.Oidc,
 		Route:            gateway.Route,
-		DatabaseConfig:   gateway.DatabaseConfig,
 		CredentialDriver: gateway.CredentialDriver,
+		ActiveSandboxCount: func() *int32 {
+			if gateway.ActiveSandboxCount != nil {
+				return openapi.PtrInt32(int32(*gateway.ActiveSandboxCount))
+			}
+			return nil
+		}(),
 	}
 
 	if gateway.ServerDnsNames != nil {
