@@ -101,6 +101,19 @@ fail_test() {
   red "  ✗ $1"
 }
 
+# delete_gateway <id>
+# Deletes a gateway by id via the REST API. hsctl exposes no `delete` subcommand
+# (only create/get/list/login), so both cleanup and stale-gateway
+# re-provisioning must call DELETE /api/hypershell/v1/gateways/{id} directly.
+# The control plane then tears down the tenant namespace. Returns 0 on 2xx.
+delete_gateway() {
+  local id="$1" code
+  [[ -z "$id" ]] && return 0
+  code=$(curl -sk -o /dev/null -w '%{http_code}' -X DELETE \
+    "https://${API_HOST}/api/hypershell/v1/gateways/${id}" 2>/dev/null || true)
+  [[ "$code" =~ ^2 ]]
+}
+
 cleanup() {
   if [[ -n "${SB_CREATE_PID:-}" ]]; then
     kill "$SB_CREATE_PID" 2>/dev/null || true
@@ -112,7 +125,7 @@ cleanup() {
   fi
   if [[ "$SKIP_CLEANUP" != "1" && "$CREATED_GW" == "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
-    "${HSCTL}" delete gateway "${GW_ID}" --yes &>/dev/null || true
+    delete_gateway "${GW_ID}" || true
   fi
 }
 trap cleanup EXIT
@@ -244,6 +257,49 @@ sandbox_exec() {
   done
 }
 
+# gateway_is_stale <namespace>
+# A gateway is "stale" when it was provisioned by a controller that predates the
+# sandbox client-TLS fix: such namespaces lack the openshell-client-tls secret
+# and their gateway.toml has no client_tls_secret_name, so the gateway never
+# injects OPENSHELL_TLS_CA into sandboxes and every sandbox runner crashloops on
+# "OPENSHELL_TLS_CA is required". Returns 0 (stale) if either marker is missing,
+# so the caller can re-provision the gateway with the current controller.
+gateway_is_stale() {
+  local ns="$1"
+  [[ -z "$ns" ]] && return 0
+  if ! $CLI get secret openshell-client-tls -n "$ns" &>/dev/null; then
+    return 0
+  fi
+  local toml
+  toml=$($CLI get cm openshell-gateway-config -n "$ns" -o jsonpath='{.data.gateway\.toml}' 2>/dev/null || true)
+  if ! echo "$toml" | grep -q "client_tls_secret_name"; then
+    return 0
+  fi
+  return 1
+}
+
+# dump_sandbox_diag <namespace> <sandbox-name>
+# On a sandbox failure, surface WHY: the pod's phase/restart count and its last
+# container logs (current, falling back to previous for a crashlooped runner).
+# This turns the CLI's generic "sandbox is not ready" into an actionable root
+# cause (e.g. "OPENSHELL_TLS_CA is required").
+dump_sandbox_diag() {
+  local ns="$1" sb="$2" pods pod logs
+  pods=$($CLI get pods -n "$ns" --no-headers 2>/dev/null | grep -i "default--${sb}" || true)
+  if [[ -z "$pods" ]]; then
+    dim "    diag: no pod found for sandbox ${sb} in ${ns}"
+    return
+  fi
+  echo "$pods" | while IFS= read -r line; do dim "    diag pod: $line"; done
+  pod=$(echo "$pods" | awk '{print $1}' | head -1)
+  logs=$($CLI logs "$pod" -n "$ns" --tail=15 2>/dev/null || true)
+  if [[ -z "$(echo "$logs" | tr -d '[:space:]')" ]]; then
+    logs=$($CLI logs "$pod" -n "$ns" --previous --tail=15 2>/dev/null || true)
+  fi
+  echo "$logs" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | tail -8 \
+    | while IFS= read -r line; do dim "    diag log: $line"; done
+}
+
 # Log the hypershell CLI into THIS cluster. hsctl 0.1.0 requires --url and a
 # bearer token via --token-file; mint one from Keycloak (admin) so the run is
 # self-contained rather than depending on a previously-saved config.
@@ -317,8 +373,35 @@ for gw in data.get('items', []):
         print(gw.get('phase',''))
         break
 " 2>/dev/null || true)
-  pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
-else
+
+  # Re-provision an existing gateway that a pre-fix controller built (missing the
+  # sandbox client-TLS wiring), otherwise its sandboxes crashloop on
+  # "OPENSHELL_TLS_CA is required" and steps 7/8 fail. A gateway created by the
+  # current controller is reused as-is.
+  if gateway_is_stale "$GW_NAMESPACE"; then
+    show_cmd "# existing ${GW_NAME} is stale (no openshell-client-tls / client_tls_secret_name) -> re-provisioning"
+    dim "  Deleting stale gateway ${GW_ID} (ns ${GW_NAMESPACE}) and waiting for namespace teardown..."
+    if ! delete_gateway "${GW_ID}"; then
+      fail_test "Failed to delete stale gateway ${GW_ID} via REST API"
+    fi
+    DEL_DEADLINE=$(($(date +%s) + 150))
+    while [[ $(date +%s) -lt $DEL_DEADLINE ]]; do
+      $CLI get ns "$GW_NAMESPACE" &>/dev/null || break
+      sleep 5
+    done
+    if $CLI get ns "$GW_NAMESPACE" &>/dev/null; then
+      dim "  - namespace ${GW_NAMESPACE} still terminating; provisioning a fresh gateway anyway"
+    fi
+    EXISTING_ID=""
+    GW_ID=""
+    GW_NAMESPACE=""
+    pass "Stale gateway removed; provisioning a fresh ${GW_NAME}"
+  else
+    pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
+  fi
+fi
+
+if [[ -z "$EXISTING_ID" ]]; then
   show_cmd "curl -sk -X POST https://${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   # OIDC configuration is system-managed: the control plane provisions the
   # per-gateway Keycloak client and populates oidc.* itself (read-only in the
@@ -668,6 +751,7 @@ else
     pass "Sandbox pod created: ${POD_NAME} (${POD_STATUS})"
   else
     fail_test "Sandbox not found after ${SANDBOX_TIMEOUT}s"
+    dump_sandbox_diag "$GW_NAMESPACE" "$SANDBOX_NAME"
   fi
 fi
 sep
@@ -692,10 +776,12 @@ if SB_EXEC_OUTPUT=$(sandbox_exec "${GW_LOCAL_NAME}" "${SANDBOX_NAME}" "${SANDBOX
   else
     fail_test "Sandbox exec: no output from uname command"
     dim "    ${SB_EXEC_OUTPUT:0:200}"
+    dump_sandbox_diag "$GW_NAMESPACE" "$SANDBOX_NAME"
   fi
 else
   fail_test "Sandbox exec: openshell command failed"
   dim "    ${SB_EXEC_OUTPUT:0:200}"
+  dump_sandbox_diag "$GW_NAMESPACE" "$SANDBOX_NAME"
 fi
 
 show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
@@ -861,13 +947,16 @@ except Exception:
         pass "Developer user: sandbox exec succeeded"
       else
         fail_test "Developer user: sandbox exec returned no output"
+        dump_sandbox_diag "$GW_NAMESPACE" "$DEV_SANDBOX"
       fi
     else
       fail_test "Developer user: sandbox exec failed"
       dim "    ${DEV_EXEC:0:200}"
+      dump_sandbox_diag "$GW_NAMESPACE" "$DEV_SANDBOX"
     fi
   else
     fail_test "Developer user: sandbox not created after ${SANDBOX_TIMEOUT}s"
+    dump_sandbox_diag "$GW_NAMESPACE" "$DEV_SANDBOX"
   fi
 
   if [[ "$SKIP_CLEANUP" != "1" && "$DEV_SB_FOUND" == "true" ]]; then

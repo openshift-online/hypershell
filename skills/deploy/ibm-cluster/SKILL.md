@@ -339,8 +339,13 @@ Tokens are short-lived; re-mint (and re-`podman login`) if a later push 401s.
 
 cert-manager is **not** optional in route mode. It mints each tenant's per-tenant
 CA (`openshell-ca` Issuer + `openshell-ca`/`openshell-server` Certificates) for the
-gateway pod's own server TLS. (HyperShell no longer issues an `openshell-client`
-certificate - client identity is established by OIDC, not client mTLS.) Route mode
+gateway pod's own server TLS, **plus an `openshell-client` Certificate
+(`openshell-client-tls`)**. That client cert is NOT external-client mTLS (external
+clients authenticate via OIDC over the Route); it exists so sandbox runners can
+verify the gateway's server cert. openshell 0.0.109 mounts `openshell-client-tls`
+into every sandbox and sets `OPENSHELL_TLS_CA` from its `ca.crt` whenever
+`gateway.toml` sets `client_tls_secret_name` - without it every sandbox crashloops
+on `OPENSHELL_TLS_CA is required` and never reaches Ready (see §5.9). Route mode
 only drops the *ingress-layer* PKI (wildcard cert / ClusterIssuer / Route53), not
 this. The
 control plane fails closed (`cert-manager is required but not available`) without
