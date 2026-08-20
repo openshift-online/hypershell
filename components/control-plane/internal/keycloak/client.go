@@ -236,7 +236,7 @@ func (c *Client) createClient(ctx context.Context, gatewayName string) (string, 
 			"pkce.code.challenge.method": "S256",
 		},
 		"defaultClientScopes": []string{
-			"openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr",
+			"profile", "email", "roles", "web-origins", "acr",
 		},
 		"protocolMappers": []map[string]interface{}{
 			{
