@@ -17,7 +17,6 @@ type Gateway struct {
 	ClusterID string `json:"cluster_id"`
 	ConsoleAddress string `json:"console_address,omitempty"`
 	CredentialDriver string `json:"credential_driver,omitempty"`
-	DatabaseConfig string `json:"database_config,omitempty"`
 	DatabaseID string `json:"database_id"`
 	ExternalDNS string `json:"external_dns,omitempty"`
 	FleetID string `json:"fleet_id"`
@@ -66,10 +65,6 @@ func (b *GatewayBuilder) CredentialDriver(v string) *GatewayBuilder {
 	return b
 }
 
-func (b *GatewayBuilder) DatabaseConfig(v string) *GatewayBuilder {
-	b.resource.DatabaseConfig = v
-	return b
-}
 
 func (b *GatewayBuilder) DatabaseID(v string) *GatewayBuilder {
 	b.resource.DatabaseID = v
@@ -181,10 +176,6 @@ func (b *GatewayPatchBuilder) CredentialDriver(v string) *GatewayPatchBuilder {
 	return b
 }
 
-func (b *GatewayPatchBuilder) DatabaseConfig(v string) *GatewayPatchBuilder {
-	b.patch["database_config"] = v
-	return b
-}
 
 func (b *GatewayPatchBuilder) DatabaseID(v string) *GatewayPatchBuilder {
 	b.patch["database_id"] = v

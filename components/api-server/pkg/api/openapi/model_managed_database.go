@@ -293,6 +293,38 @@ func (o *ManagedDatabase) SetProvider(v string) {
 	o.Provider = v
 }
 
+// GetNamespace returns the Namespace field value if set, zero value otherwise.
+func (o *ManagedDatabase) GetNamespace() string {
+	if o == nil || IsNil(o.Namespace) {
+		var ret string
+		return ret
+	}
+	return *o.Namespace
+}
+
+// GetNamespaceOk returns a tuple with the Namespace field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedDatabase) GetNamespaceOk() (*string, bool) {
+	if o == nil || IsNil(o.Namespace) {
+		return nil, false
+	}
+	return o.Namespace, true
+}
+
+// HasNamespace returns a boolean if a field has been set.
+func (o *ManagedDatabase) HasNamespace() bool {
+	if o != nil && !IsNil(o.Namespace) {
+		return true
+	}
+
+	return false
+}
+
+// SetNamespace gets a reference to the given string and assigns it to the Namespace field.
+func (o *ManagedDatabase) SetNamespace(v string) {
+	o.Namespace = &v
+}
+
 // GetRegion returns the Region field value if set, zero value otherwise.
 func (o *ManagedDatabase) GetRegion() string {
 	if o == nil || IsNil(o.Region) {

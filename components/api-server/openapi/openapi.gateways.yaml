@@ -281,9 +281,6 @@ components:
             route:
               type: string
               description: JSON-encoded route configuration
-            database_config:
-              type: string
-              description: JSON-encoded database provisioning configuration
             credential_driver:
               type: string
               description: JSON-encoded credential storage driver configuration
@@ -338,9 +335,6 @@ components:
         route:
           type: string
           description: JSON-encoded route configuration
-        database_config:
-          type: string
-          description: JSON-encoded database provisioning configuration
         credential_driver:
           type: string
           description: JSON-encoded credential storage driver configuration
@@ -393,8 +387,6 @@ components:
         oidc:
           type: string
         route:
-          type: string
-        database_config:
           type: string
         credential_driver:
           type: string

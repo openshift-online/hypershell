@@ -25,7 +25,6 @@ message Gateway {
   optional string route_address = 15;
   optional string oidc = 16;
   optional string route = 17;
-  optional string database_config = 18;
   optional string credential_driver = 20;
   optional int32 active_sandbox_count = 21;
   optional string console_address = 22;
@@ -47,7 +46,6 @@ message CreateGatewayRequest {
   repeated string server_dns_names = 13;
   optional string oidc = 14;
   optional string route = 15;
-  optional string database_config = 16;
   optional string credential_driver = 17;
 }
 
@@ -81,7 +79,6 @@ message UpdateGatewayRequest {
   optional string route_address = 15;
   optional string oidc = 16;
   optional string route = 17;
-  optional string database_config = 18;
   optional string credential_driver = 19;
   // active_sandbox_count is intentionally absent: the count is control-plane
   // owned and written only through AdjustActiveSandboxCount / SetActiveSandboxCount

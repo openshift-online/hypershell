@@ -34,7 +34,6 @@ type ManagedDatabase struct {
 	ConnectionSecret *string                `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
 	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	Namespace        string                 `protobuf:"bytes,11,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	FleetDefault     bool                   `protobuf:"varint,12,opt,name=fleet_default,json=fleetDefault,proto3" json:"fleet_default,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -146,13 +145,6 @@ func (x *ManagedDatabase) GetNamespace() string {
 	return ""
 }
 
-func (x *ManagedDatabase) GetFleetDefault() bool {
-	if x != nil {
-		return x.FleetDefault
-	}
-	return false
-}
-
 type CreateManagedDatabaseRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -164,7 +156,6 @@ type CreateManagedDatabaseRequest struct {
 	InstanceClass    *string                `protobuf:"bytes,7,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
 	ConnectionSecret *string                `protobuf:"bytes,8,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
 	Status           *string                `protobuf:"bytes,9,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	FleetDefault     bool                   `protobuf:"varint,10,opt,name=fleet_default,json=fleetDefault,proto3" json:"fleet_default,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -260,13 +251,6 @@ func (x *CreateManagedDatabaseRequest) GetStatus() string {
 		return *x.Status
 	}
 	return ""
-}
-
-func (x *CreateManagedDatabaseRequest) GetFleetDefault() bool {
-	if x != nil {
-		return x.FleetDefault
-	}
-	return false
 }
 
 type CreateManagedDatabaseResponse struct {
@@ -413,7 +397,6 @@ type UpdateManagedDatabaseRequest struct {
 	InstanceClass    *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
 	ConnectionSecret *string                `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
 	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	FleetDefault     *bool                  `protobuf:"varint,11,opt,name=fleet_default,json=fleetDefault,proto3,oneof" json:"fleet_default,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -516,13 +499,6 @@ func (x *UpdateManagedDatabaseRequest) GetStatus() string {
 		return *x.Status
 	}
 	return ""
-}
-
-func (x *UpdateManagedDatabaseRequest) GetFleetDefault() bool {
-	if x != nil && x.FleetDefault != nil {
-		return *x.FleetDefault
-	}
-	return false
 }
 
 type UpdateManagedDatabaseResponse struct {
@@ -853,7 +829,7 @@ var File_hypershell_v1_managed_databases_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\n" +
-	"%hypershell/v1/managed_databases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\x99\x04\n" +
+	"%hypershell/v1/managed_databases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xf4\x03\n" +
 	"\x0fManagedDatabase\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -866,14 +842,13 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x11connection_secret\x18\t \x01(\tH\x04R\x10connectionSecret\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\n" +
 	" \x01(\tH\x05R\x06status\x88\x01\x01\x12\x1c\n" +
-	"\tnamespace\x18\v \x01(\tR\tnamespace\x12#\n" +
-	"\rfleet_default\x18\f \x01(\bR\ffleetDefaultB\t\n" +
+	"\tnamespace\x18\v \x01(\tR\tnamespaceB\t\n" +
 	"\a_regionB\t\n" +
 	"\a_engineB\x11\n" +
 	"\x0f_engine_versionB\x11\n" +
 	"\x0f_instance_classB\x14\n" +
 	"\x12_connection_secretB\t\n" +
-	"\a_status\"\xcc\x03\n" +
+	"\a_status\"\xa7\x03\n" +
 	"\x1cCreateManagedDatabaseRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x1a\n" +
@@ -883,9 +858,7 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0eengine_version\x18\x06 \x01(\tH\x02R\rengineVersion\x88\x01\x01\x12*\n" +
 	"\x0einstance_class\x18\a \x01(\tH\x03R\rinstanceClass\x88\x01\x01\x120\n" +
 	"\x11connection_secret\x18\b \x01(\tH\x04R\x10connectionSecret\x88\x01\x01\x12\x1b\n" +
-	"\x06status\x18\t \x01(\tH\x05R\x06status\x88\x01\x01\x12#\n" +
-	"\rfleet_default\x18\n" +
-	" \x01(\bR\ffleetDefaultB\t\n" +
+	"\x06status\x18\t \x01(\tH\x05R\x06status\x88\x01\x01B\t\n" +
 	"\a_regionB\t\n" +
 	"\a_engineB\x11\n" +
 	"\x0f_engine_versionB\x11\n" +
@@ -897,7 +870,7 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x19GetManagedDatabaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"g\n" +
 	"\x1aGetManagedDatabaseResponse\x12I\n" +
-	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"\xa5\x04\n" +
+	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"\xe9\x03\n" +
 	"\x1cUpdateManagedDatabaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
@@ -909,8 +882,7 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0einstance_class\x18\b \x01(\tH\x06R\rinstanceClass\x88\x01\x01\x120\n" +
 	"\x11connection_secret\x18\t \x01(\tH\aR\x10connectionSecret\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\n" +
-	" \x01(\tH\bR\x06status\x88\x01\x01\x12(\n" +
-	"\rfleet_default\x18\v \x01(\bH\tR\ffleetDefault\x88\x01\x01B\a\n" +
+	" \x01(\tH\bR\x06status\x88\x01\x01B\a\n" +
 	"\x05_nameB\v\n" +
 	"\t_fleet_idB\v\n" +
 	"\t_providerB\t\n" +
@@ -919,8 +891,7 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0f_engine_versionB\x11\n" +
 	"\x0f_instance_classB\x14\n" +
 	"\x12_connection_secretB\t\n" +
-	"\a_statusB\x10\n" +
-	"\x0e_fleet_default\"j\n" +
+	"\a_status\"j\n" +
 	"\x1dUpdateManagedDatabaseResponse\x12I\n" +
 	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\".\n" +
 	"\x1cDeleteManagedDatabaseRequest\x12\x0e\n" +

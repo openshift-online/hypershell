@@ -16,9 +16,8 @@ import (
 )
 
 var args struct {
-	clusterId       string
-	databaseConfig  string
-	databaseId      string
+	clusterId  string
+	databaseId string
 	externalDns     string
 	fleetId         string
 	image           string
@@ -39,7 +38,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a gateway",
 	Long: "Create a new gateway.\n\n" +
 		"Examples:\n" +
-		"  hypershell create gateway --cluster-id <value> --database-config <value> --database-id <value> --external-dns <value> --fleet-id <value> --image <value> --name <value> --phase <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
+		"  hypershell create gateway --cluster-id <value> --database-id <value> --external-dns <value> --fleet-id <value> --image <value> --name <value> --phase <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
 		"  hypershell create gateway --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -48,7 +47,6 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.clusterId, "cluster-id", "", "cluster_id value.")
-	fs.StringVar(&args.databaseConfig, "database-config", "", "database_config value.")
 	fs.StringVar(&args.databaseId, "database-id", "", "database_id value.")
 	fs.StringVar(&args.externalDns, "external-dns", "", "external_dns value.")
 	fs.StringVar(&args.fleetId, "fleet-id", "", "fleet_id value.")
@@ -88,9 +86,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		request := map[string]interface{}{}
 		if args.clusterId != "" {
 			request["cluster_id"] = args.clusterId
-		}
-		if args.databaseConfig != "" {
-			request["database_config"] = args.databaseConfig
 		}
 		if args.databaseId != "" {
 			request["database_id"] = args.databaseId
