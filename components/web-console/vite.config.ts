@@ -191,4 +191,3 @@ export default defineConfig({
     noExternal: [/^@patternfly\//],
   },
 });
-// TODO: remove this comment in a follow up (trigger CI)

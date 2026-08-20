@@ -63,7 +63,6 @@ swap_deployment() {
   done
   # shellcheck disable=SC2068
   kube set image "deployment/${deployment}" ${set_image_args[@]} -n "${KIND_NAMESPACE}"
-  kube rollout restart "deployment/${deployment}" -n "${KIND_NAMESPACE}"
   kube rollout status "deployment/${deployment}" -n "${KIND_NAMESPACE}" --timeout=300s
 }
 

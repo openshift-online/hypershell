@@ -251,4 +251,3 @@ func main() {
 	log.Printf("INFO hypershell-controller stopped")
 }
 
-// TODO: remove this comment in a follow up (trigger CI)

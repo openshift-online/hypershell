@@ -34,4 +34,3 @@ func main() {
 	}
 }
 
-// TODO: remove this comment in a follow up (trigger CI)
