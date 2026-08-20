@@ -250,4 +250,3 @@ func main() {
 
 	log.Printf("INFO hypershell-controller stopped")
 }
-
