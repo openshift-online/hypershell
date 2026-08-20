@@ -28,5 +28,10 @@ spec:
           - name: wildcard-openshell-tls
             kind: Secret
       allowedRoutes:
+        kinds:
+          - group: gateway.networking.k8s.io
+            kind: GRPCRoute
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
         namespaces:
           from: All
