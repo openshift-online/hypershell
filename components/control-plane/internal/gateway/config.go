@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"os"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 )
@@ -34,7 +35,6 @@ const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:cb5e
 // HYPERSHELL_OAUTH2_PROXY_IMAGE.
 const defaultOAuth2ProxyImage = "quay.io/oauth2-proxy/oauth2-proxy:v7.7.1"
 
-
 type StaticImageDefaults struct{}
 
 const defaultGatewayImage = "ghcr.io/nvidia/openshell/gateway:0.0.109"
@@ -59,6 +59,13 @@ func (StaticImageDefaults) DefaultSupervisorImage() string {
 		return v
 	}
 	return defaultSupervisorImage
+}
+
+func (StaticImageDefaults) DefaultDatabaseImage() string {
+	if v := os.Getenv("HYPERSHELL_DATABASE_IMAGE"); v != "" {
+		return v
+	}
+	return defaultDatabaseImage
 }
 
 type CNPGConfig struct {
