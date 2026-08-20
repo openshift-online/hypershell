@@ -54,6 +54,9 @@ func TestIsGatewayNamespaceForGC(t *testing.T) {
 	}{
 		{"gateway namespace", "openshell-a14873d1631f1b74", true},
 		{"e2e orphan", "openshell-e2e-orphan-123", true},
+		// A gateway hash may begin with the hex letters "db"; the trailing dash in
+		// the database prefix keeps it classified as a gateway namespace.
+		{"gateway hash starting with db", "openshell-db1a2b3c4d5e6f70", true},
 		{"managed database namespace", "openshell-db-a1b2c3d4e5f67890", false},
 		{"unmanaged", "openshell-gw", false},
 	}

@@ -478,8 +478,12 @@ if [[ "$E2E_SKIP_CLEANUP" != "1" ]]; then
   $CLI label namespace "$ORPHAN_NS" \
     hypershell.redhat.io/managed=true \
     app.kubernetes.io/managed-by=hypershell-control-plane
-  show_cmd "$CLI annotate namespace ${ORPHAN_NS} hypershell.redhat.io/gc-eligible-since=${ORPHAN_ELIGIBLE_SINCE}"
-  $CLI annotate namespace "$ORPHAN_NS" \
+  # --overwrite: between labeling and annotating the namespace already matches the
+  # managed selector, so a reaper sweep can stamp its own gc-eligible-since first.
+  # Without --overwrite that follow-up annotate fails and aborts the suite (set -e);
+  # with it the backdated value wins and the next sweep reaps as intended.
+  show_cmd "$CLI annotate --overwrite namespace ${ORPHAN_NS} hypershell.redhat.io/gc-eligible-since=${ORPHAN_ELIGIBLE_SINCE}"
+  $CLI annotate --overwrite namespace "$ORPHAN_NS" \
     hypershell.redhat.io/gc-eligible-since="$ORPHAN_ELIGIBLE_SINCE"
   ORPHAN_GC_DEADLINE=$(($(date +%s) + E2E_ORPHAN_GC_TIMEOUT))
 fi

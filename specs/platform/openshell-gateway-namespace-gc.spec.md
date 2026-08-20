@@ -43,12 +43,15 @@ Namespace creation and provisioning mechanics are defined in
   stamps at creation:
   - `app.kubernetes.io/managed-by=hypershell-control-plane`
   - `hypershell.redhat.io/managed=true`
-  Garbage collection acts ONLY on namespaces carrying both labels; a Gateway
+  Periodic garbage collection sweeps managed namespaces whose names match the
+  gateway prefix (`openshell-<hex>`) and excludes ManagedDatabase namespaces
+  (`openshell-db-<hex>`). This name-based scope keeps pre-existing orphaned
+  gateway namespaces eligible for GC without a label migration. A Gateway
   pointed at a pre-existing or shared namespace can never cause that namespace to
   be reaped.
-- **Orphaned namespace** - a managed namespace for which no live Gateway exists
-  (no Gateway in the API server maps to it). This is the sole trigger for
-  garbage collection.
+- **Orphaned namespace** - a gateway namespace (matching the gateway prefix, not
+  the database prefix) for which no live Gateway exists (no Gateway in the API
+  server maps to it). This is the sole trigger for garbage collection.
 - **GC grace period** - the minimum time a namespace must remain continuously
   orphaned before it is reaped. It is measured from a timestamp persisted on the
   namespace so it survives control-plane restarts.
@@ -287,6 +290,7 @@ real-time guarantee.
 | Decision | Rationale |
 |----------|-----------|
 | GC triggers on orphaning (no live Gateway), not on `phase` being `Degraded`/`Failed` | A gateway that still exists - even if unhealthy - is the health reconciler's and the operator's concern; only the absence of a backing Gateway unambiguously means the namespace is garbage. This avoids reaping a namespace an operator is still debugging. |
+| Exclude `openshell-db-*` managed namespaces from periodic GC | ManagedDatabase CNPG namespaces share the management labels but are owned by the ManagedDatabase reconciler; the stable `openshell-db-` prefix distinguishes them without requiring a label migration on existing gateway namespaces. |
 | Require BOTH management labels before deleting | Defense in depth: even if a label selector over-returns, a namespace not created by this control plane (e.g. a shared or pre-existing namespace) is never deleted. |
 | Grace period persisted on the namespace annotation | The delay must survive control-plane restarts; storing `gc-eligible-since` on the namespace makes the timer durable without a separate store. |
 | Abort the whole sweep if Gateways cannot be listed | An empty or failed Gateway list would make every managed namespace look orphaned; aborting is the only safe response to avoid mass reaping of live namespaces. |

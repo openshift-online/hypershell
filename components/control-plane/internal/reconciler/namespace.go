@@ -169,8 +169,7 @@ func (r *NamespaceGCReconciler) grpcLiveNamespaces(ctx context.Context) (map[str
 // the grace period. It is best-effort and idempotent.
 func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *corev1.Namespace, live map[string]struct{}) error {
 	// Defense in depth: only gateway workload namespaces are subject to this
-	// reconciler. ManagedDatabase CNPG namespaces share management labels but
-	// are owned by the ManagedDatabase reconciler.
+	// reconciler, even if the server-side label selector over-returns.
 	if !gateway.IsGatewayNamespaceForGC(ns) {
 		return nil
 	}
