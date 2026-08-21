@@ -7,17 +7,50 @@ import (
 )
 
 type Resource struct {
+	Name               string
+	Plural             string
+	PathSegment        string
+	Scoped             bool
+	ScopeParameters    []PathParameter
+	ItemParameter      *PathParameter
+	GoCollectionPath   string
+	GoItemPath         string
+	TSCollectionPath   string
+	TSItemPath         string
+	ListType           string
+	ItemType           string
+	CreateRequestType  string
+	CreateResponseType string
+	GetResponseType    string
+	Models             []Model
+	ListParameters     []Field
+	Fields             []Field
+	RequiredFields     []string
+	PatchFields        []Field
+	StatusPatchFields  []Field
+	HasDelete          bool
+	HasPatch           bool
+	HasStatusPatch     bool
+	Actions            []string
+}
+
+type PathParameter struct {
+	Name   string
+	GoName string
+	TSName string
+}
+
+type Model struct {
 	Name              string
-	Plural            string
-	PathSegment       string
 	Fields            []Field
-	RequiredFields    []string
-	PatchFields       []Field
-	StatusPatchFields []Field
-	HasDelete         bool
-	HasPatch          bool
-	HasStatusPatch    bool
-	Actions           []string
+	EnumValues        []EnumValue
+	IsEnum            bool
+	ContainsSensitive bool
+}
+
+type EnumValue struct {
+	Name  string
+	Value string
 }
 
 type Field struct {
@@ -32,6 +65,9 @@ type Field struct {
 	TSType     string
 	Required   bool
 	ReadOnly   bool
+	Nullable   bool
+	Sensitive  bool
+	ModelRef   string
 	JSONTag    string
 }
 
@@ -99,6 +135,11 @@ func toGoType(openAPIType, format string) string {
 	default:
 		return "string"
 	}
+}
+
+func enumValueName(typeName, value string) string {
+	replacer := strings.NewReplacer("-", "_", ".", "_", ":", "_", "/", "_")
+	return typeName + toGoName(replacer.Replace(value))
 }
 
 func toPythonType(openAPIType, format string) string {

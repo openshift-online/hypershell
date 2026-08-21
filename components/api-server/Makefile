@@ -73,6 +73,7 @@ generate-sdk-go:
 	find "$(SDK_GO_DIR)" -type f -name '*.go' -exec perl -i -p \
 		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|;' \
 		-e 's|^// Generated:.*\n?||;' {} +
+	gofmt -w "$(SDK_GO_DIR)"
 
 generate-cli:
 	test -f "$(CLI_GENERATOR_DIR)/go.mod"
@@ -96,6 +97,7 @@ generate-sdk-ts:
 	find "$(SDK_TYPESCRIPT_DIR)/src" -type f -name '*.ts' -exec perl -i -p \
 		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|;' \
 		-e 's|^// Generated:.*\n?||;' {} +
+	find "$(SDK_TYPESCRIPT_DIR)/src" -type f -name '*.ts' -exec perl -0777 -i -pe 's/\n+\z/\n/' {} +
 
 .PHONY: db/setup
 db/setup:
