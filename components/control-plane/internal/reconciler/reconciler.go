@@ -84,6 +84,7 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 type ManagedDatabaseReconciler struct {
 	mu            sync.Mutex
 	active        map[string]struct{}
+	pending       map[string]watcher.Event[*pb.ManagedDatabase]
 	dynamicClient dynamic.Interface
 	clientset     *kubernetes.Clientset
 	grpcConn      *grpc.ClientConn
@@ -98,6 +99,7 @@ func NewManagedDatabaseReconciler(
 	hasCNPG := gateway.DetectCNPG(clientset)
 	return &ManagedDatabaseReconciler{
 		active:        make(map[string]struct{}),
+		pending:       make(map[string]watcher.Event[*pb.ManagedDatabase]),
 		dynamicClient: dynamicClient,
 		clientset:     clientset,
 		grpcConn:      grpcConn,
@@ -105,20 +107,47 @@ func NewManagedDatabaseReconciler(
 	}
 }
 
+// Handle reconciles one ManagedDatabase event, serializing per resource ID: a
+// CNPG provisioning reconcile can run long, and the watch stream never replays
+// a dropped event, so an Updated/Deleted that arrives while a reconcile for the
+// same resource is already in flight is retained (overwriting any earlier
+// pending event for that ID) rather than discarded, and is handled as soon as
+// the in-flight reconcile finishes.
 func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) error {
 	r.mu.Lock()
-	if _, ok := r.active[event.ResourceID]; ok {
+	if _, busy := r.active[event.ResourceID]; busy {
+		r.pending[event.ResourceID] = event
 		r.mu.Unlock()
 		return nil
 	}
 	r.active[event.ResourceID] = struct{}{}
 	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		delete(r.active, event.ResourceID)
-		r.mu.Unlock()
-	}()
 
+	firstErr := r.handleOne(ctx, event)
+
+	current := event
+	for {
+		r.mu.Lock()
+		next, hasPending := r.pending[current.ResourceID]
+		if hasPending {
+			delete(r.pending, current.ResourceID)
+		} else {
+			delete(r.active, current.ResourceID)
+		}
+		r.mu.Unlock()
+		if !hasPending {
+			break
+		}
+		current = next
+		if err := r.handleOne(ctx, current); err != nil {
+			log.Printf("ERROR handling pending managed database %s: %v", current.ResourceID, err)
+		}
+	}
+
+	return firstErr
+}
+
+func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) error {
 	db := event.Resource
 	if db == nil {
 		log.Printf("WARN ManagedDatabase event %s has nil resource, skipping", event.ResourceID)

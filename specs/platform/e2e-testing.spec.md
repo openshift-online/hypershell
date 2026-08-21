@@ -61,7 +61,11 @@ PR opened/updated
     │
     ├── [skip if no e2e-relevant components changed]
     │
-    ├── make kind-up IMAGE_TAG=<konflux-digest> (create Kind cluster with PR images)
+    ├── make kind-up (create Kind cluster with baseline images, overlapping Konflux builds)
+    │
+    ├── wait for each changed component's Konflux on-pull-request build to conclude
+    │
+    ├── scripts/kind/set-component-images.sh (swap in Konflux-built images by digest)
     │
     ├── E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh
     │
@@ -413,7 +417,7 @@ The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml
 - GIVEN a pull request is opened or updated
 - AND Konflux has built images for changed components
 - WHEN the `e2e` workflow triggers
-- THEN it SHALL: check out the repository, detect which components changed (using `.github/scripts/detect-components.sh`), create a Kind cluster via `make kind-up` with Konflux image digests passed via `IMAGE_TAG`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
+- THEN it SHALL: check out the repository, detect which components changed (using `.github/scripts/detect-components.sh`), create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
 
 #### Scenario: Tests Pass
 
@@ -503,12 +507,13 @@ The CI workflow SHALL NOT build component images itself. Images are built by Kon
 - WHEN the e2e workflow runs
 - THEN it SHALL pull both Konflux-built images by digest
 
-#### Scenario: Image Override via Make Target
+#### Scenario: Image Override via Make Target (Local/Dev)
 
-- GIVEN Konflux-built images are available at specific digests
-- WHEN the CI workflow runs `make kind-up` with image overrides (e.g., `IMAGE_TAG=sha256:abc123` or per-component image variables)
-- THEN the Kind cluster SHALL deploy using the specified Konflux images
+- GIVEN a developer wants to test specific Konflux-built images locally
+- WHEN they run `make kind-up` with image overrides (e.g., `IMAGE_TAG=sha256:abc123` or per-component image variables)
+- THEN the Kind cluster SHALL deploy using the specified images
 - AND no local image build or `kind load` step SHALL be required
+- NOTE: the CI workflow does not use this path -- it creates the cluster with baseline images via `make kind-up` and swaps in Konflux-built digests afterward via `scripts/kind/set-component-images.sh`, once each changed component's build has concluded, so cluster creation overlaps the Konflux builds instead of waiting on them first
 
 ### Requirement: CI Artifact Collection
 

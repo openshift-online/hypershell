@@ -217,6 +217,43 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 	Expect(int(listResp.Metadata.Total)).To(BeNumerically(">=", totalItems))
 }
 
+// TestGRPCWatchManagedDatabasesSendsSubscriptionHeader asserts the watch RPC
+// flushes its response header once the broker subscription is live. The
+// control-plane watcher blocks on this header before it seeds its reconciler
+// from a LIST, so the header is what closes the list-watch gap: without it,
+// the client could list state and then miss an event that fires before the
+// subscription registers.
+func TestGRPCWatchManagedDatabasesSendsSubscriptionHeader(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	account := h.NewRandAccount()
+	jwtToken := h.CreateJWTString(account)
+
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
+
+	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
+
+	watchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	stream, err := grpcClient.WatchManagedDatabases(watchCtx, &pb.WatchManagedDatabasesRequest{})
+	Expect(err).NotTo(HaveOccurred())
+
+	// Header() blocks until the server flushes its header, which it does only after
+	// subscribing. It returning without error proves the handshake fired.
+	_, err = stream.Header()
+	Expect(err).NotTo(HaveOccurred())
+}
+
 func TestGRPCManagedDatabaseErrorHandling(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()

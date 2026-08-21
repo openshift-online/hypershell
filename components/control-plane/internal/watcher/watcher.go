@@ -122,31 +122,29 @@ func WatchManagedDatabases(ctx context.Context, conn *grpc.ClientConn, handler H
 			return fmt.Errorf("awaiting managed database watch subscription header: %w", err)
 		}
 
-		// Seed the reconciler from the current inventory while the receiver below
-		// drains live events. The watch stream sends only future events and never
-		// replays existing state on (re)connect, so this LIST is the only path that
-		// recovers a ManagedDatabase whose create event fired while the stream was
-		// disconnected -- e.g. the openshell-db database kind-up seeds while a
-		// component image swap is restarting the api-server. Seeding runs
-		// concurrently so a slow provisioning reconcile never stalls the live drain
-		// (which would let the api server's per-subscriber event buffer overflow and
-		// drop events permanently).
-		seedDone := make(chan struct{})
+		// Drain the watch stream concurrently while seeding below. The API server's
+		// event broker drops events when its per-subscriber buffer fills, and seeding
+		// -- a paginated LIST plus a reconcile per item -- can take long enough for
+		// that to happen. Leaving the stream unread during the seed would permanently
+		// lose a live event that arrives in that window (the stream never replays).
+		streamErr := make(chan error, 1)
 		go func() {
-			defer close(seedDone)
-			if err := seedManagedDatabases(runCtx, client, handler); err != nil {
-				log.Printf("WARN seeding ManagedDatabases on watch (re)connect: %v", err)
-			}
-		}()
-
-		recvErr := func() error {
+			defer close(streamErr)
 			for {
 				event, err := stream.Recv()
 				if err == io.EOF {
-					return nil
+					// Cancel before publishing so a concurrently-returning seed that
+					// checks runCtx does not race this send and misclassify itself as
+					// the root cause. The channel is buffered, so canceling first
+					// cannot block. Same reasoning applies to the error branch below.
+					runCancel()
+					streamErr <- nil
+					return
 				}
 				if err != nil {
-					return fmt.Errorf("receiving managed database event: %w", err)
+					runCancel()
+					streamErr <- fmt.Errorf("receiving managed database event: %w", err)
+					return
 				}
 				if err := handler.Handle(ctx, Event[*pb.ManagedDatabase]{
 					Type:       toEventType(event.Type),
@@ -158,11 +156,39 @@ func WatchManagedDatabases(ctx context.Context, conn *grpc.ClientConn, handler H
 			}
 		}()
 
-		// The receiver ended; cancel and join the seed so a slow in-flight seed
-		// reconcile does not outlive this connect attempt.
-		runCancel()
-		<-seedDone
-		return recvErr
+		// Seed the reconciler from the current inventory while the goroutine above
+		// drains live events. The watch stream sends only future events and never
+		// replays existing state on (re)connect, so this LIST is the only path that
+		// recovers a ManagedDatabase whose create event fired while the stream was
+		// disconnected -- e.g. the openshell-db database kind-up seeds while a
+		// component image swap is restarting the api-server. runCtx ties the seed to
+		// the receiver: a Recv error cancels runCtx, aborting the seed's in-flight
+		// RPCs so it cannot mask that failure as its own.
+		if err := seedManagedDatabases(runCtx, client, handler); err != nil {
+			// Distinguish two causes so a genuine seed failure is never masked by the
+			// cancellation we would cause ourselves. If runCtx is already canceled,
+			// the receiver ended first (its Recv error/EOF canceled runCtx, which in
+			// turn aborted the seed's in-flight RPCs): the receiver is the root cause,
+			// so join it and prefer its error. If runCtx is still live, the seed
+			// failed on its own (a real List error): cancel the receiver so its Recv
+			// unblocks, join it, and return the seed error so watchLoop backs off and
+			// retries instead of running live off a stale inventory.
+			if runCtx.Err() != nil {
+				recvErr := <-streamErr
+				if recvErr != nil {
+					return recvErr
+				}
+				return err
+			}
+			runCancel()
+			<-streamErr
+			return err
+		}
+
+		// The seed completed; wait for the drain goroutine to finish (stream error
+		// or EOF). runCancel (via defer) or watchLoop canceling the parent attempt
+		// ctx breaks the Recv and lets this return promptly.
+		return <-streamErr
 	})
 }
 
