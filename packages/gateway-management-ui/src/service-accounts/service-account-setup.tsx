@@ -13,26 +13,33 @@ import {
   DescriptionListGroup,
   DescriptionListTerm,
   ExpandableSection,
-  Flex,
-  FlexItem,
+  InputGroup,
+  InputGroupItem,
   Stack,
   StackItem,
   TextInput,
 } from "@patternfly/react-core";
 import { EyeIcon, EyeSlashIcon } from "@patternfly/react-icons";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useIntl } from "react-intl";
 
 import type {
   OpenShellGatewayServiceAccountConnection,
   OpenShellGatewayServiceAccountRecord,
 } from "../application/gateway-types";
+import {
+  type CommandPart,
+  highlightTemplate,
+} from "../gateways/command-highlight";
+import commandStyles from "../gateways/gateway-connection-steps.module.css";
 import { messages } from "../messages";
 import {
   buildClientCredentialsScript,
   buildOpenShellServiceAccountScript,
   buildWorkspaceMembershipCommand,
 } from "./service-account-commands";
+
+const noCommandMarkers: readonly string[] = [];
 
 function CopyableValue({ label, value }: { label: string; value?: string }) {
   const intl = useIntl();
@@ -43,6 +50,7 @@ function CopyableValue({ label, value }: { label: string; value?: string }) {
       hoverTip={intl.formatMessage(messages.copy)}
       isCode
       isReadOnly
+      textAriaLabel={label}
     >
       {value}
     </ClipboardCopy>
@@ -62,6 +70,25 @@ function CopyableCommand({
   const id = useId();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [highlighted, setHighlighted] = useState<{
+    parts: CommandPart[];
+    script: string;
+  }>();
+
+  useEffect(() => {
+    if (!script) {
+      return;
+    }
+    let active = true;
+    void highlightTemplate(script, noCommandMarkers).then((parts) => {
+      if (active) {
+        setHighlighted({ parts, script });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [script]);
 
   if (!script) {
     return (
@@ -87,29 +114,47 @@ function CopyableCommand({
   return (
     <Stack hasGutter>
       <StackItem>
-        <CodeBlock
-          actions={
-            <CodeBlockAction>
-              <ClipboardCopyButton
-                aria-label={copyLabel}
-                id={`${id}-copy`}
-                onClick={() => {
-                  void copyScript();
-                }}
-                onTooltipHidden={() => {
-                  setCopied(false);
-                }}
-                variant="plain"
-              >
-                {copied
-                  ? intl.formatMessage(messages.copied)
-                  : intl.formatMessage(messages.copy)}
-              </ClipboardCopyButton>
-            </CodeBlockAction>
-          }
-        >
-          <CodeBlockCode id={id}>{script}</CodeBlockCode>
-        </CodeBlock>
+        <div className={commandStyles.steps}>
+          <CodeBlock
+            actions={
+              <CodeBlockAction>
+                <ClipboardCopyButton
+                  aria-label={copyLabel}
+                  id={`${id}-copy`}
+                  onClick={() => {
+                    void copyScript();
+                  }}
+                  onTooltipHidden={() => {
+                    setCopied(false);
+                  }}
+                  variant="plain"
+                >
+                  {copied
+                    ? intl.formatMessage(messages.copied)
+                    : intl.formatMessage(messages.copy)}
+                </ClipboardCopyButton>
+              </CodeBlockAction>
+            }
+          >
+            {highlighted?.script === script ? (
+              <div className={commandStyles.highlighted}>
+                <pre className="shiki">
+                  <code>
+                    {highlighted.parts.map((part, index) =>
+                      part.kind === "text" ? (
+                        <span className={part.className} key={index}>
+                          {part.value}
+                        </span>
+                      ) : null,
+                    )}
+                  </code>
+                </pre>
+              </div>
+            ) : (
+              <CodeBlockCode id={id}>{script}</CodeBlockCode>
+            )}
+          </CodeBlock>
+        </div>
       </StackItem>
       {copyFailed ? (
         <StackItem>
@@ -201,17 +246,17 @@ export function ServiceAccountSetupView({
               <DescriptionListDescription>
                 <Stack hasGutter>
                   <StackItem>
-                    <Flex flexWrap={{ default: "nowrap" }}>
-                      <FlexItem grow={{ default: "grow" }}>
+                    <InputGroup>
+                      <InputGroupItem isFill>
                         <TextInput
                           aria-label={intl.formatMessage(messages.clientSecret)}
                           id={secretId}
-                          readOnly
+                          readOnlyVariant="default"
                           type={isSecretVisible ? "text" : "password"}
                           value={clientSecret}
                         />
-                      </FlexItem>
-                      <FlexItem>
+                      </InputGroupItem>
+                      <InputGroupItem>
                         <Button
                           aria-label={intl.formatMessage(
                             isSecretVisible
@@ -230,22 +275,26 @@ export function ServiceAccountSetupView({
                           }}
                           variant="control"
                         />
-                      </FlexItem>
-                      <FlexItem>
-                        <Button
+                      </InputGroupItem>
+                      <InputGroupItem>
+                        <ClipboardCopyButton
+                          aria-label={intl.formatMessage(
+                            messages.copyClientSecret,
+                          )}
+                          id={`${secretId}-copy`}
                           onClick={() => {
                             void copyClientSecret();
                           }}
-                          variant="secondary"
+                          onTooltipHidden={() => {
+                            setSecretCopied(false);
+                          }}
                         >
                           {intl.formatMessage(
-                            secretCopied
-                              ? messages.clientSecretCopied
-                              : messages.copyClientSecret,
+                            secretCopied ? messages.copied : messages.copy,
                           )}
-                        </Button>
-                      </FlexItem>
-                    </Flex>
+                        </ClipboardCopyButton>
+                      </InputGroupItem>
+                    </InputGroup>
                   </StackItem>
                   {secretCopyFailed ? (
                     <StackItem>

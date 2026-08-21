@@ -125,7 +125,7 @@ describe("ServiceAccountsPage", () => {
     });
   });
 
-  it("uses authoritative filtering and exposes non-secret row details", async () => {
+  it("uses authoritative search and exposes non-secret row details", async () => {
     const user = userEvent.setup();
     renderPage();
 
@@ -140,17 +140,9 @@ describe("ServiceAccountsPage", () => {
       screen.getByRole("button", { name: "Copy Service account subject" }),
     ).toBeTruthy();
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Filter by status" }),
-      "ready",
-    );
-    await waitFor(() => {
-      expect(mocks.list).toHaveBeenLastCalledWith(
-        "gateway-1",
-        expect.objectContaining({ status: "ready" }),
-        expect.any(AbortSignal),
-      );
-    });
+    expect(
+      screen.queryByRole("combobox", { name: "Filter by status" }),
+    ).toBeNull();
 
     await user.type(
       screen.getByRole("textbox", { name: "Filter by name or client ID" }),
@@ -208,15 +200,16 @@ describe("ServiceAccountsPage", () => {
       throw new Error("OpenShell admin option was not rendered as a button");
     }
     await user.click(adminOption);
-    const expiration = within(createDialog).getByRole("combobox", {
+    const expiration = within(createDialog).getByRole("button", {
       name: "Expiration",
     });
-    expect(
-      within(expiration)
-        .getAllByRole("option")
-        .map((option) => option.textContent),
-    ).toEqual(["30 days", "60 days", "90 days"]);
-    await user.selectOptions(expiration, String(60 * 86_400));
+    expect(expiration.textContent).toBe("90 days");
+    await user.click(expiration);
+    expect(screen.getByText("30 days")).toBeTruthy();
+    expect(screen.getByText("60 days")).toBeTruthy();
+    expect(screen.getAllByText("90 days")).toHaveLength(2);
+    await user.click(screen.getByText("60 days"));
+    expect(expiration.textContent).toBe("60 days");
     await user.click(
       within(createDialog).getByRole("button", {
         name: "Create service account",
@@ -247,6 +240,16 @@ describe("ServiceAccountsPage", () => {
     ).toBeNull();
     const secret =
       within(setupDialog).getByLabelText<HTMLInputElement>("Client secret");
+    const clientId = within(setupDialog).getByRole<HTMLInputElement>(
+      "textbox",
+      { name: "Client ID" },
+    );
+    const subject = within(setupDialog).getByRole<HTMLInputElement>("textbox", {
+      name: "Service account subject",
+    });
+    expect(clientId.readOnly).toBe(true);
+    expect(secret.readOnly).toBe(true);
+    expect(subject.readOnly).toBe(true);
     expect(secret.type).toBe("password");
     expect(secret.value).toBe("literal-client-secret");
     expect(setupDialog.textContent).not.toContain("literal-client-secret");
@@ -275,6 +278,9 @@ describe("ServiceAccountsPage", () => {
     expect(setupDialog.textContent).toContain(
       "--data-urlencode client_secret@-",
     );
+    await waitFor(() => {
+      expect(setupDialog.querySelectorAll(".shiki")).toHaveLength(2);
+    });
     await user.click(
       within(setupDialog).getByRole("button", { name: "Close" }),
     );
@@ -375,6 +381,43 @@ describe("ServiceAccountsPage", () => {
     expect(within(dialog).getByDisplayValue("release-bot")).toBeTruthy();
     expect(dialog.textContent).toContain("delete it and create a replacement");
     expect(mocks.create).toHaveBeenCalledOnce();
+  });
+
+  it("explains how to recover when a service-account name exists", async () => {
+    mocks.create.mockRejectedValue(
+      new GatewayOperationError("conflict", {
+        code: "service-account-name-exists",
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("deploy-bot");
+
+    await user.click(
+      screen.getByRole("button", { name: "Create service account" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Create service account",
+    });
+    const name = within(dialog).getByRole("textbox", {
+      name: "Service account name",
+    });
+    await user.type(name, "deploy-bot");
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "Create service account",
+      }),
+    );
+
+    expect(
+      await within(dialog).findByText(
+        "A service account with this name already exists",
+      ),
+    ).toBeTruthy();
+    expect(dialog.textContent).toContain(
+      "Choose a different name, or delete the active service account before reusing this name.",
+    );
+    expect(within(dialog).getByDisplayValue("deploy-bot")).toBeTruthy();
   });
 
   it("loads repeatable setup and confirms revoke and delete separately", async () => {

@@ -10,8 +10,6 @@ import {
   ExpandableSection,
   Flex,
   FlexItem,
-  FormSelect,
-  FormSelectOption,
   Spinner,
   Stack,
   StackItem,
@@ -49,16 +47,6 @@ import {
   serviceAccountStatusPollMilliseconds,
 } from "./service-account-data";
 import { ServiceAccountRowActions } from "./service-account-row-actions";
-
-const statuses: readonly OpenShellGatewayServiceAccountStatus[] = [
-  "provisioning",
-  "ready",
-  "expired",
-  "revoking",
-  "revoked",
-  "deleting",
-  "error",
-];
 
 function isSortField(
   value: string,
@@ -366,38 +354,6 @@ export function ServiceAccountsPage({
           <ResourceTable
             ariaLabel={intl.formatMessage(messages.serviceAccountsHeading)}
             columns={columns}
-            filterControls={
-              <FormSelect
-                aria-label={intl.formatMessage(
-                  messages.serviceAccountStatusFilter,
-                )}
-                onChange={(_event, value) => {
-                  changeState(
-                    {
-                      ...currentState,
-                      page: 1,
-                      status: value
-                        ? (value as OpenShellGatewayServiceAccountStatus)
-                        : undefined,
-                    },
-                    "filter",
-                  );
-                }}
-                value={currentState.status ?? ""}
-              >
-                <FormSelectOption
-                  label={intl.formatMessage(messages.allStatuses)}
-                  value=""
-                />
-                {statuses.map((status) => (
-                  <FormSelectOption
-                    key={status}
-                    label={serviceAccountStatusLabel(intl, status)}
-                    value={status}
-                  />
-                ))}
-              </FormSelect>
-            }
             getRowKey={({ id }) => id}
             hasActiveFilters={
               currentState.search.trim().length > 0 ||

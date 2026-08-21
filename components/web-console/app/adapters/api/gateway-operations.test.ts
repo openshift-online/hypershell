@@ -663,13 +663,47 @@ describe("gateway API operations adapter", () => {
   });
 
   it("maps SDK failures into stable application failures", async () => {
-    gatewayApi.update.mockRejectedValue(
+    serviceAccountApi.create.mockRejectedValue(
       new SDKAPIError({
-        code: "conflict",
+        code: "service_account_name_exists",
         href: "",
         id: "",
         kind: "Error",
         operation_id: "operation-1",
+        reason: "raw provider detail",
+        status_code: 409,
+      }),
+    );
+
+    const failure = await controlPlane
+      .createOpenShellGatewayServiceAccount(
+        "gateway-1",
+        {
+          expiresAt: "2026-11-19T12:00:00Z",
+          name: "deploy-bot",
+          role: "openshell-user",
+        },
+        context,
+      )
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GatewayOperationError);
+    expect(failure).toMatchObject({
+      code: "service-account-name-exists",
+      kind: "conflict",
+      operationId: "operation-1",
+    });
+    expect((failure as Error).message).not.toContain("raw provider detail");
+  });
+
+  it("does not expose unrecognized API error codes", async () => {
+    gatewayApi.update.mockRejectedValue(
+      new SDKAPIError({
+        code: "provider_specific_conflict",
+        href: "",
+        id: "",
+        kind: "Error",
+        operation_id: "operation-2",
         reason: "raw provider detail",
         status_code: 409,
       }),
@@ -681,8 +715,9 @@ describe("gateway API operations adapter", () => {
 
     expect(failure).toBeInstanceOf(GatewayOperationError);
     expect(failure).toMatchObject({
+      code: undefined,
       kind: "conflict",
-      operationId: "operation-1",
+      operationId: "operation-2",
     });
     expect((failure as Error).message).not.toContain("raw provider detail");
   });

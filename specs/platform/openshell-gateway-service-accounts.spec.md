@@ -713,7 +713,7 @@ The collection SHALL use the shared responsive resource-table pattern. It SHALL 
 
 Row details SHALL expose the description, client ID, service-account subject, and creation time. The UI SHALL label the subject `Service account subject`, show its complete value, and provide a copy action. The subject SHALL remain available after the one-time setup view closes. Row details SHALL never expose a client secret or access token.
 
-The toolbar SHALL provide search, status filtering, result count, and pagination. The collection SHALL use server pagination, filtering, and sorting.
+The toolbar SHALL provide search, result count, and pagination. It SHALL NOT provide a status selector. The collection SHALL use server pagination, search, and sorting.
 
 Search SHALL wait 300 milliseconds after the last input change. A new search SHALL cancel the old request and reset the page to one. Wildcard characters SHALL pass to the API as literal text.
 
@@ -727,9 +727,9 @@ The create form SHALL collect a name, optional description, OpenShell role, and 
 
 The form SHALL default to `openshell-user`. It SHALL offer both roles to an owner. It SHALL offer only `openshell-user` to a viewer. The role control SHALL use a PatternFly Select. Each option SHALL show the role and its access description in the menu, including the separate workspace grant required by `openshell-user`.
 
-The expiration control SHALL be labeled `Expiration`. It SHALL show only policy-permitted values from 30, 60, and 90 days. It SHALL use the server-provided default when that default is one of those values; otherwise, it SHALL select the longest permitted value. It SHALL show the resulting absolute expiration in the user's locale before submission. The form SHALL explain that OpenShellGatewayServiceAccount expiration is different from access-token expiration.
+The expiration control SHALL be labeled `Expiration` and SHALL use a PatternFly Select. It SHALL show only policy-permitted values from 30, 60, and 90 days. It SHALL use the server-provided default when that default is one of those values; otherwise, it SHALL select the longest permitted value. It SHALL show the resulting absolute expiration in the user's locale before submission. The form SHALL explain that OpenShellGatewayServiceAccount expiration is different from access-token expiration.
 
-The form SHALL associate validation messages with their fields. After validation failure or a definitive server rejection, it SHALL retain all non-secret input so the user can correct and resubmit it.
+The form SHALL associate validation messages with their fields. After validation failure or a definitive server rejection, it SHALL retain all non-secret input so the user can correct and resubmit it. For `service_account_name_exists`, it SHALL state that the name already exists and tell the user to choose another name or delete the active account. The UI SHALL map allowlisted stable error codes to localized guidance and SHALL NOT display an unrecognized API reason verbatim.
 
 The UI SHALL not close the create form after a successful response. It SHALL replace the form with a one-time setup view.
 
@@ -738,6 +738,8 @@ The setup view SHALL state that HyperShell cannot show the client secret again. 
 - Client ID
 - Masked client secret with reveal and copy actions
 - Service account subject
+
+The setup fields SHALL use visibly read-only PatternFly controls. The client-secret copy action SHALL use the same copy-button treatment as the client ID and service-account subject.
 
 The setup view SHALL NOT show issuer, token endpoint, gateway audience, or gateway endpoint as standalone fields. It MAY include these values in generated commands. The setup view SHALL NOT provide a credential-bundle download.
 
@@ -751,6 +753,8 @@ The setup view SHALL provide these copyable command groups:
 2. `Exchange credentials for a JWT`, collapsed by default as advanced details.
 
 Each group SHALL provide one copy action for its complete command sequence. The copied sequence SHALL run in the documented order without requiring the user to assemble separate fragments.
+
+The setup view SHALL syntax-highlight shell commands with the same theme-aware presentation as the gateway Connection tab. Syntax highlighting SHALL NOT change the copied command text.
 
 The OpenShell CLI group SHALL generate an `openshell gateway add` command from the gateway name, service-account name, issuer, service-account client ID, audience, and endpoint. The local gateway alias SHALL default to `<gateway-name>-<service-account-name>` so the command does not replace the user's interactive gateway configuration. The command SHALL NOT include an overwrite option.
 

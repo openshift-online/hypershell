@@ -6,8 +6,6 @@ import {
   Form,
   FormGroup,
   FormHelperText,
-  FormSelect,
-  FormSelectOption,
   HelperText,
   HelperTextItem,
   MenuToggle,
@@ -99,6 +97,7 @@ export function ServiceAccountCreateDialog({
     useState<OpenShellGatewayServiceAccountCreateResult>();
   const [isAcknowledged, setIsAcknowledged] = useState(false);
   const [isConfirmingLoss, setIsConfirmingLoss] = useState(false);
+  const [isExpirationOpen, setIsExpirationOpen] = useState(false);
   const [isRoleOpen, setIsRoleOpen] = useState(false);
   const titleId = useId();
   const options = useMemo(
@@ -154,6 +153,9 @@ export function ServiceAccountCreateDialog({
   const selectedExpiration = Number(
     useWatch({ control, name: "expirationSeconds" }),
   );
+  const selectedExpirationDays = options.find(
+    ({ seconds }) => seconds === selectedExpiration,
+  )?.days;
   const expiration = new Date(currentTime + selectedExpiration * 1000);
   useEffect(() => {
     if (!isOpen || handoff) {
@@ -198,6 +200,7 @@ export function ServiceAccountCreateDialog({
     setHandoff(undefined);
     setIsAcknowledged(false);
     setIsConfirmingLoss(false);
+    setIsExpirationOpen(false);
     setIsRoleOpen(false);
     creation.reset();
     onClose();
@@ -216,6 +219,9 @@ export function ServiceAccountCreateDialog({
     creation.isError &&
     (!(creation.error instanceof GatewayOperationError) ||
       ["unavailable", "unknown"].includes(creation.error.kind));
+  const nameExistsFailure =
+    creation.error instanceof GatewayOperationError &&
+    creation.error.code === "service-account-name-exists";
 
   return (
     <Modal
@@ -263,14 +269,18 @@ export function ServiceAccountCreateDialog({
                     title={intl.formatMessage(
                       uncertainFailure
                         ? messages.serviceAccountCreateUncertain
-                        : messages.serviceAccountCreateError,
+                        : nameExistsFailure
+                          ? messages.serviceAccountNameExists
+                          : messages.serviceAccountCreateError,
                     )}
                     variant={uncertainFailure ? "warning" : "danger"}
                   >
                     {intl.formatMessage(
                       uncertainFailure
                         ? messages.serviceAccountCreateUncertainBody
-                        : messages.serviceAccountCreateErrorBody,
+                        : nameExistsFailure
+                          ? messages.serviceAccountNameExistsBody
+                          : messages.serviceAccountCreateErrorBody,
                     )}
                   </Alert>
                 </StackItem>
@@ -411,61 +421,98 @@ export function ServiceAccountCreateDialog({
                 <Controller
                   control={control}
                   name="expirationSeconds"
-                  render={({ field, fieldState }) => (
-                    <FormGroup
-                      fieldId="service-account-expiration"
-                      isRequired
-                      label={intl.formatMessage(messages.expiration)}
-                    >
-                      <FormSelect
-                        aria-describedby={`service-account-expiration-preview service-account-token-lifetime-note${
-                          fieldState.error
-                            ? " service-account-expiration-error"
-                            : ""
-                        }`}
-                        id="service-account-expiration"
-                        isDisabled={creation.isPending}
-                        onChange={(_event, value) => {
-                          field.onChange(value);
-                        }}
-                        validated={fieldState.error ? "error" : "default"}
-                        value={field.value}
+                  render={({ field, fieldState }) => {
+                    const describedBy = `service-account-expiration-preview service-account-token-lifetime-note${
+                      fieldState.error
+                        ? " service-account-expiration-error"
+                        : ""
+                    }`;
+                    return (
+                      <FormGroup
+                        fieldId="service-account-expiration"
+                        isRequired
+                        label={intl.formatMessage(messages.expiration)}
                       >
-                        {options.map(({ days, seconds }) => (
-                          <FormSelectOption
-                            key={seconds}
-                            label={intl.formatMessage(
-                              messages.serviceAccountExpirationOption,
-                              { days },
+                        <Select
+                          id="service-account-expiration"
+                          isOpen={isExpirationOpen}
+                          onOpenChange={setIsExpirationOpen}
+                          onSelect={(_event, value) => {
+                            if (
+                              typeof value === "string" &&
+                              options.some(
+                                ({ seconds }) => String(seconds) === value,
+                              )
+                            ) {
+                              field.onChange(value);
+                            }
+                            setIsExpirationOpen(false);
+                          }}
+                          selected={field.value}
+                          toggle={(toggleRef) => (
+                            <MenuToggle
+                              aria-describedby={describedBy}
+                              aria-label={intl.formatMessage(
+                                messages.expiration,
+                              )}
+                              isDisabled={creation.isPending}
+                              isExpanded={isExpirationOpen}
+                              isFullWidth
+                              onClick={() => {
+                                setIsExpirationOpen((open) => !open);
+                              }}
+                              ref={toggleRef}
+                              status={fieldState.error ? "danger" : undefined}
+                            >
+                              {selectedExpirationDays
+                                ? intl.formatMessage(
+                                    messages.serviceAccountExpirationOption,
+                                    { days: selectedExpirationDays },
+                                  )
+                                : ""}
+                            </MenuToggle>
+                          )}
+                        >
+                          <SelectList>
+                            {options.map(({ days, seconds }) => (
+                              <SelectOption
+                                isSelected={field.value === String(seconds)}
+                                key={seconds}
+                                value={String(seconds)}
+                              >
+                                {intl.formatMessage(
+                                  messages.serviceAccountExpirationOption,
+                                  { days },
+                                )}
+                              </SelectOption>
+                            ))}
+                          </SelectList>
+                        </Select>
+                        <HelperText>
+                          <HelperTextItem id="service-account-expiration-preview">
+                            {intl.formatMessage(
+                              messages.serviceAccountExpiresPreview,
+                              {
+                                expiration: intl.formatDate(expiration, {
+                                  dateStyle: "medium",
+                                  timeStyle: "long",
+                                }),
+                              },
                             )}
-                            value={String(seconds)}
-                          />
-                        ))}
-                      </FormSelect>
-                      <HelperText>
-                        <HelperTextItem id="service-account-expiration-preview">
-                          {intl.formatMessage(
-                            messages.serviceAccountExpiresPreview,
-                            {
-                              expiration: intl.formatDate(expiration, {
-                                dateStyle: "medium",
-                                timeStyle: "long",
-                              }),
-                            },
-                          )}
-                        </HelperTextItem>
-                        <HelperTextItem id="service-account-token-lifetime-note">
-                          {intl.formatMessage(
-                            messages.serviceAccountTokenLifetimeNote,
-                          )}
-                        </HelperTextItem>
-                      </HelperText>
-                      <FieldError
-                        id="service-account-expiration-error"
-                        message={fieldState.error?.message}
-                      />
-                    </FormGroup>
-                  )}
+                          </HelperTextItem>
+                          <HelperTextItem id="service-account-token-lifetime-note">
+                            {intl.formatMessage(
+                              messages.serviceAccountTokenLifetimeNote,
+                            )}
+                          </HelperTextItem>
+                        </HelperText>
+                        <FieldError
+                          id="service-account-expiration-error"
+                          message={fieldState.error?.message}
+                        />
+                      </FormGroup>
+                    );
+                  }}
                 />
               </StackItem>
             </Stack>
