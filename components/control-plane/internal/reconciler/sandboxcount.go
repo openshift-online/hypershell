@@ -10,6 +10,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -260,10 +261,15 @@ func (r *SandboxCountReconciler) lockNamespace(namespace string) func() {
 // write. Each set RPC is bounded by sandboxCountRPCTimeout so a single hung call
 // cannot stall the rest of the pass.
 func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelisters.PodLister) {
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "sandbox-count", "reconcile")
+	var tickErr error
+	defer func() { endSpan(tickErr) }()
+
 	listCtx, cancel := context.WithTimeout(ctx, sandboxCountGatewayListTimeout)
 	namespaces, err := r.namespaces(listCtx)
 	cancel()
 	if err != nil {
+		tickErr = err
 		log.Printf("WARN sandbox count: list gateway namespaces: %v", err)
 		return
 	}

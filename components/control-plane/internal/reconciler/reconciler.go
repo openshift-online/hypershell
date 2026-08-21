@@ -15,7 +15,10 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -50,6 +53,9 @@ func (r *FleetReconciler) Handle(ctx context.Context, event watcher.Event[*pb.Fl
 		r.mu.Unlock()
 	}()
 
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "Fleet", event.Type.String())
+	defer func() { endSpan(nil) }()
+
 	log.Printf("INFO reconciling Fleet %s (event=%d)", event.ResourceID, event.Type)
 	return nil
 }
@@ -76,6 +82,9 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 		delete(r.active, event.ResourceID)
 		r.mu.Unlock()
 	}()
+
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String())
+	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling ManagedCluster %s (event=%d)", event.ResourceID, event.Type)
 	return nil
@@ -119,6 +128,10 @@ func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Ev
 		r.mu.Unlock()
 	}()
 
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedDatabase", event.Type.String())
+	var reconcileErr error
+	defer func() { endSpan(reconcileErr) }()
+
 	db := event.Resource
 	if db == nil {
 		log.Printf("WARN ManagedDatabase event %s has nil resource, skipping", event.ResourceID)
@@ -141,14 +154,16 @@ func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Ev
 
 	if !r.hasCNPG {
 		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), "Failed: CNPG operator not available")
-		return fmt.Errorf("CNPG operator is required but not available on the cluster")
+		reconcileErr = fmt.Errorf("CNPG operator is required but not available on the cluster")
+		return reconcileErr
 	}
 
 	clusterName := managedDatabaseCNPGClusterName()
 	currentStatus := managedDatabaseStatus(db)
 	clusterReady, err := r.isCNPGClusterReady(ctx, db.Namespace, clusterName)
 	if err != nil {
-		return fmt.Errorf("check CNPG Cluster readiness for ManagedDatabase %s: %w", db.Name, err)
+		reconcileErr = fmt.Errorf("check CNPG Cluster readiness for ManagedDatabase %s: %w", db.Name, err)
+		return reconcileErr
 	}
 
 	if clusterReady {
@@ -169,7 +184,8 @@ func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Ev
 
 	if err := r.reconcileCNPGCluster(ctx, db); err != nil {
 		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", fmt.Sprintf("Failed: %v", err))
-		return fmt.Errorf("reconcile CNPG cluster for ManagedDatabase %s: %w", db.Name, err)
+		reconcileErr = fmt.Errorf("reconcile CNPG cluster for ManagedDatabase %s: %w", db.Name, err)
+		return reconcileErr
 	}
 
 	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", "Ready")
@@ -393,6 +409,9 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 		r.mu.Unlock()
 	}()
 
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String())
+	defer func() { endSpan(nil) }()
+
 	log.Printf("INFO reconciling GatewayRelease %s (event=%d)", event.ResourceID, event.Type)
 	return nil
 }
@@ -489,6 +508,19 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
+	if event.Type != watcher.EventDeleted {
+		if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
+			log.Printf("DEBUG gateway %s phase=%s, skipping reconciliation", event.ResourceID, *gw.Phase)
+			return nil
+		}
+	}
+
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String())
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
+	var reconcileErr error
+	defer func() { endSpan(reconcileErr) }()
+
 	if event.Type == watcher.EventDeleted {
 		namespace, err := gatewayNamespace(gw)
 		if err != nil {
@@ -529,7 +561,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			}
 		}
 		if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
-			return fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
+			reconcileErr = fmt.Errorf("delete gateway resources in %s: %w", namespace, err)
+			return reconcileErr
 		}
 		log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
 
@@ -540,7 +573,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		// swept later by the NamespaceGCReconciler.
 		deleted, err := gateway.DeleteManagedNamespace(ctx, r.clientset, namespace)
 		if err != nil {
-			return fmt.Errorf("delete gateway namespace %s: %w", namespace, err)
+			reconcileErr = fmt.Errorf("delete gateway namespace %s: %w", namespace, err)
+			return reconcileErr
 		}
 		if !deleted {
 			// The namespace was left in place: it is already gone, still
@@ -558,24 +592,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	log.Printf("INFO reconciling Gateway %s name=%s namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
 
-	// The phase gate prevents redundant re-provisioning (re-applying manifests)
-	// of a Gateway that has already been acted upon. Running, Provisioning, and
-	// Degraded gateways are owned by the continuous health reconciler, which
-	// keeps their phase synchronized with workload health via a separate path
-	// that this gate does not suppress. See openshell-gateway-health.spec.md.
-	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
-		log.Printf("DEBUG gateway %s phase=%s, skipping reconciliation", event.ResourceID, *gw.Phase)
-		return nil
-	}
-
 	cnpgConfig, resolveErr := r.resolveCNPGConfig(ctx, gw)
 	if resolveErr != nil {
-		return fmt.Errorf("resolve CNPG config for gateway %s: %w", gw.Name, resolveErr)
+		reconcileErr = fmt.Errorf("resolve CNPG config for gateway %s: %w", gw.Name, resolveErr)
+		return reconcileErr
 	}
 
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
-		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+		return reconcileErr
 	}
 
 	dnsNames := gw.ServerDnsNames
@@ -609,7 +635,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if gw.Oidc != nil && *gw.Oidc != "" {
 		var oidcConfig gateway.OIDCConfig
 		if err := json.Unmarshal([]byte(*gw.Oidc), &oidcConfig); err != nil {
-			return fmt.Errorf("invalid oidc config for gateway %s: %w", gw.Name, err)
+			reconcileErr = fmt.Errorf("invalid oidc config for gateway %s: %w", gw.Name, err)
+			return reconcileErr
 		}
 		gwConfig.OIDC = oidcConfig
 	}
@@ -617,7 +644,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if gw.Route != nil && *gw.Route != "" {
 		var routeConfig gateway.RouteConfig
 		if err := json.Unmarshal([]byte(*gw.Route), &routeConfig); err != nil {
-			return fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
+			reconcileErr = fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
+			return reconcileErr
 		}
 		gwConfig.Route = routeConfig
 	}
@@ -627,7 +655,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		decoder := json.NewDecoder(bytes.NewReader([]byte(*gw.CredentialDriver)))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&credDriverConfig); err != nil {
-			return fmt.Errorf("invalid credential driver config for gateway %s: %w", gw.Name, err)
+			reconcileErr = fmt.Errorf("invalid credential driver config for gateway %s: %w", gw.Name, err)
+			return reconcileErr
 		}
 		gwConfig.CredentialDriver = &credDriverConfig
 	}
@@ -660,7 +689,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
 		r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
-		return fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+		return reconcileErr
 	}
 
 	// Manifests are applied, but the gateway is not Running until its workload is
@@ -1113,6 +1143,9 @@ func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Eve
 		delete(r.active, event.ResourceID)
 		r.mu.Unlock()
 	}()
+
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String())
+	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling GatewayNetwork %s (event=%d)", event.ResourceID, event.Type)
 	return nil
