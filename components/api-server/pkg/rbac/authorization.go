@@ -135,6 +135,9 @@ func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
 	if err != nil {
 		return "", ""
 	}
+	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/service_accounts") {
+		return "service_accounts", mux.Vars(r)["service_account_id"]
+	}
 
 	parts := strings.Split(pathTemplate, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -155,6 +158,9 @@ func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
 }
 
 func extractGatewayID(r *http.Request, resource string) string {
+	if resource == "service_accounts" {
+		return mux.Vars(r)["gateway_id"]
+	}
 	if resource == "gateways" {
 		vars := mux.Vars(r)
 		return vars["id"]
@@ -173,6 +179,18 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "gateways" && gatewayID == "" {
 		return hasPlatformAdmin(bindings) || len(bindings) > 0
+	}
+
+	if resource == "service_accounts" && gatewayID != "" {
+		// Both gateway roles can create service accounts. The handler applies the
+		// finer owner-all/viewer-own visibility and role-cap rules.
+		for _, binding := range bindings {
+			if binding.Scope == "gateway" && binding.GatewayID != nil && *binding.GatewayID == gatewayID &&
+				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:viewer") {
+				return true
+			}
+		}
+		return false
 	}
 
 	if resource == "role_bindings" {

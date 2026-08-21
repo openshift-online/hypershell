@@ -225,6 +225,7 @@ type ReconcileOpts struct {
 
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.
 type KeycloakClientAPI interface {
+	DeleteGatewayServiceAccountClients(ctx context.Context, gatewayID string) error
 	DeleteGatewayClient(ctx context.Context, gatewayName string) error
 	DeleteConsoleClient(ctx context.Context, consoleClientID string) error
 }

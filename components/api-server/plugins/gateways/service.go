@@ -2,6 +2,7 @@ package gateways
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -207,6 +208,12 @@ func (s *sqlGatewayService) SetActiveSandboxCount(ctx context.Context, namespace
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {
 	if _, svcErr := s.Get(ctx, id); svcErr != nil {
 		return svcErr
+	}
+
+	if err := cleanBeforeDeletion(ctx, id); err != nil {
+		serviceErr := errors.GeneralError("gateway service-account cleanup is unavailable")
+		serviceErr.HttpCode = http.StatusServiceUnavailable
+		return serviceErr
 	}
 
 	if err := s.gatewayDao.Delete(ctx, id); err != nil {

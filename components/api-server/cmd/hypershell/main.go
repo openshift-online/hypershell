@@ -17,6 +17,7 @@ import (
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roles"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/serviceAccounts"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	_ "github.com/openshift-online/rh-trex-ai/plugins/events"
 	_ "github.com/openshift-online/rh-trex-ai/plugins/generic"
