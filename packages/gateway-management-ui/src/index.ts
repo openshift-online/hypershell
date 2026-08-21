@@ -6,6 +6,7 @@ export {
 } from "./gateway-ui-provider";
 export type {
   GatewayControlPlane,
+  GatewayFailureCode,
   GatewayFailureKind,
   GatewayInvocationContext,
   GatewayListRequest,

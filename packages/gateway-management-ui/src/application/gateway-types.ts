@@ -178,16 +178,23 @@ export const defaultOpenShellGatewayServiceAccountListRequest: Readonly<OpenShel
 export type GatewayFailureKind =
   "cancelled" | "conflict" | "denied" | "not-found" | "unavailable" | "unknown";
 
+export type GatewayFailureCode = "service-account-name-exists";
+
 export class GatewayOperationError extends Error {
+  readonly code?: GatewayFailureCode;
   readonly kind: GatewayFailureKind;
   readonly operationId?: string;
 
   constructor(
     kind: GatewayFailureKind,
-    options: ErrorOptions & { operationId?: string } = {},
+    options: ErrorOptions & {
+      code?: GatewayFailureCode;
+      operationId?: string;
+    } = {},
   ) {
     super(`Gateway operation failed: ${kind}`, options);
     this.name = "GatewayOperationError";
+    this.code = options.code;
     this.kind = kind;
     this.operationId = options.operationId;
   }

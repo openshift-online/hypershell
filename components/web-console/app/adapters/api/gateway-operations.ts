@@ -1,5 +1,6 @@
 import type {
   GatewayControlPlane,
+  GatewayFailureCode,
   GatewayFailureKind,
   GatewayInvocationContext,
   GatewayListRequest,
@@ -234,6 +235,13 @@ function gatewayFailureKind(statusCode: number): GatewayFailureKind {
   return "unknown";
 }
 
+function gatewayFailureCode(code: string): GatewayFailureCode | undefined {
+  if (code === "service_account_name_exists") {
+    return "service-account-name-exists";
+  }
+  return undefined;
+}
+
 async function mapFailure<T>(task: () => Promise<T>): Promise<T> {
   try {
     return await task();
@@ -241,6 +249,7 @@ async function mapFailure<T>(task: () => Promise<T>): Promise<T> {
     if (error instanceof SDKAPIError) {
       throw new GatewayOperationError(gatewayFailureKind(error.statusCode), {
         cause: error,
+        code: gatewayFailureCode(error.code),
         operationId: error.operationId || undefined,
       });
     }

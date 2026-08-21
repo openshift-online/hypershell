@@ -543,16 +543,6 @@ export const messages = defineMessages({
     defaultMessage: "Filter by name or client ID",
     description: "Label and placeholder for service-account search.",
   },
-  serviceAccountStatusFilter: {
-    id: "app.gateway.serviceAccounts.statusFilter",
-    defaultMessage: "Filter by status",
-    description: "Accessible label for the service-account status filter.",
-  },
-  allStatuses: {
-    id: "app.gateway.serviceAccounts.allStatuses",
-    defaultMessage: "All statuses",
-    description: "Status-filter option that shows every service account.",
-  },
   serviceAccountRole: {
     id: "app.gateway.serviceAccounts.role",
     defaultMessage: "OpenShell role",
@@ -721,6 +711,17 @@ export const messages = defineMessages({
     defaultMessage: "Review the values and try again.",
     description: "Recovery guidance for a definitive create failure.",
   },
+  serviceAccountNameExists: {
+    id: "app.gateway.serviceAccounts.nameExists.title",
+    defaultMessage: "A service account with this name already exists",
+    description: "Title when a service-account name is already in use.",
+  },
+  serviceAccountNameExistsBody: {
+    id: "app.gateway.serviceAccounts.nameExists.body",
+    defaultMessage:
+      "Choose a different name, or delete the active service account before reusing this name.",
+    description: "Recovery guidance when a service-account name is in use.",
+  },
   serviceAccountCreateUncertain: {
     id: "app.gateway.serviceAccounts.createUncertain.title",
     defaultMessage: "The create result is uncertain",
@@ -763,11 +764,6 @@ export const messages = defineMessages({
     id: "app.gateway.serviceAccounts.secret.copy",
     defaultMessage: "Copy client secret",
     description: "Action that copies the client secret.",
-  },
-  clientSecretCopied: {
-    id: "app.gateway.serviceAccounts.secret.copied",
-    defaultMessage: "Client secret copied",
-    description: "Feedback after copying a client secret.",
   },
   serviceAccountCopyFailed: {
     id: "app.gateway.serviceAccounts.copyFailed",

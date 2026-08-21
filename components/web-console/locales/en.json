@@ -307,10 +307,6 @@
     "defaultMessage": "The service account could not be updated",
     "description": "Title for a service-account lifecycle action failure."
   },
-  "app.gateway.serviceAccounts.allStatuses": {
-    "defaultMessage": "All statuses",
-    "description": "Status-filter option that shows every service account."
-  },
   "app.gateway.serviceAccounts.clientId": {
     "defaultMessage": "Client ID",
     "description": "Label for an OIDC client identifier."
@@ -427,6 +423,14 @@
     "defaultMessage": "Service account name",
     "description": "Label for a service-account name."
   },
+  "app.gateway.serviceAccounts.nameExists.body": {
+    "defaultMessage": "Choose a different name, or delete the active service account before reusing this name.",
+    "description": "Recovery guidance when a service-account name is in use."
+  },
+  "app.gateway.serviceAccounts.nameExists.title": {
+    "defaultMessage": "A service account with this name already exists",
+    "description": "Title when a service-account name is already in use."
+  },
   "app.gateway.serviceAccounts.noResults.body": {
     "defaultMessage": "Clear the search and status filter to see all accounts.",
     "description": "Recovery guidance for service-account filters with no matches."
@@ -478,10 +482,6 @@
   "app.gateway.serviceAccounts.secret.acknowledge": {
     "defaultMessage": "I saved the client secret in a secure secret manager.",
     "description": "Required acknowledgement before completing one-time setup."
-  },
-  "app.gateway.serviceAccounts.secret.copied": {
-    "defaultMessage": "Client secret copied",
-    "description": "Feedback after copying a client secret."
   },
   "app.gateway.serviceAccounts.secret.copy": {
     "defaultMessage": "Copy client secret",
@@ -578,10 +578,6 @@
   "app.gateway.serviceAccounts.status.revoking": {
     "defaultMessage": "Revoking",
     "description": "Status while a service account is being revoked."
-  },
-  "app.gateway.serviceAccounts.statusFilter": {
-    "defaultMessage": "Filter by status",
-    "description": "Accessible label for the service-account status filter."
   },
   "app.gateway.serviceAccounts.subject": {
     "defaultMessage": "Service account subject",
