@@ -4,7 +4,7 @@
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
 **Related:** `openshell-gateway-keycloak.spec.md` - automated per-gateway Keycloak provisioning; `openshell-gateway-tls.spec.md` - TLS certificate management; `openshell-gateway-routing.spec.md` - external connectivity
-**Machine accounts:** `openshell-gateway-machine-accounts.spec.md` - Client Credentials for automation
+**OpenShell gateway service accounts:** `openshell-gateway-service-accounts.spec.md` - Client Credentials for automation
 
 ---
 
@@ -21,7 +21,7 @@ OIDC configuration is auto-provisioned by the control plane when a gateway is re
 ### Authentication Flow
 
 ```
-CLI User or MachineAccount
+CLI User or OpenShellGatewayServiceAccount
     │  1. Obtains OIDC token from IdP (interactive browser/device flow or
     │     non-interactive Client Credentials grant)
     │  2. Connects to gateway with Bearer token in Authorization header
@@ -156,7 +156,7 @@ The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a g
 ```bash
 # Interactive users authenticate the public per-gateway client through
 # Authorization Code + PKCE or Device Authorization. Automation uses a
-# gateway-scoped MachineAccount and performs Client Credentials on demand.
+# gateway-scoped OpenShellGatewayServiceAccount and performs Client Credentials on demand.
 # It does not use or store a human username and password.
 
 # 1. Login to hsctl with the user's management-plane token
@@ -170,10 +170,10 @@ OPENSHELL_GATEWAY_INSECURE=true openshell -g "$GATEWAY_NAME" status
 OPENSHELL_GATEWAY_INSECURE=true openshell -g "$GATEWAY_NAME" sandbox create --name demo
 ```
 
-For CI, create a MachineAccount through HyperShell. Store its client ID and
+For CI, create an OpenShellGatewayServiceAccount through HyperShell. Store its client ID and
 client secret in the CI secret manager. The supported OpenShell integration
 requests short-lived access tokens with `grant_type=client_credentials`.
-See [`openshell-gateway-machine-accounts.spec.md`](./openshell-gateway-machine-accounts.spec.md).
+See [`openshell-gateway-service-accounts.spec.md`](./openshell-gateway-service-accounts.spec.md).
 
 ---
 
@@ -182,8 +182,8 @@ See [`openshell-gateway-machine-accounts.spec.md`](./openshell-gateway-machine-a
 | Symptom | Root Cause | Fix |
 |---|---|---|
 | `role 'openshell-user' required` | OIDC `roles_claim` misconfigured or user lacks the required Keycloak client role | Verify user has a RoleBinding and the OIDC Role Bridge has assigned the Keycloak client role |
-| `Invalid client or Invalid client credentials` | The client ID or secret is incorrect. The MachineAccount can also be revoked, expired, or deleted. | Verify the client ID and lifecycle state. Never print the client secret. |
-| Token expires after 5 minutes | Keycloak access-token lifetime | Interactive users refresh their session. MachineAccounts perform another Client Credentials grant without a refresh token. |
+| `Invalid client or Invalid client credentials` | The client ID or secret is incorrect. The OpenShellGatewayServiceAccount can also be revoked, expired, or deleted. | Verify the client ID and lifecycle state. Never print the client secret. |
+| Token expires after 5 minutes | Keycloak access-token lifetime | Interactive users refresh their session. OpenShellGatewayServiceAccounts perform another Client Credentials grant without a refresh token. |
 | `openshell gateway add` opens browser | No `--no-browser` flag | Write `metadata.json` directly, then use `hsctl gateway setup-cli` |
 | `GROUPS` env var returns `1000` in bash | Bash builtin collision - `GROUPS` is a reserved readonly array | Use `USER_GROUPS` instead of `GROUPS` for role/group env vars |
 | `openshell sandbox create` hangs | Blocking interactive command | Background the command and poll for pod status; use `ExecSandbox` for runner startup |
