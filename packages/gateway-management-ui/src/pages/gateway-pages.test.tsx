@@ -47,14 +47,19 @@ const {
 }));
 
 const gatewayOperations = {
+  createOpenShellGatewayServiceAccount: vi.fn(),
+  deleteOpenShellGatewayServiceAccount: vi.fn(),
   findGatewayPlacements: vi.fn(),
   getGateway: vi.fn(),
   getGatewayPlacement: getGatewayPlacementMock,
   getGatewayPlacements: getGatewayPlacementsMock,
+  getOpenShellGatewayServiceAccount: vi.fn(),
   listGateways: listGatewaysMock,
+  listOpenShellGatewayServiceAccounts: vi.fn(),
   provisionGateway: vi.fn(),
   removeGateway: deleteGatewayMock,
   renameGateway: renameGatewayMock,
+  revokeOpenShellGatewayServiceAccount: vi.fn(),
 };
 
 const navigation = {
@@ -393,7 +398,7 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
-  it("encodes the active tab through its host", async () => {
+  it("encodes service-account and detail tabs through its host", async () => {
     const user = userEvent.setup();
     const onTabChange = vi.fn();
     renderPage(() => (
@@ -405,8 +410,91 @@ describe("gateway shell pages", () => {
       />
     ));
 
+    await user.click(screen.getByRole("tab", { name: "Service accounts" }));
+    expect(onTabChange).toHaveBeenCalledWith("service-accounts");
+
+    await user.click(
+      screen.getByRole("button", { name: "Create or manage service accounts" }),
+    );
+    expect(onTabChange).toHaveBeenLastCalledWith("service-accounts");
+
     await user.click(screen.getByRole("tab", { name: "Details" }));
     expect(onTabChange).toHaveBeenCalledWith("details");
+  });
+
+  it("discards a one-time service-account secret when leaving its tab", async () => {
+    gatewayOperations.listOpenShellGatewayServiceAccounts.mockResolvedValue({
+      capabilities: {
+        allowedRoles: ["openshell-user"],
+        canCreate: true,
+        canManageAll: false,
+        expirationPolicy: {
+          defaultSeconds: 7_776_000,
+          maximumSeconds: 31_536_000,
+          minimumSeconds: 3_600,
+        },
+      },
+      items: [],
+      page: 1,
+      size: 20,
+      total: 0,
+    });
+    gatewayOperations.createOpenShellGatewayServiceAccount.mockResolvedValue({
+      credential: {
+        accessTokenLifetimeSeconds: 300,
+        audience: "gateway-client",
+        clientId: "service-client",
+        clientSecret: "one-time-client-secret",
+        gatewayEndpoint: "gateway.example.test:443",
+        gatewayName: "Team gateway",
+        issuer: "https://issuer.example.test/realms/openshell",
+        tokenEndpoint:
+          "https://issuer.example.test/realms/openshell/protocol/openid-connect/token",
+      },
+      serviceAccount: {
+        clientId: "service-client",
+        createdAt: "2026-08-21T12:00:00Z",
+        createdByUserId: "user-1",
+        expiresAt: "2026-11-19T12:00:00Z",
+        gatewayId: "gateway-1",
+        id: "account-1",
+        name: "release-bot",
+        role: "openshell-user",
+        status: "ready",
+        subject: "service-subject",
+        updatedAt: "2026-08-21T12:00:00Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewayPage
+        gateway={gatewayResponse("gateway-1", "Team gateway")}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    await user.click(screen.getByRole("tab", { name: "Service accounts" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Create service account" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Service account name" }),
+      "release-bot",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Create service account" }),
+    );
+    const secret =
+      await screen.findByLabelText<HTMLInputElement>("Client secret");
+    expect(secret.value).toBe("one-time-client-secret");
+
+    await user.click(
+      screen.getByRole("tab", { hidden: true, name: "Connection" }),
+    );
+    expect(screen.queryByLabelText("Client secret")).toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: "Set up release-bot" }),
+    ).toBeNull();
   });
 
   it("polls gateway details until its lifecycle reaches a terminal state", async () => {

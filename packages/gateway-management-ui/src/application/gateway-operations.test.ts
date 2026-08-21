@@ -36,6 +36,8 @@ function setup() {
   });
   const renameGateway = vi.fn().mockResolvedValue(gateway);
   const controlPlane: GatewayControlPlane = {
+    createOpenShellGatewayServiceAccount: vi.fn(),
+    deleteOpenShellGatewayServiceAccount: vi.fn(),
     findGatewayPlacements: vi.fn().mockResolvedValue({
       hasMore: false,
       items: [],
@@ -53,10 +55,13 @@ function setup() {
         provider: "AWS",
       },
     ]),
+    getOpenShellGatewayServiceAccount: vi.fn(),
     listGateways,
+    listOpenShellGatewayServiceAccounts: vi.fn(),
     provisionGateway: vi.fn().mockResolvedValue(gateway),
     removeGateway: vi.fn().mockResolvedValue(undefined),
     renameGateway,
+    revokeOpenShellGatewayServiceAccount: vi.fn(),
   };
   const operations = createGatewayOperations({
     controlPlane,
@@ -85,6 +90,23 @@ function setup() {
 describe("gateway application operations", () => {
   it.each([
     [
+      "create-service-account",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.createOpenShellGatewayServiceAccount("gateway-1", {
+          expiresAt: "2026-11-19T12:00:00Z",
+          name: "deploy-bot",
+          role: "openshell-user",
+        }),
+    ],
+    [
+      "delete-service-account",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.deleteOpenShellGatewayServiceAccount(
+          "gateway-1",
+          "account-1",
+        ),
+    ],
+    [
       "find-placements",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.findGatewayPlacements(" east "),
@@ -100,6 +122,11 @@ describe("gateway application operations", () => {
         operations.getGatewayPlacement("cluster-east"),
     ],
     [
+      "get-service-account",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.getOpenShellGatewayServiceAccount("gateway-1", "account-1"),
+    ],
+    [
       "get-placements",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.getGatewayPlacements(["cluster-east"]),
@@ -108,6 +135,17 @@ describe("gateway application operations", () => {
       "list",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.listGateways(listRequest),
+    ],
+    [
+      "list-service-accounts",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.listOpenShellGatewayServiceAccounts("gateway-1", {
+          order: "desc",
+          page: 1,
+          search: "",
+          size: 20,
+          sort: "created_at",
+        }),
     ],
     [
       "provision",
@@ -126,6 +164,14 @@ describe("gateway application operations", () => {
       "rename",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.renameGateway("gateway-1", "Renamed gateway"),
+    ],
+    [
+      "revoke-service-account",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.revokeOpenShellGatewayServiceAccount(
+          "gateway-1",
+          "account-1",
+        ),
     ],
   ] as const)(
     "publishes one successful %s workflow and dependency outcome",

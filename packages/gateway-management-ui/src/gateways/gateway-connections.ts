@@ -34,7 +34,7 @@ export function isGatewayReadyToConnect(gateway: GatewayConnection): boolean {
 
 const safeShellArgument = /^[A-Za-z0-9_./:@%+=,-]+$/;
 
-function shellArgument(value: string) {
+export function shellArgument(value: string) {
   if (safeShellArgument.test(value)) {
     return value;
   }
@@ -161,7 +161,13 @@ export function buildSetupScript(
 }
 
 export type GatewayStatusAppearance =
-  "danger" | "pending" | "progress" | "success" | "unknown" | "warning";
+  | "danger"
+  | "inactive"
+  | "pending"
+  | "progress"
+  | "success"
+  | "unknown"
+  | "warning";
 
 export function gatewayStatusAppearance(
   status: string,
@@ -177,10 +183,15 @@ export function gatewayStatusAppearance(
     case "degraded":
     case "warning":
       return "warning";
+    case "expired":
+    case "revoked":
+      return "inactive";
     case "pending":
       return "pending";
     case "provisioning":
     case "reconciling":
+    case "revoking":
+    case "deleting":
     case "updating":
       return "progress";
     case "error":

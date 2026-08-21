@@ -18,11 +18,26 @@ export type {
   GatewaySortDirection,
   GatewaySortField,
   GatewayWorkflowRuntime,
+  OpenShellGatewayServiceAccountCapabilities,
+  OpenShellGatewayServiceAccountConnection,
+  OpenShellGatewayServiceAccountCreateInput,
+  OpenShellGatewayServiceAccountCreateResult,
+  OpenShellGatewayServiceAccountCredential,
+  OpenShellGatewayServiceAccountDetail,
+  OpenShellGatewayServiceAccountExpirationPolicy,
+  OpenShellGatewayServiceAccountListRequest,
+  OpenShellGatewayServiceAccountPage,
+  OpenShellGatewayServiceAccountRecord,
+  OpenShellGatewayServiceAccountRole,
+  OpenShellGatewayServiceAccountSortField,
+  OpenShellGatewayServiceAccountStatus,
 } from "./application/gateway-types";
 export {
+  defaultOpenShellGatewayServiceAccountListRequest,
   defaultGatewayListRequest,
   gatewayListPageSizes,
   GatewayOperationError,
+  openShellGatewayServiceAccountPageSizes,
 } from "./application/gateway-types";
 export {
   gatewayProbeCatalog,
@@ -60,3 +75,12 @@ export {
   type GatewaysPageProps,
 } from "./pages/gateway-pages";
 export { messages as gatewayMessages } from "./messages";
+export {
+  buildClientCredentialsScript,
+  buildOpenShellServiceAccountScript,
+  serviceAccountGatewayAlias,
+} from "./service-accounts/service-account-commands";
+export {
+  ServiceAccountsPage,
+  type ServiceAccountsPageProps,
+} from "./service-accounts/service-accounts-page";
