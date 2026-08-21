@@ -82,30 +82,16 @@ spec:
             - containerPort: 4433
               name: metrics
           env:
-            - name: HYPERSHELL_KEYCLOAK_ADMIN_SERVER_URL
-              valueFrom:
-                secretKeyRef:
-                  name: hypershell-keycloak-admin
-                  key: server-url
-                  optional: true
-            - name: HYPERSHELL_KEYCLOAK_ADMIN_REALM
-              valueFrom:
-                secretKeyRef:
-                  name: hypershell-keycloak-admin
-                  key: realm
-                  optional: true
-            - name: HYPERSHELL_KEYCLOAK_ADMIN_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: hypershell-keycloak-admin
-                  key: client-id
-                  optional: true
-            - name: HYPERSHELL_KEYCLOAK_ADMIN_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: hypershell-keycloak-admin
-                  key: client-secret
-                  optional: true
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
+              value: "hypershell-controller:9443"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CERT
+              value: "/var/run/hypershell/provisioner/tls.crt"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_KEY
+              value: "/var/run/hypershell/provisioner/tls.key"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CA
+              value: "/var/run/hypershell/provisioner/ca.crt"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_SERVER_NAME
+              value: "hypershell-controller"
           startupProbe:
             httpGet:
               path: /healthcheck
@@ -133,10 +119,16 @@ spec:
             - name: db-secrets
               mountPath: /secrets
               readOnly: true
+            - name: service-account-provisioner-tls
+              mountPath: /var/run/hypershell/provisioner
+              readOnly: true
       volumes:
         - name: db-secrets
           secret:
             secretName: hypershell-db-app
+        - name: service-account-provisioner-tls
+          secret:
+            secretName: hypershell-service-account-provisioner-client-tls
 ---
 apiVersion: v1
 kind: Service

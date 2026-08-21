@@ -1,4 +1,4 @@
-package keycloak
+package serviceaccountkeycloak
 
 import (
 	"encoding/json"

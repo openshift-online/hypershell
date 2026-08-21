@@ -1,7 +1,7 @@
-// Package keycloak contains the narrowly scoped Keycloak integration used by
-// the API server. Service-account credentials are deliberately handled only in
-// memory and are never included in errors or logs.
-package keycloak
+// Package serviceaccountkeycloak contains the control plane's narrowly scoped
+// Keycloak integration for OpenShell gateway service accounts. Credentials are
+// handled only in memory and are never included in errors or logs.
+package serviceaccountkeycloak
 
 import (
 	"bytes"

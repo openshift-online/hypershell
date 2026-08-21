@@ -1,6 +1,29 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: hypershell-service-account-provisioner
+  namespace: hypershell-system
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: hypershell-controller
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: hypershell-api-server
+      ports:
+        - protocol: TCP
+          port: 9443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: openshell-gateway-sandbox-ssh
   namespace: hypershell-system
   labels:

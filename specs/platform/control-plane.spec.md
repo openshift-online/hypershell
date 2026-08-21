@@ -36,6 +36,7 @@ The Reconciler receives resource events from the Watcher and converges the Kuber
 - Inject OIDC authentication configuration into gateway deployments
 - Configure network meshes between gateways
 - Manage release rollouts (including canary strategies)
+- Provision and reconcile OpenShellGatewayServiceAccount identities in Keycloak through an internal mTLS gRPC service
 - Update resource status back to the API server
 
 #### Gateway Provisioning Specifications
@@ -53,7 +54,7 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 
 ### Config
 
-Holds connection configuration for the API server gRPC endpoint and Kubernetes client initialization.
+Holds connection configuration for the API server gRPC endpoint, Kubernetes client initialization, and the internal service-account provisioner. The provisioner uses a dedicated server certificate and accepts only the API server's client certificate. The API server does not receive Keycloak administrator credentials.
 
 ## Requirements
 

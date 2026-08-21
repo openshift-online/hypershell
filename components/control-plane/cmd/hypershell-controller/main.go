@@ -22,6 +22,8 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountprovisioner"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -156,6 +158,7 @@ func main() {
 	}
 
 	var roleBindingReconciler watcher.Handler[*pb.RoleBinding]
+	var serviceAccountProvider *serviceaccountkeycloak.Client
 	if keycloakConfig != nil {
 		kcClient := keycloak.NewClient(
 			keycloakConfig.ServerURL,
@@ -164,6 +167,12 @@ func main() {
 			keycloakConfig.ClientSecret,
 		)
 		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn)
+		serviceAccountProvider = serviceaccountkeycloak.NewClient(
+			keycloakConfig.ServerURL,
+			keycloakConfig.Realm,
+			keycloakConfig.ClientID,
+			keycloakConfig.ClientSecret,
+		)
 		log.Printf("INFO role binding reconciler enabled with keycloak integration")
 	}
 
@@ -186,9 +195,26 @@ func main() {
 	if roleBindingReconciler != nil {
 		watchCount = 7
 	}
-	// +3 for the continuous gateway health, namespace GC, and sandbox-count
-	// reconciler goroutines.
-	errCh := make(chan error, watchCount+3)
+	// +4 for the continuous gateway health, namespace GC, sandbox-count, and
+	// internal service-account provisioner goroutines.
+	errCh := make(chan error, watchCount+4)
+
+	if cfg.ServiceAccountProvisionerAddress != "" {
+		provisionerServer := serviceaccountprovisioner.NewServer(serviceAccountProvider)
+		transportConfig := serviceaccountprovisioner.TransportConfig{
+			Address:                  cfg.ServiceAccountProvisionerAddress,
+			CertificateFile:          cfg.ServiceAccountProvisionerTLSCertificate,
+			KeyFile:                  cfg.ServiceAccountProvisionerTLSKey,
+			ClientCAFile:             cfg.ServiceAccountProvisionerTLSClientCA,
+			ExpectedClientCommonName: cfg.ServiceAccountProvisionerExpectedClientCN,
+		}
+		go func() {
+			errCh <- serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
+		}()
+		log.Printf("INFO service-account provisioner launched on %s with mutual TLS", cfg.ServiceAccountProvisionerAddress)
+	} else {
+		log.Printf("INFO service-account provisioner disabled")
+	}
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()

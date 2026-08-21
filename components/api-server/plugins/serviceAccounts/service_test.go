@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/keycloak"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -370,7 +369,7 @@ func TestReconcileDeletesKeycloakClientsWithoutAResource(t *testing.T) {
 	dao := newMemoryDAO()
 	kc := &fakeKeycloak{
 		configured: true,
-		managedClients: []keycloak.ManagedClient{{
+		managedClients: []ManagedClient{{
 			UUID: "orphan-uuid", GatewayID: "gateway-id", ServiceAccountID: "missing-account",
 		}},
 	}
@@ -426,8 +425,8 @@ type fakeKeycloak struct {
 	deleteErr          error
 	provisionErr       error
 	secret             string
-	lastSpec           keycloak.ServiceAccountSpec
-	managedClients     []keycloak.ManagedClient
+	lastSpec           ProvisioningSpec
+	managedClients     []ManagedClient
 	provisionCalls     int
 	disableCalls       int
 	deleteManagedCalls int
@@ -437,7 +436,7 @@ type fakeKeycloak struct {
 
 func (f *fakeKeycloak) Configured() bool { return f.configured }
 
-func (f *fakeKeycloak) ProvisionServiceAccount(_ context.Context, spec keycloak.ServiceAccountSpec) (*keycloak.ProvisionedServiceAccount, error) {
+func (f *fakeKeycloak) ProvisionServiceAccount(_ context.Context, spec ProvisioningSpec) (*ProvisionedServiceAccount, error) {
 	f.provisionCalls++
 	f.lastSpec = spec
 	if f.provisionErr != nil {
@@ -446,10 +445,10 @@ func (f *fakeKeycloak) ProvisionServiceAccount(_ context.Context, spec keycloak.
 	if f.secret == "" {
 		f.secret = "one-time-secret"
 	}
-	return &keycloak.ProvisionedServiceAccount{ClientUUID: "client-uuid", ClientID: spec.ClientID, ClientSecret: f.secret, Subject: "subject-id"}, nil
+	return &ProvisionedServiceAccount{ClientUUID: "client-uuid", ClientID: spec.ClientID, ClientSecret: f.secret, Subject: "subject-id"}, nil
 }
 
-func (f *fakeKeycloak) ReconcileServiceAccount(_ context.Context, spec keycloak.ServiceAccountSpec, _, _ string, _ bool) error {
+func (f *fakeKeycloak) ReconcileServiceAccount(_ context.Context, spec ProvisioningSpec, _, _ string, _ bool) error {
 	f.lastSpec = spec
 	return nil
 }
@@ -473,7 +472,7 @@ func (f *fakeKeycloak) DeleteGatewayServiceAccounts(context.Context, string) err
 	f.deleteGatewayCalls++
 	return f.deleteErr
 }
-func (f *fakeKeycloak) ListManagedClients(context.Context, string) ([]keycloak.ManagedClient, error) {
+func (f *fakeKeycloak) ListManagedClients(context.Context, string) ([]ManagedClient, error) {
 	return f.managedClients, nil
 }
 
