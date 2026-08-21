@@ -16,6 +16,7 @@ Current model (to be simplified):
 - **ManagedDatabase** - a database instance provisioned for a fleet. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
 - **GatewayRelease** - a versioned container image for gateway deployments within a fleet. Supports rollout strategies with canary percent/duration controls.
 - **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **MachineAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **GatewayNetwork** - defines network connectivity topology between gateways in a fleet. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
 
 ## Entity Relationship Diagram
@@ -103,6 +104,26 @@ erDiagram
         time deleted_at
     }
 
+    MachineAccount {
+        string ID PK
+        string gateway_id FK
+        string name
+        string description
+        string credential_type
+        string role
+        string status
+        string created_by_user_id FK
+        string keycloak_client_id
+        string keycloak_client_uuid
+        string subject
+        time expires_at
+        time revoked_at
+        string last_error
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
     GatewayNetwork {
         string ID PK
         string name
@@ -125,6 +146,7 @@ erDiagram
     ManagedCluster ||--o{ Gateway : "hosts"
     GatewayRelease ||--o{ Gateway : "deployed_as"
     ManagedDatabase ||--o{ Gateway : "backed_by"
+    Gateway ||--o{ MachineAccount : "authorizes"
     Gateway ||--o| GatewayNetwork : "hub_gateway"
 ```
 
@@ -227,6 +249,9 @@ All routes under `/api/hypershell/v1/`:
 | GET/PATCH/DELETE | `/fleets/{id}` | Get/Update/Delete |
 | GET/POST | `/gateways` | List/Create |
 | GET/PATCH/DELETE | `/gateways/{id}` | Get/Update/Delete |
+| GET/POST | `/gateways/{gateway_id}/machine_accounts` | List/Create gateway MachineAccounts |
+| GET/DELETE | `/gateways/{gateway_id}/machine_accounts/{machine_account_id}` | Get/Delete a MachineAccount |
+| POST | `/gateways/{gateway_id}/machine_accounts/{machine_account_id}/revoke` | Permanently revoke a MachineAccount |
 | GET/POST | `/gateway_networks` | List/Create |
 | GET/PATCH/DELETE | `/gateway_networks/{id}` | Get/Update/Delete |
 | GET/POST | `/gateway_releases` | List/Create |
@@ -264,6 +289,16 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --fleet-id <f> --cluster-id <c> --release-id <r> --database-id <d> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id> [--yes]` | 🔲 planned |
+
+#### MachineAccounts
+
+| REST API | `hypershell` Command | Status |
+|---|---|---|
+| `GET /api/hypershell/v1/gateways/{gateway_id}/machine_accounts` | `hsctl list machineAccounts --gateway-id <gateway_id>` | 🔲 planned |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/machine_accounts/{id}` | `hsctl get machineAccount <id> --gateway-id <gateway_id>` | 🔲 planned |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/machine_accounts` | `hsctl create machineAccount --gateway-id <gateway_id> --name <n> --role <role> [--expires-in <duration>]` (`role`: `openshell-user` or `openshell-admin`) | 🔲 planned |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/machine_accounts/{id}/revoke` | `hsctl revoke machineAccount <id> --gateway-id <gateway_id>` | 🔲 planned |
+| `DELETE /api/hypershell/v1/gateways/{gateway_id}/machine_accounts/{id}` | `hsctl delete machineAccount <id> --gateway-id <gateway_id>` | 🔲 planned |
 
 #### Gateway Networks
 
