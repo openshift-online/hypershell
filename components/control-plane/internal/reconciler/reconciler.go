@@ -1384,6 +1384,25 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	log.Printf("INFO reconciling Gateway %s name=%s namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
 
+	// The phase gate prevents redundant re-provisioning (re-applying manifests)
+	// of a Gateway that has already been acted upon. Running, Provisioning, and
+	// Degraded gateways are owned by the continuous health reconciler, which
+	// keeps their phase synchronized with workload health via a separate path
+	// that this gate does not suppress. See openshell-gateway-health.spec.md.
+	//
+	// Keycloak client attributes are external desired state, however, and need a
+	// lightweight drift reconciliation even when Kubernetes reprovisioning is
+	// gated. In particular, controller startup seeds existing Running gateways;
+	// reconciling before the return below lets newly introduced client settings
+	// converge without forcing a full gateway rollout.
+	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
+		if err := r.reconcileExistingGatewayKeycloakClient(ctx, event.ResourceID, gw.Name); err != nil {
+			return fmt.Errorf("reconcile Keycloak client for gateway %s: %w", gw.Name, err)
+		}
+		log.Printf("DEBUG gateway %s phase=%s, skipping full reconciliation", event.ResourceID, *gw.Phase)
+		return nil
+	}
+
 	var dbConfig databaseConfig
 	if gw.DatabaseId != "" {
 		var resolveErr error
@@ -1534,6 +1553,43 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
 	}
+	return nil
+}
+
+// reconcileExistingGatewayKeycloakClient reconciles settings on an existing
+// Keycloak client without reapplying the gateway's Kubernetes resources.
+// External client attributes (such as OAuth 2.0 Device Authorization Grant)
+// can drift or be introduced in newer controller releases; this lightweight pass
+// converges existing clients without triggering a Kubernetes reprovisioning rollout.
+//
+// A missing client is left to the full provisioning path: this lightweight pass
+// is specifically for drift on existing clients. If the client is missing, it logs
+// a warning and returns nil to avoid creating a partial or duplicate client under
+// an unexpected naming scheme.
+func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.Context, gatewayID, gatewayName string) error {
+	if r.keycloakClient == nil {
+		return nil
+	}
+	if gatewayID == "" {
+		return fmt.Errorf("gateway ID is required for Keycloak reconciliation")
+	}
+	if gatewayName == "" {
+		return fmt.Errorf("gateway name is required for Keycloak reconciliation")
+	}
+
+	clientID := fmt.Sprintf("%s-%s", gatewayName, gatewayID)
+	clientUUID, err := r.keycloakClient.GetClientUUID(ctx, clientID)
+	if err != nil {
+		return fmt.Errorf("check existing Keycloak client %s: %w", clientID, err)
+	}
+	if clientUUID == "" {
+		log.Printf("WARN Keycloak client %s is missing; full gateway reconciliation is required to provision it", clientID)
+		return nil
+	}
+	if err := r.keycloakClient.EnsureDeviceAuthorizationGrant(ctx, clientUUID); err != nil {
+		return fmt.Errorf("reconcile device authorization grant on Keycloak client %s: %w", clientID, err)
+	}
+	log.Printf("INFO reconciled Keycloak client %s (uuid=%s)", clientID, clientUUID)
 	return nil
 }
 
