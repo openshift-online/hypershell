@@ -47,7 +47,7 @@ skills/
 
 **Last analyzed**: 2026-08-21 (HYPERSHELL-49 spec delta only)
 **Spec corpus**: 40 spec files; the coverage table tracks 31 previously analyzed feature/spec groups after adding OpenShellGatewayServiceAccounts
-**Codebase commit**: 361305e (spec/machine-account-client-secret)
+**Codebase commit**: 2b5eaf4 (spec/machine-account-client-secret)
 
 ### Coverage Summary
 
@@ -61,7 +61,7 @@ skills/
 | Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
 | Platform - Gateway Keycloak | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
-| Platform - Gateway Service Accounts | 1 | 15 | 0 | 0 | 15 | 0 | 0% |
+| Platform - Gateway Service Accounts | 1 | 15 | 15 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 1 | 2 | 63% |
 | Platform - Namespace GC | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
@@ -71,7 +71,7 @@ skills/
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **31** | **210** | **145** | **18** | **41** | **5** | **69%** |
+| **TOTAL** | **31** | **215** | **166** | **18** | **26** | **5** | **81%** |
 
 ### Spec Dependency Order
 
@@ -104,22 +104,22 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SA-4 | Single-gateway isolation | Present | - | `pkg/keycloak/service_accounts.go` | SA-W3 |
 | SA-5 | User-selected, RBAC-capped OpenShell role | Present | - | `pkg/rbac/authorization.go`, `plugins/serviceAccounts/service.go` | SA-W3 |
 | SA-6 | Expiration, revocation, and deletion | Present | - | `plugins/serviceAccounts/` | SA-W3 |
-| SA-7 | Replacement-based credential rotation | Partial | API and CLI replacement/revoke/delete workflow exists; UI workflow remains | `plugins/serviceAccounts/`, `components/cli/` | SA-W3..W5 |
+| SA-7 | Replacement-based credential rotation | Present | - | `plugins/serviceAccounts/`, `components/cli/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3..W5 |
 | SA-8 | Gateway lifecycle cleanup | Present | - | `plugins/gateways/deletion_cleanup.go`, `control-plane/internal/keycloak/client.go` | SA-W3 |
-| SA-9 | Secret-safe management UI | Missing | Gateway details has only Connection/Details; no port, adapter, table, form, local-only handoff, commands, or lifecycle dialogs | `packages/gateway-management-ui/`, `components/web-console/` | SA-W5 |
+| SA-9 | Secret-safe management UI | Present | - | `packages/gateway-management-ui/src/service-accounts/`, `components/web-console/` | SA-W5 |
 | SA-10 | CLI and CI workflow | Present | - | `scripts/cli-generator/`, `components/cli/cmd/hypershell/{create,list,get,revoke,delete}/`, `components/cli/pkg/serviceaccount/` | SA-W4 |
-| SA-11 | Workspace membership is a separate grant | Partial | Subject-bearing API and CLI explanation exist; UI explanation remains | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/` | SA-W1, W4, W5 |
+| SA-11 | Workspace membership is a separate grant | Present | - | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W1, W4, W5 |
 | SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
-| SA-13 | Auditability and secret redaction | Partial | Durable audit events, safe provider errors, SDK redaction, and no-store API headers exist; BFF header forwarding and UI local-only handling remain | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs | SA-W3, W5 |
+| SA-13 | Auditability and secret redaction | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs, `components/web-console/bff/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3, W5 |
 | SA-14 | Reconciliation and drift repair | Present | Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction | `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | SA-W3 |
-| SA-15 | Verification coverage | Partial | Keycloak claim/config, nested authorization, role-cap, visibility, lifecycle, CLI credential-file, and redaction unit tests exist; UI/integration coverage remains | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go`, `components/cli/pkg/serviceaccount/*_test.go` | SA-W1..W6 |
+| SA-15 | Verification coverage | Present | - | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go`, `components/cli/pkg/serviceaccount/*_test.go`, `packages/gateway-management-ui/src/service-accounts/*_test.ts*`, `components/web-console/**/*test*` | SA-W1..W6 |
 
 **Scoped analysis notes:**
 
-- The existing gateway, User, RoleBinding, and Keycloak-client code is useful infrastructure, but it implements none of the new resource's public behavior.
+- The nested API, generated SDKs, CLI, Keycloak lifecycle, reconciliation, cleanup barrier, and gateway-detail management UI now implement the resource's public behavior.
 - The SDK and CLI generators now project the nested service-account collection. Generated clients and commands remain reproducible from the OpenAPI contract.
 - The spec forbids retrieving or regenerating a delivered client secret during reconciliation, while the full-scope drift scenario asks reconciliation to issue and inspect another Client Credentials token. Creation can perform this token test because it still holds the new secret. Later reconciliation can verify and repair structural Keycloak state but cannot perform a new grant without violating the stronger one-time-secret rule. This remains a specification mismatch; reconciliation will not fetch the secret.
-- The BFF currently drops `Cache-Control` and `Pragma`; the one-time response path must forward them end to end.
+- The BFF forwards `Cache-Control` and `Pragma`, preserving the one-time response's no-store policy end to end.
 
 ### data-model.spec.md
 
@@ -426,10 +426,14 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SA-W2 | Extend generators for nested resources and regenerate Go/TypeScript SDKs | Complete |
 | SA-W3 | Persistence, nested RBAC, synchronous Keycloak adapter, lifecycle/reconciliation, cleanup, audit, deployment wiring | Complete |
 | SA-W4 | HyperShell CLI create/list/get/revoke/delete and secret-safe output | Complete |
-| SA-W5 | Gateway-detail Service accounts tab, host adapter, local-only handoff, setup commands, management table | In progress |
-| SA-W6 | Integration verification, alignment, review-guidance audit, and checkpoint closure | Pending |
+| SA-W5 | Gateway-detail Service accounts tab, host adapter, local-only handoff, setup commands, management table | Complete |
+| SA-W6 | Integration verification, alignment, review-guidance audit, and checkpoint closure | Complete |
 
 Waves execute in this order because every later consumer depends on the public contract. Specs stay frozen. Generated SDK and CLI output is regenerated from OpenAPI rather than edited by hand.
+
+**SA-W5 summary:** Added the gateway-detail `Service accounts` tab, URL-backed collection state, server-side search/filter/sort/pagination, capability-driven creation, one-time local credential handoff, safe OpenShell and Client Credentials command generation, repeatable non-secret setup, and revoke/delete management. The BFF preserves no-store response headers.
+
+**SA-W6 summary:** Hardened concealment, lifecycle retries, orphan cleanup, Keycloak pagination, exact role/scope replacement, expiration enforcement, and gateway endpoint normalization. Verified changed Go packages with the race detector; verified all Go modules with `go vet`; and passed the complete web formatting, lint, type, architecture, localization, unit-coverage, production-build, Storybook, and BFF checks. The repository-wide API integration run remains dependent on a correctly credentialed local PostgreSQL instance.
 
 ### Wave 1-6: COMPLETED
 
