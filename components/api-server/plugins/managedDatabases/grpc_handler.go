@@ -205,6 +205,15 @@ func (h *managedDatabaseGRPCHandler) WatchManagedDatabases(req *pb.WatchManagedD
 	}
 	glog.V(4).Infof("WatchManagedDatabases: subscriber %s connected", sub.ID)
 
+	// Flush the stream header now that the subscription is live. This turns opening
+	// the stream into a real subscription handshake: a client that blocks on the
+	// response header (the control-plane watcher does, to seed without a list-watch
+	// gap) knows no event can be missed once Header() returns. Sending an empty
+	// header is a no-op for clients that ignore it.
+	if err := stream.SendHeader(nil); err != nil {
+		return status.Errorf(codes.Unavailable, "failed to send watch header: %v", err)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():

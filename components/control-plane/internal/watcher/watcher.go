@@ -100,27 +100,135 @@ func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Ha
 func WatchManagedDatabases(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.ManagedDatabase]) error {
 	client := pb.NewManagedDatabaseServiceClient(conn)
 	return watchLoop(ctx, "ManagedDatabase", func(ctx context.Context) error {
-		stream, err := client.WatchManagedDatabases(ctx, &pb.WatchManagedDatabasesRequest{})
+		// Derive a cancelable child so the concurrent seed below is torn down when
+		// the receiver ends (stream error/EOF), and vice versa.
+		runCtx, runCancel := context.WithCancel(ctx)
+		defer runCancel()
+
+		stream, err := client.WatchManagedDatabases(runCtx, &pb.WatchManagedDatabasesRequest{})
 		if err != nil {
 			return fmt.Errorf("starting managed database watch: %w", err)
 		}
-		for {
-			event, err := stream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("receiving managed database event: %w", err)
-			}
-			if err := handler.Handle(ctx, Event[*pb.ManagedDatabase]{
-				Type:       toEventType(event.Type),
-				ResourceID: event.ResourceId,
-				Resource:   event.ManagedDatabase,
-			}); err != nil {
-				log.Printf("ERROR handling managed database %s: %v", event.ResourceId, err)
-			}
+
+		// Block on the stream header before seeding. Opening the stream is not a
+		// subscription handshake: client.WatchManagedDatabases can return before the
+		// server registers its broker subscription, so a seed issued immediately
+		// could LIST state, then miss an event that fires before the subscription
+		// goes live. The server flushes the header only after it has subscribed (see
+		// the WatchManagedDatabases handler), so blocking here closes that
+		// list-watch gap -- the seed's LIST captures everything before this point
+		// and the watch captures everything after.
+		if _, err := stream.Header(); err != nil {
+			return fmt.Errorf("awaiting managed database watch subscription header: %w", err)
 		}
+
+		// Seed the reconciler from the current inventory while the receiver below
+		// drains live events. The watch stream sends only future events and never
+		// replays existing state on (re)connect, so this LIST is the only path that
+		// recovers a ManagedDatabase whose create event fired while the stream was
+		// disconnected -- e.g. the openshell-db database kind-up seeds while a
+		// component image swap is restarting the api-server. Seeding runs
+		// concurrently so a slow provisioning reconcile never stalls the live drain
+		// (which would let the api server's per-subscriber event buffer overflow and
+		// drop events permanently).
+		seedDone := make(chan struct{})
+		go func() {
+			defer close(seedDone)
+			if err := seedManagedDatabases(runCtx, client, handler); err != nil {
+				log.Printf("WARN seeding ManagedDatabases on watch (re)connect: %v", err)
+			}
+		}()
+
+		recvErr := func() error {
+			for {
+				event, err := stream.Recv()
+				if err == io.EOF {
+					return nil
+				}
+				if err != nil {
+					return fmt.Errorf("receiving managed database event: %w", err)
+				}
+				if err := handler.Handle(ctx, Event[*pb.ManagedDatabase]{
+					Type:       toEventType(event.Type),
+					ResourceID: event.ResourceId,
+					Resource:   event.ManagedDatabase,
+				}); err != nil {
+					log.Printf("ERROR handling managed database %s: %v", event.ResourceId, err)
+				}
+			}
+		}()
+
+		// The receiver ended; cancel and join the seed so a slow in-flight seed
+		// reconcile does not outlive this connect attempt.
+		runCancel()
+		<-seedDone
+		return recvErr
 	})
+}
+
+// managedDatabaseSeedPageSize is the page size used when listing existing
+// ManagedDatabases to seed the reconciler. It matches the API server's maximum
+// page size so a typical fleet is covered in a single request.
+const managedDatabaseSeedPageSize = 500
+
+// seedManagedDatabases lists the current ManagedDatabase inventory and drives a
+// reconcile for each, recovering any whose create event the watch stream will
+// never replay (it sends only future events on (re)connect). It is the LIST half
+// of the standard controller LIST-then-WATCH pattern.
+//
+// Unlike seedGateways this needs no phase-gate bypass, no forced retries, and no
+// absence pruning: the ManagedDatabase reconciler is level-based and idempotent
+// (it checks the actual CNPG cluster's readiness and no-ops an already-ready
+// database), and it holds no long-lived per-resource retry that a stale seed
+// could strand. A single paginated pass is likewise sufficient rather than the
+// stable-pass repetition seedGateways needs -- ManagedDatabases are few (about
+// one per fleet) and fit a single page, so offset-pagination skew cannot silently
+// omit one across a page boundary.
+func seedManagedDatabases(ctx context.Context, client pb.ManagedDatabaseServiceClient, handler Handler[*pb.ManagedDatabase]) error {
+	inventory, err := listAllManagedDatabases(ctx, client)
+	if err != nil {
+		return err
+	}
+	for _, db := range inventory {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		ev := Event[*pb.ManagedDatabase]{
+			Type:       EventUpdated,
+			ResourceID: db.GetMetadata().GetId(),
+			Resource:   db,
+		}
+		if err := handler.Handle(ctx, ev); err != nil {
+			log.Printf("ERROR seeding managed database %s: %v", ev.ResourceID, err)
+		}
+	}
+	log.Printf("INFO seeded %d managed database(s) into reconciler on watch (re)connect", len(inventory))
+	return nil
+}
+
+// listAllManagedDatabases pages through the gRPC ManagedDatabase inventory and
+// returns every database. The list endpoint is server-side paginated, so a
+// single unpaged request cannot be relied on to return the whole set.
+func listAllManagedDatabases(ctx context.Context, client pb.ManagedDatabaseServiceClient) ([]*pb.ManagedDatabase, error) {
+	var all []*pb.ManagedDatabase
+	for page := int32(1); ; page++ {
+		resp, err := client.ListManagedDatabases(ctx, &pb.ListManagedDatabasesRequest{
+			Page: page,
+			Size: managedDatabaseSeedPageSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing managed databases to seed reconciler: %w", err)
+		}
+		items := resp.GetItems()
+		all = append(all, items...)
+
+		// Stop on the authoritative Total, or a short/empty page (defensive, so a
+		// misreported Total cannot spin forever) -- mirrors listAllGateways.
+		total := int(resp.GetMetadata().GetTotal())
+		if len(items) == 0 || len(items) < managedDatabaseSeedPageSize || (total > 0 && len(all) >= total) {
+			return all, nil
+		}
+	}
 }
 
 func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.GatewayRelease]) error {
