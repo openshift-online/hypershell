@@ -4,7 +4,7 @@
 **Status:** Draft
 **Tracks:** [HYPERSHELL-49](https://redhat.atlassian.net/browse/HYPERSHELL-49) - Service account provisioning via federated Keycloak
 **Parent:** `openshell-gateway-keycloak.spec.md` - per-gateway Keycloak clients and role mapping
-**Related:** `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, `standards/security/security.spec.md`, and `data-model.spec.md`
+**Related:** `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, `standards/security/security.spec.md`, `web-console/architecture.spec.md`, `standards/ui/`, and `data-model.spec.md`
 **Upstream:** [Keycloak service accounts](https://www.keycloak.org/docs/latest/server_admin/#_service_accounts), [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/), and [OpenShell gateway authentication](https://docs.nvidia.com/openshell/reference/gateway-auth)
 
 ---
@@ -196,7 +196,35 @@ The list operation SHALL accept `page` and `size` query parameters. The default 
 
 The operation SHALL support `status` and `search` filters. Search SHALL match name, client ID, and subject without regard to letter case. It SHALL treat SQL wildcard and escape characters as literal text.
 
+The operation SHALL accept `sort` and `order`. The supported sort fields SHALL be `name`, `role`, `status`, `expires_at`, and `created_at`. The supported orders SHALL be `asc` and `desc`. The API SHALL add `id` in the same order as a deterministic tie-breaker. It SHALL return `400 Bad Request` for an unsupported value.
+
 The API SHALL apply authorization filters before it calculates pages and totals. The default order SHALL be `created_at DESC, id DESC`.
+
+The list response SHALL include a browser-safe `capabilities` object at the same level as `items` and `total`. The value SHALL have this form:
+
+```json
+{
+  "can_create": true,
+  "allowed_roles": ["openshell-user", "openshell-admin"],
+  "can_manage_all": true,
+  "expiration_policy": {
+    "default_seconds": 7776000,
+    "minimum_seconds": 3600,
+    "maximum_seconds": 31536000
+  }
+}
+```
+
+The API SHALL derive these values from the caller's effective binding on the selected gateway.
+
+| Effective binding | `can_create` | `allowed_roles` | `can_manage_all` |
+|---|---:|---|---:|
+| `gateway:owner` | `true` | `openshell-user`, `openshell-admin` | `true` |
+| `gateway:viewer` | `true` | `openshell-user` | `false` |
+
+The expiration policy SHALL report the configured values enforced by the create endpoint. It SHALL not vary by gateway binding. `can_create` reports authorization; it does not report quota capacity or gateway readiness.
+
+The object SHALL contain no raw RoleBinding or unrelated platform permission. The UI SHALL use it only to choose available controls and explanatory content. The API remains authoritative for every operation.
 
 ### Create Request
 
@@ -232,6 +260,8 @@ The caller MAY omit `expires_at`. Its default is 90 days after creation. The val
   "expires_at": "2027-08-21T12:00:00Z",
   "created_at": "2026-08-21T12:00:00Z",
   "credential": {
+    "gateway_name": "my-gateway",
+    "gateway_endpoint": "https://my-gateway.example.com:443",
     "issuer": "https://keycloak.example.com/realms/hypershell",
     "token_endpoint": "https://keycloak.example.com/realms/hypershell/protocol/openid-connect/token",
     "grant_type": "client_credentials",
@@ -246,6 +276,23 @@ The caller MAY omit `expires_at`. Its default is 90 days after creation. The val
 Only a successful `201 Created` response SHALL contain the `credential` object. This object is the credential bundle. The response SHALL include `Cache-Control: no-store` and `Pragma: no-cache`.
 
 List and get responses SHALL omit the credential bundle. These responses SHALL expose the non-secret `keycloak_client_id` as `client_id`.
+
+The get response SHALL also include a top-level, repeatable, non-secret `connection` object. The value SHALL have this form:
+
+```json
+{
+  "gateway_name": "my-gateway",
+  "gateway_endpoint": "https://my-gateway.example.com:443",
+  "issuer": "https://keycloak.example.com/realms/hypershell",
+  "token_endpoint": "https://keycloak.example.com/realms/hypershell/protocol/openid-connect/token",
+  "grant_type": "client_credentials",
+  "client_id": "hs-sa-35GtW1ExampleGateway-35GtY7ExampleOpenShellGatewayServiceAccount",
+  "audience": "my-gateway-35GtW1ExampleGateway",
+  "access_token_lifetime_seconds": 300
+}
+```
+
+The API SHALL derive this object from the selected Gateway, trusted OIDC discovery, and the OpenShellGatewayServiceAccount record. It SHALL NOT contain a client secret or access token. `gateway_endpoint` MAY be absent from `connection` or the one-time `credential` object until the Gateway publishes an endpoint. List responses SHALL omit `connection` to avoid repeating gateway metadata in every row.
 
 HyperShell cannot recover a lost client secret through the public API. If the caller loses the create response, the caller SHALL replace the OpenShellGatewayServiceAccount.
 
@@ -277,7 +324,7 @@ Error bodies SHALL NOT reveal a gateway that is hidden from the caller. They SHA
 
 ### OpenAPI, SDK, and Event Contracts
 
-The OpenAPI contract SHALL define separate schemas for create responses and standard OpenShellGatewayServiceAccount responses. Only the create-response schema SHALL contain `credential.client_secret`.
+The OpenAPI contract SHALL define separate schemas for list items, get responses, and create responses. The get-response schema SHALL contain the non-secret `connection` object. Only the create-response schema SHALL contain `credential.client_secret`.
 
 The property SHALL be response-only (`readOnly`). Generators that support sensitive-property markers SHALL mark it as sensitive. List and get models SHALL not inherit it. Generated SDK string methods and debug helpers SHALL redact it.
 
@@ -646,32 +693,102 @@ Repeated cleanup SHALL be safe and produce the same Keycloak state. Cleanup SHAL
 
 ### Requirement: Secret-Safe Management UI
 
-The management web console SHALL show OpenShellGatewayServiceAccounts for the selected gateway. The create form SHALL collect a name, optional description, OpenShell role, and expiration.
+The gateway detail page SHALL contain three primary tabs in this order: `Connection`, `Service accounts`, and `Details`. The `Connection` tab SHALL remain the default.
 
-The form SHALL default to `openshell-user`. It SHALL offer both roles to an owner. It SHALL offer only `openshell-user` to a viewer. The form SHALL explain that OpenShellGatewayServiceAccount expiration is different from access-token expiration.
+The `Connection` tab SHALL retain its existing interactive walkthrough. A secondary `Create or manage service accounts` link SHALL appear with the introductory content, before the walkthrough. The link SHALL select `Service accounts` without starting a mutation.
 
-After creation, the UI SHALL show the client ID and client secret in a one-time view. The view SHALL provide copy and download actions. It SHALL state that HyperShell cannot show the secret again.
+The selected primary tab SHALL use the `tab` URL search parameter with the values `connection`, `service-accounts`, and `details`. A copied URL and browser refresh SHALL reopen the selected tab. Browser Back and Forward SHALL restore the previous selection. A missing or invalid value SHALL select `Connection`.
+
+The `Service accounts` tab SHALL contain a heading, a refresh action, a `Create service account` action, and the gateway's service-account collection. Its description SHALL explain that automation exchanges each account's client credentials for short-lived JWTs that work only with this gateway.
+
+The collection SHALL use the shared responsive resource-table pattern. It SHALL show these columns:
+
+- Name
+- OpenShell role
+- Status
+- Expiration
+- Actions
+
+Row details SHALL expose the description, client ID, subject, and creation time. They SHALL never expose a client secret or access token.
+
+The toolbar SHALL provide search, status filtering, result count, and pagination. The collection SHALL use server pagination, filtering, and sorting.
+
+Search SHALL wait 300 milliseconds after the last input change. A new search SHALL cancel the old request and reset the page to one. Wildcard characters SHALL pass to the API as literal text.
+
+The UI SHALL distinguish an empty gateway from a search with no matches. The empty state SHALL retain the create action. The no-match state SHALL provide an action that clears the filters. A collection error SHALL provide a retry action without clearing the current view state. Manual refresh SHALL preserve the current filters, sort, and page.
+
+The UI SHALL use the server-provided `capabilities` object for the create action, role choices, and account-scope explanation. It SHALL NOT infer authorization from visible rows, session roles, or hidden controls. When `can_create` is `false`, the create action SHALL be disabled and SHALL explain that the caller lacks permission.
+
+When `can_manage_all` is `false`, the UI SHALL explain that the collection contains only accounts created by the current user.
+
+The create form SHALL collect a name, optional description, OpenShell role, and expiration. It SHALL use persistent labels and state which fields are optional.
+
+The form SHALL default to `openshell-user`. It SHALL offer both roles to an owner. It SHALL offer only `openshell-user` to a viewer. It SHALL describe the access granted by each available role, including the separate workspace grant required by `openshell-user`.
+
+The expiration control SHALL use the server-provided default and limits. It SHALL show the resulting absolute expiration in the user's locale before submission. The form SHALL explain that OpenShellGatewayServiceAccount expiration is different from access-token expiration.
+
+The form SHALL associate validation messages with their fields. After validation failure or a definitive server rejection, it SHALL retain all non-secret input so the user can correct and resubmit it.
+
+The UI SHALL not close the create form after a successful response. It SHALL replace the form with a one-time setup view.
+
+The setup view SHALL state that HyperShell cannot show the client secret again. It SHALL show these values:
+
+- Client ID
+- Masked client secret with reveal and copy actions
+- Subject
+- Issuer
+- Token endpoint
+- Gateway audience
+- Gateway endpoint
+
+The view SHALL provide an explicit credential-bundle download. The download and copy actions SHALL occur only after the user activates them.
+
+The setup view SHALL provide these copyable command groups:
+
+1. `Use with the OpenShell CLI`, expanded by default as the supported path.
+2. `Exchange credentials for a JWT`, collapsed by default as advanced details.
+
+Each group SHALL provide one copy action for its complete command sequence. The copied sequence SHALL run in the documented order without requiring the user to assemble separate fragments.
+
+The OpenShell CLI group SHALL generate an `openshell gateway add` command from the gateway name, service-account name, issuer, service-account client ID, audience, and endpoint. The local gateway alias SHALL default to `<gateway-name>-<service-account-name>` so the command does not replace the user's interactive gateway configuration. The command SHALL NOT include an overwrite option.
+
+The group SHALL encode every generated value as a safe shell argument. If a required value is absent, the UI SHALL explain that setup is unavailable and SHALL NOT generate a partial command.
+
+The group SHALL prompt for the secret without echo when `OPENSHELL_OIDC_CLIENT_SECRET` is not already set. It SHALL make the value available to the OpenShell commands through that environment variable. It SHALL run `openshell -g <local-gateway-alias> whoami --output json` as the authenticated gateway API call. No command SHALL contain the literal client secret.
+
+The JWT group SHALL use the discovered token endpoint and `grant_type=client_credentials`. It SHALL place the access token in a shell variable without printing or persisting it by default.
+
+The JWT group SHALL prompt for the client secret without echo. It SHALL form-encode the secret and pass it to the HTTP client through standard input. It SHALL NOT place the secret in shell history or process arguments.
+
+The UI SHALL NOT synthesize a raw HTTP request to the OpenShell gateway. The supported gateway verification call is the OpenShell CLI command because the gateway API uses gRPC.
+
+A ready row SHALL provide `View setup instructions`. Selecting it SHALL load the get response's non-secret `connection` object. The view SHALL mark the client secret as unavailable and explain that HyperShell cannot recover it. Its commands SHALL prompt for the secret or read `OPENSHELL_OIDC_CLIENT_SECRET`; they SHALL not require the user to place a secret in a command argument.
+
+The setup view SHALL not dismiss itself. Its primary completion action SHALL require the user to acknowledge that they saved the client secret.
+
+The user MAY close the view without that acknowledgement after confirming the loss. The confirmation SHALL explain that replacement is the only recovery path.
 
 When the user leaves or closes this view, the UI SHALL remove the client secret from application state. The following locations SHALL never contain it:
 
 - Browser storage
 - Query caches
+- Mutation caches
 - Telemetry or error reports
 - URLs
 
-The UI SHALL present revoke and delete as separate actions. The revoke action SHALL explain that Keycloak will stop issuing access tokens permanently. The OpenShellGatewayServiceAccount row SHALL remain available for audit and later deletion.
+The explicit user-requested download is not browser application storage. The UI SHALL not retain another copy after it completes the download.
+
+The UI SHALL present revoke and delete as separate row actions. Each action SHALL require confirmation that names the account and describes the result. The confirmation SHALL state that an issued access token can remain valid until its expiration. The revoke confirmation SHALL explain that Keycloak will stop issuing new access tokens permanently. The OpenShellGatewayServiceAccount row SHALL remain available for audit and later deletion.
 
 The delete action SHALL explain that it removes the Keycloak identity and the visible OpenShellGatewayServiceAccount. Deleting a ready OpenShellGatewayServiceAccount SHALL revoke it first.
 
-The collection SHALL use server pagination and filtering. Search SHALL wait 300 milliseconds after the last input change. A new search SHALL cancel the old request and reset the page to one. Wildcard characters SHALL pass to the API as literal text.
-
-The UI SHALL distinguish an empty gateway from a search with no matches. It SHALL NOT apply a second client-side authorization filter.
+The UI SHALL NOT apply a second client-side authorization filter.
 
 The UI SHALL NOT retry a create request automatically after an uncertain response. A retry cannot recover the one-time client secret.
 
 The UI SHALL explain the uncertain result. It SHALL direct the user to refresh the list. If the OpenShellGatewayServiceAccount exists, the user SHALL delete and replace it.
 
-After a confirmed create, revoke, or delete operation, the UI SHALL refetch the OpenShellGatewayServiceAccount list. It SHALL poll `revoking` until the status becomes `revoked`. It SHALL poll `deleting` until the resource disappears. If either operation fails, the UI SHALL show an actionable error.
+After a confirmed create, revoke, or delete operation, the UI SHALL refetch the OpenShellGatewayServiceAccount list. While the visible page contains `provisioning`, `revoking`, or `deleting`, the UI SHALL request that page approximately every five seconds. It SHALL use one list request per interval, not one request per row. Rapid polling SHALL stop when the page contains no transitional state, the view unmounts, or the document is hidden. If an operation fails, the UI SHALL show an actionable error.
 
 #### Scenario: Viewer sees a constrained form
 
@@ -679,6 +796,40 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 - WHEN the create form renders
 - THEN `openshell-user` SHALL be the only permitted role value
 - AND the UI SHALL explain that an OpenShell workspace membership may still be required for the service-account subject
+
+#### Scenario: Interactive connection remains the default
+
+- GIVEN an authenticated user opens a gateway detail page
+- WHEN the page renders without a valid tab value
+- THEN the `Connection` tab SHALL be selected
+- AND the existing interactive walkthrough SHALL remain visible
+- AND `Create or manage service accounts` SHALL link to the `Service accounts` tab
+
+#### Scenario: Owner receives the one-time setup view
+
+- GIVEN an owner submits a valid service-account form
+- WHEN the API returns `201 Created` with the credential bundle
+- THEN the form SHALL become the one-time setup view
+- AND the view SHALL provide the secret and credential download only in this session
+- AND the default command group SHALL show the supported OpenShell CLI flow
+- AND the advanced group SHALL show a Client Credentials JWT exchange
+- AND no copyable command SHALL contain the literal client secret
+
+#### Scenario: Existing account has no recoverable secret
+
+- GIVEN a ready OpenShellGatewayServiceAccount already exists
+- WHEN an authorized user selects `View setup instructions`
+- THEN the UI SHALL show its non-secret connection metadata
+- AND the commands SHALL prompt for the secret or read `OPENSHELL_OIDC_CLIENT_SECRET`
+- AND the UI SHALL explain that a lost secret requires a replacement OpenShellGatewayServiceAccount
+
+#### Scenario: Service-account setup preserves interactive login
+
+- GIVEN the user registered a gateway for interactive login under its gateway name
+- WHEN the user copies setup commands for an OpenShellGatewayServiceAccount
+- THEN the generated local alias SHALL include the service-account name
+- AND the setup command SHALL NOT overwrite the interactive gateway configuration
+- AND the verification command SHALL select the service-account alias explicitly
 
 ### Requirement: CLI and CI Workflow
 
