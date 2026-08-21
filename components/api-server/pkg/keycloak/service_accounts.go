@@ -273,16 +273,25 @@ func (c *Client) DeleteGatewayServiceAccounts(ctx context.Context, gatewayID str
 }
 
 func (c *Client) ListManagedClients(ctx context.Context, gatewayID string) ([]ManagedClient, error) {
-	body, status, err := c.admin(ctx, http.MethodGet, fmt.Sprintf("/admin/realms/%s/clients?max=1000", c.realm), nil)
-	if err != nil {
-		return nil, err
-	}
-	if status != http.StatusOK {
-		return nil, statusError("list managed clients", status)
-	}
-	var clients []kcClient
-	if err := json.Unmarshal(body, &clients); err != nil {
-		return nil, errors.New("parse Keycloak client list")
+	const pageSize = 100
+	clients := make([]kcClient, 0)
+	for first := 0; ; first += pageSize {
+		path := fmt.Sprintf("/admin/realms/%s/clients?first=%d&max=%d", c.realm, first, pageSize)
+		body, status, err := c.admin(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, err
+		}
+		if status != http.StatusOK {
+			return nil, statusError("list managed clients", status)
+		}
+		var page []kcClient
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, errors.New("parse Keycloak client list")
+		}
+		clients = append(clients, page...)
+		if len(page) < pageSize {
+			break
+		}
 	}
 	out := make([]ManagedClient, 0)
 	for _, listed := range clients {
@@ -290,10 +299,10 @@ func (c *Client) ListManagedClients(ctx context.Context, gatewayID string) ([]Ma
 		if getErr != nil {
 			return nil, getErr
 		}
-		if client.Attributes[managedAttribute] != "true" || client.Attributes[gatewayIDAttribute] != gatewayID {
+		if client.Attributes[managedAttribute] != "true" || (gatewayID != "" && client.Attributes[gatewayIDAttribute] != gatewayID) {
 			continue
 		}
-		out = append(out, ManagedClient{UUID: client.ID, ClientID: client.ClientID, GatewayID: gatewayID, ServiceAccountID: client.Attributes[serviceAccountIDAttribute]})
+		out = append(out, ManagedClient{UUID: client.ID, ClientID: client.ClientID, GatewayID: client.Attributes[gatewayIDAttribute], ServiceAccountID: client.Attributes[serviceAccountIDAttribute]})
 	}
 	return out, nil
 }
@@ -523,6 +532,7 @@ func (c *Client) replaceRoleMappings(ctx context.Context, clientUUID, subject, g
 		return statusError("list service-account role mappings", status)
 	}
 	var current struct {
+		RealmMappings  []kcRole `json:"realmMappings"`
 		ClientMappings map[string]struct {
 			ID       string   `json:"id"`
 			Mappings []kcRole `json:"mappings"`
@@ -530,6 +540,16 @@ func (c *Client) replaceRoleMappings(ctx context.Context, clientUUID, subject, g
 	}
 	if err := json.Unmarshal(body, &current); err != nil {
 		return errors.New("parse service-account role mappings")
+	}
+	if len(current.RealmMappings) > 0 {
+		payload, _ := json.Marshal(current.RealmMappings)
+		_, deleteStatus, deleteErr := c.admin(ctx, http.MethodDelete, fmt.Sprintf("/admin/realms/%s/users/%s/role-mappings/realm", c.realm, url.PathEscape(subject)), payload)
+		if deleteErr != nil {
+			return deleteErr
+		}
+		if deleteStatus >= 300 {
+			return statusError("remove unexpected service-account realm roles", deleteStatus)
+		}
 	}
 	for _, mapping := range current.ClientMappings {
 		if mapping.ID == "" || len(mapping.Mappings) == 0 {
@@ -563,6 +583,7 @@ func (c *Client) replaceRoleMappings(ctx context.Context, clientUUID, subject, g
 		return statusError("list client scope mappings", status)
 	}
 	var scoped struct {
+		RealmMappings  []kcRole `json:"realmMappings"`
 		ClientMappings map[string]struct {
 			ID       string   `json:"id"`
 			Mappings []kcRole `json:"mappings"`
@@ -570,6 +591,16 @@ func (c *Client) replaceRoleMappings(ctx context.Context, clientUUID, subject, g
 	}
 	if err := json.Unmarshal(body, &scoped); err != nil {
 		return errors.New("parse client scope mappings")
+	}
+	if len(scoped.RealmMappings) > 0 {
+		mapped, _ := json.Marshal(scoped.RealmMappings)
+		_, deleteStatus, deleteErr := c.admin(ctx, http.MethodDelete, fmt.Sprintf("/admin/realms/%s/clients/%s/scope-mappings/realm", c.realm, url.PathEscape(clientUUID)), mapped)
+		if deleteErr != nil {
+			return deleteErr
+		}
+		if deleteStatus >= 300 {
+			return statusError("remove unexpected realm role scope", deleteStatus)
+		}
 	}
 	for _, mapping := range scoped.ClientMappings {
 		if len(mapping.Mappings) == 0 || mapping.ID == "" {
@@ -719,7 +750,8 @@ func (c *Client) verifyClientCredentials(ctx context.Context, spec ServiceAccoun
 	if wantLifetime == 0 {
 		wantLifetime = defaultAccessTokenLifetimeSecs
 	}
-	if !iatOK || !expOK || exp <= iat || exp-iat > wantLifetime+5 || result.ExpiresIn > wantLifetime+5 {
+	lifetime := exp - iat
+	if !iatOK || !expOK || exp <= iat || lifetime < wantLifetime-5 || lifetime > wantLifetime+5 || result.ExpiresIn < wantLifetime-5 || result.ExpiresIn > wantLifetime+5 {
 		return errors.New("service-account access token lifetime does not match")
 	}
 	return nil

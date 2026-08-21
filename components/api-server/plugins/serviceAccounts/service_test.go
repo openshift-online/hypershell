@@ -1,13 +1,17 @@
 package serviceAccounts
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/keycloak"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
@@ -15,6 +19,73 @@ import (
 	trexerrors "github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"gorm.io/gorm"
 )
+
+func TestCreateHandlerReturnsTheCredentialOnceWithCacheProtection(t *testing.T) {
+	dao := newMemoryDAO()
+	svc := newTestService(dao, &fakeKeycloak{configured: true}, testBindings("creator", "gateway:owner"), time.Now().UTC())
+	handler := NewHandler(svc)
+	body := bytes.NewBufferString(`{"name":"deploy-bot","role":"openshell-user"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/gateways/gateway-id/service_accounts", body)
+	request = mux.SetURLVars(request, map[string]string{"gateway_id": "gateway-id"})
+	request = request.WithContext(context.WithValue(request.Context(), rbac.ContextUserIDKey, "creator"))
+	recorder := httptest.NewRecorder()
+
+	handler.Create(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Pragma") != "no-cache" {
+		t.Fatalf("cache headers = %#v", recorder.Header())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	credential, ok := created["credential"].(map[string]any)
+	if !ok || credential["client_secret"] != "one-time-secret" {
+		t.Fatalf("create credential = %#v", created["credential"])
+	}
+	if credential["gateway_endpoint"] != "https://gateway.example:443" {
+		t.Fatalf("gateway endpoint = %q, want HTTPS endpoint", credential["gateway_endpoint"])
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/gateways/gateway-id/service_accounts/"+created["id"].(string), nil)
+	getRequest = mux.SetURLVars(getRequest, map[string]string{
+		"gateway_id": "gateway-id", "service_account_id": created["id"].(string),
+	})
+	getRequest = getRequest.WithContext(context.WithValue(getRequest.Context(), rbac.ContextUserIDKey, "creator"))
+	getRecorder := httptest.NewRecorder()
+	handler.Get(getRecorder, getRequest)
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", getRecorder.Code, getRecorder.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if _, exists := got["credential"]; exists {
+		t.Fatalf("get response leaked credential: %#v", got["credential"])
+	}
+}
+
+func TestGatewayEndpointNormalizesGRPCSchemesForOpenShell(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "TLS", in: "grpcs://gateway.example:443", want: "https://gateway.example:443"},
+		{name: "plaintext", in: "grpc://gateway.example:80", want: "http://gateway.example:80"},
+		{name: "already HTTP", in: "https://gateway.example:443", want: "https://gateway.example:443"},
+		{name: "trimmed", in: "  grpcs://gateway.example:443  ", want: "https://gateway.example:443"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := gatewayEndpoint(test.in); got != test.want {
+				t.Fatalf("gatewayEndpoint(%q) = %q, want %q", test.in, got, test.want)
+			}
+		})
+	}
+}
 
 func TestCreateEnforcesRoleCapAndKeepsCredentialOutOfPersistence(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
@@ -98,6 +169,52 @@ func TestViewerVisibilityIsCreatorOnlyWhileOwnerCanManageAll(t *testing.T) {
 	}
 }
 
+func TestCreateHidesGatewayReadinessWithoutAnExactBinding(t *testing.T) {
+	dao := newMemoryDAO()
+	bindings := fakeBindings{byUser: map[string][]rbac.BindingSummary{
+		"platform-admin": {{RoleName: "platform:admin", Scope: "global"}},
+	}}
+	svc := newTestService(dao, &fakeKeycloak{configured: true}, bindings, time.Now().UTC())
+	internal := svc.(*service)
+	gateway := internal.gateways.(fakeGateway).gateway
+	phase := "Provisioning"
+	gateway.Phase = &phase
+	gateway.Oidc = nil
+
+	for _, userID := range []string{"unbound-user", "platform-admin"} {
+		if _, problem := svc.Create(t.Context(), gateway.ID, userID, CreateInput{Name: "hidden"}); problem == nil || problem.Status != 404 {
+			t.Fatalf("Create() for %s problem = %#v, want 404", userID, problem)
+		}
+	}
+	dao.seed(&OpenShellGatewayServiceAccount{
+		GatewayID: gateway.ID, Name: "hidden", CreatedByUserID: "someone-else", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "hidden-client",
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+	if _, _, problem := svc.Get(t.Context(), gateway.ID, itemsIDByCreator(dao, "someone-else"), "unbound-user"); problem == nil || problem.Status != 404 {
+		t.Fatalf("Get() problem = %#v, want 404", problem)
+	}
+}
+
+func TestCreateFailureRemovesAProvenAbsentCredentialReservation(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true, provisionErr: errors.New("provider unavailable")}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:owner"), time.Now().UTC())
+
+	if _, problem := service.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "deploy-bot"}); problem == nil || problem.Status != 503 {
+		t.Fatalf("Create() problem = %#v, want 503", problem)
+	}
+	if len(dao.items) != 0 {
+		t.Fatalf("failed reservation was not removed: %#v", dao.items)
+	}
+	if kc.deleteManagedCalls != 1 {
+		t.Fatalf("DeleteManagedServiceAccount() calls = %d, want 1", kc.deleteManagedCalls)
+	}
+	if len(dao.audits) < 2 || dao.audits[len(dao.audits)-1].Outcome != "failed" {
+		t.Fatalf("creation failure audit = %#v", dao.audits)
+	}
+}
+
 func TestReconcileDowngradesAdminAndRevokesWhenBindingIsRemoved(t *testing.T) {
 	dao := newMemoryDAO()
 	now := time.Now().UTC()
@@ -126,6 +243,144 @@ func TestReconcileDowngradesAdminAndRevokesWhenBindingIsRemoved(t *testing.T) {
 	stored = dao.items[account.ID]
 	if stored.Status != StatusRevoked || stored.RevokedAt == nil || kc.disableCalls == 0 {
 		t.Fatalf("revoked account = %#v, disableCalls=%d", stored, kc.disableCalls)
+	}
+}
+
+func TestReconcileExpiresAndContinuesCheckingTerminalAccounts(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	reason := "previous_failure"
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now, LastError: &reason,
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:viewer"), now)
+
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() error = %v", err)
+	}
+	stored := dao.items[account.ID]
+	if stored.Status != StatusExpired || stored.RevokedAt == nil || stored.LastError != nil || kc.disableCalls != 1 {
+		t.Fatalf("expired account = %#v, disableCalls=%d", stored, kc.disableCalls)
+	}
+
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() terminal drift check error = %v", err)
+	}
+	if kc.disableCalls != 2 {
+		t.Fatalf("terminal drift disable calls = %d, want 2", kc.disableCalls)
+	}
+}
+
+func TestRevokePersistsForRetryAndDeletePerformsFinalCleanup(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true, disableErr: errors.New("provider unavailable")}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+	pending, complete, problem := service.Revoke(t.Context(), "gateway-id", account.ID, "creator")
+	if problem != nil || complete || pending.Status != StatusRevoking {
+		t.Fatalf("Revoke() account=%#v complete=%t problem=%v", pending, complete, problem)
+	}
+	if stored := dao.items[account.ID]; stored.Status != StatusRevoking || stored.LastError == nil {
+		t.Fatalf("persisted revocation = %#v", stored)
+	}
+
+	kc.disableErr = nil
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() retry error = %v", err)
+	}
+	if stored := dao.items[account.ID]; stored.Status != StatusRevoked || stored.RevokedAt == nil {
+		t.Fatalf("retried revocation = %#v", stored)
+	}
+
+	_, deleted, problem := service.Delete(t.Context(), "gateway-id", account.ID, "creator")
+	if problem != nil || !deleted {
+		t.Fatalf("Delete() complete=%t problem=%v", deleted, problem)
+	}
+	if _, exists := dao.items[account.ID]; exists {
+		t.Fatal("deleted account remains visible")
+	}
+	if len(kc.deletedUUIDs) != 1 || kc.deletedUUIDs[0] != "client-uuid" {
+		t.Fatalf("deleted Keycloak UUIDs = %v", kc.deletedUUIDs)
+	}
+}
+
+func TestCleanupGatewayDeletesIdentitiesBeforeRecords(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	dao.seed(
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "first", CreatedByUserID: "creator", Status: StatusReady, Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-1", ExpiresAt: now.Add(time.Hour)},
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "second", CreatedByUserID: "creator", Status: StatusRevoked, Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-2", ExpiresAt: now.Add(time.Hour)},
+	)
+	kc := &fakeKeycloak{configured: true}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+	if err := service.CleanupGateway(t.Context(), "gateway-id"); err != nil {
+		t.Fatalf("CleanupGateway() error = %v", err)
+	}
+	if kc.deleteGatewayCalls != 1 {
+		t.Fatalf("DeleteGatewayServiceAccounts() calls = %d, want 1", kc.deleteGatewayCalls)
+	}
+	if len(dao.items) != 0 {
+		t.Fatalf("gateway cleanup retained records: %#v", dao.items)
+	}
+	if len(dao.audits) != 2 {
+		t.Fatalf("gateway cleanup audits = %d, want 2", len(dao.audits))
+	}
+}
+
+func TestReconcileReportsAndRetriesUndeliveredCredentialCleanup(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusError,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true, deleteErr: errors.New("provider unavailable")}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:viewer"), now)
+
+	if err := service.ReconcileOnce(t.Context()); err == nil {
+		t.Fatal("ReconcileOnce() error = nil, want cleanup failure")
+	}
+	if _, exists := dao.items[account.ID]; !exists {
+		t.Fatal("failed cleanup removed the reservation")
+	}
+	kc.deleteErr = nil
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() retry error = %v", err)
+	}
+	if _, exists := dao.items[account.ID]; exists {
+		t.Fatal("successful cleanup retained the reservation")
+	}
+}
+
+func TestReconcileDeletesKeycloakClientsWithoutAResource(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{
+		configured: true,
+		managedClients: []keycloak.ManagedClient{{
+			UUID: "orphan-uuid", GatewayID: "gateway-id", ServiceAccountID: "missing-account",
+		}},
+	}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:viewer"), time.Now().UTC())
+
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() error = %v", err)
+	}
+	if len(kc.deletedUUIDs) != 1 || kc.deletedUUIDs[0] != "orphan-uuid" {
+		t.Fatalf("deleted UUIDs = %v", kc.deletedUUIDs)
 	}
 }
 
@@ -166,11 +421,18 @@ func binding(role string) []rbac.BindingSummary {
 }
 
 type fakeKeycloak struct {
-	configured     bool
-	secret         string
-	lastSpec       keycloak.ServiceAccountSpec
-	provisionCalls int
-	disableCalls   int
+	configured         bool
+	disableErr         error
+	deleteErr          error
+	provisionErr       error
+	secret             string
+	lastSpec           keycloak.ServiceAccountSpec
+	managedClients     []keycloak.ManagedClient
+	provisionCalls     int
+	disableCalls       int
+	deleteManagedCalls int
+	deleteGatewayCalls int
+	deletedUUIDs       []string
 }
 
 func (f *fakeKeycloak) Configured() bool { return f.configured }
@@ -178,6 +440,9 @@ func (f *fakeKeycloak) Configured() bool { return f.configured }
 func (f *fakeKeycloak) ProvisionServiceAccount(_ context.Context, spec keycloak.ServiceAccountSpec) (*keycloak.ProvisionedServiceAccount, error) {
 	f.provisionCalls++
 	f.lastSpec = spec
+	if f.provisionErr != nil {
+		return nil, f.provisionErr
+	}
 	if f.secret == "" {
 		f.secret = "one-time-secret"
 	}
@@ -191,14 +456,26 @@ func (f *fakeKeycloak) ReconcileServiceAccount(_ context.Context, spec keycloak.
 
 func (f *fakeKeycloak) DisableServiceAccount(context.Context, string) error {
 	f.disableCalls++
-	return nil
+	return f.disableErr
 }
 
-func (f *fakeKeycloak) DeleteServiceAccount(context.Context, string) error { return nil }
-func (f *fakeKeycloak) DeleteManagedServiceAccount(context.Context, string, string) error {
-	return nil
+func (f *fakeKeycloak) DeleteServiceAccount(_ context.Context, uuid string) error {
+	if f.deleteErr == nil {
+		f.deletedUUIDs = append(f.deletedUUIDs, uuid)
+	}
+	return f.deleteErr
 }
-func (f *fakeKeycloak) DeleteGatewayServiceAccounts(context.Context, string) error { return nil }
+func (f *fakeKeycloak) DeleteManagedServiceAccount(context.Context, string, string) error {
+	f.deleteManagedCalls++
+	return f.deleteErr
+}
+func (f *fakeKeycloak) DeleteGatewayServiceAccounts(context.Context, string) error {
+	f.deleteGatewayCalls++
+	return f.deleteErr
+}
+func (f *fakeKeycloak) ListManagedClients(context.Context, string) ([]keycloak.ManagedClient, error) {
+	return f.managedClients, nil
+}
 
 type memoryDAO struct {
 	items  map[string]*OpenShellGatewayServiceAccount
@@ -223,6 +500,15 @@ func (d *memoryDAO) seed(accounts ...*OpenShellGatewayServiceAccount) {
 		copy := *account
 		d.items[account.ID] = &copy
 	}
+}
+
+func (d *memoryDAO) ActiveNameExists(_ context.Context, gatewayID, name string) (bool, error) {
+	for _, account := range d.items {
+		if account.GatewayID == gatewayID && strings.EqualFold(account.Name, name) && account.Status != StatusExpired && account.Status != StatusRevoked {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (d *memoryDAO) Create(_ context.Context, account *OpenShellGatewayServiceAccount) error {

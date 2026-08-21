@@ -210,8 +210,8 @@ func DeleteGatewayResources(
 	if opts.KeycloakClient != nil && opts.GatewayName != "" && opts.GatewayID != "" {
 		kcClientID := fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
 		if err := opts.KeycloakClient.DeleteGatewayServiceAccountClients(ctx, opts.GatewayID); err != nil {
-			// Do not delete the parent clients while a machine identity may still
-			// be enabled. Returning an error makes the teardown retry.
+			// Do not delete the parent clients while an OpenShell gateway service
+			// account may still be enabled. Returning an error makes teardown retry.
 			return fmt.Errorf("delete gateway service-account clients: %w", err)
 		}
 		log.Printf("INFO deleted keycloak service-account clients for gateway %s", opts.GatewayID)

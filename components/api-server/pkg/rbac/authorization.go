@@ -73,7 +73,7 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 		gatewayID := extractGatewayID(r, resource)
 
 		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings) {
-			if r.Method == http.MethodGet && resourceID != "" {
+			if resource == "service_accounts" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
 				http.Error(w, "Forbidden", http.StatusForbidden)

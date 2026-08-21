@@ -20,6 +20,7 @@ type ListOptions struct {
 }
 
 type ServiceAccountDao interface {
+	ActiveNameExists(context.Context, string, string) (bool, error)
 	Create(context.Context, *OpenShellGatewayServiceAccount) error
 	Update(context.Context, *OpenShellGatewayServiceAccount) error
 	Get(context.Context, string, string) (*OpenShellGatewayServiceAccount, error)
@@ -38,6 +39,14 @@ func NewServiceAccountDao(factory *db.SessionFactory) ServiceAccountDao {
 
 func (d *sqlServiceAccountDao) session(ctx context.Context) *gorm.DB {
 	return (*d.sessionFactory).New(ctx)
+}
+
+func (d *sqlServiceAccountDao) ActiveNameExists(ctx context.Context, gatewayID, name string) (bool, error) {
+	var count int64
+	err := d.session(ctx).Model(&OpenShellGatewayServiceAccount{}).
+		Where("gateway_id = ? AND lower(name) = lower(?) AND status NOT IN ?", gatewayID, name, []string{StatusExpired, StatusRevoked}).
+		Count(&count).Error
+	return count > 0, err
 }
 
 func (d *sqlServiceAccountDao) Create(ctx context.Context, account *OpenShellGatewayServiceAccount) error {
