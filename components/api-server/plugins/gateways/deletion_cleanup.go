@@ -13,8 +13,8 @@ var (
 )
 
 // RegisterDeletionCleaner installs the service-account cleanup barrier. The
-// gateway is not soft-deleted until this callback confirms that its machine
-// identities are disabled and removed.
+// gateway is not soft-deleted until this callback confirms that its
+// OpenShellGatewayServiceAccounts are disabled and removed.
 func RegisterDeletionCleaner(cleaner DeletionCleaner) {
 	deletionCleanerMu.Lock()
 	defer deletionCleanerMu.Unlock()
