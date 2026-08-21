@@ -423,8 +423,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | Wave | Scope | Status |
 |------|-------|--------|
 | SA-W1 | Nested REST/OpenAPI contract with separate create/get/list models and no-store one-time response | Complete |
-| SA-W2 | Extend generators for nested resources and regenerate Go/TypeScript SDKs | In progress |
-| SA-W3 | Persistence, nested RBAC, synchronous Keycloak adapter, lifecycle/reconciliation, cleanup, audit, deployment wiring | Pending |
+| SA-W2 | Extend generators for nested resources and regenerate Go/TypeScript SDKs | Complete |
+| SA-W3 | Persistence, nested RBAC, synchronous Keycloak adapter, lifecycle/reconciliation, cleanup, audit, deployment wiring | In progress |
 | SA-W4 | HyperShell CLI create/list/get/revoke/delete and secret-safe output | Pending |
 | SA-W5 | Gateway-detail Service accounts tab, host adapter, local-only handoff, setup commands, management table | Pending |
 | SA-W6 | Integration verification, alignment, review-guidance audit, and checkpoint closure | Pending |
