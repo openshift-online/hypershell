@@ -423,12 +423,6 @@ export const messages = defineMessages({
     defaultMessage: "Notifications",
     description: "Accessible label for transient application notifications.",
   },
-  owner: {
-    id: "app.gateway.column.owner",
-    defaultMessage: "Created by",
-    description:
-      "Heading for the gateways table column showing who created the gateway.",
-  },
   openGatewayConsole: {
     id: "app.gateway.openConsole",
     defaultMessage: "Open gateway console",
@@ -439,6 +433,12 @@ export const messages = defineMessages({
     defaultMessage: "Open console for {gatewayName} in a new tab",
     description:
       "Accessible label for opening a specific gateway console in a new tab.",
+  },
+  owner: {
+    id: "app.gateway.column.owner",
+    defaultMessage: "Created by",
+    description:
+      "Heading for the gateways table column showing who created the gateway.",
   },
   provisionGateway: {
     id: "app.page.gatewayProvision.title",

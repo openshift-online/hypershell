@@ -5,9 +5,9 @@ import (
 
 	"gorm.io/gorm/clause"
 
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
-	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 )
 
 type RoleBindingDao interface {

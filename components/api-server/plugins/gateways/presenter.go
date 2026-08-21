@@ -81,4 +81,3 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 
 	return g
 }
-
