@@ -1,4 +1,5 @@
-FROM registry.access.redhat.com/hi/go:1.26.5-builder@sha256:fe0672d0b4bf43b502fe7ab4f251c266b558346cd3b8892c7c79b3b5f2c3a92f AS builder
+# syntax=docker/dockerfile:1
+FROM registry.access.redhat.com/hi/go:1.26.5@sha256:eb29e565caf76cf408a77a73548a3ed62e00e3516c17d02d5f36838aea69a605 AS builder
 
 WORKDIR /workspace
 
@@ -17,18 +18,16 @@ RUN CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w \
   -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${BUILD_TIME}'" \
   -o hypershell ./cmd/hypershell
 
-FROM registry.access.redhat.com/hi/go:1.26.5@sha256:55d95d0bd29598f821931dec7155efd331068bdd84162d7d4b2e7ad66ec6c124
+FROM registry.access.redhat.com/hi/static:latest@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
-COPY --from=builder --chown=1001:0 /workspace/hypershell /usr/local/bin/
+COPY --from=builder /workspace/hypershell /usr/local/bin/
 
-USER 1001
 EXPOSE 8000
 EXPOSE 9000
 
 ENTRYPOINT ["/usr/local/bin/hypershell"]
 CMD ["serve"]
 
-LABEL name="hypershell" \
-      version="0.0.1" \
-      summary="HyperShell API Server" \
-      description="REST + gRPC API server for HyperShell fleet management"
+LABEL org.opencontainers.image.title="HyperShell API Server" \
+      org.opencontainers.image.description="REST + gRPC API server for HyperShell fleet management" \
+      org.opencontainers.image.version="0.0.1"
