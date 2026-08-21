@@ -370,6 +370,9 @@ jobs:
           make kind-env
           echo "::endgroup::"
 
+      - name: Wait for ManagedDatabase CNPG cluster
+        run: bash scripts/kind/wait-for-managed-database.sh
+
       - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
