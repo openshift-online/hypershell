@@ -44,10 +44,14 @@ patches:
                       secretKeyRef:
                         name: hypershell-api-config
                         key: api-service.clientSecret
-  # --- API server: enable JWT + JWK cert URL from OIDC secret + enforce RBAC ---
-  # The JWKS URL is read from the hypershell-api-config secret so it stays in
-  # sync with the Keycloak instance provisioned for this cluster. Without this,
-  # the framework defaults to sso.redhat.com and rejects Keycloak-issued tokens.
+  # --- API server: validate JWT signature, issuer, and audience + enforce RBAC ---
+  # The JWKS and issuer URLs are read from the hypershell-api-config secret so
+  # they stay in sync with the Keycloak instance provisioned for this cluster.
+  # The issuer is kept separate from the JWKS URL because tokens carry the
+  # external realm URL in `iss` while the keys may be fetched through another
+  # route. The API resource audience is the shared hypershell-frontend audience;
+  # individual callers (web console, hsctl, control plane) remain identifiable
+  # through `azp`.
   #
   # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
   # (gateway:creator/owner/viewer); it is the sole gate for that model
@@ -77,6 +81,11 @@ patches:
               secretKeyRef:
                 name: hypershell-api-config
                 key: api-service.jwkCertUrl
+          - name: JWT_ISSUER
+            valueFrom:
+              secretKeyRef:
+                name: hypershell-api-config
+                key: api-service.issuerUrl
           - name: RBAC_ENFORCE
             value: "true"
           - name: RBAC_SERVICE_ACCOUNTS
@@ -90,6 +99,12 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=$(JWK_CERT_URL)"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-issuer=$(JWT_ISSUER)"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-audience=hypershell-frontend"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"

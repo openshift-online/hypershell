@@ -31,7 +31,7 @@ Web Console BFF (Fastify)
   │  Refreshes token transparently when access token expires
   ▼
 HyperShell REST API
-  │  Validates JWT: issuer, JWKS signature, expiry
+  │  Validates JWT: issuer, audience, JWKS signature, expiry
   │  gRPC watch methods bypass JWT (trusted in-cluster services)
   ▼
 PostgreSQL / Control Plane / Gateway
@@ -42,7 +42,7 @@ The platform supports two authentication modes:
 | Mode | API Server | BFF | Use Case |
 |------|-----------|-----|----------|
 | **No-auth** | JWT disabled | Stateless proxy, no session | Development without auth overhead |
-| **OIDC** | JWT enabled, JWKS validation | Auth code + PKCE, encrypted cookie session | Production, staging, OIDC-enabled local dev |
+| **OIDC** | JWT enabled, issuer/audience/JWKS validation | Auth code + PKCE, encrypted cookie session | Production, staging, OIDC-enabled local dev |
 
 Mode selection is deployment configuration. Application code consumes the same interfaces in both modes.
 
@@ -50,7 +50,7 @@ Mode selection is deployment configuration. Application code consumes the same i
 
 ## API Server JWT Validation
 
-The API server uses the upstream rh-trex-ai framework for JWT validation. When enabled, the framework validates Bearer tokens on incoming HTTP and gRPC requests against a JWKS endpoint.
+The API server uses the upstream rh-trex-ai framework for JWT validation. When enabled, the framework validates Bearer tokens on incoming HTTP and gRPC requests against a JWKS endpoint and requires the configured issuer and API resource audience.
 
 ### Configuration
 
@@ -59,9 +59,18 @@ The API server uses the upstream rh-trex-ai framework for JWT validation. When e
 | `--enable-jwt` | `true` (framework default) | Enable JWT validation |
 | `--jwk-cert-url` | Red Hat SSO JWKS | JWKS endpoint URL(s) for JWT signature validation |
 | `--grpc-jwk-cert-url` | (inherits `--jwk-cert-url`) | Override JWKS URL for gRPC validation |
+| `--jwt-issuer` | empty | Exact expected `iss` claim; required by HyperShell OIDC deployments |
+| `--jwt-audience` | empty | Required `aud` value; HyperShell uses `hypershell-frontend` as the management API resource audience |
 | `--enable-authz` | `true` (framework default) | Enable authorization middleware |
 | `--auth-bypass-paths` | `/healthcheck`, `/metrics`, `/openapi` | HTTP paths exempt from JWT validation |
 | `--auth-bypass-methods` | Health, Reflection | gRPC methods exempt from JWT validation |
+
+`hypershell-frontend` identifies the management API as the token resource; it is
+not a restriction to the web-console OAuth client. First-party callers such as
+hsctl and the control plane receive that audience from dedicated Keycloak
+mappers and remain distinguishable through `azp`. Per-gateway clients receive
+only their gateway audience, so their tokens SHALL be rejected by management
+API endpoints.
 
 ### Environment System
 
@@ -236,7 +245,7 @@ The `hypershell-provisioner` client is a confidential service account used for a
 
 | Component | Configuration |
 |-----------|--------------|
-| API server | `API_ENV=production`, `--enable-jwt=true`, `--jwk-cert-url=<production JWKS>`, `--enable-authz=true` |
+| API server | `API_ENV=production`, `--enable-jwt=true`, `--jwk-cert-url=<production JWKS>`, `--jwt-issuer=<production issuer>`, `--jwt-audience=hypershell-frontend`, `--enable-authz=true` |
 | BFF | `OIDC_ISSUER=<production issuer>`, `OIDC_CLIENT_ID=hypershell-frontend`, `SESSION_SECRET=<managed secret>` |
 | Gateway | OIDC configured per `openshell-gateway-oidc.spec.md` |
 | Keycloak | Downstream Keycloak brokering to Red Hat SSO |
@@ -250,7 +259,7 @@ OIDC is always enabled in the Kind cluster. `make kind-up` configures all compon
 
 `make kind-up` SHALL:
 
-1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
+1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell`, `--jwt-audience=hypershell-frontend`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
 2. Deploy the web console BFF with:
    - `OIDC_ISSUER=https://keycloak.hypershell.localhost/realms/hypershell`
    - `OIDC_CLIENT_ID=hypershell-frontend`
@@ -298,7 +307,16 @@ The API server SHALL support JWT validation against a configurable JWKS endpoint
 - AND a valid JWT is obtained from the configured IdP
 - WHEN a request is made with `Authorization: Bearer <token>`
 - THEN the API server SHALL validate the JWT signature against the JWKS endpoint
+- AND the token `iss` SHALL exactly match the configured issuer
+- AND the token `aud` SHALL contain `hypershell-frontend`
 - AND the request SHALL be processed normally
+
+#### Scenario: Token Issued for Another Resource Is Rejected
+- GIVEN the API server is started with issuer and audience validation enabled
+- AND a correctly signed token has a missing or different `iss`
+- OR its `aud` does not contain `hypershell-frontend`
+- WHEN the token is presented to an HTTP or gRPC management endpoint
+- THEN the API server SHALL reject the request as unauthenticated
 
 #### Scenario: gRPC Watch Streams Bypass JWT
 - GIVEN the API server is started with JWT enabled
@@ -536,6 +554,7 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 | `@fastify/secure-session` for cookie encryption | Sodium-based secretbox (NaCl) is the gold standard for symmetric encryption. The library is maintained by the Fastify team and integrates natively. `iron-session` is an alternative but adds an extra dependency outside the Fastify ecosystem. |
 | RP-initiated logout (full IdP session termination) | Clearing the cookie alone leaves the IdP session alive  -- the user could re-authenticate without credentials until TTL expires. Full logout is the expected UX for an enterprise console. One extra redirect is negligible. |
 | Control plane authenticates with its own service account | The control plane obtains JWTs via `client_credentials` grant using a dedicated `hypershell-control-plane` Keycloak client. This is the standard pattern for service-to-service auth with the rh-trex-ai framework (the JWT interceptor validates tokens on all gRPC methods). The service account is least-privilege ready for future RBAC enforcement. |
+| Shared management API resource audience | Web-console, hsctl, and control-plane tokens carry `aud=hypershell-frontend` because they call the same management API; `azp` identifies the OAuth client. Gateway-specific tokens carry only their gateway audience and cannot be replayed against the management API. |
 | OIDC always-on in Kind | OIDC is the only supported authentication method. Running without it masks integration issues and diverges from production. |
 | `hypershell-frontend` client reused for BFF | The client already exists with the correct audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
 | Restrict `redirectUris` from wildcard | Wildcard redirect URIs are an OAuth security anti-pattern (open redirect). Restricting to the deployment's console origin prevents authorization code interception. |

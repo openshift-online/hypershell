@@ -112,7 +112,7 @@ patches:
                       secretKeyRef:
                         name: hypershell-oidc-session
                         key: session-secret
-  # --- API server: enable JWT + JWK cert URL + bypass paths ---
+  # --- API server: enable JWT + issuer/audience validation + bypass paths ---
   # Appending --enable-jwt=true is index-independent: --enable-jwt is a pflag
   # BoolVar, and repeated single-value flags are last-value-wins, so the
   # appended true overrides the base --enable-jwt=false no matter where it sits
@@ -131,6 +131,12 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-audience=hypershell-frontend"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
