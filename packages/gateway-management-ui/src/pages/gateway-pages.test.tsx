@@ -932,7 +932,37 @@ describe("gateway shell pages", () => {
     expect(within(busyRow).getByText("3")).toBeTruthy();
 
     const idleRow = screen.getByRole("row", { name: /gw-idle/u });
-    expect(within(idleRow).getByText("Not available")).toBeTruthy();
+    const sandboxCell = idleRow.querySelector(
+      "[data-label='Active sandboxes']",
+    );
+    expect(sandboxCell?.textContent).toBe("Not available");
+  });
+
+  it("shows the gateway owner with a not-available fallback when unset", () => {
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          {
+            ...previewGateway,
+            createdBy: "alice@example.com",
+            id: "gw-owned",
+            name: "gw-owned",
+          },
+          { ...previewGateway, id: "gw-unowned", name: "gw-unowned" },
+        ]}
+      />
+    ));
+
+    expect(
+      screen.getByRole("columnheader", { name: "Created by" }),
+    ).toBeTruthy();
+
+    const ownedRow = screen.getByRole("row", { name: /gw-owned/u });
+    expect(within(ownedRow).getByText("alice@example.com")).toBeTruthy();
+
+    const unownedRow = screen.getByRole("row", { name: /gw-unowned/u });
+    const ownerCell = unownedRow.querySelector("[data-label='Created by']");
+    expect(ownerCell?.textContent).toBe("Not available");
   });
 
   it("sorts the gateway list by creation date", async () => {
@@ -1014,7 +1044,7 @@ describe("gateway shell pages", () => {
       />
     ));
 
-    expect(await screen.findByText("Not available")).toBeTruthy();
+    expect(await screen.findAllByText("Not available")).toBeTruthy();
     expect(screen.queryByText("cluster-east")).toBeNull();
   });
 

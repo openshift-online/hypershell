@@ -57,6 +57,8 @@ type Gateway struct {
 	CredentialDriver *string `json:"credential_driver,omitempty"`
 	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
 	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
+	// Username of the user who provisioned this gateway, resolved from RBAC role bindings
+	CreatedBy *string `json:"created_by,omitempty"`
 }
 
 type _Gateway Gateway
@@ -836,6 +838,38 @@ func (o *Gateway) SetActiveSandboxCount(v int32) {
 	o.ActiveSandboxCount = &v
 }
 
+// GetCreatedBy returns the CreatedBy field value if set, zero value otherwise.
+func (o *Gateway) GetCreatedBy() string {
+	if o == nil || IsNil(o.CreatedBy) {
+		var ret string
+		return ret
+	}
+	return *o.CreatedBy
+}
+
+// GetCreatedByOk returns a tuple with the CreatedBy field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetCreatedByOk() (*string, bool) {
+	if o == nil || IsNil(o.CreatedBy) {
+		return nil, false
+	}
+	return o.CreatedBy, true
+}
+
+// HasCreatedBy returns a boolean if a field has been set.
+func (o *Gateway) HasCreatedBy() bool {
+	if o != nil && !IsNil(o.CreatedBy) {
+		return true
+	}
+
+	return false
+}
+
+// SetCreatedBy gets a reference to the given string and assigns it to the CreatedBy field.
+func (o *Gateway) SetCreatedBy(v string) {
+	o.CreatedBy = &v
+}
+
 func (o Gateway) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -908,6 +942,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ActiveSandboxCount) {
 		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount
+	}
+	if !IsNil(o.CreatedBy) {
+		toSerialize["created_by"] = o.CreatedBy
 	}
 	return toSerialize, nil
 }

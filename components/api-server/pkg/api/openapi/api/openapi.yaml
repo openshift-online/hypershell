@@ -2567,6 +2567,11 @@ components:
             format: int32
             readOnly: true
             type: integer
+          created_by:
+            description: "Username of the user who provisioned this gateway, resolved\
+              \ from RBAC role bindings"
+            readOnly: true
+            type: string
         required:
         - cluster_id
         - database_id
@@ -2595,6 +2600,7 @@ components:
         console_address: console_address
         route_address: route_address
         oidc: oidc
+        created_by: created_by
         supervisor_image: supervisor_image
         service_type: service_type
         tls_mode: tls_mode
@@ -2641,6 +2647,7 @@ components:
           console_address: console_address
           route_address: route_address
           oidc: oidc
+          created_by: created_by
           supervisor_image: supervisor_image
           service_type: service_type
           tls_mode: tls_mode
@@ -2668,6 +2675,7 @@ components:
           console_address: console_address
           route_address: route_address
           oidc: oidc
+          created_by: created_by
           supervisor_image: supervisor_image
           service_type: service_type
           tls_mode: tls_mode

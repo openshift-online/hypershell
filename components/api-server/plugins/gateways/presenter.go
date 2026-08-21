@@ -34,7 +34,7 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	return c
 }
 
-func PresentGateway(gateway *Gateway) openapi.Gateway {
+func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
 		Id:               reference.Id,
@@ -66,6 +66,10 @@ func PresentGateway(gateway *Gateway) openapi.Gateway {
 			}
 			return nil
 		}(),
+	}
+
+	if createdBy != "" {
+		g.CreatedBy = &createdBy
 	}
 
 	if gateway.ServerDnsNames != nil {

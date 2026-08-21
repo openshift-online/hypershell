@@ -28,19 +28,25 @@ type GatewayVisibilityFilter interface {
 
 var _ handlers.RestHandler = gatewayHandler{}
 
+type GatewayOwnerLookup interface {
+	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
+}
+
 type gatewayHandler struct {
 	gateway          GatewayService
 	generic          services.GenericService
 	ownerBinding     OwnerBindingCreator
 	visibilityFilter GatewayVisibilityFilter
+	ownerLookup      GatewayOwnerLookup
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup) *gatewayHandler {
 	return &gatewayHandler{
 		gateway:          gateway,
 		generic:          generic,
 		ownerBinding:     ownerBinding,
 		visibilityFilter: visibilityFilter,
+		ownerLookup:      ownerLookup,
 	}
 }
 
@@ -64,7 +70,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			return PresentGateway(gatewayModel), nil
+			return PresentGateway(gatewayModel, ""), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -157,7 +163,7 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
-			return PresentGateway(gatewayModel), nil
+			return PresentGateway(gatewayModel, ""), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -218,8 +224,18 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 				Items: []openapi.Gateway{},
 			}
 
+			gatewayIDs := make([]string, len(gateways))
+			for i, gw := range gateways {
+				gatewayIDs[i] = gw.ID
+			}
+			ownerUsernames := map[string]string{}
+			if h.ownerLookup != nil {
+				if owners, lookupErr := h.ownerLookup.FindOwnerUsernamesByGatewayIDs(ctx, gatewayIDs); lookupErr == nil {
+					ownerUsernames = owners
+				}
+			}
 			for _, gateway := range gateways {
-				converted := PresentGateway(&gateway)
+				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID])
 				gatewayList.Items = append(gatewayList.Items, converted)
 			}
 			if listArgs.Fields != nil {
@@ -261,7 +277,7 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 					gateway.ID, gateway.Name, username, userID)
 			}
 
-			return PresentGateway(gateway), nil
+			return PresentGateway(gateway, ""), nil
 		},
 	}
 

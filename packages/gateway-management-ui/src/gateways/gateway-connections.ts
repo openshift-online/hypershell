@@ -4,6 +4,7 @@ export interface GatewayConnection {
   clusterName: string;
   consoleUrl?: string;
   createdAt?: string;
+  createdBy?: string;
   endpoint?: string;
   id: string;
   name: string;

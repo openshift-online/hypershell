@@ -289,6 +289,10 @@ components:
               format: int32
               readOnly: true
               description: Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
+            created_by:
+              type: string
+              readOnly: true
+              description: Username of the user who provisioned this gateway, resolved from RBAC role bindings
     GatewayCreateRequest:
       type: object
       required:

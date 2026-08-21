@@ -95,14 +95,16 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const oidcAudience = optionalString(oidc?.audience);
   const oidcClientId = optionalString(oidc?.client_id);
   const oidcIssuer = optionalString(oidc?.issuer);
+  const createdBy = optionalString(gateway.created_by);
+  const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
+  const consoleUrl = optionalString(gateway.console_address);
 
   return {
-    ...(typeof gateway.active_sandbox_count === "number"
-      ? { activeSandboxCount: gateway.active_sandbox_count }
-      : {}),
+    ...(activeSandboxCount !== undefined ? { activeSandboxCount } : {}),
     clusterId: gateway.cluster_id,
-    ...(gateway.console_address ? { consoleUrl: gateway.console_address } : {}),
+    ...(consoleUrl ? { consoleUrl } : {}),
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
+    ...(createdBy ? { createdBy } : {}),
     databaseId: gateway.database_id,
     externalDns:
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
@@ -120,6 +122,10 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
 
 function optionalString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
 }
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {

@@ -29,6 +29,7 @@ Name | Type | Description | Notes
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
+**CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
 
 ## Methods
 
@@ -643,6 +644,31 @@ SetActiveSandboxCount sets ActiveSandboxCount field to given value.
 `func (o *Gateway) HasActiveSandboxCount() bool`
 
 HasActiveSandboxCount returns a boolean if a field has been set.
+
+### GetCreatedBy
+
+`func (o *Gateway) GetCreatedBy() string`
+
+GetCreatedBy returns the CreatedBy field if non-nil, zero value otherwise.
+
+### GetCreatedByOk
+
+`func (o *Gateway) GetCreatedByOk() (*string, bool)`
+
+GetCreatedByOk returns a tuple with the CreatedBy field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCreatedBy
+
+`func (o *Gateway) SetCreatedBy(v string)`
+
+SetCreatedBy sets CreatedBy field to given value.
+
+### HasCreatedBy
+
+`func (o *Gateway) HasCreatedBy() bool`
+
+HasCreatedBy returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
