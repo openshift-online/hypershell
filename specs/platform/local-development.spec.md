@@ -783,6 +783,9 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 | `CLOUD_PROVIDER_KIND_REPO` | (pinned in Makefile) | Git repository URL for cloud-provider-kind fork (BackendTLSPolicy + ALPN h2 support) |
 | `CLOUD_PROVIDER_KIND_REF` | (pinned in Makefile) | Exact commit SHA of the cloud-provider-kind fork to build (deterministic; idempotent-by-SHA rebuild) |
 | `CLOUD_PROVIDER_KIND_BRANCH` | (unset) | Optional testing override: build from a branch tip or arbitrary git ref instead of the pinned SHA; always rebuilds when set |
+| `OPENSHELL_REPO` | (canonical upstream OpenShell repo) | Git repository URL to build OpenShell from for `make kind-openshell-up`; override to target a fork |
+| `OPENSHELL_BRANCH` | (unset) | OpenShell git ref (branch, tag, or commit) to build gateway/supervisor/sandbox images from for `make kind-openshell-up` |
+| `OPENSHELL_PR` | (unset) | Convenience for `make kind-openshell-up`: OpenShell pull request number, resolved to its head ref |
 | `KIND_RESTART_CPK` | (unset) | Set to `true` to force `make kind-up` to restart cloud-provider-kind (republishes ephemeral LB ports; otherwise the running instance is reused to keep ports stable) |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `CNPG_VERSION` | `v1.30.0` | CloudNativePG operator release version |
@@ -801,6 +804,7 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | `make kind-teardown` | Destroy the Kind cluster + stop cloud-provider-kind + stop CoreDNS + flush port forwarding rules + revert resolver |
 | `make kind-status` | Show cluster info, pods, services, hostnames, DNS status, port forwarding status, and active component swaps |
 | `make kind-fix-ports` | Re-establish host port forwarding (443 + 8080) after a cloud-provider-kind restart; re-discovers ephemeral ports and re-runs the stop-then-start flush |
+| `make kind-openshell-up` | Build OpenShell (gateway + supervisor + sandbox base) from `OPENSHELL_BRANCH`/`OPENSHELL_PR` + load into cluster (creating it if needed) + seed a dev-labeled gateway running those images. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent - rebuilds and replaces on every call) |
 | `make kind-api-server-down` | Revert api-server to baseline image + restart + wait |
 | `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent - rebuilds and replaces on every call) |
