@@ -1,51 +1,49 @@
-FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:63f3ae9ba3ac4af3c809d58c0845effbfbb75a6f2e08148af8ae2e95d889132f AS build
+# syntax=docker/dockerfile:1
+FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:e2a04f7443db3d27751ed6e9d74ee5c3a02217dbf6c8769e468ef3b1b2a3e6fa AS build
 
-USER 0
+USER root
 
-ADD --checksum=sha256:27460629b10111604e7f98882753b53398986820c20e0a065f3a4a5e9e7db71f \
-    https://registry.npmjs.org/pnpm/-/pnpm-11.15.1.tgz /tmp/pnpm.tgz
-RUN npm install --global /tmp/pnpm.tgz --ignore-scripts \
-    && test "$(pnpm --version)" = "11.15.1" \
-    && rm /tmp/pnpm.tgz
+COPY scripts/bootstrap_pnpm.sh .
+RUN ./bootstrap_pnpm.sh
 
-USER 65532:65532
+USER ${CONTAINER_DEFAULT_USER}
+
 WORKDIR /app
 
-COPY --chown=65532:65532 package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY --chown=65532:65532 components/sdk-typescript/package.json components/sdk-typescript/package.json
-COPY --chown=65532:65532 packages/gateway-management-ui/package.json packages/gateway-management-ui/package.json
-COPY --chown=65532:65532 components/web-console/package.json components/web-console/package.json
-COPY --chown=65532:65532 components/web-console/bff/package.json components/web-console/bff/package.json
-COPY --chown=65532:65532 components/web-console/domain-probes/package.json components/web-console/domain-probes/package.json
+COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript/package.json components/sdk-typescript/package.json
+COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui/package.json packages/gateway-management-ui/package.json
+COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/package.json components/web-console/package.json
+COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/bff/package.json components/web-console/bff/package.json
+COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/domain-probes/package.json components/web-console/domain-probes/package.json
 
-RUN pnpm fetch --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
-COPY --chown=65532:65532 components/sdk-typescript components/sdk-typescript
-COPY --chown=65532:65532 packages/gateway-management-ui packages/gateway-management-ui
-COPY --chown=65532:65532 components/web-console components/web-console
-COPY --chown=65532:65532 images/brand/logo.png images/brand/logo.png
+COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript components/sdk-typescript
+COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui packages/gateway-management-ui
+COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console components/web-console
+COPY --chown=${CONTAINER_DEFAULT_USER} images/brand/logo.png images/brand/logo.png
 
-RUN pnpm install --frozen-lockfile --offline \
-    && pnpm run build:web \
-    && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
-    && cp -R components/web-console/build/client /tmp/web-console/public
+RUN pnpm run build:web \
+  && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
+  && cp -R components/web-console/build/client /tmp/web-console/public
 
-FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:b24c3fce1b2803aa622d1bd7add354d0974528fdf1f16f1303226bfa5e3c6666
+FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:07b0f6cf5dabef30b1efa030eea020095b1ea227c088dbcbe0ebd35bb24b7ad9
 
 LABEL org.opencontainers.image.title="HyperShell web console" \
-      org.opencontainers.image.description="HyperShell web console BFF and static application" \
-      org.opencontainers.image.source="https://github.com/openshift-online/hypershell"
+  org.opencontainers.image.description="HyperShell web console BFF and static application" \
+  org.opencontainers.image.source="https://github.com/openshift-online/hypershell"
 
 ENV HOST=0.0.0.0 \
-    HYPERSHELL_API_ORIGIN=http://127.0.0.1:8000 \
-    HYPERSHELL_API_TIMEOUT_MS=30000 \
-    NODE_ENV=production \
-    PORT=8080 \
-    STATIC_ROOT=/app/public
+  HYPERSHELL_API_ORIGIN=http://127.0.0.1:8000 \
+  HYPERSHELL_API_TIMEOUT_MS=30000 \
+  NODE_ENV=production \
+  PORT=8080 \
+  STATIC_ROOT=/app/public
 
 WORKDIR /app
-COPY --from=build --chown=65532:65532 /tmp/web-console/ ./
+COPY --from=build /tmp/web-console/ ./
 
-USER 65532:65532
 EXPOSE 8080
-CMD ["dist/index.js"]
+
+CMD ["node", "dist/index.js"]
