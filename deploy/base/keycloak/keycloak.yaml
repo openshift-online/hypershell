@@ -26,6 +26,8 @@ spec:
             - start-dev
             - --import-realm
           env:
+            - name: JAVA_OPTS_APPEND
+              value: "-Djava.security.egd=file:/dev/./urandom"
             - name: KC_BOOTSTRAP_ADMIN_USERNAME
               value: admin
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
@@ -49,10 +51,10 @@ spec:
               name: management
           resources:
             requests:
-              cpu: 100m
+              cpu: 200m
               memory: 768Mi
             limits:
-              cpu: "1"
+              cpu: "2"
               memory: 2Gi
           startupProbe:
             httpGet:
