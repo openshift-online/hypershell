@@ -2280,6 +2280,9 @@ components:
             type: string
           provider:
             type: string
+          namespace:
+            readOnly: true
+            type: string
           region:
             type: string
           engine:
@@ -2306,6 +2309,7 @@ components:
         provider: provider
         engine: engine
         name: name
+        namespace: namespace
         id: id
         href: href
         fleet_id: fleet_id
@@ -2339,6 +2343,7 @@ components:
           provider: provider
           engine: engine
           name: name
+          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
@@ -2353,6 +2358,7 @@ components:
           provider: provider
           engine: engine
           name: name
+          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
@@ -2552,9 +2558,6 @@ components:
           route:
             description: JSON-encoded route configuration
             type: string
-          database_config:
-            description: JSON-encoded database provisioning configuration
-            type: string
           credential_driver:
             description: JSON-encoded credential storage driver configuration
             type: string
@@ -2581,7 +2584,6 @@ components:
         credential_driver: credential_driver
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
-        database_config: database_config
         id: id
         href: href
         fleet_id: fleet_id
@@ -2628,7 +2630,6 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
-          database_config: database_config
           id: id
           href: href
           fleet_id: fleet_id
@@ -2656,7 +2657,6 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
-          database_config: database_config
           id: id
           href: href
           fleet_id: fleet_id
@@ -2693,7 +2693,6 @@ components:
         tls_mode: tls_mode
         route: route
         database_id: database_id
-        database_config: database_config
         name: name
         fleet_id: fleet_id
         external_dns: external_dns
@@ -2732,8 +2731,6 @@ components:
         oidc:
           type: string
         route:
-          type: string
-        database_config:
           type: string
         credential_driver:
           type: string
@@ -2988,7 +2985,6 @@ components:
         tls_mode: tls_mode
         route: route
         database_id: database_id
-        database_config: database_config
         name: name
         fleet_id: fleet_id
         external_dns: external_dns
@@ -3030,9 +3026,6 @@ components:
           type: string
         route:
           description: JSON-encoded route configuration
-          type: string
-        database_config:
-          description: JSON-encoded database provisioning configuration
           type: string
         credential_driver:
           description: JSON-encoded credential storage driver configuration

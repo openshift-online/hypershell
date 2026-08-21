@@ -27,7 +27,6 @@ Name | Type | Description | Notes
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**DatabaseConfig** | Pointer to **string** | JSON-encoded database provisioning configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
 
@@ -594,31 +593,6 @@ SetRoute sets Route field to given value.
 `func (o *Gateway) HasRoute() bool`
 
 HasRoute returns a boolean if a field has been set.
-
-### GetDatabaseConfig
-
-`func (o *Gateway) GetDatabaseConfig() string`
-
-GetDatabaseConfig returns the DatabaseConfig field if non-nil, zero value otherwise.
-
-### GetDatabaseConfigOk
-
-`func (o *Gateway) GetDatabaseConfigOk() (*string, bool)`
-
-GetDatabaseConfigOk returns a tuple with the DatabaseConfig field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetDatabaseConfig
-
-`func (o *Gateway) SetDatabaseConfig(v string)`
-
-SetDatabaseConfig sets DatabaseConfig field to given value.
-
-### HasDatabaseConfig
-
-`func (o *Gateway) HasDatabaseConfig() bool`
-
-HasDatabaseConfig returns a boolean if a field has been set.
 
 ### GetCredentialDriver
 

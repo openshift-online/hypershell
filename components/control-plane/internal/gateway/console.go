@@ -533,7 +533,7 @@ func buildConsoleDeployment(namespace, consoleImage, proxyImage, issuer, console
 		envVar("OAUTH2_PROXY_COOKIE_SECURE", "true"),
 		envVar("OAUTH2_PROXY_COOKIE_REFRESH", "2m"),
 		envVar("OAUTH2_PROXY_EMAIL_DOMAINS", "*"),
-		envVar("OAUTH2_PROXY_SCOPE", "openid profile email roles gateway-roles"),
+		envVar("OAUTH2_PROXY_SCOPE", "openid profile email roles"),
 	}
 	proxyVolumeMounts := []interface{}{
 		map[string]interface{}{"name": "tmp-proxy", "mountPath": "/tmp"},

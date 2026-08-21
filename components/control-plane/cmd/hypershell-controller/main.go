@@ -130,7 +130,7 @@ func main() {
 
 	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	databaseReconciler := reconciler.NewManagedDatabaseReconciler()
+	databaseReconciler := reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn)
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler()
 	networkReconciler := reconciler.NewGatewayNetworkReconciler()
 

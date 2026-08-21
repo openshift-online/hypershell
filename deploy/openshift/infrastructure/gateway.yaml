@@ -1,8 +1,9 @@
-# Pre-requisite Gateway resource for OpenShell GRPCRoutes.
+# Pre-requisite Gateway resource for OpenShell routes.
 #
 # The control plane does NOT create Gateway resources -- an administrator
 # provisions this as cluster infrastructure, similar to a GatewayClass.
-# All tenant GRPCRoutes attach to this shared Gateway.
+# Tenant GRPCRoutes (gateway data plane) and HTTPRoutes (gateway console)
+# both attach to this shared Gateway.
 #
 # Before applying, set up:
 #   1. A ClusterIssuer for your domain (see GATEWAY-SETUP.md)
@@ -30,5 +31,7 @@ spec:
         kinds:
           - group: gateway.networking.k8s.io
             kind: GRPCRoute
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
         namespaces:
           from: All

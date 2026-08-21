@@ -50,6 +50,7 @@ erDiagram
     ManagedDatabase {
         string ID PK
         string name
+        string namespace
         string fleet_id FK
         string provider
         string region

@@ -303,7 +303,6 @@ The GatewayReconciler SHALL load gateway resource manifests from the container f
 - THEN it SHALL read all YAML files from the manifests directory
 - AND it SHALL parse each file into Kubernetes resource objects
 - AND it SHALL substitute `NAMESPACE_PLACEHOLDER` with the target namespace name
-- AND it SHALL substitute `DB_IMAGE_PLACEHOLDER` and `DB_STORAGE_PLACEHOLDER` before `IMAGE_PLACEHOLDER` to avoid substring collision
 - AND it SHALL substitute `IMAGE_PLACEHOLDER` with the Gateway resource's `image` field
 
 #### Scenario: Required manifest files missing
@@ -611,9 +610,9 @@ Sandbox pods need to connect back to the gateway for gRPC communication:
 
 See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) for the `openshell-gateway-allow-router` NetworkPolicy that allows ingress from Gateway-labeled Envoy proxy pods.
 
-#### Database NetworkPolicy
+#### Database Access
 
-See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for the `openshell-gateway-db` NetworkPolicy that restricts database ingress to gateway pods only.
+Gateway databases are provisioned via the CNPG operator in the shared CNPG Cluster namespace. Network access to the CNPG Cluster is managed by the CNPG operator. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
 ---
 
@@ -801,10 +800,8 @@ Control Plane
 | `route` | No | - | Route configuration for external exposure |
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
-| `database` | No | - | Database backend configuration |
-| `database.storageSize` | No | `5Gi` | PVC size for PostgreSQL data |
-| `database.image` | No | `registry.redhat.io/rhel9/postgresql-16:latest` | PostgreSQL container image (Red Hat hardened) |
-| `database.externalSecretRef` | No | - | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
+
+> **Database provisioning:** Gateway databases are provisioned automatically by the control plane using the CloudNativePG operator. The gateway's `database_id` field references a ManagedDatabase resource (provider=cnpg) that determines which CNPG Cluster hosts the gateway's logical database. When `database_id` is blank at creation time and the fleet has exactly one ManagedDatabase, the API server auto-assigns it. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
 ### Control Plane Environment Variables
 
@@ -813,6 +810,8 @@ Control Plane
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
+| ~~`CNPG_CLUSTER_NAME`~~ | *(removed)* | Replaced by per-ManagedDatabase resolution via `database_id` |
+| ~~`CNPG_CLUSTER_NAMESPACE`~~ | *(removed)* | Replaced by per-ManagedDatabase resolution via `database_id` |
 
 ### Example: Full Gateway Configuration
 
@@ -827,16 +826,13 @@ oidc:
   issuer: https://keycloak.example.com/realms/hypershell
   audience: hypershell-frontend
 route: {}
-database:
-  storageSize: 10Gi
-  image: registry.redhat.io/rhel9/postgresql-16:latest
 ```
 
 ---
 
 ## Data Model Changes
 
-The Gateway kind in `data-model.spec.md` SHALL include `oidc`, `route`, `routeAddress`, and `database` fields:
+The Gateway kind in `data-model.spec.md` SHALL include `oidc`, `route`, and `routeAddress` fields:
 
 ```
 Gateway {
@@ -844,7 +840,6 @@ Gateway {
     jsonb  oidc         "nullable - OIDC authentication config: {issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}"
     jsonb  route        "nullable - route exposure config (host)"
     text   routeAddress "nullable - read-only external address populated by control plane"
-    jsonb  database     "nullable - database backend config: {storageSize, image, externalSecretRef}"
 }
 ```
 
@@ -854,8 +849,12 @@ Database migrations SHALL add the columns to the `gateways` table:
 ALTER TABLE gateways ADD COLUMN oidc JSONB;
 ALTER TABLE gateways ADD COLUMN route JSONB;
 ALTER TABLE gateways ADD COLUMN route_address TEXT;
-ALTER TABLE gateways ADD COLUMN database JSONB;
 ```
+
+> **Database provisioning:** The `database` JSONB column has been removed. Gateway databases are provisioned automatically by the control plane via CNPG CRDs. The migration SHALL drop the column:
+> ```sql
+> ALTER TABLE gateways DROP COLUMN IF EXISTS database;
+> ```
 
 ---
 

@@ -17,6 +17,7 @@ message ManagedDatabase {
   optional string instance_class = 8;
   optional string connection_secret = 9;
   optional string status = 10;
+  string namespace = 11;
 }
 
 message CreateManagedDatabaseRequest {

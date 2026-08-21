@@ -3,7 +3,6 @@ module github.com/openshift-online/hypershell/components/control-plane
 go 1.26.4
 
 require (
-	github.com/lib/pq v1.12.3
 	github.com/openshift-online/hypershell/components/api-server v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.82.1
 	k8s.io/api v0.36.3
