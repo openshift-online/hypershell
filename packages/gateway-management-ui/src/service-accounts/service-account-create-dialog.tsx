@@ -10,11 +10,15 @@ import {
   FormSelectOption,
   HelperText,
   HelperTextItem,
+  MenuToggle,
   Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
   ModalVariant,
+  Select,
+  SelectList,
+  SelectOption,
   Stack,
   StackItem,
   TextArea,
@@ -39,34 +43,29 @@ import { ServiceAccountSetupView } from "./service-account-setup";
 
 interface ServiceAccountFormValues {
   description: string;
+  expirationSeconds: string;
   name: string;
   role: string;
-  validitySeconds: string;
 }
 
 interface ServiceAccountFormOutput {
   description: string;
+  expirationSeconds: number;
   name: string;
   role: OpenShellGatewayServiceAccountRole;
-  validitySeconds: number;
 }
 
-function validityOptions(
+const expirationDays = [30, 60, 90] as const;
+
+function expirationOptions(
   capabilities: OpenShellGatewayServiceAccountCapabilities,
-): number[] {
-  const { defaultSeconds, maximumSeconds, minimumSeconds } =
-    capabilities.expirationPolicy;
-  return [
-    minimumSeconds,
-    86_400,
-    2_592_000,
-    7_776_000,
-    maximumSeconds,
-    defaultSeconds,
-  ]
-    .filter((seconds) => seconds >= minimumSeconds && seconds <= maximumSeconds)
-    .filter((seconds, index, values) => values.indexOf(seconds) === index)
-    .sort((left, right) => left - right);
+): { days: number; seconds: number }[] {
+  const { maximumSeconds, minimumSeconds } = capabilities.expirationPolicy;
+  return expirationDays
+    .map((days) => ({ days, seconds: days * 86_400 }))
+    .filter(
+      ({ seconds }) => seconds >= minimumSeconds && seconds <= maximumSeconds,
+    );
 }
 
 function FieldError({ id, message }: { id: string; message?: string }) {
@@ -100,13 +99,28 @@ export function ServiceAccountCreateDialog({
     useState<OpenShellGatewayServiceAccountCreateResult>();
   const [isAcknowledged, setIsAcknowledged] = useState(false);
   const [isConfirmingLoss, setIsConfirmingLoss] = useState(false);
+  const [isRoleOpen, setIsRoleOpen] = useState(false);
   const titleId = useId();
-  const options = useMemo(() => validityOptions(capabilities), [capabilities]);
+  const options = useMemo(
+    () => expirationOptions(capabilities),
+    [capabilities],
+  );
+  const defaultExpirationSeconds =
+    options.find(
+      ({ seconds }) => seconds === capabilities.expirationPolicy.defaultSeconds,
+    )?.seconds ?? options.at(-1)?.seconds;
   const required = intl.formatMessage(messages.requiredField);
   const schema = useMemo(
     () =>
       z.object({
         description: z.string(),
+        expirationSeconds: z
+          .string()
+          .transform(Number)
+          .refine(
+            (value) => options.some(({ seconds }) => seconds === value),
+            required,
+          ),
         name: z.string().trim().min(1, required),
         role: z
           .string()
@@ -117,18 +131,8 @@ export function ServiceAccountCreateDialog({
               ),
             required,
           ),
-        validitySeconds: z
-          .string()
-          .transform(Number)
-          .refine(
-            (value) =>
-              Number.isFinite(value) &&
-              value >= capabilities.expirationPolicy.minimumSeconds &&
-              value <= capabilities.expirationPolicy.maximumSeconds,
-            required,
-          ),
       }),
-    [capabilities, required],
+    [capabilities, options, required],
   );
   const { control, handleSubmit } = useForm<
     ServiceAccountFormValues,
@@ -137,18 +141,20 @@ export function ServiceAccountCreateDialog({
   >({
     defaultValues: {
       description: "",
+      expirationSeconds: defaultExpirationSeconds
+        ? String(defaultExpirationSeconds)
+        : "",
       name: "",
       role: capabilities.allowedRoles.includes("openshell-user")
         ? "openshell-user"
         : (capabilities.allowedRoles[0] ?? "openshell-user"),
-      validitySeconds: String(capabilities.expirationPolicy.defaultSeconds),
     },
     resolver: zodResolver(schema),
   });
-  const selectedValidity = Number(
-    useWatch({ control, name: "validitySeconds" }),
+  const selectedExpiration = Number(
+    useWatch({ control, name: "expirationSeconds" }),
   );
-  const expiration = new Date(currentTime + selectedValidity * 1000);
+  const expiration = new Date(currentTime + selectedExpiration * 1000);
   useEffect(() => {
     if (!isOpen || handoff) {
       return;
@@ -170,7 +176,7 @@ export function ServiceAccountCreateDialog({
             ? { description: values.description.trim() }
             : {}),
           expiresAt: new Date(
-            Date.now() + values.validitySeconds * 1000,
+            Date.now() + values.expirationSeconds * 1000,
           ).toISOString(),
           name: values.name,
           role: values.role,
@@ -192,6 +198,7 @@ export function ServiceAccountCreateDialog({
     setHandoff(undefined);
     setIsAcknowledged(false);
     setIsConfirmingLoss(false);
+    setIsRoleOpen(false);
     creation.reset();
     onClose();
   };
@@ -336,35 +343,62 @@ export function ServiceAccountCreateDialog({
                       isRequired
                       label={intl.formatMessage(messages.serviceAccountRole)}
                     >
-                      <FormSelect
-                        aria-describedby={`service-account-role-description${
-                          fieldState.error ? " service-account-role-error" : ""
-                        }`}
+                      <Select
                         id="service-account-role"
-                        isDisabled={creation.isPending}
-                        onChange={(_event, value) => {
-                          field.onChange(value);
+                        isOpen={isRoleOpen}
+                        onOpenChange={setIsRoleOpen}
+                        onSelect={(_event, value) => {
+                          if (
+                            typeof value === "string" &&
+                            capabilities.allowedRoles.includes(
+                              value as OpenShellGatewayServiceAccountRole,
+                            )
+                          ) {
+                            field.onChange(value);
+                          }
+                          setIsRoleOpen(false);
                         }}
-                        validated={fieldState.error ? "error" : "default"}
-                        value={field.value}
+                        selected={field.value}
+                        toggle={(toggleRef) => (
+                          <MenuToggle
+                            aria-describedby={
+                              fieldState.error
+                                ? "service-account-role-error"
+                                : undefined
+                            }
+                            aria-label={intl.formatMessage(
+                              messages.serviceAccountRole,
+                            )}
+                            isDisabled={creation.isPending}
+                            isExpanded={isRoleOpen}
+                            isFullWidth
+                            onClick={() => {
+                              setIsRoleOpen((open) => !open);
+                            }}
+                            ref={toggleRef}
+                            status={fieldState.error ? "danger" : undefined}
+                          >
+                            {field.value}
+                          </MenuToggle>
+                        )}
                       >
-                        {capabilities.allowedRoles.map((role) => (
-                          <FormSelectOption
-                            key={role}
-                            label={role}
-                            value={role}
-                          />
-                        ))}
-                      </FormSelect>
-                      <HelperText>
-                        <HelperTextItem id="service-account-role-description">
-                          {intl.formatMessage(
-                            field.value === "openshell-admin"
-                              ? messages.openshellAdminRoleDescription
-                              : messages.openshellUserRoleDescription,
-                          )}
-                        </HelperTextItem>
-                      </HelperText>
+                        <SelectList>
+                          {capabilities.allowedRoles.map((role) => (
+                            <SelectOption
+                              description={intl.formatMessage(
+                                role === "openshell-admin"
+                                  ? messages.openshellAdminRoleDescription
+                                  : messages.openshellUserRoleDescription,
+                              )}
+                              isSelected={field.value === role}
+                              key={role}
+                              value={role}
+                            >
+                              {role}
+                            </SelectOption>
+                          ))}
+                        </SelectList>
+                      </Select>
                       <FieldError
                         id="service-account-role-error"
                         message={fieldState.error?.message}
@@ -376,22 +410,20 @@ export function ServiceAccountCreateDialog({
               <StackItem>
                 <Controller
                   control={control}
-                  name="validitySeconds"
+                  name="expirationSeconds"
                   render={({ field, fieldState }) => (
                     <FormGroup
-                      fieldId="service-account-validity"
+                      fieldId="service-account-expiration"
                       isRequired
-                      label={intl.formatMessage(
-                        messages.serviceAccountValidity,
-                      )}
+                      label={intl.formatMessage(messages.expiration)}
                     >
                       <FormSelect
                         aria-describedby={`service-account-expiration-preview service-account-token-lifetime-note${
                           fieldState.error
-                            ? " service-account-validity-error"
+                            ? " service-account-expiration-error"
                             : ""
                         }`}
-                        id="service-account-validity"
+                        id="service-account-expiration"
                         isDisabled={creation.isPending}
                         onChange={(_event, value) => {
                           field.onChange(value);
@@ -399,12 +431,12 @@ export function ServiceAccountCreateDialog({
                         validated={fieldState.error ? "error" : "default"}
                         value={field.value}
                       >
-                        {options.map((seconds) => (
+                        {options.map(({ days, seconds }) => (
                           <FormSelectOption
                             key={seconds}
                             label={intl.formatMessage(
-                              messages.serviceAccountValidityOption,
-                              { hours: seconds / 3_600 },
+                              messages.serviceAccountExpirationOption,
+                              { days },
                             )}
                             value={String(seconds)}
                           />
@@ -429,7 +461,7 @@ export function ServiceAccountCreateDialog({
                         </HelperTextItem>
                       </HelperText>
                       <FieldError
-                        id="service-account-validity-error"
+                        id="service-account-expiration-error"
                         message={fieldState.error?.message}
                       />
                     </FormGroup>

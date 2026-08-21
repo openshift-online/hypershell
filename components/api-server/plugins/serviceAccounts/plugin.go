@@ -25,8 +25,7 @@ type ServiceLocator func() Service
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	var once sync.Once
 	var service Service
-	var locator ServiceLocator
-	locator = func() Service {
+	locator := ServiceLocator(func() Service {
 		once.Do(func() {
 			provisioner := keycloak.NewClient(
 				os.Getenv("HYPERSHELL_KEYCLOAK_ADMIN_SERVER_URL"),
@@ -46,7 +45,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 			}
 		})
 		return service
-	}
+	})
 	gateways.RegisterDeletionCleaner(func(ctx context.Context, gatewayID string) error {
 		return locator().CleanupGateway(ctx, gatewayID)
 	})

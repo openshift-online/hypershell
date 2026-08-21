@@ -21,20 +21,20 @@ Version 1 does not support WIF, signed client assertions, opaque access tokens, 
 
 ## Product Decisions
 
-| Question | Decision |
-|---|---|
-| What does HyperShell create in Keycloak? | One confidential OIDC client with Keycloak service accounts enabled for each OpenShellGatewayServiceAccount. |
-| What does automation store? | A client ID and an opaque client secret. HyperShell returns the secret once. Neither value is a JWT. |
-| What does CI use at the gateway? | A short-lived signed JWT. Keycloak issues it on demand through `grant_type=client_credentials`. |
-| Can a bearer JWT last 12 months? | No. An OpenShellGatewayServiceAccount can be valid for up to 365 days, but each access token lasts five minutes by default. |
-| How is an access token limited to one gateway? | Its `aud` claim contains only the selected gateway client ID. The service-account client has no role scope for another gateway. |
-| Can the access token call the HyperShell management API? | No. This slice of HYPERSHELL-49 authorizes the selected OpenShell gateway only. |
-| What role can a user select? | `openshell-user` or `openshell-admin`. An owner may select either role. A viewer may select only `openshell-user`. |
-| Can one set of client credentials cover multiple gateways? | No. Automation needs one OpenShellGatewayServiceAccount and one audience-specific access token for each gateway. |
-| Does `openshell-user` inherit workspace access? | No. An OpenShell gateway administrator must grant the service-account subject membership in each workspace. |
-| How are client credentials replaced? | Create and verify a replacement OpenShellGatewayServiceAccount. Then, revoke the old OpenShellGatewayServiceAccount. Delete it when you no longer need its metadata. |
-| Are revoke and delete the same action? | No. Revoke permanently stops access-token issuance and retains metadata. Delete removes the Keycloak identity and the visible resource. |
-| Are OpenShell scopes configurable? | No. The gateway has `scopes_claim = ""`. Roles and workspace memberships control access. |
+| Question                                                   | Decision                                                                                                                                                             |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What does HyperShell create in Keycloak?                   | One confidential OIDC client with Keycloak service accounts enabled for each OpenShellGatewayServiceAccount.                                                         |
+| What does automation store?                                | A client ID and an opaque client secret. HyperShell returns the secret once. Neither value is a JWT.                                                                 |
+| What does CI use at the gateway?                           | A short-lived signed JWT. Keycloak issues it on demand through `grant_type=client_credentials`.                                                                      |
+| Can a bearer JWT last 12 months?                           | No. An OpenShellGatewayServiceAccount can be valid for up to 365 days, but each access token lasts five minutes by default.                                          |
+| How is an access token limited to one gateway?             | Its `aud` claim contains only the selected gateway client ID. The service-account client has no role scope for another gateway.                                      |
+| Can the access token call the HyperShell management API?   | No. This slice of HYPERSHELL-49 authorizes the selected OpenShell gateway only.                                                                                      |
+| What role can a user select?                               | `openshell-user` or `openshell-admin`. An owner may select either role. A viewer may select only `openshell-user`.                                                   |
+| Can one set of client credentials cover multiple gateways? | No. Automation needs one OpenShellGatewayServiceAccount and one audience-specific access token for each gateway.                                                     |
+| Does `openshell-user` inherit workspace access?            | No. An OpenShell gateway administrator must grant the service-account subject membership in each workspace.                                                          |
+| How are client credentials replaced?                       | Create and verify a replacement OpenShellGatewayServiceAccount. Then, revoke the old OpenShellGatewayServiceAccount. Delete it when you no longer need its metadata. |
+| Are revoke and delete the same action?                     | No. Revoke permanently stops access-token issuance and retains metadata. Delete removes the Keycloak identity and the visible resource.                              |
+| Are OpenShell scopes configurable?                         | No. The gateway has `scopes_claim = ""`. Roles and workspace memberships control access.                                                                             |
 
 ## Terminology
 
@@ -111,15 +111,15 @@ An access token issued before disablement remains valid until its `exp`. Thus, t
 
 ### Component Responsibilities
 
-| Component | Responsibility |
-|---|---|
-| API server | Authorize nested routes, store non-secret metadata, call the Keycloak provisioner synchronously, and return the new secret once. |
-| Keycloak provisioner | Create, verify, disable, and delete service-account clients. Manage their service-account roles and client scope mappings. |
-| Control plane | Reconcile gateway and console clients. Remove all related service-account clients when it deletes a gateway. |
-| Management web console | Create and manage OpenShellGatewayServiceAccounts through the API. Show the credential bundle once without caching it. |
-| HyperShell CLI | Support create, list, get, revoke, and delete operations. Pass the credential bundle to CI without logging it. |
-| Keycloak | Store the service-account identity and client secret. Issue short-lived access tokens. |
-| OpenShell gateway | Validate access tokens locally. Require separate workspace membership for an `openshell-user` subject. |
+| Component              | Responsibility                                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| API server             | Authorize nested routes, store non-secret metadata, call the Keycloak provisioner synchronously, and return the new secret once. |
+| Keycloak provisioner   | Create, verify, disable, and delete service-account clients. Manage their service-account roles and client scope mappings.       |
+| Control plane          | Reconcile gateway and console clients. Remove all related service-account clients when it deletes a gateway.                     |
+| Management web console | Create and manage OpenShellGatewayServiceAccounts through the API. Show the credential bundle once without caching it.           |
+| HyperShell CLI         | Support create, list, get, revoke, and delete operations. Pass the credential bundle to CI without logging it.                   |
+| Keycloak               | Store the service-account identity and client secret. Issue short-lived access tokens.                                           |
+| OpenShell gateway      | Validate access tokens locally. Require separate workspace membership for an `openshell-user` subject.                           |
 
 The create operation SHALL provision the service-account client synchronously. This path lets HyperShell return the client secret once.
 
@@ -180,13 +180,13 @@ Operators SHALL remove or reconcile all OpenShellGatewayServiceAccounts before a
 
 All endpoints are nested beneath the selected gateway.
 
-| Method | Path | Operation |
-|---|---|---|
-| `POST` | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts` | Create an OpenShellGatewayServiceAccount and return its credential bundle once |
-| `GET` | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts` | List visible OpenShellGatewayServiceAccount metadata |
-| `GET` | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}` | Get visible OpenShellGatewayServiceAccount metadata |
-| `POST` | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke` | Permanently stop access-token issuance. Return `200` after disablement or `202` while disablement is pending. |
-| `DELETE` | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}` | Revoke when necessary and remove the identity. Return `204` after removal or `202` while removal is pending. |
+| Method   | Path                                                                                    | Operation                                                                                                     |
+| -------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts`                             | Create an OpenShellGatewayServiceAccount and return its credential bundle once                                |
+| `GET`    | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts`                             | List visible OpenShellGatewayServiceAccount metadata                                                          |
+| `GET`    | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}`        | Get visible OpenShellGatewayServiceAccount metadata                                                           |
+| `POST`   | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke` | Permanently stop access-token issuance. Return `200` after disablement or `202` while disablement is pending. |
+| `DELETE` | `/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}`        | Revoke when necessary and remove the identity. Return `204` after removal or `202` while removal is pending.  |
 
 Version 1 has no public endpoint to patch an OpenShellGatewayServiceAccount, read a secret, issue an access token, re-enable an account, or transfer ownership. It also has no in-place secret-rotation endpoint.
 
@@ -217,10 +217,10 @@ The list response SHALL include a browser-safe `capabilities` object at the same
 
 The API SHALL derive these values from the caller's effective binding on the selected gateway.
 
-| Effective binding | `can_create` | `allowed_roles` | `can_manage_all` |
-|---|---:|---|---:|
-| `gateway:owner` | `true` | `openshell-user`, `openshell-admin` | `true` |
-| `gateway:viewer` | `true` | `openshell-user` | `false` |
+| Effective binding | `can_create` | `allowed_roles`                     | `can_manage_all` |
+| ----------------- | -----------: | ----------------------------------- | ---------------: |
+| `gateway:owner`   |       `true` | `openshell-user`, `openshell-admin` |           `true` |
+| `gateway:viewer`  |       `true` | `openshell-user`                    |          `false` |
 
 The expiration policy SHALL report the configured values enforced by the create endpoint. It SHALL not vary by gateway binding. `can_create` reports authorization; it does not report quota capacity or gateway readiness.
 
@@ -308,17 +308,17 @@ The error resource SHALL reserve its name and count against quota until cleanup.
 
 ### Response and Error Semantics
 
-| Condition | Response |
-|---|---|
-| Gateway does not exist or caller has no gateway binding | `404 Not Found` |
-| Caller is a viewer and explicitly requests `openshell-admin` | `403 Forbidden` |
-| Gateway exists but its OIDC client is not ready | `409 Conflict` with `gateway_not_ready` |
-| Name already exists on the gateway | `409 Conflict` with `service_account_name_exists` |
-| Lifetime is outside policy | `400 Bad Request` with the allowed range |
-| Active OpenShellGatewayServiceAccount quota is reached | `429 Too Many Requests` |
-| Keycloak is unavailable or HyperShell cannot verify the result | `503 Service Unavailable`. The response contains no client secret. |
-| Revoke request is stored but disablement is not yet verified | `202 Accepted` with a standard OpenShellGatewayServiceAccount response in `revoking` state |
-| Delete request is stored but removal is not yet verified | `202 Accepted` with a standard OpenShellGatewayServiceAccount response in `deleting` state |
+| Condition                                                      | Response                                                                                   |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Gateway does not exist or caller has no gateway binding        | `404 Not Found`                                                                            |
+| Caller is a viewer and explicitly requests `openshell-admin`   | `403 Forbidden`                                                                            |
+| Gateway exists but its OIDC client is not ready                | `409 Conflict` with `gateway_not_ready`                                                    |
+| Name already exists on the gateway                             | `409 Conflict` with `service_account_name_exists`                                          |
+| Lifetime is outside policy                                     | `400 Bad Request` with the allowed range                                                   |
+| Active OpenShellGatewayServiceAccount quota is reached         | `429 Too Many Requests`                                                                    |
+| Keycloak is unavailable or HyperShell cannot verify the result | `503 Service Unavailable`. The response contains no client secret.                         |
+| Revoke request is stored but disablement is not yet verified   | `202 Accepted` with a standard OpenShellGatewayServiceAccount response in `revoking` state |
+| Delete request is stored but removal is not yet verified       | `202 Accepted` with a standard OpenShellGatewayServiceAccount response in `deleting` state |
 
 Error bodies SHALL NOT reveal a gateway that is hidden from the caller. They SHALL NOT contain access tokens, client secrets, or raw Keycloak Admin API responses.
 
@@ -338,13 +338,13 @@ OpenShellGatewayServiceAccount authorization SHALL evaluate the `gateway_id` in 
 
 A viewer can create an OpenShellGatewayServiceAccount for personal use. The API limits that OpenShellGatewayServiceAccount to `openshell-user`.
 
-| Caller on selected gateway | Create | Maximum selectable role | List/Get | Revoke/Delete |
-|---|---|---|---|---|
-| `gateway:owner` | Yes | `openshell-admin` | All OpenShellGatewayServiceAccounts on the gateway | Any OpenShellGatewayServiceAccount on the gateway |
-| `gateway:viewer` | Yes | `openshell-user` | Only OpenShellGatewayServiceAccounts they created | Only OpenShellGatewayServiceAccounts they created |
-| `platform:admin` without a gateway binding | No | None | No | No |
-| `gateway:creator` without a gateway binding | No | None | No | No |
-| No applicable binding | No | None | No | No |
+| Caller on selected gateway                  | Create | Maximum selectable role | List/Get                                           | Revoke/Delete                                     |
+| ------------------------------------------- | ------ | ----------------------- | -------------------------------------------------- | ------------------------------------------------- |
+| `gateway:owner`                             | Yes    | `openshell-admin`       | All OpenShellGatewayServiceAccounts on the gateway | Any OpenShellGatewayServiceAccount on the gateway |
+| `gateway:viewer`                            | Yes    | `openshell-user`        | Only OpenShellGatewayServiceAccounts they created  | Only OpenShellGatewayServiceAccounts they created |
+| `platform:admin` without a gateway binding  | No     | None                    | No                                                 | No                                                |
+| `gateway:creator` without a gateway binding | No     | None                    | No                                                 | No                                                |
+| No applicable binding                       | No     | None                    | No                                                 | No                                                |
 
 The `gateway:owner` binding permits a maximum role of `openshell-admin`. The `gateway:viewer` binding permits a maximum role of `openshell-user`.
 
@@ -378,20 +378,20 @@ The `clientId` SHALL be `hs-sa-{gateway-id}-{service-account-id}`. The Keycloak 
 
 Client attributes SHALL contain the OpenShellGatewayServiceAccount ID, gateway ID, and creator User ID. Reconciliation uses these identifiers to find orphan service-account clients. Logs SHALL treat attribute values as untrusted input.
 
-| Keycloak client property | Required value |
-|---|---|
-| `enabled` | `true` during final verification and while ready. `false` when expired, revoking, revoked, deleting, or error. |
-| `protocol` | `openid-connect` |
-| `publicClient` | `false` |
-| `clientAuthenticatorType` | `client-secret` |
-| `serviceAccountsEnabled` | `true` |
-| `standardFlowEnabled` | `false` |
-| `implicitFlowEnabled` | `false` |
-| `directAccessGrantsEnabled` | `false` |
-| Device Authorization Grant | disabled |
-| `fullScopeAllowed` | `false` |
-| redirect URIs / web origins | empty |
-| access-token lifetime override | `300` seconds by default. Never greater than `900` seconds. |
+| Keycloak client property       | Required value                                                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `enabled`                      | `true` during final verification and while ready. `false` when expired, revoking, revoked, deleting, or error. |
+| `protocol`                     | `openid-connect`                                                                                               |
+| `publicClient`                 | `false`                                                                                                        |
+| `clientAuthenticatorType`      | `client-secret`                                                                                                |
+| `serviceAccountsEnabled`       | `true`                                                                                                         |
+| `standardFlowEnabled`          | `false`                                                                                                        |
+| `implicitFlowEnabled`          | `false`                                                                                                        |
+| `directAccessGrantsEnabled`    | `false`                                                                                                        |
+| Device Authorization Grant     | disabled                                                                                                       |
+| `fullScopeAllowed`             | `false`                                                                                                        |
+| redirect URIs / web origins    | empty                                                                                                          |
+| access-token lifetime override | `300` seconds by default. Never greater than `900` seconds.                                                    |
 
 The service-account client SHALL NOT receive these permissions:
 
@@ -429,11 +429,13 @@ An access token for an administrator OpenShellGatewayServiceAccount has this sec
   "azp": "hs-sa-35GtW1ExampleGateway-35GtY7ExampleOpenShellGatewayServiceAccount",
   "aud": "my-gateway-35GtW1ExampleGateway",
   "exp": 1787313900,
-  "hypershell.roles": ["openshell-admin", "openshell-user"]
+  "hypershell": {
+    "roles": ["openshell-admin", "openshell-user"]
+  }
 }
 ```
 
-Keycloak controls the exact JWT serialization and all other claims. HyperShell defines these claims: issuer, subject, authorized party, gateway audience, expiration, and `hypershell.roles`.
+Keycloak controls the exact JWT serialization and all other claims. HyperShell defines these claims: issuer, subject, authorized party, gateway audience, expiration, and the `hypershell.roles` claim path.
 
 The access token is a signed JWT, not an opaque token. The gateway SHALL validate it locally with the issuer's JWKS.
 
@@ -709,7 +711,7 @@ The collection SHALL use the shared responsive resource-table pattern. It SHALL 
 - Expiration
 - Actions
 
-Row details SHALL expose the description, client ID, subject, and creation time. They SHALL never expose a client secret or access token.
+Row details SHALL expose the description, client ID, service-account subject, and creation time. The UI SHALL label the subject `Service account subject`, show its complete value, and provide a copy action. The subject SHALL remain available after the one-time setup view closes. Row details SHALL never expose a client secret or access token.
 
 The toolbar SHALL provide search, status filtering, result count, and pagination. The collection SHALL use server pagination, filtering, and sorting.
 
@@ -723,9 +725,9 @@ When `can_manage_all` is `false`, the UI SHALL explain that the collection conta
 
 The create form SHALL collect a name, optional description, OpenShell role, and expiration. It SHALL use persistent labels and state which fields are optional.
 
-The form SHALL default to `openshell-user`. It SHALL offer both roles to an owner. It SHALL offer only `openshell-user` to a viewer. It SHALL describe the access granted by each available role, including the separate workspace grant required by `openshell-user`.
+The form SHALL default to `openshell-user`. It SHALL offer both roles to an owner. It SHALL offer only `openshell-user` to a viewer. The role control SHALL use a PatternFly Select. Each option SHALL show the role and its access description in the menu, including the separate workspace grant required by `openshell-user`.
 
-The expiration control SHALL use the server-provided default and limits. It SHALL show the resulting absolute expiration in the user's locale before submission. The form SHALL explain that OpenShellGatewayServiceAccount expiration is different from access-token expiration.
+The expiration control SHALL be labeled `Expiration`. It SHALL show only policy-permitted values from 30, 60, and 90 days. It SHALL use the server-provided default when that default is one of those values; otherwise, it SHALL select the longest permitted value. It SHALL show the resulting absolute expiration in the user's locale before submission. The form SHALL explain that OpenShellGatewayServiceAccount expiration is different from access-token expiration.
 
 The form SHALL associate validation messages with their fields. After validation failure or a definitive server rejection, it SHALL retain all non-secret input so the user can correct and resubmit it.
 
@@ -735,13 +737,13 @@ The setup view SHALL state that HyperShell cannot show the client secret again. 
 
 - Client ID
 - Masked client secret with reveal and copy actions
-- Subject
-- Issuer
-- Token endpoint
-- Gateway audience
-- Gateway endpoint
+- Service account subject
 
-The view SHALL provide an explicit credential-bundle download. The download and copy actions SHALL occur only after the user activates them.
+The setup view SHALL NOT show issuer, token endpoint, gateway audience, or gateway endpoint as standalone fields. It MAY include these values in generated commands. The setup view SHALL NOT provide a credential-bundle download.
+
+The setup view SHALL explain that the service-account subject is the stable JWT `sub`. It SHALL explain that a gateway administrator uses this non-secret value to grant workspace access.
+
+For an `openshell-user` account, the setup view SHALL provide a copyable gateway-administrator command that uses `openshell workspace member add --workspace <workspace> --subject <subject> --role user`. The command SHALL contain the exact service-account subject and a replaceable workspace name. It SHALL explain that the gateway administrator must select the target gateway before running the command. The UI SHALL NOT show this workspace-grant command for an `openshell-admin` account.
 
 The setup view SHALL provide these copyable command groups:
 
@@ -877,7 +879,7 @@ An `openshell-admin` OpenShellGatewayServiceAccount can perform OpenShell admini
 
 An `openshell-user` OpenShellGatewayServiceAccount can authenticate and call identity or status operations. Workspace operations require a gateway administrator to add the OpenShellGatewayServiceAccount subject to each workspace.
 
-HyperShell SHALL return the non-secret subject. UI and CLI output SHALL explain the separate workspace grant.
+HyperShell SHALL return the non-secret subject. UI and CLI output SHALL label it as the service-account subject and explain the separate workspace grant. The UI SHALL keep the subject available with a copy action after the one-time client-secret view closes.
 
 Version 1 excludes automatic workspace discovery, selection, membership creation, and membership cleanup. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's workspaces.
 
@@ -957,18 +959,18 @@ No test fixture, golden response, failure message, or CI artifact SHALL retain a
 
 ## Explicitly Deferred
 
-| Capability | Reason deferred |
-|---|---|
-| WIF / external OIDC token exchange | It requires a different trust and policy model. A later design can add another authentication method. |
-| One set of client credentials or one access token for multiple gateways | It increases the effect of a leaked secret. The current flat `hypershell.roles` claim cannot express different gateway roles safely. |
-| User-configurable access-token lifetime | It increases the revocation delay. Jobs can request new access tokens when needed. |
-| Arbitrary Keycloak/OpenShell roles | The selected role is restricted to `openshell-user` or `openshell-admin` and capped by the creator's binding. |
-| OpenShell scope selection | Gateways currently disable scope enforcement with `scopes_claim = ""`. |
-| Automatic workspace memberships | Requires a separate gateway administration and lifecycle contract. |
-| In-place secret rotation | Keycloak 26.2 dual-secret rotation is a disabled preview feature. Replacement OpenShellGatewayServiceAccounts provide a stable workflow without downtime. |
-| Audit-retention period | A platform-wide audit policy must define the period. This specification requires an audit event but does not set its retention period. |
-| Public secret recovery | Conflicts with one-time delivery and expands the consequence of a management-session compromise. |
-| `last_used_at` | Offline gateway validation provides no reliable synchronous usage signal to HyperShell. |
+| Capability                                                              | Reason deferred                                                                                                                                           |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WIF / external OIDC token exchange                                      | It requires a different trust and policy model. A later design can add another authentication method.                                                     |
+| One set of client credentials or one access token for multiple gateways | It increases the effect of a leaked secret. The current flat `hypershell.roles` claim cannot express different gateway roles safely.                      |
+| User-configurable access-token lifetime                                 | It increases the revocation delay. Jobs can request new access tokens when needed.                                                                        |
+| Arbitrary Keycloak/OpenShell roles                                      | The selected role is restricted to `openshell-user` or `openshell-admin` and capped by the creator's binding.                                             |
+| OpenShell scope selection                                               | Gateways currently disable scope enforcement with `scopes_claim = ""`.                                                                                    |
+| Automatic workspace memberships                                         | Requires a separate gateway administration and lifecycle contract.                                                                                        |
+| In-place secret rotation                                                | Keycloak 26.2 dual-secret rotation is a disabled preview feature. Replacement OpenShellGatewayServiceAccounts provide a stable workflow without downtime. |
+| Audit-retention period                                                  | A platform-wide audit policy must define the period. This specification requires an audit event but does not set its retention period.                    |
+| Public secret recovery                                                  | Conflicts with one-time delivery and expands the consequence of a management-session compromise.                                                          |
+| `last_used_at`                                                          | Offline gateway validation provides no reliable synchronous usage signal to HyperShell.                                                                   |
 
 ## References
 

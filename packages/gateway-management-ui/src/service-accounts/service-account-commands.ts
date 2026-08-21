@@ -33,6 +33,22 @@ export function serviceAccountGatewayAlias(
   return `${gatewayName}-${serviceAccountName}`;
 }
 
+export function buildWorkspaceMembershipCommand(
+  subject: string,
+): string | undefined {
+  if (!subject.trim()) {
+    return undefined;
+  }
+  return [
+    "WORKSPACE_NAME='replace-with-workspace-name'",
+    "",
+    "openshell workspace member add \\",
+    '  --workspace "$WORKSPACE_NAME" \\',
+    `  --subject ${shellArgument(subject)} \\`,
+    "  --role user",
+  ].join("\n");
+}
+
 export function buildOpenShellServiceAccountScript(
   serviceAccountName: string,
   connection: OpenShellGatewayServiceAccountConnection,

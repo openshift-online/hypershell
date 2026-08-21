@@ -31,10 +31,7 @@ func (h *handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vars := mux.Vars(r)
-	result, problem := h.service.Create(r.Context(), vars["gateway_id"], rbac.GetUserIDFromContext(r.Context()), CreateInput{
-		Name: request.Name, Description: request.Description, CredentialType: request.CredentialType,
-		Role: request.Role, ExpiresAt: request.ExpiresAt,
-	})
+	result, problem := h.service.Create(r.Context(), vars["gateway_id"], rbac.GetUserIDFromContext(r.Context()), CreateInput(request))
 	if problem != nil {
 		writeProblem(w, problem)
 		return

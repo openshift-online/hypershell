@@ -1,6 +1,7 @@
 import {
   Alert,
   Button,
+  ClipboardCopy,
   Content,
   DescriptionList,
   DescriptionListDescription,
@@ -133,7 +134,24 @@ function AccountDetails({
             {intl.formatMessage(messages.subject)}
           </DescriptionListTerm>
           <DescriptionListDescription>
-            {account.subject}
+            <Stack hasGutter>
+              <StackItem>
+                <ClipboardCopy
+                  clickTip={intl.formatMessage(messages.copied)}
+                  copyAriaLabel={`${intl.formatMessage(messages.copy)} ${intl.formatMessage(messages.subject)}`}
+                  hoverTip={intl.formatMessage(messages.copy)}
+                  isCode
+                  isReadOnly
+                >
+                  {account.subject}
+                </ClipboardCopy>
+              </StackItem>
+              <StackItem>
+                <Content component="p">
+                  {intl.formatMessage(messages.subjectHelp)}
+                </Content>
+              </StackItem>
+            </Stack>
           </DescriptionListDescription>
         </DescriptionListGroup>
         <DescriptionListGroup>

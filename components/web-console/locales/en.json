@@ -311,10 +311,6 @@
     "defaultMessage": "All statuses",
     "description": "Status-filter option that shows every service account."
   },
-  "app.gateway.serviceAccounts.audience": {
-    "defaultMessage": "Gateway audience",
-    "description": "Label for the gateway-specific JWT audience."
-  },
   "app.gateway.serviceAccounts.clientId": {
     "defaultMessage": "Client ID",
     "description": "Label for an OIDC client identifier."
@@ -375,10 +371,6 @@
     "defaultMessage": "Use service accounts for automation. Each account exchanges client credentials for short-lived JWTs that work only with this gateway.",
     "description": "Introductory text for gateway service accounts."
   },
-  "app.gateway.serviceAccounts.download": {
-    "defaultMessage": "Download credential bundle",
-    "description": "Action that downloads the one-time credential bundle."
-  },
   "app.gateway.serviceAccounts.empty.body": {
     "defaultMessage": "Create a service account when automation needs this gateway.",
     "description": "Guidance for a gateway with no service accounts."
@@ -390,6 +382,10 @@
   "app.gateway.serviceAccounts.expiration": {
     "defaultMessage": "Expiration",
     "description": "Service-account expiration field and table heading."
+  },
+  "app.gateway.serviceAccounts.expiration.option": {
+    "defaultMessage": "{days, plural, one {# day} other {# days}}",
+    "description": "Duration option for service-account expiration."
   },
   "app.gateway.serviceAccounts.expiration.preview": {
     "defaultMessage": "Expires {expiration}.",
@@ -410,10 +406,6 @@
   "app.gateway.serviceAccounts.heading": {
     "defaultMessage": "Service accounts",
     "description": "Heading for gateway-scoped service-account management."
-  },
-  "app.gateway.serviceAccounts.issuer": {
-    "defaultMessage": "Issuer",
-    "description": "Label for the OIDC issuer."
   },
   "app.gateway.serviceAccounts.loadError.body": {
     "defaultMessage": "Your filters are unchanged. Try loading this page again.",
@@ -592,24 +584,16 @@
     "description": "Accessible label for the service-account status filter."
   },
   "app.gateway.serviceAccounts.subject": {
-    "defaultMessage": "Subject",
-    "description": "Label for a service-account OIDC subject."
+    "defaultMessage": "Service account subject",
+    "description": "Label for the stable OIDC subject of a service account."
+  },
+  "app.gateway.serviceAccounts.subjectHelp": {
+    "defaultMessage": "This stable ID is the JWT subject (sub). Gateway administrators use it to grant workspace access.",
+    "description": "Explains the service-account subject identifier."
   },
   "app.gateway.serviceAccounts.tab": {
     "defaultMessage": "Service accounts",
     "description": "Label for the gateway detail service-accounts tab."
-  },
-  "app.gateway.serviceAccounts.tokenEndpoint": {
-    "defaultMessage": "Token endpoint",
-    "description": "Label for the OIDC token endpoint."
-  },
-  "app.gateway.serviceAccounts.validity": {
-    "defaultMessage": "Service account validity",
-    "description": "Label for a service-account validity duration."
-  },
-  "app.gateway.serviceAccounts.validity.option": {
-    "defaultMessage": "{hours, plural, one {# hour} other {# hours}}",
-    "description": "Duration option for service-account validity."
   },
   "app.gateway.serviceAccounts.viewDetails": {
     "defaultMessage": "View account details",
@@ -619,8 +603,20 @@
     "defaultMessage": "View setup instructions",
     "description": "Action that opens repeatable non-secret setup instructions."
   },
+  "app.gateway.serviceAccounts.workspaceGrant.copy": {
+    "defaultMessage": "Copy workspace access command",
+    "description": "Accessible label for copying the workspace grant command."
+  },
+  "app.gateway.serviceAccounts.workspaceGrant.instructions": {
+    "defaultMessage": "After selecting this gateway, a gateway administrator can replace the workspace name and run:",
+    "description": "Instructions for granting service-account workspace access."
+  },
+  "app.gateway.serviceAccounts.workspaceGrant.title": {
+    "defaultMessage": "Grant workspace access",
+    "description": "Heading for the manual gateway-administrator command."
+  },
   "app.gateway.serviceAccounts.workspaceMembership": {
-    "defaultMessage": "An openshell-user service account does not inherit your workspace access. A gateway administrator must grant its subject membership in each workspace.",
+    "defaultMessage": "This service account does not inherit your workspace access. Give the service account subject above to a gateway administrator. The administrator must add it to each required workspace.",
     "description": "Explains the separate OpenShell workspace grant."
   },
   "app.gateway.singular": {

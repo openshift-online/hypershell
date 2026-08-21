@@ -664,23 +664,14 @@ export const messages = defineMessages({
   },
   subject: {
     id: "app.gateway.serviceAccounts.subject",
-    defaultMessage: "Subject",
-    description: "Label for a service-account OIDC subject.",
+    defaultMessage: "Service account subject",
+    description: "Label for the stable OIDC subject of a service account.",
   },
-  issuer: {
-    id: "app.gateway.serviceAccounts.issuer",
-    defaultMessage: "Issuer",
-    description: "Label for the OIDC issuer.",
-  },
-  tokenEndpoint: {
-    id: "app.gateway.serviceAccounts.tokenEndpoint",
-    defaultMessage: "Token endpoint",
-    description: "Label for the OIDC token endpoint.",
-  },
-  gatewayAudience: {
-    id: "app.gateway.serviceAccounts.audience",
-    defaultMessage: "Gateway audience",
-    description: "Label for the gateway-specific JWT audience.",
+  subjectHelp: {
+    id: "app.gateway.serviceAccounts.subjectHelp",
+    defaultMessage:
+      "This stable ID is the JWT subject (sub). Gateway administrators use it to grant workspace access.",
+    description: "Explains the service-account subject identifier.",
   },
   serviceAccountName: {
     id: "app.gateway.serviceAccounts.name",
@@ -704,15 +695,10 @@ export const messages = defineMessages({
       "Can perform OpenShell administrative operations on this gateway.",
     description: "Explanation of the openshell-admin service-account role.",
   },
-  serviceAccountValidity: {
-    id: "app.gateway.serviceAccounts.validity",
-    defaultMessage: "Service account validity",
-    description: "Label for a service-account validity duration.",
-  },
-  serviceAccountValidityOption: {
-    id: "app.gateway.serviceAccounts.validity.option",
-    defaultMessage: "{hours, plural, one {# hour} other {# hours}}",
-    description: "Duration option for service-account validity.",
+  serviceAccountExpirationOption: {
+    id: "app.gateway.serviceAccounts.expiration.option",
+    defaultMessage: "{days, plural, one {# day} other {# days}}",
+    description: "Duration option for service-account expiration.",
   },
   serviceAccountExpiresPreview: {
     id: "app.gateway.serviceAccounts.expiration.preview",
@@ -790,11 +776,6 @@ export const messages = defineMessages({
     description:
       "Recovery guidance when copying service-account setup data fails.",
   },
-  downloadCredentialBundle: {
-    id: "app.gateway.serviceAccounts.download",
-    defaultMessage: "Download credential bundle",
-    description: "Action that downloads the one-time credential bundle.",
-  },
   openShellCliSetup: {
     id: "app.gateway.serviceAccounts.setup.openshell",
     defaultMessage: "Use with the OpenShell CLI",
@@ -824,8 +805,24 @@ export const messages = defineMessages({
   workspaceMembershipNote: {
     id: "app.gateway.serviceAccounts.workspaceMembership",
     defaultMessage:
-      "An openshell-user service account does not inherit your workspace access. A gateway administrator must grant its subject membership in each workspace.",
+      "This service account does not inherit your workspace access. Give the service account subject above to a gateway administrator. The administrator must add it to each required workspace.",
     description: "Explains the separate OpenShell workspace grant.",
+  },
+  grantWorkspaceAccess: {
+    id: "app.gateway.serviceAccounts.workspaceGrant.title",
+    defaultMessage: "Grant workspace access",
+    description: "Heading for the manual gateway-administrator command.",
+  },
+  workspaceGrantInstructions: {
+    id: "app.gateway.serviceAccounts.workspaceGrant.instructions",
+    defaultMessage:
+      "After selecting this gateway, a gateway administrator can replace the workspace name and run:",
+    description: "Instructions for granting service-account workspace access.",
+  },
+  copyWorkspaceGrantCommand: {
+    id: "app.gateway.serviceAccounts.workspaceGrant.copy",
+    defaultMessage: "Copy workspace access command",
+    description: "Accessible label for copying the workspace grant command.",
   },
   acknowledgeSecretSaved: {
     id: "app.gateway.serviceAccounts.secret.acknowledge",
