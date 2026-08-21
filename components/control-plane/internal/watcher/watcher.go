@@ -636,8 +636,12 @@ func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context
 			return ctx.Err()
 		}
 
-		span.SetStatus(otelcodes.Error, err.Error())
-		span.RecordError(err)
+		if err != nil {
+			span.SetStatus(otelcodes.Error, err.Error())
+			span.RecordError(err)
+		} else {
+			span.SetStatus(otelcodes.Ok, "")
+		}
 		span.End()
 
 		reconnected = true

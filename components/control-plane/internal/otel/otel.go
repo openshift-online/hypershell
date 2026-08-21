@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -30,9 +31,18 @@ const (
 	defaultSampleArg = 1.0
 )
 
+// enabled tracks whether the OTel SDK was successfully initialized. When
+// false, GRPCDialOptions and InstrumentK8sConfig return no-ops so there is
+// zero instrumentation overhead on an unconfigured or failed startup.
+var enabled bool
+
+// Enabled reports whether the OTel SDK was successfully initialized.
+func Enabled() bool { return enabled }
+
 // Init initializes the OTel SDK when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 // It returns a shutdown function that flushes providers, bounded by a timeout.
-// When telemetry is disabled the returned function is a no-op.
+// When telemetry is disabled or initialization fails, the returned function
+// is a no-op and Enabled() returns false.
 func Init(ctx context.Context) (shutdown func(context.Context) error, err error) {
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
 		return func(context.Context) error { return nil }, nil
@@ -47,6 +57,7 @@ func Init(ctx context.Context) (shutdown func(context.Context) error, err error)
 		log.Printf("WARN OpenTelemetry metric instrument setup failed: %v", err)
 	}
 
+	enabled = true
 	log.Printf("INFO OpenTelemetry instrumentation enabled, exporting to %s", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	return shutdown, nil
 }
@@ -116,8 +127,8 @@ func samplerRatio() float64 {
 		return defaultSampleArg
 	}
 	parsed, err := strconv.ParseFloat(v, 64)
-	if err != nil {
-		log.Printf("WARN invalid OTEL_TRACES_SAMPLER_ARG %q, defaulting to %v: %v", v, defaultSampleArg, err)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 || parsed > 1 {
+		log.Printf("WARN invalid OTEL_TRACES_SAMPLER_ARG %q, defaulting to %v", v, defaultSampleArg)
 		return defaultSampleArg
 	}
 	return parsed

@@ -269,6 +269,7 @@ func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelister
 	namespaces, err := r.namespaces(listCtx)
 	cancel()
 	if err != nil {
+		tickErr = err
 		log.Printf("WARN sandbox count: list gateway namespaces: %v", err)
 		return
 	}

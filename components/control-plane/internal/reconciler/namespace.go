@@ -115,6 +115,7 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	// every managed namespace look orphaned and risk reaping live ones.
 	live, err := r.liveNamespaces(ctx)
 	if err != nil {
+		tickErr = err
 		log.Printf("WARN namespace gc: build live gateway set: %v", err)
 		return
 	}
@@ -125,6 +126,7 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	})
 	cancel()
 	if err != nil {
+		tickErr = err
 		log.Printf("WARN namespace gc: list managed namespaces: %v", err)
 		return
 	}
@@ -132,6 +134,7 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	for i := range namespaces.Items {
 		ns := &namespaces.Items[i]
 		if err := r.reconcileNamespace(ctx, ns, live); err != nil {
+			tickErr = err
 			log.Printf("WARN namespace gc: %s: %v", ns.Name, err)
 		}
 	}
