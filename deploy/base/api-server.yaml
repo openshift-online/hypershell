@@ -79,8 +79,6 @@ spec:
               name: grpc
             - containerPort: 8434
               name: health
-            - containerPort: 4433
-              name: metrics
           startupProbe:
             httpGet:
               path: /healthcheck
@@ -132,6 +130,3 @@ spec:
     - name: health
       port: 8434
       targetPort: 8434
-    - name: metrics
-      port: 4433
-      targetPort: 4433
