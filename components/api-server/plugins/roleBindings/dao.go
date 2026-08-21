@@ -7,6 +7,7 @@ import (
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 )
 
 type RoleBindingDao interface {
@@ -17,6 +18,7 @@ type RoleBindingDao interface {
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, error)
 	FindByIDs(ctx context.Context, ids []string) (RoleBindingList, error)
 	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, error)
+	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
 	All(ctx context.Context) (RoleBindingList, error)
 }
 
@@ -94,6 +96,31 @@ func (d *sqlRoleBindingDao) FindGatewayIDsByUserID(ctx context.Context, userID s
 		return nil, err
 	}
 	return gatewayIDs, nil
+}
+
+func (d *sqlRoleBindingDao) FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error) {
+	if len(gatewayIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	g2 := (*d.sessionFactory).New(ctx)
+	type result struct {
+		GatewayID string
+		Username  string
+	}
+	var rows []result
+	if err := g2.Model(&RoleBinding{}).
+		Select("role_bindings.gateway_id, users.username").
+		Joins("JOIN roles ON roles.id = role_bindings.role_id AND roles.deleted_at IS NULL").
+		Joins("JOIN users ON users.id = role_bindings.user_id AND users.deleted_at IS NULL").
+		Where("role_bindings.gateway_id IN ? AND roles.name = ? AND role_bindings.deleted_at IS NULL", gatewayIDs, roles.RoleGatewayOwner).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	owners := make(map[string]string, len(rows))
+	for _, r := range rows {
+		owners[r.GatewayID] = r.Username
+	}
+	return owners, nil
 }
 
 func (d *sqlRoleBindingDao) All(ctx context.Context) (RoleBindingList, error) {

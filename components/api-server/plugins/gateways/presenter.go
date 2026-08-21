@@ -34,7 +34,7 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	return c
 }
 
-func PresentGateway(gateway *Gateway) openapi.Gateway {
+func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
 		Id:               reference.Id,
@@ -68,6 +68,10 @@ func PresentGateway(gateway *Gateway) openapi.Gateway {
 		}(),
 	}
 
+	if createdBy != "" {
+		g.CreatedBy = &createdBy
+	}
+
 	if gateway.ServerDnsNames != nil {
 		var names []string
 		if err := json.Unmarshal([]byte(*gateway.ServerDnsNames), &names); err == nil {
@@ -77,3 +81,4 @@ func PresentGateway(gateway *Gateway) openapi.Gateway {
 
 	return g
 }
+

@@ -3,6 +3,7 @@ export interface GatewayRecord {
   clusterId: string;
   consoleUrl?: string;
   createdAt?: string;
+  createdBy?: string;
   databaseId: string;
   externalDns?: string;
   id: string;

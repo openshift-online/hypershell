@@ -95,6 +95,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const oidcAudience = optionalString(oidc?.audience);
   const oidcClientId = optionalString(oidc?.client_id);
   const oidcIssuer = optionalString(oidc?.issuer);
+  const createdBy = optionalString(gateway.created_by);
 
   return {
     ...(typeof gateway.active_sandbox_count === "number"
@@ -103,6 +104,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     clusterId: gateway.cluster_id,
     ...(gateway.console_address ? { consoleUrl: gateway.console_address } : {}),
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
+    ...(createdBy ? { createdBy } : {}),
     databaseId: gateway.database_id,
     externalDns:
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
