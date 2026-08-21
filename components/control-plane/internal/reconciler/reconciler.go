@@ -568,9 +568,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
-	cnpgConfig, resolveErr := r.resolveCNPGConfig(ctx, gw)
-	if resolveErr != nil {
-		return fmt.Errorf("resolve CNPG config for gateway %s: %w", gw.Name, resolveErr)
+	reconcileDatabase := gw.DatabaseId != ""
+	var cnpgConfig gateway.CNPGConfig
+	if reconcileDatabase {
+		var resolveErr error
+		cnpgConfig, resolveErr = r.resolveCNPGConfig(ctx, gw)
+		if resolveErr != nil {
+			return fmt.Errorf("resolve CNPG config for gateway %s: %w", gw.Name, resolveErr)
+		}
+	} else {
+		log.Printf("INFO gateway %s has no database_id; skipping database reconciliation (existing database resources left untouched)", event.ResourceID)
 	}
 
 	namespace, err := gatewayNamespace(gw)
@@ -643,6 +650,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		HasGatewayAPI:         r.hasGatewayAPI,
 		SkipNetworkPolicies:   r.skipNetworkPolicies,
 		HasCNPG:               r.hasCNPG,
+		ReconcileDatabase:     reconcileDatabase,
 		CNPG:                  cnpgConfig,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,

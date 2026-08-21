@@ -84,17 +84,22 @@ func ReconcileGateway(
 		}
 	}
 
-	if !opts.HasCNPG {
-		return fmt.Errorf("CNPG operator is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
-	}
+	if opts.ReconcileDatabase {
+		if opts.CNPG.ClusterNamespace == "" {
+			return fmt.Errorf("CNPG cluster namespace is required for gateway database reconciliation in namespace %s", nsConfig.Name)
+		}
+		if !opts.HasCNPG {
+			return fmt.Errorf("CNPG operator is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
+		}
 
-	if err := reconcileCNPGDatabaseResources(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID, opts.CNPG); err != nil {
-		return fmt.Errorf("reconcile CNPG database resources in %s: %w", nsConfig.Name, err)
-	}
+		if err := reconcileCNPGDatabaseResources(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID, opts.CNPG); err != nil {
+			return fmt.Errorf("reconcile CNPG database resources in %s: %w", nsConfig.Name, err)
+		}
 
-	if opts.RotateDBCredentials != "" {
-		if err := rotateCNPGDatabaseCredentials(ctx, clientset, nsConfig.Name, opts.GatewayID, opts.CNPG, opts.RotateDBCredentials); err != nil {
-			return fmt.Errorf("rotate database credentials in %s: %w", nsConfig.Name, err)
+		if opts.RotateDBCredentials != "" {
+			if err := rotateCNPGDatabaseCredentials(ctx, clientset, nsConfig.Name, opts.GatewayID, opts.CNPG, opts.RotateDBCredentials); err != nil {
+				return fmt.Errorf("rotate database credentials in %s: %w", nsConfig.Name, err)
+			}
 		}
 	}
 
