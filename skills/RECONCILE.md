@@ -104,20 +104,20 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SA-4 | Single-gateway isolation | Present | - | `pkg/keycloak/service_accounts.go` | SA-W3 |
 | SA-5 | User-selected, RBAC-capped OpenShell role | Present | - | `pkg/rbac/authorization.go`, `plugins/serviceAccounts/service.go` | SA-W3 |
 | SA-6 | Expiration, revocation, and deletion | Present | - | `plugins/serviceAccounts/` | SA-W3 |
-| SA-7 | Replacement-based credential rotation | Partial | API replacement/revoke/delete exists; CLI and UI workflow remain | `plugins/serviceAccounts/` | SA-W3..W5 |
+| SA-7 | Replacement-based credential rotation | Partial | API and CLI replacement/revoke/delete workflow exists; UI workflow remains | `plugins/serviceAccounts/`, `components/cli/` | SA-W3..W5 |
 | SA-8 | Gateway lifecycle cleanup | Present | - | `plugins/gateways/deletion_cleanup.go`, `control-plane/internal/keycloak/client.go` | SA-W3 |
 | SA-9 | Secret-safe management UI | Missing | Gateway details has only Connection/Details; no port, adapter, table, form, local-only handoff, commands, or lifecycle dialogs | `packages/gateway-management-ui/`, `components/web-console/` | SA-W5 |
-| SA-10 | CLI and CI workflow | Missing | No service-account commands or secure credential-output workflow; current generator ignores nested resources | `scripts/cli-generator/`, `components/cli/` | SA-W4 |
-| SA-11 | Workspace membership is a separate grant | Partial | Subject-bearing API response exists; CLI/UI explanation remains | `plugins/serviceAccounts/presenter.go` | SA-W1, W4, W5 |
+| SA-10 | CLI and CI workflow | Present | - | `scripts/cli-generator/`, `components/cli/cmd/hypershell/{create,list,get,revoke,delete}/`, `components/cli/pkg/serviceaccount/` | SA-W4 |
+| SA-11 | Workspace membership is a separate grant | Partial | Subject-bearing API and CLI explanation exist; UI explanation remains | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/` | SA-W1, W4, W5 |
 | SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
 | SA-13 | Auditability and secret redaction | Partial | Durable audit events, safe provider errors, SDK redaction, and no-store API headers exist; BFF header forwarding and UI local-only handling remain | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs | SA-W3, W5 |
 | SA-14 | Reconciliation and drift repair | Present | Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction | `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | SA-W3 |
-| SA-15 | Verification coverage | Partial | Keycloak claim/config, nested authorization, role-cap, visibility, lifecycle, and redaction unit tests exist; CLI/UI/integration coverage remains | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go` | SA-W1..W6 |
+| SA-15 | Verification coverage | Partial | Keycloak claim/config, nested authorization, role-cap, visibility, lifecycle, CLI credential-file, and redaction unit tests exist; UI/integration coverage remains | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go`, `components/cli/pkg/serviceaccount/*_test.go` | SA-W1..W6 |
 
 **Scoped analysis notes:**
 
 - The existing gateway, User, RoleBinding, and Keycloak-client code is useful infrastructure, but it implements none of the new resource's public behavior.
-- The SDK and CLI generators currently ignore nested collection paths and flatten some arrays/objects. SA-W2 and SA-W4 must extend the generators instead of hand-maintaining generated clients.
+- The SDK and CLI generators now project the nested service-account collection. Generated clients and commands remain reproducible from the OpenAPI contract.
 - The spec forbids retrieving or regenerating a delivered client secret during reconciliation, while the full-scope drift scenario asks reconciliation to issue and inspect another Client Credentials token. Creation can perform this token test because it still holds the new secret. Later reconciliation can verify and repair structural Keycloak state but cannot perform a new grant without violating the stronger one-time-secret rule. This remains a specification mismatch; reconciliation will not fetch the secret.
 - The BFF currently drops `Cache-Control` and `Pragma`; the one-time response path must forward them end to end.
 
@@ -425,8 +425,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SA-W1 | Nested REST/OpenAPI contract with separate create/get/list models and no-store one-time response | Complete |
 | SA-W2 | Extend generators for nested resources and regenerate Go/TypeScript SDKs | Complete |
 | SA-W3 | Persistence, nested RBAC, synchronous Keycloak adapter, lifecycle/reconciliation, cleanup, audit, deployment wiring | Complete |
-| SA-W4 | HyperShell CLI create/list/get/revoke/delete and secret-safe output | In progress |
-| SA-W5 | Gateway-detail Service accounts tab, host adapter, local-only handoff, setup commands, management table | Pending |
+| SA-W4 | HyperShell CLI create/list/get/revoke/delete and secret-safe output | Complete |
+| SA-W5 | Gateway-detail Service accounts tab, host adapter, local-only handoff, setup commands, management table | In progress |
 | SA-W6 | Integration verification, alignment, review-guidance audit, and checkpoint closure | Pending |
 
 Waves execute in this order because every later consumer depends on the public contract. Specs stay frozen. Generated SDK and CLI output is regenerated from OpenAPI rather than edited by hand.
@@ -652,3 +652,4 @@ label-selected pod informer.
 | 2026-08-20 | working tree | Remove `database_config` field from API, SDK, CLI | ~74% | Field removed from proto/OpenAPI/model/migration/handlers/presenters/sdk-go/cli; pb.go and OpenAPI models regenerated via `make proto` + `make generate` |
 | 2026-08-21 | 361305e | HYPERSHELL-49 scoped gap analysis | 69% | Added 15 OpenShellGatewayServiceAccount requirements, all initially missing. Planned strict API -> SDK -> service/Keycloak -> CLI -> UI -> integration waves. Recorded the post-delivery token-verification contradiction without changing specs. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W1..W3 | pending final recount | Added nested REST/OpenAPI, generated SDKs, durable persistence/audit, exact gateway-scoped Keycloak clients, one-time verified secret delivery, role-capped authorization, expiration/revoke/delete reconciliation, and gateway cleanup barriers. |
+| 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W4 | pending final recount | Extended the CLI generator for the nested gateway collection; added create/list/get/revoke/delete commands, explicit mode-0600 one-time credential output, expiration handling, workspace guidance, and secret-redaction tests. |

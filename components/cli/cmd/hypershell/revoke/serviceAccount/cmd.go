@@ -1,0 +1,55 @@
+package serviceAccount
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/spf13/cobra"
+
+	"github.com/openshift-online/hypershell/components/cli/pkg/config"
+	"github.com/openshift-online/hypershell/components/cli/pkg/connection"
+	"github.com/openshift-online/hypershell/components/cli/pkg/serviceaccount"
+)
+
+var args struct {
+	gatewayID string
+	output    string
+}
+
+var Cmd = &cobra.Command{
+	Use:     "serviceAccount ID [flags]",
+	Aliases: []string{"service-account"},
+	Short:   "Permanently revoke an OpenShell gateway service account",
+	Long:    "Disable the Keycloak client permanently. Already issued access tokens can remain valid until they expire.",
+	Args:    cobra.ExactArgs(1),
+	RunE:    run,
+}
+
+func init() {
+	flags := Cmd.Flags()
+	flags.StringVar(&args.gatewayID, "gateway-id", "", "Gateway ID.")
+	flags.StringVarP(&args.output, "output", "o", "json", "Structured output format (json).")
+}
+
+func run(cmd *cobra.Command, argv []string) error {
+	if args.gatewayID == "" {
+		return fmt.Errorf("--gateway-id is required")
+	}
+	if err := serviceaccount.ValidateOutput(args.output); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	conn, err := connection.NewConnection().Config(cfg).Build()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	response, _, err := serviceaccount.Request(conn, http.MethodPost, serviceaccount.RevokePath(args.gatewayID, argv[0]), nil, nil, http.StatusOK, http.StatusAccepted)
+	if err != nil {
+		return fmt.Errorf("can't revoke service account: %w", err)
+	}
+	return serviceaccount.WriteStructured(cmd.OutOrStdout(), "", response)
+}

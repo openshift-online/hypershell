@@ -77,7 +77,8 @@ generate-sdk-go:
 
 generate-cli:
 	test -f "$(CLI_GENERATOR_DIR)/go.mod"
-	rm -rf "$(CLI_DIR)/cmd" "$(CLI_DIR)/pkg"
+	# Preserve the reviewed apply/delete commands; generated files are replaced
+	# in place and scoped-resource commands are added alongside them.
 	cd "$(CLI_GENERATOR_DIR)" && GOWORK=off go run . \
 		--spec "$(OPENAPI_SPEC)" \
 		--out "$(CLI_DIR)" \

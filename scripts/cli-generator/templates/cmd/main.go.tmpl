@@ -9,10 +9,14 @@ import (
 	"{{.Module}}/cmd/{{.Binary}}/completion"
 	"{{.Module}}/cmd/{{.Binary}}/config"
 	"{{.Module}}/cmd/{{.Binary}}/create"
+	"{{.Module}}/cmd/{{.Binary}}/delete"
 	"{{.Module}}/cmd/{{.Binary}}/get"
 	"{{.Module}}/cmd/{{.Binary}}/list"
 	"{{.Module}}/cmd/{{.Binary}}/login"
 	"{{.Module}}/cmd/{{.Binary}}/logout"
+{{- if .HasGatewayServiceAccounts}}
+	"{{.Module}}/cmd/{{.Binary}}/revoke"
+{{- end}}
 	"{{.Module}}/cmd/{{.Binary}}/version"
 )
 
@@ -28,10 +32,14 @@ func init() {
 	root.AddCommand(completion.Cmd)
 	root.AddCommand(config.Cmd)
 	root.AddCommand(create.Cmd)
+	root.AddCommand(delete.Cmd)
 	root.AddCommand(get.Cmd)
 	root.AddCommand(list.Cmd)
 	root.AddCommand(login.Cmd)
 	root.AddCommand(logout.Cmd)
+{{- if .HasGatewayServiceAccounts}}
+	root.AddCommand(revoke.Cmd)
+{{- end}}
 	root.AddCommand(version.Cmd)
 }
 
