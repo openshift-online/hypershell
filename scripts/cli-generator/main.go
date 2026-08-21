@@ -61,11 +61,12 @@ func main() {
 	}
 
 	data := cliData{
-		Binary:    *binaryName,
-		Project:   *projectName,
-		APIPrefix: *apiPrefix,
-		Module:    *cliModule,
-		Resources: resources,
+		Binary:                    *binaryName,
+		Project:                   *projectName,
+		APIPrefix:                 *apiPrefix,
+		Module:                    *cliModule,
+		Resources:                 resources,
+		HasGatewayServiceAccounts: hasGatewayServiceAccounts(*specPath, *apiPrefix),
 	}
 
 	if err := generateCLI(data, *outDir); err != nil {
@@ -94,11 +95,27 @@ type cliField struct {
 }
 
 type cliData struct {
-	Binary    string
-	Project   string
-	APIPrefix string
-	Module    string
-	Resources []cliResource
+	Binary                    string
+	Project                   string
+	APIPrefix                 string
+	Module                    string
+	Resources                 []cliResource
+	HasGatewayServiceAccounts bool
+}
+
+func hasGatewayServiceAccounts(specPath, apiPrefix string) bool {
+	document, err := ir.Load(specPath, ir.LoadOptions{})
+	if err != nil {
+		return false
+	}
+	want := strings.TrimSuffix(apiPrefix, "/") + "/gateways/{gateway_id}/service_accounts"
+	methods := make(map[string]bool)
+	for _, operation := range document.Operations {
+		if operation.Path == want {
+			methods[operation.Method] = true
+		}
+	}
+	return methods["GET"] && methods["POST"]
 }
 
 func parseResources(specPath, apiPrefix string) ([]cliResource, error) {
@@ -285,6 +302,19 @@ func generateCLI(data cliData, outDir string) error {
 		tmplMapping{"pkg/info.go.tmpl", filepath.Join("pkg", "info", "info.go"), nil},
 		tmplMapping{"gomod.tmpl", "go.mod", nil},
 	)
+	if data.HasGatewayServiceAccounts {
+		mappings = append(mappings,
+			tmplMapping{"cmd/revoke.go.tmpl", filepath.Join("cmd", data.Binary, "revoke", "cmd.go"), nil},
+			tmplMapping{"cmd/create_service_account.go.tmpl", filepath.Join("cmd", data.Binary, "create", "serviceAccount", "cmd.go"), nil},
+			tmplMapping{"cmd/list_service_accounts.go.tmpl", filepath.Join("cmd", data.Binary, "list", "serviceAccounts", "cmd.go"), nil},
+			tmplMapping{"cmd/get_service_account.go.tmpl", filepath.Join("cmd", data.Binary, "get", "serviceAccount", "cmd.go"), nil},
+			tmplMapping{"cmd/revoke_service_account.go.tmpl", filepath.Join("cmd", data.Binary, "revoke", "serviceAccount", "cmd.go"), nil},
+			tmplMapping{"cmd/delete_service_account.go.tmpl", filepath.Join("cmd", data.Binary, "delete", "serviceAccount", "cmd.go"), nil},
+			tmplMapping{"cmd/delete_service_account_registration.go.tmpl", filepath.Join("cmd", data.Binary, "delete", "service_account_registration.go"), nil},
+			tmplMapping{"pkg/service_account.go.tmpl", filepath.Join("pkg", "serviceaccount", "serviceaccount.go"), nil},
+			tmplMapping{"pkg/service_account_test.go.tmpl", filepath.Join("pkg", "serviceaccount", "serviceaccount_test.go"), nil},
+		)
+	}
 
 	for i := range data.Resources {
 		r := &data.Resources[i]
