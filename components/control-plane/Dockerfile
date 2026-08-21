@@ -1,4 +1,5 @@
-FROM registry.access.redhat.com/hi/go:1.26.5-builder@sha256:fe0672d0b4bf43b502fe7ab4f251c266b558346cd3b8892c7c79b3b5f2c3a92f AS builder
+# syntax=docker/dockerfile:1
+FROM registry.access.redhat.com/hi/go:1.26.5@sha256:eb29e565caf76cf408a77a73548a3ed62e00e3516c17d02d5f36838aea69a605 AS builder
 
 WORKDIR /workspace
 
@@ -17,12 +18,11 @@ COPY components/control-plane/internal/ components/control-plane/internal/
 
 RUN cd components/control-plane && CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
-FROM registry.access.redhat.com/hi/go:1.26.5@sha256:55d95d0bd29598f821931dec7155efd331068bdd84162d7d4b2e7ad66ec6c124
+FROM registry.access.redhat.com/hi/static:latest@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
-COPY --from=builder --chown=1001:0 /workspace/hypershell-controller /usr/local/bin/
-COPY --chown=1001:0 components/control-plane/manifests/ /manifests/
+COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
+COPY components/control-plane/manifests/ /manifests/
 
-USER 1001
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 
 LABEL name="hypershell-controller" \
