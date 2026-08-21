@@ -15,14 +15,19 @@ const { createGatewayMock, findGatewayPlacementsMock, navigateMock } =
   }));
 
 const gatewayOperations = {
+  createOpenShellGatewayServiceAccount: vi.fn(),
+  deleteOpenShellGatewayServiceAccount: vi.fn(),
   findGatewayPlacements: findGatewayPlacementsMock,
   getGateway: vi.fn(),
   getGatewayPlacement: vi.fn(),
   getGatewayPlacements: vi.fn(),
+  getOpenShellGatewayServiceAccount: vi.fn(),
   listGateways: vi.fn(),
+  listOpenShellGatewayServiceAccounts: vi.fn(),
   provisionGateway: createGatewayMock,
   removeGateway: vi.fn(),
   renameGateway: vi.fn(),
+  revokeOpenShellGatewayServiceAccount: vi.fn(),
 };
 
 const navigation = {

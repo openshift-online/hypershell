@@ -30,9 +30,11 @@ const forwardedRequestHeaders = [
   "if-none-match",
 ] as const;
 const forwardedResponseHeaders = [
+  "cache-control",
   "content-type",
   "etag",
   "location",
+  "pragma",
   "retry-after",
 ] as const;
 

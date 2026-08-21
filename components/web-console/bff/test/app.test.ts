@@ -47,6 +47,17 @@ describe("web-console BFF", () => {
           response.end('{"error":"upstream not found"}');
           return;
         }
+        if (
+          request.method === "POST" &&
+          request.url ===
+            "/api/hypershell/v1/gateways/gateway-1/service_accounts"
+        ) {
+          response.setHeader("cache-control", "no-store");
+          response.setHeader("pragma", "no-cache");
+          response.statusCode = 201;
+          response.end('{"credential":{"client_secret":"one-time"}}');
+          return;
+        }
         response.statusCode = request.method === "PATCH" ? 202 : 200;
         response.end('{"kind":"GatewayList","items":[]}');
       });
@@ -232,6 +243,19 @@ describe("web-console BFF", () => {
       method: "PATCH",
       url: "/api/hypershell/v1/gateways/gateway-1",
     });
+  });
+
+  it("forwards one-time credential cache protections", async () => {
+    const response = await app.inject({
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      payload: { name: "deploy-bot", role: "openshell-user" },
+      url: "/api/hypershell/v1/gateways/gateway-1/service_accounts",
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers.pragma).toBe("no-cache");
   });
 
   it("replaces malformed correlation identifiers", async () => {

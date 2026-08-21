@@ -176,6 +176,26 @@ export function createGatewayOperations({
   }
 
   return {
+    createOpenShellGatewayServiceAccount: (gatewayId, input, signal) =>
+      execute("create-service-account", signal, (context) =>
+        controlPlane.createOpenShellGatewayServiceAccount(
+          gatewayId,
+          input,
+          context,
+        ),
+      ),
+    deleteOpenShellGatewayServiceAccount: (
+      gatewayId,
+      serviceAccountId,
+      signal,
+    ) =>
+      execute("delete-service-account", signal, (context) =>
+        controlPlane.deleteOpenShellGatewayServiceAccount(
+          gatewayId,
+          serviceAccountId,
+          context,
+        ),
+      ),
     findGatewayPlacements: (search, signal) =>
       execute("find-placements", signal, (context) =>
         controlPlane.findGatewayPlacements(search.trim(), context),
@@ -192,9 +212,25 @@ export function createGatewayOperations({
       execute("get", signal, (context) =>
         controlPlane.getGateway(gatewayId, context),
       ),
+    getOpenShellGatewayServiceAccount: (gatewayId, serviceAccountId, signal) =>
+      execute("get-service-account", signal, (context) =>
+        controlPlane.getOpenShellGatewayServiceAccount(
+          gatewayId,
+          serviceAccountId,
+          context,
+        ),
+      ),
     listGateways: (request, signal) =>
       execute("list", signal, (context) =>
         controlPlane.listGateways(request, context),
+      ),
+    listOpenShellGatewayServiceAccounts: (gatewayId, request, signal) =>
+      execute("list-service-accounts", signal, (context) =>
+        controlPlane.listOpenShellGatewayServiceAccounts(
+          gatewayId,
+          request,
+          context,
+        ),
       ),
     provisionGateway: (input, signal) =>
       execute("provision", signal, (context) =>
@@ -207,6 +243,18 @@ export function createGatewayOperations({
     renameGateway: (gatewayId, name, signal) =>
       execute("rename", signal, (context) =>
         controlPlane.renameGateway(gatewayId, name, context),
+      ),
+    revokeOpenShellGatewayServiceAccount: (
+      gatewayId,
+      serviceAccountId,
+      signal,
+    ) =>
+      execute("revoke-service-account", signal, (context) =>
+        controlPlane.revokeOpenShellGatewayServiceAccount(
+          gatewayId,
+          serviceAccountId,
+          context,
+        ),
       ),
   };
 }
