@@ -214,11 +214,12 @@ func DeleteGatewayResources(
 
 	if opts.KeycloakClient != nil && opts.GatewayName != "" && opts.GatewayID != "" {
 		kcClientID := fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
-		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
-			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
-		} else {
-			log.Printf("INFO deleted keycloak client %s", kcClientID)
+		if err := opts.KeycloakClient.DeleteGatewayServiceAccountClients(ctx, opts.GatewayID); err != nil {
+			// Do not delete the parent clients while a machine identity may still
+			// be enabled. Returning an error makes the teardown retry.
+			return fmt.Errorf("delete gateway service-account clients: %w", err)
 		}
+		log.Printf("INFO deleted keycloak service-account clients for gateway %s", opts.GatewayID)
 
 		// The console namespaced resources are swept by label above, but the
 		// console Keycloak client must be deleted explicitly (it lives in the
@@ -228,6 +229,12 @@ func DeleteGatewayResources(
 			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
 		} else {
 			log.Printf("INFO deleted console client %s", consoleClientID)
+		}
+
+		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
+			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+		} else {
+			log.Printf("INFO deleted keycloak client %s", kcClientID)
 		}
 	}
 

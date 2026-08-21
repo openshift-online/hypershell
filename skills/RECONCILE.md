@@ -98,21 +98,21 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| SA-1 | Synchronous provisioning and one-time delivery | Missing | No nested create route, reservation, Keycloak provisioning adapter, token-claim verification, or one-time response model | - | SA-W1..W3 |
-| SA-2 | Federated Keycloak is the identity system of record | Missing | API server does not receive Keycloak administration configuration and cannot create a realm-local service-account identity | `deploy/*`, `plugins/` | SA-W3 |
-| SA-3 | Client Credentials token issuance | Missing | No confidential service-account client, five-minute token policy, or platform-enforced credential expiration | - | SA-W3 |
-| SA-4 | Single-gateway isolation | Missing | No derived audience/role-scope mapping or cross-gateway claim verification | - | SA-W3 |
-| SA-5 | User-selected, RBAC-capped OpenShell role | Missing | Nested routes are not recognized by the generic authorizer; no creator ownership, role cap, downgrade, or binding-loss revocation | `pkg/rbac/authorization.go` | SA-W3 |
-| SA-6 | Expiration, revocation, and deletion | Missing | No lifecycle state machine, minute expiry sweep, disable-before-success semantics, or soft deletion | - | SA-W3 |
-| SA-7 | Replacement-based credential rotation | Missing | No create/revoke/delete resource workflow exists | - | SA-W3..W5 |
-| SA-8 | Gateway lifecycle cleanup | Missing | Gateway cleanup deletes only the gateway and console clients; it cannot find or remove service-account clients/records | `control-plane/internal/keycloak/`, gateway delete path | SA-W3 |
+| SA-1 | Synchronous provisioning and one-time delivery | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/service_accounts.go` | SA-W1..W3 |
+| SA-2 | Federated Keycloak is the identity system of record | Present | - | `deploy/base/api-server.yaml`, `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-3 | Client Credentials token issuance | Present | - | `pkg/keycloak/service_accounts.go`, lifecycle sweep | SA-W3 |
+| SA-4 | Single-gateway isolation | Present | - | `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-5 | User-selected, RBAC-capped OpenShell role | Present | - | `pkg/rbac/authorization.go`, `plugins/serviceAccounts/service.go` | SA-W3 |
+| SA-6 | Expiration, revocation, and deletion | Present | - | `plugins/serviceAccounts/` | SA-W3 |
+| SA-7 | Replacement-based credential rotation | Partial | API replacement/revoke/delete exists; CLI and UI workflow remain | `plugins/serviceAccounts/` | SA-W3..W5 |
+| SA-8 | Gateway lifecycle cleanup | Present | - | `plugins/gateways/deletion_cleanup.go`, `control-plane/internal/keycloak/client.go` | SA-W3 |
 | SA-9 | Secret-safe management UI | Missing | Gateway details has only Connection/Details; no port, adapter, table, form, local-only handoff, commands, or lifecycle dialogs | `packages/gateway-management-ui/`, `components/web-console/` | SA-W5 |
 | SA-10 | CLI and CI workflow | Missing | No service-account commands or secure credential-output workflow; current generator ignores nested resources | `scripts/cli-generator/`, `components/cli/` | SA-W4 |
-| SA-11 | Workspace membership is a separate grant | Missing | No subject-bearing response or UI/CLI explanation | - | SA-W1, W4, W5 |
-| SA-12 | Scopes are not configurable in version 1 | Missing | No constrained create schema or Keycloak scope enforcement exists | - | SA-W1, W3 |
-| SA-13 | Auditability and secret redaction | Missing | No lifecycle audit events; BFF strips no-store headers; Keycloak errors may include raw response bodies | `components/web-console/bff/`, `control-plane/internal/keycloak/` | SA-W3, W5 |
-| SA-14 | Reconciliation and drift repair | Missing | No periodic role/lifecycle/orphan/drift reconciler exists | - | SA-W3 |
-| SA-15 | Verification coverage | Missing | No API, Keycloak, authorization, lifecycle, CLI, or UI tests exist | - | SA-W1..W6 |
+| SA-11 | Workspace membership is a separate grant | Partial | Subject-bearing API response exists; CLI/UI explanation remains | `plugins/serviceAccounts/presenter.go` | SA-W1, W4, W5 |
+| SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
+| SA-13 | Auditability and secret redaction | Partial | Durable audit events, safe provider errors, SDK redaction, and no-store API headers exist; BFF header forwarding and UI local-only handling remain | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs | SA-W3, W5 |
+| SA-14 | Reconciliation and drift repair | Present | Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction | `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-15 | Verification coverage | Partial | Keycloak claim/config, nested authorization, role-cap, visibility, lifecycle, and redaction unit tests exist; CLI/UI/integration coverage remains | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go` | SA-W1..W6 |
 
 **Scoped analysis notes:**
 
@@ -424,8 +424,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 |------|-------|--------|
 | SA-W1 | Nested REST/OpenAPI contract with separate create/get/list models and no-store one-time response | Complete |
 | SA-W2 | Extend generators for nested resources and regenerate Go/TypeScript SDKs | Complete |
-| SA-W3 | Persistence, nested RBAC, synchronous Keycloak adapter, lifecycle/reconciliation, cleanup, audit, deployment wiring | In progress |
-| SA-W4 | HyperShell CLI create/list/get/revoke/delete and secret-safe output | Pending |
+| SA-W3 | Persistence, nested RBAC, synchronous Keycloak adapter, lifecycle/reconciliation, cleanup, audit, deployment wiring | Complete |
+| SA-W4 | HyperShell CLI create/list/get/revoke/delete and secret-safe output | In progress |
 | SA-W5 | Gateway-detail Service accounts tab, host adapter, local-only handoff, setup commands, management table | Pending |
 | SA-W6 | Integration verification, alignment, review-guidance audit, and checkpoint closure | Pending |
 
@@ -651,3 +651,4 @@ label-selected pod informer.
 | 2026-08-19 | d1fc36b | CNPG operator integration (Wave 8 partial) | ~74% | ManagedDatabaseReconciler + GatewayReconciler CNPG provisioning; ManagedDatabase deletion protection; auto fleet/db resolution; CNPG operator detection; credential rotation updated to CNPG Secret (no ALTER ROLE); specs updated (gateway-database, control-plane, local-dev, secret-rotation, gateway core) |
 | 2026-08-20 | working tree | Remove `database_config` field from API, SDK, CLI | ~74% | Field removed from proto/OpenAPI/model/migration/handlers/presenters/sdk-go/cli; pb.go and OpenAPI models regenerated via `make proto` + `make generate` |
 | 2026-08-21 | 361305e | HYPERSHELL-49 scoped gap analysis | 69% | Added 15 OpenShellGatewayServiceAccount requirements, all initially missing. Planned strict API -> SDK -> service/Keycloak -> CLI -> UI -> integration waves. Recorded the post-delivery token-verification contradiction without changing specs. |
+| 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W1..W3 | pending final recount | Added nested REST/OpenAPI, generated SDKs, durable persistence/audit, exact gateway-scoped Keycloak clients, one-time verified secret delivery, role-capped authorization, expiration/revoke/delete reconciliation, and gateway cleanup barriers. |
