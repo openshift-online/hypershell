@@ -62,10 +62,16 @@ HyperShell API
     | 1. Resolve the caller's gateway RoleBinding
     | 2. Cap role at owner -> openshell-admin, viewer -> openshell-user
     | 3. Reserve non-secret OpenShellGatewayServiceAccount metadata in provisioning state
-    | 4. Create a confidential Keycloak client and service-account user
-    | 5. Scope and assign only the target gateway's roles
-    | 6. Verify a test access token's audience, subject, and roles
-    | 7. Mark the OpenShellGatewayServiceAccount ready
+    | 4. Send the desired state to the control-plane provisioner over mTLS gRPC
+    v
+Control-plane provisioner
+    | 5. Create a confidential Keycloak client and service-account user
+    | 6. Scope and assign only the target gateway's roles
+    | 7. Verify a test access token's audience, subject, and roles
+    | 8. Return the non-secret identifiers and new client secret once
+    v
+HyperShell API
+    | 9. Recheck the caller's authorization and mark the resource ready
     v
 201 Created (Cache-Control: no-store)
     { service_account metadata, client_id, client_secret, token_endpoint }
@@ -111,21 +117,21 @@ An access token issued before disablement remains valid until its `exp`. Thus, t
 
 ### Component Responsibilities
 
-| Component              | Responsibility                                                                                                                   |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| API server             | Authorize nested routes, store non-secret metadata, call the Keycloak provisioner synchronously, and return the new secret once. |
-| Keycloak provisioner   | Create, verify, disable, and delete service-account clients. Manage their service-account roles and client scope mappings.       |
-| Control plane          | Reconcile gateway and console clients. Remove all related service-account clients when it deletes a gateway.                     |
-| Management web console | Create and manage OpenShellGatewayServiceAccounts through the API. Show the credential bundle once without caching it.           |
-| HyperShell CLI         | Support create, list, get, revoke, and delete operations. Pass the credential bundle to CI without logging it.                   |
-| Keycloak               | Store the service-account identity and client secret. Issue short-lived access tokens.                                           |
-| OpenShell gateway      | Validate access tokens locally. Require separate workspace membership for an `openshell-user` subject.                           |
+| Component              | Responsibility                                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API server             | Authorize nested routes, store non-secret desired state, call the control-plane provisioner synchronously, and return the new secret once.                            |
+| Control plane          | Own all Keycloak administration. Provision, verify, reconcile, disable, and delete service-account clients. Reconcile gateway and console clients.                    |
+| Internal provisioner   | Expose the control plane's service-account operations to the API through a mutually authenticated, synchronous gRPC service. Never persist or log a client secret.     |
+| Management web console | Create and manage OpenShellGatewayServiceAccounts through the API. Show the credential bundle once without caching it.                                                |
+| HyperShell CLI         | Support create, list, get, revoke, and delete operations. Pass the credential bundle to CI without logging it.                                                        |
+| Keycloak               | Store the service-account identity and client secret. Issue short-lived access tokens.                                                                                |
+| OpenShell gateway      | Validate access tokens locally. Require separate workspace membership for an `openshell-user` subject.                                                                |
 
-The create operation SHALL provision the service-account client synchronously. This path lets HyperShell return the client secret once.
+The create operation SHALL provision the service-account client synchronously. The API server SHALL send the desired state to the control plane through the internal provisioner and wait for its result. This path lets HyperShell return the client secret once.
 
-The API server SHALL NOT place the client secret on an asynchronous gRPC watch or event path. HyperShell MAY use an API-server adapter or an authenticated internal service for provisioning. This internal choice SHALL NOT change the public API behavior.
+The internal provisioner SHALL use TLS with mutual certificate authentication. The API server SHALL receive a dedicated client certificate. It SHALL NOT receive the Keycloak administrator credential. The control plane SHALL reject callers that do not present the expected API-server identity.
 
-Both implementations SHALL enforce the same authorization, rollback, one-time delivery, and redaction rules. Browsers, CLIs, and BFFs SHALL never receive Keycloak administration credentials.
+The API server SHALL NOT place the client secret on an asynchronous gRPC watch, event broker, controller work queue, or Kubernetes object. The internal response SHALL carry the secret only in memory. Browsers, CLIs, and BFFs SHALL never receive Keycloak administration credentials.
 
 ## Data Model
 

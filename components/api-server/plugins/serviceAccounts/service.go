@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/keycloak"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -50,15 +49,49 @@ type GatewayLookup interface {
 	Get(context.Context, string) (*gateways.Gateway, *trexerrors.ServiceError)
 }
 
-type KeycloakProvisioner interface {
+// ErrProvisionerNotFound means that the managed Keycloak client no longer
+// exists. It is intentionally provider-neutral at the API boundary.
+var ErrProvisionerNotFound = errors.New("provisioned service account not found")
+
+// ProvisioningSpec is the complete desired identity state sent to the control
+// plane. It contains no client secret.
+type ProvisioningSpec struct {
+	ClientID                   string
+	DisplayName                string
+	GatewayClientID            string
+	GatewayID                  string
+	ServiceAccountID           string
+	CreatorUserID              string
+	Role                       string
+	ExpectedIssuer             string
+	AccessTokenLifetimeSeconds int
+}
+
+// ProvisionedServiceAccount contains persistent provider identifiers and the
+// one-time secret returned synchronously by the control plane.
+type ProvisionedServiceAccount struct {
+	ClientUUID   string
+	ClientID     string
+	ClientSecret string
+	Subject      string
+}
+
+type ManagedClient struct {
+	UUID             string
+	ClientID         string
+	GatewayID        string
+	ServiceAccountID string
+}
+
+type ServiceAccountProvisioner interface {
 	Configured() bool
-	ProvisionServiceAccount(context.Context, keycloak.ServiceAccountSpec) (*keycloak.ProvisionedServiceAccount, error)
-	ReconcileServiceAccount(context.Context, keycloak.ServiceAccountSpec, string, string, bool) error
+	ProvisionServiceAccount(context.Context, ProvisioningSpec) (*ProvisionedServiceAccount, error)
+	ReconcileServiceAccount(context.Context, ProvisioningSpec, string, string, bool) error
 	DisableServiceAccount(context.Context, string) error
 	DeleteServiceAccount(context.Context, string) error
 	DeleteManagedServiceAccount(context.Context, string, string) error
 	DeleteGatewayServiceAccounts(context.Context, string) error
-	ListManagedClients(context.Context, string) ([]keycloak.ManagedClient, error)
+	ListManagedClients(context.Context, string) ([]ManagedClient, error)
 }
 
 type Access struct {
@@ -118,13 +151,13 @@ type service struct {
 	dao         ServiceAccountDao
 	gateways    GatewayLookup
 	bindings    BindingLookup
-	keycloak    KeycloakProvisioner
+	provisioner ServiceAccountProvisioner
 	lockFactory db.LockFactory
 	now         func() time.Time
 }
 
-func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings BindingLookup, provisioner KeycloakProvisioner, lockFactory db.LockFactory) Service {
-	return &service{dao: dao, gateways: gatewayService, bindings: bindings, keycloak: provisioner, lockFactory: lockFactory, now: time.Now}
+func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings BindingLookup, provisioner ServiceAccountProvisioner, lockFactory db.LockFactory) Service {
+	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, lockFactory: lockFactory, now: time.Now}
 }
 
 func (s *service) Capabilities(ctx context.Context, gatewayID, userID string) (Access, *APIError) {
@@ -156,7 +189,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	if problem = validateCreateInput(&input, access, s.now()); problem != nil {
 		return nil, problem
 	}
-	if s.keycloak == nil || !s.keycloak.Configured() {
+	if s.provisioner == nil || !s.provisioner.Configured() {
 		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: "keycloak_unavailable", Message: "Service-account provisioning is unavailable"}
 	}
 
@@ -204,7 +237,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	}
 
 	spec := serviceAccountSpec(account, gateway, oidc)
-	provisioned, err := s.keycloak.ProvisionServiceAccount(ctx, spec)
+	provisioned, err := s.provisioner.ProvisionServiceAccount(ctx, spec)
 	if err != nil {
 		glog.Warningf("Keycloak service-account provisioning failed for gateway %q and account %q: %v", gatewayID, account.ID, err)
 		const safe = "keycloak_provisioning_failed"
@@ -221,7 +254,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 		now := s.now().UTC()
 		reason := "creator_access_changed"
 		account.LastError = &reason
-		if cleanupErr := s.keycloak.DeleteServiceAccount(ctx, provisioned.ClientUUID); cleanupErr != nil {
+		if cleanupErr := s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID); cleanupErr != nil {
 			account.Status = StatusError
 		} else {
 			account.Status = StatusRevoked
@@ -242,7 +275,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	account.Status = StatusReady
 	account.LastError = nil
 	if err := s.audit(ctx, account, userID, "create", "succeeded"); err != nil {
-		_ = s.keycloak.DeleteServiceAccount(ctx, provisioned.ClientUUID)
+		_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID)
 		account.Status = StatusError
 		reason := "audit_persistence_failed"
 		account.LastError = &reason
@@ -250,7 +283,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 		return nil, internalProblem()
 	}
 	if err := s.dao.Update(ctx, account); err != nil {
-		_ = s.keycloak.DeleteServiceAccount(ctx, provisioned.ClientUUID)
+		_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID)
 		return nil, internalProblem()
 	}
 	connection := connectionFor(account, gateway, oidc)
@@ -296,14 +329,14 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 		return nil, false, problem
 	}
 	if account.Status == StatusRevoked || account.Status == StatusExpired {
-		if s.keycloak == nil || !s.keycloak.Configured() {
+		if s.provisioner == nil || !s.provisioner.Configured() {
 			return account, false, nil
 		}
 		if account.KeycloakClientUUID != "" {
-			if err := s.keycloak.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
 				return account, false, nil
 			}
-		} else if err := s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 			return account, false, nil
 		}
 		return account, true, nil
@@ -316,7 +349,7 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 	if err := s.audit(ctx, account, userID, "revoke", "started"); err != nil {
 		return account, false, nil
 	}
-	if s.keycloak == nil || !s.keycloak.Configured() {
+	if s.provisioner == nil || !s.provisioner.Configured() {
 		reason := "keycloak_disable_pending"
 		account.LastError = &reason
 		_ = s.dao.Update(ctx, account)
@@ -324,9 +357,9 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 	}
 	var disableErr error
 	if account.KeycloakClientUUID != "" {
-		disableErr = s.keycloak.DisableServiceAccount(ctx, account.KeycloakClientUUID)
+		disableErr = s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID)
 	} else {
-		disableErr = s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
+		disableErr = s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
 	}
 	if disableErr != nil {
 		reason := "keycloak_disable_pending"
@@ -364,7 +397,7 @@ func (s *service) Delete(ctx context.Context, gatewayID, id, userID string) (*Op
 	if err := s.audit(ctx, account, userID, "delete", "started"); err != nil {
 		return account, false, nil
 	}
-	if s.keycloak == nil || !s.keycloak.Configured() {
+	if s.provisioner == nil || !s.provisioner.Configured() {
 		reason := "keycloak_delete_pending"
 		account.LastError = &reason
 		_ = s.dao.Update(ctx, account)
@@ -372,9 +405,9 @@ func (s *service) Delete(ctx context.Context, gatewayID, id, userID string) (*Op
 	}
 	var deleteErr error
 	if account.KeycloakClientUUID != "" {
-		deleteErr = s.keycloak.DeleteServiceAccount(ctx, account.KeycloakClientUUID)
+		deleteErr = s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID)
 	} else {
-		deleteErr = s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
+		deleteErr = s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
 	}
 	if deleteErr != nil {
 		reason := "keycloak_delete_pending"
@@ -396,13 +429,13 @@ func (s *service) CleanupGateway(ctx context.Context, gatewayID string) error {
 	if err != nil {
 		return err
 	}
-	if s.keycloak == nil || !s.keycloak.Configured() {
+	if s.provisioner == nil || !s.provisioner.Configured() {
 		if len(accounts) == 0 {
 			return nil
 		}
 		return errors.New("keycloak service-account cleanup is unavailable")
 	}
-	if err := s.keycloak.DeleteGatewayServiceAccounts(ctx, gatewayID); err != nil {
+	if err := s.provisioner.DeleteGatewayServiceAccounts(ctx, gatewayID); err != nil {
 		return err
 	}
 	for len(accounts) > 0 {
@@ -424,7 +457,7 @@ func (s *service) CleanupGateway(ctx context.Context, gatewayID string) error {
 }
 
 func (s *service) ReconcileOnce(ctx context.Context) error {
-	if s.keycloak == nil || !s.keycloak.Configured() {
+	if s.provisioner == nil || !s.provisioner.Configured() {
 		return nil
 	}
 	accounts, err := s.dao.ListReconcilable(ctx, 1000)
@@ -452,7 +485,7 @@ func (s *service) ReconcileOnce(ctx context.Context) error {
 }
 
 func (s *service) cleanupOrphanedClients(ctx context.Context) error {
-	clients, err := s.keycloak.ListManagedClients(ctx, "")
+	clients, err := s.provisioner.ListManagedClients(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -477,7 +510,7 @@ func (s *service) cleanupOrphanedClients(ctx context.Context) error {
 			}
 		}
 		if orphaned {
-			if deleteErr := s.keycloak.DeleteServiceAccount(ctx, client.UUID); deleteErr != nil {
+			if deleteErr := s.provisioner.DeleteServiceAccount(ctx, client.UUID); deleteErr != nil {
 				cleanupErrors = append(cleanupErrors, deleteErr)
 			}
 		}
@@ -489,10 +522,10 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 	now := s.now().UTC()
 	if account.Status == StatusDeleting {
 		if account.KeycloakClientUUID != "" {
-			if err := s.keycloak.DeleteServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+			if err := s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
 				return err
 			}
-		} else if err := s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 			return err
 		}
 		if err := s.audit(ctx, account, "system", "delete", "succeeded"); err != nil {
@@ -508,10 +541,10 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 	}
 	if account.Status == StatusExpired || account.Status == StatusRevoked {
 		if account.KeycloakClientUUID != "" {
-			if err := s.keycloak.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
 				return err
 			}
-		} else if err := s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 			return err
 		}
 		// Advance updated_at after a successful drift check so terminal records do
@@ -521,11 +554,11 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 	}
 	if account.ExpiresAt.Before(now) || account.ExpiresAt.Equal(now) {
 		if account.KeycloakClientUUID != "" {
-			if err := s.keycloak.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
 				account.Status = StatusRevoking
 				return err
 			}
-		} else if err := s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 			return err
 		}
 		account.Status = StatusExpired
@@ -549,10 +582,10 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 			outcome = "succeeded"
 		}
 		if account.KeycloakClientUUID != "" {
-			if err := s.keycloak.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
 				return err
 			}
-		} else if err := s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 			return err
 		}
 		account.Status = StatusRevoked
@@ -579,10 +612,10 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 	gateway, oidc, problem := s.gateway(ctx, account.GatewayID, true)
 	if problem != nil {
 		if account.KeycloakClientUUID != "" {
-			if err := s.keycloak.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
 				return err
 			}
-		} else if err := s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 			return err
 		}
 		account.Status = StatusRevoked
@@ -602,8 +635,8 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 	if downgraded {
 		spec.Role = RoleUser
 	}
-	if err := s.keycloak.ReconcileServiceAccount(ctx, spec, account.KeycloakClientUUID, account.Subject, true); err != nil {
-		if errors.Is(err, keycloak.ErrNotFound) {
+	if err := s.provisioner.ReconcileServiceAccount(ctx, spec, account.KeycloakClientUUID, account.Subject, true); err != nil {
+		if errors.Is(err, ErrProvisionerNotFound) {
 			account.Status = StatusError
 			reason := "keycloak_client_missing"
 			account.LastError = &reason
@@ -632,10 +665,10 @@ func (s *service) cleanupUndeliveredAccount(ctx context.Context, account *OpenSh
 		return err
 	}
 	if account.KeycloakClientUUID != "" {
-		if err := s.keycloak.DeleteServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+		if err := s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
 			return err
 		}
-	} else if err := s.keycloak.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+	} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 		return err
 	}
 	if err := s.audit(ctx, account, actor, "create", "failed"); err != nil {
@@ -749,8 +782,8 @@ func validateCreateInput(input *CreateInput, access Access, now time.Time) *APIE
 	return nil
 }
 
-func serviceAccountSpec(account *OpenShellGatewayServiceAccount, gateway *gateways.Gateway, oidc GatewayOIDC) keycloak.ServiceAccountSpec {
-	return keycloak.ServiceAccountSpec{
+func serviceAccountSpec(account *OpenShellGatewayServiceAccount, gateway *gateways.Gateway, oidc GatewayOIDC) ProvisioningSpec {
+	return ProvisioningSpec{
 		ClientID: account.KeycloakClientID, DisplayName: account.Name,
 		GatewayClientID: oidc.ClientID, GatewayID: account.GatewayID,
 		ServiceAccountID: account.ID, CreatorUserID: account.CreatedByUserID,

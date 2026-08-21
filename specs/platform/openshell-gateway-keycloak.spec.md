@@ -153,7 +153,7 @@ When a user has multiple RoleBindings on the same gateway, the **highest-privile
 
 - **Gateway created** → the control plane provisions the Keycloak client and resolves existing RoleBindings for that gateway (initially the auto-provisioned `gateway:owner` for the creator), assigning the corresponding Keycloak client roles.
 - **RoleBinding created/deleted for a gateway** → the control plane assigns or removes the Keycloak client role on that gateway's Keycloak client.
-- **OpenShellGatewayServiceAccount lifecycle change** → HyperShell creates, disables, or deletes the related service-account client. See `openshell-gateway-service-accounts.spec.md`.
+- **OpenShellGatewayServiceAccount lifecycle change** → the API records the desired state and the control plane creates, disables, or deletes the related service-account client. See `openshell-gateway-service-accounts.spec.md`.
 - **Gateway deleted** → Keycloak client deletion cascades all role assignments automatically (see Client Cleanup requirement).
 
 ---
@@ -162,7 +162,7 @@ When a user has multiple RoleBindings on the same gateway, the **highest-privile
 
 ### Requirement: Keycloak Service Account Access
 
-Both the API server and the control plane SHALL authenticate to the Keycloak Admin REST API using a shared service account with admin permissions in the configured realm. The service account credentials SHALL be stored in a Kubernetes Secret named `hypershell-keycloak-admin` in the HyperShell namespace.
+The control plane SHALL authenticate to the Keycloak Admin REST API using a service account with admin permissions in the configured realm. The service account credentials SHALL be stored in a Kubernetes Secret named `hypershell-keycloak-admin` in the HyperShell namespace. The API server SHALL NOT mount or read this Secret.
 
 The Secret SHALL contain the following keys:
 
@@ -173,9 +173,9 @@ The Secret SHALL contain the following keys:
 | `client-id` | Service account client ID with realm admin permissions |
 | `client-secret` | Service account client secret |
 
-Both components SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. Each component SHOULD cache and refresh the service account token independently.
+The control plane SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. It SHOULD cache and refresh that token.
 
-- **Control plane** uses the Secret for read-write operations: provisioning Keycloak clients, roles, mappers during gateway reconciliation, and assigning/removing client roles during the OIDC Role Bridge.
+- **Control plane** uses the Secret for every read-write operation: provisioning Keycloak clients, roles, and mappers; managing OpenShellGatewayServiceAccounts; and assigning or removing client roles during the OIDC Role Bridge.
 
 #### Scenario: Service account credentials available
 

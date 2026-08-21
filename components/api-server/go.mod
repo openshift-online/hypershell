@@ -9,7 +9,9 @@ require (
 	github.com/gorilla/mux v1.7.3
 	github.com/onsi/gomega v1.27.1
 	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260819203335-5798cb607fcb
+	github.com/prometheus/client_golang v1.16.0
 	github.com/segmentio/ksuid v1.0.2
+	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.5
 	github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2
 	github.com/yaacov/tree-search-language v0.0.0-20190923184055-1c2dad2e354b
@@ -88,14 +90,12 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
-	github.com/prometheus/client_golang v1.16.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
 	github.com/shirou/gopsutil/v3 v3.23.12 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/spf13/cobra v0.0.5 // indirect
 	github.com/testcontainers/testcontainers-go v0.33.0 // indirect
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.33.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect

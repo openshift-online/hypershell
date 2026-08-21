@@ -41,6 +41,19 @@ spec:
               value: "hypershell-system"
             - name: HYPERSHELL_LOG_LEVEL
               value: "info"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS
+              value: "0.0.0.0:9443"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CERT
+              value: "/var/run/hypershell/provisioner/tls.crt"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_KEY
+              value: "/var/run/hypershell/provisioner/tls.key"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CLIENT_CA
+              value: "/var/run/hypershell/provisioner/ca.crt"
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_EXPECTED_CLIENT_CN
+              value: "hypershell-api-server"
+          ports:
+            - containerPort: 9443
+              name: provisioner
           resources:
             requests:
               cpu: 100m
@@ -48,3 +61,25 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+          volumeMounts:
+            - name: service-account-provisioner-tls
+              mountPath: /var/run/hypershell/provisioner
+              readOnly: true
+      volumes:
+        - name: service-account-provisioner-tls
+          secret:
+            secretName: hypershell-service-account-provisioner-server-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+spec:
+  selector:
+    app: hypershell-controller
+  ports:
+    - name: provisioner
+      port: 9443
+      targetPort: 9443
+      appProtocol: grpc

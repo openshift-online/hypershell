@@ -10,7 +10,6 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/keycloak"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -27,12 +26,10 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 	var service Service
 	locator := ServiceLocator(func() Service {
 		once.Do(func() {
-			provisioner := keycloak.NewClient(
-				os.Getenv("HYPERSHELL_KEYCLOAK_ADMIN_SERVER_URL"),
-				os.Getenv("HYPERSHELL_KEYCLOAK_ADMIN_REALM"),
-				os.Getenv("HYPERSHELL_KEYCLOAK_ADMIN_CLIENT_ID"),
-				os.Getenv("HYPERSHELL_KEYCLOAK_ADMIN_CLIENT_SECRET"),
-			)
+			provisioner, err := newControlPlaneProvisionerFromEnvironment()
+			if err != nil {
+				glog.Warningf("OpenShell gateway service-account provisioner is not configured: %v", err)
+			}
 			service = NewService(
 				NewServiceAccountDao(&env.Database.SessionFactory),
 				gateways.Service(&env.Services),
@@ -40,7 +37,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				provisioner,
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 			)
-			if provisioner.Configured() {
+			if provisioner != nil && provisioner.Configured() {
 				go runReconciler(service, reconcileInterval())
 			}
 		})
