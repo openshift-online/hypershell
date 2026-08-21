@@ -146,7 +146,7 @@ func WatchManagedDatabases(ctx context.Context, conn *grpc.ClientConn, handler H
 					streamErr <- fmt.Errorf("receiving managed database event: %w", err)
 					return
 				}
-				if err := handler.Handle(ctx, Event[*pb.ManagedDatabase]{
+				if err := handler.Handle(runCtx, Event[*pb.ManagedDatabase]{
 					Type:       toEventType(event.Type),
 					ResourceID: event.ResourceId,
 					Resource:   event.ManagedDatabase,

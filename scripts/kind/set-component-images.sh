@@ -33,7 +33,7 @@ fi
 deployment_image() {
   local deployment="$1" container="$2"
   kube get "deployment/${deployment}" -n "${KIND_NAMESPACE}" \
-    -o "jsonpath={.spec.template.spec.containers[?(@.name==\"${container}\")].image}" 2>/dev/null || true
+    -o "jsonpath={.spec.template.spec.containers[?(@.name==\"${container}\")].image}{.spec.template.spec.initContainers[?(@.name==\"${container}\")].image}" 2>/dev/null || true
 }
 
 swap_deployment() {

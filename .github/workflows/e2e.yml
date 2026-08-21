@@ -301,7 +301,7 @@ jobs:
 
       - name: Install openshell CLI
         run: |
-          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | sh
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | OPENSHELL_VERSION=v0.0.110 sh
           openshell --version
 
       - name: Create Kind cluster with OIDC
