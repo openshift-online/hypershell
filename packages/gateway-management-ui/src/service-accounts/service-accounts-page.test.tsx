@@ -134,7 +134,11 @@ describe("ServiceAccountsPage", () => {
       screen.getByRole("button", { name: "View account details" }),
     );
     expect(screen.getByText("Deploys the documentation site")).toBeTruthy();
-    expect(screen.getByText("service-account-subject")).toBeTruthy();
+    expect(screen.getByDisplayValue("service-account-subject")).toBeTruthy();
+    expect(screen.getByText("Service account subject")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Copy Service account subject" }),
+    ).toBeTruthy();
 
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Filter by status" }),
@@ -187,10 +191,32 @@ describe("ServiceAccountsPage", () => {
       }),
       "Publishes releases",
     );
-    await user.selectOptions(
-      within(createDialog).getByRole("combobox", { name: "OpenShell role" }),
-      "openshell-admin",
+    await user.click(
+      within(createDialog).getByRole("button", { name: "OpenShell role" }),
     );
+    expect(
+      screen.getByText(
+        "Can authenticate as openshell-user. A gateway administrator must separately add its subject to each workspace it needs.",
+      ),
+    ).toBeTruthy();
+    const adminDescription = screen.getByText(
+      "Can perform OpenShell administrative operations on this gateway.",
+    );
+    expect(adminDescription).toBeTruthy();
+    const adminOption = adminDescription.closest("button");
+    if (!adminOption) {
+      throw new Error("OpenShell admin option was not rendered as a button");
+    }
+    await user.click(adminOption);
+    const expiration = within(createDialog).getByRole("combobox", {
+      name: "Expiration",
+    });
+    expect(
+      within(expiration)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["30 days", "60 days", "90 days"]);
+    await user.selectOptions(expiration, String(60 * 86_400));
     await user.click(
       within(createDialog).getByRole("button", {
         name: "Create service account",
@@ -210,6 +236,15 @@ describe("ServiceAccountsPage", () => {
     const setupDialog = await screen.findByRole("dialog", {
       name: "Set up deploy-bot",
     });
+    expect(within(setupDialog).queryByText("Issuer")).toBeNull();
+    expect(within(setupDialog).queryByText("Token endpoint")).toBeNull();
+    expect(within(setupDialog).queryByText("Gateway audience")).toBeNull();
+    expect(within(setupDialog).queryByText("Gateway endpoint")).toBeNull();
+    expect(
+      within(setupDialog).queryByRole("button", {
+        name: "Download credential bundle",
+      }),
+    ).toBeNull();
     const secret =
       within(setupDialog).getByLabelText<HTMLInputElement>("Client secret");
     expect(secret.type).toBe("password");
@@ -344,6 +379,9 @@ describe("ServiceAccountsPage", () => {
 
   it("loads repeatable setup and confirms revoke and delete separately", async () => {
     const user = userEvent.setup();
+    const userAccount = { ...account, role: "openshell-user" as const };
+    mocks.list.mockResolvedValue(page([userAccount]));
+    mocks.get.mockResolvedValue({ connection, serviceAccount: userAccount });
     renderPage();
     await screen.findByText("deploy-bot");
 
@@ -362,6 +400,21 @@ describe("ServiceAccountsPage", () => {
       name: "Set up deploy-bot",
     });
     expect(within(setupDialog).getByText(/no longer available/u)).toBeTruthy();
+    expect(
+      within(setupDialog).getByText("Service account subject"),
+    ).toBeTruthy();
+    expect(setupDialog.textContent).toContain(
+      "This stable ID is the JWT subject (sub).",
+    );
+    await user.click(
+      within(setupDialog).getByRole("button", {
+        name: "Grant workspace access",
+      }),
+    );
+    expect(setupDialog.textContent).toContain("openshell workspace member add");
+    expect(setupDialog.textContent).toContain(
+      "--subject service-account-subject",
+    );
     expect(mocks.get).toHaveBeenCalledWith(
       "gateway-1",
       "account-1",

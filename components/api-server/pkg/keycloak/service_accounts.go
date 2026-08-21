@@ -391,7 +391,7 @@ func (c *Client) createServiceAccountClient(ctx context.Context, spec ServiceAcc
 		return "", err
 	}
 	if status == http.StatusConflict {
-		return "", errors.New("Keycloak client identifier already exists")
+		return "", errors.New("keycloak client identifier already exists")
 	}
 	if status != http.StatusCreated {
 		return "", statusError("create service-account client", status)
@@ -399,7 +399,7 @@ func (c *Client) createServiceAccountClient(ctx context.Context, spec ServiceAcc
 	location := headers.Get("Location")
 	parts := strings.Split(strings.TrimRight(location, "/"), "/")
 	if len(parts) == 0 || parts[len(parts)-1] == "" {
-		return "", errors.New("Keycloak create response omitted the client identifier")
+		return "", errors.New("keycloak create response omitted the client identifier")
 	}
 	return parts[len(parts)-1], nil
 }
@@ -681,7 +681,7 @@ func (c *Client) getClientSecret(ctx context.Context, clientUUID string) (string
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(body, &credential); err != nil || credential.Value == "" {
-		return "", errors.New("Keycloak returned an empty client credential")
+		return "", errors.New("keycloak returned an empty client credential")
 	}
 	return credential.Value, nil
 }
@@ -741,8 +741,10 @@ func (c *Client) verifyClientCredentials(ctx context.Context, spec ServiceAccoun
 	if !equalStrings(audienceClaim(claims["aud"]), []string{spec.GatewayClientID}) {
 		return errors.New("service-account access token audience does not match")
 	}
-	if !equalStrings(stringSliceClaim(claims["hypershell.roles"]), desiredRoleNames(spec.Role)) {
-		return errors.New("service-account access token roles do not match")
+	actualRoles := stringSliceClaimAtPath(claims, "hypershell.roles")
+	expectedRoles := desiredRoleNames(spec.Role)
+	if !equalStrings(actualRoles, expectedRoles) {
+		return fmt.Errorf("service-account access token roles do not match: got %q, want %q", actualRoles, expectedRoles)
 	}
 	iat, iatOK := numberClaim(claims["iat"])
 	exp, expOK := numberClaim(claims["exp"])
@@ -782,6 +784,21 @@ func audienceClaim(value any) []string {
 }
 
 func stringSliceClaim(value any) []string { return audienceClaim(value) }
+
+func stringSliceClaimAtPath(claims jwt.MapClaims, path string) []string {
+	var value any = map[string]any(claims)
+	for _, part := range strings.Split(path, ".") {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return nil
+		}
+		value, ok = object[part]
+		if !ok {
+			return nil
+		}
+	}
+	return stringSliceClaim(value)
+}
 
 func numberClaim(value any) (int64, bool) {
 	switch typed := value.(type) {

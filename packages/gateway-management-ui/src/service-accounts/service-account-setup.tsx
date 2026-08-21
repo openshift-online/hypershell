@@ -7,6 +7,7 @@ import {
   CodeBlock,
   CodeBlockAction,
   CodeBlockCode,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -30,6 +31,7 @@ import { messages } from "../messages";
 import {
   buildClientCredentialsScript,
   buildOpenShellServiceAccountScript,
+  buildWorkspaceMembershipCommand,
 } from "./service-account-commands";
 
 function CopyableValue({ label, value }: { label: string; value?: string }) {
@@ -122,47 +124,6 @@ function CopyableCommand({
   );
 }
 
-function downloadCredentialBundle(
-  account: OpenShellGatewayServiceAccountRecord,
-  connection: OpenShellGatewayServiceAccountConnection,
-  clientSecret: string,
-) {
-  const body = JSON.stringify(
-    {
-      credential: {
-        access_token_lifetime_seconds: connection.accessTokenLifetimeSeconds,
-        audience: connection.audience,
-        client_id: connection.clientId,
-        client_secret: clientSecret,
-        gateway_endpoint: connection.gatewayEndpoint,
-        gateway_name: connection.gatewayName,
-        grant_type: "client_credentials",
-        issuer: connection.issuer,
-        token_endpoint: connection.tokenEndpoint,
-      },
-      service_account: {
-        expires_at: account.expiresAt,
-        id: account.id,
-        name: account.name,
-        role: account.role,
-        subject: account.subject,
-      },
-    },
-    undefined,
-    2,
-  );
-  const url = URL.createObjectURL(
-    new Blob([`${body}\n`], { type: "application/json" }),
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${account.name.replaceAll(/[^A-Za-z0-9._-]/gu, "-")}-credentials.json`;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 export function ServiceAccountSetupView({
   account,
   clientSecret,
@@ -189,6 +150,10 @@ export function ServiceAccountSetupView({
     connection,
   );
   const jwtScript = buildClientCredentialsScript(connection);
+  const workspaceMembershipScript =
+    account.role === "openshell-user"
+      ? buildWorkspaceMembershipCommand(account.subject)
+      : undefined;
   const copyClientSecret = async () => {
     if (!clientSecret) {
       return;
@@ -202,17 +167,6 @@ export function ServiceAccountSetupView({
       setSecretCopyFailed(true);
     }
   };
-  const connectionValues = [
-    { descriptor: messages.subject, value: account.subject },
-    { descriptor: messages.issuer, value: connection.issuer },
-    { descriptor: messages.tokenEndpoint, value: connection.tokenEndpoint },
-    { descriptor: messages.gatewayAudience, value: connection.audience },
-    {
-      descriptor: messages.gatewayEndpoint,
-      value: connection.gatewayEndpoint,
-    },
-  ] as const;
-
   return (
     <Stack hasGutter>
       <StackItem>
@@ -308,39 +262,60 @@ export function ServiceAccountSetupView({
               </DescriptionListDescription>
             </DescriptionListGroup>
           ) : null}
-          {connectionValues.map(({ descriptor, value }) => (
-            <DescriptionListGroup key={descriptor.id}>
-              <DescriptionListTerm>
-                {intl.formatMessage(descriptor)}
-              </DescriptionListTerm>
-              <DescriptionListDescription>
-                <CopyableValue
-                  label={intl.formatMessage(descriptor)}
-                  value={value}
-                />
-              </DescriptionListDescription>
-            </DescriptionListGroup>
-          ))}
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              {intl.formatMessage(messages.subject)}
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <Stack hasGutter>
+                <StackItem>
+                  <CopyableValue
+                    label={intl.formatMessage(messages.subject)}
+                    value={account.subject}
+                  />
+                </StackItem>
+                <StackItem>
+                  <Content component="p">
+                    {intl.formatMessage(messages.subjectHelp)}
+                  </Content>
+                </StackItem>
+              </Stack>
+            </DescriptionListDescription>
+          </DescriptionListGroup>
         </DescriptionList>
       </StackItem>
-      <StackItem>
-        <Alert
-          isInline
-          title={intl.formatMessage(messages.workspaceMembershipNote)}
-          variant="info"
-        />
-      </StackItem>
-      {clientSecret ? (
-        <StackItem>
-          <Button
-            onClick={() => {
-              downloadCredentialBundle(account, connection, clientSecret);
-            }}
-            variant="secondary"
-          >
-            {intl.formatMessage(messages.downloadCredentialBundle)}
-          </Button>
-        </StackItem>
+      {account.role === "openshell-user" ? (
+        <>
+          <StackItem>
+            <Alert
+              isInline
+              title={intl.formatMessage(messages.workspaceMembershipNote)}
+              variant="info"
+            />
+          </StackItem>
+          <StackItem>
+            <ExpandableSection
+              toggleText={intl.formatMessage(messages.grantWorkspaceAccess)}
+              toggleWrapper="h3"
+            >
+              <Stack hasGutter>
+                <StackItem>
+                  <Content component="p">
+                    {intl.formatMessage(messages.workspaceGrantInstructions)}
+                  </Content>
+                </StackItem>
+                <StackItem>
+                  <CopyableCommand
+                    copyLabel={intl.formatMessage(
+                      messages.copyWorkspaceGrantCommand,
+                    )}
+                    script={workspaceMembershipScript}
+                  />
+                </StackItem>
+              </Stack>
+            </ExpandableSection>
+          </StackItem>
+        </>
       ) : null}
       <StackItem>
         <ExpandableSection

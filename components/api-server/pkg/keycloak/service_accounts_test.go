@@ -385,7 +385,7 @@ func (f *serviceAccountKeycloak) token(w http.ResponseWriter, r *http.Request) {
 	claims := jwt.MapClaims{
 		"iss": f.server.URL + "/realms/realm", "sub": f.subject,
 		"azp": "hs-sa-gateway-id-resource-id", "aud": []string{audience},
-		"hypershell.roles": wantRoles, "iat": now, "exp": now + f.tokenLifetime,
+		"hypershell": map[string]any{"roles": wantRoles}, "iat": now, "exp": now + f.tokenLifetime,
 	}
 	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("test-key"))
 	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": token, "expires_in": f.tokenLifetime})

@@ -4,6 +4,7 @@ import type { OpenShellGatewayServiceAccountConnection } from "../application/ga
 import {
   buildClientCredentialsScript,
   buildOpenShellServiceAccountScript,
+  buildWorkspaceMembershipCommand,
   serviceAccountGatewayAlias,
 } from "./service-account-commands";
 
@@ -42,6 +43,19 @@ describe("service-account command builders", () => {
     expect(script).toContain("grant_type=client_credentials");
     expect(script).not.toContain("refresh_token");
     expect(script).not.toContain("echo $ACCESS_TOKEN");
+  });
+
+  it("builds a safe gateway-admin workspace membership command", () => {
+    const script = buildWorkspaceMembershipCommand(
+      "subject'$(touch /tmp/subject)",
+    );
+
+    expect(script).toContain("WORKSPACE_NAME='replace-with-workspace-name'");
+    expect(script).toContain("openshell workspace member add");
+    expect(script).toContain('--workspace "$WORKSPACE_NAME"');
+    expect(script).toContain(`--subject 'subject'"'"'$(touch /tmp/subject)'`);
+    expect(script).toContain("--role user");
+    expect(buildWorkspaceMembershipCommand("   ")).toBeUndefined();
   });
 
   it("refuses to generate partial commands", () => {
