@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/hi/go:1.26.5-builder@sha256:fe0672d0b4bf43b502fe7ab4f251c266b558346cd3b8892c7c79b3b5f2c3a92f AS builder
+FROM registry.access.redhat.com/hi/go:1.26.5-builder@sha256:aef155087940a9221c59ca48ad8af371a4c1a46b05f0283737149cb00ef484b3 AS builder
 
 WORKDIR /workspace
 
@@ -17,7 +17,7 @@ COPY components/control-plane/internal/ components/control-plane/internal/
 
 RUN cd components/control-plane && CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
-FROM registry.access.redhat.com/hi/go:1.26.5@sha256:55d95d0bd29598f821931dec7155efd331068bdd84162d7d4b2e7ad66ec6c124
+FROM registry.access.redhat.com/hi/go:1.26.5@sha256:eb29e565caf76cf408a77a73548a3ed62e00e3516c17d02d5f36838aea69a605
 
 COPY --from=builder --chown=1001:0 /workspace/hypershell-controller /usr/local/bin/
 COPY --chown=1001:0 components/control-plane/manifests/ /manifests/
