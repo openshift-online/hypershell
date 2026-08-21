@@ -45,9 +45,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-18
-**Spec corpus**: 30 specs across 5 domains (platform, security, web-console, standards/platform, standards/ui)
-**Codebase commit**: 432b210 (squizzi/hypershell-78/namespace-gc)
+**Last analyzed**: 2026-08-21 (HYPERSHELL-49 spec delta only)
+**Spec corpus**: 40 spec files; the coverage table tracks 31 previously analyzed feature/spec groups after adding OpenShellGatewayServiceAccounts
+**Codebase commit**: 361305e (spec/machine-account-client-secret)
 
 ### Coverage Summary
 
@@ -61,6 +61,7 @@ skills/
 | Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
 | Platform - Gateway Keycloak | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
+| Platform - Gateway Service Accounts | 1 | 15 | 0 | 0 | 15 | 0 | 0% |
 | Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 1 | 2 | 63% |
 | Platform - Namespace GC | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
@@ -70,7 +71,7 @@ skills/
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **30** | **195** | **145** | **18** | **26** | **5** | **74%** |
+| **TOTAL** | **31** | **210** | **145** | **18** | **41** | **5** | **69%** |
 
 ### Spec Dependency Order
 
@@ -83,6 +84,7 @@ Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
 Layer 4.5:        openshell-gateway-secret-rotation (depends on database, credentials, TLS)
 Layer 5:          openshell-gateway-routing (depends on TLS for BackendTLSPolicy)
 Layer 5.5:        openshell-gateway-keycloak (depends on oidc, rbac-enforcement)
+Layer 5.75:       openshell-gateway-service-accounts (depends on keycloak, oidc, rbac-enforcement, security)
 Layer 6:          local-development (depends on all platform specs)
 Layer 1.5:        security/rbac-enforcement (depends on data-model)
 Layer 7:          web-console/architecture (depends on data-model, security, UI standards)
@@ -91,6 +93,33 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
+
+### openshell-gateway-service-accounts.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| SA-1 | Synchronous provisioning and one-time delivery | Missing | No nested create route, reservation, Keycloak provisioning adapter, token-claim verification, or one-time response model | - | SA-W1..W3 |
+| SA-2 | Federated Keycloak is the identity system of record | Missing | API server does not receive Keycloak administration configuration and cannot create a realm-local service-account identity | `deploy/*`, `plugins/` | SA-W3 |
+| SA-3 | Client Credentials token issuance | Missing | No confidential service-account client, five-minute token policy, or platform-enforced credential expiration | - | SA-W3 |
+| SA-4 | Single-gateway isolation | Missing | No derived audience/role-scope mapping or cross-gateway claim verification | - | SA-W3 |
+| SA-5 | User-selected, RBAC-capped OpenShell role | Missing | Nested routes are not recognized by the generic authorizer; no creator ownership, role cap, downgrade, or binding-loss revocation | `pkg/rbac/authorization.go` | SA-W3 |
+| SA-6 | Expiration, revocation, and deletion | Missing | No lifecycle state machine, minute expiry sweep, disable-before-success semantics, or soft deletion | - | SA-W3 |
+| SA-7 | Replacement-based credential rotation | Missing | No create/revoke/delete resource workflow exists | - | SA-W3..W5 |
+| SA-8 | Gateway lifecycle cleanup | Missing | Gateway cleanup deletes only the gateway and console clients; it cannot find or remove service-account clients/records | `control-plane/internal/keycloak/`, gateway delete path | SA-W3 |
+| SA-9 | Secret-safe management UI | Missing | Gateway details has only Connection/Details; no port, adapter, table, form, local-only handoff, commands, or lifecycle dialogs | `packages/gateway-management-ui/`, `components/web-console/` | SA-W5 |
+| SA-10 | CLI and CI workflow | Missing | No service-account commands or secure credential-output workflow; current generator ignores nested resources | `scripts/cli-generator/`, `components/cli/` | SA-W4 |
+| SA-11 | Workspace membership is a separate grant | Missing | No subject-bearing response or UI/CLI explanation | - | SA-W1, W4, W5 |
+| SA-12 | Scopes are not configurable in version 1 | Missing | No constrained create schema or Keycloak scope enforcement exists | - | SA-W1, W3 |
+| SA-13 | Auditability and secret redaction | Missing | No lifecycle audit events; BFF strips no-store headers; Keycloak errors may include raw response bodies | `components/web-console/bff/`, `control-plane/internal/keycloak/` | SA-W3, W5 |
+| SA-14 | Reconciliation and drift repair | Missing | No periodic role/lifecycle/orphan/drift reconciler exists | - | SA-W3 |
+| SA-15 | Verification coverage | Missing | No API, Keycloak, authorization, lifecycle, CLI, or UI tests exist | - | SA-W1..W6 |
+
+**Scoped analysis notes:**
+
+- The existing gateway, User, RoleBinding, and Keycloak-client code is useful infrastructure, but it implements none of the new resource's public behavior.
+- The SDK and CLI generators currently ignore nested collection paths and flatten some arrays/objects. SA-W2 and SA-W4 must extend the generators instead of hand-maintaining generated clients.
+- The spec forbids retrieving or regenerating a delivered client secret during reconciliation, while the full-scope drift scenario asks reconciliation to issue and inspect another Client Credentials token. Creation can perform this token test because it still holds the new secret. Later reconciliation can verify and repair structural Keycloak state but cannot perform a new grant without violating the stronger one-time-secret rule. This remains a specification mismatch; reconciliation will not fetch the secret.
+- The BFF currently drops `Cache-Control` and `Pragma`; the one-time response path must forward them end to end.
 
 ### data-model.spec.md
 
@@ -389,6 +418,19 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 ## Wave Plan
 
+### HYPERSHELL-49 OpenShellGatewayServiceAccount waves
+
+| Wave | Scope | Status |
+|------|-------|--------|
+| SA-W1 | Nested REST/OpenAPI contract with separate create/get/list models and no-store one-time response | Complete |
+| SA-W2 | Extend generators for nested resources and regenerate Go/TypeScript SDKs | In progress |
+| SA-W3 | Persistence, nested RBAC, synchronous Keycloak adapter, lifecycle/reconciliation, cleanup, audit, deployment wiring | Pending |
+| SA-W4 | HyperShell CLI create/list/get/revoke/delete and secret-safe output | Pending |
+| SA-W5 | Gateway-detail Service accounts tab, host adapter, local-only handoff, setup commands, management table | Pending |
+| SA-W6 | Integration verification, alignment, review-guidance audit, and checkpoint closure | Pending |
+
+Waves execute in this order because every later consumer depends on the public contract. Specs stay frozen. Generated SDK and CLI output is regenerated from OpenAPI rather than edited by hand.
+
 ### Wave 1-6: COMPLETED
 
 | Wave | Scope | Status |
@@ -608,3 +650,4 @@ label-selected pod informer.
 | 2026-08-18 | 432b210 | Reconciled namespace-gc + sandbox-count sub-specs | 82% | 2 new platform sub-specs (namespace-gc 6 reqs, sandbox-count 6 reqs), both 100% present. Namespace GC reconciler (dual-label managed-namespace reaping, durable gc-eligible-since grace timer, abort-on-list-failure, GarbageCollected Event, env-configurable). Event-driven sandbox count: atomic Adjust/Set gRPC RPCs (nullable readOnly column), label-selected pod informer with synced-gate + self-heal (drift-to-zero + restart recovery), health reconciler's LIST-based counting removed, legacy `openshell.ai/managed-by` label dropped from code+spec, non-sortable console column adjacent to name with N/A fallback. Coverage: 150/195 present (82%). |
 | 2026-08-19 | d1fc36b | CNPG operator integration (Wave 8 partial) | ~74% | ManagedDatabaseReconciler + GatewayReconciler CNPG provisioning; ManagedDatabase deletion protection; auto fleet/db resolution; CNPG operator detection; credential rotation updated to CNPG Secret (no ALTER ROLE); specs updated (gateway-database, control-plane, local-dev, secret-rotation, gateway core) |
 | 2026-08-20 | working tree | Remove `database_config` field from API, SDK, CLI | ~74% | Field removed from proto/OpenAPI/model/migration/handlers/presenters/sdk-go/cli; pb.go and OpenAPI models regenerated via `make proto` + `make generate` |
+| 2026-08-21 | 361305e | HYPERSHELL-49 scoped gap analysis | 69% | Added 15 OpenShellGatewayServiceAccount requirements, all initially missing. Planned strict API -> SDK -> service/Keycloak -> CLI -> UI -> integration waves. Recorded the post-delivery token-verification contradiction without changing specs. |

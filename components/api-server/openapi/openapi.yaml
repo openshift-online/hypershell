@@ -46,6 +46,12 @@ paths:
     $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways'
   /api/hypershell/v1/gateways/{id}:
     $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{id}'
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts:
+    $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts'
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}:
+    $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}'
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:
+    $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}~1revoke'
   /api/hypershell/v1/gateway_networks:
     $ref: 'openapi.gatewayNetworks.yaml#/paths/~1api~1hypershell~1v1~1gateway_networks'
   /api/hypershell/v1/gateway_networks/{id}:
@@ -130,6 +136,28 @@ components:
       $ref: 'openapi.gateways.yaml#/components/schemas/GatewayList'
     GatewayPatchRequest:
       $ref: 'openapi.gateways.yaml#/components/schemas/GatewayPatchRequest'
+    OpenShellGatewayServiceAccountRole:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountRole'
+    OpenShellGatewayServiceAccountStatus:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountStatus'
+    OpenShellGatewayServiceAccountCreateRequest:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountCreateRequest'
+    OpenShellGatewayServiceAccountListItem:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountListItem'
+    OpenShellGatewayServiceAccountConnection:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountConnection'
+    OpenShellGatewayServiceAccountCredential:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountCredential'
+    OpenShellGatewayServiceAccountGetResponse:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountGetResponse'
+    OpenShellGatewayServiceAccountCreateResponse:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountCreateResponse'
+    OpenShellGatewayServiceAccountExpirationPolicy:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountExpirationPolicy'
+    OpenShellGatewayServiceAccountCapabilities:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountCapabilities'
+    OpenShellGatewayServiceAccountList:
+      $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountList'
     GatewayNetwork:
       $ref: 'openapi.gatewayNetworks.yaml#/components/schemas/GatewayNetwork'
     GatewayNetworkList:
