@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -52,8 +53,9 @@ func (c *Client) Realm() string {
 }
 
 type keycloakClient struct {
-	ID       string `json:"id,omitempty"`
-	ClientID string `json:"clientId"`
+	ID         string            `json:"id,omitempty"`
+	ClientID   string            `json:"clientId"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 type keycloakRole struct {
@@ -127,6 +129,61 @@ func (c *Client) DeleteGatewayClient(ctx context.Context, gatewayName string) er
 		return err
 	}
 	log.Printf("INFO keycloak: deleted client %s", gatewayName)
+	return nil
+}
+
+// DeleteGatewayServiceAccountClients disables and removes every
+// HyperShell-managed service-account client for a gateway. Selection uses the
+// immutable gateway attribute, so it also removes clients orphaned from the API
+// database. All clients are disabled before any are deleted.
+func (c *Client) DeleteGatewayServiceAccountClients(ctx context.Context, gatewayID string) error {
+	const pageSize = 100
+	listed := make([]keycloakClient, 0)
+	for first := 0; ; first += pageSize {
+		path := fmt.Sprintf("/admin/realms/%s/clients?first=%d&max=%d", c.realm, first, pageSize)
+		response, err := c.doRequest(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return errors.New("list Keycloak clients")
+		}
+		var page []keycloakClient
+		if err := json.Unmarshal(response, &page); err != nil {
+			return fmt.Errorf("parse keycloak client list: %w", err)
+		}
+		listed = append(listed, page...)
+		if len(page) < pageSize {
+			break
+		}
+	}
+	managed := make([]string, 0)
+	for _, item := range listed {
+		clientPath := fmt.Sprintf("/admin/realms/%s/clients/%s", c.realm, url.PathEscape(item.ID))
+		body, getErr := c.doRequest(ctx, http.MethodGet, clientPath, nil)
+		if getErr != nil {
+			return errors.New("inspect Keycloak client")
+		}
+		var representation map[string]json.RawMessage
+		if err := json.Unmarshal(body, &representation); err != nil {
+			return fmt.Errorf("parse keycloak client: %w", err)
+		}
+		var attributes map[string]string
+		if raw := representation["attributes"]; len(raw) != 0 {
+			_ = json.Unmarshal(raw, &attributes)
+		}
+		if attributes["hypershell.service-account"] != "true" || attributes["hypershell.gateway-id"] != gatewayID {
+			continue
+		}
+		representation["enabled"], _ = json.Marshal(false)
+		payload, _ := json.Marshal(representation)
+		if _, putErr := c.doRequest(ctx, http.MethodPut, clientPath, payload); putErr != nil {
+			return errors.New("disable gateway service-account client")
+		}
+		managed = append(managed, item.ID)
+	}
+	for _, clientUUID := range managed {
+		if err := c.deleteClientByUUID(ctx, clientUUID); err != nil {
+			return errors.New("delete gateway service-account client")
+		}
+	}
 	return nil
 }
 

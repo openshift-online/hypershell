@@ -3,6 +3,7 @@ import {
   AlertActionCloseButton,
   AlertGroup,
   Button,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -25,6 +26,7 @@ import {
   type GatewayListRequest,
   type GatewayRecord,
   type GatewaySortField,
+  type OpenShellGatewayServiceAccountListRequest,
 } from "../application/gateway-types";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import { useConsoleWaitTracker } from "../gateways/console-wait-tracker";
@@ -56,6 +58,7 @@ import {
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
 import { useDebouncedValue } from "../shared/use-debounced-value";
+import { ServiceAccountsPage } from "../service-accounts/service-accounts-page";
 import { messages } from "../messages";
 import styles from "./gateway-pages.module.css";
 
@@ -495,10 +498,11 @@ export function GatewaysPage({
   );
 }
 
-export type GatewayDetailTab = "connection" | "details";
+export type GatewayDetailTab = "connection" | "details" | "service-accounts";
 
 const gatewayDetailTabs: readonly GatewayDetailTab[] = [
   "connection",
+  "service-accounts",
   "details",
 ];
 
@@ -516,7 +520,12 @@ export interface GatewayPageProps {
   gateway?: GatewayRecord;
   gatewayId: string;
   onDeleted?: (gatewayName: string) => Promise<void> | void;
+  onServiceAccountCollectionStateChange?: (
+    state: OpenShellGatewayServiceAccountListRequest,
+    reason: ResourceTableStateChangeReason,
+  ) => void;
   onTabChange?: (tab: GatewayDetailTab) => void;
+  serviceAccountCollectionState?: OpenShellGatewayServiceAccountListRequest;
 }
 
 export function GatewayPage({
@@ -524,7 +533,9 @@ export function GatewayPage({
   gateway,
   gatewayId,
   onDeleted,
+  onServiceAccountCollectionStateChange,
   onTabChange,
+  serviceAccountCollectionState,
 }: GatewayPageProps) {
   const intl = useIntl();
   const { gateways, navigation } = useGatewayUi();
@@ -612,6 +623,7 @@ export function GatewayPage({
           onSelect={(_event, eventKey) => {
             changeTab(toGatewayDetailTab(String(eventKey)));
           }}
+          unmountOnExit
         >
           <Tab
             eventKey="connection"
@@ -621,7 +633,34 @@ export function GatewayPage({
               </TabTitleText>
             }
           >
+            <Content component="p">
+              <Button
+                isInline
+                onClick={() => {
+                  changeTab("service-accounts");
+                }}
+                variant="link"
+              >
+                <FormattedMessage {...messages.manageServiceAccounts} />
+              </Button>
+            </Content>
             <GatewayConnectionSteps gateway={connection} />
+          </Tab>
+          <Tab
+            eventKey="service-accounts"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.serviceAccountsTab} />
+              </TabTitleText>
+            }
+          >
+            <ServiceAccountsPage
+              collectionState={serviceAccountCollectionState}
+              gatewayId={gatewayId}
+              isActive={currentTab === "service-accounts"}
+              key={gatewayId}
+              onCollectionStateChange={onServiceAccountCollectionStateChange}
+            />
           </Tab>
           <Tab
             eventKey="details"

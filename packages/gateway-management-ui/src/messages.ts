@@ -142,7 +142,7 @@ export const messages = defineMessages({
   },
   connectionTabsLabel: {
     id: "app.gateway.connection.tabsLabel",
-    defaultMessage: "Gateway connection and details",
+    defaultMessage: "Gateway connection, service accounts, and details",
     description: "Accessible label for the gateway detail tabs.",
   },
   copied: {
@@ -500,6 +500,438 @@ export const messages = defineMessages({
     defaultMessage: "Status",
     description: "Heading for a resource status column.",
   },
+  /* eslint-disable sort-keys -- Keep this secret-sensitive workflow's descriptors together so localization review can audit the complete journey as one unit. */
+  serviceAccountsTab: {
+    id: "app.gateway.serviceAccounts.tab",
+    defaultMessage: "Service accounts",
+    description: "Label for the gateway detail service-accounts tab.",
+  },
+  serviceAccountsHeading: {
+    id: "app.gateway.serviceAccounts.heading",
+    defaultMessage: "Service accounts",
+    description: "Heading for gateway-scoped service-account management.",
+  },
+  serviceAccountsDescription: {
+    id: "app.gateway.serviceAccounts.description",
+    defaultMessage:
+      "Use service accounts for automation. Each account exchanges client credentials for short-lived JWTs that work only with this gateway.",
+    description: "Introductory text for gateway service accounts.",
+  },
+  manageServiceAccounts: {
+    id: "app.gateway.serviceAccounts.manage",
+    defaultMessage: "Create or manage service accounts",
+    description:
+      "Link from the interactive connection workflow to service-account management.",
+  },
+  createServiceAccount: {
+    id: "app.gateway.serviceAccounts.create",
+    defaultMessage: "Create service account",
+    description: "Action that creates a gateway service account.",
+  },
+  creatingServiceAccount: {
+    id: "app.gateway.serviceAccounts.creating",
+    defaultMessage: "Creating service account",
+    description: "Progress text while a service account is created.",
+  },
+  refreshServiceAccounts: {
+    id: "app.gateway.serviceAccounts.refresh",
+    defaultMessage: "Refresh service accounts",
+    description: "Accessible label for refreshing service accounts.",
+  },
+  filterServiceAccounts: {
+    id: "app.gateway.serviceAccounts.filter",
+    defaultMessage: "Filter by name or client ID",
+    description: "Label and placeholder for service-account search.",
+  },
+  serviceAccountStatusFilter: {
+    id: "app.gateway.serviceAccounts.statusFilter",
+    defaultMessage: "Filter by status",
+    description: "Accessible label for the service-account status filter.",
+  },
+  allStatuses: {
+    id: "app.gateway.serviceAccounts.allStatuses",
+    defaultMessage: "All statuses",
+    description: "Status-filter option that shows every service account.",
+  },
+  serviceAccountRole: {
+    id: "app.gateway.serviceAccounts.role",
+    defaultMessage: "OpenShell role",
+    description: "Service-account role field and table heading.",
+  },
+  serviceAccountStatusProvisioning: {
+    id: "app.gateway.serviceAccounts.status.provisioning",
+    defaultMessage: "Provisioning",
+    description: "Status while a service-account identity is being created.",
+  },
+  serviceAccountStatusReady: {
+    id: "app.gateway.serviceAccounts.status.ready",
+    defaultMessage: "Ready",
+    description: "Status for a service account that can issue access tokens.",
+  },
+  serviceAccountStatusExpired: {
+    id: "app.gateway.serviceAccounts.status.expired",
+    defaultMessage: "Expired",
+    description: "Status for an expired service account.",
+  },
+  serviceAccountStatusRevoking: {
+    id: "app.gateway.serviceAccounts.status.revoking",
+    defaultMessage: "Revoking",
+    description: "Status while a service account is being revoked.",
+  },
+  serviceAccountStatusRevoked: {
+    id: "app.gateway.serviceAccounts.status.revoked",
+    defaultMessage: "Revoked",
+    description: "Status for a permanently revoked service account.",
+  },
+  serviceAccountStatusDeleting: {
+    id: "app.gateway.serviceAccounts.status.deleting",
+    defaultMessage: "Deleting",
+    description: "Status while a service account is being deleted.",
+  },
+  serviceAccountStatusError: {
+    id: "app.gateway.serviceAccounts.status.error",
+    defaultMessage: "Error",
+    description: "Status for a service account that needs replacement.",
+  },
+  expiration: {
+    id: "app.gateway.serviceAccounts.expiration",
+    defaultMessage: "Expiration",
+    description: "Service-account expiration field and table heading.",
+  },
+  serviceAccountsEmptyTitle: {
+    id: "app.gateway.serviceAccounts.empty.title",
+    defaultMessage: "No service accounts",
+    description: "Heading for a gateway with no service accounts.",
+  },
+  serviceAccountsEmptyBody: {
+    id: "app.gateway.serviceAccounts.empty.body",
+    defaultMessage:
+      "Create a service account when automation needs this gateway.",
+    description: "Guidance for a gateway with no service accounts.",
+  },
+  noMatchingServiceAccounts: {
+    id: "app.gateway.serviceAccounts.noResults.title",
+    defaultMessage: "No matching service accounts",
+    description: "Heading when service-account filters have no matches.",
+  },
+  noMatchingServiceAccountsBody: {
+    id: "app.gateway.serviceAccounts.noResults.body",
+    defaultMessage: "Clear the search and status filter to see all accounts.",
+    description:
+      "Recovery guidance for service-account filters with no matches.",
+  },
+  serviceAccountsLoadError: {
+    id: "app.gateway.serviceAccounts.loadError.title",
+    defaultMessage: "Service accounts could not be loaded",
+    description: "Title for a service-account collection error.",
+  },
+  serviceAccountsLoadErrorBody: {
+    id: "app.gateway.serviceAccounts.loadError.body",
+    defaultMessage: "Your filters are unchanged. Try loading this page again.",
+    description: "Recovery guidance for a service-account collection error.",
+  },
+  serviceAccountOwnScope: {
+    id: "app.gateway.serviceAccounts.ownScope",
+    defaultMessage:
+      "This list contains only service accounts that you created.",
+    description: "Explains creator-scoped service-account visibility.",
+  },
+  serviceAccountCreateDenied: {
+    id: "app.gateway.serviceAccounts.createDenied",
+    defaultMessage:
+      "You do not have permission to create a service account for this gateway.",
+    description: "Explanation for a disabled service-account create action.",
+  },
+  viewServiceAccountDetails: {
+    id: "app.gateway.serviceAccounts.viewDetails",
+    defaultMessage: "View account details",
+    description: "Disclosure control for non-secret service-account metadata.",
+  },
+  serviceAccountDescription: {
+    id: "app.gateway.serviceAccounts.field.description",
+    defaultMessage: "Description (optional)",
+    description: "Label for an optional service-account description.",
+  },
+  clientId: {
+    id: "app.gateway.serviceAccounts.clientId",
+    defaultMessage: "Client ID",
+    description: "Label for an OIDC client identifier.",
+  },
+  clientSecret: {
+    id: "app.gateway.serviceAccounts.clientSecret",
+    defaultMessage: "Client secret",
+    description: "Label for an OIDC client secret.",
+  },
+  subject: {
+    id: "app.gateway.serviceAccounts.subject",
+    defaultMessage: "Subject",
+    description: "Label for a service-account OIDC subject.",
+  },
+  issuer: {
+    id: "app.gateway.serviceAccounts.issuer",
+    defaultMessage: "Issuer",
+    description: "Label for the OIDC issuer.",
+  },
+  tokenEndpoint: {
+    id: "app.gateway.serviceAccounts.tokenEndpoint",
+    defaultMessage: "Token endpoint",
+    description: "Label for the OIDC token endpoint.",
+  },
+  gatewayAudience: {
+    id: "app.gateway.serviceAccounts.audience",
+    defaultMessage: "Gateway audience",
+    description: "Label for the gateway-specific JWT audience.",
+  },
+  serviceAccountName: {
+    id: "app.gateway.serviceAccounts.name",
+    defaultMessage: "Service account name",
+    description: "Label for a service-account name.",
+  },
+  optional: {
+    id: "app.form.optional",
+    defaultMessage: "Optional",
+    description: "Indicates that a form field is optional.",
+  },
+  openshellUserRoleDescription: {
+    id: "app.gateway.serviceAccounts.role.user.description",
+    defaultMessage:
+      "Can authenticate as openshell-user. A gateway administrator must separately add its subject to each workspace it needs.",
+    description: "Explanation of the openshell-user service-account role.",
+  },
+  openshellAdminRoleDescription: {
+    id: "app.gateway.serviceAccounts.role.admin.description",
+    defaultMessage:
+      "Can perform OpenShell administrative operations on this gateway.",
+    description: "Explanation of the openshell-admin service-account role.",
+  },
+  serviceAccountValidity: {
+    id: "app.gateway.serviceAccounts.validity",
+    defaultMessage: "Service account validity",
+    description: "Label for a service-account validity duration.",
+  },
+  serviceAccountValidityOption: {
+    id: "app.gateway.serviceAccounts.validity.option",
+    defaultMessage: "{hours, plural, one {# hour} other {# hours}}",
+    description: "Duration option for service-account validity.",
+  },
+  serviceAccountExpiresPreview: {
+    id: "app.gateway.serviceAccounts.expiration.preview",
+    defaultMessage: "Expires {expiration}.",
+    description: "Absolute expiration preview before service-account creation.",
+  },
+  serviceAccountTokenLifetimeNote: {
+    id: "app.gateway.serviceAccounts.expiration.tokenNote",
+    defaultMessage:
+      "Account expiration stops future token grants. Each access token has a separate short lifetime.",
+    description: "Distinguishes service-account and access-token expiration.",
+  },
+  serviceAccountCreateError: {
+    id: "app.gateway.serviceAccounts.createError.title",
+    defaultMessage: "Service account could not be created",
+    description: "Title for a definitive service-account create failure.",
+  },
+  serviceAccountCreateErrorBody: {
+    id: "app.gateway.serviceAccounts.createError.body",
+    defaultMessage: "Review the values and try again.",
+    description: "Recovery guidance for a definitive create failure.",
+  },
+  serviceAccountCreateUncertain: {
+    id: "app.gateway.serviceAccounts.createUncertain.title",
+    defaultMessage: "The create result is uncertain",
+    description: "Title when one-time credential delivery fails ambiguously.",
+  },
+  serviceAccountCreateUncertainBody: {
+    id: "app.gateway.serviceAccounts.createUncertain.body",
+    defaultMessage:
+      "Refresh the list. If the account exists, delete it and create a replacement. Retrying this request cannot recover its client secret.",
+    description: "Recovery guidance for an uncertain create result.",
+  },
+  serviceAccountSetupTitle: {
+    id: "app.gateway.serviceAccounts.setup.title",
+    defaultMessage: "Set up {serviceAccountName}",
+    description: "Title for one-time or repeatable service-account setup.",
+  },
+  serviceAccountSecretOnce: {
+    id: "app.gateway.serviceAccounts.secretOnce",
+    defaultMessage:
+      "Save this client secret now. HyperShell cannot show it again.",
+    description: "One-time client-secret warning.",
+  },
+  serviceAccountSecretUnavailable: {
+    id: "app.gateway.serviceAccounts.secretUnavailable",
+    defaultMessage:
+      "The client secret is no longer available. Use the secret you saved, or create a replacement service account.",
+    description: "Explanation for repeatable setup without a client secret.",
+  },
+  showClientSecret: {
+    id: "app.gateway.serviceAccounts.secret.show",
+    defaultMessage: "Show client secret",
+    description: "Action that reveals a masked client secret.",
+  },
+  hideClientSecret: {
+    id: "app.gateway.serviceAccounts.secret.hide",
+    defaultMessage: "Hide client secret",
+    description: "Action that masks a client secret.",
+  },
+  copyClientSecret: {
+    id: "app.gateway.serviceAccounts.secret.copy",
+    defaultMessage: "Copy client secret",
+    description: "Action that copies the client secret.",
+  },
+  clientSecretCopied: {
+    id: "app.gateway.serviceAccounts.secret.copied",
+    defaultMessage: "Client secret copied",
+    description: "Feedback after copying a client secret.",
+  },
+  serviceAccountCopyFailed: {
+    id: "app.gateway.serviceAccounts.copyFailed",
+    defaultMessage:
+      "Could not copy to the clipboard. Copy the value manually or try again.",
+    description:
+      "Recovery guidance when copying service-account setup data fails.",
+  },
+  downloadCredentialBundle: {
+    id: "app.gateway.serviceAccounts.download",
+    defaultMessage: "Download credential bundle",
+    description: "Action that downloads the one-time credential bundle.",
+  },
+  openShellCliSetup: {
+    id: "app.gateway.serviceAccounts.setup.openshell",
+    defaultMessage: "Use with the OpenShell CLI",
+    description: "Heading for supported OpenShell CLI setup commands.",
+  },
+  exchangeCredentialsForJwt: {
+    id: "app.gateway.serviceAccounts.setup.jwt",
+    defaultMessage: "Exchange credentials for a JWT",
+    description: "Heading for advanced Client Credentials commands.",
+  },
+  copyOpenShellServiceAccountCommands: {
+    id: "app.gateway.serviceAccounts.setup.copyOpenShell",
+    defaultMessage: "Copy OpenShell CLI setup commands",
+    description: "Accessible label for copying the OpenShell command group.",
+  },
+  copyJwtExchangeCommands: {
+    id: "app.gateway.serviceAccounts.setup.copyJwt",
+    defaultMessage: "Copy JWT exchange commands",
+    description: "Accessible label for copying the JWT command group.",
+  },
+  serviceAccountCommandsUnavailable: {
+    id: "app.gateway.serviceAccounts.setup.unavailable",
+    defaultMessage:
+      "Setup commands are unavailable because required connection metadata is missing.",
+    description: "Explanation when a complete command cannot be generated.",
+  },
+  workspaceMembershipNote: {
+    id: "app.gateway.serviceAccounts.workspaceMembership",
+    defaultMessage:
+      "An openshell-user service account does not inherit your workspace access. A gateway administrator must grant its subject membership in each workspace.",
+    description: "Explains the separate OpenShell workspace grant.",
+  },
+  acknowledgeSecretSaved: {
+    id: "app.gateway.serviceAccounts.secret.acknowledge",
+    defaultMessage: "I saved the client secret in a secure secret manager.",
+    description: "Required acknowledgement before completing one-time setup.",
+  },
+  finishSetup: {
+    id: "app.gateway.serviceAccounts.setup.finish",
+    defaultMessage: "Finish setup",
+    description: "Action that completes acknowledged one-time setup.",
+  },
+  closeSetup: {
+    id: "app.gateway.serviceAccounts.setup.close",
+    defaultMessage: "Close setup instructions",
+    description: "Action that closes repeatable non-secret setup instructions.",
+  },
+  leaveWithoutSecretTitle: {
+    id: "app.gateway.serviceAccounts.secret.leave.title",
+    defaultMessage: "Leave without saving the client secret?",
+    description: "Title for the one-time secret-loss confirmation.",
+  },
+  leaveWithoutSecretBody: {
+    id: "app.gateway.serviceAccounts.secret.leave.body",
+    defaultMessage:
+      "HyperShell cannot recover this secret. You must delete this service account and create a replacement.",
+    description: "Consequence of closing one-time setup without saving.",
+  },
+  leaveSetup: {
+    id: "app.gateway.serviceAccounts.secret.leave",
+    defaultMessage: "Leave setup",
+    description: "Confirms loss of an unsaved one-time secret.",
+  },
+  returnToSetup: {
+    id: "app.gateway.serviceAccounts.secret.return",
+    defaultMessage: "Return to setup",
+    description: "Returns from secret-loss confirmation to one-time setup.",
+  },
+  serviceAccountRowActions: {
+    id: "app.gateway.serviceAccounts.rowActions",
+    defaultMessage: "Actions for service account {serviceAccountName}",
+    description: "Accessible label for a service-account row actions menu.",
+  },
+  viewSetupInstructions: {
+    id: "app.gateway.serviceAccounts.viewSetup",
+    defaultMessage: "View setup instructions",
+    description: "Action that opens repeatable non-secret setup instructions.",
+  },
+  revokeServiceAccount: {
+    id: "app.gateway.serviceAccounts.revoke",
+    defaultMessage: "Revoke service account",
+    description: "Action that permanently revokes a service account.",
+  },
+  deleteServiceAccount: {
+    id: "app.gateway.serviceAccounts.delete",
+    defaultMessage: "Delete service account",
+    description: "Action that deletes a service account and Keycloak identity.",
+  },
+  revokeServiceAccountTitle: {
+    id: "app.gateway.serviceAccounts.revoke.title",
+    defaultMessage: "Revoke {serviceAccountName}?",
+    description: "Title for service-account revoke confirmation.",
+  },
+  revokeServiceAccountBody: {
+    id: "app.gateway.serviceAccounts.revoke.body",
+    defaultMessage:
+      "Keycloak will permanently stop issuing new access tokens. Tokens already issued can work until they expire. The account will remain here for audit and later deletion.",
+    description: "Consequences shown before service-account revocation.",
+  },
+  deleteServiceAccountTitle: {
+    id: "app.gateway.serviceAccounts.delete.title",
+    defaultMessage: "Delete {serviceAccountName}?",
+    description: "Title for service-account delete confirmation.",
+  },
+  deleteServiceAccountBody: {
+    id: "app.gateway.serviceAccounts.delete.body",
+    defaultMessage:
+      "This removes the Keycloak identity and the visible service account. A ready account is revoked first. Tokens already issued can work until they expire.",
+    description: "Consequences shown before service-account deletion.",
+  },
+  revokingServiceAccount: {
+    id: "app.gateway.serviceAccounts.revoking",
+    defaultMessage: "Revoking service account",
+    description: "Progress text while a service account is revoked.",
+  },
+  deletingServiceAccount: {
+    id: "app.gateway.serviceAccounts.deleting",
+    defaultMessage: "Deleting service account",
+    description: "Progress text while a service account is deleted.",
+  },
+  serviceAccountActionError: {
+    id: "app.gateway.serviceAccounts.actionError.title",
+    defaultMessage: "The service account could not be updated",
+    description: "Title for a service-account lifecycle action failure.",
+  },
+  serviceAccountActionErrorBody: {
+    id: "app.gateway.serviceAccounts.actionError.body",
+    defaultMessage:
+      "No confirmed change was reported. Try again or refresh the list.",
+    description: "Recovery guidance for a lifecycle action failure.",
+  },
+  loadingServiceAccount: {
+    id: "app.gateway.serviceAccounts.loadingOne",
+    defaultMessage: "Loading service account",
+    description: "Status while loading service-account setup metadata.",
+  },
+  /* eslint-enable sort-keys */
   unavailableGatewayConsole: {
     id: "app.gateway.unavailableConsole",
     defaultMessage: "Console unavailable for this gateway",

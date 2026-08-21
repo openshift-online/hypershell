@@ -11,6 +11,7 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/managedDatabase"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/role"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/roleBinding"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/serviceAccount"
 )
 
 var Cmd = &cobra.Command{
@@ -28,4 +29,5 @@ func init() {
 	Cmd.AddCommand(managedDatabase.Cmd)
 	Cmd.AddCommand(role.Cmd)
 	Cmd.AddCommand(roleBinding.Cmd)
+	Cmd.AddCommand(serviceAccount.Cmd)
 }

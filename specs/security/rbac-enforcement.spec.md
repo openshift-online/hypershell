@@ -3,6 +3,7 @@
 **Date:** 2026-08-12
 **Status:** Draft
 **Related:** `platform/data-model.spec.md` (domain model), `platform/openshell-gateway-oidc.spec.md` (gateway OIDC), `standards/security/security.spec.md` (security standards)
+**OpenShell gateway service accounts:** `platform/openshell-gateway-service-accounts.spec.md` (delegated service-account identities)
 
 ---
 
@@ -101,12 +102,12 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 ### Permission Matrix
 
-| Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping |
-|------|----------|-------------|-------------|-------------------|
-| `platform:admin` | view all, delete any | view all + delete any | -- | -- |
-| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways |
-| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway |
-| `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway |
+| Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts |
+|------|----------|-------------|-------------|-------------------|-----------------|
+| `platform:admin` | view all, delete any | view all + delete any | -- | -- | None without a gateway binding |
+| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways | Through the resulting owner binding |
+| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. |
+| `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. |
 
 ### OpenShell Role Bridge
 
@@ -515,3 +516,4 @@ Integration tests SHALL exercise RBAC enforcement with the new four-role model.
 | Fleet is not a security boundary | Fleet is an organizational grouping. RBAC operates at platform level (creator) and gateway level (owner/viewer). |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
+| OpenShellGatewayServiceAccount role limit | A gateway binding limits the selected OpenShell role. Owners can select `openshell-user` or `openshell-admin`. Viewers can select only `openshell-user`. Each OpenShellGatewayServiceAccount remains bound to its creator. A binding change can downgrade or revoke it. |

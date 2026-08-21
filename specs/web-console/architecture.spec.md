@@ -336,7 +336,7 @@ React components SHALL be implemented semantically and tested through user-obser
 
 ### Requirement WEB-UI-03: Gateway Connection Experience
 
-The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, creation date, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. When the gateway table reflows into its narrow responsive presentation, each row's actions trigger SHALL remain in the top-end corner rather than become a trailing content row. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The gateway detail page SHALL organize these capabilities into the connection-forward tabbed experience defined in `WEB-UI-05`: the login CLI command SHALL appear as a read-only PatternFly Clipboard Copy value within the Connection tab's login step rather than as a page-header action, and the operational description list SHALL appear under the Details tab. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows, and the Open gateway console action SHALL remain a header action.
+The gateway landing page SHALL make the shortest useful OpenShell workflow available. Every visible gateway SHALL provide its name, readiness, placement cluster, creation date, endpoint, a link to gateway details, and a row actions menu. The row actions menu SHALL provide the gateway-console link, a copyable `openshell gateway add` command, gateway renaming, and gateway deletion. Copying from the menu SHALL produce visible success or failure feedback. When the gateway table reflows into its narrow responsive presentation, each row's actions trigger SHALL remain in the top-end corner rather than become a trailing content row. The same console, CLI connection, rename, and delete capabilities SHALL remain available on the gateway detail page. The gateway detail page SHALL organize these capabilities into the tabbed experience defined in `WEB-UI-05`. The login command SHALL appear in `Connection`, service-account management SHALL appear in `Service accounts`, and operational values SHALL appear in `Details`. Rename and delete SHALL be grouped in a PatternFly Actions dropdown at the far right of the header so infrequent management operations do not compete with connection workflows, and the Open gateway console action SHALL remain a header action.
 
 Gateway renaming SHALL use the existing `PATCH /gateways/{id}` contract and send only the trimmed `name` field. Both rename entry points SHALL use the same required-field validation, prevent unchanged or duplicate submission, preserve user input with recovery guidance on failure, update gateway detail and breadcrumb cache state, invalidate the collection, and provide visible success feedback.
 
@@ -470,9 +470,17 @@ Managed-cluster search SHALL execute at the API through the gateway application 
 - THEN the Cluster value SHALL show the managed cluster's name
 - AND it SHALL NOT show the managed cluster identifier
 
-### Requirement WEB-UI-05: Gateway Detail Connection Walkthrough
+### Requirement WEB-UI-05: Gateway Detail Connection and Service Accounts
 
-The gateway detail page SHALL present a connection-forward experience. The page header SHALL retain the gateway name, inline status, the Open gateway console action, and the rename/delete Actions dropdown defined in `WEB-UI-03`. Below the header, the page SHALL use a PatternFly Tabs component with two tabs: a default-selected `Connection` tab and a `Details` tab. The selected tab SHALL be encoded in validated URL state per `WEB-DATA-02` so the tab is shareable and survives refresh, and an unrecognized tab value SHALL fall back to `Connection`.
+The gateway detail page SHALL present a connection-forward experience. The page header SHALL retain the gateway name, inline status, the Open gateway console action, and the rename/delete Actions dropdown defined in `WEB-UI-03`.
+
+Below the header, the page SHALL use PatternFly Tabs with these primary tabs in order:
+
+1. `Connection`
+2. `Service accounts`
+3. `Details`
+
+The selected tab SHALL use the validated `tab` search parameter per `WEB-DATA-02`. Its values SHALL be `connection`, `service-accounts`, and `details`. A shared URL and browser refresh SHALL reopen the selected tab. Browser Back and Forward SHALL restore the previous selection. A missing or invalid value SHALL select `Connection`.
 
 The `Details` tab SHALL contain the existing gateway description list (status, cluster, endpoint, CLI connection command, namespace, release identifier, and managed-database identifier), using the same values, loading, unavailable, and placement-resolution behavior required elsewhere in this specification.
 
@@ -484,9 +492,19 @@ The `Connection` tab SHALL guide the user through three ordered steps using an a
 
 3. **Create a sandbox.** The step SHALL present an `openshell sandbox create` command that names a sandbox, attaches the provider from step 2, and launches the agent, as a read-only Clipboard Copy value.
 
+The `Connection` tab SHALL also contain a secondary `Create or manage service accounts` link with its introductory content, before the walkthrough. The link SHALL set `tab=service-accounts`. It SHALL not start a create operation.
+
+The `Service accounts` tab SHALL own the gateway-scoped automation identity workflow. It SHALL include the heading, create action, responsive collection, one-time credential handoff, command groups, and lifecycle actions defined in [`openshell-gateway-service-accounts.spec.md`](../platform/openshell-gateway-service-accounts.spec.md).
+
+The tab SHALL use the canonical shared resource-table components. It SHALL consume service-account operations through the gateway management UI package's application port and the host API adapter.
+
+The UI SHALL obtain the create action, allowed roles, and account-scope explanation from the server-provided service-account capabilities. It SHALL not infer them from browser session roles or visible rows.
+
+The one-time view SHALL keep the client secret in local component state only. It SHALL not place the secret in a TanStack Query query or mutation cache, navigation state, application context, or a domain probe.
+
 Every Clipboard Copy control SHALL have a localized accessible name and visible success feedback, and each command SHALL remain usable at narrow viewport widths without causing page-level horizontal overflow. Step commands other than the login command describe the OpenShell CLI workflow and SHALL NOT be presented as authorized live values from the HyperShell API; user- or environment-specific values the console cannot supply SHALL be shown as clearly editable placeholders or read from the user's own environment by the CLI. The provider and sandbox steps SHALL NOT issue HyperShell API requests.
 
-**Verification:** Open a gateway detail page and confirm the `Connection` tab is selected by default, the header retains the console, rename, and delete actions, and the `Details` tab renders the former description list unchanged. Switch tabs and confirm the selection is encoded in the URL, restored on refresh, and defaults to `Connection` for an unrecognized value. Copy each step command and verify visible success feedback and accessible names. Feed a gateway with connection values absent and confirm step 1 reports login as unavailable without a partial command. Inspect the composed page and confirm the provider and sandbox steps issue no HyperShell API requests and expose no Google Cloud credentials, and that step 2's expandable details document the ADC prerequisite, environment variables, inference routing command, and the `inference.local` / `CLAUDE_CODE_USE_VERTEX` caveats. Exercise keyboard, screen-reader, zoom, and narrow-viewport behavior for the tabs and each step.
+**Verification:** Open a gateway detail page and confirm `Connection` is selected by default. Confirm that `Service accounts` is the second tab and `Details` renders the former description list unchanged. Switch tabs and confirm the URL, refresh, and browser Back and Forward restore selection. Confirm a missing or invalid value selects `Connection`. Use the automation link and confirm it selects `Service accounts` without a mutation. Copy each interactive command and verify visible feedback and accessible names. Feed a gateway with missing connection values and confirm that the login step reports the problem without a partial command. Confirm that the provider details retain the ADC prerequisite, environment variables, inference-routing command, and `inference.local` and `CLAUDE_CODE_USE_VERTEX` caveats. Confirm that the provider and sandbox steps issue no HyperShell API requests and expose no Google Cloud credentials. Exercise the service-account collection, create form, one-time view, setup commands, revoke, delete, loading, empty, no-match, error, and uncertain-create states. Register both an interactive and a service-account connection to one gateway and confirm that their local aliases do not collide. Confirm the client secret never enters query data, navigation state, context, probes, logs, or URLs. Exercise keyboard, screen-reader, zoom, localization, RTL, and narrow-viewport behavior for the complete journey.
 
 #### Scenario: Connection Tab Is the Default
 
@@ -494,7 +512,16 @@ Every Clipboard Copy control SHALL have a localized accessible name and visible 
 - WHEN the page renders
 - THEN the `Connection` tab SHALL be selected
 - AND the three ordered connection steps SHALL be visible
+- AND the `Service accounts` tab SHALL be available
 - AND the operational description list SHALL be available under the `Details` tab
+
+#### Scenario: Automation link opens service-account management
+
+- GIVEN an authenticated user is viewing the `Connection` tab
+- WHEN the user activates `Create or manage service accounts`
+- THEN the `Service accounts` tab SHALL become selected
+- AND the selected tab SHALL be encoded in the URL
+- AND the UI SHALL not create a service account until the user submits the create form
 
 #### Scenario: Login Command Uses Authorized Values
 
@@ -625,6 +652,8 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 - platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner` or `gateway:viewer` bindings;
 - a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
+- gateway-scoped service-account list, create, get, revoke, and delete contracts;
+- one-time service-account credential delivery, repeatable non-secret setup metadata, and browser-safe service-account capability metadata;
 - authorization behavior and browser-safe capability/permission metadata;
 - stable error envelopes with field errors and a support-safe operation identifier;
 - idempotency or duplicate-submission behavior for consequential creates;

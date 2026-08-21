@@ -1,0 +1,93 @@
+package serviceaccount
+
+import (
+	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/openshift-online/hypershell/components/cli/pkg/config"
+	"github.com/openshift-online/hypershell/components/cli/pkg/connection"
+)
+
+func TestExpiration(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	got, err := Expiration("", "30d", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "2026-09-20T12:00:00Z"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for _, test := range []struct {
+		name      string
+		expiresAt string
+		expiresIn string
+	}{
+		{name: "mutually exclusive", expiresAt: now.Format(time.RFC3339), expiresIn: "1h"},
+		{name: "zero", expiresIn: "0h"},
+		{name: "too many days", expiresIn: "366d"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Expiration(test.expiresAt, test.expiresIn, now); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
+
+func TestWriteStructuredCreatesPrivateFileWithoutOverwrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credential.json")
+	body := []byte(`{"credential":{"client_secret":"secret-value"}}`)
+	if err := WriteStructured(io.Discard, path, body); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("file mode is %o, want 600", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("secret-value")) || !bytes.Contains(data, []byte("workspace_membership_note")) {
+		t.Fatalf("credential output is incomplete: %s", data)
+	}
+	if err := WriteStructured(io.Discard, path, body); err == nil {
+		t.Fatal("expected existing output file to be rejected")
+	}
+}
+
+func TestRequestDoesNotExposeUnstructuredResponseBody(t *testing.T) {
+	const secret = "must-not-leak"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(`{"client_secret":"` + secret + `"}`))
+	}))
+	defer server.Close()
+
+	conn, err := connection.NewConnection().Config(&config.Config{
+		URL:         server.URL,
+		AccessToken: "management-token",
+	}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_, _, err = Request(conn, http.MethodGet, "/failure", nil, nil, http.StatusOK)
+	if err == nil {
+		t.Fatal("expected request to fail")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error exposed response body: %v", err)
+	}
+}

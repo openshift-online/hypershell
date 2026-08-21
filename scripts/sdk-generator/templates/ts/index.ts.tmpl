@@ -6,8 +6,14 @@
 export { SDKClient } from './client.js';
 export type { SDKClientConfig, ListOptions, RequestOptions, ObjectReference, ListMeta, APIError } from './base.js';
 export { SDKAPIError, buildQueryString } from './base.js';
-{{range .Spec.Resources}}
+{{range .Spec.Resources}}{{$resource := .}}
+{{if .Scoped}}
+{{range .Models}}export type { {{.Name}} } from './{{$resource.Name | snakeCase}}.js';
+{{end}}export type { {{.Name}}ListOptions } from './{{.Name | snakeCase}}.js';
+export { {{.Name}}API } from './{{.Name | snakeCase}}_api.js';
+{{else}}
 export type { {{.Name}}, {{.Name}}List, {{.Name}}CreateRequest, {{.Name}}PatchRequest{{if .HasStatusPatch}}, {{.Name}}StatusPatchRequest{{end}} } from './{{.Name | snakeCase}}.js';
 export { {{.Name}}Builder, {{.Name}}PatchBuilder{{if .HasStatusPatch}}, {{.Name}}StatusPatchBuilder{{end}} } from './{{.Name | snakeCase}}.js';
 export { {{.Name}}API } from './{{.Name | snakeCase}}_api.js';
+{{end}}
 {{end}}

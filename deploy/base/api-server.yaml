@@ -79,6 +79,31 @@ spec:
               name: grpc
             - containerPort: 8434
               name: health
+          env:
+            - name: HYPERSHELL_KEYCLOAK_ADMIN_SERVER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-keycloak-admin
+                  key: server-url
+                  optional: true
+            - name: HYPERSHELL_KEYCLOAK_ADMIN_REALM
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-keycloak-admin
+                  key: realm
+                  optional: true
+            - name: HYPERSHELL_KEYCLOAK_ADMIN_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-keycloak-admin
+                  key: client-id
+                  optional: true
+            - name: HYPERSHELL_KEYCLOAK_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-keycloak-admin
+                  key: client-secret
+                  optional: true
           startupProbe:
             httpGet:
               path: /healthcheck

@@ -73,10 +73,12 @@ generate-sdk-go:
 	find "$(SDK_GO_DIR)" -type f -name '*.go' -exec perl -i -p \
 		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|;' \
 		-e 's|^// Generated:.*\n?||;' {} +
+	gofmt -w "$(SDK_GO_DIR)"
 
 generate-cli:
 	test -f "$(CLI_GENERATOR_DIR)/go.mod"
-	rm -rf "$(CLI_DIR)/cmd" "$(CLI_DIR)/pkg"
+	# Preserve the reviewed apply/delete commands; generated files are replaced
+	# in place and scoped-resource commands are added alongside them.
 	cd "$(CLI_GENERATOR_DIR)" && GOWORK=off go run . \
 		--spec "$(OPENAPI_SPEC)" \
 		--out "$(CLI_DIR)" \
@@ -96,6 +98,7 @@ generate-sdk-ts:
 	find "$(SDK_TYPESCRIPT_DIR)/src" -type f -name '*.ts' -exec perl -i -p \
 		-e 's|^// Source: .*|// Source: components/api-server/openapi/openapi.yaml|;' \
 		-e 's|^// Generated:.*\n?||;' {} +
+	find "$(SDK_TYPESCRIPT_DIR)/src" -type f -name '*.ts' -exec perl -0777 -i -pe 's/\n+\z/\n/' {} +
 
 .PHONY: db/setup
 db/setup:

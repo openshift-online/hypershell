@@ -4,6 +4,7 @@
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
 **Related:** `openshell-gateway-keycloak.spec.md` - automated per-gateway Keycloak provisioning; `openshell-gateway-tls.spec.md` - TLS certificate management; `openshell-gateway-routing.spec.md` - external connectivity
+**OpenShell gateway service accounts:** `openshell-gateway-service-accounts.spec.md` - Client Credentials for automation
 
 ---
 
@@ -20,8 +21,9 @@ OIDC configuration is auto-provisioned by the control plane when a gateway is re
 ### Authentication Flow
 
 ```
-CLI User
-    │  1. Obtains OIDC token from IdP (Keycloak password grant or browser flow)
+CLI User or OpenShellGatewayServiceAccount
+    │  1. Obtains OIDC token from IdP (interactive browser/device flow or
+    │     non-interactive Client Credentials grant)
     │  2. Connects to gateway with Bearer token in Authorization header
     ▼
 OpenShell Gateway
@@ -152,26 +154,26 @@ The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a g
 ## CLI Authentication Flow
 
 ```bash
-# 1. Get OIDC token (password grant for CI automation, browser PKCE flow for interactive)
-#    client_id is the per-gateway Keycloak client ({name}-{id}, public, no client_secret needed for PKCE)
-#    The client_id is available from the gateway's oidc.client_id field.
-TOKEN=$(curl -sk -X POST \
-  "https://${KC_HOST}/realms/hypershell/protocol/openid-connect/token" \
-  -d "grant_type=password" \
-  -d "client_id=${GATEWAY_OIDC_CLIENT_ID}" \
-  -d "username=${KC_USERNAME}" \
-  -d "password=${KC_PASSWORD}" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+# Interactive users authenticate the public per-gateway client through
+# Authorization Code + PKCE or Device Authorization. Automation uses a
+# gateway-scoped OpenShellGatewayServiceAccount and performs Client Credentials on demand.
+# It does not use or store a human username and password.
 
-# 2. Login to hsctl
+# 1. Login to hsctl with the user's management-plane token
 hsctl login --token "$TOKEN" --url "$API_URL" --insecure-skip-tls-verify
 
-# 3. Register openshell CLI with gateway
+# 2. Register the OpenShell CLI with the gateway
 hsctl gateway setup-cli --gateway-url "$GATEWAY_URL"
 
-# 4. Use openshell CLI
+# 3. Use OpenShell interactively
 OPENSHELL_GATEWAY_INSECURE=true openshell -g "$GATEWAY_NAME" status
 OPENSHELL_GATEWAY_INSECURE=true openshell -g "$GATEWAY_NAME" sandbox create --name demo
 ```
+
+For CI, create an OpenShellGatewayServiceAccount through HyperShell. Store its client ID and
+client secret in the CI secret manager. The supported OpenShell integration
+requests short-lived access tokens with `grant_type=client_credentials`.
+See [`openshell-gateway-service-accounts.spec.md`](./openshell-gateway-service-accounts.spec.md).
 
 ---
 
@@ -180,8 +182,8 @@ OPENSHELL_GATEWAY_INSECURE=true openshell -g "$GATEWAY_NAME" sandbox create --na
 | Symptom | Root Cause | Fix |
 |---|---|---|
 | `role 'openshell-user' required` | OIDC `roles_claim` misconfigured or user lacks the required Keycloak client role | Verify user has a RoleBinding and the OIDC Role Bridge has assigned the Keycloak client role |
-| `Invalid client or Invalid client credentials` | Wrong client_secret or client_id | Check `hypershell-keycloak-admin` Secret |
-| Token expires after 5 minutes | Keycloak access token TTL | Use refresh token or increase session timeout |
+| `Invalid client or Invalid client credentials` | The client ID or secret is incorrect. The OpenShellGatewayServiceAccount can also be revoked, expired, or deleted. | Verify the client ID and lifecycle state. Never print the client secret. |
+| Token expires after 5 minutes | Keycloak access-token lifetime | Interactive users refresh their session. OpenShellGatewayServiceAccounts perform another Client Credentials grant without a refresh token. |
 | `openshell gateway add` opens browser | No `--no-browser` flag | Write `metadata.json` directly, then use `hsctl gateway setup-cli` |
 | `GROUPS` env var returns `1000` in bash | Bash builtin collision - `GROUPS` is a reserved readonly array | Use `USER_GROUPS` instead of `GROUPS` for role/group env vars |
 | `openshell sandbox create` hangs | Blocking interactive command | Background the command and poll for pod status; use `ExecSandbox` for runner startup |

@@ -137,17 +137,31 @@ func generateGo(spec *Spec, outDir string, header GeneratedHeader) error {
 	if err != nil {
 		return fmt.Errorf("load client template: %w", err)
 	}
+	scopedTypesTmpl, err := loadTemplate(filepath.Join(tmplDir, "scoped_types.go.tmpl"))
+	if err != nil {
+		return fmt.Errorf("load scoped types template: %w", err)
+	}
+	scopedClientTmpl, err := loadTemplate(filepath.Join(tmplDir, "scoped_client.go.tmpl"))
+	if err != nil {
+		return fmt.Errorf("load scoped client template: %w", err)
+	}
 
 	for _, r := range spec.Resources {
 		data := templateData{Header: header, Resource: r, Spec: spec}
 		fileName := toSnakeCase(r.Name) + ".go"
+		selectedTypesTmpl := typesTmpl
+		selectedClientTmpl := clientTmpl
+		if r.Scoped {
+			selectedTypesTmpl = scopedTypesTmpl
+			selectedClientTmpl = scopedClientTmpl
+		}
 
-		if err := executeTemplate(typesTmpl, filepath.Join(typesDir, fileName), data); err != nil {
+		if err := executeTemplate(selectedTypesTmpl, filepath.Join(typesDir, fileName), data); err != nil {
 			return fmt.Errorf("execute types template for %s: %w", r.Name, err)
 		}
 
 		apiFileName := toSnakeCase(r.Name) + "_api.go"
-		if err := executeTemplate(clientTmpl, filepath.Join(clientDir, apiFileName), data); err != nil {
+		if err := executeTemplate(selectedClientTmpl, filepath.Join(clientDir, apiFileName), data); err != nil {
 			return fmt.Errorf("execute client template for %s: %w", r.Name, err)
 		}
 	}
@@ -180,6 +194,7 @@ func generateGo(spec *Spec, outDir string, header GeneratedHeader) error {
 }
 
 func generatePython(spec *Spec, outDir string, header GeneratedHeader) error {
+	spec = unscopedSpec(spec)
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return err
 	}
@@ -269,16 +284,30 @@ func generateTypeScript(spec *Spec, outDir string, header GeneratedHeader) error
 	if err != nil {
 		return fmt.Errorf("load client template: %w", err)
 	}
+	scopedTypesTmpl, err := loadTemplate(filepath.Join(tmplDir, "scoped_types.ts.tmpl"))
+	if err != nil {
+		return fmt.Errorf("load scoped TypeScript types template: %w", err)
+	}
+	scopedClientTmpl, err := loadTemplate(filepath.Join(tmplDir, "scoped_client.ts.tmpl"))
+	if err != nil {
+		return fmt.Errorf("load scoped TypeScript client template: %w", err)
+	}
 
 	for _, r := range spec.Resources {
 		data := templateData{Header: header, Resource: r, Spec: spec}
 		fileName := toSnakeCase(r.Name) + ".ts"
-		if err := executeTemplate(typesTmpl, filepath.Join(srcDir, fileName), data); err != nil {
+		selectedTypesTmpl := typesTmpl
+		selectedClientTmpl := clientTmpl
+		if r.Scoped {
+			selectedTypesTmpl = scopedTypesTmpl
+			selectedClientTmpl = scopedClientTmpl
+		}
+		if err := executeTemplate(selectedTypesTmpl, filepath.Join(srcDir, fileName), data); err != nil {
 			return fmt.Errorf("execute types template for %s: %w", r.Name, err)
 		}
 
 		apiFileName := toSnakeCase(r.Name) + "_api.ts"
-		if err := executeTemplate(clientTmpl, filepath.Join(srcDir, apiFileName), data); err != nil {
+		if err := executeTemplate(selectedClientTmpl, filepath.Join(srcDir, apiFileName), data); err != nil {
 			return fmt.Errorf("execute client template for %s: %w", r.Name, err)
 		}
 	}
@@ -330,6 +359,16 @@ func loadTemplate(path string) (*template.Template, error) {
 			}
 			return false
 		},
+		"hasModelTimeImport": func(models []Model) bool {
+			for _, model := range models {
+				for _, field := range model.Fields {
+					if field.Format == "date-time" {
+						return true
+					}
+				}
+			}
+			return false
+		},
 	}
 
 	data, err := os.ReadFile(path)
@@ -343,6 +382,17 @@ func loadTemplate(path string) (*template.Template, error) {
 	}
 
 	return tmpl, nil
+}
+
+func unscopedSpec(spec *Spec) *Spec {
+	copySpec := *spec
+	copySpec.Resources = nil
+	for _, resource := range spec.Resources {
+		if !resource.Scoped {
+			copySpec.Resources = append(copySpec.Resources, resource)
+		}
+	}
+	return &copySpec
 }
 
 func executeTemplate(tmpl *template.Template, outPath string, data interface{}) error {
