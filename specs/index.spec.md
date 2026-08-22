@@ -30,6 +30,9 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 |------|--------|-----------------|------------|------------|
 | `platform/data-model.spec.md` | platform | Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase | API, CP | - |
 | `platform/control-plane.spec.md` | platform | Watcher, Reconciler, gRPC streams | CP | data-model |
+| `platform/control-plane-world-sync.spec.md` | platform | periodic world synchronization, inventory, reconcile queues, orphan cleanup | CP, API | control-plane, data-model, watch-delete-events, openshell-gateway, openshell-gateway-database, openshell-gateway-namespace-gc, openshell-gateway-keycloak, rbac-enforcement |
+| `platform/watch-delete-events.spec.md` | platform | gRPC delete event resource snapshots | API, CP | control-plane, data-model |
+| `platform/openshell-gateway-namespace-gc.spec.md` | platform | managed gateway namespaces, orphan cleanup, sandbox count | CP, API, WEB | control-plane, openshell-gateway, watch-delete-events |
 | `platform/openshell-gateway.spec.md` | platform | Gateway, GatewayReconciler, provisioning | CP | data-model, control-plane |
 | `platform/openshell-gateway-database.spec.md` | platform | PostgreSQL provisioning, credential security | CP | openshell-gateway |
 | `platform/openshell-gateway-tls.spec.md` | platform | cert-manager, TLS certificates, SAN management | CP | openshell-gateway |
