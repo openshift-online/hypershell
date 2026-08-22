@@ -172,10 +172,13 @@ type KeycloakConfig struct {
 }
 
 type ReconcileOpts struct {
-	IsOpenShift           bool
-	HasCertManager        bool
-	HasGatewayAPI         bool
-	HasCNPG               bool
+	IsOpenShift    bool
+	HasCertManager bool
+	HasGatewayAPI  bool
+	HasCNPG        bool
+	// ReconcileDatabase indicates that the Gateway has a database_id and its
+	// managed CNPG database resources should be reconciled.
+	ReconcileDatabase     bool
 	CNPG                  CNPGConfig
 	ControlPlaneNamespace string
 	Images                ImageDefaults
