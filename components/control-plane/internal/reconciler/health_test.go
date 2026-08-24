@@ -195,6 +195,64 @@ func TestDueForVerify(t *testing.T) {
 	}
 }
 
+func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *testing.T) {
+	markers := map[string]string{
+		"missing client":   gatewayKeycloakClientMissingStatus,
+		"invalid identity": gatewayKeycloakClientInvalidStatus,
+	}
+	for name, marker := range markers {
+		t.Run(name, func(t *testing.T) {
+			t.Run("already Running emits no update", func(t *testing.T) {
+				update := observedGatewayHealthUpdate(
+					"gw-1",
+					"Running",
+					marker,
+					"Running",
+					"Healthy",
+					true,
+				)
+				if update != nil {
+					t.Fatalf("observedGatewayHealthUpdate() = %#v, want nil so status remains visible", update)
+				}
+			})
+
+			t.Run("phase promotion omits status", func(t *testing.T) {
+				update := observedGatewayHealthUpdate(
+					"gw-1",
+					"Provisioning",
+					marker,
+					"Running",
+					"Healthy",
+					true,
+				)
+				if update == nil {
+					t.Fatal("observedGatewayHealthUpdate() = nil, want phase-only promotion")
+				}
+				if update.Phase == nil || update.GetPhase() != "Running" {
+					t.Fatalf("phase = %v, want Running", update.Phase)
+				}
+				if update.Status != nil {
+					t.Fatalf("status = %q, want omitted to preserve Keycloak marker", update.GetStatus())
+				}
+			})
+		})
+	}
+
+	t.Run("unconfigured integration does not reserve marker", func(t *testing.T) {
+		update := observedGatewayHealthUpdate(
+			"gw-1",
+			"Running",
+			gatewayKeycloakClientInvalidStatus,
+			"Running",
+			"Healthy",
+			false,
+		)
+		if update == nil || update.Status == nil || update.GetStatus() != "Healthy" {
+			t.Fatalf("observedGatewayHealthUpdate() = %#v, want normal Healthy status update", update)
+		}
+	})
+}
+
 func TestEvaluateRouteReadiness_ReadyBecomesRunning(t *testing.T) {
 	h := newHealthRec(fakeExposure{readiness: exposure.Readiness{Ready: true}}, fixedClock(time.Unix(0, 0)), 10*time.Minute)
 	for _, phase := range []string{"Provisioning", "Degraded"} {

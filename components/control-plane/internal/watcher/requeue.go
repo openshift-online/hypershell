@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -30,8 +31,39 @@ const (
 	gatewayReconcileWorkers = 4
 )
 
-// reconcileQueue serializes reconciliations per resource. It retries all errors
-// by default. A caller can limit the count and the accepted error types.
+// preservePayloadForRetryError marks a handler failure whose retry must receive
+// the untransformed latest payload. It is used for work intentionally performed
+// behind a caller's gate, where applying the normal recovery transform would
+// change the operation's scope (for gateways, from Keycloak-only repair to full
+// Kubernetes provisioning).
+type preservePayloadForRetryError struct {
+	err error
+}
+
+func (e *preservePayloadForRetryError) Error() string { return e.err.Error() }
+func (e *preservePayloadForRetryError) Unwrap() error { return e.err }
+
+// PreservePayloadForRetry wraps err so the reconcile queue retries it without
+// applying its retry transform. If forced recovery is also requested, the queue
+// defers that transformed pass until the preserved operation succeeds.
+func PreservePayloadForRetry(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &preservePayloadForRetryError{err: err}
+}
+
+// PreservesPayloadForRetry reports whether err requests a retry with the
+// original payload. It is exported so handlers can assert that narrowly scoped
+// failures retain their queue semantics through additional error wrapping.
+func PreservesPayloadForRetry(err error) bool {
+	var marked *preservePayloadForRetryError
+	return errors.As(err, &marked)
+}
+
+// reconcileQueue serializes reconciliations per resource. It retries errors
+// by default, with optional limits and error filters for callers that need them.
+// It replaces the fire-and-forget requeue goroutine that could race the reconciler.
 //
 // It is a thin wrapper over client-go's rate-limiting workqueue plus a map of the
 // latest event seen per resource. Every observed event calls enqueue, which
@@ -56,7 +88,9 @@ const (
 // latest payload, so a retry that reused it verbatim would hit the phase gate and
 // silently no-op, re-stranding the very gateway the retry exists to recover. The
 // first attempt of a freshly observed event runs untransformed so the phase gate
-// still governs ordinary create/update traffic.
+// still governs ordinary create/update traffic. A handler can wrap an error with
+// PreservePayloadForRetry when the failed operation deliberately ran behind that
+// gate and its retry must remain there rather than becoming a full recovery pass.
 type reconcileQueue[T any] struct {
 	baseCtx        context.Context
 	handler        Handler[T]
@@ -101,9 +135,17 @@ type reconcileQueue[T any] struct {
 	//    recovery's Handle succeeded, so clearing it could strand a failed or
 	//    incomplete reconcile behind the phase gate.
 	//  - A delete clears force (the gateway is going away).
-	//  - The mark is cleared when an actual handler attempt consumes it (or the
-	//    key is pruned), never by a mere backoff re-defer.
+	//  - The mark is cleared when a transformed handler attempt consumes it (or
+	//    the key is pruned), never by a mere backoff re-defer. If a preserved
+	//    lightweight retry is pending, force remains sticky until that operation
+	//    succeeds, then drives exactly one deferred transformed pass.
 	forced map[string]bool
+	// preservePayload marks a failed key whose next retry must bypass
+	// retryTransform. It takes precedence over forced recovery so a dependency
+	// failure behind a phase gate cannot expand into full provisioning. The handler
+	// refreshes this policy on every failure; success, deletion, or pruning clears
+	// it while leaving any deferred force intent available for the next pass.
+	preservePayload map[string]bool
 	// notBefore is the earliest time a failed key may be handled again. It defends
 	// the AddRateLimited backoff against client-go's dirty-key semantics: the
 	// reconciler's own phase-status writes emit watch events that Add (mark dirty)
@@ -172,19 +214,20 @@ func withVersion[T any](f func(Event[T]) int64) queueOption[T] {
 func newReconcileQueue[T any](baseCtx context.Context, kind string, handler Handler[T], opts ...queueOption[T]) *reconcileQueue[T] {
 	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](gatewayRequeueBaseDelay, gatewayRequeueMaxDelay)
 	q := &reconcileQueue[T]{
-		baseCtx:    baseCtx,
-		handler:    handler,
-		kind:       kind,
-		workers:    gatewayReconcileWorkers,
-		maxRetries: -1,
-		now:        time.Now,
-		limiter:    limiter,
-		queue:      workqueue.NewTypedRateLimitingQueue(limiter),
-		latest:     make(map[string]Event[T]),
-		forced:     make(map[string]bool),
-		notBefore:  make(map[string]time.Time),
-		gen:        make(map[string]int64),
-		stopCh:     make(chan struct{}),
+		baseCtx:         baseCtx,
+		handler:         handler,
+		kind:            kind,
+		workers:         gatewayReconcileWorkers,
+		maxRetries:      -1,
+		now:             time.Now,
+		limiter:         limiter,
+		queue:           workqueue.NewTypedRateLimitingQueue(limiter),
+		latest:          make(map[string]Event[T]),
+		forced:          make(map[string]bool),
+		preservePayload: make(map[string]bool),
+		notBefore:       make(map[string]time.Time),
+		gen:             make(map[string]int64),
+		stopCh:          make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(q)
@@ -235,6 +278,7 @@ func (q *reconcileQueue[T]) enqueueWithForce(ev Event[T], force bool) {
 		q.latest[ev.ResourceID] = ev
 		q.gen[ev.ResourceID]++
 		delete(q.forced, ev.ResourceID)
+		delete(q.preservePayload, ev.ResourceID)
 		q.mu.Unlock()
 		q.queue.Add(ev.ResourceID)
 		return
@@ -338,6 +382,7 @@ func (q *reconcileQueue[T]) pruneIfNonDelete(id string, snapshot Event[T]) bool 
 	delete(q.latest, id)
 	delete(q.notBefore, id)
 	delete(q.forced, id)
+	delete(q.preservePayload, id)
 	delete(q.gen, id)
 	return true
 }
@@ -382,18 +427,24 @@ func (q *reconcileQueue[T]) processNext() bool {
 	// Snapshot the accepted-payload generation with the payload so a post-Handle
 	// compaction can tell whether a newer payload coalesced in while we worked.
 	gen := q.gen[id]
-	// Consume the forced bypass atomically with the payload snapshot: reading and
-	// clearing the mark under one lock closes the window in which a forced enqueue
-	// landing after this point (which also re-adds the key) would be erased by a
-	// separate, later clear. Such an enqueue instead re-sets the mark and is
-	// honored on the next attempt. This real handler attempt below consumes the
-	// mark; a failure requeues with NumRequeues>0, which keeps transforming, so
-	// recovery still persists across retries.
+	// Snapshot retry policy atomically with the payload. A preserved lightweight
+	// retry takes precedence over force: consuming force here would either transform
+	// this attempt into full recovery or lose the reconnect request. Instead, leave
+	// force sticky until the preserved operation succeeds. Without preservation,
+	// this attempt consumes force under the same lock; a force arriving later will
+	// re-set the bit and dirty the key for a subsequent pass.
+	preservePayload := q.preservePayload[id]
 	forced := q.forced[id]
-	delete(q.forced, id)
+	deferredForced := preservePayload && forced
+	if !preservePayload {
+		delete(q.forced, id)
+	}
 	q.mu.Unlock()
 	if !ok {
 		// No payload recorded (e.g. a delete already reconciled and pruned it).
+		q.mu.Lock()
+		delete(q.forced, id)
+		q.mu.Unlock()
 		q.queue.Forget(id)
 		q.clearBackoff(id)
 		return true
@@ -403,9 +454,11 @@ func (q *reconcileQueue[T]) processNext() bool {
 	// caller adapt the payload (gateways clear the phase so recovery bypasses the
 	// phase gate). A forced key gets the same transform on its first attempt so a
 	// startup/reconnect seed of an active-phase gateway bypasses the gate even
-	// though NumRequeues is 0. Ordinary first attempts run untransformed so the
-	// gate still governs ordinary create/update traffic.
-	if q.retryTransform != nil && (forced || q.queue.NumRequeues(id) > 0) {
+	// though NumRequeues is 0. A marked failure always preserves the payload,
+	// including when force is pending, so work intentionally performed behind the
+	// gate stays there. Ordinary first attempts run untransformed so the gate still
+	// governs live traffic.
+	if q.retryTransform != nil && !preservePayload && (forced || q.queue.NumRequeues(id) > 0) {
 		ev = q.retryTransform(ev)
 	}
 
@@ -424,12 +477,19 @@ func (q *reconcileQueue[T]) processNext() bool {
 		// delay; record it as the key's backoff floor and schedule the retry for
 		// then. Using AddAfter (not AddRateLimited) keeps the delay authoritative
 		// even though dirty re-adds may reach the queue sooner -- the notBefore gate
-		// above re-defers them. The default policy keeps a failed gateway in this
-		// path until it succeeds. Later Running or Degraded events do not cancel it.
-		// These events do not prove that gateway provisioning recovered.
+		// above re-defers them. The retry remains durable until Handle succeeds,
+		// subject to the queue's optional retry limit/filter. It applies or bypasses
+		// retryTransform according to the error marker. Later Running/Degraded events
+		// from the independent GatewayHealthReconciler do not cancel it: they reflect
+		// workload readiness, not that the provisioning Handle recovered.
 		delay := q.limiter.When(id)
 		q.mu.Lock()
 		q.notBefore[id] = q.now().Add(delay)
+		if PreservesPayloadForRetry(err) {
+			q.preservePayload[id] = true
+		} else {
+			delete(q.preservePayload, id)
+		}
 		q.mu.Unlock()
 		q.queue.AddAfter(id, delay)
 		log.Printf("WARN %s %s reconcile failed; retrying in %s: %v", q.kind, id, delay, err)
@@ -438,9 +498,21 @@ func (q *reconcileQueue[T]) processNext() bool {
 
 	// Success or a legitimate phase-gated no-op: stop retrying. If a newer event
 	// arrived while we worked, Add already re-dirtied the key so it is processed
-	// again with the latest payload.
+	// again with the latest payload. When this successful attempt deliberately
+	// preserved its payload while force was pending, clear the retry state and
+	// explicitly schedule the still-sticky force bit. The next pass consumes it and
+	// transforms exactly once, even if the forced enqueue itself was the queue item
+	// consumed by this preserved attempt.
 	q.queue.Forget(id)
 	q.clearBackoff(id)
+	if deferredForced {
+		q.mu.Lock()
+		forcePending := q.forced[id]
+		q.mu.Unlock()
+		if forcePending {
+			q.queue.Add(id)
+		}
+	}
 
 	// Collapse a fully-handled delete to a compact terminal tombstone: keep the
 	// key with EventDeleted + ResourceID but zero the payload so the deleted
@@ -474,6 +546,7 @@ func (q *reconcileQueue[T]) processNext() bool {
 func (q *reconcileQueue[T]) clearBackoff(id string) {
 	q.mu.Lock()
 	delete(q.notBefore, id)
+	delete(q.preservePayload, id)
 	q.mu.Unlock()
 }
 

@@ -3,13 +3,16 @@ package reconciler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,6 +20,9 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 	"k8s.io/apimachinery/pkg/runtime"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 )
@@ -57,6 +63,289 @@ func TestGatewayNamespace(t *testing.T) {
 	})
 }
 
+func TestExistingGatewayKeycloakClientID(t *testing.T) {
+	gatewayID := "gateway-01ABCDEF"
+	oidcJSON := func(clientID, audience string) *string {
+		t.Helper()
+		data, err := json.Marshal(gateway.OIDCConfig{ClientID: clientID, Audience: audience})
+		if err != nil {
+			t.Fatalf("marshal OIDC config: %v", err)
+		}
+		value := string(data)
+		return &value
+	}
+	malformedOIDC := "{"
+
+	tests := []struct {
+		name    string
+		gateway *pb.Gateway
+		want    string
+		wantErr string
+	}{
+		{
+			name:    "current identity falls back to current name",
+			gateway: &pb.Gateway{Name: "current-name"},
+			want:    "current-name-" + gatewayID,
+		},
+		{
+			name:    "current persisted identity",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("current-name-"+gatewayID, "current-name-"+gatewayID)},
+			want:    "current-name-" + gatewayID,
+		},
+		{
+			name:    "legacy ID-only audience",
+			gateway: &pb.Gateway{Name: "renamed", Oidc: oidcJSON("", gatewayID)},
+			want:    gatewayID,
+		},
+		{
+			name:    "renamed gateway uses persisted identity",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("original-name-"+gatewayID, "original-name-"+gatewayID)},
+			want:    "original-name-" + gatewayID,
+		},
+		{
+			name:    "historical raw name characters remain valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original gateway_日本語-"+gatewayID, "Original gateway_日本語-"+gatewayID)},
+			want:    "Original gateway_日本語-" + gatewayID,
+		},
+		{
+			name:    "historical line separator remains valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2028gateway-"+gatewayID, "Original\u2028gateway-"+gatewayID)},
+			want:    "Original\u2028gateway-" + gatewayID,
+		},
+		{
+			name:    "historical paragraph separator remains valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2029gateway-"+gatewayID, "Original\u2029gateway-"+gatewayID)},
+			want:    "Original\u2029gateway-" + gatewayID,
+		},
+		{
+			name:    "historical bidi formatting control remains valid",
+			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u202egateway-"+gatewayID, "Original\u202egateway-"+gatewayID)},
+			want:    "Original\u202egateway-" + gatewayID,
+		},
+		{
+			name:    "malformed persisted OIDC config",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: &malformedOIDC},
+			wantErr: "parse persisted OIDC config",
+		},
+		{
+			name:    "foreign persisted identity",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("foreign-gateway-OTHER", "foreign-gateway-OTHER")},
+			wantErr: "not owned by the gateway",
+		},
+		{
+			name:    "mismatched persisted identities",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("one-"+gatewayID, "two-"+gatewayID)},
+			wantErr: "do not match",
+		},
+		{
+			name:    "persisted carriage return",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("bad\r-"+gatewayID, "")},
+			wantErr: "control characters",
+		},
+		{
+			name:    "persisted newline",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("bad\n-"+gatewayID, "")},
+			wantErr: "control characters",
+		},
+		{
+			name:    "persisted non-line control character",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("bad\t-"+gatewayID, "")},
+			wantErr: "control characters",
+		},
+		{
+			name:    "fallback name with control character",
+			gateway: &pb.Gateway{Name: "bad\nname"},
+			wantErr: "control characters",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := existingGatewayKeycloakClientID(gatewayID, tc.gateway)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("existingGatewayKeycloakClientID() error = %v, want containing %q", err, tc.wantErr)
+				}
+				var identityErr *gatewayKeycloakClientIdentityError
+				if !errors.As(err, &identityErr) {
+					t.Fatalf("existingGatewayKeycloakClientID() error type = %T, want terminal identity validation", err)
+				}
+				if got != "" {
+					t.Fatalf("existingGatewayKeycloakClientID() = %q on error, want empty", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("existingGatewayKeycloakClientID() error = %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("existingGatewayKeycloakClientID() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReconcileExistingGatewayKeycloakClient_QuotesAcceptedUnicodeClientIDs(t *testing.T) {
+	gatewayID := "gateway-01ABCDEF"
+	for _, tc := range []struct {
+		name      string
+		separator string
+	}{
+		{name: "line separator", separator: "\u2028"},
+		{name: "paragraph separator", separator: "\u2029"},
+		{name: "bidi override", separator: "\u202e"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clientID := "Historical" + tc.separator + "name-" + gatewayID
+			data, err := json.Marshal(gateway.OIDCConfig{ClientID: clientID, Audience: clientID})
+			if err != nil {
+				t.Fatalf("marshal OIDC config: %v", err)
+			}
+			oidc := string(data)
+			gw := &pb.Gateway{Name: "renamed", Oidc: &oidc}
+
+			got, err := existingGatewayKeycloakClientID(gatewayID, gw)
+			if err != nil || got != clientID {
+				t.Fatalf("existingGatewayKeycloakClientID() = %q, %v; want accepted %q", got, err, clientID)
+			}
+
+			mockKC := newMockKeycloakAdminServer(t, clientID, "", nil)
+			r := &GatewayReconciler{keycloakClient: keycloak.NewClient(
+				mockKC.server.URL,
+				mockKC.realm,
+				mockKC.adminClient,
+				mockKC.adminSecret,
+			)}
+			err = r.reconcileExistingGatewayKeycloakClient(t.Context(), gatewayID, gw)
+			if err == nil {
+				t.Fatal("reconcileExistingGatewayKeycloakClient() error = nil, want missing-client error")
+			}
+			if strings.Contains(err.Error(), tc.separator) {
+				t.Fatalf("error contains raw %s and can inject log structure: %q", tc.name, err)
+			}
+			if quoted := fmt.Sprintf("%q", clientID); !strings.Contains(err.Error(), quoted) {
+				t.Fatalf("error = %q, want escaped client ID %s", err, quoted)
+			}
+		})
+	}
+}
+
+func TestReconcileExistingGatewayKeycloakClient_RejectsUntrustedIdentityBeforeKeycloakCall(t *testing.T) {
+	gatewayID := "gateway-01ABCDEF"
+	tests := []struct {
+		name     string
+		clientID string
+		audience string
+	}{
+		{name: "foreign", clientID: "foreign-OTHER", audience: "foreign-OTHER"},
+		{name: "mismatched", clientID: "one-" + gatewayID, audience: "two-" + gatewayID},
+		{name: "control character", clientID: "bad\n-" + gatewayID},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var called atomic.Bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				called.Store(true)
+				http.Error(w, "unexpected Keycloak call", http.StatusInternalServerError)
+			}))
+			t.Cleanup(server.Close)
+
+			data, err := json.Marshal(gateway.OIDCConfig{ClientID: tc.clientID, Audience: tc.audience})
+			if err != nil {
+				t.Fatalf("marshal OIDC config: %v", err)
+			}
+			oidc := string(data)
+			r := &GatewayReconciler{
+				keycloakClient: keycloak.NewClient(server.URL, "realm", "admin", "secret"),
+			}
+			err = r.reconcileExistingGatewayKeycloakClient(t.Context(), gatewayID, &pb.Gateway{
+				Name: "current-name",
+				Oidc: &oidc,
+			})
+			if err == nil {
+				t.Fatal("reconcileExistingGatewayKeycloakClient() error = nil, want identity rejection")
+			}
+			if called.Load() {
+				t.Fatal("untrusted identity reached the Keycloak API")
+			}
+		})
+	}
+}
+
+type recordedGatewayUpdate struct {
+	id        string
+	phase     string
+	status    string
+	hasPhase  bool
+	hasStatus bool
+}
+
+type recordingGatewayServer struct {
+	pb.UnimplementedGatewayServiceServer
+
+	mu        sync.Mutex
+	updates   []recordedGatewayUpdate
+	updateErr error
+}
+
+func (s *recordingGatewayServer) UpdateGateway(_ context.Context, req *pb.UpdateGatewayRequest) (*pb.UpdateGatewayResponse, error) {
+	update := recordedGatewayUpdate{id: req.GetId()}
+	if req.Phase != nil {
+		update.phase = req.GetPhase()
+		update.hasPhase = true
+	}
+	if req.Status != nil {
+		update.status = req.GetStatus()
+		update.hasStatus = true
+	}
+	s.mu.Lock()
+	s.updates = append(s.updates, update)
+	updateErr := s.updateErr
+	s.mu.Unlock()
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	return &pb.UpdateGatewayResponse{}, nil
+}
+
+func (s *recordingGatewayServer) setUpdateError(err error) {
+	s.mu.Lock()
+	s.updateErr = err
+	s.mu.Unlock()
+}
+
+func (s *recordingGatewayServer) snapshot() []recordedGatewayUpdate {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]recordedGatewayUpdate(nil), s.updates...)
+}
+
+func newRecordingGatewayConn(t *testing.T) (*grpc.ClientConn, *recordingGatewayServer) {
+	t.Helper()
+	listener := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	recorder := &recordingGatewayServer{}
+	pb.RegisterGatewayServiceServer(server, recorder)
+	go func() {
+		_ = server.Serve(listener)
+	}()
+	t.Cleanup(server.Stop)
+
+	conn, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial recording gateway server: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn, recorder
+}
+
 // mockKeycloakAdminServer provides a test Keycloak Admin REST API server with
 // dynamic credentials and token validation for testing GatewayReconciler.
 type mockKeycloakAdminServer struct {
@@ -73,6 +362,7 @@ type mockKeycloakAdminServer struct {
 	putCalled    int
 	putBodies    []map[string]interface{}
 	forceUUIDErr bool
+	forceMissing bool
 	forcePutErr  bool
 }
 
@@ -129,6 +419,7 @@ func newMockKeycloakAdminServer(t *testing.T, clientID, clientUUID string, initi
 
 		m.mu.Lock()
 		forceErr := m.forceUUIDErr
+		forceMissing := m.forceMissing
 		targetClientID := m.clientID
 		targetUUID := m.clientUUID
 		m.mu.Unlock()
@@ -140,7 +431,7 @@ func newMockKeycloakAdminServer(t *testing.T, clientID, clientUUID string, initi
 
 		reqClientID := r.URL.Query().Get("clientId")
 		w.Header().Set("Content-Type", "application/json")
-		if reqClientID == targetClientID && targetUUID != "" {
+		if reqClientID == targetClientID && targetUUID != "" && !forceMissing {
 			if err := json.NewEncoder(w).Encode([]map[string]interface{}{
 				{"id": targetUUID, "clientId": targetClientID},
 			}); err != nil {
@@ -423,7 +714,7 @@ func TestGatewayReconciler_Handle_GatedPhase_KeycloakUnconfigured(t *testing.T) 
 	}
 }
 
-func TestGatewayReconciler_Handle_GatedPhase_MissingClientLeavesToProvisioningPath(t *testing.T) {
+func TestGatewayReconciler_Handle_GatedPhase_ReportsMissingClientWithoutKubernetes(t *testing.T) {
 	ctx := context.Background()
 	gatewayID := "gw-missing"
 	gatewayName := "my-gateway"
@@ -440,11 +731,13 @@ func TestGatewayReconciler_Handle_GatedPhase_MissingClientLeavesToProvisioningPa
 	)
 
 	fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
+	grpcConn, gatewayServer := newRecordingGatewayConn(t)
 
 	r := &GatewayReconciler{
 		active:                make(map[string]struct{}),
 		dynamicClient:         fakeDynamic,
 		clientset:             nil,
+		grpcConn:              grpcConn,
 		controlPlaneNamespace: "hypershell-system",
 		keycloakClient:        kcClient,
 	}
@@ -461,22 +754,377 @@ func TestGatewayReconciler_Handle_GatedPhase_MissingClientLeavesToProvisioningPa
 		},
 	}
 
-	// Missing client on gated gateway logs warning and returns nil without error,
-	// avoiding creating a duplicate client out of band.
-	if err := r.Handle(ctx, event); err != nil {
-		t.Fatalf("Handle() returned unexpected error for missing client: %v", err)
+	err := r.Handle(ctx, event)
+	if err == nil {
+		t.Fatal("expected missing desired client to remain non-converged")
+	}
+	if !watcher.PreservesPayloadForRetry(err) {
+		t.Fatal("missing-client error must preserve the gated payload on retry")
+	}
+	if !strings.Contains(err.Error(), "desired Keycloak client "+fmt.Sprintf("%q", clientID)+" is missing") {
+		t.Errorf("error = %q, want explicit quoted missing-client context", err)
 	}
 
+	// The status write generates a watch event. Reprocessing that payload must
+	// retain the narrow retry marker without rewriting status on every attempt;
+	// the queue's existing dirty-readd test covers enforcement of the backoff floor.
+	missingStatus := gatewayKeycloakClientMissingStatus
+	event.Resource.Status = &missingStatus
+	if retryErr := r.Handle(ctx, event); retryErr == nil || !watcher.PreservesPayloadForRetry(retryErr) {
+		t.Fatalf("self-generated status event error = %v, want preserved retry", retryErr)
+	}
+
+	updates := gatewayServer.snapshot()
+	if len(updates) != 1 {
+		t.Fatalf("gateway status updates = %v, want exactly one idempotent marker write", updates)
+	}
+	if !updates[0].hasStatus || updates[0].status != gatewayKeycloakClientMissingStatus {
+		t.Errorf("status update = %#v, want fixed missing-client marker", updates[0])
+	}
+	if updates[0].hasPhase {
+		t.Errorf("missing-client update changed phase to %q; phase must remain unchanged", updates[0].phase)
+	}
 	mockKC.mu.Lock()
 	putCount := mockKC.putCalled
 	mockKC.mu.Unlock()
-
 	if putCount != 0 {
 		t.Errorf("expected 0 PUT calls for missing client, got %d", putCount)
 	}
-
 	if len(fakeDynamic.Actions()) > 0 {
 		t.Errorf("expected 0 Kubernetes actions on gated gateway with missing Keycloak client")
+	}
+}
+
+func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityIsTerminal(t *testing.T) {
+	gatewayID := "gw-invalid-identity"
+	foreignClientID := "foreign-client"
+	oidcData, err := json.Marshal(gateway.OIDCConfig{ClientID: foreignClientID, Audience: foreignClientID})
+	if err != nil {
+		t.Fatalf("marshal OIDC config: %v", err)
+	}
+	oidc := string(oidcData)
+
+	var keycloakCalled atomic.Bool
+	keycloakServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		keycloakCalled.Store(true)
+		http.Error(w, "unexpected Keycloak call", http.StatusInternalServerError)
+	}))
+	t.Cleanup(keycloakServer.Close)
+
+	grpcConn, gatewayServer := newRecordingGatewayConn(t)
+	fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
+	r := &GatewayReconciler{
+		active:        make(map[string]struct{}),
+		dynamicClient: fakeDynamic,
+		grpcConn:      grpcConn,
+		keycloakClient: keycloak.NewClient(
+			keycloakServer.URL,
+			"realm",
+			"admin",
+			"secret",
+		),
+	}
+	phase := "Running"
+	gatewayResource := &pb.Gateway{
+		Metadata: &pb.ObjectReference{Id: gatewayID},
+		Name:     "current-name",
+		Phase:    &phase,
+		Oidc:     &oidc,
+	}
+	event := watcher.Event[*pb.Gateway]{
+		Type:       watcher.EventUpdated,
+		ResourceID: gatewayID,
+		Resource:   gatewayResource,
+	}
+
+	if err := r.Handle(t.Context(), event); err != nil {
+		t.Fatalf("Handle() error = %v, want terminal validation success after status publication", err)
+	}
+	updates := gatewayServer.snapshot()
+	if len(updates) != 1 {
+		t.Fatalf("gateway updates = %v, want one invalid-configuration status", updates)
+	}
+	if !updates[0].hasStatus || updates[0].status != gatewayKeycloakClientInvalidStatus {
+		t.Errorf("status update = %#v, want fixed invalid-configuration marker", updates[0])
+	}
+	if updates[0].hasPhase {
+		t.Errorf("invalid-configuration update changed phase to %q", updates[0].phase)
+	}
+	if strings.Contains(updates[0].status, foreignClientID) {
+		t.Errorf("fixed status %q contains untrusted client identity", updates[0].status)
+	}
+	if keycloakCalled.Load() {
+		t.Fatal("invalid persisted identity reached the Keycloak API")
+	}
+	if len(fakeDynamic.Actions()) != 0 {
+		t.Fatalf("invalid persisted identity triggered Kubernetes actions: %v", fakeDynamic.Actions())
+	}
+
+	// The status write emits another watch event. Once the fixed marker is present,
+	// terminal validation must remain an idempotent success rather than retrying or
+	// rewriting status forever.
+	invalidStatus := gatewayKeycloakClientInvalidStatus
+	gatewayResource.Status = &invalidStatus
+	if err := r.Handle(t.Context(), event); err != nil {
+		t.Fatalf("Handle() with existing invalid marker error = %v, want nil", err)
+	}
+	if got := len(gatewayServer.snapshot()); got != 1 {
+		t.Fatalf("status update count = %d, want one idempotent write", got)
+	}
+}
+
+func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityStatusFailureRetriesNarrowly(t *testing.T) {
+	gatewayID := "gw-invalid-status-failure"
+	foreignClientID := "foreign-client"
+	oidcData, err := json.Marshal(gateway.OIDCConfig{ClientID: foreignClientID, Audience: foreignClientID})
+	if err != nil {
+		t.Fatalf("marshal OIDC config: %v", err)
+	}
+	oidc := string(oidcData)
+
+	var keycloakCalled atomic.Bool
+	keycloakServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		keycloakCalled.Store(true)
+		http.Error(w, "unexpected Keycloak call", http.StatusInternalServerError)
+	}))
+	t.Cleanup(keycloakServer.Close)
+
+	grpcConn, gatewayServer := newRecordingGatewayConn(t)
+	gatewayServer.setUpdateError(errors.New("status unavailable"))
+	fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
+	r := &GatewayReconciler{
+		active:        make(map[string]struct{}),
+		dynamicClient: fakeDynamic,
+		grpcConn:      grpcConn,
+		keycloakClient: keycloak.NewClient(
+			keycloakServer.URL,
+			"realm",
+			"admin",
+			"secret",
+		),
+	}
+	phase := "Running"
+	event := watcher.Event[*pb.Gateway]{
+		Type:       watcher.EventUpdated,
+		ResourceID: gatewayID,
+		Resource: &pb.Gateway{
+			Metadata: &pb.ObjectReference{Id: gatewayID},
+			Name:     "current-name",
+			Phase:    &phase,
+			Oidc:     &oidc,
+		},
+	}
+
+	err = r.Handle(t.Context(), event)
+	if err == nil || !watcher.PreservesPayloadForRetry(err) {
+		t.Fatalf("Handle() error = %v, want preserved retry for failed status publication", err)
+	}
+	updates := gatewayServer.snapshot()
+	if len(updates) != 1 || !updates[0].hasStatus || updates[0].status != gatewayKeycloakClientInvalidStatus {
+		t.Fatalf("attempted update = %v, want fixed invalid-configuration status", updates)
+	}
+	if updates[0].hasPhase {
+		t.Errorf("failed invalid-configuration update attempted phase %q", updates[0].phase)
+	}
+	if keycloakCalled.Load() {
+		t.Fatal("invalid persisted identity reached the Keycloak API")
+	}
+	if len(fakeDynamic.Actions()) != 0 {
+		t.Fatalf("status publication failure triggered Kubernetes actions: %v", fakeDynamic.Actions())
+	}
+}
+
+func TestGatewayReconciler_Handle_GatedPhase_ClearsMissingStatusAfterKeycloakRecovers(t *testing.T) {
+	ctx := context.Background()
+	gatewayID := "gw-recovers"
+	gatewayName := "my-gateway"
+	clientID := gatewayName + "-" + gatewayID
+	clientUUID := "uuid-recovers"
+
+	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{
+		"id":       clientUUID,
+		"clientId": clientID,
+		"attributes": map[string]interface{}{
+			"oauth2.device.authorization.grant.enabled": "false",
+		},
+	})
+	mockKC.mu.Lock()
+	mockKC.forceMissing = true
+	mockKC.mu.Unlock()
+
+	grpcConn, gatewayServer := newRecordingGatewayConn(t)
+	fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
+	r := &GatewayReconciler{
+		active:        make(map[string]struct{}),
+		dynamicClient: fakeDynamic,
+		clientset:     nil,
+		grpcConn:      grpcConn,
+		keycloakClient: keycloak.NewClient(
+			mockKC.server.URL,
+			mockKC.realm,
+			mockKC.adminClient,
+			mockKC.adminSecret,
+		),
+	}
+	phase := "Running"
+	gatewayResource := &pb.Gateway{
+		Metadata: &pb.ObjectReference{Id: gatewayID},
+		Name:     gatewayName,
+		Phase:    &phase,
+	}
+	event := watcher.Event[*pb.Gateway]{
+		Type:       watcher.EventUpdated,
+		ResourceID: gatewayID,
+		Resource:   gatewayResource,
+	}
+
+	if err := r.Handle(ctx, event); err == nil || !watcher.PreservesPayloadForRetry(err) {
+		t.Fatalf("initial missing-client Handle() error = %v, want preserved retry", err)
+	}
+
+	mockKC.mu.Lock()
+	mockKC.forceMissing = false
+	mockKC.mu.Unlock()
+	missingStatus := gatewayKeycloakClientMissingStatus
+	gatewayResource.Status = &missingStatus
+
+	if err := r.Handle(ctx, event); err != nil {
+		t.Fatalf("Handle() after Keycloak recovery returned error: %v", err)
+	}
+
+	updates := gatewayServer.snapshot()
+	if len(updates) != 2 {
+		t.Fatalf("gateway updates = %v, want missing marker then clear", updates)
+	}
+	clear := updates[1]
+	if !clear.hasStatus || clear.status != "" {
+		t.Errorf("recovery update = %#v, want empty status", clear)
+	}
+	if clear.hasPhase {
+		t.Errorf("recovery update changed phase to %q; workload phase must remain unchanged", clear.phase)
+	}
+	if len(fakeDynamic.Actions()) != 0 {
+		t.Errorf("expected no Kubernetes actions during Keycloak recovery, got %v", fakeDynamic.Actions())
+	}
+}
+
+func TestGatewayReconciler_Handle_GatedPhase_ClearsInvalidStatusAfterIdentityRecovers(t *testing.T) {
+	gatewayID := "gw-valid-again"
+	gatewayName := "my-gateway"
+	clientID := gatewayName + "-" + gatewayID
+	clientUUID := "uuid-valid-again"
+	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{
+		"id":       clientUUID,
+		"clientId": clientID,
+		"attributes": map[string]interface{}{
+			"oauth2.device.authorization.grant.enabled": "true",
+		},
+	})
+
+	grpcConn, gatewayServer := newRecordingGatewayConn(t)
+	fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
+	r := &GatewayReconciler{
+		active:        make(map[string]struct{}),
+		dynamicClient: fakeDynamic,
+		grpcConn:      grpcConn,
+		keycloakClient: keycloak.NewClient(
+			mockKC.server.URL,
+			mockKC.realm,
+			mockKC.adminClient,
+			mockKC.adminSecret,
+		),
+	}
+	phase := "Running"
+	invalidStatus := gatewayKeycloakClientInvalidStatus
+	event := watcher.Event[*pb.Gateway]{
+		Type:       watcher.EventUpdated,
+		ResourceID: gatewayID,
+		Resource: &pb.Gateway{
+			Metadata: &pb.ObjectReference{Id: gatewayID},
+			Name:     gatewayName,
+			Phase:    &phase,
+			Status:   &invalidStatus,
+		},
+	}
+
+	if err := r.Handle(t.Context(), event); err != nil {
+		t.Fatalf("Handle() after identity recovery error = %v", err)
+	}
+	updates := gatewayServer.snapshot()
+	if len(updates) != 1 || !updates[0].hasStatus || updates[0].status != "" {
+		t.Fatalf("gateway updates = %v, want one status clear", updates)
+	}
+	if updates[0].hasPhase {
+		t.Errorf("identity recovery changed phase to %q", updates[0].phase)
+	}
+	if len(fakeDynamic.Actions()) != 0 {
+		t.Fatalf("identity recovery triggered Kubernetes actions: %v", fakeDynamic.Actions())
+	}
+}
+
+func TestGatewayReconciler_Handle_GatedPhase_UsesPersistedClientIdentityAfterRename(t *testing.T) {
+	ctx := context.Background()
+	gatewayID := "gw-renamed"
+	originalClientID := "original-name-" + gatewayID
+	clientUUID := "uuid-renamed"
+
+	for _, tc := range []struct {
+		name string
+		oidc gateway.OIDCConfig
+	}{
+		{name: "client_id", oidc: gateway.OIDCConfig{ClientID: originalClientID, Audience: originalClientID}},
+		{name: "legacy audience", oidc: gateway.OIDCConfig{Audience: originalClientID}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oidcJSON, err := json.Marshal(tc.oidc)
+			if err != nil {
+				t.Fatalf("marshal OIDC config: %v", err)
+			}
+			mockKC := newMockKeycloakAdminServer(t, originalClientID, clientUUID, map[string]interface{}{
+				"id":       clientUUID,
+				"clientId": originalClientID,
+				"attributes": map[string]interface{}{
+					"oauth2.device.authorization.grant.enabled": "false",
+				},
+			})
+			fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
+			r := &GatewayReconciler{
+				active:        make(map[string]struct{}),
+				dynamicClient: fakeDynamic,
+				clientset:     nil,
+				keycloakClient: keycloak.NewClient(
+					mockKC.server.URL,
+					mockKC.realm,
+					mockKC.adminClient,
+					mockKC.adminSecret,
+				),
+			}
+			phase := "Running"
+			oidcValue := string(oidcJSON)
+			event := watcher.Event[*pb.Gateway]{
+				Type:       watcher.EventUpdated,
+				ResourceID: gatewayID,
+				Resource: &pb.Gateway{
+					Metadata: &pb.ObjectReference{Id: gatewayID},
+					Name:     "renamed-gateway",
+					Phase:    &phase,
+					Oidc:     &oidcValue,
+				},
+			}
+
+			if err := r.Handle(ctx, event); err != nil {
+				t.Fatalf("Handle() returned unexpected error: %v", err)
+			}
+			mockKC.mu.Lock()
+			putCount := mockKC.putCalled
+			mockKC.mu.Unlock()
+			if putCount != 1 {
+				t.Errorf("expected persisted client to be updated once, got %d PUTs", putCount)
+			}
+			if len(fakeDynamic.Actions()) > 0 {
+				t.Errorf("expected 0 Kubernetes actions for renamed gated gateway")
+			}
+		})
 	}
 }
 
@@ -524,6 +1172,9 @@ func TestGatewayReconciler_Handle_GatedPhase_PropagatesKeycloakLookupError(t *te
 	err := r.Handle(ctx, event)
 	if err == nil {
 		t.Fatalf("expected error from Handle() when Keycloak lookup fails, got nil")
+	}
+	if !watcher.PreservesPayloadForRetry(err) {
+		t.Fatal("Keycloak lookup error must preserve the gated payload on retry")
 	}
 	if !strings.Contains(err.Error(), "reconcile Keycloak client for gateway") {
 		t.Errorf("error = %q, want wrapping with 'reconcile Keycloak client for gateway'", err.Error())
@@ -578,6 +1229,9 @@ func TestGatewayReconciler_Handle_GatedPhase_PropagatesKeycloakUpdateError(t *te
 	err := r.Handle(ctx, event)
 	if err == nil {
 		t.Fatalf("expected error from Handle() when Keycloak PUT update fails, got nil")
+	}
+	if !watcher.PreservesPayloadForRetry(err) {
+		t.Fatal("Keycloak update error must preserve the gated payload on retry")
 	}
 	if !strings.Contains(err.Error(), "reconcile Keycloak client for gateway") {
 		t.Errorf("error = %q, want wrapping with 'reconcile Keycloak client for gateway'", err.Error())

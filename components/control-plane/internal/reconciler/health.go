@@ -297,21 +297,47 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 
 	// active_sandbox_count is maintained independently by the event-driven
 	// sandbox-count reconciler (see openshell-gateway-sandbox-count.spec.md); the
-	// health reconciler only owns phase and status.
-	if phase == desiredPhase && gw.GetStatus() == desiredStatus {
+	// health reconciler only owns phase and status except while the lightweight
+	// Keycloak reconciler has published one of its fixed external-state markers.
+	update := observedGatewayHealthUpdate(gatewayID, phase, gw.GetStatus(), desiredPhase, desiredStatus, h.keycloakConfig != nil)
+	if update == nil {
 		return
 	}
 
-	if _, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:     gatewayID,
-		Phase:  &desiredPhase,
-		Status: &desiredStatus,
-	}); err != nil {
+	if _, err := client.UpdateGateway(ctx, update); err != nil {
 		log.Printf("WARN gateway health: update %s to %s: %v", gatewayID, desiredPhase, err)
 		return
 	}
 
 	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
+}
+
+// observedGatewayHealthUpdate builds the narrow update required for an observed
+// health transition. A healthy workload does not prove that its external
+// Keycloak client exists or that its persisted identity is valid, so
+// Running/Healthy observations preserve either fixed Keycloak status when the
+// integration is configured. The health reconciler may still promote the
+// workload phase to Running, but does so with a phase-only update. Unhealthy
+// observations retain normal ownership of phase and status so operational
+// failures remain visible.
+func observedGatewayHealthUpdate(gatewayID, currentPhase, currentStatus, desiredPhase, desiredStatus string, keycloakConfigured bool) *pb.UpdateGatewayRequest {
+	if keycloakConfigured && isGatewayKeycloakClientStatus(currentStatus) && desiredPhase == "Running" && desiredStatus == "Healthy" {
+		if currentPhase == desiredPhase {
+			return nil
+		}
+		return &pb.UpdateGatewayRequest{
+			Id:    gatewayID,
+			Phase: &desiredPhase,
+		}
+	}
+	if currentPhase == desiredPhase && currentStatus == desiredStatus {
+		return nil
+	}
+	return &pb.UpdateGatewayRequest{
+		Id:     gatewayID,
+		Phase:  &desiredPhase,
+		Status: &desiredStatus,
+	}
 }
 
 // selfHealConsole re-reconciles the per-gateway console when it is observed not

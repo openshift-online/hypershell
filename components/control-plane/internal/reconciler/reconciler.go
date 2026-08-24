@@ -6,7 +6,7 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	stderrors "errors"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
@@ -486,7 +487,7 @@ func (r *ManagedDatabaseReconciler) deleteCNPGCluster(ctx context.Context, names
 	} else {
 		log.Printf("INFO deleted namespace %s", namespace)
 	}
-	return stderrors.Join(errs...)
+	return errors.Join(errs...)
 }
 func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabaseNamespace(ctx context.Context, namespace string) error {
 	namespaces := r.clientset.CoreV1().Namespaces()
@@ -1143,7 +1144,7 @@ func (r *ManagedDatabaseReconciler) deleteDeploymentDatabase(ctx context.Context
 	} else {
 		log.Printf("INFO deleted namespace %s", namespace)
 	}
-	return stderrors.Join(errs...)
+	return errors.Join(errs...)
 }
 
 func (r *ManagedDatabaseReconciler) updateManagedDatabaseStatusIfChanged(ctx context.Context, id, current, desired string) {
@@ -1294,13 +1295,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
-	if event.Type != watcher.EventDeleted {
-		if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
-			log.Printf("DEBUG gateway %s phase=%s, skipping reconciliation", event.ResourceID, *gw.Phase)
-			return nil
-		}
-	}
-
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String())
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
@@ -1377,11 +1371,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				log.Printf("INFO deleted deployment ManagedDatabase %s for gateway %s", gw.DatabaseId, event.ResourceID)
 			}
 		}
-		reconcileErr = stderrors.Join(deleteErrs...)
+		reconcileErr = errors.Join(deleteErrs...)
 		return reconcileErr
 	}
 
-	log.Printf("INFO reconciling Gateway %s name=%s namespace=%s (event=%d)",
+	log.Printf("INFO reconciling Gateway %s name=%q namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
 
 	// The phase gate prevents redundant re-provisioning (re-applying manifests)
@@ -1396,8 +1390,39 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// reconciling before the return below lets newly introduced client settings
 	// converge without forcing a full gateway rollout.
 	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
-		if err := r.reconcileExistingGatewayKeycloakClient(ctx, event.ResourceID, gw.Name); err != nil {
-			return fmt.Errorf("reconcile Keycloak client for gateway %s: %w", gw.Name, err)
+		if err := r.reconcileExistingGatewayKeycloakClient(ctx, event.ResourceID, gw); err != nil {
+			var identityErr *gatewayKeycloakClientIdentityError
+			if errors.As(err, &identityErr) {
+				// Invalid persisted identity is terminal desired-state validation, not a
+				// transient Keycloak outage. Publish a fixed marker once and stop retrying;
+				// retry only when the status write itself fails.
+				if gw.GetStatus() == gatewayKeycloakClientInvalidStatus {
+					return nil
+				}
+				if statusErr := r.updateGatewayStatus(ctx, event.ResourceID, gatewayKeycloakClientInvalidStatus); statusErr != nil {
+					return watcher.PreservePayloadForRetry(errors.Join(
+						fmt.Errorf("validate existing Keycloak client identity: %w", err),
+						fmt.Errorf("publish invalid Keycloak client configuration status: %w", statusErr),
+					))
+				}
+				return nil
+			}
+			if errors.Is(err, errGatewayKeycloakClientMissing) && gw.GetStatus() != gatewayKeycloakClientMissingStatus {
+				if statusErr := r.updateGatewayStatus(ctx, event.ResourceID, gatewayKeycloakClientMissingStatus); statusErr != nil {
+					err = errors.Join(err, fmt.Errorf("publish missing Keycloak client status: %w", statusErr))
+				}
+			}
+			// This work is intentionally narrower than gateway provisioning. Keep the
+			// gated payload on retry so the queue does not clear phase and expand a
+			// transient Keycloak failure into a full Kubernetes reconciliation. The
+			// fixed status write above generates another watch event, but the queue's
+			// per-key backoff floor prevents that self-event from creating a hot loop.
+			return watcher.PreservePayloadForRetry(fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err))
+		}
+		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
+			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
+				return watcher.PreservePayloadForRetry(fmt.Errorf("clear Keycloak client status for gateway %q: %w", gw.Name, err))
+			}
 		}
 		log.Printf("DEBUG gateway %s phase=%s, skipping full reconciliation", event.ResourceID, *gw.Phase)
 		return nil
@@ -1556,41 +1581,137 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	return nil
 }
 
-// reconcileExistingGatewayKeycloakClient reconciles settings on an existing
-// Keycloak client without reapplying the gateway's Kubernetes resources.
-// External client attributes (such as OAuth 2.0 Device Authorization Grant)
-// can drift or be introduced in newer controller releases; this lightweight pass
-// converges existing clients without triggering a Kubernetes reprovisioning rollout.
-//
-// A missing client is left to the full provisioning path: this lightweight pass
-// is specifically for drift on existing clients. If the client is missing, it logs
-// a warning and returns nil to avoid creating a partial or duplicate client under
-// an unexpected naming scheme.
-func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.Context, gatewayID, gatewayName string) error {
+const (
+	gatewayKeycloakClientMissingStatus = "Keycloak client is missing"
+	gatewayKeycloakClientInvalidStatus = "Keycloak client configuration is invalid"
+)
+
+var errGatewayKeycloakClientMissing = errors.New("gateway Keycloak client is missing")
+
+type gatewayKeycloakClientIdentityError struct {
+	err error
+}
+
+func (e *gatewayKeycloakClientIdentityError) Error() string { return e.err.Error() }
+func (e *gatewayKeycloakClientIdentityError) Unwrap() error { return e.err }
+
+func invalidGatewayKeycloakClientIdentity(format string, args ...any) error {
+	return &gatewayKeycloakClientIdentityError{err: fmt.Errorf(format, args...)}
+}
+
+func isGatewayKeycloakClientStatus(status string) bool {
+	return status == gatewayKeycloakClientMissingStatus || status == gatewayKeycloakClientInvalidStatus
+}
+
+// reconcileExistingGatewayKeycloakClient reconciles the desired Keycloak client
+// without reapplying the gateway's Kubernetes resources. External client
+// attributes can drift or be introduced in newer controller releases. A missing
+// client is reported as non-converged rather than silently skipped or partially
+// recreated without restoring its user role assignments.
+func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.Context, gatewayID string, gw *pb.Gateway) error {
 	if r.keycloakClient == nil {
 		return nil
 	}
-	if gatewayID == "" {
-		return fmt.Errorf("gateway ID is required for Keycloak reconciliation")
-	}
-	if gatewayName == "" {
-		return fmt.Errorf("gateway name is required for Keycloak reconciliation")
+	clientID, err := existingGatewayKeycloakClientID(gatewayID, gw)
+	if err != nil {
+		return err
 	}
 
-	clientID := fmt.Sprintf("%s-%s", gatewayName, gatewayID)
 	clientUUID, err := r.keycloakClient.GetClientUUID(ctx, clientID)
 	if err != nil {
-		return fmt.Errorf("check existing Keycloak client %s: %w", clientID, err)
+		return fmt.Errorf("check existing Keycloak client %q: %w", clientID, err)
 	}
 	if clientUUID == "" {
-		log.Printf("WARN Keycloak client %s is missing; full gateway reconciliation is required to provision it", clientID)
-		return nil
+		return fmt.Errorf("desired Keycloak client %q is missing: %w", clientID, errGatewayKeycloakClientMissing)
 	}
 	if err := r.keycloakClient.EnsureDeviceAuthorizationGrant(ctx, clientUUID); err != nil {
-		return fmt.Errorf("reconcile device authorization grant on Keycloak client %s: %w", clientID, err)
+		return fmt.Errorf("reconcile device authorization grant on Keycloak client %q: %w", clientID, err)
 	}
-	log.Printf("INFO reconciled Keycloak client %s (uuid=%s)", clientID, clientUUID)
+	log.Printf("INFO reconciled Keycloak client %q (uuid=%q)", clientID, clientUUID)
 	return nil
+}
+
+// existingGatewayKeycloakClientID returns the identity recorded when the client
+// was provisioned. Gateway names are mutable, so recomputing from the current name
+// can miss the real client after a rename. client_id is present on newer rows;
+// audience carries the same value on legacy rows. Persisted values cross an API
+// trust boundary, so they are accepted only when they agree, contain no control
+// characters, and match a gateway-owned historical identity format: either the
+// gateway ID itself or a prefix followed by "-<gatewayID>". The prefix is not
+// otherwise restricted because historical clients were provisioned from the raw
+// user-visible gateway name. Only gateways without either persisted value fall
+// back to the provisioning format based on the current name.
+func existingGatewayKeycloakClientID(gatewayID string, gw *pb.Gateway) (string, error) {
+	if gatewayID == "" {
+		return "", invalidGatewayKeycloakClientIdentity("gateway ID is required for Keycloak reconciliation")
+	}
+	if containsControlCharacter(gatewayID) {
+		return "", invalidGatewayKeycloakClientIdentity("gateway ID contains control characters")
+	}
+	if gw == nil {
+		return "", invalidGatewayKeycloakClientIdentity("gateway is required for Keycloak reconciliation")
+	}
+
+	var clientID, audience string
+	if gw.GetOidc() != "" {
+		var oidc gateway.OIDCConfig
+		if err := json.Unmarshal([]byte(gw.GetOidc()), &oidc); err != nil {
+			return "", invalidGatewayKeycloakClientIdentity("parse persisted OIDC config: %w", err)
+		}
+		clientID, audience = oidc.ClientID, oidc.Audience
+	}
+
+	for _, persisted := range []string{clientID, audience} {
+		if persisted != "" && containsControlCharacter(persisted) {
+			return "", invalidGatewayKeycloakClientIdentity("persisted OIDC client identity contains control characters")
+		}
+	}
+	if clientID != "" && audience != "" && clientID != audience {
+		return "", invalidGatewayKeycloakClientIdentity("persisted OIDC client_id and audience do not match")
+	}
+
+	persisted := clientID
+	if persisted == "" {
+		persisted = audience
+	}
+	if persisted != "" {
+		if !isGatewayOwnedKeycloakClientID(persisted, gatewayID) {
+			return "", invalidGatewayKeycloakClientIdentity("persisted OIDC client identity is not owned by the gateway")
+		}
+		return persisted, nil
+	}
+
+	if gw.GetName() == "" {
+		return "", invalidGatewayKeycloakClientIdentity("gateway name is required for Keycloak reconciliation")
+	}
+	fallback := fmt.Sprintf("%s-%s", gw.GetName(), gatewayID)
+	if containsControlCharacter(fallback) {
+		return "", invalidGatewayKeycloakClientIdentity("gateway-derived Keycloak client identity contains control characters")
+	}
+	if !isGatewayOwnedKeycloakClientID(fallback, gatewayID) {
+		return "", invalidGatewayKeycloakClientIdentity("gateway-derived Keycloak client identity is not owned by the gateway")
+	}
+	return fallback, nil
+}
+
+func isGatewayOwnedKeycloakClientID(clientID, gatewayID string) bool {
+	if clientID == "" || containsControlCharacter(clientID) {
+		return false
+	}
+	if clientID == gatewayID {
+		return true
+	}
+	suffix := "-" + gatewayID
+	return strings.HasSuffix(clientID, suffix) && len(clientID) > len(suffix)
+}
+
+func containsControlCharacter(value string) bool {
+	for _, ch := range value {
+		if unicode.IsControl(ch) {
+			return true
+		}
+	}
+	return false
 }
 
 // provisioningRouteReadyWait bounds how long the provisioning path polls a
@@ -1813,6 +1934,20 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s phase to %s: %v", gatewayID, phase, err)
 	}
+}
+
+// updateGatewayStatus changes status without changing phase. Lightweight
+// external-state repair uses it so a missing Keycloak client is visible without
+// falsely claiming that the Kubernetes workload phase changed.
+func (r *GatewayReconciler) updateGatewayStatus(ctx context.Context, gatewayID, gatewayStatus string) error {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	if _, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:     gatewayID,
+		Status: &gatewayStatus,
+	}); err != nil {
+		return fmt.Errorf("update gateway %s status: %w", gatewayID, err)
+	}
+	return nil
 }
 
 // consoleAddressFor returns the console_address a gateway should carry given

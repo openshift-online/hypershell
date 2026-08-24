@@ -202,6 +202,8 @@ When the GatewayReconciler receives a Gateway ADDED event, it SHALL create a ded
 
 The Keycloak `clientId` SHALL be `{name}-{id}`, where `{name}` is the user-visible gateway name and `{id}` is the API-server resource ID (KSUID). This prevents name clashes when multiple gateways share the same name across fleets or when a gateway is deleted and recreated with the same name. Example: a gateway named `my-gateway` with ID `2FhMpQzXBz` produces `clientId = "my-gateway-2FhMpQzXBz"`.
 
+For reconciliation of an existing gateway, persisted OIDC `client_id` and `audience` values SHALL be used to preserve identity across a gateway rename only when both non-empty values agree and the identity is gateway-owned: either exactly the immutable gateway ID (legacy format) or a control-character-free identifier ending in `-{gateway-id}`. Control characters and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. The current `{name}-{id}` format is used only when neither persisted identity value exists. Historical identifiers containing spaces or non-ASCII characters remain valid; whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
+
 The client SHALL be created with the following properties:
 
 | Property | Value | Notes |
@@ -240,6 +242,31 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 - THEN it SHALL enable OAuth 2.0 Device Authorization Grant on the existing Keycloak client
 - AND it SHALL preserve all other client attributes and settings
 - AND subsequent reconciliations SHALL NOT update the client when the grant is already enabled
+
+#### Scenario: Existing gateway client is missing
+
+- GIVEN an active gateway's persisted OIDC identity identifies its gateway-owned Keycloak client
+- AND that desired client is missing from Keycloak
+- WHEN the GatewayReconciler performs lightweight existing-client reconciliation
+- THEN it SHALL set Gateway `status` to the fixed value `Keycloak client is missing`
+- AND it SHALL leave Gateway `phase` unchanged
+- AND it SHALL NOT run Kubernetes provisioning or partially recreate the Keycloak client, because doing so would omit its RoleBinding and console mappings
+- AND it SHALL retry the lightweight reconciliation without transforming it into a full gateway reconciliation
+- AND if startup or reconnect recovery requests a forced full pass during those retries, the forced pass SHALL be retained but deferred until the lightweight reconciliation succeeds
+- AND healthy workload or route observations SHALL NOT replace the missing-client status with `Healthy`
+- AND after the complete desired client becomes available and lightweight reconciliation succeeds, the reconciler SHALL clear the marker without changing the workload phase so the health reconciler resumes ownership of status
+
+#### Scenario: Existing gateway client identity is invalid
+
+- GIVEN an active gateway has malformed OIDC configuration, conflicting `client_id` and `audience`, a foreign persisted identity, a prohibited control character, or another invalid required identity input
+- WHEN the GatewayReconciler performs lightweight existing-client reconciliation
+- THEN it SHALL set Gateway `status` to the fixed value `Keycloak client configuration is invalid`
+- AND it SHALL leave Gateway `phase` unchanged
+- AND it SHALL NOT call Keycloak or run Kubernetes provisioning
+- AND after successfully recording the fixed status it SHALL treat validation as terminal and SHALL NOT retry unchanged invalid desired state
+- AND if recording the status fails, it SHALL retry only the status-only lightweight path with the original gated payload
+- AND healthy workload or route observations SHALL NOT replace the invalid-configuration status with `Healthy`
+- AND after corrected identity configuration reconciles successfully, the reconciler SHALL clear the marker without changing workload phase
 
 #### Scenario: Creator receives admin role on new gateway
 
