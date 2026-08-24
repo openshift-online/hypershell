@@ -113,6 +113,17 @@ export const messages = defineMessages({
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
   },
+  connectionSandboxConnectDescription: {
+    id: "app.gateway.connection.sandboxConnect.description",
+    defaultMessage:
+      "Already have a sandbox from an earlier session? Run this to reattach.",
+    description: "Supporting text for the connect-to-sandbox connection step.",
+  },
+  connectionSandboxConnectTitle: {
+    id: "app.gateway.connection.sandboxConnect.title",
+    defaultMessage: "Connect to a sandbox",
+    description: "Title for the connect-to-sandbox connection step.",
+  },
   connectionSandboxDescription: {
     id: "app.gateway.connection.sandbox.description",
     defaultMessage:
@@ -176,6 +187,11 @@ export const messages = defineMessages({
     id: "app.gateway.connection.copySandboxCommand",
     defaultMessage: "Copy the create-sandbox command",
     description: "Accessible label for copying the create-sandbox command.",
+  },
+  copySandboxConnectCommand: {
+    id: "app.gateway.connection.copySandboxConnectCommand",
+    defaultMessage: "Copy the connect-sandbox command",
+    description: "Accessible label for copying the connect-sandbox command.",
   },
   copySetupCommand: {
     id: "app.gateway.connection.copySetupCommand",
