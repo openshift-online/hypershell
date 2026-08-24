@@ -10,7 +10,7 @@
 
 ## Purpose
 
-The control plane SHALL shift from applying static YAML manifests (generated once via `helm template` and maintained as embedded files) to installing and upgrading OpenShell gateways using the upstream Helm chart at runtime via the Helm Go SDK. This eliminates drift between HyperShell and upstream, reduces maintenance burden, and gives automatic access to new chart features.
+The control plane SHALL shift from applying static YAML manifests (generated once via `helm template` and maintained as embedded files) to installing OpenShell gateways using the upstream Helm chart at runtime via the Helm Go SDK. This eliminates drift between HyperShell and upstream, reduces maintenance burden, and gives automatic access to new chart features.
 
 ### Current State
 
@@ -18,7 +18,7 @@ The GatewayReconciler loads static YAML files from `/manifests/gateway/` at star
 
 ### Target State
 
-The GatewayReconciler SHALL use the Helm Go SDK to install or upgrade a Helm release per gateway namespace, passing computed values that map gateway configuration to upstream chart values. Resources not covered by the chart (database provisioning, console, trusted CA, OpenShift SCC, extra network policies, ingress) remain under direct Go reconciliation.
+The GatewayReconciler SHALL use the Helm Go SDK to run `helm install` when a gateway is created and `helm uninstall` when a gateway is deleted. Gateway upgrades (image changes, config changes) are not handled at this time. The old SSA-based deployment code will be removed entirely — there is only one code path.
 
 ---
 
@@ -27,26 +27,34 @@ The GatewayReconciler SHALL use the Helm Go SDK to install or upgrade a Helm rel
 ### Reconciliation Flow (Updated)
 
 ```
-Gateway event (gRPC watch)
+Gateway ADDED event (gRPC watch)
   │
   ▼
 GatewayReconciler
   ├─ 1. Create namespace (if absent)
   ├─ 2. Reconcile CNPG database resources              ← Go (unchanged)
-  ├─ 3. Reconcile credential KEK / driver RBAC          ← Helm chart handles
-  ├─ 4. Reconcile cert-manager resources                 ← Helm chart handles
-  ├─ 5. Reconcile Keycloak client                        ← Go (unchanged)
-  ├─ 6. Copy trusted CA ConfigMap                        ← Go (unchanged)
-  ├─ 7. Install/Upgrade Helm release                     ← NEW (replaces deployGateway)
+  ├─ 3. Reconcile Keycloak client                       ← Go (unchanged)
+  ├─ 4. Copy trusted CA ConfigMap (if present)           ← Go (unchanged)
+  ├─ 5. Reconcile OpenShift SCC binding                  ← Go (before Helm install)
+  ├─ 6. Helm install                                     ← NEW (replaces deployGateway)
   │     └─ Chart deploys: Deployment, Service, ConfigMap,
   │        ServiceAccounts, RBAC, certgen Job,
   │        credential KEK Secret,
   │        cert-manager Issuers/Certificates,
-  │        GRPCRoute, BackendTLSPolicy (PR #2728)
+  │        GRPCRoute, BackendTLSPolicy, Route,
+  │        BackendCA ConfigMap (via certgen)
   │        (NetworkPolicy disabled — see decision below)
-  ├─ 8. Reconcile OpenShift SCC binding                  ← Go (unchanged)
-  ├─ 9. Reconcile ingress (BackendCA ConfigMap)          ← Go (if not covered by chart)
-  └─ 10. Reconcile console                               ← Go (unchanged)
+  └─ 7. Reconcile console                               ← Go (unchanged)
+```
+
+```
+Gateway DELETED event (gRPC watch)
+  │
+  ▼
+GatewayReconciler
+  ├─ 1. Clean up non-chart resources (database, Keycloak clients)
+  ├─ 2. Helm uninstall (if release exists)
+  └─ 3. Delete namespace
 ```
 
 ### Helm SDK Integration
@@ -55,12 +63,12 @@ GatewayReconciler
 GatewayReconciler
   │
   ├─ HelmClient (new internal package)
-  │   ├─ LoadChart()        — load chart from embedded or OCI registry
-  │   ├─ BuildValues()      — map Gateway resource → chart values
-  │   ├─ InstallOrUpgrade() — idempotent release management
-  │   └─ Uninstall()        — clean removal on gateway deletion
+  │   ├─ LoadChart()   — load chart once at startup
+  │   ├─ BuildValues() — map Gateway resource → chart values
+  │   ├─ Install()     — install release for new gateway
+  │   └─ Uninstall()   — clean removal on gateway deletion
   │
-  └─ Uses: helm.sh/helm/v3/pkg/action (Install, Upgrade, Uninstall)
+  └─ Uses: helm.sh/helm/v3/pkg/action (Install, Uninstall)
            helm.sh/helm/v3/pkg/chart/loader
            helm.sh/helm/v3/pkg/cli
 ```
@@ -78,6 +86,7 @@ The control plane SHALL use the [Helm Go SDK](https://helm.sh/docs/sdk/) (`helm.
 - GIVEN the control plane starts up
 - WHEN the GatewayReconciler initializes
 - THEN it SHALL create a Helm action configuration targeting each managed cluster's kubeconfig
+- AND it SHALL load the chart once at startup and reuse it for all subsequent installs
 - AND the Helm storage driver SHALL be `secrets` (the Helm default) so release state is stored as Secrets in the gateway namespace
 
 #### Scenario: New gateway provisioning (Helm install)
@@ -90,29 +99,20 @@ The control plane SHALL use the [Helm Go SDK](https://helm.sh/docs/sdk/) (`helm.
 - AND the release namespace SHALL be the gateway's API-assigned namespace
 - AND `Install.CreateNamespace` SHALL be `false` (the reconciler creates the namespace itself)
 
-#### Scenario: Gateway update (Helm upgrade)
+#### Scenario: Retry after failed install
 
-- GIVEN a Gateway MODIFIED event is received
-- AND a Helm release already exists in the gateway namespace
-- WHEN the GatewayReconciler processes the event
-- THEN it SHALL call `action.Upgrade` with the updated values
-- AND the upgrade SHALL be atomic (`Upgrade.Atomic = true`) to auto-rollback on failure
-- AND the upgrade SHALL wait for resources to become ready (`Upgrade.Wait = true`)
+- GIVEN a previous Helm install failed (e.g. certgen job timed out waiting for cert-manager)
+- WHEN the GatewayReconciler processes the next reconciliation event
+- THEN it SHALL detect the failed release and run `helm upgrade` to retry
+- AND this is the only scenario where `helm upgrade` is invoked
 
-#### Scenario: Gateway deletion (Helm uninstall)
+#### Scenario: Gateway deletion (Helm uninstall + namespace deletion)
 
 - GIVEN a Gateway DELETED event is received
 - WHEN the GatewayReconciler processes the event
-- THEN it SHALL call `action.Uninstall` to remove chart-managed resources
-- AND it SHALL separately clean up non-chart resources (database, console, SCC binding, extra network policies, Keycloak clients)
-- AND it SHALL NOT delete the namespace (consistent with current behavior)
-
-#### Scenario: Idempotent reconciliation
-
-- GIVEN a Gateway reconciliation is triggered (event or periodic resync)
-- WHEN the current Helm release values match the computed values
-- THEN the SDK upgrade SHALL be a no-op (Helm detects no diff)
-- AND unnecessary Kubernetes API calls SHALL be avoided
+- THEN it SHALL clean up non-chart resources (database, Keycloak clients)
+- AND if a Helm release exists in the gateway namespace, it SHALL call `action.Uninstall`
+- AND it SHALL delete the gateway namespace
 
 ---
 
@@ -123,8 +123,9 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 #### Scenario: Embedded chart (default)
 
 - GIVEN the chart archive is vendored into the control plane container image at `/charts/openshell.tgz`
-- WHEN the reconciler loads the chart
-- THEN it SHALL use `loader.LoadArchive()` to load from the embedded path
+- WHEN the reconciler starts up
+- THEN it SHALL use `loader.LoadArchive()` to load the chart once
+- AND the loaded chart SHALL be reused for all gateway installs without reloading
 - AND the chart version SHALL be pinned in the Dockerfile build script (e.g. `helm pull oci://ghcr.io/nvidia/openshell/helm-chart --version <version> --destination /charts/`)
 - AND upgrading the chart version SHALL require a control plane image rebuild
 - AND this ensures the chart version is always coupled to the control plane release — a given control plane image always deploys the same chart version
@@ -132,10 +133,10 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 #### Scenario: OCI registry override (development only)
 
 - GIVEN the environment variable `HELM_CHART_REGISTRY` is set (e.g. `oci://ghcr.io/nvidia/openshell/helm-chart`)
-- WHEN the reconciler loads the chart
+- WHEN the reconciler starts up
 - THEN it SHALL pull from the OCI registry instead of the embedded path
 - AND the chart version SHALL be read from `HELM_CHART_VERSION` (required when registry is set)
-- AND the chart SHALL be cached locally after the first pull
+- AND the chart SHALL be loaded once at startup and cached for the lifetime of the process
 - AND this mode SHALL NOT be used in production — it introduces a runtime dependency on registry availability
 
 ---
@@ -159,6 +160,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | `false` | `networkPolicy.enabled` | Disabled — see NetworkPolicy Decision below |
 | cert-manager detected | `certManager.enabled` | Auto-detect at startup |
 | DB credentials Secret name | `server.externalDbSecret` | `openshell-gateway-db-credentials` |
+| Trusted CA ConfigMap name | `server.oidc.caConfigMapName` | `gateway-trusted-ca` (when present) |
 
 #### OIDC Values (conditional)
 
@@ -183,11 +185,12 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 
 | Gateway / CP Config | Helm Value | Notes |
 |---|---|---|
-| Gateway has `route` config | `grpcRoute.enabled=true` | Enable GRPCRoute creation |
-| Route hostname | `grpcRoute.hostname` | `gw-<ns>.<base-domain>` |
-| Gateway API Gateway ref | `grpcRoute.parentRefs[0]` | Cross-namespace parentRef |
+| Gateway has `route` config + Gateway API available | `grpcRoute.enabled=true` | Enable GRPCRoute creation |
+| Route hostname | `grpcRoute.hostnames` | `[gw-<ns>.<base-domain>]` |
+| Gateway API Gateway ref | `grpcRoute.gateway.name`, `grpcRoute.gateway.namespace` | Cross-namespace parentRef |
 | BackendTLSPolicy support (PR #2728) | `grpcRoute.backendTLSPolicy.enabled=true` | Requires PR #2728 |
 | mTLS toggle (PR #2728) | `server.tls.enableMtls=false` | Required when BackendTLSPolicy is used |
+| Gateway has `route` config + no Gateway API (OpenShift < 4.22) | `openshiftRoute.enabled=true` | Fallback to `route.openshift.io/v1` Route |
 
 #### OpenShift Values (conditional)
 
@@ -204,48 +207,19 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 - AND unset optional fields (e.g. no OIDC) SHALL be omitted from the values map
 - AND the computed values SHALL be deterministic for the same Gateway state
 
-#### Scenario: Sandbox preflight disabled
-
-- GIVEN the control plane manages sandbox CRD installation separately
-- WHEN computing Helm values
-- THEN `agentSandbox.preflight.enabled` SHALL be set to `false`
-- AND the chart SHALL not fail if the sandbox CRD API is not yet served
-
 ---
 
 ### Requirement: Migration Path
 
-Existing gateway deployments use directly-applied resources (SSA). Transitioning to Helm-managed releases requires adopting existing resources into the Helm release without downtime.
+The platform is in beta. The migration path is intentionally simple.
 
-#### Scenario: Adopt existing resources into Helm release
-
-- GIVEN a gateway namespace has resources created by the current SSA-based reconciler
-- WHEN the control plane is upgraded to use Helm
-- THEN the first Helm install SHALL use `Install.Replace = true` to adopt existing resources
-- AND the reconciler SHALL annotate existing resources with `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace` and label them with `app.kubernetes.io/managed-by=Helm` before the first install
-- AND no resources SHALL be deleted or recreated during migration
-- AND the gateway pod SHALL NOT be restarted unless the Deployment spec actually changes
-
-#### Scenario: Rollback capability
-
-- GIVEN a Helm-managed gateway release
-- WHEN an upgrade fails
-- THEN the `Atomic` flag SHALL cause automatic rollback to the previous release revision
-- AND the reconciler SHALL log the failure and retry on the next reconciliation cycle
-
-#### Scenario: Mixed-state during rolling upgrade
-
-- GIVEN a fleet of gateways across multiple clusters
-- WHEN the control plane is upgraded incrementally
-- THEN gateways on clusters not yet upgraded SHALL continue to use SSA-based reconciliation
-- AND gateways on upgraded clusters SHALL use Helm-based reconciliation
-- AND both modes SHALL produce functionally identical resource sets
+- New gateway creations SHALL use the Helm chart
+- Existing gateways are not migrated — they will be reprovisioned when needed
+- The old SSA-based deployment code SHALL be removed entirely; there is no dual-mode or feature flag
 
 ---
 
 ## Coverage Gap Analysis
-
-The following table documents resources that the control plane currently creates but are NOT covered by the upstream Helm chart. These resources SHALL continue to be reconciled directly in Go after the Helm release is installed.
 
 ### Resources Covered by the Helm Chart
 
@@ -260,7 +234,6 @@ The following table documents resources that the control plane currently creates
 | ClusterRoleBinding `...-node-reader-<ns>` | `manifests/gateway/rbac.yaml` | `clusterrolebinding.yaml` | Always created |
 | Role `openshell-gateway-sandbox` | `manifests/gateway/rbac.yaml` | `role.yaml` | `workspaceMode=shared` |
 | RoleBinding `openshell-gateway-sandbox` | `manifests/gateway/rbac.yaml` | `rolebinding.yaml` | `workspaceMode=shared` |
-| ~~NetworkPolicy `openshell-gateway-sandbox-ssh`~~ | `manifests/gateway/networkpolicy.yaml` | `networkpolicy.yaml` | `networkPolicy.enabled=false` (disabled) |
 | Job `openshell-gateway-certgen` + RBAC | `manifests/gateway/certgen-job.yaml` | `certgen.yaml` | `pkiInitJob.enabled` |
 | Secret `openshell-gateway-credential-kek` | Go (`reconcileCredentialKEK`) | `credential-storage-key-encryption-key-secret.yaml` | No credential driver enabled |
 | Role/RoleBinding credential-secrets | Go (`reconcileCredentialDriverRBAC`) | `credential-secrets-role.yaml` / `credential-secrets-rolebinding.yaml` | `credentialDrivers.kubernetesSecrets.enabled` |
@@ -271,35 +244,21 @@ The following table documents resources that the control plane currently creates
 | Certificate `openshell-client` | Go (`reconcileCertManager`) | `cert-manager-pki.yaml` | `certManager.enabled` |
 | GRPCRoute `openshell-gateway` | Go (`reconcileGRPCRoute`) | `grpcroute.yaml` | `grpcRoute.enabled` |
 | BackendTLSPolicy `openshell-gateway` | Go (`reconcileBackendTLSPolicy`) | `backend-tls-policy.yaml` (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
+| BackendCA ConfigMap | Go (`reconcileBackendCA`) | Created by certgen hook (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
 | Route (OpenShift) | Go (`reconcileRoute`) | `route.yaml` | `openshiftRoute.enabled` |
+| Trusted CA volume/mount/env | Go (post-Helm SSA patch) | `_gateway-workload.tpl` | `server.oidc.caConfigMapName` |
 
 ### Gap Table: Control-Plane-Managed Resources Within the Gateway Namespace
 
-The Helm chart covers the OpenShell gateway deployment itself. The following resources are deployed by the control plane into the gateway namespace because they are HyperShell platform concerns outside of OpenShell's scope:
+The Helm chart covers the OpenShell gateway deployment itself. The only resource the control plane must create within the gateway namespace outside of the chart is the OpenShift SCC binding:
 
 | # | Resource | Kind | Why the Control Plane Handles It |
 |---|---|---|---|
-| 1 | `openshell-sandbox-privileged-scc` | RoleBinding | OpenShift SCC binding granting the `privileged` SCC to the sandbox ServiceAccount. The chart handles `podSecurityContext` values but has no concept of OpenShift SCC grants. |
-| 2 | `gateway-trusted-ca` | ConfigMap | CA bundle for private-CA environments (e.g. Keycloak behind OpenShift ingress). Copied from the CP namespace and mounted into the gateway Deployment via a post-Helm SSA patch. |
+| 1 | `openshell-sandbox-privileged-scc` | RoleBinding | OpenShift SCC binding granting the `privileged` SCC to the sandbox ServiceAccount. The chart handles `podSecurityContext` values but has no concept of OpenShift SCC grants. This is documented as an out-of-chart step in the [upstream chart README](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift). |
 
-All other resources the control plane manages (CNPG database provisioning, DB credentials, console, Keycloak clients, backend CA ConfigMap) are HyperShell platform infrastructure deployed outside the context of the OpenShell gateway itself. The chart's `server.externalDbSecret` value references the DB credentials Secret that the control plane provisions before the Helm install, but the chart does not deploy databases.
+The trusted CA ConfigMap (`gateway-trusted-ca`) is still copied from the CP namespace into the tenant namespace by the control plane, but its injection into the Deployment is handled by the chart via `server.oidc.caConfigMapName` — no post-Helm SSA patch is needed.
 
----
-
-## Trusted CA Injection Strategy
-
-The trusted CA ConfigMap is not managed by the Helm chart. After the Helm release is installed, the reconciler must overlay the Deployment to add the CA volume, volume mount, and `SSL_CERT_FILE` env var.
-
-#### Scenario: Post-Helm trusted CA overlay
-
-- GIVEN the Helm release has been installed/upgraded
-- AND a `gateway-trusted-ca` ConfigMap exists in the CP namespace
-- WHEN the reconciler applies trusted CA injection
-- THEN it SHALL patch the `openshell-gateway` Deployment using SSA to add:
-  - A volume referencing the `gateway-trusted-ca` ConfigMap
-  - A volumeMount at `/etc/pki/tls/certs/ca-bundle.crt` (subPath `ca-bundle.crt`)
-  - An env var `SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt`
-- AND the SSA field manager SHALL be `hypershell-control-plane` (distinct from `helm`) to avoid conflict with Helm's field ownership
+All other resources the control plane manages (CNPG database provisioning, DB credentials, console, Keycloak clients) are HyperShell platform infrastructure deployed outside the context of the OpenShell gateway itself. The chart's `server.externalDbSecret` value references the DB credentials Secret that the control plane provisions before the Helm install, but the chart does not deploy databases.
 
 ---
 
@@ -318,7 +277,7 @@ In practice, the existing gateway NetworkPolicies created a self-defeating cycle
 
 **Verified empirically:** On namespace `openshell-3eaf1474f52f561c`, removing all 7 NetworkPolicies had no impact on end-to-end connectivity (local machine → OpenShift ingress → gateway → sandbox exec). Conversely, installing only `allow-router` broke sandbox connectivity by isolating the gateway pod.
 
-**Existing NetworkPolicies will be removed** from gateway namespaces during migration to Helm. The control plane will stop creating them, and any existing ones will not be adopted into Helm releases.
+**Future consideration:** If a restrictive network policy posture becomes a platform requirement, we will revisit this decision and implement a comprehensive policy set that covers all legitimate traffic directions.
 
 ---
 
@@ -330,14 +289,15 @@ Resources have ordering dependencies that the reconciler must respect:
 1. Namespace                          (must exist first)
 2. CNPG Database + credentials Secret (must exist before Helm install)
 3. Trusted CA ConfigMap copy          (must exist before Helm install if present)
-4. Helm install/upgrade               (creates core workload + chart-managed resources)
-5. OpenShift SCC binding              (can run after Helm, before pod scheduling)
-6. Trusted CA Deployment overlay      (must run after Helm, patches the Deployment)
-7. Console resources                  (can run after Helm)
-8. Keycloak clients                   (can run after Helm)
+4. OpenShift SCC binding              (must run before Helm install)
+5. Helm install                       (creates core workload + chart-managed resources)
+6. Console resources                  (can run after Helm)
+7. Keycloak clients                   (can run after Helm)
 ```
 
-The key constraint: the DB credentials Secret (`openshell-gateway-db-credentials`) must be created before the Helm install because the chart's Deployment references it via `server.externalDbSecret`. If the Secret does not exist at install time, the pod will fail to start with a missing Secret error.
+The key constraints:
+- The DB credentials Secret (`openshell-gateway-db-credentials`) must be created before the Helm install because the chart's Deployment references it via `server.externalDbSecret`. If the Secret does not exist at install time, the pod will fail to start with a missing Secret error.
+- The OpenShift SCC binding must be created before the Helm install so that sandbox pods can schedule when the chart creates the Deployment.
 
 ---
 
@@ -349,18 +309,16 @@ The key constraint: the DB credentials Secret (`openshell-gateway-db-credentials
 |---|---|
 | `client.go` | Helm action configuration, release state queries |
 | `values.go` | Gateway resource → Helm values map translation |
-| `chart.go` | Chart loading (embedded filesystem or OCI pull) |
-| `migration.go` | One-time adoption of existing SSA-managed resources |
+| `chart.go` | Chart loading (embedded filesystem or OCI pull, loaded once at startup) |
 
 ### Modified Files
 
 | File | Change |
 |---|---|
-| `internal/reconciler/gateway_reconciler.go` | Replace `deployGateway()` call with `helmClient.InstallOrUpgrade()`; remove manifest loading; keep pre/post-Helm steps |
-| `internal/gateway/manifests.go` | Remove or deprecate — static manifest loading no longer needed |
+| `internal/reconciler/gateway_reconciler.go` | Replace `deployGateway()` call with `helmClient.Install()`; remove manifest loading; keep pre/post-Helm steps; add namespace deletion on gateway delete |
 | `internal/reconciler/gateway_reconciler.go` | Remove inline cert-manager, credential KEK, credential RBAC reconciliation (chart handles) |
 | `go.mod` | Add `helm.sh/helm/v3` dependency |
-| `Dockerfile` / build | Embed chart archive or configure OCI pull |
+| `Dockerfile` / build | Embed chart archive |
 
 ### Removed
 
@@ -373,6 +331,9 @@ The key constraint: the DB credentials Secret (`openshell-gateway-db-credentials
 | `reconcileCredentialDriverRBAC()` logic | Chart handles credential driver RBAC |
 | All NetworkPolicy reconciliation code | No longer installed (see NetworkPolicy Decision) |
 | `manifests/gateway/networkpolicy.yaml` | No longer installed |
+| Trusted CA SSA patch logic | Chart handles via `server.oidc.caConfigMapName` |
+| GRPCRoute/BackendTLSPolicy/Route Go reconciliation | Chart handles via values |
+| BackendCA ConfigMap Go reconciliation | Chart certgen hook handles |
 
 ---
 
@@ -392,43 +353,17 @@ The key constraint: the DB credentials Secret (`openshell-gateway-db-credentials
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Helm release state corruption | Gateway stuck in failed state | Use `Atomic` flag for auto-rollback; add release health check to reconcile loop |
-| Chart upgrade changes resource names/labels | Orphaned resources, broken selectors | Pin chart version; test upgrades in dev-cluster before production |
-| Field ownership conflict (Helm vs SSA patches) | Unexpected field reversion on upgrade | Use distinct field managers; limit SSA patches to fields Helm does not manage |
-| PR #2728 not merged | BackendTLSPolicy gap remains | Keep Go-based BackendTLSPolicy reconciliation as fallback; gate on chart version |
+| Helm install failure (e.g. certgen timeout) | Gateway not provisioned | Detect failed release on next reconcile and retry via `helm upgrade` |
+| Chart upgrade changes resource names/labels | Orphaned resources, broken selectors | Pin chart version in container image; test upgrades in dev-cluster before production |
+| PR #2728 not merged | BackendTLSPolicy and BackendCA ConfigMap gaps remain | Keep Go-based reconciliation as fallback; gate on chart version |
 | Helm SDK version drift | API incompatibilities | Pin `helm.sh/helm/v3` in `go.mod`; track upstream releases |
-
----
-
-## Implementation Phases
-
-### Phase 1: Helm SDK Integration + Values Mapping
-
-- Add `helm.sh/helm/v3` dependency
-- Implement `internal/helm/` package (client, values, chart loader)
-- Unit test values mapping against snapshot of current manifests
-- Embed chart in container image build
-
-### Phase 2: Migration + Dual-Mode
-
-- Implement resource adoption (annotate existing resources for Helm)
-- Add feature flag `HELM_DEPLOY_ENABLED` (default `false`)
-- Run both modes in dev-cluster; compare resource output
-- Validate no-downtime migration on existing gateways
-
-### Phase 3: Cut Over
-
-- Enable Helm deployment by default (`HELM_DEPLOY_ENABLED=true`)
-- Remove static manifest files and loading code
-- Remove Go-based cert-manager, credential KEK, credential RBAC reconciliation
-- Remove all NetworkPolicy creation code and delete existing NetworkPolicies from gateway namespaces
-- Update `openshell-gateway.spec.md` to reflect new architecture
 
 ---
 
 ## References
 
 - [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell)
+- [OpenShell Helm Chart README — Install on OpenShift](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift) — documents SCC binding as out-of-chart step
 - [Helm Go SDK Documentation](https://helm.sh/docs/sdk/)
 - [PR #2728: BackendTLSPolicy support](https://github.com/NVIDIA/OpenShell/pull/2728)
 - [Current gateway spec](./openshell-gateway.spec.md)
