@@ -367,9 +367,11 @@ func (c *Client) scopeMappingsConverged(ctx context.Context, clientUUID, gateway
 }
 
 // managedProtocolMapper is one protocol mapper HyperShell pins on a managed
-// service-account client. Every config entry is a required value.
+// service-account client. protocol and protocolMapper select the mapper behavior;
+// every config entry is a required value.
 type managedProtocolMapper struct {
 	name           string
+	protocol       string
 	protocolMapper string
 	config         map[string]string
 }
@@ -383,6 +385,7 @@ func managedProtocolMappers(gatewayClientID string) []managedProtocolMapper {
 	return []managedProtocolMapper{
 		{
 			name:           "gateway-audience",
+			protocol:       "openid-connect",
 			protocolMapper: "oidc-audience-mapper",
 			// included.custom.audience must stay empty: an audience mapper carrying a
 			// free-form custom audience adds an unrelated gateway to the token, which is
@@ -396,6 +399,7 @@ func managedProtocolMappers(gatewayClientID string) []managedProtocolMapper {
 		},
 		{
 			name:           "gateway-client-roles",
+			protocol:       "openid-connect",
 			protocolMapper: "oidc-usermodel-client-role-mapper",
 			// access.token.claim, multivalued, and jsonType.label are all
 			// behavior-bearing: dropping the claim strips every role from the access
@@ -416,6 +420,7 @@ func managedProtocolMappers(gatewayClientID string) []managedProtocolMapper {
 // parsedProtocolMapper is the shape Keycloak returns for a client protocol mapper.
 type parsedProtocolMapper struct {
 	Name           string            `json:"name"`
+	Protocol       string            `json:"protocol"`
 	ProtocolMapper string            `json:"protocolMapper"`
 	Config         map[string]string `json:"config"`
 }
@@ -443,7 +448,10 @@ func (c *Client) protocolMappersConverged(ctx context.Context, clientUUID, gatew
 	}
 	for _, want := range desired {
 		live, ok := byName[want.name]
-		if !ok || live.ProtocolMapper != want.protocolMapper {
+		// protocol and protocolMapper both select the mapper behavior: a mapper that
+		// keeps the name but switches protocol no longer emits the required claim, so
+		// it must fail closed to repair even when the config still matches.
+		if !ok || live.Protocol != want.protocol || live.ProtocolMapper != want.protocolMapper {
 			return false, nil
 		}
 		// Compare every required config value repair writes. A missing key reads as
@@ -943,7 +951,7 @@ func (c *Client) replaceProtocolMappers(ctx context.Context, clientUUID, gateway
 	for _, mapper := range managedProtocolMappers(gatewayClientID) {
 		payload, _ := json.Marshal(map[string]any{
 			"name":           mapper.name,
-			"protocol":       "openid-connect",
+			"protocol":       mapper.protocol,
 			"protocolMapper": mapper.protocolMapper,
 			"config":         mapper.config,
 		})

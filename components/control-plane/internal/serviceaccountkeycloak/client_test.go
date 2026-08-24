@@ -404,10 +404,10 @@ func convergedClientRepresentation() map[string]any {
 // convergedProtocolMappers is the canonical mapper set for the reconcile spec.
 func convergedProtocolMappers() []map[string]any {
 	return []map[string]any{
-		{"name": "gateway-audience", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{
+		{"name": "gateway-audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{
 			"included.client.audience": "gateway-client", "id.token.claim": "false", "access.token.claim": "true",
 		}},
-		{"name": "gateway-client-roles", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{
+		{"name": "gateway-client-roles", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{
 			"usermodel.clientRoleMapping.clientId": "gateway-client", "claim.name": "hypershell.roles",
 			"multivalued": "true", "jsonType.label": "String", "id.token.claim": "false", "access.token.claim": "true",
 		}},
@@ -560,6 +560,35 @@ func TestReconcileServiceAccountRepairsDriftedRoleClaim(t *testing.T) {
 			}
 			if !containsWrite(writes, http.MethodPut, "/admin/realms/realm/clients/service-uuid") {
 				t.Fatalf("role-claim drift was accepted as converged; writes = %v", writes)
+			}
+		})
+	}
+}
+
+func TestReconcileServiceAccountRepairsDriftedMapperProtocol(t *testing.T) {
+	// A mapper that keeps its name, provider, and config but switches protocol no
+	// longer emits its claim on the openid-connect token. Convergence must compare
+	// protocol and repair each managed mapper independently, so switching the
+	// protocol on either the audience or the roles mapper triggers a write.
+	for _, tc := range []struct {
+		name  string
+		index int
+	}{
+		{name: "audience mapper protocol changed", index: 0},
+		{name: "roles mapper protocol changed", index: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mappers := convergedProtocolMappers()
+			mappers[tc.index]["protocol"] = "saml"
+			var writes []string
+			server := httptest.NewServer(reconcileHandler(t, convergedClientRepresentation(), mappers, &writes))
+			t.Cleanup(server.Close)
+			client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+			if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
+				t.Fatalf("ReconcileServiceAccount() error = %v", err)
+			}
+			if !containsWrite(writes, http.MethodPut, "/admin/realms/realm/clients/service-uuid") {
+				t.Fatalf("mapper protocol drift was accepted as converged; writes = %v", writes)
 			}
 		})
 	}
