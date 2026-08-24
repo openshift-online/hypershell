@@ -70,8 +70,8 @@ func (s *sqlManagedDatabaseService) Get(ctx context.Context, id string) (*Manage
 }
 
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {
-	if managedDatabase.Provider != "cnpg" {
-		return nil, errors.Validation("unsupported provider %q: only \"cnpg\" is supported", managedDatabase.Provider)
+	if managedDatabase.Provider != "cnpg" && managedDatabase.Provider != "deployment" {
+		return nil, errors.Validation("unsupported provider %q: supported providers are \"cnpg\" and \"deployment\"", managedDatabase.Provider)
 	}
 
 	managedDatabase, err := s.managedDatabaseDao.Create(ctx, managedDatabase)

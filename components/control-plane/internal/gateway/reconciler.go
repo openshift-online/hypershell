@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -84,7 +85,11 @@ func ReconcileGateway(
 		}
 	}
 
-	if opts.ReconcileDatabase {
+	switch opts.DatabaseProvider {
+	case "":
+		// Legacy gateways may not have a database_id. Preserve any existing
+		// database resources and continue reconciling the rest of the gateway.
+	case "cnpg":
 		if opts.CNPG.ClusterNamespace == "" {
 			return fmt.Errorf("CNPG cluster namespace is required for gateway database reconciliation in namespace %s", nsConfig.Name)
 		}
@@ -101,6 +106,15 @@ func ReconcileGateway(
 				return fmt.Errorf("rotate database credentials in %s: %w", nsConfig.Name, err)
 			}
 		}
+	case "deployment":
+		if opts.DeploymentDBNamespace == "" {
+			return fmt.Errorf("deployment database namespace is required for gateway database reconciliation in namespace %s", nsConfig.Name)
+		}
+		if err := copyDeploymentDatabaseCredentials(ctx, clientset, opts.DeploymentDBNamespace, nsConfig.Name); err != nil {
+			return fmt.Errorf("copy deployment database credentials to %s: %w", nsConfig.Name, err)
+		}
+	default:
+		return fmt.Errorf("unsupported database provider %q for gateway in namespace %s", opts.DatabaseProvider, nsConfig.Name)
 	}
 
 	if nsConfig.Gateway.CredentialDriver == nil {
@@ -639,7 +653,7 @@ func deleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, 
 	return nil
 }
 
-func NamespaceExists(ctx context.Context, clientset *kubernetes.Clientset, namespace string) bool {
+func NamespaceExists(ctx context.Context, clientset kubernetes.Interface, namespace string) bool {
 	_, err := clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	return err == nil
 }
@@ -648,11 +662,11 @@ func namespaceExists(ctx context.Context, clientset *kubernetes.Clientset, names
 	return NamespaceExists(ctx, clientset, namespace)
 }
 
-func CreateManagedNamespace(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
+func CreateManagedNamespace(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
 	return createNamespace(ctx, clientset, namespace)
 }
 
-func createNamespace(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
+func createNamespace(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespace,
@@ -797,7 +811,7 @@ const GatewayDeploymentName = "openshell-gateway"
 // replicas. When the Deployment is not ready, reason carries a short
 // human-readable descriptor (e.g. "1/2 replicas ready" or "deployment not
 // found") suitable for the Gateway `status` field.
-func DeploymentReadiness(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string) (ready bool, reason string, err error) {
+func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, reason string, err error) {
 	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -1361,6 +1375,87 @@ func reconcileCNPGDatabaseResources(
 	return nil
 }
 
+func copyDeploymentDatabaseCredentials(
+	ctx context.Context,
+	clientset kubernetes.Interface,
+	sourceNamespace string,
+	tenantNamespace string,
+) error {
+	const (
+		sourceSecretName = "openshell-db-credentials"
+		gwSecretName     = "openshell-gateway-db-credentials"
+	)
+
+	sourceSecret, err := clientset.CoreV1().Secrets(sourceNamespace).Get(ctx, sourceSecretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("read source database credentials from %s/%s: %w", sourceNamespace, sourceSecretName, err)
+	}
+
+	required := map[string]string{}
+	for _, key := range []string{"dbname", "user", "password"} {
+		value := string(sourceSecret.Data[key])
+		if value == "" {
+			return fmt.Errorf("source database credentials %s/%s is missing required key %q", sourceNamespace, sourceSecretName, key)
+		}
+		required[key] = value
+	}
+
+	host := fmt.Sprintf("openshell-gateway-db.%s.svc.cluster.local", sourceNamespace)
+	port := "5432"
+	dbURI := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=disable",
+		required["user"], url.QueryEscape(required["password"]), host, port, required["dbname"])
+	desiredData := map[string][]byte{
+		"host":     []byte(host),
+		"port":     []byte(port),
+		"dbname":   []byte(required["dbname"]),
+		"user":     []byte(required["user"]),
+		"password": []byte(required["password"]),
+		"uri":      []byte(dbURI),
+	}
+	desiredLabels := map[string]string{
+		"app.kubernetes.io/name":       "openshell",
+		"app.kubernetes.io/component":  "database",
+		"app.kubernetes.io/managed-by": "hypershell-control-plane",
+		"hypershell.redhat.io/managed": "true",
+	}
+
+	secrets := clientset.CoreV1().Secrets(tenantNamespace)
+	existing, err := secrets.Get(ctx, gwSecretName, metav1.GetOptions{})
+	if err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("get gateway credentials secret %s/%s: %w", tenantNamespace, gwSecretName, err)
+	}
+	if k8serrors.IsNotFound(err) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: gwSecretName, Namespace: tenantNamespace, Labels: desiredLabels},
+			Type:       corev1.SecretTypeOpaque,
+			Data:       desiredData,
+		}
+		if _, err := secrets.Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create gateway credentials secret %s/%s: %w", tenantNamespace, gwSecretName, err)
+		}
+		log.Printf("INFO copied deployment database credentials to %s (host=%s db=%s)", tenantNamespace, host, required["dbname"])
+		return nil
+	}
+
+	updated := existing.DeepCopy()
+	if updated.Labels == nil {
+		updated.Labels = map[string]string{}
+	}
+	for key, value := range desiredLabels {
+		updated.Labels[key] = value
+	}
+	updated.Type = corev1.SecretTypeOpaque
+	updated.Data = desiredData
+	if reflect.DeepEqual(existing.Labels, updated.Labels) && existing.Type == updated.Type && reflect.DeepEqual(existing.Data, updated.Data) {
+		return nil
+	}
+	if _, err := secrets.Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update gateway credentials secret %s/%s: %w", tenantNamespace, gwSecretName, err)
+	}
+	log.Printf("INFO updated deployment database credentials in %s (host=%s db=%s)", tenantNamespace, host, required["dbname"])
+	return nil
+}
+
 func waitForCNPGDatabase(ctx context.Context, dynamicClient dynamic.Interface, namespace, name string, timeout time.Duration) error {
 	databaseGVR := schema.GroupVersionResource{
 		Group:    "postgresql.cnpg.io",
@@ -1750,20 +1845,79 @@ func DetectCertManager(clientset *kubernetes.Clientset) bool {
 	return false
 }
 
-func DetectCNPG(clientset *kubernetes.Clientset) bool {
-	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		log.Printf("WARN failed to discover API groups for CNPG detection: %v", err)
-		return false
-	}
-	for _, list := range resources {
-		if strings.HasPrefix(list.GroupVersion, "postgresql.cnpg.io/") {
-			log.Printf("INFO CNPG operator detected: %s", list.GroupVersion)
-			return true
+// cnpgAPIGroupVersion is the exact CNPG API group and version this codebase
+// integration depends on. Detection is pinned to this version, rather than
+// any postgresql.cnpg.io/* prefix, because the resource shapes this code
+// builds -- Cluster, Database, and DatabaseRole specs -- are v1-specific.
+const cnpgAPIGroupVersion = "postgresql.cnpg.io/v1"
+
+// requiredCNPGResourceNames are the plural resource names this codebase reads
+// or writes directly: clusters (ManagedDatabaseReconciler) and databases and
+// databaseroles (per-gateway provisioning below). Finding that some
+// postgresql.cnpg.io API group merely exists is not sufficient evidence CNPG
+// is usable: a partial or version-mismatched install could serve one
+// resource but not the others, and that would otherwise surface much later
+// as an unstructured-apply 404 deep inside gateway provisioning instead of
+// at startup or capability-detection time.
+var requiredCNPGResourceNames = []string{"clusters", "databases", "databaseroles"}
+
+// missingCNPGResources reports which of requiredCNPGResourceNames are absent
+// from a postgresql.cnpg.io/v1 APIResourceList. A nil list (group/version not
+// found at all) is reported as everything missing.
+func missingCNPGResources(list *metav1.APIResourceList) []string {
+	served := map[string]bool{}
+	if list != nil {
+		for _, r := range list.APIResources {
+			served[r.Name] = true
 		}
 	}
-	log.Printf("WARN CNPG operator not detected: postgresql.cnpg.io API group not found in cluster discovery")
-	return false
+	var missing []string
+	for _, name := range requiredCNPGResourceNames {
+		if !served[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// DetectCNPG reports whether the exact CNPG API resources this codebase
+// depends on (Cluster, Database, DatabaseRole in postgresql.cnpg.io/v1) are
+// served by the cluster. It is a best-effort, non-fatal capability check used
+// to gate reconciliation of individual ManagedDatabase and Gateway resources
+// whose provider is "cnpg", independent of the control plane configured
+// DATABASE_PROVIDER default; see RequireCNPGAPI for the fail-fast startup
+// check.
+func DetectCNPG(clientset kubernetes.Interface) bool {
+	list, err := clientset.Discovery().ServerResourcesForGroupVersion(cnpgAPIGroupVersion)
+	if err != nil {
+		log.Printf("WARN CNPG operator not detected: %s not found in cluster discovery: %v", cnpgAPIGroupVersion, err)
+		return false
+	}
+	if missing := missingCNPGResources(list); len(missing) > 0 {
+		log.Printf("WARN CNPG operator not detected: %s is present but missing required resources %v", cnpgAPIGroupVersion, missing)
+		return false
+	}
+	log.Printf("INFO CNPG operator detected: %s (clusters, databases, databaseroles)", cnpgAPIGroupVersion)
+	return true
+}
+
+// RequireCNPGAPI verifies that the exact CNPG API resources this codebase
+// depends on (Cluster, Database, DatabaseRole in postgresql.cnpg.io/v1) are
+// served by the cluster, returning a descriptive, non-fatal error if they are
+// not. Callers configured with DATABASE_PROVIDER=cnpg use this at startup to
+// fail cleanly before launching any reconcilers, rather than deferring the
+// failure to the first CNPG-backed reconciliation. The caller must pass a
+// non-nil client; unlike DetectCNPG, this is a startup precondition check,
+// not a best-effort capability probe.
+func RequireCNPGAPI(clientset kubernetes.Interface) error {
+	list, err := clientset.Discovery().ServerResourcesForGroupVersion(cnpgAPIGroupVersion)
+	if err != nil {
+		return fmt.Errorf("DATABASE_PROVIDER=cnpg requires the CNPG operator %s API group, which was not found: %w", cnpgAPIGroupVersion, err)
+	}
+	if missing := missingCNPGResources(list); len(missing) > 0 {
+		return fmt.Errorf("DATABASE_PROVIDER=cnpg requires CNPG resources %v in %s, but the cluster is missing %v; install or upgrade the CloudNativePG operator, or set DATABASE_PROVIDER=deployment", requiredCNPGResourceNames, cnpgAPIGroupVersion, missing)
+	}
+	return nil
 }
 
 func DetectGatewayAPI(clientset *kubernetes.Clientset) bool {

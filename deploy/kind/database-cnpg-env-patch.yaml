@@ -1,0 +1,13 @@
+# JSON6902 patch adding DATABASE_PROVIDER=cnpg to a Deployment container env.
+# Referenced twice (once per target Deployment: hypershell-api-server and
+# hypershell-controller) from the Kind up.sh-generated overlay when
+# DATABASE_PROVIDER=cnpg is selected. DATABASE_PROVIDER unset/empty now
+# defaults to "deployment" for both the API server and control plane (see
+# specs/platform/openshell-gateway-database.spec.md), so CNPG-backed
+# ManagedDatabase placement must be selected explicitly via this patch rather
+# than relying on an implicit default that no longer selects it.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: DATABASE_PROVIDER
+    value: cnpg

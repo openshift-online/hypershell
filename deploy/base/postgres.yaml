@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hypershell-db-app
+  namespace: hypershell-system
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: database
+type: Opaque
+stringData:
+  host: hypershell-postgres
+  port: "5432"
+  dbname: hypershell
+  user: hypershell
+  password: hypershell-dev
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-postgres
+  namespace: hypershell-system
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hypershell-postgres
+  template:
+    metadata:
+      labels:
+        app: hypershell-postgres
+        app.kubernetes.io/name: hypershell
+        app.kubernetes.io/component: database
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-db-app
+                  key: dbname
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-db-app
+                  key: user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-db-app
+                  key: password
+          ports:
+            - containerPort: 5432
+              name: postgres
+              protocol: TCP
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "hypershell"]
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "hypershell"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: pgdata
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypershell-postgres
+  namespace: hypershell-system
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app: hypershell-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

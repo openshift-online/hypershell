@@ -172,6 +172,20 @@ else
 fi
 echo ""
 
+# --- Database provider selection ---
+# DATABASE_PROVIDER unset or empty means "deployment" (see
+# specs/platform/openshell-gateway-database.spec.md): a standalone
+# PostgreSQL Deployment per gateway that needs no operator, matching the
+# control-plane and API-server default. "cnpg" opts into CNPG-backed
+# placement and requires the CNPG operator; any other value is rejected
+# below rather than silently selected as one provider or the other.
+DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" ]]; then
+  error "DATABASE_PROVIDER must be 'cnpg' or 'deployment', got '${DB_PROVIDER}'"
+  exit 1
+fi
+info "Database provider: ${DB_PROVIDER}"
+
 # --- Install infrastructure prerequisites via kustomize ---
 header "Infrastructure"
 # Kubernetes 1.33+ may pre-install Gateway API CRDs whose storedVersions
@@ -194,16 +208,24 @@ done
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
   kube wait --for=delete crd/"$crd" --timeout=30s 2>/dev/null || true
 done
-info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox)..."
-kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure | \
-  kube apply --server-side --force-conflicts -f -
+if [[ "${DB_PROVIDER}" == "deployment" ]]; then
+  info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox) without CNPG..."
+  kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure-no-cnpg | \
+    kube apply --server-side --force-conflicts -f -
+else
+  info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox, CNPG)..."
+  kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure | \
+    kube apply --server-side --force-conflicts -f -
+fi
 info "Waiting for cert-manager..."
 kube wait --for=condition=available deployment/cert-manager -n cert-manager --timeout=120s
 kube wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=120s
 info "Waiting for agent-sandbox controller..."
 kube wait --for=condition=available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
-info "Waiting for CNPG operator..."
-kube wait --for=condition=available deployment/cnpg-controller-manager -n cnpg-system --timeout=120s
+if [[ "${DB_PROVIDER}" != "deployment" ]]; then
+  info "Waiting for CNPG operator..."
+  kube wait --for=condition=available deployment/cnpg-controller-manager -n cnpg-system --timeout=120s
+fi
 success "Infrastructure ready"
 echo ""
 
@@ -256,6 +278,21 @@ echo ""
 
 # --- Deploy all components via kustomize ---
 header "Deploying Components"
+
+# Both provider modes need the running containers to select the same
+# DATABASE_PROVIDER this script provisioned infrastructure for.
+# DATABASE_PROVIDER unset/empty now defaults to "deployment" (see above),
+# so the "cnpg" branch must opt back in explicitly via the JSON6902 patch
+# below rather than relying on an implicit default that no longer selects
+# it. The "deployment" branch keeps using the existing database-deployment
+# component, which also swaps the CNPG Cluster used for the frameworks own
+# metadata storage (not the tenant/gateway ManagedDatabase) for a static
+# Deployment.
+_db_overlay_extra=$'\ncomponents:\n  - ../components/database-deployment'
+if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
+  _db_overlay_extra=$'\npatches:\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-api-server\n      namespace: hypershell-system\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-controller\n      namespace: hypershell-system'
+fi
+
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   info "Applying Kind manifests with localhost image refs..."
   _kustomize_dir="deploy/.local-images"
@@ -265,7 +302,7 @@ if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../kind
+  - ../kind${_db_overlay_extra}
 images:
   - name: ${_registry}/hypershell-api-server-main
     newName: ${api_server_local%%:*}
@@ -277,21 +314,36 @@ images:
     newName: ${web_console_local%%:*}
     newTag: ${web_console_local##*:}
 EOF
-  kustomize build "${_kustomize_dir}" | kube apply -f -
+  kustomize build --load-restrictor=LoadRestrictionsNone "${_kustomize_dir}" | kube apply -f -
   rm -rf "${_kustomize_dir}"
 else
-  info "Applying Kind manifests via kustomize..."
-  kustomize build deploy/kind | kube apply -f -
+  info "Applying Kind manifests (database provider: ${DB_PROVIDER})..."
+  _kustomize_dir="deploy/.db-overlay"
+  mkdir -p "${_kustomize_dir}"
+  cat > "${_kustomize_dir}/kustomization.yaml" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../kind${_db_overlay_extra}
+EOF
+  kustomize build --load-restrictor=LoadRestrictionsNone "${_kustomize_dir}" | kube apply -f -
+  rm -rf "${_kustomize_dir}"
 fi
 
-if [[ -n "${HYPERSHELL_DATABASE_IMAGE:-}" ]]; then
-  info "Setting API server CNPG cluster image to ${HYPERSHELL_DATABASE_IMAGE}..."
-  kube patch cluster/hypershell-db -n "${KIND_NAMESPACE}" --type merge \
-    -p "{\"spec\":{\"imageName\":\"${HYPERSHELL_DATABASE_IMAGE}\"}}"
+if [[ "${DB_PROVIDER}" == "deployment" ]]; then
+  info "Waiting for PostgreSQL deployment..."
+  kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
+  success "PostgreSQL deployment ready"
+else
+  if [[ -n "${HYPERSHELL_DATABASE_IMAGE:-}" ]]; then
+    info "Setting API server CNPG cluster image to ${HYPERSHELL_DATABASE_IMAGE}..."
+    kube patch cluster/hypershell-db -n "${KIND_NAMESPACE}" --type merge \
+      -p "{\"spec\":{\"imageName\":\"${HYPERSHELL_DATABASE_IMAGE}\"}}"
+  fi
+  info "Waiting for CNPG clusters..."
+  kube wait --for=condition=Ready cluster/hypershell-db -n "${KIND_NAMESPACE}" --timeout=300s
+  success "CNPG clusters ready"
 fi
-info "Waiting for CNPG clusters..."
-kube wait --for=condition=Ready cluster/hypershell-db -n "${KIND_NAMESPACE}" --timeout=300s
-success "CNPG clusters ready"
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Waiting for Keycloak..."
@@ -782,8 +834,13 @@ api_get() {
 }
 
 extract_id() {
+  local resp="$1"
+  if echo "$resp" | grep -q '"kind":"Error"'; then
+    echo ""
+    return
+  fi
   local id
-  id=$(echo "$1" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+  id=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
   echo "${id}"
 }
 
@@ -885,32 +942,42 @@ if [[ -z "${seed_failed}" ]]; then
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  # Check for existing openshell-db ManagedDatabase
-  info "Checking for existing openshell-db ManagedDatabase..."
-  EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
-  EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
-  EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
+  if [[ "${DB_PROVIDER}" == "deployment" ]]; then
+    info "Skipping ManagedDatabase seed - deployment mode auto-creates per-gateway databases"
+    DATABASE_ID=""
+  else
+    # Check for existing openshell-db ManagedDatabase
+    info "Checking for existing openshell-db ManagedDatabase..."
+    EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
+    EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
+    EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
 
-  if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
-    DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"openshell-db"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
-    if [[ -n "${DATABASE_ID}" ]]; then
-      success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
+    if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
+      DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"openshell-db"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+      if [[ -n "${DATABASE_ID}" ]]; then
+        success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
+      fi
     fi
-  fi
-
-  if [[ -z "${DATABASE_ID}" ]]; then
-    info "Creating ManagedDatabase..."
-    MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-      "{\"name\":\"openshell-db\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"cnpg\"}")
-    MD_HTTP=$(echo "${MD_RAW}" | tail -1)
-    MD_RESP=$(echo "${MD_RAW}" | sed '$d')
-    DATABASE_ID=$(extract_id "${MD_RESP}")
 
     if [[ -z "${DATABASE_ID}" ]]; then
-      warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
-      seed_failed=true
-    else
-      success "ManagedDatabase created: ${DATABASE_ID}"
+      info "Creating ManagedDatabase (provider=${DB_PROVIDER})..."
+      MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
+        "{\"name\":\"openshell-db\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"${DB_PROVIDER}\"}")
+      MD_HTTP=$(echo "${MD_RAW}" | tail -1)
+      MD_RESP=$(echo "${MD_RAW}" | sed '$d')
+
+      if [[ "${MD_HTTP}" != "201" && "${MD_HTTP}" != "200" ]]; then
+        warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
+        seed_failed=true
+      else
+        DATABASE_ID=$(extract_id "${MD_RESP}")
+        if [[ -z "${DATABASE_ID}" ]]; then
+          warn "ManagedDatabase creation returned success but no ID: ${MD_RESP:-no response}"
+          seed_failed=true
+        else
+          success "ManagedDatabase created: ${DATABASE_ID}"
+        fi
+      fi
     fi
   fi
 fi
@@ -936,8 +1003,12 @@ if [[ -z "${seed_failed}" ]]; then
     OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" \
-      "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${OIDC_JSON}\"}")
+    GW_BODY="{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
+    if [[ -n "${DATABASE_ID}" ]]; then
+      GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
+    fi
+    GW_BODY="${GW_BODY}}"
+    GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
     GW_HTTP=$(echo "${GW_RAW}" | tail -1)
     GW_RESP=$(echo "${GW_RAW}" | sed '$d')
     GATEWAY_ID=$(extract_id "${GW_RESP}")

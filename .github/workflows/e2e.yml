@@ -269,10 +269,14 @@ jobs:
 
 
   e2e-kind:
-    name: E2E Kind
+    name: E2E Kind (${{ matrix.database-provider }})
     needs: plan-images
     if: needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        database-provider: [deployment, cnpg]
     # This job now also absorbs the Konflux build wait that plan-images used to
     # hold: kind-up runs first and overlaps the remote build, the
     # wait-on-check-action steps then block for whatever build time is left (up
@@ -306,6 +310,9 @@ jobs:
 
       - name: Create Kind cluster with OIDC
         env:
+          # Exercise both the default per-gateway Deployment path and the
+          # explicitly selected CNPG path through the full E2E workflow.
+          DATABASE_PROVIDER: ${{ matrix.database-provider }}
           KIND_ENABLE_OIDC: "true"
           # Deploy Jaeger and point the web-console BFF at it so the browser
           # trace verification below has a collector to export to (WEB-TRACE-10).
@@ -373,6 +380,8 @@ jobs:
       - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
+          # Mirror the provider used to create this matrix job's cluster.
+          DATABASE_PROVIDER: ${{ matrix.database-provider }}
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "180"
           # Force plain, non-graphical output from the openshell CLI. Off a TTY

@@ -22,16 +22,17 @@ var _ MappedNullable = &Gateway{}
 
 // Gateway struct for Gateway
 type Gateway struct {
-	Id         *string    `json:"id,omitempty"`
-	Kind       *string    `json:"kind,omitempty"`
-	Href       *string    `json:"href,omitempty"`
-	CreatedAt  *time.Time `json:"created_at,omitempty"`
-	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
-	Name       string     `json:"name"`
-	FleetId    string     `json:"fleet_id"`
-	ClusterId  string     `json:"cluster_id"`
-	ReleaseId  string     `json:"release_id"`
-	DatabaseId string     `json:"database_id"`
+	Id        *string    `json:"id,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Href      *string    `json:"href,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	Name      string     `json:"name"`
+	FleetId   string     `json:"fleet_id"`
+	ClusterId string     `json:"cluster_id"`
+	ReleaseId string     `json:"release_id"`
+	// Server-assigned ManagedDatabase identifier; client-supplied values are ignored
+	DatabaseId string `json:"database_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
 	Namespace   string  `json:"namespace"`
 	ExternalDns *string `json:"external_dns,omitempty"`

@@ -70,6 +70,9 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 
 	gatewayID := created.Gateway.Metadata.Id
 	gatewayNamespace := created.Gateway.Namespace
+	gatewayDatabaseID := created.Gateway.DatabaseId
+	Expect(gatewayDatabaseID).NotTo(BeEmpty())
+	Expect(gatewayDatabaseID).NotTo(Equal(createReq.DatabaseId), "client-supplied database_id must be ignored")
 
 	getReq := &pb.GetGatewayRequest{Id: gatewayID}
 	retrieved, err := grpcClient.GetGateway(ctx, getReq)
@@ -93,6 +96,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.Gateway.Metadata.Id).To(Equal(gatewayID))
 	Expect(updated.Gateway.Namespace).To(Equal(gatewayNamespace))
+	Expect(updated.Gateway.DatabaseId).To(Equal(gatewayDatabaseID), "database_id update must be ignored")
 
 	listReq := &pb.ListGatewaysRequest{
 		Page: 1,

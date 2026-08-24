@@ -62,7 +62,7 @@ func (StaticImageDefaults) DefaultSupervisorImage() string {
 }
 
 func (StaticImageDefaults) DefaultDatabaseImage() string {
-	if v := os.Getenv("HYPERSHELL_DATABASE_IMAGE"); v != "" {
+	if v := os.Getenv("OPENSHELL_DATABASE_IMAGE"); v != "" {
 		return v
 	}
 	return defaultDatabaseImage
@@ -76,7 +76,7 @@ type CNPGConfig struct {
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
 // It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
 // reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror,
-// mirroring the HYPERSHELL_DATABASE_IMAGE override for the gateway database.
+// mirroring the OPENSHELL_DATABASE_IMAGE override for the gateway database.
 func (StaticImageDefaults) DefaultSandboxImage() string {
 	if v := os.Getenv("GATEWAY_SANDBOX_IMAGE"); v != "" {
 		return v
@@ -176,10 +176,13 @@ type ReconcileOpts struct {
 	HasCertManager bool
 	HasGatewayAPI  bool
 	HasCNPG        bool
-	// ReconcileDatabase indicates that the Gateway has a database_id and its
-	// managed CNPG database resources should be reconciled.
-	ReconcileDatabase     bool
-	CNPG                  CNPGConfig
+	// DatabaseProvider is the ManagedDatabase provider ("cnpg" or "deployment").
+	DatabaseProvider string
+	CNPG             CNPGConfig
+	// DeploymentDBNamespace is the namespace where the Deployment-managed
+	// database lives. Used when DatabaseProvider is "deployment" to copy
+	// credentials into the tenant namespace.
+	DeploymentDBNamespace string
 	ControlPlaneNamespace string
 	Images                ImageDefaults
 	// SkipNetworkPolicies disables creation of the per-tenant gateway

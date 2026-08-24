@@ -241,6 +241,7 @@ components:
               type: string
             database_id:
               type: string
+              description: Server-assigned ManagedDatabase identifier; client-supplied values are ignored
             namespace:
               type: string
               readOnly: true
@@ -312,6 +313,7 @@ components:
           type: string
         database_id:
           type: string
+          description: Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
         external_dns:
           type: string
         tls_mode:
@@ -368,6 +370,7 @@ components:
           type: string
         database_id:
           type: string
+          description: Server-owned placement field; values supplied through PATCH are ignored
         external_dns:
           type: string
         tls_mode:

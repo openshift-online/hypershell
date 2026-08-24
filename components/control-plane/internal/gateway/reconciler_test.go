@@ -238,3 +238,57 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 		t.Errorf("deployments after cleanup = %v, want [tenant-deploy]", names)
 	}
 }
+
+func TestCopyDeploymentDatabaseCredentialsConvergesExistingSecret(t *testing.T) {
+	const (
+		sourceNamespace = "database-ns"
+		tenantNamespace = "gateway-ns"
+	)
+	client := k8sfake.NewSimpleClientset(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "openshell-db-credentials", Namespace: sourceNamespace},
+			Data: map[string][]byte{
+				"dbname":   []byte("openshell"),
+				"user":     []byte("openshell"),
+				"password": []byte("new-password"),
+			},
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "openshell-gateway-db-credentials", Namespace: tenantNamespace},
+			Data: map[string][]byte{
+				"host":     []byte("stale-host"),
+				"password": []byte("stale-password"),
+			},
+		},
+	)
+
+	if err := copyDeploymentDatabaseCredentials(context.Background(), client, sourceNamespace, tenantNamespace); err != nil {
+		t.Fatalf("copyDeploymentDatabaseCredentials: %v", err)
+	}
+
+	got, err := client.CoreV1().Secrets(tenantNamespace).Get(context.Background(), "openshell-gateway-db-credentials", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get gateway credentials: %v", err)
+	}
+	if string(got.Data["host"]) != "openshell-gateway-db.database-ns.svc.cluster.local" {
+		t.Fatalf("host = %q, want converged database service DNS", got.Data["host"])
+	}
+	if string(got.Data["password"]) != "new-password" {
+		t.Fatalf("password = %q, want source password", got.Data["password"])
+	}
+	if got.Labels["hypershell.redhat.io/managed"] != "true" {
+		t.Fatalf("managed label = %q, want true", got.Labels["hypershell.redhat.io/managed"])
+	}
+}
+
+func TestCopyDeploymentDatabaseCredentialsRejectsIncompleteSource(t *testing.T) {
+	client := k8sfake.NewSimpleClientset(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "openshell-db-credentials", Namespace: "database-ns"},
+		Data:       map[string][]byte{"user": []byte("openshell")},
+	})
+
+	err := copyDeploymentDatabaseCredentials(context.Background(), client, "database-ns", "gateway-ns")
+	if err == nil {
+		t.Fatal("copyDeploymentDatabaseCredentials = nil, want missing-key error")
+	}
+}

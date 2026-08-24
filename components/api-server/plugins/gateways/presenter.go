@@ -13,7 +13,8 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c.FleetId = gateway.FleetId
 	c.ClusterId = gateway.ClusterId
 	c.ReleaseId = gateway.ReleaseId
-	c.DatabaseId = gateway.DatabaseId
+	// database_id is assigned by the configured server-side placement strategy.
+	// Deliberately ignore any value supplied by the API client.
 	c.ExternalDns = gateway.ExternalDns
 	c.TlsMode = gateway.TlsMode
 	c.ServiceType = gateway.ServiceType
