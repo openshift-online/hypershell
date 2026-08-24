@@ -112,6 +112,17 @@ In the Kind development environment, `make kind-up` seeds a single `openshell-db
 
 ## Requirements
 
+### Requirement: ManagedDatabase Provider Validation and Immutability
+
+The API server SHALL accept only `cnpg` and `deployment` as ManagedDatabase provider values. Once a ManagedDatabase has a supported provider, that provider is immutable: REST patches, gRPC updates, and internal callers MAY resend the same value but SHALL NOT transition the resource to another provider. Status-only and other mutable-field updates SHALL preserve the provider. A legacy resource whose persisted provider is unsupported MAY be corrected once to a supported provider; after correction, normal immutability applies.
+
+#### Scenario: Attempt to change a supported provider
+
+- GIVEN an existing ManagedDatabase with `provider: "deployment"`
+- WHEN a caller attempts to update its provider to `cnpg` or an unsupported value
+- THEN the API server SHALL reject the update as invalid input
+- AND the persisted provider SHALL remain `deployment`
+
 ### Requirement: ManagedDatabase Reconciliation (provider=cnpg)
 
 The ManagedDatabaseReconciler SHALL provision CNPG infrastructure for each ManagedDatabase with `provider: "cnpg"`.
@@ -163,7 +174,8 @@ For each such ManagedDatabase, the reconciler SHALL:
 4. **Create or update a Deployment** (`openshell-gateway-db`) running `postgres:18` (or `OPENSHELL_DATABASE_IMAGE`):
    - Mounts the PVC at `/var/lib/postgresql/data`
    - Reads `POSTGRES_PASSWORD` from the credentials Secret
-   - Uses image-specific PostgreSQL UID/GID (`999` for upstream `postgres`, `26` for Red Hat PostgreSQL images), a matching pod `fsGroup`, and `fsGroupChangePolicy: OnRootMismatch` so a freshly provisioned volume is writable
+   - On vanilla Kubernetes, uses image-specific PostgreSQL UID/GID (`999` for upstream `postgres`, `26` for Red Hat PostgreSQL images), a matching pod `fsGroup`, and `fsGroupChangePolicy: OnRootMismatch` so a freshly provisioned volume is writable
+   - On OpenShift, omits fixed `runAsUser`, `runAsGroup`, `fsGroup`, and `fsGroupChangePolicy` values so the restricted SCC assigns namespace-valid identities; all other restricted security controls remain enabled
    - Uses upstream `POSTGRES_*` variables and `/var/lib/postgresql/data` paths by default; legacy RHEL `postgresql-*` images use `POSTGRESQL_*` variables and `/var/lib/pgsql/data`
    - Mounts writable `emptyDir` volumes for `/var/run/postgresql` and `/tmp` while keeping the container root filesystem read-only
    - `securityContext`: `runAsNonRoot: true`, seccomp `RuntimeDefault`, no privilege escalation, and drops `ALL` capabilities
@@ -201,6 +213,8 @@ All resources carry label `hypershell.redhat.io/managed: "true"` and the `app: o
 
 A ManagedDatabase SHALL NOT be deleted if any Gateway references it via `database_id`. This prevents orphaned gateway databases.
 
+A ManagedDatabase delete watch event SHALL carry the soft-deleted resource as a tombstone, including at least its ID, provider, and namespace. The control plane SHALL use that tombstone to select the cleanup path and SHALL treat already-absent resources as successful cleanup. It SHALL propagate every non-NotFound cleanup failure and SHALL NOT guess a namespace from a resource name or ID.
+
 #### Scenario: Attempt to delete ManagedDatabase with referencing gateways
 
 - GIVEN a ManagedDatabase referenced by one or more Gateways
@@ -218,8 +232,10 @@ A ManagedDatabase SHALL NOT be deleted if any Gateway references it via `databas
 
 - GIVEN a ManagedDatabase (provider=deployment) with no Gateway references
 - WHEN a user deletes the ManagedDatabase
-- THEN the ManagedDatabaseReconciler SHALL delete the Deployment, Service, PVC, and credentials Secret
+- THEN the delete watch event SHALL include the soft-deleted ManagedDatabase tombstone
+- AND the ManagedDatabaseReconciler SHALL delete the Deployment, Service, PVC, and credentials Secret
 - AND delete the namespace `openshell-db-<hex16>`
+- AND replaying the same delete event after those resources are absent SHALL succeed
 
 ---
 
@@ -245,7 +261,8 @@ The GatewayReconciler SHALL resolve the gateway's `database_id` to a ManagedData
 
 - GIVEN a Gateway with a `database_id` pointing to a ManagedDatabase (provider=deployment)
 - WHEN the GatewayReconciler processes the event
-- THEN it SHALL read the credentials Secret from the ManagedDatabase's namespace
+- THEN it SHALL wait for the live `openshell-gateway-db` Deployment in the ManagedDatabase namespace to become ready
+- AND only after readiness SHALL it read the credentials Secret from the ManagedDatabase's namespace
 - AND copy it into the gateway's tenant namespace as `openshell-gateway-db-credentials`
 
 #### Scenario: Gateway created with cluster_id only (fleet and database auto-resolved, cnpg mode)
@@ -313,10 +330,12 @@ In deployment mode, the GatewayReconciler SHALL copy the shared credentials Secr
 
 The reconciler SHALL:
 
-1. Read the `openshell-db-credentials` Secret from the ManagedDatabase's namespace
-2. Create or update `openshell-gateway-db-credentials` in the gateway's tenant namespace with the same connection details
+1. Observe the live `openshell-gateway-db` Deployment in the ManagedDatabase's namespace and wait up to 2 minutes for it to become ready
+2. Read the `openshell-db-credentials` Secret from the ManagedDatabase's namespace
+3. Create or update `openshell-gateway-db-credentials` in the gateway's tenant namespace with the same connection details
+4. Proceed to apply the gateway workload only after the readiness check and credential copy succeed
 
-No CNPG CRs are created. No readiness wait is required beyond what the ManagedDatabaseReconciler already ensures.
+No CNPG CRs are created. A timeout or canceled wait SHALL return a contextual error without copying credentials or creating a new gateway workload; transient observation errors MAY be retried within the bounded readiness window.
 
 ---
 
@@ -358,7 +377,7 @@ The `uri` key provides the full connection string for the gateway's `--db-url` a
 
 **CNPG mode:** The GatewayReconciler SHALL wait for the CNPG `Database` CR to reach `status.applied: true` (2-minute timeout) before proceeding to deploy the gateway workload.
 
-**Deployment mode:** The ManagedDatabaseReconciler waits for the Deployment to become ready (2-minute timeout) before marking the ManagedDatabase ready. The GatewayReconciler does not add an additional wait beyond checking that the credentials Secret is present.
+**Deployment mode:** The ManagedDatabaseReconciler waits for the Deployment to become ready (2-minute timeout) before marking the ManagedDatabase ready. Because ManagedDatabase and Gateway events are reconciled independently, the GatewayReconciler SHALL also observe the live Deployment and wait up to 2 minutes for readiness before copying credentials or creating a new gateway workload. A credentials Secret alone is not proof of readiness.
 
 #### Scenario: Database provisioning completes successfully (cnpg)
 
@@ -671,7 +690,7 @@ ManagedDatabase (auto-created by the API server per gateway):
 }
 ```
 
-The ManagedDatabaseReconciler creates (all in namespace `openshell-db-a1b2c3d4e5f67890`):
+The ManagedDatabaseReconciler creates (all in namespace `openshell-db-a1b2c3d4e5f67890`). The following Deployment security context is the vanilla-Kubernetes form; on OpenShift, fixed UID/GID/FSGroup fields are omitted and assigned by SCC admission:
 
 ```yaml
 # Credentials Secret
