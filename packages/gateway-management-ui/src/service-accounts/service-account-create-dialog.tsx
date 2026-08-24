@@ -23,7 +23,14 @@ import {
   TextInput,
 } from "@patternfly/react-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { useIntl } from "react-intl";
 import { z } from "zod";
@@ -38,6 +45,15 @@ import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
 import { serviceAccountListQueryRoot } from "./service-account-data";
 import { ServiceAccountSetupView } from "./service-account-setup";
+
+/**
+ * Consulted before an in-app navigation (such as a detail tab switch) unmounts
+ * this dialog. When a create mutation is pending or a one-time secret has not
+ * been acknowledged, the guard defers the navigation, shows the loss
+ * confirmation, and resumes `proceed` only if the user confirms the loss.
+ * Returns `true` when navigation may proceed immediately.
+ */
+export type ServiceAccountLeaveGuard = (proceed: () => void) => boolean;
 
 interface ServiceAccountFormValues {
   description: string;
@@ -83,11 +99,13 @@ export function ServiceAccountCreateDialog({
   gatewayId,
   isOpen,
   onClose,
+  registerLeaveGuard,
 }: {
   capabilities: OpenShellGatewayServiceAccountCapabilities;
   gatewayId: string;
   isOpen: boolean;
   onClose: () => void;
+  registerLeaveGuard?: (guard: ServiceAccountLeaveGuard | null) => void;
 }) {
   const intl = useIntl();
   const { gateways } = useGatewayUi();
@@ -195,6 +213,55 @@ export function ServiceAccountCreateDialog({
     },
     retry: false,
   });
+
+  // A create request in flight, or a one-time secret that has not been
+  // acknowledged, represents work that cannot be recovered once it is
+  // discarded. Both the browser-level and in-app navigation guards below key off
+  // this single fact.
+  const isProtected =
+    creation.isPending || (handoff !== undefined && !isAcknowledged);
+  const isProtectedRef = useRef(isProtected);
+  const pendingLeaveRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    isProtectedRef.current = isProtected;
+  }, [isProtected]);
+
+  // Refresh, tab close, and hard navigation bypass the Modal close handler, so
+  // arm the browser's native "leave site?" prompt while the secret is at risk.
+  // Calling preventDefault is the standard signal that triggers the prompt.
+  useEffect(() => {
+    if (!isProtected) {
+      return;
+    }
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isProtected]);
+
+  // In-app navigation (switching detail tabs) unmounts this dialog without ever
+  // reaching requestClose. Register a guard so the host can defer the switch,
+  // surface the existing loss confirmation, and resume only on confirmation.
+  const requestLeave = useCallback<ServiceAccountLeaveGuard>((proceed) => {
+    if (isProtectedRef.current) {
+      pendingLeaveRef.current = proceed;
+      setIsConfirmingLoss(true);
+      return false;
+    }
+    return true;
+  }, []);
+  useEffect(() => {
+    if (!registerLeaveGuard) {
+      return;
+    }
+    registerLeaveGuard(requestLeave);
+    return () => {
+      registerLeaveGuard(null);
+    };
+  }, [registerLeaveGuard, requestLeave]);
 
   const clearAndClose = () => {
     setHandoff(undefined);
@@ -522,11 +589,20 @@ export function ServiceAccountCreateDialog({
       <ModalFooter>
         {isConfirmingLoss ? (
           <>
-            <Button onClick={clearAndClose} variant="danger">
+            <Button
+              onClick={() => {
+                const proceed = pendingLeaveRef.current;
+                pendingLeaveRef.current = null;
+                clearAndClose();
+                proceed?.();
+              }}
+              variant="danger"
+            >
               {intl.formatMessage(messages.leaveSetup)}
             </Button>
             <Button
               onClick={() => {
+                pendingLeaveRef.current = null;
                 setIsConfirmingLoss(false);
               }}
               variant="link"

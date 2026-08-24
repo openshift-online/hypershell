@@ -528,4 +528,90 @@ describe("ServiceAccountsPage", () => {
       ),
     ).toBeTruthy();
   });
+
+  it("arms the browser leave prompt until the secret is acknowledged", async () => {
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const removeSpy = vi.spyOn(window, "removeEventListener");
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("deploy-bot");
+
+    await user.click(
+      screen.getByRole("button", { name: "Create service account" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Service account name" }),
+      "release-bot",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Create service account" }),
+    );
+    await screen.findByLabelText("Client secret");
+
+    const registration = addSpy.mock.calls.find(
+      ([type]) => type === "beforeunload",
+    );
+    expect(registration).toBeTruthy();
+    const handler = registration?.[1] as (event: Event) => void;
+    const event = new Event("beforeunload", { cancelable: true });
+    const preventDefault = vi.spyOn(event, "preventDefault");
+    handler(event);
+    expect(preventDefault).toHaveBeenCalled();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "I saved the client secret in a secure secret manager.",
+      }),
+    );
+    // Acknowledging the secret removes the risk, so the guard must disarm.
+    expect(removeSpy.mock.calls.some(([type]) => type === "beforeunload")).toBe(
+      true,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Set up deploy-bot" }),
+      ).toBeNull();
+    });
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
+
+  it("arms the browser leave prompt while a create request is pending", async () => {
+    let resolveCreate: (value: unknown) => void = () => undefined;
+    mocks.create.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("deploy-bot");
+
+    await user.click(
+      screen.getByRole("button", { name: "Create service account" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Service account name" }),
+      "release-bot",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Create service account" }),
+    );
+
+    await waitFor(() => {
+      expect(addSpy.mock.calls.some(([type]) => type === "beforeunload")).toBe(
+        true,
+      );
+    });
+
+    resolveCreate({
+      credential: { ...connection, clientSecret: "literal-client-secret" },
+      serviceAccount: account,
+    });
+    addSpy.mockRestore();
+  });
 });

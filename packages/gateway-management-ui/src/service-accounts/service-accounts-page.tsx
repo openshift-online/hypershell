@@ -39,7 +39,10 @@ import {
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
 import { useDebouncedValue } from "../shared/use-debounced-value";
-import { ServiceAccountCreateDialog } from "./service-account-create-dialog";
+import {
+  ServiceAccountCreateDialog,
+  type ServiceAccountLeaveGuard,
+} from "./service-account-create-dialog";
 import {
   serviceAccountListQueryKey,
   serviceAccountNeedsPolling,
@@ -164,6 +167,7 @@ export interface ServiceAccountsPageProps {
     state: OpenShellGatewayServiceAccountListRequest,
     reason: ResourceTableStateChangeReason,
   ) => void;
+  registerLeaveGuard?: (guard: ServiceAccountLeaveGuard | null) => void;
 }
 
 export function ServiceAccountsPage({
@@ -171,6 +175,7 @@ export function ServiceAccountsPage({
   gatewayId,
   isActive = true,
   onCollectionStateChange,
+  registerLeaveGuard,
 }: ServiceAccountsPageProps) {
   const intl = useIntl();
   const { gateways } = useGatewayUi();
@@ -431,6 +436,7 @@ export function ServiceAccountsPage({
           onClose={() => {
             setIsCreateOpen(false);
           }}
+          registerLeaveGuard={registerLeaveGuard}
         />
       ) : null}
     </Stack>

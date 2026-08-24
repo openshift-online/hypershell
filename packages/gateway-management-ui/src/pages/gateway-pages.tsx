@@ -17,7 +17,7 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
@@ -59,6 +59,7 @@ import {
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
 import { useDebouncedValue } from "../shared/use-debounced-value";
 import { ServiceAccountsPage } from "../service-accounts/service-accounts-page";
+import { type ServiceAccountLeaveGuard } from "../service-accounts/service-account-create-dialog";
 import { messages } from "../messages";
 import styles from "./gateway-pages.module.css";
 
@@ -542,12 +543,29 @@ export function GatewayPage({
   const trackConsoleWait = useConsoleWaitTracker();
   const [localTab, setLocalTab] = useState<GatewayDetailTab>("connection");
   const currentTab = activeTab ?? localTab;
+  // The service-accounts tab may register a guard while it holds an
+  // unrecoverable one-time secret. Consulting it here prevents a tab switch from
+  // silently unmounting the dialog and discarding that secret.
+  const leaveGuardRef = useRef<ServiceAccountLeaveGuard | null>(null);
+  const registerLeaveGuard = useCallback(
+    (guard: ServiceAccountLeaveGuard | null) => {
+      leaveGuardRef.current = guard;
+    },
+    [],
+  );
   const changeTab = (tab: GatewayDetailTab) => {
-    if (onTabChange) {
-      onTabChange(tab);
-    } else {
-      setLocalTab(tab);
+    const applyTab = () => {
+      if (onTabChange) {
+        onTabChange(tab);
+      } else {
+        setLocalTab(tab);
+      }
+    };
+    const guard = leaveGuardRef.current;
+    if (tab !== currentTab && guard && !guard(applyTab)) {
+      return;
     }
+    applyTab();
   };
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const gatewayQuery = useQuery({
@@ -660,6 +678,7 @@ export function GatewayPage({
               isActive={currentTab === "service-accounts"}
               key={gatewayId}
               onCollectionStateChange={onServiceAccountCollectionStateChange}
+              registerLeaveGuard={registerLeaveGuard}
             />
           </Tab>
           <Tab
