@@ -51,7 +51,6 @@ func TestManagedDatabaseDeleteNilTombstoneUsesLastSeenAndRetainsOnFailure(t *tes
 	dynamic := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), deploymentCleanupObjects(namespace)...)
 	typed := kubernetesfake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})
 	r := NewManagedDatabaseReconciler(dynamic, typed, nil)
-	r.rememberManagedDatabase("db-1", &pb.ManagedDatabase{Name: "database", Namespace: namespace, Provider: "deployment"})
 	fail := true
 	dynamic.PrependReactor("delete", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
 		if fail {
@@ -59,7 +58,7 @@ func TestManagedDatabaseDeleteNilTombstoneUsesLastSeenAndRetainsOnFailure(t *tes
 		}
 		return false, nil, nil
 	})
-	deleted := watcher.Event[*pb.ManagedDatabase]{Type: watcher.EventDeleted, ResourceID: "db-1"}
+	deleted := watcher.Event[*pb.ManagedDatabase]{Type: watcher.EventDeleted, ResourceID: "db-1", Resource: &pb.ManagedDatabase{Name: "database", Namespace: namespace, Provider: "deployment"}}
 	if err := r.Handle(context.Background(), deleted); err == nil {
 		t.Fatal("want cleanup failure")
 	}
@@ -67,6 +66,7 @@ func TestManagedDatabaseDeleteNilTombstoneUsesLastSeenAndRetainsOnFailure(t *tes
 		t.Fatal("cache was removed after failed cleanup")
 	}
 	fail = false
+	deleted.Resource = nil // Simulate an older API server retry carrying only the ID.
 	if err := r.Handle(context.Background(), deleted); err != nil {
 		t.Fatalf("retry delete: %v", err)
 	}

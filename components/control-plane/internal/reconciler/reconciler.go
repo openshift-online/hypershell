@@ -188,6 +188,9 @@ func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher
 				return fmt.Errorf("delete ManagedDatabase %s: event has no resource and no last-seen resource is available", event.ResourceID)
 			}
 		}
+		// Retain the authoritative tombstone until cleanup succeeds so a retry can
+		// still proceed if a mixed-version API server later sends only the ID.
+		r.rememberManagedDatabase(event.ResourceID, db)
 	} else {
 		if db == nil {
 			log.Printf("WARN ManagedDatabase event %s has nil resource, skipping", event.ResourceID)
