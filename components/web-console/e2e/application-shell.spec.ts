@@ -143,7 +143,7 @@ test("makes gateway management the primary HyperShell experience", async ({
   ).toBeVisible();
   const gatewayGrid = page.getByRole("grid", { name: "OpenShell Gateways" });
   await expect(
-    gatewayGrid.getByRole("columnheader", { name: "Created" }),
+    gatewayGrid.getByRole("columnheader", { name: "Created", exact: true }),
   ).toBeVisible();
   await expect(gatewayGrid.getByText("Aug 10, 2026")).toBeVisible();
   await expect(gatewayGrid.locator(".pf-v6-c-label")).toHaveCount(0);

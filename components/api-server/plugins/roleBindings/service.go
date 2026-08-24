@@ -21,6 +21,7 @@ type RoleBindingService interface {
 	FindBindingsByUserID(ctx context.Context, userID string) ([]rbac.BindingSummary, error)
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, *errors.ServiceError)
 	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, *errors.ServiceError)
+	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
 	All(ctx context.Context) (RoleBindingList, *errors.ServiceError)
 	FindByIDs(ctx context.Context, ids []string) (RoleBindingList, *errors.ServiceError)
 	SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error
@@ -294,6 +295,10 @@ func (s *sqlRoleBindingService) FindGatewayIDsByUserID(ctx context.Context, user
 		return nil, errors.GeneralError("Unable to get gateway IDs for user: %s", err)
 	}
 	return ids, nil
+}
+
+func (s *sqlRoleBindingService) FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error) {
+	return s.rbDao.FindOwnerUsernamesByGatewayIDs(ctx, gatewayIDs)
 }
 
 func (s *sqlRoleBindingService) All(ctx context.Context) (RoleBindingList, *errors.ServiceError) {

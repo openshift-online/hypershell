@@ -434,6 +434,12 @@ export const messages = defineMessages({
     description:
       "Accessible label for opening a specific gateway console in a new tab.",
   },
+  owner: {
+    id: "app.gateway.column.owner",
+    defaultMessage: "Created by",
+    description:
+      "Heading for the gateways table column showing who created the gateway.",
+  },
   provisionGateway: {
     id: "app.page.gatewayProvision.title",
     defaultMessage: "Provision gateway",

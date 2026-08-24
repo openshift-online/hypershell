@@ -231,6 +231,7 @@ export function toGatewayConnection(
     clusterName: clusterId ? "" : hubClusterName,
     ...(gateway.consoleUrl ? { consoleUrl: gateway.consoleUrl } : {}),
     ...(gateway.createdAt ? { createdAt: gateway.createdAt } : {}),
+    ...(gateway.createdBy ? { createdBy: gateway.createdBy } : {}),
     endpoint: gatewayEndpoint(gateway),
     id: gateway.id,
     name: gateway.name,

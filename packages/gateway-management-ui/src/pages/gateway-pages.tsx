@@ -357,7 +357,7 @@ export function GatewaysPage({
       id: "name",
       label: intl.formatMessage(messages.gatewayName),
       render: (gateway) => <GatewayDetailLink gateway={gateway} />,
-      width: 25,
+      width: 20,
     },
     {
       // active_sandbox_count is control-plane-owned and advisory; the API does
@@ -388,13 +388,21 @@ export function GatewaysPage({
       id: "status",
       label: intl.formatMessage(messages.status),
       render: ({ status }) => <GatewayStatus status={status} />,
-      width: 15,
+      width: 10,
     },
     {
       id: "created",
       label: intl.formatMessage(messages.created),
       render: ({ createdAt }) => <GatewayCreatedDate createdAt={createdAt} />,
-      width: 15,
+      width: 10,
+    },
+    {
+      id: "owner",
+      label: intl.formatMessage(messages.owner),
+      render: ({ createdBy }) =>
+        createdBy ?? intl.formatMessage(messages.notAvailable),
+      sortable: false,
+      width: 10,
     },
     {
       id: "endpoint",

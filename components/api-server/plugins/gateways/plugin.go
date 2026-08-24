@@ -106,6 +106,7 @@ func init() {
 		envServices := services.(*environments.Services)
 		var ownerBinding OwnerBindingCreator
 		var visibilityFilter GatewayVisibilityFilter
+		var ownerLookup GatewayOwnerLookup
 		rbService := roleBindings.Service(envServices)
 		if rbService != nil {
 			ownerBinding = rbac.NewGatewayBootstrapper(rbService)
@@ -116,8 +117,9 @@ func init() {
 				}
 				return ids, nil
 			})
+			ownerLookup = rbService
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices), ownerBinding, visibilityFilter)
+		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices), ownerBinding, visibilityFilter, ownerLookup)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)

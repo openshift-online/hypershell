@@ -54,6 +54,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     cluster_id: "",
     console_address: "",
     created_at: null,
+    created_by: "",
     credential_driver: "",
     database_id: "database-1",
     external_dns: "gateway.example.com",
