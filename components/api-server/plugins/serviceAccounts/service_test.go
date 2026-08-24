@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -396,6 +398,50 @@ func TestCleanupGatewayHoldsBarrierThroughGatewayDeletion(t *testing.T) {
 	}
 }
 
+// TestReconcileDrainsDueWorkConcurrentlyUnderLatency proves that a backlog of
+// due expirations spread across many gateways is disabled concurrently and fully
+// drained in a single pass, so a slow per-account Keycloak round-trip cannot push
+// disablement past the one-minute bound by serializing the whole backlog.
+func TestReconcileDrainsDueWorkConcurrentlyUnderLatency(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	const total = 16
+	for i := 0; i < total; i++ {
+		account := &OpenShellGatewayServiceAccount{
+			GatewayID:          fmt.Sprintf("gateway-%02d", i),
+			Name:               fmt.Sprintf("bot-%02d", i),
+			CreatedByUserID:    "creator",
+			Status:             StatusReady,
+			Role:               RoleUser,
+			CredentialType:     CredentialTypeClientSecret,
+			KeycloakClientUUID: fmt.Sprintf("uuid-%02d", i),
+			ExpiresAt:          now.Add(-time.Hour),
+		}
+		account.ID = fmt.Sprintf("acct-%02d", i)
+		dao.seed(account)
+	}
+	kc := &latencyKeycloak{delay: 20 * time.Millisecond}
+	svc := newTestServiceWith(dao, kc, testBindings("creator", "gateway:owner"), now, fakeGateway{gateway: testGateway()}, db.NewNoOpLockFactory())
+
+	if err := svc.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() error = %v", err)
+	}
+	if got := kc.disableCalls.Load(); got != total {
+		t.Fatalf("disable calls = %d, want %d; due backlog not fully drained", got, total)
+	}
+	if got := kc.maxInFlight.Load(); got < 2 {
+		t.Fatalf("max concurrent disables = %d; due work did not run concurrently", got)
+	}
+	if got := kc.maxInFlight.Load(); got > reconcileDueConcurrency {
+		t.Fatalf("max concurrent disables = %d, exceeds bound %d", got, reconcileDueConcurrency)
+	}
+	for id, account := range dao.items {
+		if account.Status != StatusExpired {
+			t.Fatalf("account %s status = %q, want expired", id, account.Status)
+		}
+	}
+}
+
 func TestReconcileReportsAndRetriesUndeliveredCredentialCleanup(t *testing.T) {
 	dao := newMemoryDAO()
 	now := time.Now().UTC()
@@ -704,7 +750,7 @@ func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now
 
 // newTestServiceWith builds a service with an explicit gateway lookup and lock
 // factory so tests can inject transient/404 gateway failures or count locking.
-func newTestServiceWith(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now time.Time, gateway GatewayLookup, lockFactory db.LockFactory) Service {
+func newTestServiceWith(dao *memoryDAO, kc ServiceAccountProvisioner, bindings fakeBindings, now time.Time, gateway GatewayLookup, lockFactory db.LockFactory) Service {
 	result := NewService(dao, gateway, bindings, kc, lockFactory)
 	result.(*service).now = func() time.Time { return now }
 	return result
@@ -905,7 +951,55 @@ func (f *fakeKeycloak) ListManagedClients(context.Context, string) ([]ManagedCli
 	return f.managedClients, nil
 }
 
+// latencyKeycloak is a concurrency-safe provisioner that adds a fixed delay to
+// each disablement and records the peak number of concurrent disablements so a
+// test can prove due work is drained in parallel rather than serialized.
+type latencyKeycloak struct {
+	delay        time.Duration
+	inFlight     atomic.Int32
+	maxInFlight  atomic.Int32
+	disableCalls atomic.Int32
+}
+
+func (k *latencyKeycloak) Configured() bool { return true }
+
+func (k *latencyKeycloak) ProvisionServiceAccount(context.Context, ProvisioningSpec) (*ProvisionedServiceAccount, error) {
+	return nil, errors.New("unexpected provision during reconciliation")
+}
+
+func (k *latencyKeycloak) ReconcileServiceAccount(context.Context, ProvisioningSpec, string, string, bool) error {
+	return nil
+}
+
+func (k *latencyKeycloak) DisableServiceAccount(context.Context, string, string, string) error {
+	n := k.inFlight.Add(1)
+	for {
+		peak := k.maxInFlight.Load()
+		if n <= peak || k.maxInFlight.CompareAndSwap(peak, n) {
+			break
+		}
+	}
+	time.Sleep(k.delay)
+	k.inFlight.Add(-1)
+	k.disableCalls.Add(1)
+	return nil
+}
+
+func (k *latencyKeycloak) DeleteServiceAccount(context.Context, string, string, string) error {
+	return nil
+}
+func (k *latencyKeycloak) DeleteManagedServiceAccount(context.Context, string, string) error {
+	return nil
+}
+func (k *latencyKeycloak) DeleteGatewayServiceAccounts(context.Context, string) error { return nil }
+func (k *latencyKeycloak) ListManagedClients(context.Context, string) ([]ManagedClient, error) {
+	return nil, nil
+}
+
 type memoryDAO struct {
+	// mu guards every field so concurrent reconciliation workers exercise the fake
+	// safely, mirroring the pool safety of the production DAO.
+	mu     sync.Mutex
 	items  map[string]*OpenShellGatewayServiceAccount
 	audits []*AuditEvent
 	next   int
@@ -920,6 +1014,8 @@ func newMemoryDAO() *memoryDAO {
 }
 
 func (d *memoryDAO) seed(accounts ...*OpenShellGatewayServiceAccount) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	for _, account := range accounts {
 		if account.ID == "" {
 			d.next++
@@ -935,6 +1031,8 @@ func (d *memoryDAO) seed(accounts ...*OpenShellGatewayServiceAccount) {
 }
 
 func (d *memoryDAO) ActiveNameExists(_ context.Context, gatewayID, name string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	for _, account := range d.items {
 		if account.GatewayID == gatewayID && strings.EqualFold(account.Name, name) && account.Status != StatusExpired && account.Status != StatusRevoked {
 			return true, nil
@@ -944,6 +1042,8 @@ func (d *memoryDAO) ActiveNameExists(_ context.Context, gatewayID, name string) 
 }
 
 func (d *memoryDAO) Create(_ context.Context, account *OpenShellGatewayServiceAccount) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if _, exists := d.items[account.ID]; exists {
 		return errors.New("duplicate")
 	}
@@ -955,6 +1055,8 @@ func (d *memoryDAO) Create(_ context.Context, account *OpenShellGatewayServiceAc
 }
 
 func (d *memoryDAO) Update(_ context.Context, account *OpenShellGatewayServiceAccount) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	account.UpdatedAt = time.Now().UTC()
 	copy := *account
 	d.items[account.ID] = &copy
@@ -962,6 +1064,8 @@ func (d *memoryDAO) Update(_ context.Context, account *OpenShellGatewayServiceAc
 }
 
 func (d *memoryDAO) ConditionalUpdate(_ context.Context, account *OpenShellGatewayServiceAccount, expectedStatus string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	stored, ok := d.items[account.ID]
 	if !ok || stored.Status != expectedStatus {
 		return false, nil
@@ -973,6 +1077,8 @@ func (d *memoryDAO) ConditionalUpdate(_ context.Context, account *OpenShellGatew
 }
 
 func (d *memoryDAO) Get(_ context.Context, gatewayID, id string) (*OpenShellGatewayServiceAccount, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	account, ok := d.items[id]
 	if !ok || account.GatewayID != gatewayID {
 		return nil, gorm.ErrRecordNotFound
@@ -982,6 +1088,8 @@ func (d *memoryDAO) Get(_ context.Context, gatewayID, id string) (*OpenShellGate
 }
 
 func (d *memoryDAO) List(_ context.Context, gatewayID string, options ListOptions) ([]OpenShellGatewayServiceAccount, int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	items := make([]OpenShellGatewayServiceAccount, 0)
 	for _, account := range d.items {
 		if account.GatewayID != gatewayID || (options.CreatorUserID != "" && account.CreatedByUserID != options.CreatorUserID) || (options.Status != "" && account.Status != options.Status) {
@@ -996,6 +1104,8 @@ func (d *memoryDAO) List(_ context.Context, gatewayID string, options ListOption
 }
 
 func (d *memoryDAO) CountActive(_ context.Context, gatewayID, creator string) (int64, int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	var gatewayCount, creatorCount int64
 	for _, account := range d.items {
 		if account.GatewayID == gatewayID && account.Status != StatusExpired && account.Status != StatusRevoked {
@@ -1009,6 +1119,8 @@ func (d *memoryDAO) CountActive(_ context.Context, gatewayID, creator string) (i
 }
 
 func (d *memoryDAO) ListDueAndTransitional(_ context.Context, now time.Time, _ int) ([]OpenShellGatewayServiceAccount, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.reconcileSnapshots != nil {
 		return append([]OpenShellGatewayServiceAccount(nil), d.reconcileSnapshots...), nil
 	}
@@ -1026,6 +1138,8 @@ func (d *memoryDAO) ListDueAndTransitional(_ context.Context, now time.Time, _ i
 }
 
 func (d *memoryDAO) ListDrift(_ context.Context, now time.Time, _ int) ([]OpenShellGatewayServiceAccount, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.reconcileSnapshots != nil {
 		return nil, nil
 	}
@@ -1040,11 +1154,15 @@ func (d *memoryDAO) ListDrift(_ context.Context, now time.Time, _ int) ([]OpenSh
 }
 
 func (d *memoryDAO) SoftDelete(_ context.Context, account *OpenShellGatewayServiceAccount) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	delete(d.items, account.ID)
 	return nil
 }
 
 func (d *memoryDAO) CreateAudit(_ context.Context, event *AuditEvent) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	copy := *event
 	d.audits = append(d.audits, &copy)
 	return nil

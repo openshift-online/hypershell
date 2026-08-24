@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -39,6 +40,13 @@ const (
 
 	// reconcileScanLimit bounds each reconciliation scan page.
 	reconcileScanLimit = 1000
+
+	// reconcileDueConcurrency bounds how many due/transitional accounts reconcile
+	// in parallel. Disablement is a per-account Keycloak round-trip; processing
+	// them concurrently keeps a large due backlog inside the one-minute
+	// disablement bound instead of serializing every round-trip. Work on the same
+	// gateway still serializes on the per-gateway advisory lock.
+	reconcileDueConcurrency = 8
 )
 
 // errReconcileSuperseded signals that a reconciliation write was skipped because
@@ -530,25 +538,23 @@ func (s *service) ReconcileOnce(ctx context.Context) error {
 	now := s.now().UTC()
 	var reconcileErrors []error
 
-	// Snapshot both scans up front from the same pre-processing state. The lists are
-	// disjoint on a single snapshot, so nothing is processed twice within a cycle; a
-	// row transitioned by the due pass is only revisited on the next cycle.
-	due, err := s.dao.ListDueAndTransitional(ctx, now, reconcileScanLimit)
-	if err != nil {
-		reconcileErrors = append(reconcileErrors, err)
-	}
+	// Snapshot the drift list up front, from the same pre-processing state as the
+	// due scan, so the two are disjoint: an account is either expired (due) or not
+	// (drift) at snapshot time. Draining due first would otherwise re-observe a
+	// freshly expired account in a drift list queried afterward and disable it
+	// twice in one cycle.
 	drift, err := s.dao.ListDrift(ctx, now, reconcileScanLimit)
 	if err != nil {
 		reconcileErrors = append(reconcileErrors, err)
 	}
 
 	// Safety-critical work first: due expirations and transitional lifecycle changes
-	// must never be starved by routine drift.
-	for i := range due {
-		if err := s.reconcileLocked(ctx, due[i].GatewayID, due[i].ID); err != nil {
-			reconcileErrors = append(reconcileErrors, err)
-		}
-	}
+	// carry a one-minute disablement bound, so they are fully drained and processed
+	// with bounded concurrency ahead of routine drift. A slow per-account Keycloak
+	// round-trip therefore cannot serialize a large due backlog past the bound, and
+	// routine drift can never starve a due disablement.
+	reconcileErrors = append(reconcileErrors, s.reconcileDue(ctx, now)...)
+
 	for i := range drift {
 		if err := s.reconcileLocked(ctx, drift[i].GatewayID, drift[i].ID); err != nil {
 			reconcileErrors = append(reconcileErrors, err)
@@ -559,6 +565,65 @@ func (s *service) ReconcileOnce(ctx context.Context) error {
 		reconcileErrors = append(reconcileErrors, err)
 	}
 	return errors.Join(reconcileErrors...)
+}
+
+// reconcileDue drains every due and transitional account, re-querying until no
+// new rows remain so a backlog larger than a single scan page is fully cleared
+// within the cycle rather than dribbling out one page per interval. Each page is
+// reconciled with bounded concurrency; accounts already attempted this cycle are
+// skipped so a persistently failing (still-transitional) row cannot spin the
+// drain loop. Same-gateway work still serializes on the per-gateway lock.
+func (s *service) reconcileDue(ctx context.Context, now time.Time) []error {
+	var errs []error
+	attempted := make(map[string]struct{})
+	for {
+		if err := ctx.Err(); err != nil {
+			return append(errs, err)
+		}
+		due, err := s.dao.ListDueAndTransitional(ctx, now, reconcileScanLimit)
+		if err != nil {
+			return append(errs, err)
+		}
+		batch := make([]OpenShellGatewayServiceAccount, 0, len(due))
+		for i := range due {
+			if _, seen := attempted[due[i].ID]; seen {
+				continue
+			}
+			attempted[due[i].ID] = struct{}{}
+			batch = append(batch, due[i])
+		}
+		if len(batch) == 0 {
+			return errs
+		}
+		errs = append(errs, s.reconcileBatch(ctx, batch)...)
+	}
+}
+
+// reconcileBatch reconciles a page of accounts concurrently, bounded by
+// reconcileDueConcurrency, and collects every error.
+func (s *service) reconcileBatch(ctx context.Context, batch []OpenShellGatewayServiceAccount) []error {
+	sem := make(chan struct{}, reconcileDueConcurrency)
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
+	for i := range batch {
+		account := batch[i]
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := s.reconcileLocked(ctx, account.GatewayID, account.ID); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return errs
 }
 
 // reconcileLocked serializes a single account's reconciliation against foreground
