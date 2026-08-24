@@ -2,6 +2,7 @@ package serviceaccountkeycloak
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -238,6 +239,211 @@ func TestDeleteGatewayServiceAccountsDisablesEveryClientBeforeDeletion(t *testin
 	}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("lifecycle events = %v, want %v", events, want)
+	}
+}
+
+func TestDestructiveOperationsRejectNonManagedClients(t *testing.T) {
+	// A client without the HyperShell managed marker (the gateway client, the
+	// console client, or any unrelated realm client) must never be disabled or
+	// deleted through the provisioner boundary, even with a valid UUID.
+	cases := []struct {
+		name       string
+		attributes map[string]string
+	}{
+		{name: "no attributes", attributes: nil},
+		{name: "unrelated client", attributes: map[string]string{"unrelated": "value"}},
+		{name: "explicitly unmanaged", attributes: map[string]string{managedAttribute: "false"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+					_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+				case strings.HasPrefix(r.URL.Path, "/admin/realms/realm/clients/") && r.Method == http.MethodGet:
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"id": "target-uuid", "clientId": "gateway-client", "enabled": true, "attributes": tc.attributes,
+					})
+				case strings.HasPrefix(r.URL.Path, "/admin/realms/realm/clients/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
+					mutated = true
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					http.Error(w, fmt.Sprintf("unexpected %s %s", r.Method, r.URL.Path), http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(server.Close)
+			client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+
+			if err := client.DisableServiceAccount(t.Context(), "target-uuid"); !errors.Is(err, ErrNotManaged) {
+				t.Fatalf("DisableServiceAccount() error = %v, want ErrNotManaged", err)
+			}
+			if err := client.DeleteServiceAccount(t.Context(), "target-uuid"); !errors.Is(err, ErrNotManaged) {
+				t.Fatalf("DeleteServiceAccount() error = %v, want ErrNotManaged", err)
+			}
+			if mutated {
+				t.Fatal("a non-managed client was mutated through the provisioner boundary")
+			}
+		})
+	}
+}
+
+func TestDestructiveOperationsAllowManagedClients(t *testing.T) {
+	disabled, deleted := false, false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+		case r.URL.Path == "/admin/realms/realm/clients/managed-uuid" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "managed-uuid", "clientId": "hs-sa-gateway-id-resource-id", "enabled": true,
+				"attributes": map[string]string{
+					managedAttribute: "true", gatewayIDAttribute: "gateway-id", serviceAccountIDAttribute: "resource-id",
+				},
+			})
+		case r.URL.Path == "/admin/realms/realm/clients/managed-uuid" && r.Method == http.MethodPut:
+			disabled = true
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/admin/realms/realm/clients/managed-uuid" && r.Method == http.MethodDelete:
+			deleted = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, fmt.Sprintf("unexpected %s %s", r.Method, r.URL.Path), http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+	if err := client.DeleteServiceAccount(t.Context(), "managed-uuid"); err != nil {
+		t.Fatalf("DeleteServiceAccount() error = %v", err)
+	}
+	if !disabled || !deleted {
+		t.Fatalf("managed client not fully cleaned up: disabled=%v deleted=%v", disabled, deleted)
+	}
+}
+
+func reconcileSpec() ServiceAccountSpec {
+	return ServiceAccountSpec{
+		ClientID: "hs-sa-gateway-id-resource-id", DisplayName: "deploy bot",
+		GatewayClientID: "gateway-client", GatewayID: "gateway-id", ServiceAccountID: "resource-id",
+		CreatorUserID: "creator-id", Role: RoleUser, ExpectedIssuer: "https://issuer/realms/realm",
+		AccessTokenLifetimeSeconds: 300,
+	}
+}
+
+// convergedReconcileHandler serves a Keycloak realm whose managed client already
+// matches the desired user-role reconciliation state.
+func convergedReconcileHandler(t *testing.T, writes *[]string) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut || r.Method == http.MethodPost && r.URL.Path != "/realms/realm/protocol/openid-connect/token" || r.Method == http.MethodDelete {
+			*writes = append(*writes, r.Method+" "+r.URL.Path)
+		}
+		switch {
+		case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "service-uuid", "clientId": "hs-sa-gateway-id-resource-id", "name": "deploy bot", "enabled": true,
+				"attributes": map[string]string{
+					managedAttribute: "true", gatewayIDAttribute: "gateway-id", serviceAccountIDAttribute: "resource-id",
+					creatorUserIDAttribute: "creator-id", accessTokenLifespanAttribute: "300", clientRefreshTokenAttribute: "false",
+				},
+			})
+		case r.URL.Path == "/admin/realms/realm/clients" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]kcClient{{ID: "gateway-uuid", ClientID: "gateway-client"}})
+		case r.URL.Path == "/admin/realms/realm/clients/gateway-uuid/roles":
+			_ = json.NewEncoder(w).Encode([]kcRole{{ID: "admin-id", Name: RoleAdmin}, {ID: "user-id", Name: RoleUser}})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/service-account-user":
+			_ = json.NewEncoder(w).Encode(kcUser{ID: "service-subject"})
+		case r.URL.Path == "/admin/realms/realm/users/service-subject/role-mappings" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"realmMappings": []kcRole{},
+				"clientMappings": map[string]any{
+					"gateway-client": map[string]any{"id": "gateway-uuid", "mappings": []kcRole{{ID: "user-id", Name: RoleUser}}},
+				},
+			})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/scope-mappings" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"realmMappings": []kcRole{},
+				"clientMappings": map[string]any{
+					"gateway-client": map[string]any{"id": "gateway-uuid", "mappings": []kcRole{{ID: "user-id", Name: RoleUser}}},
+				},
+			})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/protocol-mappers/models" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"name": "gateway-audience", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{"included.client.audience": "gateway-client", "access.token.claim": "true"}},
+				{"name": "gateway-client-roles", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{"usermodel.clientRoleMapping.clientId": "gateway-client", "claim.name": "hypershell.roles"}},
+			})
+		default:
+			http.Error(w, fmt.Sprintf("unexpected %s %s", r.Method, r.URL.Path), http.StatusNotFound)
+		}
+	}
+}
+
+func TestReconcileServiceAccountPerformsNoWritesWhenConverged(t *testing.T) {
+	var writes []string
+	server := httptest.NewServer(convergedReconcileHandler(t, &writes))
+	t.Cleanup(server.Close)
+	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+	if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
+		t.Fatalf("ReconcileServiceAccount() error = %v", err)
+	}
+	if len(writes) != 0 {
+		t.Fatalf("converged reconciliation performed writes: %v", writes)
+	}
+}
+
+func TestReconcileServiceAccountRepairsDriftedRoles(t *testing.T) {
+	disabled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "service-uuid", "clientId": "hs-sa-gateway-id-resource-id", "name": "deploy bot", "enabled": true,
+				"attributes": map[string]string{
+					managedAttribute: "true", gatewayIDAttribute: "gateway-id", serviceAccountIDAttribute: "resource-id",
+					creatorUserIDAttribute: "creator-id", accessTokenLifespanAttribute: "300", clientRefreshTokenAttribute: "false",
+				},
+			})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid" && r.Method == http.MethodPut:
+			// The only PUT on the client representation during reconcile is the
+			// fail-closed disable that precedes repair.
+			disabled = true
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/admin/realms/realm/clients" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]kcClient{{ID: "gateway-uuid", ClientID: "gateway-client"}})
+		case r.URL.Path == "/admin/realms/realm/clients/gateway-uuid/roles":
+			_ = json.NewEncoder(w).Encode([]kcRole{{ID: "admin-id", Name: RoleAdmin}, {ID: "user-id", Name: RoleUser}})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/service-account-user":
+			_ = json.NewEncoder(w).Encode(kcUser{ID: "service-subject"})
+		case r.URL.Path == "/admin/realms/realm/users/service-subject/role-mappings" && r.Method == http.MethodGet:
+			// Drift: an extra role leaked onto an unrelated client.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"realmMappings": []kcRole{},
+				"clientMappings": map[string]any{
+					"other-client":   map[string]any{"id": "other-uuid", "mappings": []kcRole{{ID: "leak-id", Name: "leaked-role"}}},
+					"gateway-client": map[string]any{"id": "gateway-uuid", "mappings": []kcRole{{ID: "user-id", Name: RoleUser}}},
+				},
+			})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/scope-mappings" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"realmMappings": []kcRole{}, "clientMappings": map[string]any{}})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/protocol-mappers/models" && r.Method == http.MethodGet:
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			// All remaining repair writes (delete/post role and scope mappings,
+			// recreate protocol mappers) succeed.
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+	if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
+		t.Fatalf("ReconcileServiceAccount() error = %v", err)
+	}
+	if !disabled {
+		t.Fatal("drifted reconciliation did not disable and repair the client")
 	}
 }
 

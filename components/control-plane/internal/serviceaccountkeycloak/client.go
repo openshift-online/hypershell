@@ -35,6 +35,12 @@ const (
 // ErrNotFound means that the managed Keycloak client no longer exists.
 var ErrNotFound = errors.New("keycloak client not found")
 
+// ErrNotManaged means the target Keycloak client exists but is not a
+// HyperShell-managed service account. Destructive operations reject these
+// clients so the realm-admin credential can never disable or delete gateway,
+// console, or otherwise unrelated clients.
+var ErrNotManaged = errors.New("keycloak client is not a HyperShell-managed service account")
+
 // ServiceAccountSpec is the complete desired Keycloak state for one
 // OpenShellGatewayServiceAccount.
 type ServiceAccountSpec struct {
@@ -101,6 +107,7 @@ func (c *Client) issuer() string { return fmt.Sprintf("%s/realms/%s", c.serverUR
 type kcClient struct {
 	ID         string            `json:"id,omitempty"`
 	ClientID   string            `json:"clientId"`
+	Name       string            `json:"name,omitempty"`
 	Enabled    bool              `json:"enabled"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
@@ -182,9 +189,6 @@ func (c *Client) ReconcileServiceAccount(ctx context.Context, spec ServiceAccoun
 		client.Attributes[gatewayIDAttribute] != spec.GatewayID || client.Attributes[serviceAccountIDAttribute] != spec.ServiceAccountID {
 		return errors.New("keycloak client ownership metadata does not match")
 	}
-	if err := c.setEnabled(ctx, clientUUID, false); err != nil {
-		return err
-	}
 	gatewayUUID, roles, err := c.resolveGatewayRoles(ctx, spec.GatewayClientID, spec.Role)
 	if err != nil {
 		return err
@@ -195,6 +199,22 @@ func (c *Client) ReconcileServiceAccount(ctx context.Context, spec ServiceAccoun
 	}
 	if expectedSubject != "" && subject != expectedSubject {
 		return errors.New("keycloak service-account subject changed")
+	}
+	// Diff before mutating. A converged client is left completely untouched so a
+	// routine reconciliation sweep never disables and rebuilds a healthy client,
+	// which would otherwise cause a token-grant outage on every pass and, on a
+	// later failure, strand the client disabled.
+	converged, err := c.reconcileConverged(ctx, spec, client, subject, gatewayUUID, roles, enabled)
+	if err != nil {
+		return err
+	}
+	if converged {
+		return nil
+	}
+	// Repair requires the client disabled so a partially applied role or mapper
+	// change can never mint a token mid-reconcile.
+	if err := c.setEnabled(ctx, clientUUID, false); err != nil {
+		return err
 	}
 	if err := c.updateRepresentation(ctx, clientUUID, spec, false); err != nil {
 		return err
@@ -211,8 +231,160 @@ func (c *Client) ReconcileServiceAccount(ctx context.Context, spec ServiceAccoun
 	return nil
 }
 
+// reconcileConverged reports whether the live Keycloak client already matches
+// the desired structural state (enabled flag, ownership/config attributes, role
+// mappings, scope mappings, and protocol mappers). When it returns true the
+// caller performs zero writes.
+func (c *Client) reconcileConverged(ctx context.Context, spec ServiceAccountSpec, client *kcClient, subject, gatewayUUID string, roles []kcRole, enabled bool) (bool, error) {
+	if client.ClientID != spec.ClientID || client.Name != spec.DisplayName || client.Enabled != enabled {
+		return false, nil
+	}
+	lifetime := spec.AccessTokenLifetimeSeconds
+	if lifetime == 0 {
+		lifetime = defaultAccessTokenLifetimeSecs
+	}
+	wantAttributes := map[string]string{
+		managedAttribute: "true", gatewayIDAttribute: spec.GatewayID,
+		serviceAccountIDAttribute: spec.ServiceAccountID, creatorUserIDAttribute: spec.CreatorUserID,
+		accessTokenLifespanAttribute: fmt.Sprint(lifetime), clientRefreshTokenAttribute: "false",
+	}
+	for key, value := range wantAttributes {
+		if client.Attributes[key] != value {
+			return false, nil
+		}
+	}
+	userConverged, err := c.userRoleMappingsConverged(ctx, subject, gatewayUUID, roles)
+	if err != nil || !userConverged {
+		return false, err
+	}
+	scopeConverged, err := c.scopeMappingsConverged(ctx, client.ID, gatewayUUID, roles)
+	if err != nil || !scopeConverged {
+		return false, err
+	}
+	return c.protocolMappersConverged(ctx, client.ID, spec.GatewayClientID)
+}
+
+// roleMappingSet is the shape Keycloak returns for both user role-mappings and
+// client scope-mappings.
+type roleMappingSet struct {
+	RealmMappings  []kcRole `json:"realmMappings"`
+	ClientMappings map[string]struct {
+		ID       string   `json:"id"`
+		Mappings []kcRole `json:"mappings"`
+	} `json:"clientMappings"`
+}
+
+func mappingsConverged(mappings roleMappingSet, gatewayUUID string, roles []kcRole) bool {
+	if len(mappings.RealmMappings) > 0 {
+		return false
+	}
+	foundGateway := false
+	for _, mapping := range mappings.ClientMappings {
+		if mapping.ID == gatewayUUID {
+			foundGateway = true
+			if !sameRoleSet(mapping.Mappings, roles) {
+				return false
+			}
+			continue
+		}
+		// Any role on another client is cross-gateway leakage that must be repaired.
+		if len(mapping.Mappings) > 0 {
+			return false
+		}
+	}
+	return foundGateway
+}
+
+func (c *Client) userRoleMappingsConverged(ctx context.Context, subject, gatewayUUID string, roles []kcRole) (bool, error) {
+	body, status, err := c.admin(ctx, http.MethodGet, fmt.Sprintf("/admin/realms/%s/users/%s/role-mappings", c.realm, url.PathEscape(subject)), nil)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, statusError("list service-account role mappings", status)
+	}
+	var current roleMappingSet
+	if err := json.Unmarshal(body, &current); err != nil {
+		return false, errors.New("parse service-account role mappings")
+	}
+	return mappingsConverged(current, gatewayUUID, roles), nil
+}
+
+func (c *Client) scopeMappingsConverged(ctx context.Context, clientUUID, gatewayUUID string, roles []kcRole) (bool, error) {
+	body, status, err := c.admin(ctx, http.MethodGet, fmt.Sprintf("/admin/realms/%s/clients/%s/scope-mappings", c.realm, url.PathEscape(clientUUID)), nil)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, statusError("list client scope mappings", status)
+	}
+	var current roleMappingSet
+	if err := json.Unmarshal(body, &current); err != nil {
+		return false, errors.New("parse client scope mappings")
+	}
+	return mappingsConverged(current, gatewayUUID, roles), nil
+}
+
+func (c *Client) protocolMappersConverged(ctx context.Context, clientUUID, gatewayClientID string) (bool, error) {
+	body, status, err := c.admin(ctx, http.MethodGet, fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", c.realm, url.PathEscape(clientUUID)), nil)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, statusError("list service-account protocol mappers", status)
+	}
+	var current []struct {
+		Name           string            `json:"name"`
+		ProtocolMapper string            `json:"protocolMapper"`
+		Config         map[string]string `json:"config"`
+	}
+	if err := json.Unmarshal(body, &current); err != nil {
+		return false, errors.New("parse service-account protocol mappers")
+	}
+	if len(current) != 2 {
+		return false, nil
+	}
+	found := make(map[string]bool, 2)
+	for _, mapper := range current {
+		switch mapper.Name {
+		case "gateway-audience":
+			if mapper.ProtocolMapper != "oidc-audience-mapper" ||
+				mapper.Config["included.client.audience"] != gatewayClientID ||
+				mapper.Config["access.token.claim"] != "true" {
+				return false, nil
+			}
+		case "gateway-client-roles":
+			if mapper.ProtocolMapper != "oidc-usermodel-client-role-mapper" ||
+				mapper.Config["usermodel.clientRoleMapping.clientId"] != gatewayClientID ||
+				mapper.Config["claim.name"] != "hypershell.roles" {
+				return false, nil
+			}
+		default:
+			return false, nil
+		}
+		found[mapper.Name] = true
+	}
+	return found["gateway-audience"] && found["gateway-client-roles"], nil
+}
+
+func sameRoleSet(current, desired []kcRole) bool {
+	if len(current) != len(desired) {
+		return false
+	}
+	want := make(map[string]bool, len(desired))
+	for _, role := range desired {
+		want[role.Name] = true
+	}
+	for _, role := range current {
+		if !want[role.Name] {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *Client) DisableServiceAccount(ctx context.Context, clientUUID string) error {
-	if _, err := c.getClient(ctx, clientUUID); errors.Is(err, ErrNotFound) {
+	if _, err := c.requireManagedClient(ctx, clientUUID); errors.Is(err, ErrNotFound) {
 		return nil
 	} else if err != nil {
 		return err
@@ -221,7 +393,7 @@ func (c *Client) DisableServiceAccount(ctx context.Context, clientUUID string) e
 }
 
 func (c *Client) DeleteServiceAccount(ctx context.Context, clientUUID string) error {
-	if _, err := c.getClient(ctx, clientUUID); errors.Is(err, ErrNotFound) {
+	if _, err := c.requireManagedClient(ctx, clientUUID); errors.Is(err, ErrNotFound) {
 		return nil
 	} else if err != nil {
 		return err
@@ -230,6 +402,21 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, clientUUID string) er
 		return err
 	}
 	return c.deleteClient(ctx, clientUUID)
+}
+
+// requireManagedClient fetches a client by UUID and confirms it carries the
+// HyperShell managed marker. Because Disable and Delete accept a caller-supplied
+// UUID, this guard is what prevents the privileged provisioner credential from
+// being turned into a delete primitive against non-managed clients.
+func (c *Client) requireManagedClient(ctx context.Context, clientUUID string) (*kcClient, error) {
+	client, err := c.getClient(ctx, clientUUID)
+	if err != nil {
+		return nil, err
+	}
+	if client.Attributes[managedAttribute] != "true" {
+		return nil, ErrNotManaged
+	}
+	return client, nil
 }
 
 // DeleteManagedServiceAccount removes a partially provisioned client by its

@@ -163,6 +163,8 @@ func providerError(err error) error {
 		return status.Error(codes.DeadlineExceeded, "service-account operation timed out")
 	case errors.Is(err, serviceaccountkeycloak.ErrNotFound):
 		return status.Error(codes.NotFound, "managed service-account client was not found")
+	case errors.Is(err, serviceaccountkeycloak.ErrNotManaged):
+		return status.Error(codes.PermissionDenied, "target client is not a HyperShell-managed service account")
 	default:
 		// Provider response bodies can contain sensitive administration details.
 		// Keep the public status useful but deliberately generic.
