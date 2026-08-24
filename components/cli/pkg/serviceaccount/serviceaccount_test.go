@@ -66,6 +66,76 @@ func TestWriteStructuredCreatesPrivateFileWithoutOverwrite(t *testing.T) {
 	}
 }
 
+func TestReserveOutputRejectsExistingTargetWithoutRequest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credential.json")
+	if err := os.WriteFile(path, []byte("existing"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests++
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"credential":{"client_secret":"secret-value"}}`))
+	}))
+	defer server.Close()
+
+	conn, err := connection.NewConnection().Config(&config.Config{
+		URL:         server.URL,
+		AccessToken: "management-token",
+	}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Mirror the command flow: the output target is reserved before any request
+	// is made, so an existing --output-file must abort before the POST.
+	file, err := ReserveOutput(path)
+	if err == nil {
+		ReleaseOutput(file)
+		if _, _, reqErr := Request(conn, http.MethodPost, "/service_accounts", nil, nil, http.StatusCreated); reqErr != nil {
+			t.Fatalf("unexpected request error: %v", reqErr)
+		}
+		t.Fatal("expected reservation of an existing output file to fail")
+	}
+	if requests != 0 {
+		t.Fatalf("expected zero HTTP requests, got %d", requests)
+	}
+
+	// The pre-existing file must be left untouched by the failed reservation.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "existing" {
+		t.Fatalf("existing output file was modified: %s", data)
+	}
+}
+
+func TestReleaseOutputRemovesEmptyReservation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credential.json")
+	file, err := ReserveOutput(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file == nil {
+		t.Fatal("expected a reserved file handle")
+	}
+	ReleaseOutput(file)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected reservation to be removed, stat err = %v", err)
+	}
+	// A retry must succeed once the empty reservation is gone.
+	retry, err := ReserveOutput(path)
+	if err != nil {
+		t.Fatalf("retry reservation failed: %v", err)
+	}
+	if err := WriteReserved(io.Discard, retry, []byte(`{"credential":{"client_secret":"secret-value"}}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRequestDoesNotExposeUnstructuredResponseBody(t *testing.T) {
 	const secret = "must-not-leak"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

@@ -83,9 +83,18 @@ func run(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer conn.Close()
+	// Reserve the exclusive output target before requesting the credential so an
+	// existing or unwritable --output-file causes zero HTTP requests. The server
+	// returns the client secret only once, so the write destination must exist
+	// before the secret is generated.
+	outputFile, err := serviceaccount.ReserveOutput(args.outputFile)
+	if err != nil {
+		return err
+	}
 	response, _, err := serviceaccount.Request(conn, http.MethodPost, serviceaccount.CollectionPath(args.gatewayID), nil, bytes.NewReader(body), http.StatusCreated)
 	if err != nil {
+		serviceaccount.ReleaseOutput(outputFile)
 		return fmt.Errorf("can't create service account: %w", err)
 	}
-	return serviceaccount.WriteStructured(cmd.OutOrStdout(), args.outputFile, response)
+	return serviceaccount.WriteReserved(cmd.OutOrStdout(), outputFile, response)
 }

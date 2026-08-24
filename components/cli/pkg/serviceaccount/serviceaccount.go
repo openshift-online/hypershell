@@ -54,10 +54,68 @@ func Request(conn *connection.Connection, method, path string, query url.Values,
 	return nil, response.StatusCode, fmt.Errorf("API returned %d", response.StatusCode)
 }
 
+// ReserveOutput exclusively creates the mode-0600 output file so the target is
+// secured before any credential is requested. It returns a nil handle when the
+// output goes to stdout (empty path or "-"), in which case no reservation is
+// needed. The returned handle must be passed to WriteReserved, or removed with
+// ReleaseOutput if the credential is never written.
+func ReserveOutput(outputFile string) (*os.File, error) {
+	if outputFile == "" || outputFile == "-" {
+		return nil, nil
+	}
+	file, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("can't create output file %q: %w", outputFile, err)
+	}
+	return file, nil
+}
+
+// ReleaseOutput closes and removes a reservation created by ReserveOutput. It is
+// used when the credential is never produced (for example the API request
+// failed) so the empty reservation does not block a retry.
+func ReleaseOutput(file *os.File) {
+	if file == nil {
+		return
+	}
+	name := file.Name()
+	_ = file.Close()
+	_ = os.Remove(name)
+}
+
+// WriteReserved renders the structured credential bundle to the reserved file
+// handle, or to writer when file is nil (stdout output). The file handle is
+// closed before returning.
+func WriteReserved(writer io.Writer, file *os.File, body []byte) error {
+	rendered, err := renderStructured(body)
+	if err != nil {
+		return err
+	}
+	if file == nil {
+		_, err := writer.Write(rendered)
+		return err
+	}
+	defer file.Close()
+	if _, err := file.Write(rendered); err != nil {
+		return fmt.Errorf("can't write output file %q: %w", file.Name(), err)
+	}
+	return file.Sync()
+}
+
+// WriteStructured reserves the output target and writes the credential bundle in
+// a single step. Callers that must secure the output before requesting the
+// credential should use ReserveOutput and WriteReserved instead.
 func WriteStructured(writer io.Writer, outputFile string, body []byte) error {
+	file, err := ReserveOutput(outputFile)
+	if err != nil {
+		return err
+	}
+	return WriteReserved(writer, file, body)
+}
+
+func renderStructured(body []byte) ([]byte, error) {
 	var value any
 	if err := json.Unmarshal(body, &value); err != nil {
-		return fmt.Errorf("API returned invalid JSON: %w", err)
+		return nil, fmt.Errorf("API returned invalid JSON: %w", err)
 	}
 	if object, ok := value.(map[string]any); ok {
 		object["workspace_membership_note"] = WorkspaceMembershipNote
@@ -67,21 +125,9 @@ func WriteStructured(writer io.Writer, outputFile string, body []byte) error {
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(value); err != nil {
-		return fmt.Errorf("can't encode output: %w", err)
+		return nil, fmt.Errorf("can't encode output: %w", err)
 	}
-	if outputFile == "" || outputFile == "-" {
-		_, err := writer.Write(rendered.Bytes())
-		return err
-	}
-	file, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return fmt.Errorf("can't create output file %q: %w", outputFile, err)
-	}
-	defer file.Close()
-	if _, err := file.Write(rendered.Bytes()); err != nil {
-		return fmt.Errorf("can't write output file %q: %w", outputFile, err)
-	}
-	return file.Sync()
+	return rendered.Bytes(), nil
 }
 
 func ValidateOutput(value string) error {
