@@ -89,7 +89,7 @@ func isSupportedProvider(provider string) bool {
 }
 
 func unsupportedProviderError(provider string) *errors.ServiceError {
-	return errors.Validation("unsupported provider %q: supported providers are\"cnpg\" and\"deployment\"", provider)
+	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\" and \"deployment\"", provider)
 }
 
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {

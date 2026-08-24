@@ -10,7 +10,9 @@ import (
 
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
@@ -52,7 +54,7 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 
 	_, err = grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{Name: "invalid-provider", FleetId: "TestFleetId", Provider: "unsupported"})
-	Expect(err).To(HaveOccurred())
+	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 
 	createReq := &pb.CreateManagedDatabaseRequest{
 		Name:             "TestName",
@@ -92,12 +94,23 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.ManagedDatabase.Metadata.Id).To(Equal(managedDatabaseID))
 
+	unsupportedProvider := "unsupported"
+	_, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, Provider: &unsupportedProvider})
+	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+
 	changedProvider := "cnpg"
 	_, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, Provider: &changedProvider})
-	Expect(err).To(HaveOccurred())
+	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 	retrieved, err = grpcClient.GetManagedDatabase(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(retrieved.ManagedDatabase.Provider).To(Equal("deployment"))
+
+	readyStatus := "Ready"
+	updated, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, Status: &readyStatus})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(updated.ManagedDatabase.Provider).To(Equal("deployment"))
+	Expect(updated.ManagedDatabase.Status).NotTo(BeNil())
+	Expect(*updated.ManagedDatabase.Status).To(Equal("Ready"))
 
 	listReq := &pb.ListManagedDatabasesRequest{
 		Page: 1,
@@ -112,7 +125,7 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	_, err = grpcClient.GetManagedDatabase(ctx, getReq)
-	Expect(err).To(HaveOccurred())
+	Expect(status.Code(err)).To(Equal(codes.NotFound))
 }
 
 func TestGRPCWatchManagedDatabases(t *testing.T) {
@@ -156,7 +169,9 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 
 		for name := range itemNames {
 			managedDatabaseInput := openapi.ManagedDatabase{
-				Name: name,
+				Name:     name,
+				FleetId:  "watch-test-fleet",
+				Provider: "deployment",
 			}
 			_, resp, postErr := client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(managedDatabaseInput).Execute()
 			if postErr != nil {
@@ -225,6 +240,65 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 	})
 	Expect(listErr).NotTo(HaveOccurred())
 	Expect(int(listResp.Metadata.Total)).To(BeNumerically(">=", totalItems))
+}
+
+func TestGRPCWatchManagedDatabaseDeleteIncludesResource(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	jwtToken := h.CreateJWTString(account)
+
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
+
+	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
+	created, err := grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{
+		Name:     "delete-watch-test",
+		FleetId:  "delete-watch-fleet",
+		Provider: "deployment",
+	})
+	Expect(err).NotTo(HaveOccurred())
+	databaseID := created.ManagedDatabase.Metadata.Id
+
+	watchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stream, err := grpcClient.WatchManagedDatabases(watchCtx, &pb.WatchManagedDatabasesRequest{})
+	Expect(err).NotTo(HaveOccurred())
+	_, err = stream.Header()
+	Expect(err).NotTo(HaveOccurred())
+
+	_, err = grpcClient.DeleteManagedDatabase(ctx, &pb.DeleteManagedDatabaseRequest{Id: databaseID})
+	Expect(err).NotTo(HaveOccurred())
+
+	for {
+		evt, recvErr := stream.Recv()
+		if recvErr != nil {
+			t.Fatalf("stream closed before receiving delete event: %v", recvErr)
+		}
+		if evt.ResourceId != databaseID || evt.Type != pb.EventType_EVENT_TYPE_DELETED {
+			continue
+		}
+		Expect(evt.ManagedDatabase).NotTo(BeNil(), "delete event must include the ManagedDatabase tombstone")
+		Expect(evt.ManagedDatabase.Metadata.Id).To(Equal(databaseID))
+		Expect(evt.ManagedDatabase.Name).To(Equal("delete-watch-test"))
+		Expect(evt.ManagedDatabase.FleetId).To(Equal("delete-watch-fleet"))
+		Expect(evt.ManagedDatabase.Provider).To(Equal("deployment"))
+		Expect(evt.ManagedDatabase.Namespace).To(Equal(created.ManagedDatabase.Namespace))
+		Expect(evt.ManagedDatabase.Namespace).NotTo(BeEmpty())
+		break
+	}
+
+	_, err = grpcClient.GetManagedDatabase(ctx, &pb.GetManagedDatabaseRequest{Id: databaseID})
+	Expect(status.Code(err)).To(Equal(codes.NotFound))
 }
 
 // TestGRPCWatchManagedDatabasesSendsSubscriptionHeader asserts the watch RPC

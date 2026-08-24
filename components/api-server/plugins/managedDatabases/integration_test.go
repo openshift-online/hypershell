@@ -97,6 +97,37 @@ func TestManagedDatabasePatch(t *testing.T) {
 	Expect(*managedDatabaseOutput.Kind).To(Equal("ManagedDatabase"))
 	Expect(*managedDatabaseOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/managed_databases/%s", *managedDatabaseOutput.Id)))
 
+	_, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
+		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Provider: openapi.PtrString("unsupported")}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	persisted, resp, err := client.DefaultAPI.GetManagedDatabase(ctx, managedDatabaseModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(persisted.Provider).To(Equal("deployment"))
+
+	_, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
+		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Provider: openapi.PtrString("cnpg")}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	persisted, resp, err = client.DefaultAPI.GetManagedDatabase(ctx, managedDatabaseModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(persisted.Provider).To(Equal("deployment"))
+
+	managedDatabaseOutput, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
+		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Provider: openapi.PtrString("deployment")}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(managedDatabaseOutput.Provider).To(Equal("deployment"))
+
+	managedDatabaseOutput, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
+		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Status: openapi.PtrString("Ready")}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(managedDatabaseOutput.Provider).To(Equal("deployment"))
+	Expect(managedDatabaseOutput.GetStatus()).To(Equal("Ready"))
+
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
 	restyResp, err := resty.R().
 		SetHeader("Content-Type", "application/json").
