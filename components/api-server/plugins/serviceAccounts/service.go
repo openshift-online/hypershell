@@ -158,7 +158,7 @@ type Service interface {
 	List(context.Context, string, string, ListOptions) ([]OpenShellGatewayServiceAccount, int64, Access, *APIError)
 	Revoke(context.Context, string, string, string) (*OpenShellGatewayServiceAccount, bool, *APIError)
 	Delete(context.Context, string, string, string) (*OpenShellGatewayServiceAccount, bool, *APIError)
-	CleanupGateway(context.Context, string) error
+	CleanupGateway(context.Context, string, func(context.Context) error) error
 	ReconcileOnce(context.Context) error
 }
 
@@ -475,10 +475,12 @@ func (s *service) Delete(ctx context.Context, gatewayID, id, userID string) (*Op
 	return account, true, nil
 }
 
-func (s *service) CleanupGateway(ctx context.Context, gatewayID string) error {
-	// Hold the per-gateway lock across the whole scan-and-delete so a create that
-	// checked gateway readiness cannot provision a new credential for a gateway that
-	// is being torn down. Callers invoke this before deleting the gateway row.
+func (s *service) CleanupGateway(ctx context.Context, gatewayID string, finalize func(context.Context) error) error {
+	// Hold the per-gateway lock across the whole scan-and-delete AND the finalize
+	// callback (the gateway-row deletion) so a create that checked gateway
+	// readiness cannot provision a new credential in the window between cleanup
+	// completing and the gateway row disappearing. A create blocked on this lock
+	// re-reads readiness once it acquires the lock and finds the gateway gone.
 	unlock, lockErr := s.acquireGatewayLock(ctx, gatewayID)
 	if lockErr != nil {
 		return lockErr
@@ -490,6 +492,9 @@ func (s *service) CleanupGateway(ctx context.Context, gatewayID string) error {
 	}
 	if s.provisioner == nil || !s.provisioner.Configured() {
 		if len(accounts) == 0 {
+			if finalize != nil {
+				return finalize(ctx)
+			}
 			return nil
 		}
 		return errors.New("keycloak service-account cleanup is unavailable")
@@ -511,6 +516,9 @@ func (s *service) CleanupGateway(ctx context.Context, gatewayID string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if finalize != nil {
+		return finalize(ctx)
 	}
 	return nil
 }

@@ -43,8 +43,8 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 		})
 		return service
 	})
-	gateways.RegisterDeletionCleaner(func(ctx context.Context, gatewayID string) error {
-		return locator().CleanupGateway(ctx, gatewayID)
+	gateways.RegisterDeletionCleaner(func(ctx context.Context, gatewayID string, finalize func(context.Context) error) error {
+		return locator().CleanupGateway(ctx, gatewayID, finalize)
 	})
 	return locator
 }

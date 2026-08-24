@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -331,7 +332,7 @@ func TestCleanupGatewayDeletesIdentitiesBeforeRecords(t *testing.T) {
 	kc := &fakeKeycloak{configured: true}
 	service := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
 
-	if err := service.CleanupGateway(t.Context(), "gateway-id"); err != nil {
+	if err := service.CleanupGateway(t.Context(), "gateway-id", nil); err != nil {
 		t.Fatalf("CleanupGateway() error = %v", err)
 	}
 	if kc.deleteGatewayCalls != 1 {
@@ -342,6 +343,56 @@ func TestCleanupGatewayDeletesIdentitiesBeforeRecords(t *testing.T) {
 	}
 	if len(dao.audits) != 2 {
 		t.Fatalf("gateway cleanup audits = %d, want 2", len(dao.audits))
+	}
+}
+
+// TestCleanupGatewayHoldsBarrierThroughGatewayDeletion proves the fix for the
+// teardown race: a Create that races a gateway deletion must block on the
+// per-gateway lifecycle lock until CleanupGateway has deleted the gateway row
+// (via finalize) under that same lock, and must then observe the gateway as gone
+// and provision nothing. Before the fix the row was deleted only after the lock
+// was released, so a blocked Create could wake, see the still-present gateway,
+// and mint an orphaned live credential.
+func TestCleanupGatewayHoldsBarrierThroughGatewayDeletion(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	kc := &fakeKeycloak{configured: true}
+	locks := newBlockingLockFactory()
+	gw := &mutableGateway{gateway: testGateway()}
+	svc := newTestServiceWith(dao, kc, testBindings("creator", "gateway:owner"), now, gw, locks)
+
+	createStarted := make(chan struct{})
+	createDone := make(chan *APIError, 1)
+
+	// finalize runs under CleanupGateway's held lock and stands in for the
+	// gateway-row deletion. While it runs, a concurrent Create must be unable to
+	// complete because it is blocked acquiring the same lock.
+	finalize := func(context.Context) error {
+		go func() {
+			close(createStarted)
+			_, problem := svc.Create(context.Background(), "gateway-id", "creator", CreateInput{Name: "bot"})
+			createDone <- problem
+		}()
+		<-createStarted
+		select {
+		case <-createDone:
+			t.Error("Create completed while CleanupGateway still held the lock")
+		case <-time.After(50 * time.Millisecond):
+		}
+		gw.delete()
+		return nil
+	}
+
+	if err := svc.CleanupGateway(context.Background(), "gateway-id", finalize); err != nil {
+		t.Fatalf("CleanupGateway() error = %v", err)
+	}
+
+	problem := <-createDone
+	if problem == nil {
+		t.Fatal("Create succeeded after gateway teardown; expected rejection")
+	}
+	if kc.provisionCalls != 0 {
+		t.Fatalf("Create provisioned %d credential(s) for a deleted gateway; want 0", kc.provisionCalls)
 	}
 }
 
@@ -614,7 +665,7 @@ func TestLifecycleMutationsSerializeThroughThePerGatewayLock(t *testing.T) {
 	t.Run("cleanup acquires and releases the lock", func(t *testing.T) {
 		dao, _, locks, svc := newLockedService()
 		seedReady(dao)
-		if err := svc.CleanupGateway(t.Context(), "gateway-id"); err != nil {
+		if err := svc.CleanupGateway(t.Context(), "gateway-id", nil); err != nil {
 			t.Fatalf("CleanupGateway() error = %v", err)
 		}
 		assertBalancedLock(t, locks, 1)
@@ -686,6 +737,66 @@ func (f *countingLockFactory) NewNonBlockingLock(_ context.Context, id string, _
 }
 
 func (f *countingLockFactory) Unlock(_ context.Context, _ string) { f.released++ }
+
+// blockingLockFactory serializes acquisition per id with a real mutex so a test
+// can prove one lifecycle path genuinely blocks another until the lock is
+// released, rather than merely counting acquisitions.
+type blockingLockFactory struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+func newBlockingLockFactory() *blockingLockFactory {
+	return &blockingLockFactory{locks: map[string]*sync.Mutex{}}
+}
+
+func (f *blockingLockFactory) lockFor(id string) *sync.Mutex {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	lock, ok := f.locks[id]
+	if !ok {
+		lock = &sync.Mutex{}
+		f.locks[id] = lock
+	}
+	return lock
+}
+
+func (f *blockingLockFactory) NewAdvisoryLock(_ context.Context, id string, _ db.LockType) (string, error) {
+	f.lockFor(id).Lock()
+	return id, nil
+}
+
+func (f *blockingLockFactory) NewNonBlockingLock(_ context.Context, id string, _ db.LockType) (string, bool, error) {
+	if f.lockFor(id).TryLock() {
+		return id, true, nil
+	}
+	return id, false, nil
+}
+
+func (f *blockingLockFactory) Unlock(_ context.Context, id string) { f.lockFor(id).Unlock() }
+
+// mutableGateway is a GatewayLookup whose gateway can be removed mid-test so a
+// finalize callback can model the gateway-row deletion that a blocked Create
+// must observe once it acquires the lock.
+type mutableGateway struct {
+	mu      sync.Mutex
+	gateway *gateways.Gateway
+}
+
+func (g *mutableGateway) Get(_ context.Context, id string) (*gateways.Gateway, *trexerrors.ServiceError) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.gateway == nil || g.gateway.ID != id {
+		return nil, trexerrors.NotFound("not found")
+	}
+	return g.gateway, nil
+}
+
+func (g *mutableGateway) delete() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.gateway = nil
+}
 
 type fakeGateway struct {
 	gateway *gateways.Gateway

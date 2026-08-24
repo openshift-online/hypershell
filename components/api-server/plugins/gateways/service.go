@@ -210,14 +210,22 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 		return svcErr
 	}
 
-	if err := cleanBeforeDeletion(ctx, id); err != nil {
+	// Delete the gateway row through the cleanup barrier so the row disappears
+	// while the service-account lifecycle lock is still held. finalize captures
+	// its own error so a row-deletion failure is reported distinctly from a
+	// cleanup-unavailable failure.
+	var deleteErr error
+	finalize := func(ctx context.Context) error {
+		deleteErr = s.gatewayDao.Delete(ctx, id)
+		return deleteErr
+	}
+	if err := cleanBeforeDeletion(ctx, id, finalize); err != nil {
+		if deleteErr != nil {
+			return services.HandleDeleteError("Gateway", errors.GeneralError("Unable to delete gateway: %s", deleteErr))
+		}
 		serviceErr := errors.GeneralError("gateway service-account cleanup is unavailable")
 		serviceErr.HttpCode = http.StatusServiceUnavailable
 		return serviceErr
-	}
-
-	if err := s.gatewayDao.Delete(ctx, id); err != nil {
-		return services.HandleDeleteError("Gateway", errors.GeneralError("Unable to delete gateway: %s", err))
 	}
 
 	_, evErr := s.events.Create(ctx, &api.Event{
