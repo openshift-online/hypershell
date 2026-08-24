@@ -383,19 +383,315 @@ func TestReconcileDeletesKeycloakClientsWithoutAResource(t *testing.T) {
 	}
 }
 
+func TestReconcileWithStaleSnapshotNeverReenablesARevokedCredential(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	revokedAt := now.Add(-time.Hour)
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusRevoked,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+		RevokedAt: &revokedAt,
+	}
+	dao.seed(account)
+	// Model a reconciliation scan whose snapshot predates the revocation: it still
+	// sees a healthy, not-yet-expired Ready row. The locked reconcile must re-read the
+	// committed Revoked row and refuse to re-enable it.
+	dao.reconcileSnapshots = []OpenShellGatewayServiceAccount{{
+		Meta:      account.Meta,
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}}
+	kc := &fakeKeycloak{configured: true}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() error = %v", err)
+	}
+	stored := dao.items[account.ID]
+	if stored.Status != StatusRevoked {
+		t.Fatalf("stale reconcile changed status to %q, want revoked", stored.Status)
+	}
+	if kc.reconcileCalls != 0 {
+		t.Fatalf("stale reconcile re-enabled the credential: reconcileCalls=%d", kc.reconcileCalls)
+	}
+	if stored.RevokedAt == nil {
+		t.Fatal("stale reconcile cleared the revocation timestamp")
+	}
+}
+
+func TestReconcileReclaimsAbandonedProvisioningOnlyAfterTheStaleDeadline(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name        string
+		updatedAt   time.Time
+		wantRemoved bool
+	}{
+		{name: "recent provisioning is left in flight", updatedAt: now.Add(-time.Minute), wantRemoved: false},
+		{name: "stale provisioning is reclaimed", updatedAt: now.Add(-20 * time.Minute), wantRemoved: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dao := newMemoryDAO()
+			account := &OpenShellGatewayServiceAccount{
+				GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusProvisioning,
+				Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+				KeycloakClientUUID: "client-uuid", ExpiresAt: now.Add(time.Hour),
+			}
+			account.CreatedAt = test.updatedAt
+			account.UpdatedAt = test.updatedAt
+			dao.seed(account)
+			kc := &fakeKeycloak{configured: true}
+			service := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+			if err := service.ReconcileOnce(t.Context()); err != nil {
+				t.Fatalf("ReconcileOnce() error = %v", err)
+			}
+			_, exists := dao.items[account.ID]
+			if test.wantRemoved && exists {
+				t.Fatalf("stale provisioning row was not reclaimed: %#v", dao.items[account.ID])
+			}
+			if !test.wantRemoved {
+				if !exists {
+					t.Fatal("in-flight provisioning row was destroyed")
+				}
+				if dao.items[account.ID].Status != StatusProvisioning {
+					t.Fatalf("in-flight provisioning row mutated to %q", dao.items[account.ID].Status)
+				}
+				if len(kc.deletedUUIDs) != 0 || kc.deleteManagedCalls != 0 {
+					t.Fatalf("in-flight provisioning triggered credential removal: deleted=%v managed=%d", kc.deletedUUIDs, kc.deleteManagedCalls)
+				}
+			}
+		})
+	}
+}
+
+func TestReconcileRevokesOnlyOnConfirmedGatewayDeletion(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name        string
+		gateway     GatewayLookup
+		wantRevoked bool
+		wantError   bool
+		wantReason  string
+	}{
+		{
+			name:        "transient lookup failure keeps the credential",
+			gateway:     fakeGateway{serviceErr: trexerrors.GeneralError("control plane down")},
+			wantRevoked: false, wantError: true, wantReason: "gateway_unavailable",
+		},
+		{
+			name:        "not-yet-ready OIDC keeps the credential",
+			gateway:     fakeGateway{gateway: gatewayWithoutOIDC()},
+			wantRevoked: false, wantError: true, wantReason: "gateway_not_ready",
+		},
+		{
+			name:        "confirmed deletion revokes the credential",
+			gateway:     fakeGateway{serviceErr: trexerrors.NotFound("gone")},
+			wantRevoked: true, wantError: false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dao := newMemoryDAO()
+			account := &OpenShellGatewayServiceAccount{
+				GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+				Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+				KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+			}
+			dao.seed(account)
+			kc := &fakeKeycloak{configured: true}
+			service := newTestServiceWith(dao, kc, testBindings("creator", "gateway:owner"), now, test.gateway, db.NewNoOpLockFactory())
+
+			err := service.ReconcileOnce(t.Context())
+			if test.wantError && err == nil {
+				t.Fatal("ReconcileOnce() error = nil, want transient failure surfaced")
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("ReconcileOnce() error = %v", err)
+			}
+			stored := dao.items[account.ID]
+			if test.wantRevoked {
+				if stored.Status != StatusRevoked || stored.RevokedAt == nil {
+					t.Fatalf("confirmed deletion did not revoke: %#v", stored)
+				}
+				return
+			}
+			if stored.Status != StatusReady {
+				t.Fatalf("transient failure changed status to %q, want ready", stored.Status)
+			}
+			if kc.disableCalls != 0 || len(kc.deletedUUIDs) != 0 {
+				t.Fatalf("transient failure wound down the credential: disable=%d deleted=%v", kc.disableCalls, kc.deletedUUIDs)
+			}
+			if stored.LastError == nil || *stored.LastError != test.wantReason {
+				t.Fatalf("last error = %v, want %q", stored.LastError, test.wantReason)
+			}
+		})
+	}
+}
+
+func TestReconcileDegradesReadyOnMutationFailureThenRecovers(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true, reconcileErr: errors.New("provider unavailable")}
+	service := newTestService(dao, kc, testBindings("creator", "gateway:owner"), now)
+
+	if err := service.ReconcileOnce(t.Context()); err == nil {
+		t.Fatal("ReconcileOnce() error = nil, want converge failure surfaced")
+	}
+	stored := dao.items[account.ID]
+	if stored.Status != StatusDegraded {
+		t.Fatalf("failed convergence status = %q, want degraded", stored.Status)
+	}
+	if stored.LastError == nil || *stored.LastError != "keycloak_reconciliation_failed" {
+		t.Fatalf("degraded last error = %v", stored.LastError)
+	}
+
+	kc.reconcileErr = nil
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() recovery error = %v", err)
+	}
+	stored = dao.items[account.ID]
+	if stored.Status != StatusReady || stored.LastError != nil {
+		t.Fatalf("recovered account = %#v, want clean ready", stored)
+	}
+}
+
+func TestLifecycleMutationsSerializeThroughThePerGatewayLock(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	newLockedService := func() (*memoryDAO, *fakeKeycloak, *countingLockFactory, Service) {
+		dao := newMemoryDAO()
+		kc := &fakeKeycloak{configured: true}
+		locks := &countingLockFactory{}
+		svc := newTestServiceWith(dao, kc, testBindings("creator", "gateway:owner"), now, fakeGateway{gateway: testGateway()}, locks)
+		return dao, kc, locks, svc
+	}
+	seedReady := func(dao *memoryDAO) *OpenShellGatewayServiceAccount {
+		account := &OpenShellGatewayServiceAccount{
+			GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+			Role: RoleUser, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+			KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+		}
+		dao.seed(account)
+		return account
+	}
+
+	t.Run("create acquires and releases the lock", func(t *testing.T) {
+		_, _, locks, svc := newLockedService()
+		if _, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "bot"}); problem != nil {
+			t.Fatalf("Create() problem = %#v", problem)
+		}
+		assertBalancedLock(t, locks, 1)
+	})
+	t.Run("revoke acquires and releases the lock", func(t *testing.T) {
+		dao, _, locks, svc := newLockedService()
+		account := seedReady(dao)
+		if _, _, problem := svc.Revoke(t.Context(), "gateway-id", account.ID, "creator"); problem != nil {
+			t.Fatalf("Revoke() problem = %#v", problem)
+		}
+		assertBalancedLock(t, locks, 1)
+	})
+	t.Run("delete acquires and releases the lock", func(t *testing.T) {
+		dao, _, locks, svc := newLockedService()
+		account := seedReady(dao)
+		if _, _, problem := svc.Delete(t.Context(), "gateway-id", account.ID, "creator"); problem != nil {
+			t.Fatalf("Delete() problem = %#v", problem)
+		}
+		assertBalancedLock(t, locks, 1)
+	})
+	t.Run("cleanup acquires and releases the lock", func(t *testing.T) {
+		dao, _, locks, svc := newLockedService()
+		seedReady(dao)
+		if err := svc.CleanupGateway(t.Context(), "gateway-id"); err != nil {
+			t.Fatalf("CleanupGateway() error = %v", err)
+		}
+		assertBalancedLock(t, locks, 1)
+	})
+	t.Run("reconcile acquires and releases the lock per account", func(t *testing.T) {
+		dao, _, locks, svc := newLockedService()
+		seedReady(dao)
+		if err := svc.ReconcileOnce(t.Context()); err != nil {
+			t.Fatalf("ReconcileOnce() error = %v", err)
+		}
+		assertBalancedLock(t, locks, 1)
+	})
+}
+
+func assertBalancedLock(t *testing.T, locks *countingLockFactory, want int) {
+	t.Helper()
+	if locks.acquired != want {
+		t.Fatalf("lock acquisitions = %d, want %d", locks.acquired, want)
+	}
+	if locks.released != locks.acquired {
+		t.Fatalf("lock releases = %d, acquisitions = %d; lock leaked", locks.released, locks.acquired)
+	}
+}
+
+func gatewayWithoutOIDC() *gateways.Gateway {
+	gateway := testGateway()
+	gateway.Oidc = nil
+	return gateway
+}
+
 func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now time.Time) Service {
-	oidc, _ := json.Marshal(GatewayOIDC{Issuer: "https://issuer.example/realms/hypershell", ClientID: "gateway-client", Audience: "gateway-client"})
-	phase, status, route := "Running", "Healthy", "grpcs://gateway.example:443"
-	gateway := &gateways.Gateway{Name: "gateway", Phase: &phase, Status: &status, RouteAddress: &route, Oidc: stringPointer(string(oidc))}
-	gateway.ID = "gateway-id"
-	result := NewService(dao, fakeGateway{gateway: gateway}, bindings, kc, db.NewNoOpLockFactory())
+	result := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, db.NewNoOpLockFactory())
 	result.(*service).now = func() time.Time { return now }
 	return result
 }
 
-type fakeGateway struct{ gateway *gateways.Gateway }
+// newTestServiceWith builds a service with an explicit gateway lookup and lock
+// factory so tests can inject transient/404 gateway failures or count locking.
+func newTestServiceWith(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now time.Time, gateway GatewayLookup, lockFactory db.LockFactory) Service {
+	result := NewService(dao, gateway, bindings, kc, lockFactory)
+	result.(*service).now = func() time.Time { return now }
+	return result
+}
+
+func testGateway() *gateways.Gateway {
+	oidc, _ := json.Marshal(GatewayOIDC{Issuer: "https://issuer.example/realms/hypershell", ClientID: "gateway-client", Audience: "gateway-client"})
+	phase, status, route := "Running", "Healthy", "grpcs://gateway.example:443"
+	gateway := &gateways.Gateway{Name: "gateway", Phase: &phase, Status: &status, RouteAddress: &route, Oidc: stringPointer(string(oidc))}
+	gateway.ID = "gateway-id"
+	return gateway
+}
+
+// countingLockFactory records how many times the per-gateway advisory lock is
+// acquired and released so tests can assert that every lifecycle path serializes
+// through it. It otherwise behaves as a no-op, matching NoOpLockFactory.
+type countingLockFactory struct {
+	acquired int
+	released int
+}
+
+func (f *countingLockFactory) NewAdvisoryLock(_ context.Context, id string, _ db.LockType) (string, error) {
+	f.acquired++
+	return id, nil
+}
+
+func (f *countingLockFactory) NewNonBlockingLock(_ context.Context, id string, _ db.LockType) (string, bool, error) {
+	f.acquired++
+	return id, true, nil
+}
+
+func (f *countingLockFactory) Unlock(_ context.Context, _ string) { f.released++ }
+
+type fakeGateway struct {
+	gateway *gateways.Gateway
+	// serviceErr, when set, is returned by Get in place of the gateway. It models a
+	// transient control-plane failure (e.g. a 500) or a not-yet-ready gateway (409)
+	// so reconciliation's confirmed-deletion-versus-transient branch can be exercised.
+	serviceErr *trexerrors.ServiceError
+}
 
 func (f fakeGateway) Get(_ context.Context, id string) (*gateways.Gateway, *trexerrors.ServiceError) {
+	if f.serviceErr != nil {
+		return nil, f.serviceErr
+	}
 	if f.gateway == nil || f.gateway.ID != id {
 		return nil, trexerrors.NotFound("not found")
 	}
@@ -424,10 +720,12 @@ type fakeKeycloak struct {
 	disableErr         error
 	deleteErr          error
 	provisionErr       error
+	reconcileErr       error
 	secret             string
 	lastSpec           ProvisioningSpec
 	managedClients     []ManagedClient
 	provisionCalls     int
+	reconcileCalls     int
 	disableCalls       int
 	deleteManagedCalls int
 	deleteGatewayCalls int
@@ -449,8 +747,9 @@ func (f *fakeKeycloak) ProvisionServiceAccount(_ context.Context, spec Provision
 }
 
 func (f *fakeKeycloak) ReconcileServiceAccount(_ context.Context, spec ProvisioningSpec, _, _ string, _ bool) error {
+	f.reconcileCalls++
 	f.lastSpec = spec
-	return nil
+	return f.reconcileErr
 }
 
 func (f *fakeKeycloak) DisableServiceAccount(context.Context, string) error {
@@ -480,6 +779,10 @@ type memoryDAO struct {
 	items  map[string]*OpenShellGatewayServiceAccount
 	audits []*AuditEvent
 	next   int
+	// reconcileSnapshots, when set, is returned by ListDueAndTransitional in place of
+	// live rows. It lets tests model a stale scan snapshot that disagrees with the
+	// committed row a locked reconciliation re-reads.
+	reconcileSnapshots []OpenShellGatewayServiceAccount
 }
 
 func newMemoryDAO() *memoryDAO {
@@ -528,6 +831,17 @@ func (d *memoryDAO) Update(_ context.Context, account *OpenShellGatewayServiceAc
 	return nil
 }
 
+func (d *memoryDAO) ConditionalUpdate(_ context.Context, account *OpenShellGatewayServiceAccount, expectedStatus string) (bool, error) {
+	stored, ok := d.items[account.ID]
+	if !ok || stored.Status != expectedStatus {
+		return false, nil
+	}
+	account.UpdatedAt = time.Now().UTC()
+	copy := *account
+	d.items[account.ID] = &copy
+	return true, nil
+}
+
 func (d *memoryDAO) Get(_ context.Context, gatewayID, id string) (*OpenShellGatewayServiceAccount, error) {
 	account, ok := d.items[id]
 	if !ok || account.GatewayID != gatewayID {
@@ -564,10 +878,33 @@ func (d *memoryDAO) CountActive(_ context.Context, gatewayID, creator string) (i
 	return gatewayCount, creatorCount, nil
 }
 
-func (d *memoryDAO) ListReconcilable(context.Context, int) ([]OpenShellGatewayServiceAccount, error) {
+func (d *memoryDAO) ListDueAndTransitional(_ context.Context, now time.Time, _ int) ([]OpenShellGatewayServiceAccount, error) {
+	if d.reconcileSnapshots != nil {
+		return append([]OpenShellGatewayServiceAccount(nil), d.reconcileSnapshots...), nil
+	}
+	transitional := map[string]bool{
+		StatusProvisioning: true, StatusRevoking: true, StatusDeleting: true,
+		StatusError: true, StatusDegraded: true,
+	}
 	items := make([]OpenShellGatewayServiceAccount, 0, len(d.items))
 	for _, account := range d.items {
-		items = append(items, *account)
+		if transitional[account.Status] || (account.Status == StatusReady && !account.ExpiresAt.After(now)) {
+			items = append(items, *account)
+		}
+	}
+	return items, nil
+}
+
+func (d *memoryDAO) ListDrift(_ context.Context, now time.Time, _ int) ([]OpenShellGatewayServiceAccount, error) {
+	if d.reconcileSnapshots != nil {
+		return nil, nil
+	}
+	items := make([]OpenShellGatewayServiceAccount, 0, len(d.items))
+	for _, account := range d.items {
+		if (account.Status == StatusReady && account.ExpiresAt.After(now)) ||
+			account.Status == StatusExpired || account.Status == StatusRevoked {
+			items = append(items, *account)
+		}
 	}
 	return items, nil
 }

@@ -29,7 +29,22 @@ const (
 	AccessTokenLifetimeSeconds = 300
 
 	serviceAccountsLockType db.LockType = "gateway-service-accounts"
+
+	// provisioningReclaimAfter is how long a row may remain in Provisioning before
+	// reconciliation reclaims it as abandoned. The per-gateway lock already prevents
+	// reconciliation from racing a live Create; this deadline is defense in depth so
+	// an in-flight one-time-secret delivery is never destroyed where the lock is a
+	// no-op. It is set well above the provisioner call timeout.
+	provisioningReclaimAfter = 15 * time.Minute
+
+	// reconcileScanLimit bounds each reconciliation scan page.
+	reconcileScanLimit = 1000
 )
+
+// errReconcileSuperseded signals that a reconciliation write was skipped because
+// the row's status changed under a concurrent foreground mutation. It is not a
+// failure: the winning mutation owns the row, so the reconciler yields.
+var errReconcileSuperseded = errors.New("reconciliation superseded by a concurrent mutation")
 
 // APIError carries a stable public error code without exposing provider
 // responses or credentials.
@@ -160,6 +175,19 @@ func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings Bi
 	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, lockFactory: lockFactory, now: time.Now}
 }
 
+// acquireGatewayLock takes the shared per-gateway advisory lock that serializes
+// every service-account lifecycle mutation for a gateway (foreground Create,
+// Revoke, Delete, gateway cleanup, and background reconciliation all contend for
+// it) so no two paths can observe and act on a stale snapshot concurrently. The
+// returned function releases the lock and must be deferred by the caller.
+func (s *service) acquireGatewayLock(ctx context.Context, gatewayID string) (func(), error) {
+	owner, err := s.lockFactory.NewAdvisoryLock(ctx, gatewayID, serviceAccountsLockType)
+	if err != nil {
+		return nil, err
+	}
+	return func() { s.lockFactory.Unlock(ctx, owner) }, nil
+}
+
 func (s *service) Capabilities(ctx context.Context, gatewayID, userID string) (Access, *APIError) {
 	if _, _, problem := s.gateway(ctx, gatewayID, false); problem != nil {
 		return Access{}, problem
@@ -182,6 +210,19 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	if !access.CanCreate {
 		return nil, notFoundProblem()
 	}
+	if s.provisioner == nil || !s.provisioner.Configured() {
+		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: "keycloak_unavailable", Message: "Service-account provisioning is unavailable"}
+	}
+
+	// Take the per-gateway lock before reading gateway readiness so a concurrent
+	// gateway teardown cannot complete its cleanup between our readiness check and
+	// the provisioning call. Readiness is therefore re-read under the lock.
+	unlock, lockErr := s.acquireGatewayLock(ctx, gatewayID)
+	if lockErr != nil {
+		return nil, internalProblem()
+	}
+	defer unlock()
+
 	gateway, oidc, problem := s.readyGateway(ctx, gatewayID)
 	if problem != nil {
 		return nil, problem
@@ -189,15 +230,6 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	if problem = validateCreateInput(&input, access, s.now()); problem != nil {
 		return nil, problem
 	}
-	if s.provisioner == nil || !s.provisioner.Configured() {
-		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: "keycloak_unavailable", Message: "Service-account provisioning is unavailable"}
-	}
-
-	lockOwner, lockErr := s.lockFactory.NewAdvisoryLock(ctx, gatewayID, serviceAccountsLockType)
-	if lockErr != nil {
-		return nil, internalProblem()
-	}
-	defer s.lockFactory.Unlock(ctx, lockOwner)
 
 	gatewayCount, creatorCount, err := s.dao.CountActive(ctx, gatewayID, userID)
 	if err != nil {
@@ -324,7 +356,17 @@ func (s *service) List(ctx context.Context, gatewayID, userID string, options Li
 }
 
 func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*OpenShellGatewayServiceAccount, bool, *APIError) {
-	account, problem := s.visibleAccount(ctx, gatewayID, id, userID)
+	if _, problem := s.visibleAccount(ctx, gatewayID, id, userID); problem != nil {
+		return nil, false, problem
+	}
+	unlock, lockErr := s.acquireGatewayLock(ctx, gatewayID)
+	if lockErr != nil {
+		return nil, false, internalProblem()
+	}
+	defer unlock()
+	// Re-read under the lock so the revocation acts on committed state, not the
+	// snapshot observed before the lock was held.
+	account, problem := s.lockedAccount(ctx, gatewayID, id)
 	if problem != nil {
 		return nil, false, problem
 	}
@@ -385,7 +427,16 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 }
 
 func (s *service) Delete(ctx context.Context, gatewayID, id, userID string) (*OpenShellGatewayServiceAccount, bool, *APIError) {
-	account, problem := s.visibleAccount(ctx, gatewayID, id, userID)
+	if _, problem := s.visibleAccount(ctx, gatewayID, id, userID); problem != nil {
+		return nil, false, problem
+	}
+	unlock, lockErr := s.acquireGatewayLock(ctx, gatewayID)
+	if lockErr != nil {
+		return nil, false, internalProblem()
+	}
+	defer unlock()
+	// Re-read under the lock so the deletion acts on committed state.
+	account, problem := s.lockedAccount(ctx, gatewayID, id)
 	if problem != nil {
 		return nil, false, problem
 	}
@@ -425,6 +476,14 @@ func (s *service) Delete(ctx context.Context, gatewayID, id, userID string) (*Op
 }
 
 func (s *service) CleanupGateway(ctx context.Context, gatewayID string) error {
+	// Hold the per-gateway lock across the whole scan-and-delete so a create that
+	// checked gateway readiness cannot provision a new credential for a gateway that
+	// is being torn down. Callers invoke this before deleting the gateway row.
+	unlock, lockErr := s.acquireGatewayLock(ctx, gatewayID)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	accounts, _, err := s.dao.List(ctx, gatewayID, ListOptions{Page: 1, Size: 100, Sort: "created_at", Order: "asc"})
 	if err != nil {
 		return err
@@ -460,28 +519,66 @@ func (s *service) ReconcileOnce(ctx context.Context) error {
 	if s.provisioner == nil || !s.provisioner.Configured() {
 		return nil
 	}
-	accounts, err := s.dao.ListReconcilable(ctx, 1000)
-	if err != nil {
-		return err
-	}
+	now := s.now().UTC()
 	var reconcileErrors []error
-	for i := range accounts {
-		original := accounts[i]
-		if err := s.reconcileOne(ctx, &accounts[i]); err != nil {
-			// Persist a stable code only. Provider response bodies are intentionally
-			// absent from both LastError and the caller-visible error.
-			reason := "keycloak_reconciliation_failed"
-			original.LastError = &reason
-			if updateErr := s.dao.Update(ctx, &original); updateErr != nil {
-				err = errors.Join(err, updateErr)
-			}
+
+	// Snapshot both scans up front from the same pre-processing state. The lists are
+	// disjoint on a single snapshot, so nothing is processed twice within a cycle; a
+	// row transitioned by the due pass is only revisited on the next cycle.
+	due, err := s.dao.ListDueAndTransitional(ctx, now, reconcileScanLimit)
+	if err != nil {
+		reconcileErrors = append(reconcileErrors, err)
+	}
+	drift, err := s.dao.ListDrift(ctx, now, reconcileScanLimit)
+	if err != nil {
+		reconcileErrors = append(reconcileErrors, err)
+	}
+
+	// Safety-critical work first: due expirations and transitional lifecycle changes
+	// must never be starved by routine drift.
+	for i := range due {
+		if err := s.reconcileLocked(ctx, due[i].GatewayID, due[i].ID); err != nil {
 			reconcileErrors = append(reconcileErrors, err)
 		}
 	}
+	for i := range drift {
+		if err := s.reconcileLocked(ctx, drift[i].GatewayID, drift[i].ID); err != nil {
+			reconcileErrors = append(reconcileErrors, err)
+		}
+	}
+
 	if err := s.cleanupOrphanedClients(ctx); err != nil {
 		reconcileErrors = append(reconcileErrors, err)
 	}
 	return errors.Join(reconcileErrors...)
+}
+
+// reconcileLocked serializes a single account's reconciliation against foreground
+// mutations by taking the shared per-gateway lock, then re-reading the row so the
+// decision is made on committed state rather than the scan snapshot. This is what
+// prevents a paused reconciliation from re-enabling a credential that was revoked
+// after the snapshot was taken.
+func (s *service) reconcileLocked(ctx context.Context, gatewayID, id string) error {
+	unlock, err := s.acquireGatewayLock(ctx, gatewayID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	account, err := s.dao.Get(ctx, gatewayID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// Removed by a concurrent Delete/cleanup between the scan and the lock.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.reconcileOne(ctx, account, account.Status); err != nil {
+		if errors.Is(err, errReconcileSuperseded) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *service) cleanupOrphanedClients(ctx context.Context) error {
@@ -518,15 +615,17 @@ func (s *service) cleanupOrphanedClients(ctx context.Context) error {
 	return errors.Join(cleanupErrors...)
 }
 
-func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewayServiceAccount) error {
+// reconcileOne converges a single account. It must be called under the per-gateway
+// lock with a freshly re-read account; observedStatus is the account's status at
+// re-read time and every terminal write is a compare-and-set against it, so a
+// concurrent foreground mutation is never clobbered. reconcileOne owns all
+// persistence: on both success and failure it records a truthful state before
+// returning, and it never leaves a record asserting Ready after a mutation failed.
+func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewayServiceAccount, observedStatus string) error {
 	now := s.now().UTC()
 	if account.Status == StatusDeleting {
-		if account.KeycloakClientUUID != "" {
-			if err := s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
-				return err
-			}
-		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
-			return err
+		if err := s.disableOrDeleteManaged(ctx, account, true); err != nil {
+			return s.failReconcile(ctx, account, observedStatus, err)
 		}
 		if err := s.audit(ctx, account, "system", "delete", "succeeded"); err != nil {
 			return err
@@ -534,32 +633,28 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 		return s.dao.SoftDelete(ctx, account)
 	}
 	if account.Status == StatusProvisioning {
-		// The only safe recovery after a process dies before one-time delivery is
-		// removal. Recreating or reading a secret would create an undisclosed live
-		// credential.
+		// A row still in Provisioning under the lock means the creating request is no
+		// longer running. Reclaim it only after the stale deadline so a live one-time
+		// delivery (where the lock is a no-op) is never destroyed. Recreating or
+		// reading a secret would produce an undisclosed live credential, so the only
+		// safe recovery is removal.
+		if now.Sub(account.UpdatedAt) < provisioningReclaimAfter {
+			return nil
+		}
 		return s.cleanupUndeliveredAccount(ctx, account, "system", "credential_delivery_incomplete")
 	}
 	if account.Status == StatusExpired || account.Status == StatusRevoked {
-		if account.KeycloakClientUUID != "" {
-			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
-				return err
-			}
-		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
-			return err
+		if err := s.disableOrDeleteManaged(ctx, account, false); err != nil {
+			return s.failReconcile(ctx, account, observedStatus, err)
 		}
 		// Advance updated_at after a successful drift check so terminal records do
 		// not permanently occupy the oldest reconciliation page.
 		account.LastError = nil
-		return s.dao.Update(ctx, account)
+		return s.commitReconciled(ctx, account, observedStatus)
 	}
 	if account.ExpiresAt.Before(now) || account.ExpiresAt.Equal(now) {
-		if account.KeycloakClientUUID != "" {
-			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
-				account.Status = StatusRevoking
-				return err
-			}
-		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
-			return err
+		if err := s.disableOrDeleteManaged(ctx, account, false); err != nil {
+			return s.failReconcile(ctx, account, observedStatus, err)
 		}
 		account.Status = StatusExpired
 		account.RevokedAt = &now
@@ -567,10 +662,7 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 		if err := s.audit(ctx, account, "system", "expire", "succeeded"); err != nil {
 			return err
 		}
-		if err := s.dao.Update(ctx, account); err != nil {
-			return err
-		}
-		return nil
+		return s.commitReconciled(ctx, account, observedStatus)
 	}
 	access, err := s.access(ctx, account.GatewayID, account.CreatedByUserID)
 	if err != nil {
@@ -581,12 +673,8 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 		if account.Status == StatusRevoking {
 			outcome = "succeeded"
 		}
-		if account.KeycloakClientUUID != "" {
-			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
-				return err
-			}
-		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
-			return err
+		if err := s.disableOrDeleteManaged(ctx, account, false); err != nil {
+			return s.failReconcile(ctx, account, observedStatus, err)
 		}
 		account.Status = StatusRevoked
 		account.RevokedAt = &now
@@ -594,10 +682,7 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 		if err := s.audit(ctx, account, "system", "revoke", outcome); err != nil {
 			return err
 		}
-		if err := s.dao.Update(ctx, account); err != nil {
-			return err
-		}
-		return nil
+		return s.commitReconciled(ctx, account, observedStatus)
 	}
 	if account.Status == StatusError {
 		// An error record may represent an undisclosed credential. Replacement is
@@ -611,25 +696,36 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 	downgraded := account.Role == RoleAdmin && !roleAllowed(RoleAdmin, access.AllowedRoles)
 	gateway, oidc, problem := s.gateway(ctx, account.GatewayID, true)
 	if problem != nil {
-		if account.KeycloakClientUUID != "" {
-			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+		// Only a confirmed gateway deletion permanently revokes the credential. A
+		// transient lookup failure or not-yet-ready OIDC configuration must not, or a
+		// momentary control-plane blip would irreversibly revoke healthy accounts.
+		if problem.Status == http.StatusNotFound {
+			if err := s.disableOrDeleteManaged(ctx, account, false); err != nil {
+				return s.failReconcile(ctx, account, observedStatus, err)
+			}
+			account.Status = StatusRevoked
+			account.RevokedAt = &now
+			account.LastError = nil
+			if err := s.audit(ctx, account, "system", "revoke", "gateway_deleted"); err != nil {
 				return err
 			}
-		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
+			return s.commitReconciled(ctx, account, observedStatus)
+		}
+		reason := "gateway_unavailable"
+		if problem.Status == http.StatusConflict {
+			reason = "gateway_not_ready"
+		}
+		account.LastError = &reason
+		if err := s.commitReconciled(ctx, account, observedStatus); err != nil {
 			return err
 		}
-		account.Status = StatusRevoked
-		account.RevokedAt = &now
-		if err := s.audit(ctx, account, "system", "revoke", "gateway_unavailable"); err != nil {
-			return err
-		}
-		return s.dao.Update(ctx, account)
+		return fmt.Errorf("gateway %s not reconcilable: %s", account.GatewayID, reason)
 	}
 	if account.KeycloakClientUUID == "" {
 		account.Status = StatusError
 		reason := "keycloak_client_missing"
 		account.LastError = &reason
-		return s.dao.Update(ctx, account)
+		return s.commitReconciled(ctx, account, observedStatus)
 	}
 	spec := serviceAccountSpec(account, gateway, oidc)
 	if downgraded {
@@ -640,9 +736,9 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 			account.Status = StatusError
 			reason := "keycloak_client_missing"
 			account.LastError = &reason
-			return s.dao.Update(ctx, account)
+			return s.commitReconciled(ctx, account, observedStatus)
 		}
-		return err
+		return s.failReconcile(ctx, account, observedStatus, err)
 	}
 	if downgraded {
 		account.Role = RoleUser
@@ -652,10 +748,53 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 	}
 	account.Status = StatusReady
 	account.LastError = nil
-	if err := s.dao.Update(ctx, account); err != nil {
+	return s.commitReconciled(ctx, account, observedStatus)
+}
+
+// disableOrDeleteManaged applies the standard "wind down this identity" step: it
+// disables (or, when hardDelete is set, deletes) the managed Keycloak client,
+// addressing it by stored UUID when known and otherwise by managed ownership.
+func (s *service) disableOrDeleteManaged(ctx context.Context, account *OpenShellGatewayServiceAccount, hardDelete bool) error {
+	if account.KeycloakClientUUID != "" {
+		if hardDelete {
+			return s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID)
+		}
+		return s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID)
+	}
+	return s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
+}
+
+// commitReconciled persists a reconciled account only when its stored status still
+// equals observedStatus. A mismatch means a concurrent foreground mutation won the
+// race, so the reconciler yields with errReconcileSuperseded rather than restoring
+// a superseded state.
+func (s *service) commitReconciled(ctx context.Context, account *OpenShellGatewayServiceAccount, observedStatus string) error {
+	updated, err := s.dao.ConditionalUpdate(ctx, account, observedStatus)
+	if err != nil {
 		return err
 	}
+	if !updated {
+		return errReconcileSuperseded
+	}
 	return nil
+}
+
+// failReconcile records a truthful fail-closed state after a provider mutation
+// failed. A previously-ready account is degraded so it is never reported as a
+// clean Ready credential while its managed client may be disabled or only
+// partially repaired; transitional and terminal states keep their meaning and
+// only gain the error marker. The original cause is always returned so the sweep
+// surfaces the failure and retries.
+func (s *service) failReconcile(ctx context.Context, account *OpenShellGatewayServiceAccount, observedStatus string, cause error) error {
+	if account.Status == StatusReady {
+		account.Status = StatusDegraded
+	}
+	reason := "keycloak_reconciliation_failed"
+	account.LastError = &reason
+	if _, err := s.dao.ConditionalUpdate(ctx, account, observedStatus); err != nil {
+		return errors.Join(cause, err)
+	}
+	return cause
 }
 
 func (s *service) cleanupUndeliveredAccount(ctx context.Context, account *OpenShellGatewayServiceAccount, actor, reason string) error {
@@ -675,6 +814,21 @@ func (s *service) cleanupUndeliveredAccount(ctx context.Context, account *OpenSh
 		return err
 	}
 	return s.dao.SoftDelete(ctx, account)
+}
+
+// lockedAccount re-reads an account for a mutation already authorized by
+// visibleAccount. It must be called while holding the per-gateway lock so the
+// returned state reflects the latest committed row. A row deleted concurrently
+// surfaces as not-found.
+func (s *service) lockedAccount(ctx context.Context, gatewayID, id string) (*OpenShellGatewayServiceAccount, *APIError) {
+	account, err := s.dao.Get(ctx, gatewayID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, notFoundProblem()
+	}
+	if err != nil {
+		return nil, internalProblem()
+	}
+	return account, nil
 }
 
 func (s *service) visibleAccount(ctx context.Context, gatewayID, id, userID string) (*OpenShellGatewayServiceAccount, *APIError) {
@@ -738,7 +892,12 @@ func (s *service) gateway(ctx context.Context, gatewayID string, requireOIDC boo
 	}
 	gateway, svcErr := s.gateways.Get(ctx, gatewayID)
 	if svcErr != nil {
-		return nil, GatewayOIDC{}, notFoundProblem()
+		// Distinguish a confirmed deletion from a transient lookup failure so callers
+		// can treat only a real 404 as terminal.
+		if svcErr.HttpCode == http.StatusNotFound {
+			return nil, GatewayOIDC{}, notFoundProblem()
+		}
+		return nil, GatewayOIDC{}, internalProblem()
 	}
 	var oidc GatewayOIDC
 	if gateway.Oidc != nil {

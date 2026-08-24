@@ -20,6 +20,11 @@ const (
 	StatusRevoked      = "revoked"
 	StatusDeleting     = "deleting"
 	StatusError        = "error"
+	// StatusDegraded marks a previously-ready account whose reconciliation mutation
+	// failed part-way. The managed Keycloak client may be disabled or only partially
+	// repaired, so the record must not report a clean Ready state; the next sweep
+	// re-converges it. Unlike StatusError it never triggers credential removal.
+	StatusDegraded = "degraded"
 )
 
 // OpenShellGatewayServiceAccount is the durable, non-secret control-plane

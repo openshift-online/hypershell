@@ -7,6 +7,8 @@
 
 * `READY` (value: `"ready"`)
 
+* `DEGRADED` (value: `"degraded"`)
+
 * `EXPIRED` (value: `"expired"`)
 
 * `REVOKING` (value: `"revoking"`)

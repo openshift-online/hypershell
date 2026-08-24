@@ -22,6 +22,7 @@ type OpenShellGatewayServiceAccountStatus string
 const (
 	PROVISIONING OpenShellGatewayServiceAccountStatus = "provisioning"
 	READY        OpenShellGatewayServiceAccountStatus = "ready"
+	DEGRADED     OpenShellGatewayServiceAccountStatus = "degraded"
 	EXPIRED      OpenShellGatewayServiceAccountStatus = "expired"
 	REVOKING     OpenShellGatewayServiceAccountStatus = "revoking"
 	REVOKED      OpenShellGatewayServiceAccountStatus = "revoked"
@@ -33,6 +34,7 @@ const (
 var AllowedOpenShellGatewayServiceAccountStatusEnumValues = []OpenShellGatewayServiceAccountStatus{
 	"provisioning",
 	"ready",
+	"degraded",
 	"expired",
 	"revoking",
 	"revoked",
