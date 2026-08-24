@@ -118,23 +118,25 @@ The control plane SHALL use the [Helm Go SDK](https://helm.sh/docs/sdk/) (`helm.
 
 ### Requirement: Chart Sourcing
 
-The control plane SHALL load the upstream OpenShell Helm chart for installation. Two sourcing strategies are supported.
+The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` archive embedded in the container image. An OCI registry override is available for development.
 
-#### Scenario: Embedded chart (preferred for air-gapped / production)
+#### Scenario: Embedded chart (default)
 
-- GIVEN the chart is vendored into the control plane container image at build time
+- GIVEN the chart archive is vendored into the control plane container image at `/charts/openshell.tgz`
 - WHEN the reconciler loads the chart
-- THEN it SHALL use `loader.LoadDir()` or `loader.LoadArchive()` to load from the filesystem
-- AND the chart version SHALL be pinned in the Dockerfile or build script
+- THEN it SHALL use `loader.LoadArchive()` to load from the embedded path
+- AND the chart version SHALL be pinned in the Dockerfile build script (e.g. `helm pull oci://ghcr.io/nvidia/openshell/helm-chart --version <version> --destination /charts/`)
 - AND upgrading the chart version SHALL require a control plane image rebuild
+- AND this ensures the chart version is always coupled to the control plane release — a given control plane image always deploys the same chart version
 
-#### Scenario: OCI registry (alternative for development)
+#### Scenario: OCI registry override (development only)
 
-- GIVEN the control plane is configured with `HELM_CHART_REGISTRY=oci://ghcr.io/nvidia/openshell/helm-chart`
+- GIVEN the environment variable `HELM_CHART_REGISTRY` is set (e.g. `oci://ghcr.io/nvidia/openshell/helm-chart`)
 - WHEN the reconciler loads the chart
-- THEN it SHALL pull the chart from the OCI registry using `registry.Client`
-- AND the chart version SHALL be configurable via `HELM_CHART_VERSION` environment variable
+- THEN it SHALL pull from the OCI registry instead of the embedded path
+- AND the chart version SHALL be read from `HELM_CHART_VERSION` (required when registry is set)
 - AND the chart SHALL be cached locally after the first pull
+- AND this mode SHALL NOT be used in production — it introduces a runtime dependency on registry availability
 
 ---
 
@@ -380,9 +382,9 @@ The key constraint: the DB credentials Secret (`openshell-gateway-db-credentials
 
 | Variable | Default | Description |
 |---|---|---|
-| `HELM_CHART_PATH` | `/charts/openshell` | Path to embedded chart on container filesystem |
-| `HELM_CHART_REGISTRY` | *(empty)* | OCI registry URL; when set, overrides `HELM_CHART_PATH` |
-| `HELM_CHART_VERSION` | *(pinned at build)* | Chart version to pull from OCI registry |
+| `HELM_CHART_PATH` | `/charts/openshell.tgz` | Path to embedded chart archive in the container |
+| `HELM_CHART_REGISTRY` | *(empty)* | OCI registry URL (dev only); when set, overrides `HELM_CHART_PATH` |
+| `HELM_CHART_VERSION` | *(empty)* | Chart version to pull from OCI registry; required when `HELM_CHART_REGISTRY` is set |
 
 ---
 
