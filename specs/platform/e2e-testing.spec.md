@@ -22,7 +22,7 @@ HyperShell also needs a **performance test**. The performance test measures how 
 
 This spec covers the **e2e driver interface contract** (for all targets), the **Kind driver**, the **Kind-based CI workflow**, and the **infra-agnostic performance test**.
 
-The **OpenShift e2e driver**, the `make openshift-*` lifecycle, the **blessed `deploy/openshift/` overlay**, the **cluster infrastructure bootstrap**, and the **OpenShift CI workflow** are specified in `openshift-development.spec.md` (HYPERSHELL-44). This spec does not duplicate them. It requires the OpenShift e2e driver so a user can run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster the user is already logged in to (via `oc login`). That is the target environment for scale and performance testing.
+The **OpenShift e2e driver**, the `make openshift-*` lifecycle, the **blessed `deploy/openshift/` overlay**, the **cluster infrastructure bootstrap**, and the **OpenShift CI workflow** are specified in `openshift-development.spec.md` (HYPERSHELL-44). This spec does not duplicate them; it defines the driver interface contract those OpenShift runs depend on. Once the OpenShift e2e driver from HYPERSHELL-44 exists, a user can run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster the user is already logged in to (via `oc login`); that is the target environment for scale and performance testing. Until that driver lands, only the Kind target is required to work, so no requirement in this spec is unmeetable on its own.
 
 An automated OpenShift CI job is **out of scope** here; it belongs to HYPERSHELL-44. In this spec, OpenShift runs are manual and on-demand, and only the Kind e2e workflow runs in CI.
 
@@ -36,7 +36,7 @@ tests/e2e/e2e-openshell.sh (infra-agnostic test logic)
     └── sources driver via E2E_INFRA_DRIVER (required)
         │
         ├── tests/e2e/drivers/kind.sh         (this spec)
-        └── tests/e2e/drivers/openshift.sh    (this spec)
+        └── tests/e2e/drivers/openshift.sh    (HYPERSHELL-44)
 ```
 
 The driver model separates test logic from infrastructure mechanics. The main test script calls a fixed set of driver functions; each driver implements those functions for its target infrastructure. Adding a new infrastructure target requires only a new driver file.
@@ -52,6 +52,8 @@ Each driver exports shell functions that abstract infrastructure-specific operat
 | `get_cluster_domain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
 | `get_cli_binary` | Return the Kubernetes CLI binary path | `kubectl` | `oc` |
 | `wait_for_gateway_route` | Block until the gateway is externally reachable | Check Gateway API Gateway status conditions and GRPCRoute parent status | Check OpenShift Route `.status.ingress[].conditions` for `Admitted` |
+| `acquire_oidc_token` | Obtain an OIDC access token for a given user, stored in `_OIDC_ACCESS_TOKEN` for `api_curl` to use | Resource-owner password grant against Keycloak at `keycloak.hypershell.localhost`, trusting the Kind self-signed CA (`curl -k`) | Password grant (or equivalent) against the cluster identity provider derived from the cluster domain |
+| `api_curl` | Issue an authenticated HTTP request to the HyperShell API, adding the bearer token from `acquire_oidc_token` | `curl` with the bearer header against the discovered API host, trusting the Kind CA | `curl` with the bearer header against the API Route host, trusting the cluster CA |
 
 ### CI Pipeline
 
@@ -202,11 +204,11 @@ Each driver script SHALL export the following shell functions. The main test scr
 - AND verify the corresponding GRPCRoute's parent status reports `Accepted=True`
 - AND return success when both conditions are met or fail after `E2E_PROVISION_TIMEOUT` seconds
 
-The OpenShift driver implements the same five functions with OpenShift constructs (Route host for `discover_api_host`, passthrough Route for `discover_gateway_endpoint`, `ingresses.config.openshift.io` for `get_cluster_domain`, `oc` for `get_cli_binary`, Route `Admitted` + GRPCRoute `Accepted` for `wait_for_gateway_route`), as the interface table above shows. The OpenShift driver is specified in `openshift-development.spec.md` (HYPERSHELL-44). This spec depends on it for the manual OpenShift runs defined next.
+The OpenShift driver implements the same seven functions with OpenShift constructs (Route host for `discover_api_host`, passthrough Route for `discover_gateway_endpoint`, `ingresses.config.openshift.io` for `get_cluster_domain`, `oc` for `get_cli_binary`, Route `Admitted` + GRPCRoute `Accepted` for `wait_for_gateway_route`, and cluster-derived OIDC for `acquire_oidc_token` and `api_curl`), as the interface table above shows. The OpenShift driver is specified in `openshift-development.spec.md` (HYPERSHELL-44). This spec depends on it for the manual OpenShift runs defined next.
 
 ### Requirement: Custom OpenShift Runs
 
-A user SHALL be able to run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster, so scale and performance testing can target a real OpenShift environment. Each target SHALL default `E2E_INFRA_DRIVER` to `kind` and SHALL honor a command-line override. A user SHALL run `E2E_INFRA_DRIVER=openshift make e2e` or `E2E_INFRA_DRIVER=openshift make e2e-performance` against the cluster their current `oc` context selects. These runs SHALL NOT create a cluster and SHALL NOT create a namespace beyond the gateways the suite provisions; the environment is a precondition.
+Independent of any OpenShift work, each target SHALL default `E2E_INFRA_DRIVER` to `kind` and SHALL honor a command-line override; that driver-selection behavior is the part of this requirement HYPERSHELL-18 delivers on its own. **After the OpenShift driver from `openshift-development.spec.md` (HYPERSHELL-44) exists**, a user SHALL be able to run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster, so scale and performance testing can target a real OpenShift environment: a user SHALL run `E2E_INFRA_DRIVER=openshift make e2e` or `E2E_INFRA_DRIVER=openshift make e2e-performance` against the cluster their current `oc` context selects. These OpenShift runs SHALL NOT create a cluster and SHALL NOT create a namespace beyond the gateways the suite provisions; the environment is a precondition. Until the OpenShift driver lands, selecting `E2E_INFRA_DRIVER=openshift` SHALL fail fast with the missing-driver error (see [Infra-Agnostic Performance Harness](#requirement-infra-agnostic-performance-harness)), so this spec contains no SHALL an implementer cannot meet today.
 
 **Preconditions (owned by HYPERSHELL-44).** These runs assume HyperShell is already deployed on the cluster through `kustomize build deploy/openshift/` (for example via `make openshift-up`), and that the cluster infrastructure bootstrap (shared Gateway, GatewayClass, certificate issuer, wildcard certificate) is in place per `openshift-development.spec.md`. The suite SHALL fail with a clear error, not a broken run, when the API Route or the gateway infrastructure is absent.
 
@@ -218,7 +220,8 @@ A user SHALL be able to run `make e2e` and `make e2e-performance` **manually** a
 
 #### Scenario: e2e Against OpenShift
 
-- GIVEN a user is logged in to an OpenShift cluster with HyperShell deployed (`deploy/openshift/`)
+- GIVEN the OpenShift driver from HYPERSHELL-44 is present at `tests/e2e/drivers/openshift.sh`
+- AND a user is logged in to an OpenShift cluster with HyperShell deployed (`deploy/openshift/`)
 - AND the cluster infrastructure bootstrap is in place per `openshift-development.spec.md`
 - WHEN the user runs `E2E_INFRA_DRIVER=openshift make e2e`
 - THEN the suite SHALL run against that cluster using the OpenShift driver
@@ -226,7 +229,8 @@ A user SHALL be able to run `make e2e` and `make e2e-performance` **manually** a
 
 #### Scenario: Performance Against OpenShift
 
-- GIVEN a user is logged in to an OpenShift cluster with HyperShell deployed
+- GIVEN the OpenShift driver from HYPERSHELL-44 is present at `tests/e2e/drivers/openshift.sh`
+- AND a user is logged in to an OpenShift cluster with HyperShell deployed
 - WHEN the user runs `E2E_INFRA_DRIVER=openshift make e2e-performance`
 - THEN the performance harness SHALL run against that cluster using the OpenShift driver
 - AND it SHALL provision the perf fleet on that cluster and report metrics
@@ -247,24 +251,27 @@ A user SHALL be able to run `make e2e` and `make e2e-performance` **manually** a
 
 ### Requirement: E2E Test Suite Coverage
 
-The e2e test suite SHALL validate the following 8 areas, extending the original test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
+The e2e test suite SHALL validate the following 11 areas, matching the 11 numbered sections of the live `tests/e2e/e2e-openshell.sh` and extending the original test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
 
-1. **Gateway provisioning via HyperShell API** -- create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
-2. **Gateway infrastructure verification** -- confirm the gateway deployment, service, TLS secret, and certgen job exist and are healthy
-3. **Route discovery + openshell CLI registration** -- discover the gateway endpoint via the driver, register it with the openshell CLI
-4. **Gateway connectivity** -- verify the openshell CLI can connect to the gateway and report status (over trusted TLS, no insecure bypass -- see Gateway TLS Trust)
-5. **Sandbox lifecycle** -- create a sandbox as the admin user, wait for the pod to reach `Running` state, and verify the gateway's `active_sandbox_count` accounting reflects sandbox create and delete (see Active Sandbox Count Accounting)
-6. **Sandbox interaction** -- execute commands inside the sandbox (`uname -a`, `ls /workspace`)
-7. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
-8. **Gateway deletion + namespace garbage collection** -- validate both garbage-collection paths from `openshell-gateway-namespace-gc.spec.md`: (a) seed a synthetic orphaned managed namespace after gateway provisioning and validate periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event in step 11 (while steps 3–10 run in parallel with the reaper); (b) delete-driven reap of the gateway's managed namespace (see Gateway Deletion and Namespace GC)
+1. **OIDC authentication** -- acquire an admin OIDC access token via `acquire_oidc_token`, the credential every subsequent API call carries through `api_curl` (see OIDC Authentication in E2E Tests)
+2. **Gateway provisioning via HyperShell API** -- create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
+3. **Gateway infrastructure verification** -- confirm the gateway deployment, service, TLS secret, certgen job, and NetworkPolicy exist and are healthy
+4. **Gateway token + CA trust** -- fetch the gateway connection token and CA bundle so the CLI connects over trusted TLS, with no insecure bypass (see Gateway TLS Trust)
+5. **Route discovery + openshell CLI registration** -- discover the gateway endpoint via the driver, register it with the openshell CLI
+6. **Gateway connectivity** -- verify the openshell CLI can connect to the gateway and report status over the trusted TLS established in area 4
+7. **Sandbox lifecycle** -- create a sandbox as the admin user, wait for the pod to reach `Running` state, and verify the gateway's `active_sandbox_count` accounting reflects sandbox create and delete (see Active Sandbox Count Accounting)
+8. **Sandbox interaction** -- execute commands inside the sandbox (`uname -a`, `ls /workspace`)
+9. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
+10. **Platform-admin RBAC verification** -- authenticate as a platform-admin user and confirm the elevated permissions the developer tier is denied, including deleting a gateway through the HyperShell API (see Developer RBAC Enforcement)
+11. **Gateway deletion + namespace garbage collection** -- validate both garbage-collection paths from `openshell-gateway-namespace-gc.spec.md`: (a) seed a synthetic orphaned managed namespace after gateway provisioning and validate periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event (while the earlier areas run in parallel with the reaper); (b) delete-driven reap of the gateway's managed namespace (see Gateway Deletion and Namespace GC)
 
-The admin-user OIDC flow that authenticates areas 1--6 and 8 is validated separately (see OIDC Authentication in E2E Tests).
+The admin OIDC token from area 1 authenticates the API calls in areas 2--8 and 11; the developer and platform-admin areas (9 and 10) each acquire their own token via `acquire_oidc_token` for their user (see OIDC Authentication in E2E Tests).
 
 #### Scenario: Full Suite Execution
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all 8 test areas SHALL be executed in sequence
+- THEN all 11 test areas SHALL be executed in sequence
 - AND results SHALL be reported as pass/fail counts with per-test detail
 
 #### Scenario: Gateway Provisioning
@@ -701,7 +708,7 @@ deploy/
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in step 11) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
-| `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--6 |
+| `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8 and 11 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only) |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
@@ -830,7 +837,9 @@ The system SHALL provide a `make e2e-performance` target. The target SHALL run `
 
 ### Requirement: Infra-Agnostic Performance Harness
 
-The performance harness (`tests/e2e/e2e-performance.sh`) SHALL be infrastructure-agnostic. It SHALL call only the driver interface functions for infrastructure operations. It SHALL select the driver with `E2E_INFRA_DRIVER`, the same as the e2e suite. It SHALL exit with a non-zero status at startup if `E2E_INFRA_DRIVER` is unset or names a missing driver, and SHALL list the available drivers. It SHALL NOT contain any `kind`-only or `oc`-only command.
+The performance harness (`tests/e2e/e2e-performance.sh`) SHALL be infrastructure-agnostic. It SHALL call only the driver interface functions for infrastructure operations. It SHALL select the driver with `E2E_INFRA_DRIVER`, the same as the e2e suite. It SHALL exit with a non-zero status at startup if `E2E_INFRA_DRIVER` is unset or names a missing driver, and SHALL list the available drivers. It SHALL NOT contain any `kubectl`-only, `oc`-only, or `kind`-only command.
+
+The harness SHALL obtain the seeded fleet, cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` (for example `GET /api/hypershell/v1/managed_databases` and a `search=name=...` gateway lookup) and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids or an infra-specific lookup. Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
 
 The OpenShift driver is specified in `openshift-development.spec.md` (HYPERSHELL-44); the performance harness depends on it for OpenShift runs (see [Scope](#scope)). The harness SHALL contain no infra-specific code: it works with either driver with no change. OpenShift runs are manual and on-demand; the performance test is not wired into CI for any target (see [Design Decisions](#design-decisions)).
 
@@ -846,7 +855,7 @@ The OpenShift driver is specified in `openshift-development.spec.md` (HYPERSHELL
 - GIVEN the harness source `tests/e2e/e2e-performance.sh`
 - WHEN a reviewer inspects it for infrastructure operations
 - THEN every infrastructure operation SHALL go through a driver function
-- AND no `kubectl`-only or `oc`-only command SHALL appear in the harness itself
+- AND no `kubectl`-only, `oc`-only, or `kind`-only command SHALL appear in the harness itself (CLI calls go through `$(get_cli_binary)`)
 
 ### Requirement: Gateway Fleet Scale-Up
 
@@ -880,7 +889,7 @@ The harness SHALL validate the platform incrementally as the fleet grows, so a s
 
 The checkpoint mini test SHALL be the e2e suite run in **short mode** (`E2E_MODE=short`, see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), not the full suite (running every step of all 11 areas after every batch would dominate the run). Short mode runs the essential steps of every area -- so the checkpoint touches a slice of each portion of the test -- while long mode (the default, used for the final run) runs all steps. This reuses the suite's real assertions and driver code; the harness adds no separate probe.
 
-The mini test SHALL run against a dedicated **canary** gateway that the harness provisions once during preflight and whose per-gateway OIDC role it grants once, so no batch pays repeated Keycloak setup or gateway provisioning. The canary is separate from the counted fleet and is named `<E2E_PERF_GATEWAY_PREFIX>-canary`. The checkpoint SHALL invoke short mode with `E2E_GATEWAY_NAME=<prefix>-canary` and `E2E_SKIP_CLEANUP=1` so the suite reuses the canary and does not tear it down between batches.
+The mini test SHALL run against a dedicated **canary** gateway that the harness provisions once during preflight and whose per-gateway OIDC role it grants once, so no batch pays repeated Keycloak setup or gateway provisioning. The canary is separate from the counted fleet and is named `<E2E_PERF_GATEWAY_PREFIX>-canary`. The checkpoint SHALL invoke short mode with `E2E_GATEWAY_NAME=<prefix>-canary` and `E2E_SKIP_CLEANUP=1` so the suite reuses the canary and does not tear it down between batches. These two variables SHALL be set only on the child suite invocation (for example prefixed on the command line), NOT exported into the harness environment; the harness's own `EXIT` trap therefore still runs and deletes the canary and the whole fleet at teardown (see [Performance Test Cleanup](#requirement-performance-test-cleanup)).
 
 Each checkpoint record SHALL capture the cumulative number of gateways `Running`, the time-to-`Running` latency percentiles for the batch just added, the mode run (`short`), the mini-test duration in seconds, the mini-test result (`pass`/`fail`), and a timestamp.
 
@@ -928,18 +937,23 @@ The e2e suite (`tests/e2e/e2e-openshell.sh`) SHALL support two run depths select
 
 When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so existing invocations (the CI e2e job and the final run of the performance test) are unchanged. When `E2E_MODE=short`, the suite SHALL run only the `short`-tagged steps, in the suite's normal order. The suite SHALL exit non-zero if `E2E_MODE` is set to any value other than `short` or `long`. The tags SHALL live in the suite so both modes run the same assertion code; there SHALL be no second copy of any check.
 
-Short mode SHALL stay fast enough to run after every scale-up batch. Guidance for which steps are `long`-only (illustrative, not exhaustive):
+Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every one of the 11 areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only steps:
 
 | Area | Short (essential steps) | Long-only (deep / slow steps) |
 |------|-------------------------|-------------------------------|
-| Provisioning | create gateway, wait `Running` | n/a (both modes need a running gateway) |
-| Connectivity | one route reachability check | n/a |
-| Sandbox lifecycle | one sandbox create -> ready -> delete, `active_sandbox_count` = 1 then 0 | second concurrent sandbox to assert the count increments |
-| Network policy | presence check where applicable | full traffic-isolation assertions |
-| RBAC | one boundary assertion (developer 403) | full admin + developer + platform-admin matrix |
-| Namespace GC | delete-driven GC with a bounded wait, on a throwaway namespace (not the reused gateway) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
+| 1. OIDC authentication | acquire the admin token via `acquire_oidc_token` | n/a (every run needs a token) |
+| 2. Gateway provisioning | reuse-or-create the gateway, wait `Running` | n/a (both modes need a running gateway) |
+| 3. Infrastructure verification | deployment and service present and healthy | TLS secret, certgen job, and NetworkPolicy assertions |
+| 4. Token + CA trust | fetch token and CA bundle, establish trusted TLS | n/a |
+| 5. Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
+| 6. Connectivity | one route reachability check | n/a |
+| 7. Sandbox lifecycle | one sandbox create -> ready -> delete, `active_sandbox_count` = 1 then 0 | second concurrent sandbox to assert the count increments |
+| 8. Sandbox interaction | one in-sandbox exec (`uname -a`) | the remaining exec commands (`ls /workspace`) |
+| 9. Developer RBAC | one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix |
+| 10. Platform-admin RBAC | n/a; skipped in short (its assertion deletes a gateway) | full platform-admin matrix, including gateway deletion |
+| 11. Namespace GC | delete-driven GC with a bounded wait, on a throwaway namespace (not the reused gateway) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
 
-Short mode SHALL NOT delete a gateway supplied via `E2E_GATEWAY_NAME` (so a reused canary survives repeated short runs); its GC coverage SHALL use a throwaway namespace instead.
+Short mode SHALL follow the same reuse-or-create pattern as the perf harness: when `E2E_GATEWAY_NAME` names an existing gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated short runs). This constraint governs the two areas that would otherwise tear a gateway down: the platform-admin RBAC area (area 10) SHALL NOT run its gateway-deletion step in short mode, and the namespace-GC area (area 11) SHALL exercise delete-driven GC against a throwaway namespace it creates, never against the supplied gateway. Any long-only step that deletes the run's own gateway SHALL NOT run in short mode.
 
 #### Scenario: Long Mode by Default
 
@@ -1034,7 +1048,8 @@ The harness SHALL support optional pass/fail thresholds. The thresholds SHALL be
 - GIVEN neither `E2E_PERF_MIN_SUCCESS_RATE` nor `E2E_PERF_MAX_PROVISION_P99` is set
 - WHEN the harness finishes the scale-up phase
 - THEN it SHALL report the metrics
-- AND it SHALL NOT fail on the metrics (only a functional failure or a provision error can fail the run)
+- AND it SHALL NOT fail on the metrics themselves: with no SLO thresholds set, the run's result is decided only by the other fail conditions -- a failing checkpoint mini test when `E2E_PERF_STOP_ON_CHECKPOINT_FAILURE=1` (the default), or a non-zero exit from the functional suite
+- AND a failed provision SHALL affect only the metrics and any SLOs (it lowers the success rate and can raise p99); it SHALL NOT by itself fail the run or abort scale-up
 
 ### Requirement: Performance Results Consumption
 
@@ -1143,13 +1158,13 @@ The results directory holds local run output, not source. The default `E2E_PERF_
 
 ### Requirement: Performance Test Cleanup
 
-The harness SHALL delete every gateway it created. It SHALL delete the gateways with bounded concurrency, capped at `E2E_PERF_CONCURRENCY`. It SHALL run cleanup from an `EXIT` trap, so a failure or an interrupt still triggers cleanup. It SHALL poll until each managed namespace is garbage collected, the same signal the e2e suite uses (see [Gateway Deletion and Namespace GC](#requirement-gateway-deletion-and-namespace-gc)). A user SHALL be able to keep the fleet by setting `E2E_SKIP_CLEANUP=1`, the same variable the e2e suite uses. This helps a user inspect the cluster after a run.
+The harness SHALL delete every gateway it created, which is (a) the counted fleet `<prefix>-1`..`<prefix>-N`, (b) the canary gateway `<prefix>-canary`, and (c) the functional gateway `E2E_PERF_FUNCTIONAL_GATEWAY_NAME` (default `perf-e2e-gw`) if it still exists. Because the checkpoint mini tests pass `E2E_SKIP_CLEANUP=1` only to the child suite (not into the harness environment), the canary survives between batches but is still deleted by this teardown. It SHALL delete the gateways with bounded concurrency, capped at `E2E_PERF_CONCURRENCY`. It SHALL run cleanup from an `EXIT` trap, so a failure or an interrupt still triggers cleanup. It SHALL poll until each managed namespace is garbage collected, the same signal the e2e suite uses (see [Gateway Deletion and Namespace GC](#requirement-gateway-deletion-and-namespace-gc)). A user SHALL be able to keep the whole fleet (including the canary and the functional gateway) by setting `E2E_SKIP_CLEANUP=1` on the harness invocation, the same variable the e2e suite uses. This helps a user inspect the cluster after a run.
 
 #### Scenario: Fleet Deleted After Run
 
 - GIVEN the harness provisioned a perf fleet
 - WHEN the run finishes
-- THEN the harness SHALL delete every perf gateway it created
+- THEN the harness SHALL delete the counted fleet, the canary gateway, and the functional gateway it created
 - AND it SHALL poll until each managed namespace is gone
 
 #### Scenario: Cleanup on Failure
@@ -1166,7 +1181,7 @@ The harness SHALL delete every gateway it created. It SHALL delete the gateways 
 
 ### Requirement: Performance Failure Diagnostics
 
-On failure, the harness SHALL collect diagnostics that explain resource pressure. A large fleet can exhaust node CPU, memory, or pod capacity. The diagnostics SHALL include: pending pods and their reasons, node capacity and allocatable resources, the phases of the perf gateways, and control-plane logs. The harness SHALL print the diagnostics in collapsible `::group::` sections, the same style the e2e workflow uses (see [CI Artifact Collection](#requirement-ci-artifact-collection)). This makes a scale failure easy to read in CI output.
+On failure, the harness SHALL collect diagnostics that explain resource pressure. A large fleet can exhaust node CPU, memory, or pod capacity. The diagnostics SHALL include: pending pods and their reasons, node capacity and allocatable resources, the phases of the perf gateways, and control-plane logs. Every diagnostic command SHALL invoke the CLI through `$(get_cli_binary)` so it works on both Kind and OpenShift. When running under GitHub Actions (`GITHUB_ACTIONS` is set), the harness SHALL wrap the diagnostics in collapsible `::group::` sections, the same style the e2e workflow uses (see [CI Artifact Collection](#requirement-ci-artifact-collection)); for a local run it SHALL print plain, labeled sections instead. Because the performance test is not wired into CI (see [Design Decisions](#design-decisions)), the collapsible groups are a convenience when a user happens to run it under Actions, not a documented CI-output feature.
 
 #### Scenario: Resource Pressure Surfaced
 
@@ -1174,11 +1189,18 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 - WHEN the harness reaches its diagnostics phase
 - THEN it SHALL report pending pods with reasons, node capacity, perf gateway phases, and control-plane logs
 
+#### Scenario: Plain Diagnostics Locally
+
+- GIVEN `GITHUB_ACTIONS` is not set
+- WHEN the harness reaches its diagnostics phase
+- THEN it SHALL print plain, labeled diagnostic sections
+- AND it SHALL NOT emit `::group::` markers
+
 ### Performance Environment Variables
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `E2E_PERF_GATEWAY_COUNT` | `10` | Number of gateways to provision in the scale-up phase |
+| `E2E_PERF_GATEWAY_COUNT` | `5` | Number of gateways to provision in the scale-up phase. The canary and the functional gateway add two more stacks, so a run provisions `count + 2` gateways. The default suits a local Kind cluster; raise it on an OpenShift cluster with spare capacity |
 | `E2E_PERF_BATCH_SIZE` | `5` | Gateways added per batch before a checkpoint mini test (5--10 recommended) |
 | `E2E_PERF_CHECKPOINT` | `1` | Run the checkpoint mini test after each batch (`0` provisions in one pass, no checkpoints) |
 | `E2E_PERF_STOP_ON_CHECKPOINT_FAILURE` | `1` | Stop scaling and fail on a failing checkpoint (`0` records it and continues) |
@@ -1195,7 +1217,7 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | `E2E_INFRA_DRIVER` | (required; `make e2e-performance` defaults to `kind`) | Infra driver: `kind`, `openshift` (OpenShift driver per HYPERSHELL-44) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep the perf fleet after the run |
 
-**Capacity note:** a small Kind cluster cannot run hundreds of gateways. Each gateway provisions a deployment, a service, a TLS secret, a certgen job, a per-gateway Keycloak client, and a managed namespace. Keep `E2E_PERF_GATEWAY_COUNT` small on Kind (for example 5--10). Use a larger count on an OpenShift cluster that has spare capacity. The harness reports resource pressure on failure so a user can find the ceiling.
+**Capacity note:** a small Kind cluster cannot run hundreds of gateways. Each gateway provisions a deployment, a service, a TLS secret, a certgen job, a per-gateway Keycloak client, and a managed namespace. A run also stands up the canary and the functional gateway, so the cluster carries `E2E_PERF_GATEWAY_COUNT + 2` gateway stacks at peak: the default of 5 means 7 stacks, which fits a typical Kind cluster. Keep the total modest on Kind (roughly `count + 2` at or below 10). Use a larger count on an OpenShift cluster that has spare capacity. The harness reports resource pressure on failure so a user can find the ceiling.
 
 ## Design Decisions
 
