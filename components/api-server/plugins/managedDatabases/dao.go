@@ -11,6 +11,7 @@ import (
 
 type ManagedDatabaseDao interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, error)
+	GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, error)
 	Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error)
 	Replace(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error)
 	Delete(ctx context.Context, id string) error
@@ -34,6 +35,15 @@ func (d *sqlManagedDatabaseDao) Get(ctx context.Context, id string) (*ManagedDat
 	g2 := (*d.sessionFactory).New(ctx)
 	var managedDatabase ManagedDatabase
 	if err := g2.Take(&managedDatabase, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &managedDatabase, nil
+}
+
+func (d *sqlManagedDatabaseDao) GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var managedDatabase ManagedDatabase
+	if err := g2.Unscoped().Take(&managedDatabase, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &managedDatabase, nil

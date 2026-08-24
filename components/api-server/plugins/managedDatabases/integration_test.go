@@ -49,7 +49,7 @@ func TestManagedDatabasePost(t *testing.T) {
 	managedDatabaseInput := openapi.ManagedDatabase{
 		Name:             "test-name",
 		FleetId:          "test-fleet_id",
-		Provider:         "test-provider",
+		Provider:         "deployment",
 		Region:           openapi.PtrString("test-region"),
 		Engine:           openapi.PtrString("test-engine"),
 		EngineVersion:    openapi.PtrString("test-engine_version"),
@@ -64,6 +64,10 @@ func TestManagedDatabasePost(t *testing.T) {
 	Expect(*managedDatabaseOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
 	Expect(*managedDatabaseOutput.Kind).To(Equal("ManagedDatabase"))
 	Expect(*managedDatabaseOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/managed_databases/%s", *managedDatabaseOutput.Id)))
+
+	_, resp, err = client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(openapi.ManagedDatabase{Name: "invalid-provider", FleetId: "test-fleet_id", Provider: "unsupported"}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
 	restyResp, err := resty.R().

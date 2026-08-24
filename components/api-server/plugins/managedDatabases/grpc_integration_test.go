@@ -51,10 +51,13 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 
+	_, err = grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{Name: "invalid-provider", FleetId: "TestFleetId", Provider: "unsupported"})
+	Expect(err).To(HaveOccurred())
+
 	createReq := &pb.CreateManagedDatabaseRequest{
 		Name:             "TestName",
 		FleetId:          "TestFleetId",
-		Provider:         "TestProvider",
+		Provider:         "deployment",
 		Region:           func() *string { s := "TestRegion"; return &s }(),
 		Engine:           func() *string { s := "TestEngine"; return &s }(),
 		EngineVersion:    func() *string { s := "TestEngineVersion"; return &s }(),
@@ -77,7 +80,7 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 		Id:               managedDatabaseID,
 		Name:             func() *string { s := "UpdatedName"; return &s }(),
 		FleetId:          func() *string { s := "UpdatedFleetId"; return &s }(),
-		Provider:         func() *string { s := "UpdatedProvider"; return &s }(),
+		Provider:         func() *string { s := "deployment"; return &s }(),
 		Region:           func() *string { s := "UpdatedRegion"; return &s }(),
 		Engine:           func() *string { s := "UpdatedEngine"; return &s }(),
 		EngineVersion:    func() *string { s := "UpdatedEngineVersion"; return &s }(),
@@ -88,6 +91,13 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	updated, err := grpcClient.UpdateManagedDatabase(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.ManagedDatabase.Metadata.Id).To(Equal(managedDatabaseID))
+
+	changedProvider := "cnpg"
+	_, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, Provider: &changedProvider})
+	Expect(err).To(HaveOccurred())
+	retrieved, err = grpcClient.GetManagedDatabase(ctx, getReq)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(retrieved.ManagedDatabase.Provider).To(Equal("deployment"))
 
 	listReq := &pb.ListManagedDatabasesRequest{
 		Page: 1,

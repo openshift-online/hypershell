@@ -1003,10 +1003,9 @@ if [[ -z "${seed_failed}" ]]; then
     OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
+    # Always send database_id; deployment mode uses the empty placeholder.
     GW_BODY="{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
-    if [[ -n "${DATABASE_ID}" ]]; then
-      GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
-    fi
+    GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
     GW_HTTP=$(echo "${GW_RAW}" | tail -1)

@@ -233,7 +233,14 @@ func (h *managedDatabaseGRPCHandler) WatchManagedDatabases(req *pb.WatchManagedD
 				ResourceId: evt.SourceID,
 			}
 
-			if evt.EventType != api.DeleteEventType {
+			if evt.EventType == api.DeleteEventType {
+				managedDatabase, svcErr := h.service.GetUnscoped(ctx, evt.SourceID)
+				if svcErr != nil {
+					glog.Warningf("WatchManagedDatabases: failed to load soft-deleted managedDatabase %s: %v", evt.SourceID, svcErr)
+				} else {
+					watchEvent.ManagedDatabase = managedDatabaseToProto(managedDatabase)
+				}
+			} else {
 				managedDatabase, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
 					glog.Warningf("WatchManagedDatabases: failed to load managedDatabase %s: %v", evt.SourceID, svcErr)
