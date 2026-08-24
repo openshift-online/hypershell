@@ -7,7 +7,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-keycloak
-          image: quay.io/curl/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13
+          image: registry.access.redhat.com/hi/curl:8.21.0-builder@sha256:d706d4ef0a3d7701f25a76eca6c0c33bd402b90d10e54a3b815a17ba59404a71
           resources:
             requests:
               cpu: 100m
@@ -16,7 +16,7 @@ spec:
               cpu: 100m
               memory: 64Mi
           command:
-             - /bin/sh
+             - /bin/bash
              - -c
              - |
                set -e
