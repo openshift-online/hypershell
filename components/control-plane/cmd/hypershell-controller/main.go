@@ -33,6 +33,10 @@ import (
 
 const defaultManifestsDir = "/manifests/gateway"
 
+func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
+	return clientset != nil && dynamicClient != nil
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -161,7 +165,12 @@ func main() {
 
 	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	databaseReconciler := reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn)
+	var databaseReconciler watcher.Handler[*pb.ManagedDatabase]
+	if managedDatabaseWatchEligible(clientset, dynamicClient) {
+		databaseReconciler = reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn)
+	} else {
+		log.Printf("WARN ManagedDatabase watch disabled: both Kubernetes typed and dynamic clients are required")
+	}
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler()
 	networkReconciler := reconciler.NewGatewayNetworkReconciler()
 
@@ -220,9 +229,12 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
-	watchCount := 6
+	watchCount := 5 // fleets, managed clusters, gateway releases, gateways, networks
+	if databaseReconciler != nil {
+		watchCount++
+	}
 	if roleBindingReconciler != nil {
-		watchCount = 7
+		watchCount++
 	}
 	// +4 for the continuous gateway health, namespace GC, sandbox-count, and
 	// internal service-account provisioner goroutines.
@@ -243,7 +255,9 @@ func main() {
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
-	go func() { errCh <- watcher.WatchManagedDatabases(ctx, conn, databaseReconciler) }()
+	if databaseReconciler != nil {
+		go func() { errCh <- watcher.WatchManagedDatabases(ctx, conn, databaseReconciler) }()
+	}
 	go func() { errCh <- watcher.WatchGatewayReleases(ctx, conn, releaseReconciler) }()
 	go func() { errCh <- watcher.WatchGateways(ctx, conn, gatewayReconciler) }()
 	go func() { errCh <- watcher.WatchGatewayNetworks(ctx, conn, networkReconciler) }()

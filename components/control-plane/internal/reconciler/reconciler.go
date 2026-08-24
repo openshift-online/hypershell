@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -106,6 +107,8 @@ type ManagedDatabaseReconciler struct {
 	clientset     kubernetes.Interface
 	grpcConn      *grpc.ClientConn
 	hasCNPG       bool
+	isOpenShift   bool
+	lastSeen      map[string]*pb.ManagedDatabase
 }
 
 func NewManagedDatabaseReconciler(
@@ -114,26 +117,32 @@ func NewManagedDatabaseReconciler(
 	grpcConn *grpc.ClientConn,
 ) *ManagedDatabaseReconciler {
 	hasCNPG := false
+	isOpenShift := false
 	if clientset != nil {
 		hasCNPG = gateway.DetectCNPG(clientset)
+		// DetectOpenShift accepts the concrete client used by the controller.
+		// Retain the reconciler interface-typed client for fake-client tests.
+		if concreteClientset, ok := clientset.(*kubernetes.Clientset); ok {
+			isOpenShift = gateway.DetectOpenShift(concreteClientset)
+		}
 	}
 	return &ManagedDatabaseReconciler{
 		active:        make(map[string]struct{}),
 		pending:       make(map[string]watcher.Event[*pb.ManagedDatabase]),
+		lastSeen:      make(map[string]*pb.ManagedDatabase),
 		dynamicClient: dynamicClient,
 		clientset:     clientset,
 		grpcConn:      grpcConn,
 		hasCNPG:       hasCNPG,
+		isOpenShift:   isOpenShift,
 	}
 }
 
-// Handle reconciles one ManagedDatabase event, serializing per resource ID: a
-// CNPG provisioning reconcile can run long, and the watch stream never replays
-// a dropped event, so an Updated/Deleted that arrives while a reconcile for the
-// same resource is already in flight is retained (overwriting any earlier
-// pending event for that ID) rather than discarded, and is handled as soon as
-// the in-flight reconcile finishes.
+// Handle reconciles one ManagedDatabase event, serializing per resource ID.
 func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) error {
+	if event.Type != watcher.EventDeleted && event.Resource != nil {
+		r.rememberManagedDatabase(event.ResourceID, event.Resource)
+	}
 	r.mu.Lock()
 	if _, busy := r.active[event.ResourceID]; busy {
 		r.pending[event.ResourceID] = event
@@ -142,9 +151,7 @@ func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Ev
 	}
 	r.active[event.ResourceID] = struct{}{}
 	r.mu.Unlock()
-
 	firstErr := r.handleOne(ctx, event)
-
 	current := event
 	for {
 		r.mu.Lock()
@@ -163,36 +170,82 @@ func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Ev
 			log.Printf("ERROR handling pending managed database %s: %v", current.ResourceID, err)
 		}
 	}
-
 	return firstErr
 }
 
-func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) error {
+func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) (reconcileErr error) {
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedDatabase", event.Type.String())
-	var reconcileErr error
 	defer func() { endSpan(reconcileErr) }()
 
-	db := event.Resource
-	if db == nil {
-		log.Printf("WARN ManagedDatabase event %s has nil resource, skipping", event.ResourceID)
-		return nil
+	if r.clientset == nil || r.dynamicClient == nil {
+		return fmt.Errorf("reconcile ManagedDatabase %s: Kubernetes typed and dynamic clients are required", event.ResourceID)
 	}
-
+	db := event.Resource
+	if event.Type == watcher.EventDeleted {
+		if db == nil {
+			db = r.lastSeenManagedDatabase(event.ResourceID)
+			if db == nil {
+				return fmt.Errorf("delete ManagedDatabase %s: event has no resource and no last-seen resource is available", event.ResourceID)
+			}
+		}
+	} else {
+		if db == nil {
+			log.Printf("WARN ManagedDatabase event %s has nil resource, skipping", event.ResourceID)
+			return nil
+		}
+		r.rememberManagedDatabase(event.ResourceID, db)
+		if r.grpcConn == nil {
+			return fmt.Errorf("reconcile ManagedDatabase %s: gRPC client is required before updating status", event.ResourceID)
+		}
+	}
+	var err error
 	switch db.Provider {
 	case "cnpg":
-		return r.handleCNPGDatabase(ctx, event, db)
+		err = r.handleCNPGDatabase(ctx, event, db)
 	case "deployment":
-		return r.handleDeploymentDatabase(ctx, event, db)
+		err = r.handleDeploymentDatabase(ctx, event, db)
 	default:
 		log.Printf("WARN ManagedDatabase %s has unsupported provider %q, skipping", event.ResourceID, db.Provider)
 		return nil
 	}
+	if err == nil && event.Type == watcher.EventDeleted {
+		r.forgetManagedDatabase(event.ResourceID)
+	}
+	return err
 }
 
+func (r *ManagedDatabaseReconciler) rememberManagedDatabase(id string, db *pb.ManagedDatabase) {
+	if id == "" || db == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.lastSeen == nil {
+		r.lastSeen = make(map[string]*pb.ManagedDatabase)
+	}
+	r.lastSeen[id] = proto.Clone(db).(*pb.ManagedDatabase)
+}
+
+func (r *ManagedDatabaseReconciler) lastSeenManagedDatabase(id string) *pb.ManagedDatabase {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if db := r.lastSeen[id]; db != nil {
+		return proto.Clone(db).(*pb.ManagedDatabase)
+	}
+	return nil
+}
+
+func (r *ManagedDatabaseReconciler) forgetManagedDatabase(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.lastSeen, id)
+}
 func (r *ManagedDatabaseReconciler) handleCNPGDatabase(ctx context.Context, event watcher.Event[*pb.ManagedDatabase], db *pb.ManagedDatabase) error {
 	if event.Type == watcher.EventDeleted {
 		log.Printf("INFO ManagedDatabase %s deleted, cleaning up CNPG cluster in namespace %s", event.ResourceID, db.Namespace)
-		r.deleteCNPGCluster(ctx, db.Namespace)
+		if err := r.deleteCNPGCluster(ctx, db.Namespace); err != nil {
+			return fmt.Errorf("delete CNPG database for ManagedDatabase %s: %w", db.Name, err)
+		}
 		return nil
 	}
 
@@ -416,26 +469,25 @@ func cnpgClusterReadyFromObject(obj *unstructured.Unstructured) bool {
 	return false
 }
 
-func (r *ManagedDatabaseReconciler) deleteCNPGCluster(ctx context.Context, namespace string) {
+func (r *ManagedDatabaseReconciler) deleteCNPGCluster(ctx context.Context, namespace string) error {
 	clusterName := managedDatabaseCNPGClusterName()
-
+	var errs []error
 	if err := r.dynamicClient.Resource(cnpgClusterGVR()).Namespace(namespace).Delete(ctx, clusterName, metav1.DeleteOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete CNPG Cluster %s/%s: %v", namespace, clusterName, err)
+			errs = append(errs, fmt.Errorf("delete CNPG Cluster %s/%s: %w", namespace, clusterName, err))
 		}
 	} else {
 		log.Printf("INFO deleted CNPG Cluster %s/%s", namespace, clusterName)
 	}
-
 	if err := r.clientset.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete namespace %s: %v", namespace, err)
+			errs = append(errs, fmt.Errorf("delete namespace %s: %w", namespace, err))
 		}
 	} else {
 		log.Printf("INFO deleted namespace %s", namespace)
 	}
+	return stderrors.Join(errs...)
 }
-
 func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabaseNamespace(ctx context.Context, namespace string) error {
 	namespaces := r.clientset.CoreV1().Namespaces()
 	existing, err := namespaces.Get(ctx, namespace, metav1.GetOptions{})
@@ -813,6 +865,9 @@ func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Cont
 		},
 	}
 
+	if r.isOpenShift {
+		deployment = stripOpenShiftPostgresSecurityContext(deployment)
+	}
 	svc := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "v1",
@@ -1024,6 +1079,41 @@ func mergeDesiredLabels(existing, desired *unstructured.Unstructured) {
 	existing.SetLabels(labels)
 }
 
+// stripOpenShiftPostgresSecurityContext removes fixed identities so OpenShift SCC can assign its range.
+func stripOpenShiftPostgresSecurityContext(deployment *unstructured.Unstructured) *unstructured.Unstructured {
+	if deployment == nil {
+		return nil
+	}
+	stripped := deployment.DeepCopy()
+	if securityContext, found, _ := unstructured.NestedMap(stripped.Object, "spec", "template", "spec", "securityContext"); found {
+		for _, field := range []string{"runAsUser", "runAsGroup", "fsGroup", "fsGroupChangePolicy"} {
+			delete(securityContext, field)
+		}
+		_ = unstructured.SetNestedMap(stripped.Object, securityContext, "spec", "template", "spec", "securityContext")
+	}
+	for _, containerField := range []string{"initContainers", "containers"} {
+		containers, found, err := unstructured.NestedSlice(stripped.Object, "spec", "template", "spec", containerField)
+		if err != nil || !found {
+			continue
+		}
+		for i, container := range containers {
+			containerMap, ok := container.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			securityContext, ok := containerMap["securityContext"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			delete(securityContext, "runAsUser")
+			delete(securityContext, "runAsGroup")
+			containerMap["securityContext"] = securityContext
+			containers[i] = containerMap
+		}
+		_ = unstructured.SetNestedSlice(stripped.Object, containers, "spec", "template", "spec", containerField)
+	}
+	return stripped
+}
 func (r *ManagedDatabaseReconciler) deleteDeploymentDatabase(ctx context.Context, namespace string) error {
 	resources := []struct {
 		gvr  schema.GroupVersionResource
