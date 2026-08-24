@@ -312,6 +312,13 @@ func TestRevokePersistsForRetryAndDeletePerformsFinalCleanup(t *testing.T) {
 	if len(kc.deletedUUIDs) != 1 || kc.deletedUUIDs[0] != "client-uuid" {
 		t.Fatalf("deleted Keycloak UUIDs = %v", kc.deletedUUIDs)
 	}
+	// The UUID-targeted deletion must carry the exact gateway and service-account
+	// ownership so the control plane can refuse to disable or delete a client that
+	// does not belong to this account.
+	want := ownershipArgs{UUID: "client-uuid", GatewayID: "gateway-id", ServiceAccountID: account.ID}
+	if kc.lastOwnership != want {
+		t.Fatalf("delete ownership = %#v, want %#v", kc.lastOwnership, want)
+	}
 }
 
 func TestCleanupGatewayDeletesIdentitiesBeforeRecords(t *testing.T) {
@@ -730,6 +737,16 @@ type fakeKeycloak struct {
 	deleteManagedCalls int
 	deleteGatewayCalls int
 	deletedUUIDs       []string
+	lastOwnership      ownershipArgs
+}
+
+// ownershipArgs captures the identifiers passed to the last Disable/Delete call
+// so tests can assert the exact gateway and service-account ownership metadata is
+// threaded through to the provisioner.
+type ownershipArgs struct {
+	UUID             string
+	GatewayID        string
+	ServiceAccountID string
 }
 
 func (f *fakeKeycloak) Configured() bool { return f.configured }
@@ -752,12 +769,14 @@ func (f *fakeKeycloak) ReconcileServiceAccount(_ context.Context, spec Provision
 	return f.reconcileErr
 }
 
-func (f *fakeKeycloak) DisableServiceAccount(context.Context, string) error {
+func (f *fakeKeycloak) DisableServiceAccount(_ context.Context, uuid, gatewayID, serviceAccountID string) error {
 	f.disableCalls++
+	f.lastOwnership = ownershipArgs{UUID: uuid, GatewayID: gatewayID, ServiceAccountID: serviceAccountID}
 	return f.disableErr
 }
 
-func (f *fakeKeycloak) DeleteServiceAccount(_ context.Context, uuid string) error {
+func (f *fakeKeycloak) DeleteServiceAccount(_ context.Context, uuid, gatewayID, serviceAccountID string) error {
+	f.lastOwnership = ownershipArgs{UUID: uuid, GatewayID: gatewayID, ServiceAccountID: serviceAccountID}
 	if f.deleteErr == nil {
 		f.deletedUUIDs = append(f.deletedUUIDs, uuid)
 	}

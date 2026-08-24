@@ -102,8 +102,8 @@ type ServiceAccountProvisioner interface {
 	Configured() bool
 	ProvisionServiceAccount(context.Context, ProvisioningSpec) (*ProvisionedServiceAccount, error)
 	ReconcileServiceAccount(context.Context, ProvisioningSpec, string, string, bool) error
-	DisableServiceAccount(context.Context, string) error
-	DeleteServiceAccount(context.Context, string) error
+	DisableServiceAccount(context.Context, string, string, string) error
+	DeleteServiceAccount(context.Context, string, string, string) error
 	DeleteManagedServiceAccount(context.Context, string, string) error
 	DeleteGatewayServiceAccounts(context.Context, string) error
 	ListManagedClients(context.Context, string) ([]ManagedClient, error)
@@ -286,7 +286,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 		now := s.now().UTC()
 		reason := "creator_access_changed"
 		account.LastError = &reason
-		if cleanupErr := s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID); cleanupErr != nil {
+		if cleanupErr := s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID, account.GatewayID, account.ID); cleanupErr != nil {
 			account.Status = StatusError
 		} else {
 			account.Status = StatusRevoked
@@ -307,7 +307,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	account.Status = StatusReady
 	account.LastError = nil
 	if err := s.audit(ctx, account, userID, "create", "succeeded"); err != nil {
-		_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID)
+		_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID, account.GatewayID, account.ID)
 		account.Status = StatusError
 		reason := "audit_persistence_failed"
 		account.LastError = &reason
@@ -315,7 +315,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 		return nil, internalProblem()
 	}
 	if err := s.dao.Update(ctx, account); err != nil {
-		_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID)
+		_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID, account.GatewayID, account.ID)
 		return nil, internalProblem()
 	}
 	connection := connectionFor(account, gateway, oidc)
@@ -375,7 +375,7 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 			return account, false, nil
 		}
 		if account.KeycloakClientUUID != "" {
-			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+			if err := s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID, account.GatewayID, account.ID); err != nil {
 				return account, false, nil
 			}
 		} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
@@ -399,7 +399,7 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 	}
 	var disableErr error
 	if account.KeycloakClientUUID != "" {
-		disableErr = s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID)
+		disableErr = s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID, account.GatewayID, account.ID)
 	} else {
 		disableErr = s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
 	}
@@ -456,7 +456,7 @@ func (s *service) Delete(ctx context.Context, gatewayID, id, userID string) (*Op
 	}
 	var deleteErr error
 	if account.KeycloakClientUUID != "" {
-		deleteErr = s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID)
+		deleteErr = s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID, account.GatewayID, account.ID)
 	} else {
 		deleteErr = s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
 	}
@@ -607,7 +607,7 @@ func (s *service) cleanupOrphanedClients(ctx context.Context) error {
 			}
 		}
 		if orphaned {
-			if deleteErr := s.provisioner.DeleteServiceAccount(ctx, client.UUID); deleteErr != nil {
+			if deleteErr := s.provisioner.DeleteServiceAccount(ctx, client.UUID, client.GatewayID, client.ServiceAccountID); deleteErr != nil {
 				cleanupErrors = append(cleanupErrors, deleteErr)
 			}
 		}
@@ -757,9 +757,9 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 func (s *service) disableOrDeleteManaged(ctx context.Context, account *OpenShellGatewayServiceAccount, hardDelete bool) error {
 	if account.KeycloakClientUUID != "" {
 		if hardDelete {
-			return s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID)
+			return s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID, account.GatewayID, account.ID)
 		}
-		return s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID)
+		return s.provisioner.DisableServiceAccount(ctx, account.KeycloakClientUUID, account.GatewayID, account.ID)
 	}
 	return s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID)
 }
@@ -804,7 +804,7 @@ func (s *service) cleanupUndeliveredAccount(ctx context.Context, account *OpenSh
 		return err
 	}
 	if account.KeycloakClientUUID != "" {
-		if err := s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID); err != nil {
+		if err := s.provisioner.DeleteServiceAccount(ctx, account.KeycloakClientUUID, account.GatewayID, account.ID); err != nil {
 			return err
 		}
 	} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {

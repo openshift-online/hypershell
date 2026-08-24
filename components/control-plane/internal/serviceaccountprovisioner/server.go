@@ -21,8 +21,8 @@ type Provider interface {
 	Configured() bool
 	ProvisionServiceAccount(context.Context, serviceaccountkeycloak.ServiceAccountSpec) (*serviceaccountkeycloak.ProvisionedServiceAccount, error)
 	ReconcileServiceAccount(context.Context, serviceaccountkeycloak.ServiceAccountSpec, string, string, bool) error
-	DisableServiceAccount(context.Context, string) error
-	DeleteServiceAccount(context.Context, string) error
+	DisableServiceAccount(context.Context, string, string, string) error
+	DeleteServiceAccount(context.Context, string, string, string) error
 	DeleteManagedServiceAccount(context.Context, string, string) error
 	DeleteGatewayServiceAccounts(context.Context, string) error
 	ListManagedClients(context.Context, string) ([]serviceaccountkeycloak.ManagedClient, error)
@@ -75,7 +75,7 @@ func (s *Server) Disable(ctx context.Context, request *pb.DisableRequest) (*pb.D
 	if request.GetClientUuid() == "" {
 		return nil, status.Error(codes.InvalidArgument, "client UUID is required")
 	}
-	if err := s.provider.DisableServiceAccount(ctx, request.GetClientUuid()); err != nil {
+	if err := s.provider.DisableServiceAccount(ctx, request.GetClientUuid(), request.GetGatewayId(), request.GetServiceAccountId()); err != nil {
 		return nil, providerError(err)
 	}
 	return &pb.DisableResponse{}, nil
@@ -88,7 +88,7 @@ func (s *Server) Delete(ctx context.Context, request *pb.DeleteRequest) (*pb.Del
 	if request.GetClientUuid() == "" {
 		return nil, status.Error(codes.InvalidArgument, "client UUID is required")
 	}
-	if err := s.provider.DeleteServiceAccount(ctx, request.GetClientUuid()); err != nil {
+	if err := s.provider.DeleteServiceAccount(ctx, request.GetClientUuid(), request.GetGatewayId(), request.GetServiceAccountId()); err != nil {
 		return nil, providerError(err)
 	}
 	return &pb.DeleteResponse{}, nil

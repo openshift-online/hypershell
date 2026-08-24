@@ -346,10 +346,12 @@ func (*ReconcileResponse) Descriptor() ([]byte, []int) {
 }
 
 type DisableRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ClientUuid    string                 `protobuf:"bytes,1,opt,name=client_uuid,json=clientUuid,proto3" json:"client_uuid,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ClientUuid       string                 `protobuf:"bytes,1,opt,name=client_uuid,json=clientUuid,proto3" json:"client_uuid,omitempty"`
+	GatewayId        string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	ServiceAccountId string                 `protobuf:"bytes,3,opt,name=service_account_id,json=serviceAccountId,proto3" json:"service_account_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DisableRequest) Reset() {
@@ -385,6 +387,20 @@ func (*DisableRequest) Descriptor() ([]byte, []int) {
 func (x *DisableRequest) GetClientUuid() string {
 	if x != nil {
 		return x.ClientUuid
+	}
+	return ""
+}
+
+func (x *DisableRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *DisableRequest) GetServiceAccountId() string {
+	if x != nil {
+		return x.ServiceAccountId
 	}
 	return ""
 }
@@ -426,10 +442,12 @@ func (*DisableResponse) Descriptor() ([]byte, []int) {
 }
 
 type DeleteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ClientUuid    string                 `protobuf:"bytes,1,opt,name=client_uuid,json=clientUuid,proto3" json:"client_uuid,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ClientUuid       string                 `protobuf:"bytes,1,opt,name=client_uuid,json=clientUuid,proto3" json:"client_uuid,omitempty"`
+	GatewayId        string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	ServiceAccountId string                 `protobuf:"bytes,3,opt,name=service_account_id,json=serviceAccountId,proto3" json:"service_account_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DeleteRequest) Reset() {
@@ -465,6 +483,20 @@ func (*DeleteRequest) Descriptor() ([]byte, []int) {
 func (x *DeleteRequest) GetClientUuid() string {
 	if x != nil {
 		return x.ClientUuid
+	}
+	return ""
+}
+
+func (x *DeleteRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *DeleteRequest) GetServiceAccountId() string {
+	if x != nil {
+		return x.ServiceAccountId
 	}
 	return ""
 }
@@ -859,14 +891,20 @@ const file_hypershell_provisioner_v1_service_accounts_proto_rawDesc = "" +
 	"clientUuid\x12)\n" +
 	"\x10expected_subject\x18\x03 \x01(\tR\x0fexpectedSubject\x12\x18\n" +
 	"\aenabled\x18\x04 \x01(\bR\aenabled\"\x13\n" +
-	"\x11ReconcileResponse\"1\n" +
+	"\x11ReconcileResponse\"~\n" +
 	"\x0eDisableRequest\x12\x1f\n" +
 	"\vclient_uuid\x18\x01 \x01(\tR\n" +
-	"clientUuid\"\x11\n" +
-	"\x0fDisableResponse\"0\n" +
+	"clientUuid\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12,\n" +
+	"\x12service_account_id\x18\x03 \x01(\tR\x10serviceAccountId\"\x11\n" +
+	"\x0fDisableResponse\"}\n" +
 	"\rDeleteRequest\x12\x1f\n" +
 	"\vclient_uuid\x18\x01 \x01(\tR\n" +
-	"clientUuid\"\x10\n" +
+	"clientUuid\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12,\n" +
+	"\x12service_account_id\x18\x03 \x01(\tR\x10serviceAccountId\"\x10\n" +
 	"\x0eDeleteResponse\"c\n" +
 	"\x14DeleteManagedRequest\x12\x1d\n" +
 	"\n" +

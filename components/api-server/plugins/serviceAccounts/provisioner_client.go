@@ -147,17 +147,21 @@ func (p *controlPlaneProvisioner) ReconcileServiceAccount(ctx context.Context, s
 	return mapProvisionerError(err)
 }
 
-func (p *controlPlaneProvisioner) DisableServiceAccount(ctx context.Context, clientUUID string) error {
+func (p *controlPlaneProvisioner) DisableServiceAccount(ctx context.Context, clientUUID, gatewayID, serviceAccountID string) error {
 	callCtx, cancel := provisionerCallContext(ctx)
 	defer cancel()
-	_, err := p.client.Disable(callCtx, &pb.DisableRequest{ClientUuid: clientUUID})
+	_, err := p.client.Disable(callCtx, &pb.DisableRequest{
+		ClientUuid: clientUUID, GatewayId: gatewayID, ServiceAccountId: serviceAccountID,
+	})
 	return mapProvisionerError(err)
 }
 
-func (p *controlPlaneProvisioner) DeleteServiceAccount(ctx context.Context, clientUUID string) error {
+func (p *controlPlaneProvisioner) DeleteServiceAccount(ctx context.Context, clientUUID, gatewayID, serviceAccountID string) error {
 	callCtx, cancel := provisionerCallContext(ctx)
 	defer cancel()
-	_, err := p.client.Delete(callCtx, &pb.DeleteRequest{ClientUuid: clientUUID})
+	_, err := p.client.Delete(callCtx, &pb.DeleteRequest{
+		ClientUuid: clientUUID, GatewayId: gatewayID, ServiceAccountId: serviceAccountID,
+	})
 	return mapProvisionerError(err)
 }
 

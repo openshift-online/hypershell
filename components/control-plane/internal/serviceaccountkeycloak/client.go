@@ -383,8 +383,8 @@ func sameRoleSet(current, desired []kcRole) bool {
 	return true
 }
 
-func (c *Client) DisableServiceAccount(ctx context.Context, clientUUID string) error {
-	if _, err := c.requireManagedClient(ctx, clientUUID); errors.Is(err, ErrNotFound) {
+func (c *Client) DisableServiceAccount(ctx context.Context, clientUUID, gatewayID, serviceAccountID string) error {
+	if _, err := c.requireManagedClient(ctx, clientUUID, gatewayID, serviceAccountID); errors.Is(err, ErrNotFound) {
 		return nil
 	} else if err != nil {
 		return err
@@ -392,8 +392,8 @@ func (c *Client) DisableServiceAccount(ctx context.Context, clientUUID string) e
 	return c.setEnabled(ctx, clientUUID, false)
 }
 
-func (c *Client) DeleteServiceAccount(ctx context.Context, clientUUID string) error {
-	if _, err := c.requireManagedClient(ctx, clientUUID); errors.Is(err, ErrNotFound) {
+func (c *Client) DeleteServiceAccount(ctx context.Context, clientUUID, gatewayID, serviceAccountID string) error {
+	if _, err := c.requireManagedClient(ctx, clientUUID, gatewayID, serviceAccountID); errors.Is(err, ErrNotFound) {
 		return nil
 	} else if err != nil {
 		return err
@@ -405,15 +405,24 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, clientUUID string) er
 }
 
 // requireManagedClient fetches a client by UUID and confirms it carries the
-// HyperShell managed marker. Because Disable and Delete accept a caller-supplied
-// UUID, this guard is what prevents the privileged provisioner credential from
-// being turned into a delete primitive against non-managed clients.
-func (c *Client) requireManagedClient(ctx context.Context, clientUUID string) (*kcClient, error) {
+// HyperShell managed marker and, when the caller supplies them, the exact
+// gateway and service-account ownership attributes. Because Disable and Delete
+// accept a caller-supplied UUID, this guard is what prevents the privileged
+// provisioner credential from being turned into a delete primitive against
+// non-managed clients or against a managed client owned by a different gateway
+// or service account.
+func (c *Client) requireManagedClient(ctx context.Context, clientUUID, gatewayID, serviceAccountID string) (*kcClient, error) {
 	client, err := c.getClient(ctx, clientUUID)
 	if err != nil {
 		return nil, err
 	}
 	if client.Attributes[managedAttribute] != "true" {
+		return nil, ErrNotManaged
+	}
+	if gatewayID != "" && client.Attributes[gatewayIDAttribute] != gatewayID {
+		return nil, ErrNotManaged
+	}
+	if serviceAccountID != "" && client.Attributes[serviceAccountIDAttribute] != serviceAccountID {
 		return nil, ErrNotManaged
 	}
 	return client, nil
@@ -431,7 +440,7 @@ func (c *Client) DeleteManagedServiceAccount(ctx context.Context, gatewayID, ser
 		if client.ServiceAccountID != serviceAccountID {
 			continue
 		}
-		if err := c.DeleteServiceAccount(ctx, client.UUID); err != nil {
+		if err := c.DeleteServiceAccount(ctx, client.UUID, gatewayID, serviceAccountID); err != nil {
 			return err
 		}
 	}

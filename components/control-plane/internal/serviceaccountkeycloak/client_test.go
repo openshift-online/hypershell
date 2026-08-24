@@ -275,10 +275,10 @@ func TestDestructiveOperationsRejectNonManagedClients(t *testing.T) {
 			t.Cleanup(server.Close)
 			client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
 
-			if err := client.DisableServiceAccount(t.Context(), "target-uuid"); !errors.Is(err, ErrNotManaged) {
+			if err := client.DisableServiceAccount(t.Context(), "target-uuid", "gateway-id", "resource-id"); !errors.Is(err, ErrNotManaged) {
 				t.Fatalf("DisableServiceAccount() error = %v, want ErrNotManaged", err)
 			}
-			if err := client.DeleteServiceAccount(t.Context(), "target-uuid"); !errors.Is(err, ErrNotManaged) {
+			if err := client.DeleteServiceAccount(t.Context(), "target-uuid", "gateway-id", "resource-id"); !errors.Is(err, ErrNotManaged) {
 				t.Fatalf("DeleteServiceAccount() error = %v, want ErrNotManaged", err)
 			}
 			if mutated {
@@ -313,11 +313,60 @@ func TestDestructiveOperationsAllowManagedClients(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
-	if err := client.DeleteServiceAccount(t.Context(), "managed-uuid"); err != nil {
+	if err := client.DeleteServiceAccount(t.Context(), "managed-uuid", "gateway-id", "resource-id"); err != nil {
 		t.Fatalf("DeleteServiceAccount() error = %v", err)
 	}
 	if !disabled || !deleted {
 		t.Fatalf("managed client not fully cleaned up: disabled=%v deleted=%v", disabled, deleted)
+	}
+}
+
+func TestDestructiveOperationsRejectOwnershipMismatch(t *testing.T) {
+	// A managed client owned by a different gateway or service account must never
+	// be disabled or deleted when the caller-supplied ownership metadata does not
+	// match, even though the managed marker is present and the UUID is valid.
+	cases := []struct {
+		name             string
+		gatewayID        string
+		serviceAccountID string
+	}{
+		{name: "wrong gateway", gatewayID: "other-gateway", serviceAccountID: "resource-id"},
+		{name: "wrong service account", gatewayID: "gateway-id", serviceAccountID: "other-resource"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+					_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+				case r.URL.Path == "/admin/realms/realm/clients/managed-uuid" && r.Method == http.MethodGet:
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"id": "managed-uuid", "clientId": "hs-sa-gateway-id-resource-id", "enabled": true,
+						"attributes": map[string]string{
+							managedAttribute: "true", gatewayIDAttribute: "gateway-id", serviceAccountIDAttribute: "resource-id",
+						},
+					})
+				case strings.HasPrefix(r.URL.Path, "/admin/realms/realm/clients/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
+					mutated = true
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					http.Error(w, fmt.Sprintf("unexpected %s %s", r.Method, r.URL.Path), http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(server.Close)
+			client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+
+			if err := client.DisableServiceAccount(t.Context(), "managed-uuid", tc.gatewayID, tc.serviceAccountID); !errors.Is(err, ErrNotManaged) {
+				t.Fatalf("DisableServiceAccount() error = %v, want ErrNotManaged", err)
+			}
+			if err := client.DeleteServiceAccount(t.Context(), "managed-uuid", tc.gatewayID, tc.serviceAccountID); !errors.Is(err, ErrNotManaged) {
+				t.Fatalf("DeleteServiceAccount() error = %v, want ErrNotManaged", err)
+			}
+			if mutated {
+				t.Fatal("a mismatched-ownership client was mutated through the provisioner boundary")
+			}
+		})
 	}
 }
 

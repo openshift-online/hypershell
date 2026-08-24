@@ -61,11 +61,38 @@ func TestProviderNotFoundUsesStableGRPCStatus(t *testing.T) {
 	}
 }
 
+func TestDisableForwardsOwnershipMetadataToProvider(t *testing.T) {
+	provider := &fakeProvider{configured: true}
+	if _, err := NewServer(provider).Disable(t.Context(), &pb.DisableRequest{
+		ClientUuid: "client-uuid", GatewayId: "gateway-id", ServiceAccountId: "account-id",
+	}); err != nil {
+		t.Fatalf("Disable() error = %v", err)
+	}
+	if provider.lastUUID != "client-uuid" || provider.lastGatewayID != "gateway-id" || provider.lastServiceAccountID != "account-id" {
+		t.Fatalf("Disable() forwarded ownership = %q/%q/%q", provider.lastUUID, provider.lastGatewayID, provider.lastServiceAccountID)
+	}
+}
+
+func TestDeleteForwardsOwnershipMetadataToProvider(t *testing.T) {
+	provider := &fakeProvider{configured: true}
+	if _, err := NewServer(provider).Delete(t.Context(), &pb.DeleteRequest{
+		ClientUuid: "client-uuid", GatewayId: "gateway-id", ServiceAccountId: "account-id",
+	}); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if provider.lastUUID != "client-uuid" || provider.lastGatewayID != "gateway-id" || provider.lastServiceAccountID != "account-id" {
+		t.Fatalf("Delete() forwarded ownership = %q/%q/%q", provider.lastUUID, provider.lastGatewayID, provider.lastServiceAccountID)
+	}
+}
+
 type fakeProvider struct {
-	configured bool
-	secret     string
-	err        error
-	lastSpec   serviceaccountkeycloak.ServiceAccountSpec
+	configured           bool
+	secret               string
+	err                  error
+	lastSpec             serviceaccountkeycloak.ServiceAccountSpec
+	lastUUID             string
+	lastGatewayID        string
+	lastServiceAccountID string
 }
 
 func (f *fakeProvider) Configured() bool { return f.configured }
@@ -85,8 +112,15 @@ func (f *fakeProvider) ReconcileServiceAccount(_ context.Context, spec serviceac
 	return f.err
 }
 
-func (f *fakeProvider) DisableServiceAccount(context.Context, string) error { return f.err }
-func (f *fakeProvider) DeleteServiceAccount(context.Context, string) error  { return f.err }
+func (f *fakeProvider) DisableServiceAccount(_ context.Context, uuid, gatewayID, serviceAccountID string) error {
+	f.lastUUID, f.lastGatewayID, f.lastServiceAccountID = uuid, gatewayID, serviceAccountID
+	return f.err
+}
+
+func (f *fakeProvider) DeleteServiceAccount(_ context.Context, uuid, gatewayID, serviceAccountID string) error {
+	f.lastUUID, f.lastGatewayID, f.lastServiceAccountID = uuid, gatewayID, serviceAccountID
+	return f.err
+}
 func (f *fakeProvider) DeleteManagedServiceAccount(context.Context, string, string) error {
 	return f.err
 }
