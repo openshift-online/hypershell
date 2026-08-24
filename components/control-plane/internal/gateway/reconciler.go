@@ -824,6 +824,9 @@ func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, na
 	if deploy.Spec.Replicas != nil {
 		desired = *deploy.Spec.Replicas
 	}
+	if desired < 1 {
+		return false, "deployment has zero desired replicas", nil
+	}
 	if deploy.Status.ReadyReplicas >= desired {
 		return true, "", nil
 	}

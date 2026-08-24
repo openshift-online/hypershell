@@ -8,6 +8,7 @@ import (
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -67,6 +68,15 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 		}
 
 		username := auth.GetUsernameFromContext(ctx)
+		if isManagedDatabaseTombstoneReplay(ctx, info.FullMethod) {
+			// Historical tombstones are fleet-unscoped control-plane recovery data.
+			// Unlike the ordinary live watch, replay is never available through role
+			// bindings or the no-allowlist fallback.
+			if len(config.ServiceAccounts) == 0 || !isServiceAccount(username, config.ServiceAccounts) {
+				return status.Errorf(codes.PermissionDenied, "forbidden")
+			}
+			return handler(srv, wrapped)
+		}
 		if isServiceAccount(username, config.ServiceAccounts) {
 			return handler(srv, wrapped)
 		}
@@ -97,6 +107,18 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 
 		return handler(srv, wrapped)
 	}
+}
+
+func isManagedDatabaseTombstoneReplay(ctx context.Context, fullMethod string) bool {
+	if fullMethod != "/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases" {
+		return false
+	}
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+	values := md.Get("hypershell-managed-database-replay")
+	return len(values) == 1 && values[0] == "deleted-v1"
 }
 
 func isGRPCReadMethod(fullMethod string) bool {

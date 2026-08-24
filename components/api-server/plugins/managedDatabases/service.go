@@ -20,6 +20,7 @@ const (
 type ManagedDatabaseService interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
 	GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
+	ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, *errors.ServiceError)
 	Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError)
 	Replace(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError)
 	Delete(ctx context.Context, id string) *errors.ServiceError
@@ -82,6 +83,16 @@ func (s *sqlManagedDatabaseService) GetUnscoped(ctx context.Context, id string) 
 		return nil, services.HandleGetError("ManagedDatabase", "id", id, err)
 	}
 	return managedDatabase, nil
+}
+
+// ListDeleted returns durable delete tombstones for watch-stream replay. It is
+// internal to the gRPC watch handshake; public list/get operations remain scoped.
+func (s *sqlManagedDatabaseService) ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, *errors.ServiceError) {
+	managedDatabases, err := s.managedDatabaseDao.ListDeleted(ctx, offset, limit)
+	if err != nil {
+		return nil, errors.GeneralError("list deleted ManagedDatabases: %s", err)
+	}
+	return managedDatabases, nil
 }
 
 func isSupportedProvider(provider string) bool {

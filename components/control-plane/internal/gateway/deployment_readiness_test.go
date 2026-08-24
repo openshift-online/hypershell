@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"testing"
+	"time"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -11,8 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
-	"testing"
-	"time"
 )
 
 func readinessOpts() deploymentReadinessWaitOptions {
@@ -44,6 +46,20 @@ func TestDeploymentReadinessWaitAlreadyReady(t *testing.T) {
 		t.Fatalf(`checks=%d`, n)
 	}
 }
+func TestDeploymentReadinessWaitRejectsScaledToZero(t *testing.T) {
+	deployment := readinessDeployment("db", false)
+	zero := int32(0)
+	deployment.Spec.Replicas = &zero
+	c := k8sfake.NewSimpleClientset(deployment)
+	opts := readinessOpts()
+	opts.timeout = 5 * time.Millisecond
+
+	err := waitForDeploymentReady(context.Background(), c, "db", deploymentDatabaseName, opts)
+	if err == nil || !strings.Contains(err.Error(), "zero desired replicas") {
+		t.Fatalf("error = %v, want scaled-to-zero readiness failure", err)
+	}
+}
+
 func TestDeploymentReadinessWaitRetriesUnreadyAndTransient(t *testing.T) {
 	c := k8sfake.NewSimpleClientset()
 	n := 0

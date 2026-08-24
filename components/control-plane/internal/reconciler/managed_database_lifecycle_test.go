@@ -116,13 +116,17 @@ func TestStripOpenShiftPostgresSecurityContext(t *testing.T) {
 	if pod["runAsNonRoot"] != true {
 		t.Fatal("runAsNonRoot was removed")
 	}
-	containers, _, _ := unstructured.NestedSlice(stripped.Object, "spec", "template", "spec", "containers")
-	security := containers[0].(map[string]interface{})["securityContext"].(map[string]interface{})
-	if _, ok := security["runAsUser"]; ok {
-		t.Fatal("container runAsUser was retained")
-	}
-	if security["allowPrivilegeEscalation"] != false || security["readOnlyRootFilesystem"] != true {
-		t.Fatal("container hardening was removed")
+	for _, containerField := range []string{"containers", "initContainers"} {
+		containers, _, _ := unstructured.NestedSlice(stripped.Object, "spec", "template", "spec", containerField)
+		security := containers[0].(map[string]interface{})["securityContext"].(map[string]interface{})
+		for _, field := range []string{"runAsUser", "runAsGroup"} {
+			if _, ok := security[field]; ok {
+				t.Fatalf("%s %s was retained", containerField, field)
+			}
+		}
+		if security["allowPrivilegeEscalation"] != false || security["readOnlyRootFilesystem"] != true || security["runAsNonRoot"] != true {
+			t.Fatalf("%s hardening was removed", containerField)
+		}
 	}
 	originalPod, _, _ := unstructured.NestedMap(deployment.Object, "spec", "template", "spec", "securityContext")
 	if originalPod["runAsUser"] != int64(999) {

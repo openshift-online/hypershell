@@ -31,6 +31,10 @@ func (d *managedDatabaseDaoMock) GetUnscoped(ctx context.Context, id string) (*M
 	return d.Get(ctx, id)
 }
 
+func (d *managedDatabaseDaoMock) ListDeleted(context.Context, int, int) ([]ManagedDatabase, error) {
+	return nil, nil
+}
+
 func (d *managedDatabaseDaoMock) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error) {
 	d.managedDatabases = append(d.managedDatabases, managedDatabase)
 	return managedDatabase, nil

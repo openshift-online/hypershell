@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -242,7 +243,7 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 	Expect(int(listResp.Metadata.Total)).To(BeNumerically(">=", totalItems))
 }
 
-func TestGRPCWatchManagedDatabaseDeleteIncludesResource(t *testing.T) {
+func TestGRPCWatchManagedDatabaseReplaysDeletedResource(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
@@ -269,15 +270,22 @@ func TestGRPCWatchManagedDatabaseDeleteIncludesResource(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	databaseID := created.ManagedDatabase.Metadata.Id
 
-	watchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	stream, err := grpcClient.WatchManagedDatabases(watchCtx, &pb.WatchManagedDatabasesRequest{})
-	Expect(err).NotTo(HaveOccurred())
-	_, err = stream.Header()
-	Expect(err).NotTo(HaveOccurred())
-
+	// Delete before subscribing. A newly started/reconnected control plane must
+	// still receive this durable tombstone even though the live broker event was
+	// emitted with no subscriber.
 	_, err = grpcClient.DeleteManagedDatabase(ctx, &pb.DeleteManagedDatabaseRequest{Id: databaseID})
 	Expect(err).NotTo(HaveOccurred())
+	_, err = grpcClient.GetManagedDatabase(ctx, &pb.GetManagedDatabaseRequest{Id: databaseID})
+	Expect(status.Code(err)).To(Equal(codes.NotFound))
+
+	watchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	replayCtx := metadata.AppendToOutgoingContext(watchCtx, "hypershell-managed-database-replay", "deleted-v1")
+	stream, err := grpcClient.WatchManagedDatabases(replayCtx, &pb.WatchManagedDatabasesRequest{})
+	Expect(err).NotTo(HaveOccurred())
+	header, err := stream.Header()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(header.Get("hypershell-managed-database-delete-tombstones")).To(Equal([]string{"v1"}))
 
 	for {
 		evt, recvErr := stream.Recv()
@@ -296,9 +304,6 @@ func TestGRPCWatchManagedDatabaseDeleteIncludesResource(t *testing.T) {
 		Expect(evt.ManagedDatabase.Namespace).NotTo(BeEmpty())
 		break
 	}
-
-	_, err = grpcClient.GetManagedDatabase(ctx, &pb.GetManagedDatabaseRequest{Id: databaseID})
-	Expect(status.Code(err)).To(Equal(codes.NotFound))
 }
 
 // TestGRPCWatchManagedDatabasesSendsSubscriptionHeader asserts the watch RPC
@@ -334,8 +339,9 @@ func TestGRPCWatchManagedDatabasesSendsSubscriptionHeader(t *testing.T) {
 
 	// Header() blocks until the server flushes its header, which it does only after
 	// subscribing. It returning without error proves the handshake fired.
-	_, err = stream.Header()
+	header, err := stream.Header()
 	Expect(err).NotTo(HaveOccurred())
+	Expect(header.Get("hypershell-managed-database-delete-tombstones")).To(Equal([]string{"v1"}))
 }
 
 func TestGRPCManagedDatabaseErrorHandling(t *testing.T) {
