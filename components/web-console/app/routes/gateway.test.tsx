@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as GatewayUi from "@openshift-online/hypershell-gateway-management-ui";
 import type {
+  OpenShellGatewayServiceAccountListRequest,
   ServiceAccountLeaveDecision,
   ServiceAccountLeaveGuard,
 } from "@openshift-online/hypershell-gateway-management-ui";
@@ -17,7 +18,9 @@ const PROTECT = "protect";
 const GO_ELSEWHERE = "go elsewhere";
 const LEAVE = "leave";
 const STAY = "stay";
+const FILTER_DEGRADED = "filter degraded";
 const ELSEWHERE_HEADING = "Elsewhere";
+const SA_STATUS_TESTID = "sa-status";
 
 // Replace GatewayPage with a controllable stub so the test exercises only the
 // route-level navigation blocker wiring. The stub owns a leave guard exactly as
@@ -29,8 +32,15 @@ vi.mock(
     const actual = await importOriginal<typeof GatewayUi>();
     function StubGatewayPage({
       onLeaveGuardChange,
+      onServiceAccountCollectionStateChange,
+      serviceAccountCollectionState,
     }: {
       onLeaveGuardChange?: (guard: ServiceAccountLeaveGuard | null) => void;
+      onServiceAccountCollectionStateChange?: (
+        state: OpenShellGatewayServiceAccountListRequest,
+        reason: string,
+      ) => void;
+      serviceAccountCollectionState?: OpenShellGatewayServiceAccountListRequest;
     }) {
       const [blocking, setBlocking] = useState(false);
       const [pending, setPending] =
@@ -59,6 +69,25 @@ vi.mock(
             {PROTECT}
           </button>
           <Link to="/elsewhere">{GO_ELSEWHERE}</Link>
+          <span data-testid={SA_STATUS_TESTID}>
+            {serviceAccountCollectionState?.status ?? ""}
+          </span>
+          <button
+            onClick={() => {
+              onServiceAccountCollectionStateChange?.(
+                {
+                  ...(serviceAccountCollectionState ??
+                    ({} as OpenShellGatewayServiceAccountListRequest)),
+                  page: 1,
+                  status: "degraded",
+                },
+                "filter",
+              );
+            }}
+            type="button"
+          >
+            {FILTER_DEGRADED}
+          </button>
           {pending ? (
             <>
               <button
@@ -175,5 +204,29 @@ describe("GatewayRoute navigation blocker", () => {
     expect(
       screen.getByRole("heading", { name: ELSEWHERE_HEADING }),
     ).toBeTruthy();
+  });
+});
+
+describe("GatewayRoute service-account status query", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("parses a degraded deep link into the collection state", () => {
+    renderRoute(["/gateways/gateway-a?sa-status=degraded"]);
+
+    expect(screen.getByTestId(SA_STATUS_TESTID).textContent).toBe("degraded");
+  });
+
+  it("round-trips a degraded status filter through the URL", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute();
+
+    expect(screen.getByTestId(SA_STATUS_TESTID).textContent).toBe("");
+
+    await user.click(screen.getByRole("button", { name: FILTER_DEGRADED }));
+
+    expect(router.state.location.search).toContain("sa-status=degraded");
+    expect(screen.getByTestId(SA_STATUS_TESTID).textContent).toBe("degraded");
   });
 });

@@ -147,7 +147,7 @@ OpenShellGatewayServiceAccount {
     string description nullable
     string credential_type       "client_secret"
     string role                  "selected highest OpenShell role"
-    string status                "provisioning | ready | expired | revoking | revoked | deleting | error"
+    string status                "provisioning | ready | degraded | expired | revoking | revoked | deleting | error"
     string created_by_user_id FK
     string keycloak_client_id
     string keycloak_client_uuid
@@ -657,6 +657,25 @@ An access token issued before disablement MAY remain valid until its `exp`.
 - THEN HyperShell SHALL delete the disabled Keycloak client and its service-account user
 - AND the API SHALL return `204 No Content` only after observing that cleanup
 - AND the audit trail SHALL retain no client secret or access token
+
+### Requirement: Degraded Health State
+
+`degraded` is a health signal, not a lifecycle transition. HyperShell SHALL set an OpenShellGatewayServiceAccount to `degraded` when reconciliation cannot verify or maintain the service-account client because Keycloak provisioning or lifecycle verification is temporarily unavailable, and the account has not otherwise reached a terminal state.
+
+`degraded` SHALL NOT disable, revoke, or delete the service-account client, and it SHALL NOT change requested lifecycle intent. An account that was usable before entering `degraded` MAY continue to issue access tokens; `degraded` reports uncertainty about Keycloak state, not a credential change.
+
+Reconciliation SHALL keep polling a `degraded` account on the same at-least-once-per-minute cadence as expiration checks. When verification succeeds again, HyperShell SHALL return the account to the status its persisted lifecycle intent implies (`ready`, `expired`, `revoked`, or `deleting`) without operator action. A `degraded` account whose `expires_at` passes SHALL still be disabled and marked `expired` within one minute; degradation SHALL NOT defer expiration enforcement. Prolonged degradation SHALL produce an operator alert.
+
+Clients SHALL treat `degraded` as a filterable, deep-linkable status like any other. It appears in the status enum of the OpenAPI schema, the SDK, and the management web console query parameters.
+
+#### Scenario: Keycloak verification is temporarily unavailable
+
+- GIVEN a ready OpenShellGatewayServiceAccount
+- AND Keycloak lifecycle verification is temporarily unavailable
+- WHEN reconciliation cannot confirm the service-account client
+- THEN HyperShell SHALL mark the OpenShellGatewayServiceAccount `degraded`
+- AND it SHALL NOT disable, revoke, or delete the service-account client
+- AND when verification succeeds again it SHALL restore the status implied by the persisted lifecycle intent
 
 ### Requirement: Replacement-Based Credential Rotation
 

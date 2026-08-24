@@ -17,6 +17,7 @@ export const meta = createPageMeta(
 );
 
 const serviceAccountStatuses = new Set<OpenShellGatewayServiceAccountStatus>([
+  "degraded",
   "deleting",
   "error",
   "expired",
