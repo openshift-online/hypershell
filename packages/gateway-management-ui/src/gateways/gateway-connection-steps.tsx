@@ -12,6 +12,7 @@ import { useIntl } from "react-intl";
 import { messages } from "../messages";
 import { EditableCommand } from "./editable-command";
 import {
+  buildSandboxConnectCommand,
   buildSandboxCreateCommand,
   buildSetupScript,
   claudeModel,
@@ -32,6 +33,7 @@ const modelMarker = "OSMODELNAMEZ";
 const sandboxMarker = "OSSANDBOXNAMEZ";
 const setupMarkers = [providerMarker, modelMarker];
 const sandboxMarkers = [sandboxMarker, modelMarker];
+const sandboxConnectMarkers = [sandboxMarker];
 
 function ConnectionStep({
   children,
@@ -159,6 +161,29 @@ export function GatewayConnectionSteps({
             modelMarker,
           )}
           values={{ [modelMarker]: model, [sandboxMarker]: sandboxName }}
+        />
+      </ConnectionStep>
+
+      <ConnectionStep
+        description={intl.formatMessage(
+          messages.connectionSandboxConnectDescription,
+        )}
+        title={intl.formatMessage(messages.connectionSandboxConnectTitle)}
+      >
+        <EditableCommand
+          copyAriaLabel={intl.formatMessage(messages.copySandboxConnectCommand)}
+          copyText={buildSandboxConnectCommand(sandboxName)}
+          labels={{
+            [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
+          }}
+          markers={sandboxConnectMarkers}
+          onFieldChange={(marker, value) => {
+            if (marker === sandboxMarker) {
+              setSandboxName(value);
+            }
+          }}
+          templateCommand={buildSandboxConnectCommand(sandboxMarker)}
+          values={{ [sandboxMarker]: sandboxName }}
         />
       </ConnectionStep>
     </ol>
