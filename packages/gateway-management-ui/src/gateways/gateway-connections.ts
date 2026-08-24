@@ -162,6 +162,12 @@ export function buildSandboxCreateCommand(
   return `${variable}\n\n${command}`;
 }
 
+export function buildSandboxConnectCommand(
+  name: string = sandboxName,
+): string {
+  return `openshell sandbox connect --name ${shellArgument(name)}`;
+}
+
 /**
  * One-time setup script that logs in to the gateway, adds the Claude on Vertex AI
  * provider, and selects the model, combined into a single copyable block so
