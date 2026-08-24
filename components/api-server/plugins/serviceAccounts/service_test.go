@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -438,6 +439,76 @@ func TestReconcileDrainsDueWorkConcurrentlyUnderLatency(t *testing.T) {
 	for id, account := range dao.items {
 		if account.Status != StatusExpired {
 			t.Fatalf("account %s status = %q, want expired", id, account.Status)
+		}
+	}
+}
+
+// TestReconcileDrainsDueWorkPastARetainedFirstPage proves the due drain advances
+// through every scan page even when the first page stays fully eligible. The
+// earliest-sorting page is a set of freshly provisioning rows that reconcile to a
+// no-op and therefore remain in the due/transitional set every scan. A drain that
+// re-queried the same ordered first page (skipping already-attempted rows) would
+// see an all-attempted page, stop, and never process the later due rows. Keyset
+// pagination over the immutable (expires_at, id) advances past the retained page,
+// so the later expirations are still disabled within the cycle.
+func TestReconcileDrainsDueWorkPastARetainedFirstPage(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+
+	const stickyPageSize = 3
+	// First page: provisioning rows with the earliest expiry so they sort first.
+	// A recent updated_at keeps them inside the reclaim deadline, so each one
+	// reconciles to a no-op and stays Provisioning (still eligible) every scan.
+	for i := 0; i < stickyPageSize; i++ {
+		sticky := &OpenShellGatewayServiceAccount{
+			GatewayID: fmt.Sprintf("sticky-gateway-%02d", i), Name: fmt.Sprintf("sticky-%02d", i),
+			CreatedByUserID: "creator", Status: StatusProvisioning, Role: RoleUser,
+			CredentialType: CredentialTypeClientSecret,
+			ExpiresAt:      now.Add(-3 * time.Hour).Add(time.Duration(i) * time.Minute),
+		}
+		sticky.ID = fmt.Sprintf("sticky-%02d", i)
+		sticky.CreatedAt = now
+		sticky.UpdatedAt = now
+		dao.seed(sticky)
+	}
+
+	// Later pages: due Ready rows that sort after the retained first page and must
+	// still be disabled. Four rows over a three-row page force multiple later pages.
+	const dueTotal = 4
+	for i := 0; i < dueTotal; i++ {
+		due := &OpenShellGatewayServiceAccount{
+			GatewayID: fmt.Sprintf("due-gateway-%02d", i), Name: fmt.Sprintf("due-%02d", i),
+			CreatedByUserID: "creator", Status: StatusReady, Role: RoleUser,
+			CredentialType: CredentialTypeClientSecret, KeycloakClientUUID: fmt.Sprintf("due-uuid-%02d", i),
+			ExpiresAt: now.Add(-time.Hour).Add(time.Duration(i) * time.Minute),
+		}
+		due.ID = fmt.Sprintf("due-%02d", i)
+		dao.seed(due)
+	}
+
+	// latencyKeycloak counts disables atomically, so the concurrent drain workers
+	// are race-safe under -race.
+	kc := &latencyKeycloak{}
+	svc := newTestServiceWith(dao, kc, testBindings("creator", "gateway:owner"), now, fakeGateway{gateway: testGateway()}, db.NewNoOpLockFactory())
+	svc.(*service).scanLimit = stickyPageSize
+
+	if err := svc.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() error = %v", err)
+	}
+
+	if got := kc.disableCalls.Load(); got != dueTotal {
+		t.Fatalf("disable calls = %d, want %d; drain stopped behind the retained first page", got, dueTotal)
+	}
+	for i := 0; i < dueTotal; i++ {
+		id := fmt.Sprintf("due-%02d", i)
+		if status := dao.items[id].Status; status != StatusExpired {
+			t.Fatalf("due account %s status = %q, want expired; not reached past the retained page", id, status)
+		}
+	}
+	for i := 0; i < stickyPageSize; i++ {
+		id := fmt.Sprintf("sticky-%02d", i)
+		if status := dao.items[id].Status; status != StatusProvisioning {
+			t.Fatalf("sticky account %s status = %q, want provisioning", id, status)
 		}
 	}
 }
@@ -1118,23 +1189,53 @@ func (d *memoryDAO) CountActive(_ context.Context, gatewayID, creator string) (i
 	return gatewayCount, creatorCount, nil
 }
 
-func (d *memoryDAO) ListDueAndTransitional(_ context.Context, now time.Time, _ int) ([]OpenShellGatewayServiceAccount, error) {
+func (d *memoryDAO) ListDueAndTransitional(_ context.Context, now time.Time, after ReconcileCursor, limit int) ([]OpenShellGatewayServiceAccount, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	var items []OpenShellGatewayServiceAccount
 	if d.reconcileSnapshots != nil {
-		return append([]OpenShellGatewayServiceAccount(nil), d.reconcileSnapshots...), nil
-	}
-	transitional := map[string]bool{
-		StatusProvisioning: true, StatusRevoking: true, StatusDeleting: true,
-		StatusError: true, StatusDegraded: true,
-	}
-	items := make([]OpenShellGatewayServiceAccount, 0, len(d.items))
-	for _, account := range d.items {
-		if transitional[account.Status] || (account.Status == StatusReady && !account.ExpiresAt.After(now)) {
-			items = append(items, *account)
+		items = append(items, d.reconcileSnapshots...)
+	} else {
+		transitional := map[string]bool{
+			StatusProvisioning: true, StatusRevoking: true, StatusDeleting: true,
+			StatusError: true, StatusDegraded: true,
+		}
+		for _, account := range d.items {
+			if transitional[account.Status] || (account.Status == StatusReady && !account.ExpiresAt.After(now)) {
+				items = append(items, *account)
+			}
 		}
 	}
-	return items, nil
+	// Mirror the SQL keyset: order by (expires_at, id), then serve the rows
+	// strictly after the cursor, capped at the page limit. This makes the fake
+	// advance page by page exactly as the production DAO does, so a drain over a
+	// backlog larger than one page terminates in the test double too.
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].ExpiresAt.Equal(items[j].ExpiresAt) {
+			return items[i].ExpiresAt.Before(items[j].ExpiresAt)
+		}
+		return items[i].ID < items[j].ID
+	})
+	page := make([]OpenShellGatewayServiceAccount, 0, len(items))
+	for _, account := range items {
+		if !after.isStart() && !afterCursor(account, after) {
+			continue
+		}
+		page = append(page, account)
+		if limit > 0 && len(page) == limit {
+			break
+		}
+	}
+	return page, nil
+}
+
+// afterCursor reports whether account sorts strictly after the keyset cursor over
+// (expires_at, id), matching the SQL row-value comparison.
+func afterCursor(account OpenShellGatewayServiceAccount, cursor ReconcileCursor) bool {
+	if !account.ExpiresAt.Equal(cursor.ExpiresAt) {
+		return account.ExpiresAt.After(cursor.ExpiresAt)
+	}
+	return account.ID > cursor.ID
 }
 
 func (d *memoryDAO) ListDrift(_ context.Context, now time.Time, _ int) ([]OpenShellGatewayServiceAccount, error) {

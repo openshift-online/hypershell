@@ -28,7 +28,7 @@ type ServiceAccountDao interface {
 	Get(context.Context, string, string) (*OpenShellGatewayServiceAccount, error)
 	List(context.Context, string, ListOptions) ([]OpenShellGatewayServiceAccount, int64, error)
 	CountActive(context.Context, string, string) (int64, int64, error)
-	ListDueAndTransitional(context.Context, time.Time, int) ([]OpenShellGatewayServiceAccount, error)
+	ListDueAndTransitional(context.Context, time.Time, ReconcileCursor, int) ([]OpenShellGatewayServiceAccount, error)
 	ListDrift(context.Context, time.Time, int) ([]OpenShellGatewayServiceAccount, error)
 	SoftDelete(context.Context, *OpenShellGatewayServiceAccount) error
 	CreateAudit(context.Context, *AuditEvent) error
@@ -150,18 +150,44 @@ func (d *sqlServiceAccountDao) CountActive(ctx context.Context, gatewayID, creat
 	return gatewayCount, creatorCount, nil
 }
 
+// ReconcileCursor is a keyset position in the due/transitional scan, ordered by
+// the immutable pair (expires_at, id). Because expires_at is NOT NULL and neither
+// field changes for the life of a row, the cursor advances the drain strictly
+// forward across pages: a page that remains eligible after processing cannot be
+// re-served, so later due rows are always reached. The zero value starts the scan
+// at the beginning.
+type ReconcileCursor struct {
+	ExpiresAt time.Time
+	ID        string
+}
+
+// isStart reports whether the cursor is the zero value, meaning no page has been
+// consumed yet and the scan should begin at the first row.
+func (c ReconcileCursor) isStart() bool {
+	return c.ID == "" && c.ExpiresAt.IsZero()
+}
+
 // ListDueAndTransitional returns the safety-critical reconciliation work: rows in
 // a transitional state (a user- or reconciler-initiated lifecycle change that has
-// not converged) plus healthy rows that have reached their expiry. Ordering by
-// expiry keeps the soonest-due disablement first so the one-minute revocation
-// bound is honored regardless of how many long-lived healthy rows exist. This
-// query is served by idx_gateway_service_accounts_reconcile (status, expires_at).
-func (d *sqlServiceAccountDao) ListDueAndTransitional(ctx context.Context, now time.Time, limit int) ([]OpenShellGatewayServiceAccount, error) {
+// not converged) plus healthy rows that have reached their expiry. Rows are
+// ordered by the immutable keyset (expires_at, id); the soonest-due disablement
+// comes first so the one-minute revocation bound is honored regardless of how many
+// long-lived healthy rows exist. Passing the last row of a page back as the cursor
+// returns the strictly following rows, so a caller drains a backlog larger than a
+// single page without re-serving still-eligible rows. This query is served by
+// idx_gateway_service_accounts_reconcile (status, expires_at).
+func (d *sqlServiceAccountDao) ListDueAndTransitional(ctx context.Context, now time.Time, after ReconcileCursor, limit int) ([]OpenShellGatewayServiceAccount, error) {
 	transitional := []string{StatusProvisioning, StatusRevoking, StatusDeleting, StatusError, StatusDegraded}
 	var accounts []OpenShellGatewayServiceAccount
-	if err := d.session(ctx).
-		Where("status IN ? OR (status = ? AND expires_at <= ?)", transitional, StatusReady, now).
-		Order("expires_at ASC").Order("updated_at ASC").
+	query := d.session(ctx).
+		Where("status IN ? OR (status = ? AND expires_at <= ?)", transitional, StatusReady, now)
+	if !after.isStart() {
+		// Row-value comparison over the exact sort keys: strictly past the last row
+		// of the previous page. Immutable keys guarantee forward progress.
+		query = query.Where("(expires_at, id) > (?, ?)", after.ExpiresAt, after.ID)
+	}
+	if err := query.
+		Order("expires_at ASC").Order("id ASC").
 		Limit(limit).Find(&accounts).Error; err != nil {
 		return nil, err
 	}

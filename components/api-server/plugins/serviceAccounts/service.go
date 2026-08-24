@@ -177,10 +177,13 @@ type service struct {
 	provisioner ServiceAccountProvisioner
 	lockFactory db.LockFactory
 	now         func() time.Time
+	// scanLimit is the reconciliation scan page size. It defaults to
+	// reconcileScanLimit; tests override it to exercise multi-page drains.
+	scanLimit int
 }
 
 func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings BindingLookup, provisioner ServiceAccountProvisioner, lockFactory db.LockFactory) Service {
-	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, lockFactory: lockFactory, now: time.Now}
+	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, lockFactory: lockFactory, now: time.Now, scanLimit: reconcileScanLimit}
 }
 
 // acquireGatewayLock takes the shared per-gateway advisory lock that serializes
@@ -543,7 +546,7 @@ func (s *service) ReconcileOnce(ctx context.Context) error {
 	// (drift) at snapshot time. Draining due first would otherwise re-observe a
 	// freshly expired account in a drift list queried afterward and disable it
 	// twice in one cycle.
-	drift, err := s.dao.ListDrift(ctx, now, reconcileScanLimit)
+	drift, err := s.dao.ListDrift(ctx, now, s.scanLimit)
 	if err != nil {
 		reconcileErrors = append(reconcileErrors, err)
 	}
@@ -567,35 +570,35 @@ func (s *service) ReconcileOnce(ctx context.Context) error {
 	return errors.Join(reconcileErrors...)
 }
 
-// reconcileDue drains every due and transitional account, re-querying until no
-// new rows remain so a backlog larger than a single scan page is fully cleared
-// within the cycle rather than dribbling out one page per interval. Each page is
-// reconciled with bounded concurrency; accounts already attempted this cycle are
-// skipped so a persistently failing (still-transitional) row cannot spin the
-// drain loop. Same-gateway work still serializes on the per-gateway lock.
+// reconcileDue drains every due and transitional account, advancing a keyset
+// cursor page by page so a backlog larger than a single scan page is fully cleared
+// within the cycle rather than dribbling out one page per interval. The cursor is
+// the immutable (expires_at, id) of the last row of each page, so the scan always
+// moves forward: a page whose rows remain eligible after processing (a persistently
+// failing still-transitional row) is never re-served, which is what a status- or
+// attempted-set filter over a fixed first page could not guarantee. A short page
+// means the backlog is exhausted. Each page is reconciled with bounded concurrency,
+// and same-gateway work still serializes on the per-gateway lock.
 func (s *service) reconcileDue(ctx context.Context, now time.Time) []error {
 	var errs []error
-	attempted := make(map[string]struct{})
+	var cursor ReconcileCursor
 	for {
 		if err := ctx.Err(); err != nil {
 			return append(errs, err)
 		}
-		due, err := s.dao.ListDueAndTransitional(ctx, now, reconcileScanLimit)
+		due, err := s.dao.ListDueAndTransitional(ctx, now, cursor, s.scanLimit)
 		if err != nil {
 			return append(errs, err)
 		}
-		batch := make([]OpenShellGatewayServiceAccount, 0, len(due))
-		for i := range due {
-			if _, seen := attempted[due[i].ID]; seen {
-				continue
-			}
-			attempted[due[i].ID] = struct{}{}
-			batch = append(batch, due[i])
-		}
-		if len(batch) == 0 {
+		if len(due) == 0 {
 			return errs
 		}
-		errs = append(errs, s.reconcileBatch(ctx, batch)...)
+		errs = append(errs, s.reconcileBatch(ctx, due)...)
+		last := due[len(due)-1]
+		cursor = ReconcileCursor{ExpiresAt: last.ExpiresAt, ID: last.ID}
+		if len(due) < s.scanLimit {
+			return errs
+		}
 	}
 }
 
