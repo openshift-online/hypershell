@@ -183,6 +183,18 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 
 #### Ingress Values (conditional)
 
+The control plane supports two mutually exclusive ingress modes depending on cluster capabilities. The TLS architecture differs fundamentally between them.
+
+##### GRPCRoute + BackendTLSPolicy Mode (Gateway API — OpenShift 4.22+)
+
+```
+Client ──TLS──▶ Shared Gateway (terminates with wildcard cert)
+                   ──re-encrypt──▶ Gateway Pod (internal self-signed cert)
+                   BackendTLSPolicy validates pod cert against internal CA
+```
+
+The shared Gateway terminates external TLS with its admin-provisioned wildcard certificate. BackendTLSPolicy re-encrypts to the pod and validates the pod's cert against the internal CA. External clients never see the pod's certificate, so the chart's default self-signed CA chain is sufficient.
+
 | Gateway / CP Config | Helm Value | Notes |
 |---|---|---|
 | Gateway has `route` config + Gateway API available | `grpcRoute.enabled=true` | Enable GRPCRoute creation |
@@ -190,7 +202,37 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | Gateway API Gateway ref | `grpcRoute.gateway.name`, `grpcRoute.gateway.namespace` | Cross-namespace parentRef |
 | BackendTLSPolicy support (PR #2728) | `grpcRoute.backendTLSPolicy.enabled=true` | Requires PR #2728 |
 | mTLS toggle (PR #2728) | `server.tls.enableMtls=false` | Required when BackendTLSPolicy is used |
-| Gateway has `route` config + no Gateway API (OpenShift < 4.22) | `openshiftRoute.enabled=true` | Fallback to `route.openshift.io/v1` Route |
+
+##### Route Passthrough Mode (OpenShift < 4.22)
+
+```
+Client ──TLS──▶ HAProxy Route (SNI passthrough, no termination)
+                   ──encrypted──▶ Gateway Pod (client sees this cert directly)
+```
+
+HAProxy does NOT terminate TLS — it forwards the encrypted connection end-to-end based on SNI. The client sees the gateway pod's certificate directly. This means the pod's certificate must:
+
+1. **Include the external hostname as a SAN** (e.g. `gw-openshell-abc123.apps.example.com`)
+2. **Be signed by an externally trusted CA** (e.g. Let's Encrypt via an ACME ClusterIssuer) — a self-signed internal CA will cause TLS verification failures for CLI clients
+
+The upstream Helm chart supports this via `certManager.serverIssuerRef`: when set, the chart creates a **second** Certificate resource (`openshell-gateway-server-external`) signed by the operator-provided issuer, with only externally-resolvable SANs from `certManager.serverDnsNames`. The internal cert (signed by the chart's self-signed CA) still exists for supervisor/sandbox traffic. The gateway uses SNI to present the correct certificate based on the incoming hostname.
+
+**Cluster prerequisite for Route mode:** An administrator must pre-provision a ClusterIssuer (or namespaced Issuer) for externally trusted certificates (e.g. ACME/Let's Encrypt, Vault PKI, or an organization CA). The control plane references this issuer by name — it does not create it.
+
+| Gateway / CP Config | Helm Value | Notes |
+|---|---|---|
+| Gateway has `route` config + no Gateway API | `openshiftRoute.enabled=true` | Fallback to `route.openshift.io/v1` Route |
+| Route hostname | `openshiftRoute.host` | `gw-<ns>.<base-domain>` |
+| HAProxy timeout | `openshiftRoute.annotations` | `{"haproxy.router.openshift.io/timeout": "3600s"}` |
+| External CA issuer name | `certManager.serverIssuerRef.name` | Pre-provisioned ClusterIssuer (e.g. `letsencrypt-prod`) |
+| External CA issuer kind | `certManager.serverIssuerRef.kind` | `ClusterIssuer` (or `Issuer` for namespace-scoped) |
+| Route hostname (as cert SAN) | `certManager.serverDnsNames` | `[gw-<ns>.<base-domain>]` — must be externally resolvable |
+
+The chart validates this configuration at install time:
+- Fails if `openshiftRoute.enabled=true` and `server.disableTls=true` (passthrough requires the pod to terminate TLS)
+- Fails if `serverIssuerRef.name` is set but `serverDnsNames` is empty
+- Fails if `serverDnsNames` contains internal-only names (e.g. `localhost`, `*.svc.cluster.local`) when using an external issuer — ACME CAs reject these per CA/Browser Forum baseline requirements
+- Fails if `openshiftRoute.host` is set with `serverIssuerRef` but the host is not covered by `serverDnsNames`
 
 #### OpenShift Values (conditional)
 
@@ -346,6 +388,8 @@ The key constraints:
 | `HELM_CHART_PATH` | `/charts/openshell.tgz` | Path to embedded chart archive in the container |
 | `HELM_CHART_REGISTRY` | *(empty)* | OCI registry URL (dev only); when set, overrides `HELM_CHART_PATH` |
 | `HELM_CHART_VERSION` | *(empty)* | Chart version to pull from OCI registry; required when `HELM_CHART_REGISTRY` is set |
+| `EXTERNAL_CA_ISSUER_NAME` | *(empty)* | cert-manager issuer name for externally trusted certificates (e.g. `letsencrypt-prod`); required for Route passthrough mode |
+| `EXTERNAL_CA_ISSUER_KIND` | `ClusterIssuer` | Kind of the external CA issuer (`ClusterIssuer` or `Issuer`) |
 
 ---
 
