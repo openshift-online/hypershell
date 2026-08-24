@@ -93,7 +93,7 @@ Other parameters are passed through a pointer to a apiCreateFleetRequest struct 
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **fleet** | [**Fleet**](Fleet.md) | Fleet data |
+ **fleet** | [**Fleet**](Fleet.md) | Fleet data | 
 
 ### Return type
 
@@ -157,7 +157,7 @@ Other parameters are passed through a pointer to a apiCreateGatewayRequest struc
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **gatewayCreateRequest** | [**GatewayCreateRequest**](GatewayCreateRequest.md) | Gateway data |
+ **gatewayCreateRequest** | [**GatewayCreateRequest**](GatewayCreateRequest.md) | Gateway data | 
 
 ### Return type
 
@@ -221,7 +221,7 @@ Other parameters are passed through a pointer to a apiCreateGatewayNetworkReques
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **gatewayNetwork** | [**GatewayNetwork**](GatewayNetwork.md) | GatewayNetwork data |
+ **gatewayNetwork** | [**GatewayNetwork**](GatewayNetwork.md) | GatewayNetwork data | 
 
 ### Return type
 
@@ -285,7 +285,7 @@ Other parameters are passed through a pointer to a apiCreateGatewayReleaseReques
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **gatewayRelease** | [**GatewayRelease**](GatewayRelease.md) | GatewayRelease data |
+ **gatewayRelease** | [**GatewayRelease**](GatewayRelease.md) | GatewayRelease data | 
 
 ### Return type
 
@@ -325,7 +325,7 @@ import (
 
 func main() {
 	gatewayId := "gatewayId_example" // string | Selected Gateway ID
-	openShellGatewayServiceAccountCreateRequest := *openapiclient.NewOpenShellGatewayServiceAccountCreateRequest("Name_example") // OpenShellGatewayServiceAccountCreateRequest |
+	openShellGatewayServiceAccountCreateRequest := *openapiclient.NewOpenShellGatewayServiceAccountCreateRequest("Name_example") // OpenShellGatewayServiceAccountCreateRequest | 
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -345,7 +345,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**gatewayId** | **string** | Selected Gateway ID |
+**gatewayId** | **string** | Selected Gateway ID | 
 
 ### Other Parameters
 
@@ -355,7 +355,7 @@ Other parameters are passed through a pointer to a apiCreateGatewayServiceAccoun
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 
- **openShellGatewayServiceAccountCreateRequest** | [**OpenShellGatewayServiceAccountCreateRequest**](OpenShellGatewayServiceAccountCreateRequest.md) |  |
+ **openShellGatewayServiceAccountCreateRequest** | [**OpenShellGatewayServiceAccountCreateRequest**](OpenShellGatewayServiceAccountCreateRequest.md) |  | 
 
 ### Return type
 
@@ -419,7 +419,7 @@ Other parameters are passed through a pointer to a apiCreateManagedClusterReques
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **managedCluster** | [**ManagedCluster**](ManagedCluster.md) | ManagedCluster data |
+ **managedCluster** | [**ManagedCluster**](ManagedCluster.md) | ManagedCluster data | 
 
 ### Return type
 
@@ -483,7 +483,7 @@ Other parameters are passed through a pointer to a apiCreateManagedDatabaseReque
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **managedDatabase** | [**ManagedDatabase**](ManagedDatabase.md) | ManagedDatabase data |
+ **managedDatabase** | [**ManagedDatabase**](ManagedDatabase.md) | ManagedDatabase data | 
 
 ### Return type
 
@@ -547,7 +547,7 @@ Other parameters are passed through a pointer to a apiCreateRoleBindingRequest s
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **roleBinding** | [**RoleBinding**](RoleBinding.md) | Role binding data |
+ **roleBinding** | [**RoleBinding**](RoleBinding.md) | Role binding data | 
 
 ### Return type
 
@@ -604,7 +604,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -670,7 +670,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -736,7 +736,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -802,7 +802,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -871,8 +871,8 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**gatewayId** | **string** | Selected Gateway ID |
-**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID |
+**gatewayId** | **string** | Selected Gateway ID | 
+**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID | 
 
 ### Other Parameters
 
@@ -939,7 +939,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1005,7 +1005,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1071,7 +1071,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1139,7 +1139,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1207,7 +1207,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1275,7 +1275,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1343,7 +1343,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1412,8 +1412,8 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**gatewayId** | **string** | Selected Gateway ID |
-**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID |
+**gatewayId** | **string** | Selected Gateway ID | 
+**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID | 
 
 ### Other Parameters
 
@@ -1482,7 +1482,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1550,7 +1550,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1677,7 +1677,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1745,7 +1745,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -1824,9 +1824,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -1896,9 +1896,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -1968,9 +1968,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -2035,7 +2035,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**gatewayId** | **string** | Selected Gateway ID |
+**gatewayId** | **string** | Selected Gateway ID | 
 
 ### Other Parameters
 
@@ -2047,8 +2047,8 @@ Name | Type | Description  | Notes
 
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **status** | [**OpenShellGatewayServiceAccountStatus**](OpenShellGatewayServiceAccountStatus.md) |  |
- **search** | **string** | Specifies the search criteria |
+ **status** | [**OpenShellGatewayServiceAccountStatus**](OpenShellGatewayServiceAccountStatus.md) |  | 
+ **search** | **string** | Specifies the search criteria | 
  **sort** | **string** |  | [default to &quot;created_at&quot;]
  **order** | **string** |  | [default to &quot;desc&quot;]
 
@@ -2120,9 +2120,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -2192,9 +2192,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -2264,9 +2264,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -2336,9 +2336,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -2408,9 +2408,9 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
  **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria |
- **orderBy** | **string** | Specifies the order by criteria |
- **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
 
 ### Return type
 
@@ -2470,8 +2470,8 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**gatewayId** | **string** | Selected Gateway ID |
-**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID |
+**gatewayId** | **string** | Selected Gateway ID | 
+**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID | 
 
 ### Other Parameters
 
@@ -2541,7 +2541,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -2551,7 +2551,7 @@ Other parameters are passed through a pointer to a apiUpdateFleetRequest struct 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 
- **fleetPatchRequest** | [**FleetPatchRequest**](FleetPatchRequest.md) | Updated fleet data |
+ **fleetPatchRequest** | [**FleetPatchRequest**](FleetPatchRequest.md) | Updated fleet data | 
 
 ### Return type
 
@@ -2611,7 +2611,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -2621,7 +2621,7 @@ Other parameters are passed through a pointer to a apiUpdateGatewayRequest struc
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 
- **gatewayPatchRequest** | [**GatewayPatchRequest**](GatewayPatchRequest.md) | Updated gateway data |
+ **gatewayPatchRequest** | [**GatewayPatchRequest**](GatewayPatchRequest.md) | Updated gateway data | 
 
 ### Return type
 
@@ -2681,7 +2681,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -2691,7 +2691,7 @@ Other parameters are passed through a pointer to a apiUpdateGatewayNetworkReques
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 
- **gatewayNetworkPatchRequest** | [**GatewayNetworkPatchRequest**](GatewayNetworkPatchRequest.md) | Updated gatewayNetwork data |
+ **gatewayNetworkPatchRequest** | [**GatewayNetworkPatchRequest**](GatewayNetworkPatchRequest.md) | Updated gatewayNetwork data | 
 
 ### Return type
 
@@ -2751,7 +2751,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -2761,7 +2761,7 @@ Other parameters are passed through a pointer to a apiUpdateGatewayReleaseReques
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 
- **gatewayReleasePatchRequest** | [**GatewayReleasePatchRequest**](GatewayReleasePatchRequest.md) | Updated gatewayRelease data |
+ **gatewayReleasePatchRequest** | [**GatewayReleasePatchRequest**](GatewayReleasePatchRequest.md) | Updated gatewayRelease data | 
 
 ### Return type
 
@@ -2821,7 +2821,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -2831,7 +2831,7 @@ Other parameters are passed through a pointer to a apiUpdateManagedClusterReques
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 
- **managedClusterPatchRequest** | [**ManagedClusterPatchRequest**](ManagedClusterPatchRequest.md) | Updated managedCluster data |
+ **managedClusterPatchRequest** | [**ManagedClusterPatchRequest**](ManagedClusterPatchRequest.md) | Updated managedCluster data | 
 
 ### Return type
 
@@ -2891,7 +2891,7 @@ func main() {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
@@ -2901,7 +2901,7 @@ Other parameters are passed through a pointer to a apiUpdateManagedDatabaseReque
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 
- **managedDatabasePatchRequest** | [**ManagedDatabasePatchRequest**](ManagedDatabasePatchRequest.md) | Updated managedDatabase data |
+ **managedDatabasePatchRequest** | [**ManagedDatabasePatchRequest**](ManagedDatabasePatchRequest.md) | Updated managedDatabase data | 
 
 ### Return type
 
