@@ -131,6 +131,8 @@ The create operation SHALL provision the service-account client synchronously. T
 
 The internal provisioner SHALL use TLS with mutual certificate authentication. The API server SHALL receive a dedicated client certificate. It SHALL NOT receive the Keycloak administrator credential. The control plane SHALL reject callers that do not present the expected API-server identity.
 
+Both endpoints SHALL pick up rotated key pairs and rotated CA trust bundles without a process restart. When cert-manager rewrites a mounted leaf certificate or issuing-CA bundle in place, the next handshake SHALL use the new material: a client SHALL trust a server certificate signed by a newly rolled-over CA, and the server SHALL accept a client certificate signed by a newly rolled-over CA. This keeps the synchronous provisioning path available across certificate rotation.
+
 The API server SHALL NOT place the client secret on an asynchronous gRPC watch, event broker, controller work queue, or Kubernetes object. The internal response SHALL carry the secret only in memory. Browsers, CLIs, and BFFs SHALL never receive Keycloak administration credentials.
 
 ## Data Model

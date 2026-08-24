@@ -80,6 +80,43 @@ func TestServerCredentialsReloadRotatedCertificate(t *testing.T) {
 	}
 }
 
+func TestServerCredentialsReloadRotatedClientCA(t *testing.T) {
+	fixture := newTLSFixture(t)
+	serverCredentials, err := loadServerCredentials(TransportConfig{
+		Address:                  "127.0.0.1:9443",
+		CertificateFile:          fixture.serverCertFile,
+		KeyFile:                  fixture.serverKeyFile,
+		ClientCAFile:             fixture.caFile,
+		ExpectedClientCommonName: "hypershell-api-server",
+	})
+	if err != nil {
+		t.Fatalf("loadServerCredentials() error = %v", err)
+	}
+
+	// A client whose certificate is signed by a CA the server does not yet trust.
+	rotatedCACert, rotatedCAKey, rotatedCAPEM := newSigningCA(t, "rotated-client-ca")
+	rotatedClient := fixture.clientCredentialsSignedBy(t, rotatedCACert, rotatedCAKey, "hypershell-api-server", 101)
+	if serverErr, _ := performTLSHandshake(t, serverCredentials, rotatedClient); serverErr == nil {
+		t.Fatal("server accepted a client signed by an untrusted CA")
+	}
+
+	// Rotate the mounted client trust bundle in place, as cert-manager does when
+	// the client-issuing CA rolls over.
+	rotatedBundle := append(append([]byte{}, fixture.caPEM...), rotatedCAPEM...)
+	writeTestFile(t, fixture.caFile, rotatedBundle)
+	bumpModTime(t, fixture.caFile)
+
+	// Reuse the SAME credentials object; the reloaded bundle now trusts the new CA.
+	if serverErr, clientErr := performTLSHandshake(t, serverCredentials, rotatedClient); serverErr != nil || clientErr != nil {
+		t.Fatalf("rotated client CA handshake errors = server %v, client %v", serverErr, clientErr)
+	}
+	// The original client-issuing CA remains trusted through the union bundle.
+	original := fixture.clientCredentials(t, "hypershell-api-server")
+	if serverErr, clientErr := performTLSHandshake(t, serverCredentials, original); serverErr != nil || clientErr != nil {
+		t.Fatalf("original client CA handshake errors = server %v, client %v", serverErr, clientErr)
+	}
+}
+
 // serverLeafSerial completes a handshake and returns the serial number of the
 // leaf certificate the server presented, as observed by the client.
 func serverLeafSerial(t *testing.T, serverCredentials, clientCredentials credentials.TransportCredentials) string {
@@ -210,7 +247,15 @@ func newTLSFixture(t *testing.T) tlsFixture {
 
 func (f tlsFixture) clientCredentials(t *testing.T, commonName string) credentials.TransportCredentials {
 	t.Helper()
-	certPEM, keyPEM := signedCertificate(t, f.caCertificate, f.caKey, commonName, nil, x509.ExtKeyUsageClientAuth, 3)
+	return f.clientCredentialsSignedBy(t, f.caCertificate, f.caKey, commonName, 3)
+}
+
+// clientCredentialsSignedBy builds client credentials whose leaf is signed by an
+// arbitrary CA (to exercise client-CA rotation) while still trusting the fixture
+// CA for the server certificate.
+func (f tlsFixture) clientCredentialsSignedBy(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, commonName string, serial int64) credentials.TransportCredentials {
+	t.Helper()
+	certPEM, keyPEM := signedCertificate(t, caCert, caKey, commonName, nil, x509.ExtKeyUsageClientAuth, serial)
 	certificate, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		t.Fatalf("load client key pair: %v", err)
@@ -223,6 +268,31 @@ func (f tlsFixture) clientCredentials(t *testing.T, commonName string) credentia
 		MinVersion: tls.VersionTLS13, ServerName: "provisioner.test",
 		Certificates: []tls.Certificate{certificate}, RootCAs: roots,
 	})
+}
+
+// newSigningCA creates a self-signed CA usable to sign leaf certificates.
+func newSigningCA(t *testing.T, commonName string) (*x509.Certificate, *ecdsa.PrivateKey, []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+	now := time.Now().UTC()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: commonName},
+		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true,
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create CA certificate: %v", err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse CA certificate: %v", err)
+	}
+	return certificate, key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
 func signedCertificate(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, commonName string, dnsNames []string, usage x509.ExtKeyUsage, serial int64) ([]byte, []byte) {

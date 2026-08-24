@@ -104,6 +104,73 @@ func TestProvisionerClientCredentialsReloadRotatedCertificate(t *testing.T) {
 	}
 }
 
+func TestProvisionerClientCredentialsReloadRotatedServerCA(t *testing.T) {
+	ca := newTestCA(t)
+	directory := t.TempDir()
+	certFile := filepath.Join(directory, "tls.crt")
+	keyFile := filepath.Join(directory, "tls.key")
+	caFile := filepath.Join(directory, "ca.crt")
+	writeClientTestFile(t, caFile, ca.pemBytes)
+
+	certPEM, keyPEM := ca.sign(t, "hypershell-api-server", nil, x509.ExtKeyUsageClientAuth, 7)
+	writeClientTestFile(t, certFile, certPEM)
+	writeClientTestFile(t, keyFile, keyPEM)
+
+	clientCredentials, err := loadProvisionerClientCredentials(certFile, keyFile, caFile, "provisioner.test")
+	if err != nil {
+		t.Fatalf("loadProvisionerClientCredentials() error = %v", err)
+	}
+
+	// A server whose leaf is signed by a rotated CA the client does not yet trust.
+	// The server still trusts the client via the original CA pool.
+	rotatedCA := newTestCA(t)
+	rotatedServer := rotatedCA.serverTLSConfigTrusting(t, ca.pool)
+	if handshakeErr := attemptClientHandshake(t, clientCredentials, rotatedServer); handshakeErr == nil {
+		t.Fatal("client trusted a server signed by an unrotated CA")
+	}
+
+	// Rotate the mounted trust bundle in place, as cert-manager does when the
+	// server-issuing CA rolls over.
+	rotatedBundle := append(append([]byte{}, ca.pemBytes...), rotatedCA.pemBytes...)
+	writeClientTestFile(t, caFile, rotatedBundle)
+	bumpClientModTime(t, caFile)
+
+	// Reuse the SAME credentials object; the reloaded bundle now trusts the CA.
+	if handshakeErr := attemptClientHandshake(t, clientCredentials, rotatedServer); handshakeErr != nil {
+		t.Fatalf("client did not trust rotated server CA: %v", handshakeErr)
+	}
+}
+
+// attemptClientHandshake dials a TLS server and returns the client-side result
+// of the handshake so a rejected server certificate can be asserted.
+func attemptClientHandshake(t *testing.T, clientCredentials credentials.TransportCredentials, serverConfig *tls.Config) error {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for test handshake: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+	go func() {
+		serverConnection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = serverConnection.Close() }()
+		tlsConnection := tls.Server(serverConnection, serverConfig)
+		_ = tlsConnection.Handshake()
+	}()
+
+	clientConnection, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test handshake: %v", err)
+	}
+	defer func() { _ = clientConnection.Close() }()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	_, _, handshakeErr := clientCredentials.ClientHandshake(ctx, "provisioner.test", clientConnection)
+	return handshakeErr
+}
+
 // clientLeafSerialSeenByServer completes a handshake and returns the serial
 // number of the client leaf certificate the server observed.
 func clientLeafSerialSeenByServer(t *testing.T, clientCredentials credentials.TransportCredentials, serverConfig *tls.Config) string {
@@ -220,6 +287,14 @@ func (c *testCA) sign(t *testing.T, commonName string, dnsNames []string, usage 
 
 func (c *testCA) serverTLSConfig(t *testing.T) *tls.Config {
 	t.Helper()
+	return c.serverTLSConfigTrusting(t, c.pool)
+}
+
+// serverTLSConfigTrusting presents a server leaf signed by this CA while
+// trusting an explicit client CA pool, so a rotated server-issuing CA can be
+// exercised independently of the client's own identity.
+func (c *testCA) serverTLSConfigTrusting(t *testing.T, clientPool *x509.CertPool) *tls.Config {
+	t.Helper()
 	certPEM, keyPEM := c.sign(t, "hypershell-controller", []string{"provisioner.test"}, x509.ExtKeyUsageServerAuth, 500)
 	certificate, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
@@ -228,7 +303,7 @@ func (c *testCA) serverTLSConfig(t *testing.T) *tls.Config {
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{certificate},
-		ClientCAs:    c.pool,
+		ClientCAs:    clientPool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		// gRPC transport credentials enforce ALPN; advertise HTTP/2.
 		NextProtos: []string{"h2"},

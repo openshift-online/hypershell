@@ -65,6 +65,49 @@ func (r *certificateReloader) currentCertificate() (*tls.Certificate, error) {
 	return r.cached, nil
 }
 
+// caPoolReloader loads a PEM trust bundle from disk and reloads it whenever the
+// backing file changes. cert-manager rotates the mounted CA in place, so caching
+// by modification time lets a rotated issuing CA be trusted without a process
+// restart while avoiding a disk read on every TLS handshake.
+type caPoolReloader struct {
+	caFile string
+
+	mutex  sync.Mutex
+	cached *x509.CertPool
+	mtime  time.Time
+}
+
+func newCAPoolReloader(caFile string) *caPoolReloader {
+	return &caPoolReloader{caFile: caFile}
+}
+
+// currentPool returns the most recent trust bundle, reloading from disk when the
+// backing file has changed since the last load.
+func (r *caPoolReloader) currentPool() (*x509.CertPool, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	info, err := os.Stat(r.caFile)
+	if err != nil {
+		return nil, fmt.Errorf("stat CA %q: %w", r.caFile, err)
+	}
+	if r.cached != nil && info.ModTime().Equal(r.mtime) {
+		return r.cached, nil
+	}
+
+	pemBytes, err := os.ReadFile(r.caFile)
+	if err != nil {
+		return nil, fmt.Errorf("read CA %q: %w", r.caFile, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, fmt.Errorf("CA %q contains no certificates", r.caFile)
+	}
+	r.cached = pool
+	r.mtime = info.ModTime()
+	return pool, nil
+}
+
 type TransportConfig struct {
 	Address                  string
 	CertificateFile          string
@@ -111,22 +154,18 @@ func loadServerCredentials(config TransportConfig) (credentials.TransportCredent
 	if _, err := reloader.currentCertificate(); err != nil {
 		return nil, fmt.Errorf("load service-account provisioner server certificate: %w", err)
 	}
-	caPEM, err := os.ReadFile(config.ClientCAFile)
-	if err != nil {
-		return nil, fmt.Errorf("read service-account provisioner client CA: %w", err)
+	caReloader := newCAPoolReloader(config.ClientCAFile)
+	// Validate the client trust bundle eagerly so misconfiguration fails at startup.
+	if _, err := caReloader.currentPool(); err != nil {
+		return nil, fmt.Errorf("load service-account provisioner client CA: %w", err)
 	}
-	clientRoots := x509.NewCertPool()
-	if !clientRoots.AppendCertsFromPEM(caPEM) {
-		return nil, errors.New("service-account provisioner client CA contains no certificates")
-	}
-	return credentials.NewTLS(&tls.Config{
+	base := &tls.Config{
 		MinVersion: tls.VersionTLS13,
 		// GetCertificate reloads the rotated key pair per handshake; do not also
 		// set a static Certificates slice, which would be preferred over this.
 		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 			return reloader.currentCertificate()
 		},
-		ClientCAs:  clientRoots,
 		ClientAuth: tls.RequireAndVerifyClientCert,
 		VerifyConnection: func(state tls.ConnectionState) error {
 			if len(state.VerifiedChains) == 0 || len(state.VerifiedChains[0]) == 0 {
@@ -137,5 +176,19 @@ func loadServerCredentials(config TransportConfig) (credentials.TransportCredent
 			}
 			return nil
 		},
-	}), nil
+	}
+	// GetConfigForClient runs per handshake, so reloading ClientCAs here lets a
+	// rotated client-issuing CA be trusted without a process restart. The base
+	// config carries the reloading leaf certificate and identity check.
+	base.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+		clientRoots, err := caReloader.currentPool()
+		if err != nil {
+			return nil, fmt.Errorf("load service-account provisioner client CA: %w", err)
+		}
+		handshakeConfig := base.Clone()
+		handshakeConfig.GetConfigForClient = nil
+		handshakeConfig.ClientCAs = clientRoots
+		return handshakeConfig, nil
+	}
+	return credentials.NewTLS(base), nil
 }

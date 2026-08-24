@@ -66,6 +66,49 @@ func (r *certificateReloader) currentCertificate() (*tls.Certificate, error) {
 	return r.cached, nil
 }
 
+// caPoolReloader loads a PEM trust bundle from disk and reloads it whenever the
+// backing file changes. cert-manager rotates the mounted CA in place, so caching
+// by modification time lets a rotated issuing CA be trusted without a process
+// restart while avoiding a disk read on every TLS handshake.
+type caPoolReloader struct {
+	caFile string
+
+	mutex  sync.Mutex
+	cached *x509.CertPool
+	mtime  time.Time
+}
+
+func newCAPoolReloader(caFile string) *caPoolReloader {
+	return &caPoolReloader{caFile: caFile}
+}
+
+// currentPool returns the most recent trust bundle, reloading from disk when the
+// backing file has changed since the last load.
+func (r *caPoolReloader) currentPool() (*x509.CertPool, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	info, err := os.Stat(r.caFile)
+	if err != nil {
+		return nil, fmt.Errorf("stat CA %q: %w", r.caFile, err)
+	}
+	if r.cached != nil && info.ModTime().Equal(r.mtime) {
+		return r.cached, nil
+	}
+
+	pemBytes, err := os.ReadFile(r.caFile)
+	if err != nil {
+		return nil, fmt.Errorf("read CA %q: %w", r.caFile, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, fmt.Errorf("CA %q contains no certificates", r.caFile)
+	}
+	r.cached = pool
+	r.mtime = info.ModTime()
+	return pool, nil
+}
+
 type controlPlaneProvisioner struct {
 	client pb.OpenShellGatewayServiceAccountProvisionerServiceClient
 }
@@ -100,23 +143,46 @@ func loadProvisionerClientCredentials(certFile, keyFile, caFile, serverName stri
 	if _, err := reloader.currentCertificate(); err != nil {
 		return nil, fmt.Errorf("load control-plane provisioner client certificate: %w", err)
 	}
-	caPEM, err := os.ReadFile(caFile)
-	if err != nil {
-		return nil, fmt.Errorf("read control-plane provisioner CA: %w", err)
-	}
-	roots := x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(caPEM) {
-		return nil, errors.New("control-plane provisioner CA contains no certificates")
+	caReloader := newCAPoolReloader(caFile)
+	// Validate the trust bundle eagerly so misconfiguration fails at startup.
+	if _, err := caReloader.currentPool(); err != nil {
+		return nil, fmt.Errorf("load control-plane provisioner CA: %w", err)
 	}
 	return credentials.NewTLS(&tls.Config{
 		MinVersion: tls.VersionTLS13,
+		ServerName: serverName,
 		// GetClientCertificate reloads the rotated key pair per handshake; do not
 		// also set a static Certificates slice, which would take precedence.
 		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			return reloader.currentCertificate()
 		},
-		RootCAs:    roots,
-		ServerName: serverName,
+		// tls.Config exposes no per-handshake hook for RootCAs, so verify the
+		// server chain manually against a freshly reloaded trust bundle. This
+		// lets a rotated server-issuing CA be trusted without a process restart.
+		// InsecureSkipVerify disables only the built-in verification; the manual
+		// check below still enforces the chain and the server name.
+		InsecureSkipVerify: true,
+		VerifyConnection: func(state tls.ConnectionState) error {
+			roots, err := caReloader.currentPool()
+			if err != nil {
+				return fmt.Errorf("load control-plane provisioner CA: %w", err)
+			}
+			if len(state.PeerCertificates) == 0 {
+				return errors.New("control-plane provisioner presented no certificate")
+			}
+			intermediates := x509.NewCertPool()
+			for _, intermediate := range state.PeerCertificates[1:] {
+				intermediates.AddCert(intermediate)
+			}
+			if _, err := state.PeerCertificates[0].Verify(x509.VerifyOptions{
+				DNSName:       serverName,
+				Roots:         roots,
+				Intermediates: intermediates,
+			}); err != nil {
+				return fmt.Errorf("verify control-plane provisioner certificate: %w", err)
+			}
+			return nil
+		},
 	}), nil
 }
 
