@@ -110,7 +110,7 @@ func ReconcileGateway(
 		if opts.DeploymentDBNamespace == "" {
 			return fmt.Errorf("deployment database namespace is required for gateway database reconciliation in namespace %s", nsConfig.Name)
 		}
-		if err := copyDeploymentDatabaseCredentials(ctx, clientset, opts.DeploymentDBNamespace, nsConfig.Name); err != nil {
+		if err := reconcileDeploymentDatabaseCredentials(ctx, clientset, opts.DeploymentDBNamespace, nsConfig.Name); err != nil {
 			return fmt.Errorf("copy deployment database credentials to %s: %w", nsConfig.Name, err)
 		}
 	default:
