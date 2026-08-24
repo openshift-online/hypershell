@@ -85,3 +85,7 @@ export {
   ServiceAccountsPage,
   type ServiceAccountsPageProps,
 } from "./service-accounts/service-accounts-page";
+export type {
+  ServiceAccountLeaveDecision,
+  ServiceAccountLeaveGuard,
+} from "./service-accounts/service-account-create-dialog";

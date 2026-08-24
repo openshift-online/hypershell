@@ -4,9 +4,11 @@ import {
   type OpenShellGatewayServiceAccountListRequest,
   type OpenShellGatewayServiceAccountSortField,
   type OpenShellGatewayServiceAccountStatus,
+  type ServiceAccountLeaveGuard,
   toGatewayDetailTab,
 } from "@openshift-online/hypershell-gateway-management-ui";
-import { useParams, useSearchParams } from "react-router";
+import { useCallback, useEffect, useRef } from "react";
+import { useBlocker, useParams, useSearchParams } from "react-router";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(
@@ -84,10 +86,40 @@ export default function GatewayRoute() {
   const activeTab = toGatewayDetailTab(searchParams.get("tab"));
   const collectionState = serviceAccountCollectionState(searchParams);
 
+  // The one-time service-account client secret exists only in the mounted
+  // dialog view. Block in-app route navigation (Back/Forward, link clicks)
+  // while it is unsaved so it is not silently discarded. The guard object is
+  // owned by the dialog and surfaced through GatewayPage.
+  const leaveGuardRef = useRef<ServiceAccountLeaveGuard | null>(null);
+  const blocker = useBlocker(
+    useCallback(() => leaveGuardRef.current?.shouldBlock() ?? false, []),
+  );
+  useEffect(() => {
+    if (blocker.state !== "blocked") {
+      return;
+    }
+    const guard = leaveGuardRef.current;
+    if (!guard?.shouldBlock()) {
+      blocker.proceed();
+      return;
+    }
+    guard.confirmLeave({
+      onCancel: () => {
+        blocker.reset();
+      },
+      onConfirm: () => {
+        blocker.proceed();
+      },
+    });
+  }, [blocker]);
+
   return (
     <GatewayPage
       activeTab={activeTab}
       gatewayId={gatewayId}
+      onLeaveGuardChange={(guard) => {
+        leaveGuardRef.current = guard;
+      }}
       serviceAccountCollectionState={collectionState}
       onServiceAccountCollectionStateChange={(state, reason) => {
         setSearchParams(

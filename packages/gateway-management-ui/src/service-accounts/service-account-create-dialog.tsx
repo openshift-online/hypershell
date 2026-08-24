@@ -23,14 +23,7 @@ import {
   TextInput,
 } from "@patternfly/react-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { useIntl } from "react-intl";
 import { z } from "zod";
@@ -47,13 +40,28 @@ import { serviceAccountListQueryRoot } from "./service-account-data";
 import { ServiceAccountSetupView } from "./service-account-setup";
 
 /**
- * Consulted before an in-app navigation (such as a detail tab switch) unmounts
- * this dialog. When a create mutation is pending or a one-time secret has not
- * been acknowledged, the guard defers the navigation, shows the loss
- * confirmation, and resumes `proceed` only if the user confirms the loss.
- * Returns `true` when navigation may proceed immediately.
+ * How a deferred navigation resolves once the user answers the loss
+ * confirmation: `onConfirm` resumes it, `onCancel` abandons it (and, for a
+ * router-level blocker, must reset the blocker so future navigation still works).
  */
-export type ServiceAccountLeaveGuard = (proceed: () => void) => boolean;
+export interface ServiceAccountLeaveDecision {
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+/**
+ * Consulted before any navigation that would unmount this dialog: an in-app tab
+ * switch, a SPA route change, or browser Back/Forward. `shouldBlock` is a pure,
+ * side-effect-free predicate (a create mutation is pending, or a one-time secret
+ * has not been acknowledged) so a router blocker may call it repeatedly.
+ * `confirmLeave` surfaces the loss confirmation and resolves the deferred
+ * navigation through the supplied decision. The browser's native prompt still
+ * covers full-page reload and tab close independently.
+ */
+export interface ServiceAccountLeaveGuard {
+  confirmLeave: (decision: ServiceAccountLeaveDecision) => void;
+  shouldBlock: () => boolean;
+}
 
 interface ServiceAccountFormValues {
   description: string;
@@ -221,7 +229,7 @@ export function ServiceAccountCreateDialog({
   const isProtected =
     creation.isPending || (handoff !== undefined && !isAcknowledged);
   const isProtectedRef = useRef(isProtected);
-  const pendingLeaveRef = useRef<(() => void) | null>(null);
+  const pendingLeaveRef = useRef<ServiceAccountLeaveDecision | null>(null);
   useEffect(() => {
     isProtectedRef.current = isProtected;
   }, [isProtected]);
@@ -242,26 +250,30 @@ export function ServiceAccountCreateDialog({
     };
   }, [isProtected]);
 
-  // In-app navigation (switching detail tabs) unmounts this dialog without ever
-  // reaching requestClose. Register a guard so the host can defer the switch,
-  // surface the existing loss confirmation, and resume only on confirmation.
-  const requestLeave = useCallback<ServiceAccountLeaveGuard>((proceed) => {
-    if (isProtectedRef.current) {
-      pendingLeaveRef.current = proceed;
-      setIsConfirmingLoss(true);
-      return false;
-    }
-    return true;
-  }, []);
+  // In-app navigation (a detail tab switch, a SPA route change, or browser
+  // Back/Forward) unmounts this dialog without ever reaching requestClose.
+  // Publish a guard so the host tab switcher and the route-level blocker can
+  // both defer the navigation, surface the existing loss confirmation, and
+  // resolve only on the user's answer.
+  const leaveGuard = useMemo<ServiceAccountLeaveGuard>(
+    () => ({
+      confirmLeave: (decision) => {
+        pendingLeaveRef.current = decision;
+        setIsConfirmingLoss(true);
+      },
+      shouldBlock: () => isProtectedRef.current,
+    }),
+    [],
+  );
   useEffect(() => {
     if (!registerLeaveGuard) {
       return;
     }
-    registerLeaveGuard(requestLeave);
+    registerLeaveGuard(leaveGuard);
     return () => {
       registerLeaveGuard(null);
     };
-  }, [registerLeaveGuard, requestLeave]);
+  }, [registerLeaveGuard, leaveGuard]);
 
   const clearAndClose = () => {
     setHandoff(undefined);
@@ -591,10 +603,10 @@ export function ServiceAccountCreateDialog({
           <>
             <Button
               onClick={() => {
-                const proceed = pendingLeaveRef.current;
+                const decision = pendingLeaveRef.current;
                 pendingLeaveRef.current = null;
                 clearAndClose();
-                proceed?.();
+                decision?.onConfirm();
               }}
               variant="danger"
             >
@@ -602,8 +614,10 @@ export function ServiceAccountCreateDialog({
             </Button>
             <Button
               onClick={() => {
+                const decision = pendingLeaveRef.current;
                 pendingLeaveRef.current = null;
                 setIsConfirmingLoss(false);
+                decision?.onCancel();
               }}
               variant="link"
             >

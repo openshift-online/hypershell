@@ -521,6 +521,7 @@ export interface GatewayPageProps {
   gateway?: GatewayRecord;
   gatewayId: string;
   onDeleted?: (gatewayName: string) => Promise<void> | void;
+  onLeaveGuardChange?: (guard: ServiceAccountLeaveGuard | null) => void;
   onServiceAccountCollectionStateChange?: (
     state: OpenShellGatewayServiceAccountListRequest,
     reason: ResourceTableStateChangeReason,
@@ -534,6 +535,7 @@ export function GatewayPage({
   gateway,
   gatewayId,
   onDeleted,
+  onLeaveGuardChange,
   onServiceAccountCollectionStateChange,
   onTabChange,
   serviceAccountCollectionState,
@@ -545,13 +547,16 @@ export function GatewayPage({
   const currentTab = activeTab ?? localTab;
   // The service-accounts tab may register a guard while it holds an
   // unrecoverable one-time secret. Consulting it here prevents a tab switch from
-  // silently unmounting the dialog and discarding that secret.
+  // silently unmounting the dialog and discarding that secret. The same guard is
+  // forwarded to the host (via onLeaveGuardChange) so a route-level blocker can
+  // also intercept SPA route changes and browser Back/Forward.
   const leaveGuardRef = useRef<ServiceAccountLeaveGuard | null>(null);
   const registerLeaveGuard = useCallback(
     (guard: ServiceAccountLeaveGuard | null) => {
       leaveGuardRef.current = guard;
+      onLeaveGuardChange?.(guard);
     },
-    [],
+    [onLeaveGuardChange],
   );
   const changeTab = (tab: GatewayDetailTab) => {
     const applyTab = () => {
@@ -562,7 +567,10 @@ export function GatewayPage({
       }
     };
     const guard = leaveGuardRef.current;
-    if (tab !== currentTab && guard && !guard(applyTab)) {
+    if (tab !== currentTab && guard?.shouldBlock()) {
+      // Cancelling keeps the current tab, so there is nothing to undo.
+      const keepCurrentTab = () => undefined;
+      guard.confirmLeave({ onCancel: keepCurrentTab, onConfirm: applyTab });
       return;
     }
     applyTab();
