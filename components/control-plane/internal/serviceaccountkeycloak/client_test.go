@@ -379,25 +379,57 @@ func reconcileSpec() ServiceAccountSpec {
 	}
 }
 
-// convergedReconcileHandler serves a Keycloak realm whose managed client already
-// matches the desired user-role reconciliation state.
-func convergedReconcileHandler(t *testing.T, writes *[]string) http.HandlerFunc {
+// convergedClientRepresentation is the canonical least-privilege Keycloak client
+// representation for the reconcile spec. Every security-relevant field the
+// convergence predicate inspects is pinned here so a drift test can flip exactly
+// one field and prove it forces repair.
+func convergedClientRepresentation() map[string]any {
+	return map[string]any{
+		"id": "service-uuid", "clientId": "hs-sa-gateway-id-resource-id", "name": "deploy bot", "enabled": true,
+		"publicClient": false, "serviceAccountsEnabled": true,
+		"standardFlowEnabled": false, "implicitFlowEnabled": false,
+		"directAccessGrantsEnabled": false, "authorizationServicesEnabled": false,
+		"fullScopeAllowed": false,
+		"redirectUris":     []string{}, "webOrigins": []string{},
+		"defaultClientScopes": []string{}, "optionalClientScopes": []string{},
+		"attributes": map[string]string{
+			managedAttribute: "true", gatewayIDAttribute: "gateway-id", serviceAccountIDAttribute: "resource-id",
+			creatorUserIDAttribute: "creator-id", accessTokenLifespanAttribute: "300", clientRefreshTokenAttribute: "false",
+			deviceGrantAttribute: "false", cibaGrantAttribute: "false",
+		},
+	}
+}
+
+// convergedProtocolMappers is the canonical mapper set for the reconcile spec.
+func convergedProtocolMappers() []map[string]any {
+	return []map[string]any{
+		{"name": "gateway-audience", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{"included.client.audience": "gateway-client", "access.token.claim": "true"}},
+		{"name": "gateway-client-roles", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{"usermodel.clientRoleMapping.clientId": "gateway-client", "claim.name": "hypershell.roles"}},
+	}
+}
+
+// reconcileHandler serves a Keycloak realm whose managed client and mappers are
+// described by clientRep and mappers, letting a caller pass the converged
+// representation or one drifted field. Every mutation is recorded in writes and
+// answered with success so the repair path can run to completion.
+func reconcileHandler(t *testing.T, clientRep map[string]any, mappers []map[string]any, writes *[]string) http.HandlerFunc {
 	t.Helper()
+	convergedMappings := map[string]any{
+		"realmMappings": []kcRole{},
+		"clientMappings": map[string]any{
+			"gateway-client": map[string]any{"id": "gateway-uuid", "mappings": []kcRole{{ID: "user-id", Name: RoleUser}}},
+		},
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut || r.Method == http.MethodPost && r.URL.Path != "/realms/realm/protocol/openid-connect/token" || r.Method == http.MethodDelete {
+		isTokenRequest := r.URL.Path == "/realms/realm/protocol/openid-connect/token"
+		if !isTokenRequest && (r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete) {
 			*writes = append(*writes, r.Method+" "+r.URL.Path)
 		}
 		switch {
-		case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+		case isTokenRequest:
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
 		case r.URL.Path == "/admin/realms/realm/clients/service-uuid" && r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id": "service-uuid", "clientId": "hs-sa-gateway-id-resource-id", "name": "deploy bot", "enabled": true,
-				"attributes": map[string]string{
-					managedAttribute: "true", gatewayIDAttribute: "gateway-id", serviceAccountIDAttribute: "resource-id",
-					creatorUserIDAttribute: "creator-id", accessTokenLifespanAttribute: "300", clientRefreshTokenAttribute: "false",
-				},
-			})
+			_ = json.NewEncoder(w).Encode(clientRep)
 		case r.URL.Path == "/admin/realms/realm/clients" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode([]kcClient{{ID: "gateway-uuid", ClientID: "gateway-client"}})
 		case r.URL.Path == "/admin/realms/realm/clients/gateway-uuid/roles":
@@ -405,24 +437,17 @@ func convergedReconcileHandler(t *testing.T, writes *[]string) http.HandlerFunc 
 		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/service-account-user":
 			_ = json.NewEncoder(w).Encode(kcUser{ID: "service-subject"})
 		case r.URL.Path == "/admin/realms/realm/users/service-subject/role-mappings" && r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"realmMappings": []kcRole{},
-				"clientMappings": map[string]any{
-					"gateway-client": map[string]any{"id": "gateway-uuid", "mappings": []kcRole{{ID: "user-id", Name: RoleUser}}},
-				},
-			})
+			_ = json.NewEncoder(w).Encode(convergedMappings)
 		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/scope-mappings" && r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"realmMappings": []kcRole{},
-				"clientMappings": map[string]any{
-					"gateway-client": map[string]any{"id": "gateway-uuid", "mappings": []kcRole{{ID: "user-id", Name: RoleUser}}},
-				},
-			})
+			_ = json.NewEncoder(w).Encode(convergedMappings)
 		case r.URL.Path == "/admin/realms/realm/clients/service-uuid/protocol-mappers/models" && r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode([]map[string]any{
-				{"name": "gateway-audience", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{"included.client.audience": "gateway-client", "access.token.claim": "true"}},
-				{"name": "gateway-client-roles", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{"usermodel.clientRoleMapping.clientId": "gateway-client", "claim.name": "hypershell.roles"}},
-			})
+			_ = json.NewEncoder(w).Encode(mappers)
+		case r.Method == http.MethodPut || r.Method == http.MethodDelete:
+			// Fail-closed disable, representation repair, and mapping/mapper deletes
+			// all succeed so a drifted reconcile can complete.
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
 		default:
 			http.Error(w, fmt.Sprintf("unexpected %s %s", r.Method, r.URL.Path), http.StatusNotFound)
 		}
@@ -431,7 +456,7 @@ func convergedReconcileHandler(t *testing.T, writes *[]string) http.HandlerFunc 
 
 func TestReconcileServiceAccountPerformsNoWritesWhenConverged(t *testing.T) {
 	var writes []string
-	server := httptest.NewServer(convergedReconcileHandler(t, &writes))
+	server := httptest.NewServer(reconcileHandler(t, convergedClientRepresentation(), convergedProtocolMappers(), &writes))
 	t.Cleanup(server.Close)
 	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
 	if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
@@ -440,6 +465,74 @@ func TestReconcileServiceAccountPerformsNoWritesWhenConverged(t *testing.T) {
 	if len(writes) != 0 {
 		t.Fatalf("converged reconciliation performed writes: %v", writes)
 	}
+}
+
+func TestReconcileServiceAccountRepairsSecurityBroadeningDrift(t *testing.T) {
+	// Each case flips exactly one security-relevant field on an otherwise
+	// converged client. The zero-write predicate must reject every one of them so
+	// the fail-closed disable-and-repair path runs; a missed field would let the
+	// broadening drift persist as "converged".
+	for _, tc := range []struct {
+		name   string
+		mutate func(rep map[string]any)
+	}{
+		{name: "full scope allowed", mutate: func(rep map[string]any) { rep["fullScopeAllowed"] = true }},
+		{name: "public client", mutate: func(rep map[string]any) { rep["publicClient"] = true }},
+		{name: "service accounts disabled", mutate: func(rep map[string]any) { rep["serviceAccountsEnabled"] = false }},
+		{name: "standard flow enabled", mutate: func(rep map[string]any) { rep["standardFlowEnabled"] = true }},
+		{name: "direct access grants enabled", mutate: func(rep map[string]any) { rep["directAccessGrantsEnabled"] = true }},
+		{name: "redirect origin added", mutate: func(rep map[string]any) { rep["redirectUris"] = []string{"https://attacker.example"} }},
+		{name: "default client scope injected", mutate: func(rep map[string]any) { rep["defaultClientScopes"] = []string{"rogue-scope"} }},
+		{name: "device grant enabled", mutate: func(rep map[string]any) {
+			rep["attributes"].(map[string]string)[deviceGrantAttribute] = "true"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := convergedClientRepresentation()
+			tc.mutate(rep)
+			var writes []string
+			server := httptest.NewServer(reconcileHandler(t, rep, convergedProtocolMappers(), &writes))
+			t.Cleanup(server.Close)
+			client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+			if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
+				t.Fatalf("ReconcileServiceAccount() error = %v", err)
+			}
+			if !containsWrite(writes, http.MethodPut, "/admin/realms/realm/clients/service-uuid") {
+				t.Fatalf("drift was accepted as converged; writes = %v", writes)
+			}
+		})
+	}
+}
+
+func TestReconcileServiceAccountRepairsInjectedTokenAudience(t *testing.T) {
+	// A gateway-audience mapper that also carries a free-form custom audience adds
+	// an unrelated gateway to the token. Convergence must reject it and repair.
+	mappers := convergedProtocolMappers()
+	mappers[0]["config"] = map[string]string{
+		"included.client.audience": "gateway-client",
+		"included.custom.audience": "another-gateway",
+		"access.token.claim":       "true",
+	}
+	var writes []string
+	server := httptest.NewServer(reconcileHandler(t, convergedClientRepresentation(), mappers, &writes))
+	t.Cleanup(server.Close)
+	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+	if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
+		t.Fatalf("ReconcileServiceAccount() error = %v", err)
+	}
+	if !containsWrite(writes, http.MethodPut, "/admin/realms/realm/clients/service-uuid") {
+		t.Fatalf("injected audience was accepted as converged; writes = %v", writes)
+	}
+}
+
+func containsWrite(writes []string, method, path string) bool {
+	target := method + " " + path
+	for _, write := range writes {
+		if write == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestReconcileServiceAccountRepairsDriftedRoles(t *testing.T) {

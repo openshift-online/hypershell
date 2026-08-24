@@ -29,6 +29,8 @@ const (
 	creatorUserIDAttribute         = "hypershell.creator-user-id"
 	accessTokenLifespanAttribute   = "access.token.lifespan"
 	clientRefreshTokenAttribute    = "client_credentials.use_refresh_token"
+	deviceGrantAttribute           = "oauth2.device.authorization.grant.enabled"
+	cibaGrantAttribute             = "oidc.ciba.grant.enabled"
 	defaultAccessTokenLifetimeSecs = 300
 )
 
@@ -105,11 +107,22 @@ func (c *Client) Configured() bool {
 func (c *Client) issuer() string { return fmt.Sprintf("%s/realms/%s", c.serverURL, c.realm) }
 
 type kcClient struct {
-	ID         string            `json:"id,omitempty"`
-	ClientID   string            `json:"clientId"`
-	Name       string            `json:"name,omitempty"`
-	Enabled    bool              `json:"enabled"`
-	Attributes map[string]string `json:"attributes,omitempty"`
+	ID                           string            `json:"id,omitempty"`
+	ClientID                     string            `json:"clientId"`
+	Name                         string            `json:"name,omitempty"`
+	Enabled                      bool              `json:"enabled"`
+	PublicClient                 bool              `json:"publicClient"`
+	ServiceAccountsEnabled       bool              `json:"serviceAccountsEnabled"`
+	StandardFlowEnabled          bool              `json:"standardFlowEnabled"`
+	ImplicitFlowEnabled          bool              `json:"implicitFlowEnabled"`
+	DirectAccessGrantsEnabled    bool              `json:"directAccessGrantsEnabled"`
+	AuthorizationServicesEnabled bool              `json:"authorizationServicesEnabled"`
+	FullScopeAllowed             bool              `json:"fullScopeAllowed"`
+	RedirectURIs                 []string          `json:"redirectUris"`
+	WebOrigins                   []string          `json:"webOrigins"`
+	DefaultClientScopes          []string          `json:"defaultClientScopes"`
+	OptionalClientScopes         []string          `json:"optionalClientScopes"`
+	Attributes                   map[string]string `json:"attributes,omitempty"`
 }
 
 type kcRole struct {
@@ -239,6 +252,23 @@ func (c *Client) reconcileConverged(ctx context.Context, spec ServiceAccountSpec
 	if client.ClientID != spec.ClientID || client.Name != spec.DisplayName || client.Enabled != enabled {
 		return false, nil
 	}
+	// Every security-relevant field that createServiceAccountClient and
+	// updateRepresentation pin to a least-privilege value must be inspected here.
+	// A field that repair controls but this predicate ignores would let
+	// security-broadening drift survive as "converged" and skip repair: a flipped
+	// fullScopeAllowed leaks every realm role into the token, an enabled
+	// interactive/device grant or public-client downgrade widens the authorized
+	// flows, and a rogue redirect origin or injected client scope broadens token
+	// contents. Any divergence therefore fails closed toward the repair path.
+	if client.PublicClient || !client.ServiceAccountsEnabled || client.StandardFlowEnabled ||
+		client.ImplicitFlowEnabled || client.DirectAccessGrantsEnabled ||
+		client.AuthorizationServicesEnabled || client.FullScopeAllowed {
+		return false, nil
+	}
+	if len(client.RedirectURIs) > 0 || len(client.WebOrigins) > 0 ||
+		len(client.DefaultClientScopes) > 0 || len(client.OptionalClientScopes) > 0 {
+		return false, nil
+	}
 	lifetime := spec.AccessTokenLifetimeSeconds
 	if lifetime == 0 {
 		lifetime = defaultAccessTokenLifetimeSecs
@@ -247,6 +277,7 @@ func (c *Client) reconcileConverged(ctx context.Context, spec ServiceAccountSpec
 		managedAttribute: "true", gatewayIDAttribute: spec.GatewayID,
 		serviceAccountIDAttribute: spec.ServiceAccountID, creatorUserIDAttribute: spec.CreatorUserID,
 		accessTokenLifespanAttribute: fmt.Sprint(lifetime), clientRefreshTokenAttribute: "false",
+		deviceGrantAttribute: "false", cibaGrantAttribute: "false",
 	}
 	for key, value := range wantAttributes {
 		if client.Attributes[key] != value {
@@ -348,8 +379,13 @@ func (c *Client) protocolMappersConverged(ctx context.Context, clientUUID, gatew
 	for _, mapper := range current {
 		switch mapper.Name {
 		case "gateway-audience":
+			// included.custom.audience must be absent: an audience mapper carrying
+			// both the gateway client audience and a free-form custom audience adds
+			// an unrelated gateway to the token, which is exactly the cross-gateway
+			// leakage repair must remove.
 			if mapper.ProtocolMapper != "oidc-audience-mapper" ||
 				mapper.Config["included.client.audience"] != gatewayClientID ||
+				mapper.Config["included.custom.audience"] != "" ||
 				mapper.Config["access.token.claim"] != "true" {
 				return false, nil
 			}
@@ -578,7 +614,7 @@ func (c *Client) createServiceAccountClient(ctx context.Context, spec ServiceAcc
 			managedAttribute: "true", gatewayIDAttribute: spec.GatewayID,
 			serviceAccountIDAttribute: spec.ServiceAccountID, creatorUserIDAttribute: spec.CreatorUserID,
 			accessTokenLifespanAttribute: fmt.Sprint(lifetime), clientRefreshTokenAttribute: "false",
-			"oauth2.device.authorization.grant.enabled": "false", "oidc.ciba.grant.enabled": "false",
+			deviceGrantAttribute: "false", cibaGrantAttribute: "false",
 		},
 	}
 	body, _ := json.Marshal(payload)
@@ -616,7 +652,7 @@ func (c *Client) updateRepresentation(ctx context.Context, uuid string, spec Ser
 			managedAttribute: "true", gatewayIDAttribute: spec.GatewayID,
 			serviceAccountIDAttribute: spec.ServiceAccountID, creatorUserIDAttribute: spec.CreatorUserID,
 			accessTokenLifespanAttribute: fmt.Sprint(lifetime), clientRefreshTokenAttribute: "false",
-			"oauth2.device.authorization.grant.enabled": "false", "oidc.ciba.grant.enabled": "false",
+			deviceGrantAttribute: "false", cibaGrantAttribute: "false",
 		},
 	}
 	body, _ := json.Marshal(payload)
