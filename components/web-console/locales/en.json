@@ -551,6 +551,10 @@
     "defaultMessage": "Setup commands are unavailable because required connection metadata is missing.",
     "description": "Explanation when a complete command cannot be generated."
   },
+  "app.gateway.serviceAccounts.status.degraded": {
+    "defaultMessage": "Degraded",
+    "description": "Status for a previously-ready service account whose reconciliation failed part-way and is being repaired."
+  },
   "app.gateway.serviceAccounts.status.deleting": {
     "defaultMessage": "Deleting",
     "description": "Status while a service account is being deleted."

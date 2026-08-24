@@ -59,6 +59,7 @@ function serviceAccountStatusLabel(
   status: OpenShellGatewayServiceAccountStatus,
 ): string {
   const descriptor = {
+    degraded: messages.serviceAccountStatusDegraded,
     deleting: messages.serviceAccountStatusDeleting,
     error: messages.serviceAccountStatusError,
     expired: messages.serviceAccountStatusExpired,

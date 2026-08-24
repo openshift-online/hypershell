@@ -6,7 +6,12 @@ import type {
 export const serviceAccountSearchDebounceMilliseconds = 300;
 export const serviceAccountStatusPollMilliseconds = 5_000;
 
-const transitionalStatuses = new Set(["deleting", "provisioning", "revoking"]);
+const transitionalStatuses = new Set([
+  "degraded",
+  "deleting",
+  "provisioning",
+  "revoking",
+]);
 
 export function serviceAccountNeedsPolling(
   account: Pick<OpenShellGatewayServiceAccountRecord, "status">,

@@ -583,6 +583,12 @@ export const messages = defineMessages({
     defaultMessage: "Error",
     description: "Status for a service account that needs replacement.",
   },
+  serviceAccountStatusDegraded: {
+    id: "app.gateway.serviceAccounts.status.degraded",
+    defaultMessage: "Degraded",
+    description:
+      "Status for a previously-ready service account whose reconciliation failed part-way and is being repaired.",
+  },
   expiration: {
     id: "app.gateway.serviceAccounts.expiration",
     defaultMessage: "Expiration",

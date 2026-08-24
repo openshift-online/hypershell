@@ -73,6 +73,7 @@ export type OpenShellGatewayServiceAccountRole =
   "openshell-admin" | "openshell-user";
 
 export type OpenShellGatewayServiceAccountStatus =
+  | "degraded"
   | "deleting"
   | "error"
   | "expired"
