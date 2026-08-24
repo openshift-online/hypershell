@@ -386,6 +386,7 @@ func reconcileSpec() ServiceAccountSpec {
 func convergedClientRepresentation() map[string]any {
 	return map[string]any{
 		"id": "service-uuid", "clientId": "hs-sa-gateway-id-resource-id", "name": "deploy bot", "enabled": true,
+		"protocol": "openid-connect", "clientAuthenticatorType": "client-secret",
 		"publicClient": false, "serviceAccountsEnabled": true,
 		"standardFlowEnabled": false, "implicitFlowEnabled": false,
 		"directAccessGrantsEnabled": false, "authorizationServicesEnabled": false,
@@ -403,8 +404,13 @@ func convergedClientRepresentation() map[string]any {
 // convergedProtocolMappers is the canonical mapper set for the reconcile spec.
 func convergedProtocolMappers() []map[string]any {
 	return []map[string]any{
-		{"name": "gateway-audience", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{"included.client.audience": "gateway-client", "access.token.claim": "true"}},
-		{"name": "gateway-client-roles", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{"usermodel.clientRoleMapping.clientId": "gateway-client", "claim.name": "hypershell.roles"}},
+		{"name": "gateway-audience", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{
+			"included.client.audience": "gateway-client", "id.token.claim": "false", "access.token.claim": "true",
+		}},
+		{"name": "gateway-client-roles", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{
+			"usermodel.clientRoleMapping.clientId": "gateway-client", "claim.name": "hypershell.roles",
+			"multivalued": "true", "jsonType.label": "String", "id.token.claim": "false", "access.token.claim": "true",
+		}},
 	}
 }
 
@@ -486,6 +492,8 @@ func TestReconcileServiceAccountRepairsSecurityBroadeningDrift(t *testing.T) {
 		{name: "device grant enabled", mutate: func(rep map[string]any) {
 			rep["attributes"].(map[string]string)[deviceGrantAttribute] = "true"
 		}},
+		{name: "client authenticator changed", mutate: func(rep map[string]any) { rep["clientAuthenticatorType"] = "client-jwt" }},
+		{name: "protocol changed", mutate: func(rep map[string]any) { rep["protocol"] = "saml" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rep := convergedClientRepresentation()
@@ -522,6 +530,38 @@ func TestReconcileServiceAccountRepairsInjectedTokenAudience(t *testing.T) {
 	}
 	if !containsWrite(writes, http.MethodPut, "/admin/realms/realm/clients/service-uuid") {
 		t.Fatalf("injected audience was accepted as converged; writes = %v", writes)
+	}
+}
+
+func TestReconcileServiceAccountRepairsDriftedRoleClaim(t *testing.T) {
+	// The gateway-client-roles mapper carries behavior-bearing config beyond its
+	// client id and claim name. Each case corrupts exactly one value on an
+	// otherwise converged mapper set; convergence must reject it and repair so the
+	// gateway keeps receiving the full, correctly typed set of roles.
+	for _, tc := range []struct {
+		name   string
+		mutate func(config map[string]string)
+	}{
+		{name: "access token claim dropped", mutate: func(config map[string]string) { config["access.token.claim"] = "false" }},
+		{name: "roles collapsed to single value", mutate: func(config map[string]string) { config["multivalued"] = "false" }},
+		{name: "wrong json type", mutate: func(config map[string]string) { config["jsonType.label"] = "int" }},
+		{name: "leaked into id token", mutate: func(config map[string]string) { config["id.token.claim"] = "true" }},
+		{name: "required value removed", mutate: func(config map[string]string) { delete(config, "multivalued") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mappers := convergedProtocolMappers()
+			tc.mutate(mappers[1]["config"].(map[string]string))
+			var writes []string
+			server := httptest.NewServer(reconcileHandler(t, convergedClientRepresentation(), mappers, &writes))
+			t.Cleanup(server.Close)
+			client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+			if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
+				t.Fatalf("ReconcileServiceAccount() error = %v", err)
+			}
+			if !containsWrite(writes, http.MethodPut, "/admin/realms/realm/clients/service-uuid") {
+				t.Fatalf("role-claim drift was accepted as converged; writes = %v", writes)
+			}
+		})
 	}
 }
 

@@ -110,6 +110,8 @@ type kcClient struct {
 	ID                           string            `json:"id,omitempty"`
 	ClientID                     string            `json:"clientId"`
 	Name                         string            `json:"name,omitempty"`
+	Protocol                     string            `json:"protocol,omitempty"`
+	ClientAuthenticatorType      string            `json:"clientAuthenticatorType,omitempty"`
 	Enabled                      bool              `json:"enabled"`
 	PublicClient                 bool              `json:"publicClient"`
 	ServiceAccountsEnabled       bool              `json:"serviceAccountsEnabled"`
@@ -252,6 +254,14 @@ func (c *Client) reconcileConverged(ctx context.Context, spec ServiceAccountSpec
 	if client.ClientID != spec.ClientID || client.Name != spec.DisplayName || client.Enabled != enabled {
 		return false, nil
 	}
+	// protocol and clientAuthenticatorType are behavior-bearing and pinned by
+	// repair: a switch away from openid-connect changes token issuance entirely,
+	// and a changed authenticator type (for example to client-jwt or client-x509)
+	// changes how the client authenticates and can strand the issued secret. Repair
+	// controls both, so drift on either must fail closed to the repair path.
+	if client.Protocol != "openid-connect" || client.ClientAuthenticatorType != "client-secret" {
+		return false, nil
+	}
 	// Every security-relevant field that createServiceAccountClient and
 	// updateRepresentation pin to a least-privilege value must be inspected here.
 	// A field that repair controls but this predicate ignores would let
@@ -356,6 +366,60 @@ func (c *Client) scopeMappingsConverged(ctx context.Context, clientUUID, gateway
 	return mappingsConverged(current, gatewayUUID, roles), nil
 }
 
+// managedProtocolMapper is one protocol mapper HyperShell pins on a managed
+// service-account client. Every config entry is a required value.
+type managedProtocolMapper struct {
+	name           string
+	protocolMapper string
+	config         map[string]string
+}
+
+// managedProtocolMappers returns the exact protocol mappers HyperShell pins on a
+// managed service-account client. Repair (replaceProtocolMappers) writes these
+// and convergence (protocolMappersConverged) compares against them, so a single
+// definition keeps the two in lockstep: no behavior-bearing mapper config value
+// can drift while still reading as converged.
+func managedProtocolMappers(gatewayClientID string) []managedProtocolMapper {
+	return []managedProtocolMapper{
+		{
+			name:           "gateway-audience",
+			protocolMapper: "oidc-audience-mapper",
+			// included.custom.audience must stay empty: an audience mapper carrying a
+			// free-form custom audience adds an unrelated gateway to the token, which is
+			// exactly the cross-gateway leakage repair must remove.
+			config: map[string]string{
+				"included.client.audience": gatewayClientID,
+				"included.custom.audience": "",
+				"id.token.claim":           "false",
+				"access.token.claim":       "true",
+			},
+		},
+		{
+			name:           "gateway-client-roles",
+			protocolMapper: "oidc-usermodel-client-role-mapper",
+			// access.token.claim, multivalued, and jsonType.label are all
+			// behavior-bearing: dropping the claim strips every role from the access
+			// token, collapsing to a single value drops all but one role, and a changed
+			// JSON type corrupts the roles the gateway authorizes on.
+			config: map[string]string{
+				"usermodel.clientRoleMapping.clientId": gatewayClientID,
+				"claim.name":                           "hypershell.roles",
+				"multivalued":                          "true",
+				"jsonType.label":                       "String",
+				"id.token.claim":                       "false",
+				"access.token.claim":                   "true",
+			},
+		},
+	}
+}
+
+// parsedProtocolMapper is the shape Keycloak returns for a client protocol mapper.
+type parsedProtocolMapper struct {
+	Name           string            `json:"name"`
+	ProtocolMapper string            `json:"protocolMapper"`
+	Config         map[string]string `json:"config"`
+}
+
 func (c *Client) protocolMappersConverged(ctx context.Context, clientUUID, gatewayClientID string) (bool, error) {
 	body, status, err := c.admin(ctx, http.MethodGet, fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", c.realm, url.PathEscape(clientUUID)), nil)
 	if err != nil {
@@ -364,43 +428,33 @@ func (c *Client) protocolMappersConverged(ctx context.Context, clientUUID, gatew
 	if status != http.StatusOK {
 		return false, statusError("list service-account protocol mappers", status)
 	}
-	var current []struct {
-		Name           string            `json:"name"`
-		ProtocolMapper string            `json:"protocolMapper"`
-		Config         map[string]string `json:"config"`
-	}
+	var current []parsedProtocolMapper
 	if err := json.Unmarshal(body, &current); err != nil {
 		return false, errors.New("parse service-account protocol mappers")
 	}
-	if len(current) != 2 {
+	desired := managedProtocolMappers(gatewayClientID)
+	// Exactly the managed mappers, no more: any extra mapper can inject claims.
+	if len(current) != len(desired) {
 		return false, nil
 	}
-	found := make(map[string]bool, 2)
+	byName := make(map[string]parsedProtocolMapper, len(current))
 	for _, mapper := range current {
-		switch mapper.Name {
-		case "gateway-audience":
-			// included.custom.audience must be absent: an audience mapper carrying
-			// both the gateway client audience and a free-form custom audience adds
-			// an unrelated gateway to the token, which is exactly the cross-gateway
-			// leakage repair must remove.
-			if mapper.ProtocolMapper != "oidc-audience-mapper" ||
-				mapper.Config["included.client.audience"] != gatewayClientID ||
-				mapper.Config["included.custom.audience"] != "" ||
-				mapper.Config["access.token.claim"] != "true" {
-				return false, nil
-			}
-		case "gateway-client-roles":
-			if mapper.ProtocolMapper != "oidc-usermodel-client-role-mapper" ||
-				mapper.Config["usermodel.clientRoleMapping.clientId"] != gatewayClientID ||
-				mapper.Config["claim.name"] != "hypershell.roles" {
-				return false, nil
-			}
-		default:
+		byName[mapper.Name] = mapper
+	}
+	for _, want := range desired {
+		live, ok := byName[want.name]
+		if !ok || live.ProtocolMapper != want.protocolMapper {
 			return false, nil
 		}
-		found[mapper.Name] = true
+		// Compare every required config value repair writes. A missing key reads as
+		// the empty string, so an omitted required value fails closed to repair.
+		for key, value := range want.config {
+			if live.Config[key] != value {
+				return false, nil
+			}
+		}
 	}
-	return found["gateway-audience"] && found["gateway-client-roles"], nil
+	return true, nil
 }
 
 func sameRoleSet(current, desired []kcRole) bool {
@@ -884,12 +938,15 @@ func (c *Client) replaceProtocolMappers(ctx context.Context, clientUUID, gateway
 			return statusError("remove unexpected protocol mapper", deleteStatus)
 		}
 	}
-	mappers := []map[string]any{
-		{"name": "gateway-audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": map[string]string{"included.client.audience": gatewayClientID, "id.token.claim": "false", "access.token.claim": "true"}},
-		{"name": "gateway-client-roles", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-client-role-mapper", "config": map[string]string{"claim.name": "hypershell.roles", "multivalued": "true", "jsonType.label": "String", "id.token.claim": "false", "access.token.claim": "true", "usermodel.clientRoleMapping.clientId": gatewayClientID}},
-	}
-	for _, mapper := range mappers {
-		payload, _ := json.Marshal(mapper)
+	// Build the payloads from the same definition convergence compares against, so
+	// repair can never write a value convergence does not check (or vice versa).
+	for _, mapper := range managedProtocolMappers(gatewayClientID) {
+		payload, _ := json.Marshal(map[string]any{
+			"name":           mapper.name,
+			"protocol":       "openid-connect",
+			"protocolMapper": mapper.protocolMapper,
+			"config":         mapper.config,
+		})
 		_, createStatus, createErr := c.admin(ctx, http.MethodPost, path, payload)
 		if createErr != nil {
 			return createErr
