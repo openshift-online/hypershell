@@ -15,11 +15,10 @@ type Config struct {
 	Namespace      string
 	LogLevel       string
 
-	ServiceAccountProvisionerAddress          string
-	ServiceAccountProvisionerTLSCertificate   string
-	ServiceAccountProvisionerTLSKey           string
-	ServiceAccountProvisionerTLSClientCA      string
-	ServiceAccountProvisionerExpectedClientCN string
+	// ServiceAccountProvisionerAddress is the in-cluster bind address for the
+	// internal service-account provisioner gRPC server. A NetworkPolicy restricts
+	// the port to the API server pod, so the channel is plaintext (no mTLS).
+	ServiceAccountProvisionerAddress string
 
 	// NamespaceGCEnabled toggles the periodic garbage collection of orphaned
 	// gateway namespaces (HYPERSHELL-78).
@@ -33,15 +32,11 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		GRPCServerAddr:                            getEnv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000"),
-		APIServerURL:                              getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
-		Namespace:                                 getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
-		LogLevel:                                  strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
-		ServiceAccountProvisionerAddress:          getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS", ""),
-		ServiceAccountProvisionerTLSCertificate:   getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CERT", ""),
-		ServiceAccountProvisionerTLSKey:           getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_KEY", ""),
-		ServiceAccountProvisionerTLSClientCA:      getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CLIENT_CA", ""),
-		ServiceAccountProvisionerExpectedClientCN: getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_EXPECTED_CLIENT_CN", "hypershell-api-server"),
+		GRPCServerAddr:                   getEnv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000"),
+		APIServerURL:                     getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
+		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
+		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
+		ServiceAccountProvisionerAddress: getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS", ""),
 
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),
 		NamespaceGCInterval:    getEnvDuration("GATEWAY_NAMESPACE_GC_INTERVAL", 5*time.Minute),

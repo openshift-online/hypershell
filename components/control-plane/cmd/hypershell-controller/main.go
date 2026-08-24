@@ -202,16 +202,12 @@ func main() {
 	if cfg.ServiceAccountProvisionerAddress != "" {
 		provisionerServer := serviceaccountprovisioner.NewServer(serviceAccountProvider)
 		transportConfig := serviceaccountprovisioner.TransportConfig{
-			Address:                  cfg.ServiceAccountProvisionerAddress,
-			CertificateFile:          cfg.ServiceAccountProvisionerTLSCertificate,
-			KeyFile:                  cfg.ServiceAccountProvisionerTLSKey,
-			ClientCAFile:             cfg.ServiceAccountProvisionerTLSClientCA,
-			ExpectedClientCommonName: cfg.ServiceAccountProvisionerExpectedClientCN,
+			Address: cfg.ServiceAccountProvisionerAddress,
 		}
 		go func() {
 			errCh <- serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
 		}()
-		log.Printf("INFO service-account provisioner launched on %s with mutual TLS", cfg.ServiceAccountProvisionerAddress)
+		log.Printf("INFO service-account provisioner launched on %s (in-cluster, NetworkPolicy-restricted)", cfg.ServiceAccountProvisionerAddress)
 	} else {
 		log.Printf("INFO service-account provisioner disabled")
 	}
