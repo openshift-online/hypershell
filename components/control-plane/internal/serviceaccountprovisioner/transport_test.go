@@ -44,6 +44,89 @@ func TestServerCredentialsRequireExpectedAPIClientIdentity(t *testing.T) {
 	}
 }
 
+func TestServerCredentialsReloadRotatedCertificate(t *testing.T) {
+	fixture := newTLSFixture(t)
+	serverCredentials, err := loadServerCredentials(TransportConfig{
+		Address:                  "127.0.0.1:9443",
+		CertificateFile:          fixture.serverCertFile,
+		KeyFile:                  fixture.serverKeyFile,
+		ClientCAFile:             fixture.caFile,
+		ExpectedClientCommonName: "hypershell-api-server",
+	})
+	if err != nil {
+		t.Fatalf("loadServerCredentials() error = %v", err)
+	}
+
+	// The fixture signs the initial server certificate with serial 2.
+	firstSerial := serverLeafSerial(t, serverCredentials, fixture.clientCredentials(t, "hypershell-api-server"))
+	if firstSerial != "2" {
+		t.Fatalf("initial server certificate serial = %s, want 2", firstSerial)
+	}
+
+	// Rotate the mounted key pair in place, as cert-manager does on renewal.
+	rotatedCertPEM, rotatedKeyPEM := signedCertificate(t, fixture.caCertificate, fixture.caKey, "hypershell-controller", []string{"provisioner.test"}, x509.ExtKeyUsageServerAuth, 42)
+	writeTestFile(t, fixture.serverCertFile, rotatedCertPEM)
+	writeTestFile(t, fixture.serverKeyFile, rotatedKeyPEM)
+	bumpModTime(t, fixture.serverCertFile)
+	bumpModTime(t, fixture.serverKeyFile)
+
+	// Reuse the SAME credentials object; the reloader must pick up the new pair.
+	secondSerial := serverLeafSerial(t, serverCredentials, fixture.clientCredentials(t, "hypershell-api-server"))
+	if secondSerial != "42" {
+		t.Fatalf("rotated server certificate serial = %s, want 42", secondSerial)
+	}
+	if firstSerial == secondSerial {
+		t.Fatal("server credentials did not present the rotated certificate")
+	}
+}
+
+// serverLeafSerial completes a handshake and returns the serial number of the
+// leaf certificate the server presented, as observed by the client.
+func serverLeafSerial(t *testing.T, serverCredentials, clientCredentials credentials.TransportCredentials) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for test handshake: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+	go func() {
+		serverConnection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = serverConnection.Close() }()
+		_, _, _ = serverCredentials.ServerHandshake(serverConnection)
+	}()
+
+	clientConnection, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test handshake: %v", err)
+	}
+	defer func() { _ = clientConnection.Close() }()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	_, authInfo, err := clientCredentials.ClientHandshake(ctx, "provisioner.test", clientConnection)
+	if err != nil {
+		t.Fatalf("client handshake: %v", err)
+	}
+	tlsInfo, ok := authInfo.(credentials.TLSInfo)
+	if !ok {
+		t.Fatalf("unexpected auth info type %T", authInfo)
+	}
+	if len(tlsInfo.State.PeerCertificates) == 0 {
+		t.Fatal("server presented no certificate")
+	}
+	return tlsInfo.State.PeerCertificates[0].SerialNumber.String()
+}
+
+func bumpModTime(t *testing.T, path string) {
+	t.Helper()
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatalf("chtimes %s: %v", path, err)
+	}
+}
+
 func performTLSHandshake(t *testing.T, serverCredentials, clientCredentials credentials.TransportCredentials) (error, error) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

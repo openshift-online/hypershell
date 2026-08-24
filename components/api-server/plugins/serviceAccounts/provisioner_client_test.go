@@ -2,12 +2,25 @@ package serviceAccounts
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
 
@@ -48,6 +61,192 @@ func TestControlPlaneProvisionerMapsNotFound(t *testing.T) {
 func TestProvisionerTLSConfigurationIsRequired(t *testing.T) {
 	if _, err := loadProvisionerClientCredentials("", "", "", ""); err == nil {
 		t.Fatal("loadProvisionerClientCredentials() error = nil")
+	}
+}
+
+func TestProvisionerClientCredentialsReloadRotatedCertificate(t *testing.T) {
+	ca := newTestCA(t)
+	directory := t.TempDir()
+	certFile := filepath.Join(directory, "tls.crt")
+	keyFile := filepath.Join(directory, "tls.key")
+	caFile := filepath.Join(directory, "ca.crt")
+	writeClientTestFile(t, caFile, ca.pemBytes)
+
+	certPEM, keyPEM := ca.sign(t, "hypershell-api-server", nil, x509.ExtKeyUsageClientAuth, 7)
+	writeClientTestFile(t, certFile, certPEM)
+	writeClientTestFile(t, keyFile, keyPEM)
+
+	clientCredentials, err := loadProvisionerClientCredentials(certFile, keyFile, caFile, "provisioner.test")
+	if err != nil {
+		t.Fatalf("loadProvisionerClientCredentials() error = %v", err)
+	}
+
+	serverConfig := ca.serverTLSConfig(t)
+	firstSerial := clientLeafSerialSeenByServer(t, clientCredentials, serverConfig)
+	if firstSerial != "7" {
+		t.Fatalf("initial client certificate serial = %s, want 7", firstSerial)
+	}
+
+	// Rotate the mounted key pair in place, as cert-manager does on renewal.
+	rotatedCertPEM, rotatedKeyPEM := ca.sign(t, "hypershell-api-server", nil, x509.ExtKeyUsageClientAuth, 99)
+	writeClientTestFile(t, certFile, rotatedCertPEM)
+	writeClientTestFile(t, keyFile, rotatedKeyPEM)
+	bumpClientModTime(t, certFile)
+	bumpClientModTime(t, keyFile)
+
+	// Reuse the SAME credentials object; the reloader must present the new pair.
+	secondSerial := clientLeafSerialSeenByServer(t, clientCredentials, serverConfig)
+	if secondSerial != "99" {
+		t.Fatalf("rotated client certificate serial = %s, want 99", secondSerial)
+	}
+	if firstSerial == secondSerial {
+		t.Fatal("client credentials did not present the rotated certificate")
+	}
+}
+
+// clientLeafSerialSeenByServer completes a handshake and returns the serial
+// number of the client leaf certificate the server observed.
+func clientLeafSerialSeenByServer(t *testing.T, clientCredentials credentials.TransportCredentials, serverConfig *tls.Config) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for test handshake: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	serialResult := make(chan string, 1)
+	serverError := make(chan error, 1)
+	go func() {
+		serverConnection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverError <- acceptErr
+			return
+		}
+		defer func() { _ = serverConnection.Close() }()
+		tlsConnection := tls.Server(serverConnection, serverConfig)
+		if handshakeErr := tlsConnection.Handshake(); handshakeErr != nil {
+			serverError <- handshakeErr
+			return
+		}
+		state := tlsConnection.ConnectionState()
+		if len(state.PeerCertificates) == 0 {
+			serverError <- errors.New("client presented no certificate")
+			return
+		}
+		serialResult <- state.PeerCertificates[0].SerialNumber.String()
+	}()
+
+	clientConnection, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test handshake: %v", err)
+	}
+	defer func() { _ = clientConnection.Close() }()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	if _, _, err := clientCredentials.ClientHandshake(ctx, "provisioner.test", clientConnection); err != nil {
+		t.Fatalf("client handshake: %v", err)
+	}
+
+	select {
+	case serial := <-serialResult:
+		return serial
+	case err := <-serverError:
+		t.Fatalf("server handshake: %v", err)
+	case <-ctx.Done():
+		t.Fatalf("handshake timed out: %v", ctx.Err())
+	}
+	return ""
+}
+
+type testCA struct {
+	certificate *x509.Certificate
+	key         *ecdsa.PrivateKey
+	pemBytes    []byte
+	pool        *x509.CertPool
+}
+
+func newTestCA(t *testing.T) *testCA {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+	now := time.Now().UTC()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test-ca"},
+		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true,
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create CA certificate: %v", err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse CA certificate: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		t.Fatal("append test CA")
+	}
+	return &testCA{certificate: certificate, key: key, pemBytes: pemBytes, pool: pool}
+}
+
+func (c *testCA) sign(t *testing.T, commonName string, dnsNames []string, usage x509.ExtKeyUsage, serial int64) ([]byte, []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate certificate key: %v", err)
+	}
+	now := time.Now().UTC()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: commonName},
+		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), DNSNames: dnsNames,
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, c.certificate, &key.PublicKey, c.key)
+	if err != nil {
+		t.Fatalf("create signed certificate: %v", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal certificate key: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+}
+
+func (c *testCA) serverTLSConfig(t *testing.T) *tls.Config {
+	t.Helper()
+	certPEM, keyPEM := c.sign(t, "hypershell-controller", []string{"provisioner.test"}, x509.ExtKeyUsageServerAuth, 500)
+	certificate, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("load server key pair: %v", err)
+	}
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{certificate},
+		ClientCAs:    c.pool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		// gRPC transport credentials enforce ALPN; advertise HTTP/2.
+		NextProtos: []string{"h2"},
+	}
+}
+
+func writeClientTestFile(t *testing.T, path string, contents []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func bumpClientModTime(t *testing.T, path string) {
+	t.Helper()
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatalf("chtimes %s: %v", path, err)
 	}
 }
 

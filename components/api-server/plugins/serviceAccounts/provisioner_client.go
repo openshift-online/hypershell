@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
@@ -17,6 +18,53 @@ import (
 )
 
 const defaultProvisionerCallTimeout = 60 * time.Second
+
+// certificateReloader loads a TLS key pair from disk and reloads it whenever the
+// underlying files change. cert-manager rotates the mounted Secret in place, so
+// caching by modification time lets renewed certificates be picked up without a
+// process restart while avoiding a disk read on every TLS handshake.
+type certificateReloader struct {
+	certFile string
+	keyFile  string
+
+	mutex     sync.Mutex
+	cached    *tls.Certificate
+	certMtime time.Time
+	keyMtime  time.Time
+}
+
+func newCertificateReloader(certFile, keyFile string) *certificateReloader {
+	return &certificateReloader{certFile: certFile, keyFile: keyFile}
+}
+
+// currentCertificate returns the most recent key pair, reloading from disk when
+// either backing file has changed since the last load.
+func (r *certificateReloader) currentCertificate() (*tls.Certificate, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	certInfo, err := os.Stat(r.certFile)
+	if err != nil {
+		return nil, fmt.Errorf("stat certificate %q: %w", r.certFile, err)
+	}
+	keyInfo, err := os.Stat(r.keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("stat key %q: %w", r.keyFile, err)
+	}
+
+	if r.cached != nil && certInfo.ModTime().Equal(r.certMtime) && keyInfo.ModTime().Equal(r.keyMtime) {
+		return r.cached, nil
+	}
+
+	certificate, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load key pair: %w", err)
+	}
+	r.cached = &certificate
+	r.certMtime = certInfo.ModTime()
+	r.keyMtime = keyInfo.ModTime()
+	return r.cached, nil
+}
 
 type controlPlaneProvisioner struct {
 	client pb.OpenShellGatewayServiceAccountProvisionerServiceClient
@@ -47,8 +95,9 @@ func loadProvisionerClientCredentials(certFile, keyFile, caFile, serverName stri
 	if certFile == "" || keyFile == "" || caFile == "" {
 		return nil, errors.New("control-plane provisioner mTLS files are required")
 	}
-	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
+	reloader := newCertificateReloader(certFile, keyFile)
+	// Validate the key pair eagerly so misconfiguration fails at startup.
+	if _, err := reloader.currentCertificate(); err != nil {
 		return nil, fmt.Errorf("load control-plane provisioner client certificate: %w", err)
 	}
 	caPEM, err := os.ReadFile(caFile)
@@ -60,10 +109,14 @@ func loadProvisionerClientCredentials(certFile, keyFile, caFile, serverName stri
 		return nil, errors.New("control-plane provisioner CA contains no certificates")
 	}
 	return credentials.NewTLS(&tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{certificate},
-		RootCAs:      roots,
-		ServerName:   serverName,
+		MinVersion: tls.VersionTLS13,
+		// GetClientCertificate reloads the rotated key pair per handshake; do not
+		// also set a static Certificates slice, which would take precedence.
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return reloader.currentCertificate()
+		},
+		RootCAs:    roots,
+		ServerName: serverName,
 	}), nil
 }
 
