@@ -197,6 +197,14 @@ patches:
                 env:
                   - name: KC_HOSTNAME
                     value: "https://keycloak.hypershell.localhost"
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+    path: wait-for-keycloak.patch.yaml
+  - target:
+      kind: Deployment
+      name: hypershell-web-console
+    path: wait-for-keycloak.patch.yaml
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest
