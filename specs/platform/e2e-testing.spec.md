@@ -4,7 +4,7 @@
 **Status:** Draft
 **Jira:** HYPERSHELL-18
 **Related:** `local-development.spec.md` -- Kind cluster setup;
-             `openshift-development.spec.md` (HYPERSHELL-44) -- OpenShift e2e driver, `make openshift-*` lifecycle, blessed `deploy/openshift/` overlay, cluster infrastructure bootstrap, OpenShift CI;
+             `openshift-development.spec.md` (HYPERSHELL-44) -- `make openshift-*` lifecycle, blessed `deploy/openshift/` overlay, cluster infrastructure bootstrap, OpenShift CI (this spec partially implements HYPERSHELL-44 by delivering the OpenShift e2e driver);
              `control-plane.spec.md` -- reconciler behavior;
              `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning;
              `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
@@ -20,9 +20,9 @@ HyperShell also needs a **performance test**. The performance test measures how 
 
 ### Scope
 
-This spec covers the **e2e driver interface contract** (for all targets), the **Kind driver**, the **Kind-based CI workflow**, and the **infra-agnostic performance test**.
+This spec covers the **e2e driver interface contract** (for all targets), the **Kind driver**, the **OpenShift e2e driver** (delivered here as a partial implementation of HYPERSHELL-44), the **Kind-based CI workflow**, and the **infra-agnostic performance test**.
 
-The **OpenShift e2e driver**, the `make openshift-*` lifecycle, the **blessed `deploy/openshift/` overlay**, the **cluster infrastructure bootstrap**, and the **OpenShift CI workflow** are specified in `openshift-development.spec.md` (HYPERSHELL-44). This spec does not duplicate them; it defines the driver interface contract those OpenShift runs depend on. Once the OpenShift e2e driver from HYPERSHELL-44 exists, a user can run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster the user is already logged in to (via `oc login`); that is the target environment for scale and performance testing. Until that driver lands, only the Kind target is required to work, so no requirement in this spec is unmeetable on its own.
+This spec **partially implements** `openshift-development.spec.md` (HYPERSHELL-44): it delivers the driver interface contract for all targets and the **OpenShift e2e driver** (`tests/e2e/drivers/openshift.sh`) so a user can run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster the user is already logged in to (via `oc login`) -- the target environment for scale and performance testing. The remainder of HYPERSHELL-44 -- the `make openshift-*` lifecycle, the **blessed `deploy/openshift/` overlay**, the **cluster infrastructure bootstrap**, and the **automated OpenShift CI workflow** -- stays in that spec and is not duplicated here. Because the driver ships with this spec, the OpenShift-run requirements below are meetable here rather than deferred.
 
 An automated OpenShift CI job is **out of scope** here; it belongs to HYPERSHELL-44. In this spec, OpenShift runs are manual and on-demand, and only the Kind e2e workflow runs in CI.
 
@@ -36,7 +36,7 @@ tests/e2e/e2e-openshell.sh (infra-agnostic test logic)
     └── sources driver via E2E_INFRA_DRIVER (required)
         │
         ├── tests/e2e/drivers/kind.sh         (this spec)
-        └── tests/e2e/drivers/openshift.sh    (HYPERSHELL-44)
+        └── tests/e2e/drivers/openshift.sh    (this spec; partial HYPERSHELL-44)
 ```
 
 The driver model separates test logic from infrastructure mechanics. The main test script calls a fixed set of driver functions; each driver implements those functions for its target infrastructure. Adding a new infrastructure target requires only a new driver file.
@@ -207,11 +207,11 @@ Each driver script SHALL export the following shell functions. The main test scr
 - AND verify the corresponding GRPCRoute's parent status reports `Accepted=True`
 - AND return success when both conditions are met or fail after `E2E_PROVISION_TIMEOUT` seconds
 
-The OpenShift driver implements the same ten functions with OpenShift constructs (Route host for `discover_api_host`, passthrough Route for `discover_gateway_endpoint`, `ingresses.config.openshift.io` for `get_cluster_domain`, `oc` for `get_cli_binary`, Route `Admitted` + GRPCRoute `Accepted` for `wait_for_gateway_route`, cluster-derived OIDC for `acquire_oidc_token` and `api_curl`, and the cluster identity provider's admin API for the `assign_gateway_client_role`, `assign_realm_role`, and `acquire_gateway_token_with_role` role helpers), as the interface table above shows. The OpenShift driver is specified in `openshift-development.spec.md` (HYPERSHELL-44). This spec depends on it for the manual OpenShift runs defined next.
+The OpenShift driver implements the same ten functions with OpenShift constructs (Route host for `discover_api_host`, passthrough Route for `discover_gateway_endpoint`, `ingresses.config.openshift.io` for `get_cluster_domain`, `oc` for `get_cli_binary`, Route `Admitted` + GRPCRoute `Accepted` for `wait_for_gateway_route`, cluster-derived OIDC for `acquire_oidc_token` and `api_curl`, and the cluster identity provider's admin API for the `assign_gateway_client_role`, `assign_realm_role`, and `acquire_gateway_token_with_role` role helpers), as the interface table above shows. This spec delivers the OpenShift driver as a partial implementation of `openshift-development.spec.md` (HYPERSHELL-44), which is what makes the manual OpenShift runs defined next implementable here; HYPERSHELL-44 owns the surrounding `make openshift-*` lifecycle, `deploy/openshift/` overlay, cluster bootstrap, and automated CI.
 
 ### Requirement: Custom OpenShift Runs
 
-Independent of any OpenShift work, each target SHALL default `E2E_INFRA_DRIVER` to `kind` and SHALL honor a command-line override; that driver-selection behavior is the part of this requirement HYPERSHELL-18 delivers on its own. **After the OpenShift driver from `openshift-development.spec.md` (HYPERSHELL-44) exists**, a user SHALL be able to run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster, so scale and performance testing can target a real OpenShift environment: a user SHALL run `E2E_INFRA_DRIVER=openshift make e2e` or `E2E_INFRA_DRIVER=openshift make e2e-performance` against the cluster their current `oc` context selects. These OpenShift runs SHALL NOT create a cluster and SHALL NOT create a namespace beyond the gateways the suite provisions; the environment is a precondition. Until the OpenShift driver lands, selecting `E2E_INFRA_DRIVER=openshift` SHALL fail fast with the missing-driver error (see [Infra-Agnostic Performance Harness](#requirement-infra-agnostic-performance-harness)), so this spec contains no SHALL an implementer cannot meet today.
+Each target SHALL default `E2E_INFRA_DRIVER` to `kind` and SHALL honor a command-line override. A user SHALL be able to run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster, so scale and performance testing can target a real OpenShift environment: a user SHALL run `E2E_INFRA_DRIVER=openshift make e2e` or `E2E_INFRA_DRIVER=openshift make e2e-performance` against the cluster their current `oc` context selects. This spec delivers the OpenShift driver (`tests/e2e/drivers/openshift.sh`) as a partial implementation of HYPERSHELL-44, so these runs are implementable here rather than deferred to that spec. These OpenShift runs SHALL NOT create a cluster and SHALL NOT create a namespace beyond the gateways the suite provisions; the environment is a precondition.
 
 **Preconditions (owned by HYPERSHELL-44).** These runs assume HyperShell is already deployed on the cluster through `kustomize build deploy/openshift/` (for example via `make openshift-up`), and that the cluster infrastructure bootstrap (shared Gateway, GatewayClass, certificate issuer, wildcard certificate) is in place per `openshift-development.spec.md`. The suite SHALL fail with a clear error, not a broken run, when the API Route or the gateway infrastructure is absent.
 
@@ -223,7 +223,7 @@ Independent of any OpenShift work, each target SHALL default `E2E_INFRA_DRIVER` 
 
 #### Scenario: e2e Against OpenShift
 
-- GIVEN the OpenShift driver from HYPERSHELL-44 is present at `tests/e2e/drivers/openshift.sh`
+- GIVEN the OpenShift driver delivered by this spec is present at `tests/e2e/drivers/openshift.sh`
 - AND a user is logged in to an OpenShift cluster with HyperShell deployed (`deploy/openshift/`)
 - AND the cluster infrastructure bootstrap is in place per `openshift-development.spec.md`
 - WHEN the user runs `E2E_INFRA_DRIVER=openshift make e2e`
@@ -232,7 +232,7 @@ Independent of any OpenShift work, each target SHALL default `E2E_INFRA_DRIVER` 
 
 #### Scenario: Performance Against OpenShift
 
-- GIVEN the OpenShift driver from HYPERSHELL-44 is present at `tests/e2e/drivers/openshift.sh`
+- GIVEN the OpenShift driver delivered by this spec is present at `tests/e2e/drivers/openshift.sh`
 - AND a user is logged in to an OpenShift cluster with HyperShell deployed
 - WHEN the user runs `E2E_INFRA_DRIVER=openshift make e2e-performance`
 - THEN the performance harness SHALL run against that cluster using the OpenShift driver
@@ -814,7 +814,7 @@ tests/e2e/e2e-performance.sh (infra-agnostic performance harness)
     ├── Phase 3  Functional check -- run the e2e suite in long mode (all steps) on a dedicated gateway
     ├── Phase 4  Report           -- write metrics + per-batch checkpoint series (summary + JSON)
     │                                to perf-results/
-    └── Phase 5  Teardown         -- delete perf gateways and the canary, wait for namespace GC
+    └── Phase 5  Teardown         -- delete perf gateways, the canary, and the functional gateway; wait for namespace GC
 ```
 
 The harness holds no infrastructure-specific logic. It calls only driver interface functions for infrastructure operations. This is the same rule the e2e suite follows. A new infrastructure target needs only a new driver file, not a change to the harness.
@@ -833,7 +833,7 @@ The system SHALL provide a `make e2e-performance` target. The target SHALL run `
 #### Scenario: OpenShift Run
 
 - GIVEN a user is logged in to an OpenShift cluster with HyperShell deployed
-- AND the `openshift` driver is present at `tests/e2e/drivers/openshift.sh` (per HYPERSHELL-44)
+- AND the `openshift` driver is present at `tests/e2e/drivers/openshift.sh` (delivered by this spec)
 - WHEN the user runs `E2E_INFRA_DRIVER=openshift make e2e-performance`
 - THEN the harness SHALL run against the OpenShift cluster with no change to the harness code
 - AND all infrastructure operations SHALL use the OpenShift driver (`oc`, Routes)
@@ -844,7 +844,7 @@ The performance harness (`tests/e2e/e2e-performance.sh`) SHALL be infrastructure
 
 The harness SHALL obtain the seeded fleet, cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` (for example `GET /api/hypershell/v1/managed_databases` and a `search=name=...` gateway lookup) and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids or an infra-specific lookup. Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
 
-The OpenShift driver is specified in `openshift-development.spec.md` (HYPERSHELL-44); the performance harness depends on it for OpenShift runs (see [Scope](#scope)). The harness SHALL contain no infra-specific code: it works with either driver with no change. OpenShift runs are manual and on-demand; the performance test is not wired into CI for any target (see [Design Decisions](#design-decisions)).
+The OpenShift driver is delivered by this spec as a partial implementation of `openshift-development.spec.md` (HYPERSHELL-44); the performance harness uses it for OpenShift runs (see [Scope](#scope)). The harness SHALL contain no infra-specific code: it works with either driver with no change. OpenShift runs are manual and on-demand; the performance test is not wired into CI for any target (see [Design Decisions](#design-decisions)).
 
 #### Scenario: Driver Not Set
 
@@ -1058,7 +1058,7 @@ The harness SHALL support optional pass/fail thresholds. The thresholds SHALL be
 
 The performance test is run locally or against any OpenShift cluster, not in CI (see [Design Decisions](#design-decisions)). The results SHALL therefore be easy to digest from a terminal, with no CI service required. Three things support this: a stable JSON schema, per-run history files, and a local report target.
 
-**Stable, versioned JSON schema.** The harness SHALL write the run summary as JSON with a top-level `schema_version` string. The schema SHALL be documented in this spec, so `jq` filters keep working across runs. The JSON SHALL contain the driver, the run timestamps, the run config, the scale-up metrics, the per-batch checkpoint series, the functional result, the SLO result, and the overall result. The shape SHALL be:
+**Stable, versioned JSON schema.** The harness SHALL write the run summary as JSON with a top-level `schema_version` string. The schema SHALL be documented in this spec, so `jq` filters keep working across runs. The JSON SHALL contain the driver, the run timestamps, the run config (including the checkpoint and SLO flags the run used), the scale-up metrics (including both create-latency and time-to-`Running` percentiles), the per-batch checkpoint series, the functional result, the SLO result, and the overall result. The shape SHALL be:
 
 ```json
 {
@@ -1071,7 +1071,12 @@ The performance test is run locally or against any OpenShift cluster, not in CI 
     "batch_size": 5,
     "concurrency": 4,
     "provision_timeout": 600,
-    "gateway_prefix": "perf-gw"
+    "gateway_prefix": "perf-gw",
+    "checkpoint": true,
+    "stop_on_checkpoint_failure": true,
+    "run_functional": true,
+    "min_success_rate": null,
+    "max_provision_p99": null
   },
   "scale_up": {
     "requested": 20,
@@ -1080,6 +1085,7 @@ The performance test is run locally or against any OpenShift cluster, not in CI 
     "success_rate": 100.0,
     "wall_clock_seconds": 512,
     "throughput_per_min": 2.34,
+    "create_latency_seconds": { "p50": 0.4, "p90": 0.8, "p99": 1.1, "max": 1.3 },
     "time_to_running_seconds": { "p50": 118, "p90": 205, "p99": 233, "max": 240 },
     "stopped_early": false,
     "breaking_scale": null
@@ -1114,7 +1120,7 @@ A field that does not apply SHALL be `null` (for example an unset SLO threshold,
 
 The results directory holds local run output, not source. The default `E2E_PERF_RESULTS_DIR` (`perf-results/`) SHALL be gitignored, so run artifacts (JSON history and the optional CSV) are never committed.
 
-**Local report target.** The system SHALL provide a `scripts/perf-report.sh` script and a `make e2e-performance-report` target. The report SHALL read the JSON history files under `E2E_PERF_RESULTS_DIR` and print an aligned table of the most recent `E2E_PERF_REPORT_LIMIT` runs (default 10), one row per run, with the timestamp, driver, gateway count, success rate, p99, throughput, and result. This lets a user spot a regression across local runs from the terminal. The report SHALL also be able to render the per-batch checkpoint series of a single run (cumulative count, batch p99, mini-test duration, and mini-test result per checkpoint), so a user can see at which scale latency climbs or the mini test starts failing within one run. The report SHALL depend only on tools already used by the suite (`bash`, `python3`); it SHALL NOT require `jq` or any external service.
+**Local report target.** The system SHALL provide a `scripts/perf-report.sh` script and a `make e2e-performance-report` target. The report SHALL read the JSON history files under `E2E_PERF_RESULTS_DIR` and print an aligned table of the most recent `E2E_PERF_REPORT_LIMIT` runs (default 10), one row per run, with the timestamp, driver, gateway count, success rate, p99, throughput, and result. This lets a user spot a regression across local runs from the terminal. The report SHALL also be able to render the per-batch checkpoint series of a single run (cumulative count, batch p99, mini-test duration, and mini-test result per checkpoint), so a user can see at which scale latency climbs or the mini test starts failing within one run. A user SHALL select that single-run view by setting `E2E_PERF_REPORT_RUN` to a run's history-file path or its UTC timestamp (equivalently, passing it as the script's first argument); with no run selected the report prints the recent-runs table. The report SHALL depend only on tools already used by the suite (`bash`, `python3`); it SHALL NOT require `jq` or any external service.
 
 **Optional CSV export.** When `E2E_PERF_CSV=1`, the harness SHALL also write a CSV row per run to `<E2E_PERF_RESULTS_DIR>/history.csv` (append, with a header on first write), so a user can open the history in a spreadsheet. CSV export SHALL be off by default.
 
@@ -1145,6 +1151,13 @@ The results directory holds local run output, not source. The default `E2E_PERF_
 - WHEN a user runs `make e2e-performance-report`
 - THEN it SHALL print an aligned table with one row per run, most recent first
 - AND each row SHALL show the timestamp, driver, gateway count, success rate, p99, throughput, and result
+
+#### Scenario: Report Renders a Single Run's Checkpoints
+
+- GIVEN a run JSON file with a non-empty `checkpoints` array
+- WHEN a user runs `make e2e-performance-report` with `E2E_PERF_REPORT_RUN` set to that run
+- THEN it SHALL print the run's per-batch checkpoint series (cumulative count, batch p99, mini-test duration, and mini-test result per checkpoint)
+- AND it SHALL NOT print the recent-runs table
 
 #### Scenario: Report Needs No External Tooling
 
@@ -1214,6 +1227,7 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | `E2E_PERF_FUNCTIONAL_GATEWAY_NAME` | `perf-e2e-gw` | Gateway name for the nested functional suite (avoids collision with the fleet) |
 | `E2E_PERF_RESULTS_DIR` | `perf-results` | Directory for the per-run JSON history files (and optional CSV) |
 | `E2E_PERF_REPORT_LIMIT` | `10` | Number of recent runs `make e2e-performance-report` tabulates |
+| `E2E_PERF_REPORT_RUN` | (unset) | Select a single run (history-file path or its UTC timestamp) to render that run's per-batch checkpoint series instead of the recent-runs table |
 | `E2E_PERF_CSV` | `0` | Set to `1` to also append each run to `<results-dir>/history.csv` |
 | `E2E_PERF_MIN_SUCCESS_RATE` | (unset) | Optional SLO: min provisioning success rate percent; below this fails the run |
 | `E2E_PERF_MAX_PROVISION_P99` | (unset) | Optional SLO: max p99 time-to-`Running` seconds; above this fails the run |
@@ -1237,7 +1251,7 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | e2e workflow skips for irrelevant changes | SDK-only or docs-only PRs do not affect the e2e path. Skipping avoids CI time and Konflux build overhead. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, `pr_test`, and `e2e` component paths for "should we re-run e2e" decisions. Separately, Konflux image builds only trigger on changes under `components/<name>/` source paths -- the workflow checks the actual diff to distinguish e2e-relevant infrastructure changes (which use baseline images) from source changes (which require Konflux-built images) |
 | `make kind-up` accepts image overrides | Passing `IMAGE_TAG=<digest>` or per-component image variables to `make kind-up` allows CI to deploy Konflux-built images directly without a separate load step. Developers can also use this to test specific image versions locally |
 | Backward-compatible migration | The refactoring does not change `make kind-up`. `scripts/kind/up.sh` can be migrated to use `kustomize build deploy/kind/` incrementally. The spec defines the target state; the migration path is incremental |
-| OpenShift driver defined in HYPERSHELL-44; consumed here for manual runs | The `tests/e2e/drivers/openshift.sh` driver, the `make openshift-*` lifecycle, the `deploy/openshift/` overlay, the cluster infrastructure bootstrap, and the OpenShift CI are specified in `openshift-development.spec.md` (HYPERSHELL-44). This spec does not duplicate that work. It defines the driver interface contract (both columns) and requires the OpenShift driver so `make e2e` and `make e2e-performance` run manually against any OpenShift cluster for scale and performance testing. The automated OpenShift CI job stays out of this spec |
+| HYPERSHELL-18 partially implements HYPERSHELL-44 | This spec delivers two slices of `openshift-development.spec.md` (HYPERSHELL-44): the driver interface contract (both columns) and the OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`), so `make e2e` and `make e2e-performance` run manually against any OpenShift cluster for scale and performance testing. Delivering the driver here keeps the manual-run requirement meetable instead of gating it on the rest of HYPERSHELL-44. The remainder -- the `make openshift-*` lifecycle, the `deploy/openshift/` overlay, the cluster infrastructure bootstrap, and the automated OpenShift CI job -- stays in HYPERSHELL-44 and is not duplicated here |
 | Env vars renamed with `E2E_` prefix | The existing `e2e-openshell.sh` uses `SANDBOX_TIMEOUT`, `PROVISION_TIMEOUT`, `SKIP_CLEANUP`, and `GATEWAY_NAMESPACE`. These are renamed to `E2E_SANDBOX_TIMEOUT`, `E2E_PROVISION_TIMEOUT`, `E2E_SKIP_CLEANUP`, and `E2E_NAMESPACE` to avoid namespace collisions with non-e2e configuration and make the e2e origin of these variables explicit |
 | CI uses `make kind-up`, not raw `kind create cluster` | Reuses the same cluster setup path developers use locally. Ensures the CI environment is identical to local development. Avoids a second "create a Kind cluster" implementation that could drift |
 | Performance harness reuses the e2e driver interface | The performance test needs the same cross-infrastructure portability as the e2e suite: run on Kind locally, run on any OpenShift cluster for on-demand load tests. Reusing the driver interface means the harness holds no infra-specific code and a new target needs only a new driver file. It also keeps one abstraction to maintain, not two |
