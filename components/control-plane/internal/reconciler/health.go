@@ -435,6 +435,9 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 			return uerr
 		}
 	}
+	// NOTE: With Helm adoption, routing resources are managed by the chart.
+	// This manual cleanup is retained for partial route teardown but may cause
+	// Helm state drift. Future work: upgrade Helm release with routing disabled.
 	if err := gateway.DeleteGatewayAPIResources(ctx, h.dynamicClient, h.clientset, namespace, opts); err != nil {
 		// Leave the gateway unmarked so the next tick retries until every
 		// route-owned resource and stored address is gone.

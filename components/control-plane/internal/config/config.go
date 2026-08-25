@@ -43,13 +43,16 @@ type Config struct {
 
 	// DatabaseProvider is the control-plane-wide default ManagedDatabase
 	// provider, resolved from DATABASE_PROVIDER by resolveDatabaseProvider.
-	// It is always either DatabaseProviderDeployment or DatabaseProviderCNPG;
-	// Load returns an error for any other DATABASE_PROVIDER value instead of
-	// silently falling back to CNPG. Existing ManagedDatabase resources keep
-	// reconciling per their own Provider field regardless of this default
-	// (see internal/reconciler.ManagedDatabaseReconciler), so gateways backed
-	// by CNPG remain compatible even when this default is "deployment".
 	DatabaseProvider string
+
+	// Helm chart configuration
+	HelmChartPath     string
+	HelmChartRegistry string
+	HelmChartVersion  string
+
+	// External CA issuer configuration for Route passthrough mode
+	ExternalCAIssuerName string
+	ExternalCAIssuerKind string
 }
 
 func Load() (*Config, error) {
@@ -70,10 +73,22 @@ func Load() (*Config, error) {
 		NamespaceGCGracePeriod: getEnvDuration("GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 10*time.Minute),
 
 		DatabaseProvider: databaseProvider,
+
+		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
+		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
+		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
+
+		ExternalCAIssuerName: getEnv("EXTERNAL_CA_ISSUER_NAME", ""),
+		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
 	}
 
 	if cfg.GRPCServerAddr == "" {
 		return nil, fmt.Errorf("HYPERSHELL_GRPC_SERVER_ADDR is required")
+	}
+
+	// Validate Helm configuration
+	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
+		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
 	}
 
 	return cfg, nil

@@ -3,6 +3,13 @@ FROM registry.access.redhat.com/hi/go:1.26.5@sha256:eb29e565caf76cf408a77a73548a
 
 WORKDIR /workspace
 
+# Install tar, git, and Helm for chart packaging during build
+RUN microdnf install -y tar gzip git && \
+    curl -fsSL https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz | tar -xz && \
+    mv linux-amd64/helm /usr/local/bin/helm && \
+    rm -rf linux-amd64 && \
+    microdnf clean all
+
 COPY components/api-server/go.mod components/api-server/go.sum components/api-server/
 COPY components/control-plane/go.mod components/control-plane/go.sum components/control-plane/
 
@@ -18,10 +25,21 @@ COPY components/control-plane/internal/ components/control-plane/internal/
 
 RUN cd components/control-plane && CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
+# Package Helm chart from fork
+COPY charts/CHART_REPO charts/CHART_REF /tmp/chart-source/
+RUN CHART_REPO=$(cat /tmp/chart-source/CHART_REPO) && \
+    CHART_REF=$(cat /tmp/chart-source/CHART_REF) && \
+    git clone --depth 1 --branch "${CHART_REF}" "${CHART_REPO}" /tmp/openshell && \
+    mkdir -p /workspace/charts && \
+    helm package /tmp/openshell/deploy/helm/openshell --destination /workspace/charts/ && \
+    mv /workspace/charts/*.tgz /workspace/charts/openshell.tgz && \
+    rm -rf /tmp/openshell
+
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
-COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
-COPY components/control-plane/manifests/ /manifests/
+COPY --from=builder --chown=1001:0 /workspace/hypershell-controller /usr/local/bin/
+COPY --from=builder --chown=1001:0 /workspace/charts/ /charts/
+COPY --from=builder --chown=1001:0 /usr/local/bin/helm /usr/local/bin/helm
 
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 

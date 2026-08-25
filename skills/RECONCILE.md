@@ -627,6 +627,49 @@ label-selected pod informer.
 
 ## Reconciliation History
 
+### Wave HELM: Helm Adoption (Shell-Out Implementation Complete)
+
+**Scope:** Shift from static YAML manifests to Helm-based gateway deployment (openshell-gateway-helm-adoption.spec.md)
+
+**Status:** Foundation complete - Using shell-out approach instead of Go SDK
+
+**Completed:**
+- ✅ Created `internal/helm/` package with chart validation, values mapping, and shell client wrapper
+- ✅ Added Helm configuration env vars to `internal/config/config.go`
+- ✅ Created `charts/VERSION` file (0.4.0)
+- ✅ Resolved dependency conflicts by using `helm` CLI instead of Go SDK
+- ✅ Implemented `ShellClient` with install/uninstall/upgrade/status operations
+- ✅ Verified build: `go build ./...` and `go vet ./...` pass
+- ✅ Documented decision in `.claude/helm-dependency-resolution-decision.md`
+
+**Pending:**
+- ⏸️ Refactor `ReconcileGateway` to use Helm install instead of `deployGateway`
+- ⏸️ Add Helm uninstall to `DeleteGatewayResources`
+- ⏸️ Remove obsolete code (manifests.go, manifest loading, inline cert-manager/credential/routing reconciliation)
+- ⏸️ Update Dockerfile to embed Helm chart
+- ⏸️ Verify integration tests in dev-cluster
+
+**Decision:** Shell-out to `helm` CLI instead of using Helm Go SDK
+- **Why:** Helm SDK has irreconcilable k8s.io version conflicts (needs v0.27, we need v0.36+)
+- **Approach:** Execute `helm install/uninstall/status` via `exec.Command`
+- **Benefits:** No dependency conflicts, production-ready, simple implementation
+- **Runtime Requirement:** `helm` binary must be in PATH
+
+**Files Created:**
+- `internal/helm/chart.go` - Chart path validation and OCI pull helper
+- `internal/helm/values.go` - Gateway config → Helm values mapping (13 value categories, 189 LOC)
+- `internal/helm/shell_client.go` - Helm CLI wrapper (install/uninstall/upgrade/status, 280 LOC)
+- `charts/VERSION` - Chart version declaration (0.4.0)
+- `.claude/helm-dependency-resolution-decision.md` - Decision rationale and implementation plan
+
+**Files Modified:**
+- `internal/config/config.go` - Added 5 Helm-related env vars
+- `go.mod` - NO Helm SDK dependency (using shell exec instead)
+
+---
+
+## Reconciliation History
+
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
@@ -657,3 +700,4 @@ label-selected pod informer.
 | 2026-08-21 | 361305e | HYPERSHELL-49 scoped gap analysis | 69% | Added 15 OpenShellGatewayServiceAccount requirements, all initially missing. Planned strict API -> SDK -> service/Keycloak -> CLI -> UI -> integration waves. Recorded the post-delivery token-verification contradiction without changing specs. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W1..W3 | pending final recount | Added nested REST/OpenAPI, generated SDKs, durable persistence/audit, exact gateway-scoped Keycloak clients, one-time verified secret delivery, role-capped authorization, expiration/revoke/delete reconciliation, and gateway cleanup barriers. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W4 | pending final recount | Extended the CLI generator for the nested gateway collection; added create/list/get/revoke/delete commands, explicit mode-0600 one-time credential output, expiration handling, workspace guidance, and secret-redaction tests. |
+| 2026-08-25 | working tree | Helm adoption foundation (Wave HELM partial) | ~74% | Created internal/helm/ package with shell-out implementation (chart validation, values mapping, shell client wrapper); added 5 Helm env vars to config; created charts/VERSION (0.4.0); documented shell-out decision rationale. Resolution: Use `helm` CLI via exec.Command instead of Go SDK to avoid k8s.io version conflicts. Builds successfully. Pending: reconciler refactoring, Dockerfile updates, manifest removal, integration tests. |

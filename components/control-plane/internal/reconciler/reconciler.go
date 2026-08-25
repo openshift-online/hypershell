@@ -19,6 +19,7 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -1216,33 +1217,32 @@ type GatewayReconciler struct {
 	dynamicClient         dynamic.Interface
 	clientset             *kubernetes.Clientset
 	grpcConn              *grpc.ClientConn
-	manifests             map[string][]*unstructured.Unstructured
+	helmClient            *helm.ShellClient
 	isOpenShift           bool
 	hasCertManager        bool
 	hasGatewayAPI         bool
 	skipNetworkPolicies   bool
 	hasCNPG               bool
-	manifestsDir          string
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
 	exposure              exposure.Port
+	externalCAIssuerName  string
+	externalCAIssuerKind  string
+	ingressBaseDomain     string
 }
 
 func NewGatewayReconciler(
 	dynamicClient dynamic.Interface,
 	clientset *kubernetes.Clientset,
 	grpcConn *grpc.ClientConn,
-	manifestsDir string,
+	helmClient *helm.ShellClient,
 	controlPlaneNamespace string,
 	keycloakConfig *gateway.KeycloakConfig,
 	exposurePort exposure.Port,
+	externalCAIssuerName string,
+	externalCAIssuerKind string,
 ) (*GatewayReconciler, error) {
-	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
-	if err != nil {
-		return nil, fmt.Errorf("load gateway manifests from %s: %w", manifestsDir, err)
-	}
-
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
@@ -1260,25 +1260,39 @@ func NewGatewayReconciler(
 		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
 	}
 
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v cnpg=%v keycloak=%v netpol=%v",
-		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, hasCNPG, kcClient != nil, !skipNetworkPolicies)
+	// Derive ingress base domain from environment
+	ingressBaseDomain := os.Getenv("INGRESS_BASE_DOMAIN")
+	if ingressBaseDomain == "" {
+		ingressBaseDomain = "apps.example.com"
+		log.Printf("WARN INGRESS_BASE_DOMAIN not set, using default: %s", ingressBaseDomain)
+	}
+
+	// Validate external CA issuer for Route passthrough mode
+	if !hasGatewayAPI && externalCAIssuerName == "" {
+		log.Printf("WARN EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
+	}
+
+	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v cnpg=%v keycloak=%v netpol=%v ingress=%s ca-issuer=%s",
+		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, hasCNPG, kcClient != nil, !skipNetworkPolicies, ingressBaseDomain, externalCAIssuerName)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
 		dynamicClient:         dynamicClient,
 		clientset:             clientset,
 		grpcConn:              grpcConn,
-		manifests:             manifests,
+		helmClient:            helmClient,
 		isOpenShift:           isOpenShift,
 		hasCertManager:        hasCertManager,
 		hasGatewayAPI:         hasGatewayAPI,
 		skipNetworkPolicies:   skipNetworkPolicies,
 		hasCNPG:               hasCNPG,
-		manifestsDir:          manifestsDir,
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
 		keycloakConfig:        keycloakConfig,
 		exposure:              exposurePort,
+		externalCAIssuerName:  externalCAIssuerName,
+		externalCAIssuerKind:  externalCAIssuerKind,
+		ingressBaseDomain:     ingressBaseDomain,
 	}, nil
 }
 
@@ -1360,7 +1374,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					}
 				}
 			}
-			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
+			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, r.helmClient, namespace, opts, credentialNamespaces...); err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway resources in %s: %w", namespace, err))
 			} else {
 				log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
@@ -1397,8 +1411,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var resolveErr error
 		dbConfig, resolveErr = r.resolveDatabaseConfig(ctx, gw)
 		if resolveErr != nil {
-			reconcileErr = fmt.Errorf("resolve database config for gateway %s: %w", gw.Name, resolveErr)
-			return reconcileErr
+			log.Printf("INFO gateway %s: skipping database reconciliation: %v", event.ResourceID, resolveErr)
 		}
 	} else {
 		log.Printf("INFO gateway %s has no database_id; skipping database reconciliation (existing database resources left untouched)", event.ResourceID)
@@ -1491,11 +1504,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
+		ExternalCAIssuerName:  r.externalCAIssuerName,
+		ExternalCAIssuerKind:  r.externalCAIssuerKind,
+		IngressBaseDomain:     r.ingressBaseDomain,
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
 
-	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
+	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
 		r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr

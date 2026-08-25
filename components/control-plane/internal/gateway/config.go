@@ -227,6 +227,13 @@ type ReconcileOpts struct {
 	// resources, so an in-flight pass does not recreate them behind a concurrent
 	// health-loop teardown. Nil disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
+	// ExternalCAIssuerName is the name of the cert-manager issuer for externally trusted certificates.
+	// Required for Route passthrough mode (TLS termination at pod, client sees cert directly).
+	ExternalCAIssuerName string
+	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer).
+	ExternalCAIssuerKind string
+	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
+	IngressBaseDomain string
 }
 
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.
