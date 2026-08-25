@@ -10,3 +10,4 @@ resources:
   - certificates/
   - keycloak/
   - networkpolicies.yaml
+  - servicemonitor.yaml
