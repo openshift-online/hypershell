@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/yaml"
 )
 
 // ShellClient executes Helm operations by shelling out to the helm CLI binary.
@@ -26,10 +29,11 @@ const ReleaseName = "openshell-gateway"
 // Install installs a new Helm release for a gateway.
 // It returns an error if the install fails.
 func (c *ShellClient) Install(ctx context.Context, namespace string, values map[string]interface{}) error {
-	valuesArgs, err := buildValuesArgs(values)
+	valuesFile, err := writeValuesFile(values)
 	if err != nil {
-		return fmt.Errorf("build values args: %w", err)
+		return fmt.Errorf("write values file: %w", err)
 	}
+	defer os.Remove(valuesFile)
 
 	args := []string{
 		"install", ReleaseName, c.ChartPath,
@@ -37,8 +41,8 @@ func (c *ShellClient) Install(ctx context.Context, namespace string, values map[
 		"--create-namespace=false",
 		"--wait=false",
 		"--timeout", "5m",
+		"--values", valuesFile,
 	}
-	args = append(args, valuesArgs...)
 
 	cmd := exec.CommandContext(ctx, c.helmBinary(), args...)
 	var stdout, stderr bytes.Buffer
@@ -136,10 +140,11 @@ func (c *ShellClient) GetReleaseStatus(ctx context.Context, namespace string) (*
 // Upgrade upgrades an existing Helm release.
 // This is used to retry failed installs (status=failed or pending-install).
 func (c *ShellClient) Upgrade(ctx context.Context, namespace string, values map[string]interface{}) error {
-	valuesArgs, err := buildValuesArgs(values)
+	valuesFile, err := writeValuesFile(values)
 	if err != nil {
-		return fmt.Errorf("build values args: %w", err)
+		return fmt.Errorf("write values file: %w", err)
 	}
+	defer os.Remove(valuesFile)
 
 	args := []string{
 		"upgrade", ReleaseName, c.ChartPath,
@@ -147,8 +152,8 @@ func (c *ShellClient) Upgrade(ctx context.Context, namespace string, values map[
 		"--reuse-values",
 		"--wait=false",
 		"--timeout", "5m",
+		"--values", valuesFile,
 	}
-	args = append(args, valuesArgs...)
 
 	cmd := exec.CommandContext(ctx, c.helmBinary(), args...)
 	var stdout, stderr bytes.Buffer
@@ -171,75 +176,26 @@ func (c *ShellClient) helmBinary() string {
 	return "helm"
 }
 
-// buildValuesArgs converts a values map into --set arguments for helm CLI.
-// It flattens nested maps using dot notation (e.g. "server.oidc.issuer=value").
-func buildValuesArgs(values map[string]interface{}) ([]string, error) {
-	var args []string
-	flattened := flattenValues(values, "")
-
-	for k, v := range flattened {
-		// Convert value to string representation
-		var valueStr string
-		switch val := v.(type) {
-		case string:
-			valueStr = val
-		case bool:
-			valueStr = fmt.Sprintf("%t", val)
-		case int, int32, int64:
-			valueStr = fmt.Sprintf("%d", val)
-		case float32, float64:
-			valueStr = fmt.Sprintf("%f", val)
-		case []string:
-			valueStr = strings.Join(val, ",")
-		case []interface{}:
-			// Convert to comma-separated string
-			var strs []string
-			for _, item := range val {
-				strs = append(strs, fmt.Sprintf("%v", item))
-			}
-			valueStr = strings.Join(strs, ",")
-		case nil:
-			// Skip nil values
-			continue
-		default:
-			// For complex types, use JSON encoding
-			jsonBytes, err := json.Marshal(v)
-			if err != nil {
-				return nil, fmt.Errorf("marshal value for key %s: %w", k, err)
-			}
-			valueStr = string(jsonBytes)
-		}
-
-		args = append(args, "--set", fmt.Sprintf("%s=%s", k, valueStr))
+// writeValuesFile serializes a values map to a temporary YAML file and returns
+// its path. The caller is responsible for removing the file when done.
+func writeValuesFile(values map[string]interface{}) (string, error) {
+	data, err := yaml.Marshal(values)
+	if err != nil {
+		return "", fmt.Errorf("marshal values to YAML: %w", err)
 	}
 
-	return args, nil
-}
+	f, err := os.CreateTemp("", "helm-values-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("create temp values file: %w", err)
+	}
+	defer f.Close()
 
-// flattenValues flattens a nested map into dot-notation keys.
-// Example: {"server": {"oidc": {"issuer": "https://..."}}}
-//
-//	-> {"server.oidc.issuer": "https://..."}
-func flattenValues(m map[string]interface{}, prefix string) map[string]interface{} {
-	result := make(map[string]interface{})
-
-	for k, v := range m {
-		key := k
-		if prefix != "" {
-			key = prefix + "." + k
-		}
-
-		if nested, ok := v.(map[string]interface{}); ok {
-			// Recursively flatten nested maps
-			for nk, nv := range flattenValues(nested, key) {
-				result[nk] = nv
-			}
-		} else {
-			result[key] = v
-		}
+	if _, err := f.Write(data); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("write values file: %w", err)
 	}
 
-	return result
+	return f.Name(), nil
 }
 
 // VerifyHelmAvailable checks if the helm binary is available.
