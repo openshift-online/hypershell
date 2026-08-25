@@ -1777,8 +1777,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// only to what was actually rolled out. Empty for a direct-image gateway.
 	gwConfig.ReleaseID = gw.ReleaseId
 
+	images := gateway.StaticImageDefaults{}
 	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
 		gwConfig.SupervisorImage = *gw.SupervisorImage
+	} else {
+		gwConfig.SupervisorImage = images.DefaultSupervisorImage()
 	}
 
 	if gw.Oidc != nil && *gw.Oidc != "" {
