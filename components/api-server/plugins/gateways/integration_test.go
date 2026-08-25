@@ -10,7 +10,10 @@ import (
 	"gopkg.in/resty.v1"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/pkg/environments"
 )
 
 func TestGatewayGet(t *testing.T) {
@@ -239,6 +242,36 @@ func TestGatewayPaging(t *testing.T) {
 	Expect(list.GetSize()).To(Equal(int32(5)))
 	Expect(list.GetTotal()).To(Equal(int32(20)))
 	Expect(list.GetPage()).To(Equal(int32(2)))
+}
+
+func TestGatewayPagingSortedByCreator(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gateways, err := newGatewayList("creator-sort", 2)
+	Expect(err).NotTo(HaveOccurred())
+
+	envServices := &environments.Environment().Services
+	userService := users.Service(envServices)
+	bindingService := roleBindings.Service(envServices)
+	creatorNames := []string{"zulu-creator", "alpha-creator"}
+	for i, creatorName := range creatorNames {
+		userID, createErr := userService.UpsertByUsername(context.Background(), creatorName, nil, nil)
+		Expect(createErr).NotTo(HaveOccurred())
+		Expect(bindingService.CreateGatewayOwnerBinding(context.Background(), userID, gateways[i].ID)).To(Succeed())
+	}
+
+	search := fmt.Sprintf("id in ('%s', '%s')", gateways[0].ID, gateways[1].ID)
+	list, _, err := client.DefaultAPI.ListGateways(ctx).
+		Search(search).
+		OrderBy("created_by asc").
+		Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error sorting gateway list by creator: %v", err)
+	Expect(list.Items).To(HaveLen(2))
+	Expect(list.Items[0].GetCreatedBy()).To(Equal("alpha-creator"))
+	Expect(list.Items[1].GetCreatedBy()).To(Equal("zulu-creator"))
 }
 
 func TestGatewayPostWithCredentialDriver(t *testing.T) {
