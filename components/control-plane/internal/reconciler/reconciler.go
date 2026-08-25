@@ -1443,12 +1443,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ExternalDns:    externalDns,
 	}
 
+	images := gateway.StaticImageDefaults{}
 	if gw.Image != nil && *gw.Image != "" {
 		gwConfig.Image = *gw.Image
+	} else {
+		gwConfig.Image = images.DefaultGatewayImage()
 	}
 
 	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
 		gwConfig.SupervisorImage = *gw.SupervisorImage
+	} else {
+		gwConfig.SupervisorImage = images.DefaultSupervisorImage()
 	}
 
 	if gw.Oidc != nil && *gw.Oidc != "" {

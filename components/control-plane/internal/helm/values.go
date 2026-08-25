@@ -128,6 +128,12 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// NetworkPolicy disabled (see spec decision)
 	setNestedValue(values, false, "networkPolicy", "enabled")
 
+	// GRPCRoute defaults -- the fork chart template accesses
+	// grpcRoute.backendTLSPolicy.enabled unconditionally, so we must
+	// always provide the key even when grpcRoute itself is disabled.
+	setNestedValue(values, false, "grpcRoute", "enabled")
+	setNestedValue(values, false, "grpcRoute", "backendTLSPolicy", "enabled")
+
 	// cert-manager configuration
 	setNestedValue(values, b.HasCertManager, "certManager", "enabled")
 
