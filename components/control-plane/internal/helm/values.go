@@ -180,13 +180,11 @@ func (b *ValuesBuilder) buildCredentialDriverValues(values map[string]interface{
 	}
 
 	driver := b.Gateway.CredentialDriver
-	if driver.Type == "kubernetes-secrets" {
+	switch driver.Type {
+	case "kubernetes-secrets":
 		setNestedValue(values, true, "credentialDrivers", "kubernetesSecrets", "enabled")
-	} else if driver.Type == "vault" {
+	case "vault":
 		setNestedValue(values, true, "credentialDrivers", "vault", "enabled")
-		// Additional Vault configuration would go here
-		// setNestedValue(values, driver.VaultAddr, "credentialDrivers", "vault", "addr")
-		// etc.
 	}
 }
 
