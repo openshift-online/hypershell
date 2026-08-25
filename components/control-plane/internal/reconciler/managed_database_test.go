@@ -3,14 +3,19 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
+	"sync"
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -39,6 +44,91 @@ func TestManagedDatabaseStatus(t *testing.T) {
 
 	if got := managedDatabaseStatus(&pb.ManagedDatabase{}); got != "" {
 		t.Fatalf("missing status: got %q, want empty", got)
+	}
+}
+
+type recordingManagedDatabaseService struct {
+	pb.UnimplementedManagedDatabaseServiceServer
+
+	mu       sync.Mutex
+	statuses []string
+}
+
+func (s *recordingManagedDatabaseService) UpdateManagedDatabase(_ context.Context, req *pb.UpdateManagedDatabaseRequest) (*pb.UpdateManagedDatabaseResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statuses = append(s.statuses, req.GetStatus())
+	return &pb.UpdateManagedDatabaseResponse{}, nil
+}
+
+func (s *recordingManagedDatabaseService) statusUpdates() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.statuses...)
+}
+
+func TestManagedDatabaseReadyDeploymentDoesNotEmitProvisioningStatus(t *testing.T) {
+	const namespace = "database-ns"
+
+	listener := bufconn.Listen(1024 * 1024)
+	grpcServer := grpc.NewServer()
+	service := &recordingManagedDatabaseService{}
+	pb.RegisterManagedDatabaseServiceServer(grpcServer, service)
+	go func() {
+		if err := grpcServer.Serve(listener); err != nil {
+			t.Logf("gRPC server stopped: %v", err)
+		}
+	}()
+	defer func() {
+		grpcServer.Stop()
+		_ = listener.Close()
+	}()
+
+	conn, err := grpc.NewClient(
+		"bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("create gRPC client: %v", err)
+	}
+	defer conn.Close()
+
+	ready := "Ready"
+	replicas := int32(1)
+	clientset := kubernetesfake.NewSimpleClientset(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}},
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "openshell-gateway-db", Namespace: namespace},
+			Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+			Status:     appsv1.DeploymentStatus{ReadyReplicas: 1},
+		},
+	)
+	dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	r := &ManagedDatabaseReconciler{
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
+		grpcConn:      conn,
+	}
+
+	event := watcher.Event[*pb.ManagedDatabase]{
+		Type:       watcher.EventUpdated,
+		ResourceID: "db-1",
+		Resource: &pb.ManagedDatabase{
+			Name:      "openshell-db",
+			Namespace: namespace,
+			Provider:  "deployment",
+			Status:    &ready,
+		},
+	}
+	if err := r.handleDeploymentDatabase(context.Background(), event, event.Resource); err != nil {
+		t.Fatalf("handleDeploymentDatabase: %v", err)
+	}
+
+	if got := service.statusUpdates(); len(got) != 0 {
+		t.Fatalf("status updates = %v, want no updates for an already Ready database", got)
 	}
 }
 
