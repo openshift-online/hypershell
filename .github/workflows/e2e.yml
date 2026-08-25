@@ -198,23 +198,36 @@ jobs:
                 konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${main_tag}"
                 konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${main_tag}"
                 konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${main_tag}"
-                # Use the commit-tagged set only when every component image exists.
-                # Konflux publishes component images independently based on path filters.
-                if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1 && \
-                   skopeo inspect --raw "docker://${konflux_cp}" >/dev/null 2>&1 && \
-                   skopeo inspect --raw "docker://${konflux_wc}" >/dev/null 2>&1; then
-                  echo "  Using Konflux images from main (${main_sha:0:7})"
-                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                  echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
-                  echo "control_plane_image=${konflux_cp}" >> "${GITHUB_OUTPUT}"
-                  echo "web_console_image=${konflux_wc}" >> "${GITHUB_OUTPUT}"
+                # Konflux publishes component images independently based on path
+                # filters. Use each available main image independently; a component
+                # that did not change on main has no commit-tagged image and should
+                # use the stable baseline instead of forcing the whole set back to
+                # an older revision.
+                api_img="${baseline_api}"
+                cp_img="${baseline_cp}"
+                wc_img="${baseline_wc}"
+                if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
+                  api_img="${konflux_api}"
+                  echo "  api-server -> ${api_img}"
                 else
-                  echo "  Konflux images not found for main -- falling back to baseline"
-                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                  echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
-                  echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
-                  echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                  echo "  api-server image not found for main -- using baseline"
                 fi
+                if skopeo inspect --raw "docker://${konflux_cp}" >/dev/null 2>&1; then
+                  cp_img="${konflux_cp}"
+                  echo "  control-plane -> ${cp_img}"
+                else
+                  echo "  control-plane image not found for main -- using baseline"
+                fi
+                if skopeo inspect --raw "docker://${konflux_wc}" >/dev/null 2>&1; then
+                  wc_img="${konflux_wc}"
+                  echo "  web-console -> ${wc_img}"
+                else
+                  echo "  web-console image not found for main -- using baseline"
+                fi
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
 
