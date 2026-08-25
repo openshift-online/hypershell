@@ -170,10 +170,10 @@ else
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': '3IPht5FcmsLRhrwYWybn2ljG211',
-    'cluster_id': '3IPhtBuDs95pZqx4s7mtn2816Qh',
-    'release_id': '3IPhtHdXC8eDV4HeQJGlpFL7mW9',
-    'database_id': '3IPhtEXBWV2fmJwFqHI1mt4ZOnQ',
+    'fleet_id': 'e2e-fleet',
+    'cluster_id': 'e2e-cluster',
+    'release_id': 'e2e-release',
+    'database_id': 'e2e-db',
     'oidc': json.dumps({
         'issuer': os.environ['OIDC_ISSUER'],
         'audience': os.environ['OIDC_CLIENT_ID'],
@@ -205,7 +205,11 @@ print(json.dumps(body))
   dim "  Waiting for controller to provision (timeout: ${PROVISION_TIMEOUT}s)..."
   DEADLINE=$(($(date +%s) + PROVISION_TIMEOUT))
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    GW_PHASE=$(curl -sk -H "Authorization: Bearer $HS_TOKEN" "${HS_API_URL}/api/hypershell/v1/gateways/${GW_ID}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
+    if "${HSCTL}" get gateway "${GW_ID}" 2>/dev/null | grep -q "Running"; then
+      GW_PHASE="Running"
+    else
+      GW_PHASE="unknown"
+    fi
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
     fi
