@@ -10,13 +10,13 @@ namespaces it creates for gateways, so that deleting a Gateway (or a gateway
 that never bootstrapped) does not leave orphaned `openshell-*` namespaces behind.
 It covers two complementary paths:
 
-1. **Delete-driven cleanup** - when a Gateway is deleted, the control plane
-   deletes that gateway's namespace as part of processing the delete event.
+1. **Delete-driven finalization** - when deletion is requested, the control plane
+   deletes the Gateway's owned resources before it permits the API record to be
+   removed.
 2. **Periodic garbage collection** - a background reconciler sweeps managed
-   namespaces and reaps any that no longer have a live Gateway backing them
-   after a grace period. This recovers namespaces orphaned by a delete event
-   missed while the control plane was down, and namespaces whose gateway failed
-   to bootstrap and was subsequently deleted.
+   namespaces and reaps orphans that have no active or deleting Gateway after a
+   grace period. This is a safety net for legacy, force-deleted, or otherwise
+   untracked namespaces; it is not the primary deletion protocol.
 
 It also defines how the number of active agent sandboxes in a gateway namespace
 is observed and surfaced so an operator can see how many running sessions a
@@ -159,13 +159,12 @@ prefix).
 - WHEN the namespace has been orphaned past the grace period
 - THEN the garbage-collection reconciler SHALL delete the namespace
 
-#### Scenario: Delete event missed during downtime is recovered
+#### Scenario: Deletion requested during downtime is recovered
 
-- GIVEN the control plane was down when a Gateway was deleted, so the namespace
-  was never reaped by the delete path
-- WHEN the control plane restarts and the garbage-collection reconciler sweeps
-- THEN it SHALL observe the namespace as orphaned and, once the grace period has
-  elapsed, delete it
+- GIVEN deletion is requested while the control plane is unavailable
+- AND the Gateway remains in durable deleting state
+- WHEN the control plane restarts and lists deleting resources
+- THEN it SHALL resume finalization and delete the managed namespace
 
 ### Requirement: Grace Period Prevents Premature Deletion
 
