@@ -32,6 +32,13 @@ import (
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
+func helmBinaryPath() string {
+	if v := os.Getenv("HELM_BINARY"); v != "" {
+		return v
+	}
+	return "/usr/local/bin/helm"
+}
+
 func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
 	return clientset != nil && dynamicClient != nil
 }
@@ -46,7 +53,8 @@ func main() {
 	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
 
 	// Verify helm binary is available
-	if err := helm.VerifyHelmAvailable(); err != nil {
+	helmBin := helmBinaryPath()
+	if err := helm.VerifyHelmAvailable(helmBin); err != nil {
 		log.Fatalf("helm binary verification failed: %v", err)
 	}
 
@@ -187,7 +195,7 @@ func main() {
 	// Initialize Helm client for gateway deployments
 	helmClient := &helm.ShellClient{
 		ChartPath:  cfg.HelmChartPath,
-		HelmBinary: "helm",
+		HelmBinary: helmBin,
 	}
 
 	var keycloakConfig *gateway.KeycloakConfig

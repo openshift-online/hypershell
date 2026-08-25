@@ -3,8 +3,9 @@ FROM registry.access.redhat.com/hi/go:1.26.5@sha256:eb29e565caf76cf408a77a73548a
 
 WORKDIR /workspace
 
-# Install Helm via Go toolchain (avoids OS package dependencies)
-RUN GOBIN=/usr/local/bin go install helm.sh/helm/v3/cmd/helm@v3.14.0
+# Install Helm via Go toolchain (avoids OS package dependencies).
+# CGO_ENABLED=0 produces a static binary that runs on the distroless runtime.
+RUN CGO_ENABLED=0 GOBIN=/usr/local/bin go install helm.sh/helm/v3/cmd/helm@v3.14.0
 
 COPY components/api-server/go.mod components/api-server/go.sum components/api-server/
 COPY components/control-plane/go.mod components/control-plane/go.sum components/control-plane/
