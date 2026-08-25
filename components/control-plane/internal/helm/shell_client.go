@@ -242,10 +242,10 @@ func flattenValues(m map[string]interface{}, prefix string) map[string]interface
 	return result
 }
 
-// VerifyHelmAvailable checks if the helm binary is available in PATH.
+// VerifyHelmAvailable checks if the helm binary is available.
 // It returns an error if helm is not found or if the version is too old.
-func VerifyHelmAvailable() error {
-	cmd := exec.Command("helm", "version", "--short")
+func VerifyHelmAvailable(helmBinary string) error {
+	cmd := exec.Command(helmBinary, "version", "--short")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

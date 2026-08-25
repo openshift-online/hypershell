@@ -37,9 +37,6 @@ import (
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
-// registerWithBackoff calls regClient.Register with exponential backoff until it
-// succeeds. A 403 response is non-retryable: the spoke lacks the required Keycloak
-// role, so it logs a fatal message and exits immediately.
 func registerWithBackoff(ctx context.Context, regClient *registration.Client) (string, error) {
 	backoff := time.Second
 	const maxBackoff = 60 * time.Second
@@ -66,11 +63,14 @@ func registerWithBackoff(ctx context.Context, regClient *registration.Client) (s
 	}
 }
 
-// instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
-// this instance's identity label onto its legacy gateway namespaces, so a stalled
-// API server or apiserver cannot delay the GC reconciler's launch indefinitely.
 const instanceLabelBackfillTimeout = 2 * time.Minute
 
+func helmBinaryPath() string {
+	if v := os.Getenv("HELM_BINARY"); v != "" {
+		return v
+	}
+	return "/usr/local/bin/helm"
+}
 func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
 	return clientset != nil && dynamicClient != nil
 }
@@ -90,7 +90,8 @@ func main() {
 	}
 
 	// Verify helm binary is available
-	if err := helm.VerifyHelmAvailable(); err != nil {
+	helmBin := helmBinaryPath()
+	if err := helm.VerifyHelmAvailable(helmBin); err != nil {
 		log.Fatalf("helm binary verification failed: %v", err)
 	}
 
@@ -269,7 +270,7 @@ func main() {
 	// Initialize Helm client for gateway deployments
 	helmClient := &helm.ShellClient{
 		ChartPath:  cfg.HelmChartPath,
-		HelmBinary: "helm",
+		HelmBinary: helmBin,
 	}
 
 	var keycloakConfig *gateway.KeycloakConfig
