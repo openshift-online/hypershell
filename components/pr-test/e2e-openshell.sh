@@ -89,7 +89,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-API_HOST=$($CLI get route hypershell-api-server -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+API_HOST=$($CLI get route hypershell-api -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -z "$API_HOST" ]]; then
   red "ERROR: HyperShell API route not found in namespace ${HS_NAMESPACE}"
   exit 1
