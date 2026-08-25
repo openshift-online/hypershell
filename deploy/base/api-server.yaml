@@ -82,16 +82,11 @@ spec:
             - containerPort: 4433
               name: metrics
           env:
+            # Plaintext in-cluster gRPC to the control-plane provisioner. A
+            # NetworkPolicy restricts port 9443 to this pod; the channel mirrors
+            # the sibling control-plane -> api-server watch channel (no mTLS).
             - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
               value: "hypershell-controller:9443"
-            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CERT
-              value: "/var/run/hypershell/provisioner/tls.crt"
-            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_KEY
-              value: "/var/run/hypershell/provisioner/tls.key"
-            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_TLS_CA
-              value: "/var/run/hypershell/provisioner/ca.crt"
-            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_SERVER_NAME
-              value: "hypershell-controller"
           startupProbe:
             httpGet:
               path: /healthcheck
@@ -119,16 +114,10 @@ spec:
             - name: db-secrets
               mountPath: /secrets
               readOnly: true
-            - name: service-account-provisioner-tls
-              mountPath: /var/run/hypershell/provisioner
-              readOnly: true
       volumes:
         - name: db-secrets
           secret:
             secretName: hypershell-db-app
-        - name: service-account-provisioner-tls
-          secret:
-            secretName: hypershell-service-account-provisioner-client-tls
 ---
 apiVersion: v1
 kind: Service

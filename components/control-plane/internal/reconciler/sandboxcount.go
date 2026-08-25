@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -260,15 +262,22 @@ func (r *SandboxCountReconciler) lockNamespace(namespace string) func() {
 // write. Each set RPC is bounded by sandboxCountRPCTimeout so a single hung call
 // cannot stall the rest of the pass.
 func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelisters.PodLister) {
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "sandbox-count", "reconcile")
+	var tickErr error
+	defer func() { endSpan(tickErr) }()
+
 	listCtx, cancel := context.WithTimeout(ctx, sandboxCountGatewayListTimeout)
 	namespaces, err := r.namespaces(listCtx)
 	cancel()
 	if err != nil {
+		tickErr = err
 		log.Printf("WARN sandbox count: list gateway namespaces: %v", err)
 		return
 	}
 	for _, ns := range namespaces {
-		r.healNamespace(ctx, lister, ns)
+		if err := r.healNamespace(ctx, lister, ns); err != nil {
+			tickErr = errors.Join(tickErr, err)
+		}
 	}
 }
 
@@ -278,20 +287,22 @@ func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelister
 // lock, so an event-driven delta for the same gateway cannot interleave between
 // the read and the write, and the control plane never issues two overlapping
 // count RPCs for one gateway.
-func (r *SandboxCountReconciler) healNamespace(ctx context.Context, lister corelisters.PodLister, namespace string) {
+func (r *SandboxCountReconciler) healNamespace(ctx context.Context, lister corelisters.PodLister, namespace string) error {
 	unlock := r.lockNamespace(namespace)
 	defer unlock()
 
 	count, err := countActiveSandboxes(lister, namespace)
 	if err != nil {
 		log.Printf("WARN sandbox count: read cache for %s: %v", namespace, err)
-		return
+		return err
 	}
 	rpcCtx, cancel := context.WithTimeout(ctx, sandboxCountRPCTimeout)
 	defer cancel()
 	if err := r.set(rpcCtx, namespace, count); err != nil {
 		log.Printf("WARN sandbox count: set %s to %d: %v", namespace, count, err)
+		return err
 	}
+	return nil
 }
 
 // countActiveSandboxes tallies the active sandbox pods a namespace holds in the

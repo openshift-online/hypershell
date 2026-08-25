@@ -46,39 +46,55 @@ jobs:
         if: github.event_name == 'pull_request'
         run: bash .github/scripts/detect-components.sh
 
-      - name: Detect changed components for merge queue
-        id: detect-merge-queue
-        if: github.event_name == 'merge_group'
+      - name: Detect Konflux components
+        id: detect-konflux
+        if: github.event_name == 'merge_group' || github.event_name == 'push'
         env:
+          EVENT_NAME: ${{ github.event_name }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_SHA: ${{ github.sha }}
         run: |
-          changed_files="$(git diff --name-only "${MERGE_GROUP_BASE_SHA}...${PUSH_SHA}")"
+          case "${EVENT_NAME}" in
+            merge_group)
+              changed_files="$(git diff --name-only "${MERGE_GROUP_BASE_SHA}...${PUSH_SHA}")"
+              pipeline_suffix="merge-queue"
+              ;;
+            push)
+              if [[ -z "${PUSH_BEFORE_SHA}" || "${PUSH_BEFORE_SHA}" =~ ^0+$ ]]; then
+                changed_files="$(git show --pretty=format: --name-only "${PUSH_SHA}")"
+              else
+                changed_files="$(git diff --name-only "${PUSH_BEFORE_SHA}...${PUSH_SHA}")"
+              fi
+              pipeline_suffix="push"
+              ;;
+            *)
+              echo "Unsupported event: ${EVENT_NAME}" >&2
+              exit 1
+              ;;
+          esac
 
-          wait_api_server=false
-          wait_control_plane=false
-          wait_web_console=false
+          api_server=false
+          control_plane=false
+          web_console=false
 
-          # These patterns MUST mirror each component's merge-queue Konflux CEL
-          # trigger in .tekton/hypershell-<component>-main-merge-queue.yaml. A
-          # merge-queue push that changes the pipeline file itself (or, for
-          # control-plane, the root Dockerfile) also fires that component's build,
-          # so we must wait for it -- otherwise the plan step below silently maps
-          # the component to a baseline image and skips the on-merge-queue image
-          # the merge queue actually produced.
-          if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-merge-queue\.yaml$' <<<"${changed_files}"; then
-            wait_api_server=true
+          # These patterns MUST mirror each component's event-specific Konflux
+          # CEL trigger in .tekton/hypershell-<component>-main-${pipeline_suffix}.yaml.
+          # Only components whose path-filtered pipelines actually run may use
+          # the event's commit-tagged image and wait for the corresponding check.
+          if grep -qE "^components/api-server/|^\\.tekton/hypershell-api-server-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
+            api_server=true
           fi
-          if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-merge-queue\.yaml$|^Dockerfile$' <<<"${changed_files}"; then
-            wait_control_plane=true
+          if grep -qE "^components/control-plane/|^\\.tekton/hypershell-control-plane-main-${pipeline_suffix}\\.yaml$|^Dockerfile$" <<<"${changed_files}"; then
+            control_plane=true
           fi
-          if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-merge-queue\.yaml$' <<<"${changed_files}"; then
-            wait_web_console=true
+          if grep -qE "^components/web-console/|^packages/gateway-management-ui/|^\\.tekton/hypershell-web-console-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
+            web_console=true
           fi
 
-          echo "wait_api_server=${wait_api_server}" >> "${GITHUB_OUTPUT}"
-          echo "wait_control_plane=${wait_control_plane}" >> "${GITHUB_OUTPUT}"
-          echo "wait_web_console=${wait_web_console}" >> "${GITHUB_OUTPUT}"
+          echo "api_server=${api_server}" >> "${GITHUB_OUTPUT}"
+          echo "control_plane=${control_plane}" >> "${GITHUB_OUTPUT}"
+          echo "web_console=${web_console}" >> "${GITHUB_OUTPUT}"
 
       - name: Plan images and required Konflux builds
         id: plan
@@ -92,17 +108,17 @@ jobs:
           DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
           DETECT_E2E: ${{ steps.detect.outputs.e2e }}
           DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
-          MQ_API_SERVER: ${{ steps.detect-merge-queue.outputs.wait_api_server }}
-          MQ_CONTROL_PLANE: ${{ steps.detect-merge-queue.outputs.wait_control_plane }}
-          MQ_WEB_CONSOLE: ${{ steps.detect-merge-queue.outputs.wait_web_console }}
+          KONFLUX_API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
+          KONFLUX_CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
+          KONFLUX_WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
         run: |
           baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
           baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
 
           # Default: nothing to wait for. The e2e-kind job waits for Konflux builds
-          # sequentially before e2e tests when a component's own source
-          # tree changed on a PR.
+          # sequentially before e2e tests when the current event triggers a
+          # component build.
           echo "wait_api_server=false"    >> "${GITHUB_OUTPUT}"
           echo "wait_control_plane=false" >> "${GITHUB_OUTPUT}"
           echo "wait_web_console=false"   >> "${GITHUB_OUTPUT}"
@@ -161,20 +177,36 @@ jobs:
                 konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${main_tag}"
                 konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${main_tag}"
                 konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${main_tag}"
-                # Fall back to baseline if Konflux images are not available
+                # Konflux publishes component images independently based on path
+                # filters. Use each available main image independently; a component
+                # that did not change on main has no commit-tagged image and should
+                # use the stable baseline instead of forcing the whole set back to
+                # an older revision.
+                api_img="${baseline_api}"
+                cp_img="${baseline_cp}"
+                wc_img="${baseline_wc}"
                 if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
-                  echo "  Using Konflux images from main (${main_sha:0:7})"
-                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                  echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
-                  echo "control_plane_image=${konflux_cp}" >> "${GITHUB_OUTPUT}"
-                  echo "web_console_image=${konflux_wc}" >> "${GITHUB_OUTPUT}"
+                  api_img="${konflux_api}"
+                  echo "  api-server -> ${api_img}"
                 else
-                  echo "  Konflux images not found for main -- falling back to baseline"
-                  echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                  echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
-                  echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
-                  echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+                  echo "  api-server image not found for main -- using baseline"
                 fi
+                if skopeo inspect --raw "docker://${konflux_cp}" >/dev/null 2>&1; then
+                  cp_img="${konflux_cp}"
+                  echo "  control-plane -> ${cp_img}"
+                else
+                  echo "  control-plane image not found for main -- using baseline"
+                fi
+                if skopeo inspect --raw "docker://${konflux_wc}" >/dev/null 2>&1; then
+                  wc_img="${konflux_wc}"
+                  echo "  web-console -> ${wc_img}"
+                else
+                  echo "  web-console image not found for main -- using baseline"
+                fi
+                echo "should_run=true" >> "${GITHUB_OUTPUT}"
+                echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+                echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+                echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
 
@@ -225,19 +257,19 @@ jobs:
               api_img="${baseline_api}"
               cp_img="${baseline_cp}"
               wc_img="${baseline_wc}"
-              echo "wait_api_server=${MQ_API_SERVER}" >> "${GITHUB_OUTPUT}"
-              echo "wait_control_plane=${MQ_CONTROL_PLANE}" >> "${GITHUB_OUTPUT}"
-              echo "wait_web_console=${MQ_WEB_CONSOLE}" >> "${GITHUB_OUTPUT}"
+              echo "wait_api_server=${KONFLUX_API_SERVER}" >> "${GITHUB_OUTPUT}"
+              echo "wait_control_plane=${KONFLUX_CONTROL_PLANE}" >> "${GITHUB_OUTPUT}"
+              echo "wait_web_console=${KONFLUX_WEB_CONSOLE}" >> "${GITHUB_OUTPUT}"
 
-              if [[ "${MQ_API_SERVER}" == "true" ]]; then
+              if [[ "${KONFLUX_API_SERVER}" == "true" ]]; then
                 api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
                 echo "  api-server -> ${api_img}"
               fi
-              if [[ "${MQ_CONTROL_PLANE}" == "true" ]]; then
+              if [[ "${KONFLUX_CONTROL_PLANE}" == "true" ]]; then
                 cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
                 echo "  control-plane -> ${cp_img}"
               fi
-              if [[ "${MQ_WEB_CONSOLE}" == "true" ]]; then
+              if [[ "${KONFLUX_WEB_CONSOLE}" == "true" ]]; then
                 wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
                 echo "  web-console -> ${wc_img}"
               fi
@@ -247,32 +279,77 @@ jobs:
               echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
               ;;
 
-            *)
-              # push, workflow_dispatch -- use latest Konflux on-push images
-              push_tag="${PUSH_SHA}"
-              konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${push_tag}"
-              if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
-                echo "Using Konflux on-push images (${PUSH_SHA:0:7})"
-                echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                echo "api_server_image=${konflux_api}" >> "${GITHUB_OUTPUT}"
-                echo "control_plane_image=${KONFLUX_REGISTRY}/hypershell-control-plane-main:${push_tag}" >> "${GITHUB_OUTPUT}"
-                echo "web_console_image=${KONFLUX_REGISTRY}/hypershell-web-console-main:${push_tag}" >> "${GITHUB_OUTPUT}"
-              else
-                echo "Konflux on-push images not found -- falling back to baseline"
-                echo "should_run=true" >> "${GITHUB_OUTPUT}"
-                echo "api_server_image=${baseline_api}" >> "${GITHUB_OUTPUT}"
-                echo "control_plane_image=${baseline_cp}" >> "${GITHUB_OUTPUT}"
-                echo "web_console_image=${baseline_wc}" >> "${GITHUB_OUTPUT}"
+            push)
+              # On-push component pipelines run concurrently with this workflow.
+              # Select commit-tagged images only for components whose path-filtered
+              # pipelines were triggered, and make e2e-kind wait for those checks.
+              # Falling back to baseline for a changed component would run new tests
+              # against old code and can report misleading product failures.
+              tag="${PUSH_SHA}"
+              api_img="${baseline_api}"
+              cp_img="${baseline_cp}"
+              wc_img="${baseline_wc}"
+              echo "wait_api_server=${KONFLUX_API_SERVER}" >> "${GITHUB_OUTPUT}"
+              echo "wait_control_plane=${KONFLUX_CONTROL_PLANE}" >> "${GITHUB_OUTPUT}"
+              echo "wait_web_console=${KONFLUX_WEB_CONSOLE}" >> "${GITHUB_OUTPUT}"
+
+              if [[ "${KONFLUX_API_SERVER}" == "true" ]]; then
+                api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+                echo "  api-server -> ${api_img} (waiting for Konflux build)"
               fi
+              if [[ "${KONFLUX_CONTROL_PLANE}" == "true" ]]; then
+                cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+                echo "  control-plane -> ${cp_img} (waiting for Konflux build)"
+              fi
+              if [[ "${KONFLUX_WEB_CONSOLE}" == "true" ]]; then
+                wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+                echo "  web-console -> ${wc_img} (waiting for Konflux build)"
+              fi
+
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
+              ;;
+
+            *)
+              # workflow_dispatch does not trigger Konflux builds. Reuse a full
+              # commit-tagged image set when one already exists; otherwise use the
+              # stable baseline set rather than mixing component revisions.
+              tag="${PUSH_SHA}"
+              konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+              konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+              konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+              if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1 && \
+                 skopeo inspect --raw "docker://${konflux_cp}" >/dev/null 2>&1 && \
+                 skopeo inspect --raw "docker://${konflux_wc}" >/dev/null 2>&1; then
+                echo "Using existing Konflux images (${PUSH_SHA:0:7})"
+                api_img="${konflux_api}"
+                cp_img="${konflux_cp}"
+                wc_img="${konflux_wc}"
+              else
+                echo "Complete Konflux image set not found -- using baseline"
+                api_img="${baseline_api}"
+                cp_img="${baseline_cp}"
+                wc_img="${baseline_wc}"
+              fi
+              echo "should_run=true" >> "${GITHUB_OUTPUT}"
+              echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
+              echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
+              echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
               ;;
           esac
 
 
   e2e-kind:
-    name: E2E Kind
+    name: E2E Kind (${{ matrix.database-provider }})
     needs: plan-images
     if: needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        database-provider: [deployment, cnpg]
     # This job now also absorbs the Konflux build wait that plan-images used to
     # hold: kind-up runs first and overlaps the remote build, the
     # wait-on-check-action steps then block for whatever build time is left (up
@@ -306,55 +383,59 @@ jobs:
 
       - name: Create Kind cluster with OIDC
         env:
+          # Exercise both the default per-gateway Deployment path and the
+          # explicitly selected CNPG path through the full E2E workflow.
+          DATABASE_PROVIDER: ${{ matrix.database-provider }}
           KIND_ENABLE_OIDC: "true"
           # Deploy Jaeger and point the web-console BFF at it so the browser
           # trace verification below has a collector to export to (WEB-TRACE-10).
           KIND_JAEGER: "true"
         run: make kind-up
 
-      # Block until each changed component's Konflux on-pull-request build has
-      # concluded. wait-on-check-action waits for the *named* check to both
-      # appear and finish, so a build whose check has not been created yet
-      # cannot be skipped (the failure mode of the previous hand-rolled poll).
-      # A non-success conclusion fails the step -> the job -> the E2E gate.
+      # Block until each triggered component build has concluded.
+      # wait-on-check-action waits for the named check to both appear and finish,
+      # so a build whose check has not been created yet cannot be skipped. Push
+      # events select only their on-push check because the same commit can also
+      # retain successful merge-queue checks. A non-success conclusion fails the
+      # step instead of letting E2E run against a stale baseline image.
       - name: Wait for api-server Konflux build
-        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.plan-images.outputs.wait_api_server == 'true'
+        if: needs.plan-images.outputs.wait_api_server == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          check-regexp: hypershell-api-server-main-on-(pull-request|merge-queue)$
+          check-regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || 'hypershell-api-server-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
-          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # Only success proves that the selected commit-tagged image was pushed.
           # The action defaults to "success,skipped"; a skipped build never
           # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
 
       - name: Wait for control-plane Konflux build
-        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.plan-images.outputs.wait_control_plane == 'true'
+        if: needs.plan-images.outputs.wait_control_plane == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          check-regexp: hypershell-control-plane-main-on-(pull-request|merge-queue)$
+          check-regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || 'hypershell-control-plane-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
-          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # Only success proves that the selected commit-tagged image was pushed.
           # The action defaults to "success,skipped"; a skipped build never
           # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
 
       - name: Wait for web-console Konflux build
-        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.plan-images.outputs.wait_web_console == 'true'
+        if: needs.plan-images.outputs.wait_web_console == 'true'
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          check-regexp: hypershell-web-console-main-on-(pull-request|merge-queue)$
+          check-regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || 'hypershell-web-console-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
-          # Only a success conclusion proves the build pushed on-pr-<head_sha>.
+          # Only success proves that the selected commit-tagged image was pushed.
           # The action defaults to "success,skipped"; a skipped build never
           # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
@@ -373,6 +454,8 @@ jobs:
       - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
+          # Mirror the provider used to create this matrix job's cluster.
+          DATABASE_PROVIDER: ${{ matrix.database-provider }}
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "180"
           # Force plain, non-graphical output from the openshell CLI. Off a TTY

@@ -21,6 +21,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountprovisioner"
@@ -32,6 +33,10 @@ import (
 
 const defaultManifestsDir = "/manifests/gateway"
 
+func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
+	return clientset != nil && dynamicClient != nil
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -39,14 +44,21 @@ func main() {
 	}
 
 	log.Printf("INFO hypershell-controller starting")
-	log.Printf("INFO grpc=%s api=%s namespace=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace)
+	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	otelShutdown, otelErr := cpotel.Init(ctx)
+	if otelErr != nil {
+		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
+	}
+	defer cpotel.Shutdown(otelShutdown)
+
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
+	dialOpts = append(dialOpts, cpotel.GRPCDialOptions()...)
 
 	oidcIssuer := os.Getenv("OIDC_ISSUER")
 	if oidcIssuer != "" {
@@ -85,6 +97,10 @@ func main() {
 		log.Printf("WARN not running in-cluster, gateway reconciliation will be limited: %v", err)
 	}
 
+	if k8sConfig != nil {
+		k8sConfig = cpotel.InstrumentK8sConfig(k8sConfig)
+	}
+
 	var clientset *kubernetes.Clientset
 	var dynamicClient dynamic.Interface
 
@@ -98,6 +114,23 @@ func main() {
 		if err != nil {
 			log.Fatalf("creating dynamic client: %v", err)
 		}
+	}
+
+	// DATABASE_PROVIDER=cnpg is a hard startup precondition: the control plane
+	// must fail cleanly here, before any watch/reconcile loop starts, when the
+	// exact CNPG API resources this codebase depends on (clusters, databases,
+	// databaseroles in postgresql.cnpg.io/v1) are not served, rather than
+	// deferring the failure to the first CNPG-backed reconciliation deep
+	// inside the gateway/database reconcilers. DATABASE_PROVIDER=deployment (the
+	// default) never reaches this check and has no CNPG dependency at all.
+	if cfg.DatabaseProvider == config.DatabaseProviderCNPG {
+		if clientset == nil {
+			log.Fatalf("DATABASE_PROVIDER=cnpg requires an in-cluster Kubernetes client to verify the CNPG API prerequisites")
+		}
+		if err := gateway.RequireCNPGAPI(clientset); err != nil {
+			log.Fatalf("%v", err)
+		}
+		log.Printf("INFO CNPG API prerequisites verified for DATABASE_PROVIDER=cnpg")
 	}
 
 	// The Gateway Exposure port decouples route-address resolution and readiness
@@ -132,7 +165,12 @@ func main() {
 
 	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	databaseReconciler := reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn)
+	var databaseReconciler watcher.Handler[*pb.ManagedDatabase]
+	if managedDatabaseWatchEligible(clientset, dynamicClient) {
+		databaseReconciler = reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn)
+	} else {
+		log.Printf("WARN ManagedDatabase watch disabled: both Kubernetes typed and dynamic clients are required")
+	}
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler()
 	networkReconciler := reconciler.NewGatewayNetworkReconciler()
 
@@ -191,9 +229,12 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
-	watchCount := 6
+	watchCount := 5 // fleets, managed clusters, gateway releases, gateways, networks
+	if databaseReconciler != nil {
+		watchCount++
+	}
 	if roleBindingReconciler != nil {
-		watchCount = 7
+		watchCount++
 	}
 	// +4 for the continuous gateway health, namespace GC, sandbox-count, and
 	// internal service-account provisioner goroutines.
@@ -202,23 +243,21 @@ func main() {
 	if cfg.ServiceAccountProvisionerAddress != "" {
 		provisionerServer := serviceaccountprovisioner.NewServer(serviceAccountProvider)
 		transportConfig := serviceaccountprovisioner.TransportConfig{
-			Address:                  cfg.ServiceAccountProvisionerAddress,
-			CertificateFile:          cfg.ServiceAccountProvisionerTLSCertificate,
-			KeyFile:                  cfg.ServiceAccountProvisionerTLSKey,
-			ClientCAFile:             cfg.ServiceAccountProvisionerTLSClientCA,
-			ExpectedClientCommonName: cfg.ServiceAccountProvisionerExpectedClientCN,
+			Address: cfg.ServiceAccountProvisionerAddress,
 		}
 		go func() {
 			errCh <- serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
 		}()
-		log.Printf("INFO service-account provisioner launched on %s with mutual TLS", cfg.ServiceAccountProvisionerAddress)
+		log.Printf("INFO service-account provisioner launched on %s (in-cluster, NetworkPolicy-restricted)", cfg.ServiceAccountProvisionerAddress)
 	} else {
 		log.Printf("INFO service-account provisioner disabled")
 	}
 
 	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
-	go func() { errCh <- watcher.WatchManagedDatabases(ctx, conn, databaseReconciler) }()
+	if databaseReconciler != nil {
+		go func() { errCh <- watcher.WatchManagedDatabases(ctx, conn, databaseReconciler) }()
+	}
 	go func() { errCh <- watcher.WatchGatewayReleases(ctx, conn, releaseReconciler) }()
 	go func() { errCh <- watcher.WatchGateways(ctx, conn, gatewayReconciler) }()
 	go func() { errCh <- watcher.WatchGatewayNetworks(ctx, conn, networkReconciler) }()

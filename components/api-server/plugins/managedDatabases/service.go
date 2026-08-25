@@ -12,8 +12,15 @@ import (
 
 const managedDatabasesLockType db.LockType = "managed_databases"
 
+const (
+	providerCNPG       = "cnpg"
+	providerDeployment = "deployment"
+)
+
 type ManagedDatabaseService interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
+	GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
+	ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, *errors.ServiceError)
 	Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError)
 	Replace(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError)
 	Delete(ctx context.Context, id string) *errors.ServiceError
@@ -69,9 +76,36 @@ func (s *sqlManagedDatabaseService) Get(ctx context.Context, id string) (*Manage
 	return managedDatabase, nil
 }
 
+// GetUnscoped loads soft-deleted records only for delete watch enrichment.
+func (s *sqlManagedDatabaseService) GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError) {
+	managedDatabase, err := s.managedDatabaseDao.GetUnscoped(ctx, id)
+	if err != nil {
+		return nil, services.HandleGetError("ManagedDatabase", "id", id, err)
+	}
+	return managedDatabase, nil
+}
+
+// ListDeleted returns durable delete tombstones for watch-stream replay. It is
+// internal to the gRPC watch handshake; public list/get operations remain scoped.
+func (s *sqlManagedDatabaseService) ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, *errors.ServiceError) {
+	managedDatabases, err := s.managedDatabaseDao.ListDeleted(ctx, offset, limit)
+	if err != nil {
+		return nil, errors.GeneralError("list deleted ManagedDatabases: %s", err)
+	}
+	return managedDatabases, nil
+}
+
+func isSupportedProvider(provider string) bool {
+	return provider == providerCNPG || provider == providerDeployment
+}
+
+func unsupportedProviderError(provider string) *errors.ServiceError {
+	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\" and \"deployment\"", provider)
+}
+
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {
-	if managedDatabase.Provider != "cnpg" {
-		return nil, errors.Validation("unsupported provider %q: only \"cnpg\" is supported", managedDatabase.Provider)
+	if !isSupportedProvider(managedDatabase.Provider) {
+		return nil, unsupportedProviderError(managedDatabase.Provider)
 	}
 
 	managedDatabase, err := s.managedDatabaseDao.Create(ctx, managedDatabase)
@@ -97,6 +131,17 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 		return nil, errors.DatabaseAdvisoryLock(err)
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
+
+	persisted, err := s.managedDatabaseDao.Get(ctx, managedDatabase.ID)
+	if err != nil {
+		return nil, services.HandleUpdateError("ManagedDatabase", err)
+	}
+	if !isSupportedProvider(managedDatabase.Provider) {
+		return nil, unsupportedProviderError(managedDatabase.Provider)
+	}
+	if isSupportedProvider(persisted.Provider) && managedDatabase.Provider != persisted.Provider {
+		return nil, errors.Validation("provider cannot be changed from %q to %q", persisted.Provider, managedDatabase.Provider)
+	}
 
 	managedDatabase, err = s.managedDatabaseDao.Replace(ctx, managedDatabase)
 	if err != nil {

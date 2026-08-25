@@ -109,11 +109,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 			return nil, err
 		}
 	}
-	if req.DatabaseId != nil {
-		if err := grpcutil.ValidateStringField("database_id", *req.DatabaseId, false); err != nil {
-			return nil, err
-		}
-	}
 	if req.ExternalDns != nil {
 		if err := grpcutil.ValidateStringField("external_dns", *req.ExternalDns, false); err != nil {
 			return nil, err
@@ -156,9 +151,8 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.ReleaseId != nil {
 		gateway.ReleaseId = *req.ReleaseId
 	}
-	if req.DatabaseId != nil {
-		gateway.DatabaseId = *req.DatabaseId
-	}
+	// database_id is server-owned placement state. Ignore values supplied by
+	// callers; gateway creation business logic is the only assignment path.
 	if req.ExternalDns != nil {
 		gateway.ExternalDns = req.ExternalDns
 	}

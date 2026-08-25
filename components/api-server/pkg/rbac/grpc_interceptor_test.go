@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -23,6 +24,13 @@ func (f fakeLookup) FindBindingsByUserID(_ context.Context, _ string) ([]Binding
 }
 
 type fakeProvisioner struct{ userID string }
+
+type fakeServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *fakeServerStream) Context() context.Context { return s.ctx }
 
 func (f fakeProvisioner) UpsertFromJWT(_ context.Context, _ *auth.Payload) (string, error) {
 	return f.userID, nil
@@ -215,6 +223,55 @@ func TestUnaryInterceptor_SandboxCountRestrictedToServiceAccount(t *testing.T) {
 			}
 			if status.Code(err) != codes.PermissionDenied {
 				t.Errorf("got %v, want PermissionDenied", err)
+			}
+		})
+	}
+}
+
+func TestStreamInterceptor_ManagedDatabaseReplayRestrictedToServiceAccount(t *testing.T) {
+	const method = "/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases"
+	const serviceAccount = "service-account-hypershell-control-plane"
+
+	ownerLookup := fakeLookup{bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")}}}
+	provisioner := fakeProvisioner{userID: "user-1"}
+	tests := []struct {
+		name            string
+		username        string
+		replay          bool
+		serviceAccounts []string
+		wantAllowed     bool
+	}{
+		{"human denied replay", "human-owner", true, []string{serviceAccount}, false},
+		{"human denied replay without allowlist", "human-owner", true, nil, false},
+		{"service account allowed replay", serviceAccount, true, []string{serviceAccount}, true},
+		{"human owner retains ordinary live watch", "human-owner", false, []string{serviceAccount}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := auth.SetUsernameContext(context.Background(), tt.username)
+			if tt.replay {
+				ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("hypershell-managed-database-replay", "deleted-v1"))
+			}
+			stream := &fakeServerStream{ctx: ctx}
+			interceptor := RBACStreamInterceptor(ownerLookup, provisioner, nil, AuthzConfig{
+				EnforceRBAC:     true,
+				ServiceAccounts: tt.serviceAccounts,
+			})
+			called := false
+			handler := func(interface{}, grpc.ServerStream) error {
+				called = true
+				return nil
+			}
+			err := interceptor(nil, stream, &grpc.StreamServerInfo{FullMethod: method}, handler)
+			if tt.wantAllowed {
+				if err != nil || !called {
+					t.Fatalf("expected allowed call, called=%v err=%v", called, err)
+				}
+				return
+			}
+			if called || status.Code(err) != codes.PermissionDenied {
+				t.Fatalf("expected PermissionDenied without handler call, called=%v err=%v", called, err)
 			}
 		})
 	}

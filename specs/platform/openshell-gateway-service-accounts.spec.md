@@ -62,7 +62,7 @@ HyperShell API
     | 1. Resolve the caller's gateway RoleBinding
     | 2. Cap role at owner -> openshell-admin, viewer -> openshell-user
     | 3. Reserve non-secret OpenShellGatewayServiceAccount metadata in provisioning state
-    | 4. Send the desired state to the control-plane provisioner over mTLS gRPC
+    | 4. Send the desired state to the control-plane provisioner over in-cluster gRPC
     v
 Control-plane provisioner
     | 5. Create a confidential Keycloak client and service-account user
@@ -121,7 +121,7 @@ An access token issued before disablement remains valid until its `exp`. Thus, t
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API server             | Authorize nested routes, store non-secret desired state, call the control-plane provisioner synchronously, and return the new secret once.                            |
 | Control plane          | Own all Keycloak administration. Provision, verify, reconcile, disable, and delete service-account clients. Reconcile gateway and console clients.                    |
-| Internal provisioner   | Expose the control plane's service-account operations to the API through a mutually authenticated, synchronous gRPC service. Never persist or log a client secret.     |
+| Internal provisioner   | Expose the control plane's service-account operations to the API through an in-cluster, synchronous gRPC service that only the API server can reach. Never persist or log a client secret. |
 | Management web console | Create and manage OpenShellGatewayServiceAccounts through the API. Show the credential bundle once without caching it.                                                |
 | HyperShell CLI         | Support create, list, get, revoke, and delete operations. Pass the credential bundle to CI without logging it.                                                        |
 | Keycloak               | Store the service-account identity and client secret. Issue short-lived access tokens.                                                                                |
@@ -129,9 +129,9 @@ An access token issued before disablement remains valid until its `exp`. Thus, t
 
 The create operation SHALL provision the service-account client synchronously. The API server SHALL send the desired state to the control plane through the internal provisioner and wait for its result. This path lets HyperShell return the client secret once.
 
-The internal provisioner SHALL use TLS with mutual certificate authentication. The API server SHALL receive a dedicated client certificate. It SHALL NOT receive the Keycloak administrator credential. The control plane SHALL reject callers that do not present the expected API-server identity.
+The internal provisioner SHALL listen on an in-cluster gRPC port that is not exposed outside the cluster. A NetworkPolicy SHALL restrict that port so that only the API server pod can open a connection to it. This follows the platform rule that HyperShell does not require or support client mTLS, and it matches how the platform already secures the control-plane-to-API-server gRPC channel. The API server SHALL NOT receive the Keycloak administrator credential; only the control plane holds it.
 
-Both endpoints SHALL pick up rotated key pairs and rotated CA trust bundles without a process restart. When cert-manager rewrites a mounted leaf certificate or issuing-CA bundle in place, the next handshake SHALL use the new material: a client SHALL trust a server certificate signed by a newly rolled-over CA, and the server SHALL accept a client certificate signed by a newly rolled-over CA. This keeps the synchronous provisioning path available across certificate rotation.
+The provisioner address and its NetworkPolicy are configuration. A change to either SHALL NOT require a code change.
 
 The API server SHALL NOT place the client secret on an asynchronous gRPC watch, event broker, controller work queue, or Kubernetes object. The internal response SHALL carry the secret only in memory. Browsers, CLIs, and BFFs SHALL never receive Keycloak administration credentials.
 
@@ -455,7 +455,7 @@ The create operation SHALL provision and validate the service-account client bef
 
 The test access token SHALL have the expected issuer, subject, gateway audience, and roles. After this test succeeds, HyperShell SHALL set status `ready` and return the client secret.
 
-HyperShell SHALL transmit the generated client secret only through the authenticated create response. Internal provisioning calls SHALL use an authenticated synchronous path.
+HyperShell SHALL transmit the generated client secret only through the authenticated create response. Internal provisioning calls SHALL use a synchronous in-cluster path that a NetworkPolicy restricts to the API server.
 
 The client secret MUST NOT enter:
 
@@ -487,6 +487,25 @@ The security standard permits the create endpoint to return a new client secret 
 - AND HyperShell SHALL delete every partial Keycloak object
 - AND it SHALL disable an object first if immediate deletion fails
 - AND HyperShell SHALL record enough non-secret identifiers to find and remove any remaining service-account client
+
+### Requirement: Internal Provisioner Network Isolation
+
+The internal provisioner SHALL expose the control plane's service-account operations only inside the cluster. A NetworkPolicy SHALL restrict the provisioner port so that only the API server pod can open a connection. HyperShell SHALL NOT require client mTLS for this channel, consistent with the platform architecture. The control plane SHALL remain the only holder of the Keycloak administrator credential.
+
+#### Scenario: A foreign pod cannot reach the provisioner
+
+- GIVEN the control plane runs the internal provisioner on its in-cluster port
+- AND a NetworkPolicy allows ingress to that port only from the API server pod
+- WHEN a pod other than the API server tries to open a provisioner connection
+- THEN the NetworkPolicy SHALL block the connection
+- AND the control plane SHALL never run a Keycloak administration operation for that caller
+
+#### Scenario: The API server reaches the provisioner without certificates
+
+- GIVEN the API server is configured with the provisioner address
+- WHEN the API server sends a synchronous provisioning request over the in-cluster gRPC channel
+- THEN the control plane SHALL accept the request without a client certificate
+- AND it SHALL return the client secret once in the synchronous response
 
 ### Requirement: Federated Keycloak Is the Identity System of Record
 

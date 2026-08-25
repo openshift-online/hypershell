@@ -21,10 +21,11 @@ var _ MappedNullable = &GatewayCreateRequest{}
 
 // GatewayCreateRequest struct for GatewayCreateRequest
 type GatewayCreateRequest struct {
-	Name        string  `json:"name"`
-	FleetId     string  `json:"fleet_id"`
-	ClusterId   string  `json:"cluster_id"`
-	ReleaseId   string  `json:"release_id"`
+	Name      string `json:"name"`
+	FleetId   string `json:"fleet_id"`
+	ClusterId string `json:"cluster_id"`
+	ReleaseId string `json:"release_id"`
+	// Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
 	DatabaseId  string  `json:"database_id"`
 	ExternalDns *string `json:"external_dns,omitempty"`
 	TlsMode     *string `json:"tls_mode,omitempty"`

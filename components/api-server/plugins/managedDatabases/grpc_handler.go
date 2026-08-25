@@ -6,6 +6,7 @@ import (
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -192,26 +193,75 @@ func (h *managedDatabaseGRPCHandler) ListManagedDatabases(ctx context.Context, r
 	}, nil
 }
 
+const (
+	managedDatabaseDeleteTombstoneHeader = "hypershell-managed-database-delete-tombstones"
+	managedDatabaseReplayRequestHeader   = "hypershell-managed-database-replay"
+	managedDatabaseReplayRequestValue    = "deleted-v1"
+	managedDatabaseReplayPageSize        = 500
+)
+
+func sendManagedDatabaseWatchHeader(stream grpc.ServerStreamingServer[pb.WatchManagedDatabasesResponse]) error {
+	if err := stream.SendHeader(metadata.Pairs(managedDatabaseDeleteTombstoneHeader, "v1")); err != nil {
+		return status.Errorf(codes.Unavailable, "failed to send watch header: %v", err)
+	}
+	return nil
+}
+
+func managedDatabaseReplayRequested(ctx context.Context) bool {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+	values := md.Get(managedDatabaseReplayRequestHeader)
+	return len(values) == 1 && values[0] == managedDatabaseReplayRequestValue
+}
+
+func (h *managedDatabaseGRPCHandler) replayDeletedManagedDatabases(ctx context.Context, stream grpc.ServerStreamingServer[pb.WatchManagedDatabasesResponse]) error {
+	if err := sendManagedDatabaseWatchHeader(stream); err != nil {
+		return err
+	}
+	for offset := 0; ; offset += managedDatabaseReplayPageSize {
+		deleted, svcErr := h.service.ListDeleted(ctx, offset, managedDatabaseReplayPageSize)
+		if svcErr != nil {
+			return status.Errorf(codes.Unavailable, "failed to load ManagedDatabase delete tombstones: %v", svcErr)
+		}
+		for i := range deleted {
+			managedDatabase := &deleted[i]
+			if err := stream.Send(&pb.WatchManagedDatabasesResponse{
+				Type:            pb.EventType_EVENT_TYPE_DELETED,
+				ResourceId:      managedDatabase.ID,
+				ManagedDatabase: managedDatabaseToProto(managedDatabase),
+			}); err != nil {
+				return status.Errorf(codes.Unavailable, "replay ManagedDatabase delete tombstone %s: %v", managedDatabase.ID, err)
+			}
+		}
+		if len(deleted) < managedDatabaseReplayPageSize {
+			return nil
+		}
+	}
+}
+
 func (h *managedDatabaseGRPCHandler) WatchManagedDatabases(req *pb.WatchManagedDatabasesRequest, stream grpc.ServerStreamingServer[pb.WatchManagedDatabasesResponse]) error {
+	ctx := stream.Context()
+	if managedDatabaseReplayRequested(ctx) {
+		return h.replayDeletedManagedDatabases(ctx, stream)
+	}
+
 	broker := h.brokerFunc()
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
 	}
-
-	ctx := stream.Context()
 	sub, err := broker.Subscribe(ctx)
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
 	glog.V(4).Infof("WatchManagedDatabases: subscriber %s connected", sub.ID)
 
-	// Flush the stream header now that the subscription is live. This turns opening
-	// the stream into a real subscription handshake: a client that blocks on the
-	// response header (the control-plane watcher does, to seed without a list-watch
-	// gap) knows no event can be missed once Header() returns. Sending an empty
-	// header is a no-op for clients that ignore it.
-	if err := stream.SendHeader(nil); err != nil {
-		return status.Errorf(codes.Unavailable, "failed to send watch header: %v", err)
+	// Flush the header immediately after subscribing. The control plane starts
+	// draining this live stream before it requests paginated historical tombstones,
+	// so replay can never block consumption of the broker's bounded event channel.
+	if err := sendManagedDatabaseWatchHeader(stream); err != nil {
+		return err
 	}
 
 	for {
@@ -233,7 +283,13 @@ func (h *managedDatabaseGRPCHandler) WatchManagedDatabases(req *pb.WatchManagedD
 				ResourceId: evt.SourceID,
 			}
 
-			if evt.EventType != api.DeleteEventType {
+			if evt.EventType == api.DeleteEventType {
+				managedDatabase, svcErr := h.service.GetUnscoped(ctx, evt.SourceID)
+				if svcErr != nil {
+					return status.Errorf(codes.Unavailable, "load ManagedDatabase delete tombstone %s: %v", evt.SourceID, svcErr)
+				}
+				watchEvent.ManagedDatabase = managedDatabaseToProto(managedDatabase)
+			} else {
 				managedDatabase, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
 					glog.Warningf("WatchManagedDatabases: failed to load managedDatabase %s: %v", evt.SourceID, svcErr)

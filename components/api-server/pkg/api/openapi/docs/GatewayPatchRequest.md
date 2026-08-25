@@ -8,7 +8,7 @@ Name | Type | Description | Notes
 **FleetId** | Pointer to **string** |  | [optional] 
 **ClusterId** | Pointer to **string** |  | [optional] 
 **ReleaseId** | Pointer to **string** |  | [optional] 
-**DatabaseId** | Pointer to **string** |  | [optional] 
+**DatabaseId** | Pointer to **string** | Server-owned placement field; values supplied through PATCH are ignored | [optional] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 

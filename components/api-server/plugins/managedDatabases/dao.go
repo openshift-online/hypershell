@@ -11,6 +11,8 @@ import (
 
 type ManagedDatabaseDao interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, error)
+	GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, error)
+	ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, error)
 	Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error)
 	Replace(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error)
 	Delete(ctx context.Context, id string) error
@@ -37,6 +39,29 @@ func (d *sqlManagedDatabaseDao) Get(ctx context.Context, id string) (*ManagedDat
 		return nil, err
 	}
 	return &managedDatabase, nil
+}
+
+func (d *sqlManagedDatabaseDao) GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var managedDatabase ManagedDatabase
+	if err := g2.Unscoped().Take(&managedDatabase, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &managedDatabase, nil
+}
+
+func (d *sqlManagedDatabaseDao) ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var managedDatabases []ManagedDatabase
+	if err := g2.Unscoped().
+		Where("deleted_at IS NOT NULL").
+		Order("deleted_at ASC, id ASC").
+		Offset(offset).
+		Limit(limit).
+		Find(&managedDatabases).Error; err != nil {
+		return nil, err
+	}
+	return managedDatabases, nil
 }
 
 func (d *sqlManagedDatabaseDao) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error) {

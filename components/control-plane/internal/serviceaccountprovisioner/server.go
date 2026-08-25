@@ -1,5 +1,7 @@
 // Package serviceaccountprovisioner exposes the control plane's Keycloak
-// service-account operations to the API server over a private mTLS gRPC API.
+// service-account operations to the API server over a private in-cluster gRPC
+// API. A NetworkPolicy restricts the port to the API server pod; the channel is
+// not exposed outside the cluster and does not use mTLS.
 package serviceaccountprovisioner
 
 import (

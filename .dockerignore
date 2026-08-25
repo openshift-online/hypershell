@@ -20,6 +20,7 @@ packages/**
 !packages/gateway-management-ui/**
 !components/web-console/
 !components/web-console/**
+!scripts/bootstrap_pnpm.sh
 **/node_modules
 **/.react-router
 **/build

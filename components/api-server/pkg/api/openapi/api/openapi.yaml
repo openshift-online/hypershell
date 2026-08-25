@@ -2870,6 +2870,8 @@ components:
           release_id:
             type: string
           database_id:
+            description: Server-assigned ManagedDatabase identifier; client-supplied
+              values are ignored
             type: string
           namespace:
             description: API-assigned Kubernetes namespace derived from the Gateway
@@ -3070,6 +3072,8 @@ components:
         release_id:
           type: string
         database_id:
+          description: Server-owned placement field; values supplied through PATCH
+            are ignored
           type: string
         external_dns:
           type: string
@@ -3756,6 +3760,8 @@ components:
         release_id:
           type: string
         database_id:
+          description: Required placement placeholder; the API server ignores its
+            value and assigns the ManagedDatabase
           type: string
         external_dns:
           type: string
