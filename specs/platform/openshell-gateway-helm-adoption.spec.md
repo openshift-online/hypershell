@@ -103,7 +103,10 @@ The control plane SHALL use the [Helm Go SDK](https://helm.sh/docs/sdk/) (`helm.
 
 - GIVEN a previous Helm install failed (e.g. certgen job timed out waiting for cert-manager)
 - WHEN the GatewayReconciler processes the next reconciliation event
-- THEN it SHALL detect the failed release and run `helm upgrade` to retry
+- THEN it SHALL query Helm release status via `action.Get`
+- AND if release status is `failed` or `pending-install`, it SHALL run `helm upgrade --reuse-values` to retry
+- AND it SHALL implement exponential backoff (1m, 2m, 4m, 8m, max 15m between retries)
+- AND it SHALL mark the Gateway status as `State: "Failed"` after 5 consecutive failures
 - AND this is the only scenario where `helm upgrade` is invoked
 
 #### Scenario: Gateway deletion (Helm uninstall + namespace deletion)
@@ -126,8 +129,10 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - WHEN the reconciler starts up
 - THEN it SHALL use `loader.LoadArchive()` to load the chart once
 - AND the loaded chart SHALL be reused for all gateway installs without reloading
-- AND the chart version SHALL be pinned in the Dockerfile build script (e.g. `helm pull oci://ghcr.io/nvidia/openshell/helm-chart --version <version> --destination /charts/`)
-- AND upgrading the chart version SHALL require a control plane image rebuild
+- AND the chart version SHALL be declared as a `VERSION` file in `components/control-plane/charts/VERSION`
+- AND the Dockerfile SHALL read this file: `ARG CHART_VERSION=$(cat charts/VERSION)`
+- AND the build SHALL run: `helm pull oci://ghcr.io/nvidia/openshell/helm-chart --version ${CHART_VERSION} --destination /charts/`
+- AND upgrading the chart version SHALL require updating `charts/VERSION` and rebuilding the control plane image
 - AND this ensures the chart version is always coupled to the control plane release — a given control plane image always deploys the same chart version
 
 #### Scenario: OCI registry override (development only)
@@ -345,6 +350,16 @@ The key constraints:
 
 ## Code Changes
 
+### Error Handling (HyperShell Convention)
+
+The reconciler SHALL follow HyperShell error handling conventions for all Helm operations:
+
+- Helm install/upgrade/uninstall errors SHALL be wrapped with context: `fmt.Errorf("helm install gateway %s: %w", gateway.Name, err)`
+- Gateway status SHALL be updated on Helm failure with `State: "Failed"` and error message
+- Reconciler SHALL return explicit errors — NEVER `panic()` on Helm failures
+- Partial failures (e.g. Helm install succeeded but console reconciliation failed) SHALL be collected and returned as a multi-error
+- All error paths SHALL propagate to the caller or be logged with full context
+
 ### New Package: `internal/helm/`
 
 | File | Purpose |
@@ -390,6 +405,15 @@ The key constraints:
 | `HELM_CHART_VERSION` | *(empty)* | Chart version to pull from OCI registry; required when `HELM_CHART_REGISTRY` is set |
 | `EXTERNAL_CA_ISSUER_NAME` | *(empty)* | cert-manager issuer name for externally trusted certificates (e.g. `letsencrypt-prod`); required for Route passthrough mode |
 | `EXTERNAL_CA_ISSUER_KIND` | `ClusterIssuer` | Kind of the external CA issuer (`ClusterIssuer` or `Issuer`) |
+
+### Validation at Startup
+
+The control plane SHALL validate configuration at startup and fail fast with clear error messages:
+
+- Control plane SHALL validate `EXTERNAL_CA_ISSUER_NAME` is set when any managed cluster lacks Gateway API support (Route passthrough mode will be used)
+- Control plane SHALL fail fast with error message: `"EXTERNAL_CA_ISSUER_NAME required for Route passthrough mode on cluster <name>"` if validation fails
+- When `HELM_CHART_REGISTRY` is set, `HELM_CHART_VERSION` SHALL be required (fail if missing)
+- Chart version compatibility SHALL be verified if pulling from OCI registry (log warning if chart version is not tested)
 
 ---
 
