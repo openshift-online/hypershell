@@ -218,7 +218,8 @@ func buildValuesArgs(values map[string]interface{}) ([]string, error) {
 
 // flattenValues flattens a nested map into dot-notation keys.
 // Example: {"server": {"oidc": {"issuer": "https://..."}}}
-//       -> {"server.oidc.issuer": "https://..."}
+//
+//	-> {"server.oidc.issuer": "https://..."}
 func flattenValues(m map[string]interface{}, prefix string) map[string]interface{} {
 	result := make(map[string]interface{})
 
