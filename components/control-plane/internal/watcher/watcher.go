@@ -2,12 +2,14 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -792,6 +794,14 @@ func WatchGatewayNetworks(ctx context.Context, conn *grpc.ClientConn, handler Ha
 
 func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding]) error {
 	client := pb.NewRoleBindingServiceClient(conn)
+	// Process different bindings in parallel. One binding can wait for its
+	// Keycloak client, but it must not stop the watch receiver or other bindings.
+	// Retry a missing client ten times, as the old synchronous handler did. Queue
+	// backoff frees the worker between attempts. Do not retry permanent errors.
+	rq := newReconcileQueue(ctx, "RoleBinding", handler,
+		withMaxRetries[*pb.RoleBinding](9),
+		withRetryIf[*pb.RoleBinding](isMissingKeycloakClient))
+	defer rq.stop()
 	return watchLoop(ctx, "RoleBinding", func(ctx context.Context) error {
 		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{})
 		if err != nil {
@@ -805,15 +815,18 @@ func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handl
 			if err != nil {
 				return fmt.Errorf("receiving role binding event: %w", err)
 			}
-			if err := handler.Handle(ctx, Event[*pb.RoleBinding]{
+			rq.enqueue(Event[*pb.RoleBinding]{
 				Type:       toEventType(event.Type),
 				ResourceID: event.ResourceId,
 				Resource:   event.RoleBinding,
-			}); err != nil {
-				log.Printf("ERROR handling role binding %s: %v", event.ResourceId, err)
-			}
+			})
 		}
 	})
+}
+
+func isMissingKeycloakClient(err error) bool {
+	var notFound *keycloak.ClientNotFoundError
+	return errors.As(err, &notFound)
 }
 
 func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context.Context) error) error {
