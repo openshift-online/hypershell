@@ -5,7 +5,7 @@
 
 ## Overview
 
-The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers.
+The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers. Control-plane list and watch snapshots additionally carry API-assigned resource revisions and inventory watermarks as defined in the [Control Plane World Synchronization specification](./control-plane-world-sync.spec.md); these are transport/concurrency metadata rather than persisted domain fields.
 
 **TODO: Sector/Fleet removal** - The model previously included a top-level "Sector" organizational unit, but this abstraction is being removed. All gateways are part of the same fleet, and there's no need to sectorize. The API currently uses "fleet" terminology (`/api/hypershell/v1/fleets`), but this entire layer will be removed in a future PR. Gateways, clusters, databases, releases, and networks will become top-level resources without fleet/sector scoping.
 

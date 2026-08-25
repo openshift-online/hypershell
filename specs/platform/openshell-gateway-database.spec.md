@@ -82,8 +82,8 @@ The ManagedDatabaseReconciler SHALL provision CNPG infrastructure for each Manag
 
 For each such ManagedDatabase, the reconciler SHALL:
 
-1. **Create the namespace** derived from the ManagedDatabase ID (`openshell-db-<hex16>`), if it does not exist
-2. **Create a CNPG Cluster CR** in that namespace:
+1. **Create the namespace** derived from the ManagedDatabase ID (`openshell-db-<hex16>`), if it does not exist. The namespace SHALL carry `app.kubernetes.io/managed-by=hypershell-control-plane`, `hypershell.redhat.io/managed=true`, and `hypershell.redhat.io/managed-database-id=<immutable-managed-database-id>`.
+2. **Create a CNPG Cluster CR** in that namespace with the same three ownership labels:
    - `metadata.name` = `openshell-db` (fixed name; isolation is per-namespace, not per-cluster-name)
    - `spec.instances` = 1 (fixed default)
    - `spec.storage.size` = `1Gi` (fixed default)
@@ -96,8 +96,8 @@ For each such ManagedDatabase, the reconciler SHALL:
 
 - GIVEN a new ManagedDatabase resource with `provider: "cnpg"`
 - WHEN the ManagedDatabaseReconciler processes the event
-- THEN it SHALL create the namespace `openshell-db-<hex16>`
-- AND it SHALL create a CNPG Cluster CR in that namespace
+- THEN it SHALL create the namespace `openshell-db-<hex16>` with its control-plane and immutable ManagedDatabase ownership labels
+- AND it SHALL create a CNPG Cluster CR in that namespace with the same ownership labels
 - AND it SHALL wait for the Cluster to reach Ready
 - AND it SHALL update the ManagedDatabase status
 
@@ -106,7 +106,25 @@ For each such ManagedDatabase, the reconciler SHALL:
 - GIVEN a ManagedDatabase whose CNPG Cluster is already running
 - WHEN the ManagedDatabaseReconciler re-processes the event
 - THEN it SHALL verify the namespace and Cluster exist
+- AND it SHALL patch any missing control-plane and immutable ManagedDatabase ownership labels onto both resources
 - AND it SHALL NOT recreate them
+
+#### Scenario: Existing ManagedDatabase receives cleanup ownership labels
+
+- GIVEN a CNPG ManagedDatabase namespace and Cluster created before the immutable ManagedDatabase ownership label was introduced
+- AND both resources carry the historical `hypershell.redhat.io/managed=true` label
+- AND the namespace exactly matches the API-assigned ManagedDatabase namespace and contains the expected `openshell-db` CNPG Cluster
+- WHEN the ManagedDatabaseReconciler next reconciles that ManagedDatabase
+- THEN it SHALL add `app.kubernetes.io/managed-by=hypershell-control-plane`, `hypershell.redhat.io/managed=true`, and `hypershell.redhat.io/managed-database-id=<immutable-managed-database-id>`
+- AND it SHALL preserve the healthy CNPG Cluster configuration and status
+
+#### Scenario: Unmanaged matching namespace is not adopted
+
+- GIVEN a namespace matches a ManagedDatabase namespace name
+- BUT the namespace or expected CNPG Cluster lacks the historical `hypershell.redhat.io/managed=true` label
+- WHEN the ManagedDatabaseReconciler reconciles the ManagedDatabase
+- THEN it SHALL not add ownership labels to the existing namespace or Cluster
+- AND it SHALL report the ownership conflict rather than adopting or deleting the unmanaged resources
 
 #### Scenario: Non-CNPG provider
 
@@ -393,7 +411,9 @@ kind: Namespace
 metadata:
   name: openshell-db-a1b2c3d4e5f67890
   labels:
+    app.kubernetes.io/managed-by: hypershell-control-plane
     hypershell.redhat.io/managed: "true"
+    hypershell.redhat.io/managed-database-id: <immutable-managed-database-id>
 ---
 # CNPG Cluster (created by ManagedDatabaseReconciler)
 apiVersion: postgresql.cnpg.io/v1
@@ -402,7 +422,9 @@ metadata:
   name: openshell-db
   namespace: openshell-db-a1b2c3d4e5f67890
   labels:
+    app.kubernetes.io/managed-by: hypershell-control-plane
     hypershell.redhat.io/managed: "true"
+    hypershell.redhat.io/managed-database-id: <immutable-managed-database-id>
 spec:
   instances: 1
   storage:

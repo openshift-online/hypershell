@@ -140,14 +140,14 @@ The control plane maps HyperShell RBAC roles to per-gateway Keycloak client role
 
 | HyperShell Role | Keycloak Client Role | Scope |
 |---|---|---|
-| `gateway:owner` | `openshell-admin` | The specific bound gateway |
+| `gateway:owner` | `openshell-admin` **and** `openshell-user` | The specific bound gateway |
 | `gateway:viewer` | `openshell-user` | The specific bound gateway |
 
 `gateway:creator` is not mapped -- it grants the ability to create gateways but does not confer access to any specific gateway. The creator automatically receives a `gateway:owner` RoleBinding on creation (see [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)), which provides the Keycloak role through the mapping above.
 
 ### Effective Role Resolution
 
-When a user has multiple RoleBindings on the same gateway, the **highest-privilege** Keycloak client role wins. A user with both `gateway:viewer` (→ `openshell-user`) and `gateway:owner` (→ `openshell-admin`) on the same gateway SHALL have the `openshell-admin` client role.
+For each `(user, gateway)` pair, the control plane SHALL compute the effective Keycloak role set as the union of mappings for every active RoleBinding. `gateway:owner` is the highest-privilege HyperShell role and maps to both `openshell-admin` and `openshell-user`, because the gateway enforces those roles independently; a concurrent `gateway:viewer` binding adds no further role. Periodic RoleBinding projection SHALL use this same effective-role-set calculation before it diffs the two bridge-owned Keycloak role member lists.
 
 ### Lifecycle Interactions
 
@@ -341,38 +341,39 @@ Maps the client's roles from `resource_access.{clientId}.roles` to a fixed `hype
 
 ### Requirement: RBAC-Driven Keycloak Role Assignment (OIDC Role Bridge)
 
-Keycloak client role assignments SHALL be driven by RoleBinding events, implementing the Gateway OIDC Role Bridge defined in [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md). The control plane SHALL assign or remove Keycloak client roles when RoleBindings are created or deleted, using the role mapping defined in the RBAC Role Bridge section above.
+Keycloak client role assignments SHALL be driven by RoleBinding events, implementing the Gateway OIDC Role Bridge defined in [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md). The control plane SHALL assign or remove Keycloak client roles when RoleBindings are created or deleted, using the role mapping defined in the RBAC Role Bridge section above. Periodic projection recovery is defined in [`control-plane-world-sync.spec.md`](./control-plane-world-sync.spec.md).
+
+On a HyperShell-managed gateway Keycloak client, the control plane is the sole writer of the bridge-owned `openshell-admin` and `openshell-user` assignments. Direct manual grants of either role are prohibited. During periodic recovery, the control plane SHALL derive each user's effective role set using the union rule above, then enumerate the actual members of only those two client roles through the paginated Keycloak Admin API. It SHALL add or remove only the difference. If either inventory is incomplete or an enumeration fails, it SHALL make no role removals and retry later; it SHALL not enumerate or mutate another client or role.
 
 All per-gateway RoleBindings (`gateway:owner`, `gateway:viewer`) have `scope=gateway` and reference a specific `gateway_id`. The `gateway:creator` role is global-scoped and sourced from Keycloak JWT claims -- it does not participate in the OIDC Role Bridge.
 
 #### RoleBinding ADDED
 
 For each RoleBinding ADDED event with `scope=gateway`, the control plane SHALL:
-1. Map the HyperShell role to a Keycloak client role (`openshell-admin` or `openshell-user`)
+1. Resolve the binding's `(user, gateway)` effective role set using the union mapping above
 2. Resolve the gateway from the binding's `gateway_id` and compute the Keycloak client ID (`{name}-{id}`)
 3. Resolve the User's Keycloak identity (the `username` from the User record, which is populated from the JWT `preferred_username` claim at auto-provisioning time)
 4. Look up the user in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
 5. On the gateway's Keycloak client:
-   - Retrieve the client role UUID
-   - Assign the role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
+   - Retrieve the client role UUIDs for every role in the effective set
+   - Assign each missing bridge-owned role to the user (`POST /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
 6. If the Keycloak client does not yet exist (race with gateway provisioning), retry with exponential backoff (see Role Assignment Retry)
 
 #### RoleBinding DELETED
 
 For each RoleBinding DELETED event with `scope=gateway`, the control plane SHALL:
 1. Resolve the gateway from the binding's `gateway_id`
-2. Check whether the user has any remaining RoleBindings on this gateway
-3. If the user still has a binding that maps to the same or higher Keycloak role, take no action
-4. If the user has a remaining binding that maps to a lower role, downgrade the Keycloak client role
-5. If no remaining bindings exist, remove the Keycloak client role mapping (`DELETE /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
+2. Compute the user's effective bridge-owned role set from every remaining RoleBinding on that gateway
+3. Remove only bridge-owned client-role assignments absent from the remaining effective set (`DELETE /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
+4. Retain every assignment still present in that set; deleting an owner binding while a viewer binding survives therefore removes `openshell-admin` but retains `openshell-user`
 
 #### Scenario: Gateway owner receives admin role
 
 - GIVEN gateway `gw-alpha` (id=`abc123`) exists with a provisioned Keycloak client `gw-alpha-abc123`
 - AND a User `user-a` exists in both HyperShell and Keycloak
 - WHEN a RoleBinding is created: `role=gateway:owner`, `scope=gateway`, `gateway_id=abc123`, `user_id=user-a`
-- THEN the control plane SHALL assign `openshell-admin` to `user-a` on the `gw-alpha-abc123` Keycloak client
-- AND `user-a` SHALL be able to obtain tokens with `hypershell.roles: ["openshell-admin"]` for `gw-alpha-abc123`
+- THEN the control plane SHALL assign both `openshell-admin` and `openshell-user` to `user-a` on the `gw-alpha-abc123` Keycloak client
+- AND `user-a` SHALL be able to obtain tokens with `hypershell.roles` containing both roles for `gw-alpha-abc123`
 
 #### Scenario: Gateway viewer receives user role
 
@@ -393,6 +394,14 @@ For each RoleBinding DELETED event with `scope=gateway`, the control plane SHALL
 - GIVEN user-a has only `gateway:viewer` (→ `openshell-user`) on gw-alpha
 - WHEN the `gateway:viewer` RoleBinding is deleted
 - THEN the control plane SHALL remove `openshell-user` from user-a on the `gw-alpha` Keycloak client
+
+#### Scenario: Missed RoleBinding deletion is recovered safely
+
+- GIVEN a delete watch event for user-a's final `gateway:viewer` binding on gw-alpha was missed
+- AND the periodic projection obtains complete RoleBinding and `openshell-user` client-role-member inventories
+- WHEN the projection computes that user-a is no longer desired on gw-alpha
+- THEN it SHALL remove `openshell-user` only from user-a on the `gw-alpha` Keycloak client
+- AND it SHALL not modify a different client or a non-bridge-owned role
 
 #### Scenario: User in RoleBinding not found in Keycloak
 
