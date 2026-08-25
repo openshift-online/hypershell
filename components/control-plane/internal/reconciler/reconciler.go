@@ -257,16 +257,14 @@ func (r *ManagedDatabaseReconciler) handleCNPGDatabase(ctx context.Context, even
 
 	if !r.hasCNPG {
 		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), "Failed: CNPG operator not available")
-		reconcileErr = fmt.Errorf("CNPG operator is required but not available on the cluster")
-		return reconcileErr
+		return fmt.Errorf("CNPG operator is required but not available on the cluster")
 	}
 
 	clusterName := managedDatabaseCNPGClusterName()
 	currentStatus := managedDatabaseStatus(db)
 	clusterReady, err := r.isCNPGClusterReady(ctx, db.Namespace, clusterName)
 	if err != nil {
-		reconcileErr = fmt.Errorf("check CNPG Cluster readiness for ManagedDatabase %s: %w", db.Name, err)
-		return reconcileErr
+		return fmt.Errorf("check CNPG Cluster readiness for ManagedDatabase %s: %w", db.Name, err)
 	}
 
 	if clusterReady {
@@ -287,8 +285,7 @@ func (r *ManagedDatabaseReconciler) handleCNPGDatabase(ctx context.Context, even
 
 	if err := r.reconcileCNPGCluster(ctx, db); err != nil {
 		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", fmt.Sprintf("Failed: %v", err))
-		reconcileErr = fmt.Errorf("reconcile CNPG cluster for ManagedDatabase %s: %w", db.Name, err)
-		return reconcileErr
+		return fmt.Errorf("reconcile CNPG cluster for ManagedDatabase %s: %w", db.Name, err)
 	}
 
 	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", "Ready")
