@@ -11,8 +11,6 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
-	"github.com/openshift-online/hypershell/components/api-server/plugins/fleets"
-	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -29,27 +27,12 @@ import (
 
 type ServiceLocator func() GatewayService
 
-type fleetLookupAdapter struct {
-	fleetSvc   fleets.FleetService
-	clusterSvc managedClusters.ManagedClusterService
+type dbLookupAdapter struct {
+	svc managedDatabases.ManagedDatabaseService
 }
 
-func (a *fleetLookupAdapter) FleetIDForCluster(ctx context.Context, clusterID string) (string, error) {
-	if a.clusterSvc == nil {
-		return "", nil
-	}
-	cluster, err := a.clusterSvc.Get(ctx, clusterID)
-	if err != nil {
-		return "", err
-	}
-	return cluster.FleetId, nil
-}
-
-func (a *fleetLookupAdapter) FindSoleFleet(ctx context.Context) (string, error) {
-	if a.fleetSvc == nil {
-		return "", nil
-	}
-	all, err := a.fleetSvc.All(ctx)
+func (a *dbLookupAdapter) FindSole(ctx context.Context) (string, error) {
+	all, err := a.svc.All(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -59,41 +42,14 @@ func (a *fleetLookupAdapter) FindSoleFleet(ctx context.Context) (string, error) 
 	return "", nil
 }
 
-type dbLookupAdapter struct {
-	svc managedDatabases.ManagedDatabaseService
-}
-
-func (a *dbLookupAdapter) FindSoleInFleet(ctx context.Context, fleetID string) (string, error) {
-	d, err := a.svc.FindSoleInFleet(ctx, fleetID)
-	if err != nil {
-		return "", err
-	}
-	if d == nil {
-		return "", nil
-	}
-	return d.ID, nil
-}
-
-func (a *dbLookupAdapter) FindSole(ctx context.Context) (string, string, error) {
-	all, err := a.svc.All(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	if len(all) == 1 {
-		return all[0].ID, all[0].FleetId, nil
-	}
-	return "", "", nil
-}
-
 type dbCreatorAdapter struct {
 	svc      managedDatabases.ManagedDatabaseService
 	provider string
 }
 
-func (a *dbCreatorAdapter) CreateForGateway(ctx context.Context, gatewayName, fleetID string) (string, error) {
+func (a *dbCreatorAdapter) CreateForGateway(ctx context.Context, gatewayName string) (string, error) {
 	d, err := a.svc.Create(ctx, &managedDatabases.ManagedDatabase{
 		Name:     "gw-" + gatewayName + "-db",
-		FleetId:  fleetID,
 		Provider: a.provider,
 	})
 	if err != nil {
@@ -117,17 +73,12 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 	}
 
 	return func() GatewayService {
-		fleetLookup := &fleetLookupAdapter{
-			fleetSvc:   fleets.Service(&env.Services),
-			clusterSvc: managedClusters.Service(&env.Services),
-		}
-
 		var placement PlacementResolver
 		if mdSvc := managedDatabases.Service(&env.Services); mdSvc != nil {
 			if databaseProvider == ProviderDeployment {
-				placement = NewDeploymentPlacement(fleetLookup, &dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
+				placement = NewDeploymentPlacement(&dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
 			} else {
-				placement = NewCNPGPlacement(fleetLookup, &dbLookupAdapter{svc: mdSvc})
+				placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc})
 			}
 		}
 
