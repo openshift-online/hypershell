@@ -9,7 +9,7 @@ HyperShell deploys as a global fleet management platform spanning multiple cloud
 
 **Platform delivery is GitOps pull, not hub push.** ArgoCD runs on *every* cluster and reconciles **only itself**: each cluster's ArgoCD pulls its own path from a single central GitOps repository ([`hypershell-gitops`](https://github.com/openshift-online/hypershell-gitops)) and applies the operator stack and HyperShell platform components locally. No cluster stores another cluster's kubeconfig, and no central ArgoCD pushes manifests outward. The GitOps repo is the single source of desired *platform* state; a bootstrap agent seeds each cluster (installs ArgoCD and points it at the cluster's own path), after which the cluster self-reconciles.
 
-> **Two distinct reconciliation planes — do not conflate them.** (1) **Platform GitOps** (this section) deploys the operator stack and HyperShell components; it is *pull*, sourced from Git, per cluster. (2) **Control-plane tenant reconciliation** (see "Control Plane Reconciliation Flow") provisions per-tenant OpenShell Gateway resources at runtime; it is *push* from the Cloud Hub control plane into ManagedClusters, sourced from the Cloud Hub PostgreSQL (the source of truth for tenant desired state) and driven by gRPC watch events. Inverting the GitOps layer to pull does **not** change the control-plane tenant plane.
+> **Two distinct reconciliation planes; do not conflate them.** (1) **Platform GitOps** (this section) deploys the operator stack and HyperShell components; it is *pull*, sourced from Git, per cluster. (2) **Control-plane tenant reconciliation** (see "Control Plane Reconciliation Flow") provisions per-tenant OpenShell Gateway resources at runtime; it is *push* from the Cloud Hub control plane into ManagedClusters, sourced from the Cloud Hub PostgreSQL (the source of truth for tenant desired state) and driven by gRPC watch events. Inverting the GitOps layer to pull does **not** change the control-plane tenant plane.
 
 > **Terminology.** "Gateway" is overloaded, so this document uses fully-qualified
 > names. **OpenShell Gateway** is the tenant workload (the pod, its Supervisor,
@@ -99,7 +99,7 @@ graph TB
     AK -->|Federation| M2K
     IK -->|Federation| M3K
 
-    %% Control-plane tenant plane (runtime, DB-sourced) — distinct from GitOps pull above
+    %% Control-plane tenant plane (runtime, DB-sourced) - distinct from GitOps pull above
     ACP -->|Reconcile tenants| M1GW
     ACP -->|Reconcile tenants| M2GW
     ICP -->|Reconcile tenants| M3GW
@@ -147,7 +147,7 @@ graph TB
 
 **Operational Role**: The control plane is the *tenant* reconciliation engine for the fleet. It watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters - not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, CNPG databases, and supporting workloads each gateway depends on. This tenant plane is a runtime *push* sourced from the Cloud Hub PostgreSQL, and is distinct from platform GitOps.
 
-The *platform* layer beneath it is pull-based GitOps: each ManagedCluster's own ArgoCD installs and self-reconciles that cluster's operator stack and baseline config from its own path in the central GitOps repo. So responsibilities split cleanly — a cluster's local ArgoCD owns the cluster's platform (operators, CRDs, cluster-scoped config), and the Cloud Hub control plane owns the tenant resources layered on top. The control plane never installs the operator stack on a ManagedCluster; it assumes the cluster has already self-reconciled it from Git.
+The *platform* layer beneath it is pull-based GitOps: each ManagedCluster's own ArgoCD installs and self-reconciles that cluster's operator stack and baseline config from its own path in the central GitOps repo. So responsibilities split cleanly: a cluster's local ArgoCD owns the cluster's platform (operators, CRDs, cluster-scoped config), and the Cloud Hub control plane owns the tenant resources layered on top. The control plane never installs the operator stack on a ManagedCluster; it assumes the cluster has already self-reconciled it from Git.
 
 ### Tier 3: ManagedCluster
 
@@ -260,7 +260,7 @@ sequenceDiagram
 
 ### Platform GitOps Pull Flow
 
-The platform layer (operator stack + HyperShell components) is delivered by each cluster's *own* ArgoCD pulling from the central GitOps repo. There is no central ArgoCD holding remote kubeconfigs and no push from a hub — every cluster reconciles itself.
+The platform layer (operator stack + HyperShell components) is delivered by each cluster's *own* ArgoCD pulling from the central GitOps repo. There is no central ArgoCD holding remote kubeconfigs and no push from a hub; every cluster reconciles itself.
 
 ```mermaid
 sequenceDiagram
@@ -285,7 +285,7 @@ sequenceDiagram
 
 **Key Points**:
 - ArgoCD runs on every cluster and syncs **only that cluster's own path** in the central repo. No cluster holds another cluster's credentials.
-- The central GitOps repo is the single source of truth for **platform** desired state (operators, CRDs, HyperShell component manifests). It is *not* the source of truth for tenant gateways — those live in the Cloud Hub PostgreSQL and flow through the control plane (above).
+- The central GitOps repo is the single source of truth for **platform** desired state (operators, CRDs, HyperShell component manifests). It is *not* the source of truth for tenant gateways; those live in the Cloud Hub PostgreSQL and flow through the control plane (above).
 - `bin/bootstrap <cluster>` (in `hypershell-gitops`) performs the one-time seed: install the OpenShift GitOps operator, then `oc apply -k clusters/<cluster>/gitops` (the app-of-apps). Steady-state reconciliation is pull-only.
 - A hub outage does not stop a ManagedCluster from reconciling its platform; each cluster is self-sufficient against Git.
 
@@ -1017,7 +1017,7 @@ repository is the single source of truth for **platform** desired state. It is
 organized for the **pull model**: reusable `bases/` hold shared, cluster-agnostic
 manifests, and each cluster gets its own directory under `clusters/` whose own
 in-cluster ArgoCD applies it. There is no hub-side `Application` that targets a
-remote cluster — **every** ArgoCD `Application`/`ApplicationSet` in the repo has
+remote cluster; **every** ArgoCD `Application`/`ApplicationSet` in the repo has
 `destination: name: in-cluster`, so a cluster's directory *is* its own entrypoint.
 
 ```
@@ -1064,7 +1064,7 @@ hypershell-gitops/
 1. Install the OpenShift GitOps operator on the cluster. `bin/bootstrap <cluster>`
    does this via OLM; on ROKS (`hysh-ibm-01`) OperatorHub is unusable, so it is
    installed from raw manifests out-of-band first.
-2. `oc apply -k clusters/<cluster>/gitops` — the self-contained app-of-apps. That
+2. `oc apply -k clusters/<cluster>/gitops`, the self-contained app-of-apps. That
    cluster's in-cluster ArgoCD then reconciles everything by sync-wave: operators →
    Vault/ESO → postgres → Keycloak → HyperShell instances, all `in-cluster`.
 3. Add a HyperShell instance by committing

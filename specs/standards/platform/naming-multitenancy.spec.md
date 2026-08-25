@@ -3,7 +3,7 @@
 ## Abstract
 
 HyperShell employs a hub-and-spoke GitOps architecture in which multiple control
-plane instances (e.g., `hyp0`, `hyp1`, `vteam-stage`, `vteam-uat`) may be deployed
+plane instances (e.g., `hyp0`, `hyp1`, `stage`, `uat`) may be deployed
 onto a single shared OpenShift cluster. Because Kustomize's global `namePrefix`
 and `nameSuffix` transformers rewrite strings without understanding operator
 dependency graphs (e.g., CloudNativePG-generated secrets) or cluster-scope
@@ -15,7 +15,7 @@ stay consistent with them.
 
 ## 1. Namespaced Resources (Deployments, Services, Secrets, PVCs, CNPG Clusters)
 
-**Rule: Use native namespace isolation — no prefixes or suffixes.**
+**Rule: Use native namespace isolation, no prefixes or suffixes.**
 
 Namespaced resources MUST NOT be mutated with `namePrefix` or `nameSuffix` in the
 GitOps overlay. They rely entirely on the Kubernetes `Namespace` for isolation, so
@@ -31,7 +31,7 @@ GitOps overlay. They rely entirely on the Kubernetes `Namespace` for isolation, 
 (e.g., `secretName: hypershell-db-app`). If Kustomize applies a prefix
 (`hyp0-hypershell-db`), CNPG generates a secret named `hyp0-hypershell-db-app`,
 but Kustomize does not rewrite the `secretName` string in the upstream deployment
-to match — producing `CreateContainerConfigError` or `FailedMount`. The name is
+to match, producing `CreateContainerConfigError` or `FailedMount`. The name is
 constant; the namespace provides isolation.
 
 ## 2. Cluster-Scoped Resources (ClusterRoles, ClusterRoleBindings)
@@ -53,7 +53,7 @@ the instance `Namespace` name as a prefix (`delimiter: '-'`, `index: 0`) into th
 `metadata.name` of every `ClusterRole` and `ClusterRoleBinding`, and into every
 `ClusterRoleBinding`'s `roleRef.name`. A `name-references.yaml` `nameReference`
 config makes each `ClusterRole` rename propagate to the `roleRef.name` fields that
-reference it. The prefix MUST be scoped to cluster-scoped kinds only — never to
+reference it. The prefix MUST be scoped to cluster-scoped kinds only; never to
 namespaced resources (§1). Combined with the subject rewrite in §3, each instance
 keeps its own binding and cannot have its permissions stolen by another instance.
 
@@ -86,14 +86,14 @@ prevent tenant collisions across the cluster. The API server assigns the namespa
 names in its `BeforeCreate` hooks; the control plane mirrors the prefixes in
 `components/control-plane/internal/gateway/namespace.go`.
 
-* **Tenant (gateway) namespace:** `openshell-<hash>` — 16 hex chars
+* **Tenant (gateway) namespace:** `openshell-<hash>`, 16 hex chars
   (e.g., `openshell-bdd12bb523f166db`). Prefix `openshell-`.
-* **ManagedDatabase namespace:** `openshell-db-<hash>` — a **separate** namespace,
+* **ManagedDatabase namespace:** `openshell-db-<hash>`, a **separate** namespace,
   distinct from any gateway namespace and explicitly excluded from gateway
   namespace garbage collection. Prefix `openshell-db-`.
 * **Gateway Postgres instance:** a shared CNPG `Cluster` named `openshell-db`,
   created by the `ManagedDatabaseReconciler` inside the ManagedDatabase namespace
-  (`openshell-db-<hash>`) — **not** inside the gateway namespace.
+  (`openshell-db-<hash>`), **not** inside the gateway namespace.
 * **Per-gateway database:** a logical CNPG `Database` + `DatabaseRole` pair named
   `gw-<gateway-id>` (Postgres role/db `gw_<gateway-id>`), created inside the
   ManagedDatabase namespace and backed by the shared `openshell-db` `Cluster`
@@ -123,7 +123,7 @@ require per-instance control-plane isolation are deployed once per cluster:
 ```text
 [ Shared OpenShift Cluster ]
  │
- ├── Shared Platform Singletons (one per cluster — §5)
+ ├── Shared Platform Singletons (one per cluster - §5)
  │   ├── Namespace: cnpg-system
  │   │   └── Deployment: cnpg-controller-manager
  │   │
@@ -131,7 +131,7 @@ require per-instance control-plane isolation are deployed once per cluster:
  │       ├── Deployment: keycloak
  │       └── Cluster: keycloak-db (CNPG)
  │
- ├── Cluster-Scoped RBAC (prefixed per instance — §2/§3)
+ ├── Cluster-Scoped RBAC (prefixed per instance - §2/§3)
  │   ├── ClusterRole:        hyp0-hypershell-controller
  │   ├── ClusterRoleBinding: hyp0-hypershell-controller
  │   │   └── subjects[0].namespace ── binds to ──┐
@@ -139,7 +139,7 @@ require per-instance control-plane isolation are deployed once per cluster:
  │   └── ClusterRoleBinding: hyp1-hypershell-controller
  │       └── subjects[0].namespace ── binds to ──────┐
  │                                                    │
- ├── Control Plane Instance 0 (native isolation — §1) │
+ ├── Control Plane Instance 0 (native isolation - §1) │
  │   └── Namespace: hyp0  <──────────────────────────┘ (from hyp0 binding)
  │       ├── ServiceAccount: hypershell-controller
  │       ├── Cluster:        hypershell-db (CNPG)
@@ -155,13 +155,13 @@ require per-instance control-plane isolation are deployed once per cluster:
  │       ├── Cluster:        hypershell-db  ──> Secret: hypershell-db-app
  │       └── Deployment:     hypershell-api-server, hypershell-controller, ...
  │
- ├── ManagedDatabase namespaces (created by the control plane — §4)
+ ├── ManagedDatabase namespaces (created by the control plane - §4)
  │   └── Namespace: openshell-db-9f3c1a2b7e5d4068
  │       ├── Cluster:  openshell-db (shared CNPG instance)
  │       ├── Database:     gw-<gateway-id>   (one per gateway)
  │       └── DatabaseRole: gw-<gateway-id>
  │
- └── Dynamic Tenant Gateways (created by the controller at runtime — §4)
+ └── Dynamic Tenant Gateways (created by the controller at runtime - §4)
      ├── Namespace: openshell-bdd12bb523f166db (Tenant A)
      │   ├── Deployment:     openshell-gateway
      │   ├── ServiceAccount: openshell-gateway
@@ -184,7 +184,7 @@ require per-instance control-plane isolation are deployed once per cluster:
 | `<instance>-hypershell-controller-scc`, `<instance>-hypershell-controller-scc-bind`, `<instance>-hypershell-sandbox-scc` | SCC Bindings | Cluster-Scoped RBAC | OpenShift SCC access for the instance's controller and sandbox SAs. |
 | `<instance>` (e.g., `hyp0`, `hyp1`) | Namespace | Control Plane Instance | Isolates the control plane instance. |
 | `hypershell-controller` | ServiceAccount | Control Plane Instance | Runs the controller; subject of the prefixed ClusterRoleBinding. |
-| `hypershell-db` | Cluster (CNPG) | Control Plane Instance | Platform DB. **No suffix** — namespace isolates it (§1). |
+| `hypershell-db` | Cluster (CNPG) | Control Plane Instance | Platform DB. **No suffix**; namespace isolates it (§1). |
 | `hypershell-db-app` | Secret | Control Plane Instance | Auto-generated by CNPG; hardcoded in volume mounts. Must not be renamed. |
 | `hypershell-api-server`, `hypershell-controller`, `hypershell-web-console` | Deployment | Control Plane Instance | Core components; no suffix (§1). |
 | `openshell-db-<hash>` | Namespace | ManagedDatabase | Dedicated namespace for a ManagedDatabase's CNPG instance; distinct from gateway namespaces (§4). |
