@@ -14,11 +14,11 @@ The control plane SHALL shift from applying static YAML manifests (generated onc
 
 ### Current State
 
-The GatewayReconciler loads static YAML files from `/manifests/gateway/` at startup, substitutes placeholders (`NAMESPACE_PLACEHOLDER`, `IMAGE_PLACEHOLDER`), and applies them with SSA. cert-manager resources, RBAC overlays, ingress routes, console, database, and credential resources are created programmatically in Go. The static manifests were originally generated from the upstream Helm chart, but are now maintained independently — creating an ongoing drift risk.
+The GatewayReconciler loads static YAML files from `/manifests/gateway/` at startup, substitutes placeholders (`NAMESPACE_PLACEHOLDER`, `IMAGE_PLACEHOLDER`), and applies them with SSA. cert-manager resources, RBAC overlays, ingress routes, console, database, and credential resources are created programmatically in Go. The static manifests were originally generated from the upstream Helm chart, but are now maintained independently -- creating an ongoing drift risk.
 
 ### Target State
 
-The GatewayReconciler SHALL use the Helm Go SDK to run `helm install` when a gateway is created and `helm uninstall` when a gateway is deleted. Gateway upgrades (image changes, config changes) are not handled at this time. The old SSA-based deployment code will be removed entirely — there is only one code path.
+The GatewayReconciler SHALL use the Helm Go SDK to run `helm install` when a gateway is created and `helm uninstall` when a gateway is deleted. Gateway upgrades (image changes, config changes) are not handled at this time. The old SSA-based deployment code will be removed entirely -- there is only one code path.
 
 ---
 
@@ -43,7 +43,7 @@ GatewayReconciler
   │        cert-manager Issuers/Certificates,
   │        GRPCRoute, BackendTLSPolicy, Route,
   │        BackendCA ConfigMap (via certgen)
-  │        (NetworkPolicy disabled — see decision below)
+  │        (NetworkPolicy disabled -- see decision below)
   └─ 7. Reconcile console                               ← Go (unchanged)
 ```
 
@@ -63,10 +63,10 @@ GatewayReconciler
 GatewayReconciler
   │
   ├─ HelmClient (new internal package)
-  │   ├─ LoadChart()   — load chart once at startup
-  │   ├─ BuildValues() — map Gateway resource → chart values
-  │   ├─ Install()     — install release for new gateway
-  │   └─ Uninstall()   — clean removal on gateway deletion
+  │   ├─ LoadChart()   -- load chart once at startup
+  │   ├─ BuildValues() -- map Gateway resource → chart values
+  │   ├─ Install()     -- install release for new gateway
+  │   └─ Uninstall()   -- clean removal on gateway deletion
   │
   └─ Uses: helm.sh/helm/v3/pkg/action (Install, Uninstall)
            helm.sh/helm/v3/pkg/chart/loader
@@ -133,7 +133,7 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - AND the Dockerfile SHALL read this file: `ARG CHART_VERSION=$(cat charts/VERSION)`
 - AND the build SHALL run: `helm pull oci://ghcr.io/nvidia/openshell/helm-chart --version ${CHART_VERSION} --destination /charts/`
 - AND upgrading the chart version SHALL require updating `charts/VERSION` and rebuilding the control plane image
-- AND this ensures the chart version is always coupled to the control plane release — a given control plane image always deploys the same chart version
+- AND this ensures the chart version is always coupled to the control plane release -- a given control plane image always deploys the same chart version
 
 #### Scenario: OCI registry override (development only)
 
@@ -142,7 +142,7 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - THEN it SHALL pull from the OCI registry instead of the embedded path
 - AND the chart version SHALL be read from `HELM_CHART_VERSION` (required when registry is set)
 - AND the chart SHALL be loaded once at startup and cached for the lifetime of the process
-- AND this mode SHALL NOT be used in production — it introduces a runtime dependency on registry availability
+- AND this mode SHALL NOT be used in production -- it introduces a runtime dependency on registry availability
 
 ---
 
@@ -162,7 +162,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | Gateway `serverDnsNames` | `pkiInitJob.serverDnsNames` | TLS certificate SANs |
 | `true` | `serviceAccount.create` | Chart creates gateway SA |
 | `true` | `sandboxServiceAccount.create` | Chart creates sandbox SA |
-| `false` | `networkPolicy.enabled` | Disabled — see NetworkPolicy Decision below |
+| `false` | `networkPolicy.enabled` | Disabled -- see NetworkPolicy Decision below |
 | cert-manager detected | `certManager.enabled` | Auto-detect at startup |
 | DB credentials Secret name | `server.externalDbSecret` | `openshell-gateway-db-credentials` |
 | Trusted CA ConfigMap name | `server.oidc.caConfigMapName` | `gateway-trusted-ca` (when present) |
@@ -190,7 +190,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 
 The control plane supports two mutually exclusive ingress modes depending on cluster capabilities. The TLS architecture differs fundamentally between them.
 
-##### GRPCRoute + BackendTLSPolicy Mode (Gateway API — OpenShift 4.22+)
+##### GRPCRoute + BackendTLSPolicy Mode (Gateway API -- OpenShift 4.22+)
 
 ```
 Client ──TLS──▶ Shared Gateway (terminates with wildcard cert)
@@ -215,14 +215,14 @@ Client ──TLS──▶ HAProxy Route (SNI passthrough, no termination)
                    ──encrypted──▶ Gateway Pod (client sees this cert directly)
 ```
 
-HAProxy does NOT terminate TLS — it forwards the encrypted connection end-to-end based on SNI. The client sees the gateway pod's certificate directly. This means the pod's certificate must:
+HAProxy does NOT terminate TLS -- it forwards the encrypted connection end-to-end based on SNI. The client sees the gateway pod's certificate directly. This means the pod's certificate must:
 
 1. **Include the external hostname as a SAN** (e.g. `gw-openshell-abc123.apps.example.com`)
-2. **Be signed by an externally trusted CA** (e.g. Let's Encrypt via an ACME ClusterIssuer) — a self-signed internal CA will cause TLS verification failures for CLI clients
+2. **Be signed by an externally trusted CA** (e.g. Let's Encrypt via an ACME ClusterIssuer) -- a self-signed internal CA will cause TLS verification failures for CLI clients
 
 The upstream Helm chart supports this via `certManager.serverIssuerRef`: when set, the chart creates a **second** Certificate resource (`openshell-gateway-server-external`) signed by the operator-provided issuer, with only externally-resolvable SANs from `certManager.serverDnsNames`. The internal cert (signed by the chart's self-signed CA) still exists for supervisor/sandbox traffic. The gateway uses SNI to present the correct certificate based on the incoming hostname.
 
-**Cluster prerequisite for Route mode:** An administrator must pre-provision a ClusterIssuer (or namespaced Issuer) for externally trusted certificates (e.g. ACME/Let's Encrypt, Vault PKI, or an organization CA). The control plane references this issuer by name — it does not create it.
+**Cluster prerequisite for Route mode:** An administrator must pre-provision a ClusterIssuer (or namespaced Issuer) for externally trusted certificates (e.g. ACME/Let's Encrypt, Vault PKI, or an organization CA). The control plane references this issuer by name -- it does not create it.
 
 | Gateway / CP Config | Helm Value | Notes |
 |---|---|---|
@@ -231,12 +231,12 @@ The upstream Helm chart supports this via `certManager.serverIssuerRef`: when se
 | HAProxy timeout | `openshiftRoute.annotations` | `{"haproxy.router.openshift.io/timeout": "3600s"}` |
 | External CA issuer name | `certManager.serverIssuerRef.name` | Pre-provisioned ClusterIssuer (e.g. `letsencrypt-prod`) |
 | External CA issuer kind | `certManager.serverIssuerRef.kind` | `ClusterIssuer` (or `Issuer` for namespace-scoped) |
-| Route hostname (as cert SAN) | `certManager.serverDnsNames` | `[gw-<ns>.<base-domain>]` — must be externally resolvable |
+| Route hostname (as cert SAN) | `certManager.serverDnsNames` | `[gw-<ns>.<base-domain>]` -- must be externally resolvable |
 
 The chart validates this configuration at install time:
 - Fails if `openshiftRoute.enabled=true` and `server.disableTls=true` (passthrough requires the pod to terminate TLS)
 - Fails if `serverIssuerRef.name` is set but `serverDnsNames` is empty
-- Fails if `serverDnsNames` contains internal-only names (e.g. `localhost`, `*.svc.cluster.local`) when using an external issuer — ACME CAs reject these per CA/Browser Forum baseline requirements
+- Fails if `serverDnsNames` contains internal-only names (e.g. `localhost`, `*.svc.cluster.local`) when using an external issuer -- ACME CAs reject these per CA/Browser Forum baseline requirements
 - Fails if `openshiftRoute.host` is set with `serverIssuerRef` but the host is not covered by `serverDnsNames`
 
 #### OpenShift Values (conditional)
@@ -261,7 +261,7 @@ The chart validates this configuration at install time:
 The platform is in beta. The migration path is intentionally simple.
 
 - New gateway creations SHALL use the Helm chart
-- Existing gateways are not migrated — they will be reprovisioned when needed
+- Existing gateways are not migrated -- they will be reprovisioned when needed
 - The old SSA-based deployment code SHALL be removed entirely; there is no dual-mode or feature flag
 
 ---
@@ -303,7 +303,7 @@ The Helm chart covers the OpenShell gateway deployment itself. The only resource
 |---|---|---|---|
 | 1 | `openshell-sandbox-privileged-scc` | RoleBinding | OpenShift SCC binding granting the `privileged` SCC to the sandbox ServiceAccount. The chart handles `podSecurityContext` values but has no concept of OpenShift SCC grants. This is documented as an out-of-chart step in the [upstream chart README](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift). |
 
-The trusted CA ConfigMap (`gateway-trusted-ca`) is still copied from the CP namespace into the tenant namespace by the control plane, but its injection into the Deployment is handled by the chart via `server.oidc.caConfigMapName` — no post-Helm SSA patch is needed.
+The trusted CA ConfigMap (`gateway-trusted-ca`) is still copied from the CP namespace into the tenant namespace by the control plane, but its injection into the Deployment is handled by the chart via `server.oidc.caConfigMapName` -- no post-Helm SSA patch is needed.
 
 All other resources the control plane manages (CNPG database provisioning, DB credentials, console, Keycloak clients) are HyperShell platform infrastructure deployed outside the context of the OpenShell gateway itself. The chart's `server.externalDbSecret` value references the DB credentials Secret that the control plane provisions before the Helm install, but the chart does not deploy databases.
 
@@ -313,11 +313,11 @@ All other resources the control plane manages (CNPG database provisioning, DB cr
 
 The control plane SHALL NOT install any NetworkPolicies for gateway namespaces, and the Helm chart SHALL be configured with `networkPolicy.enabled=false`.
 
-**Rationale:** On OVN-Kubernetes (the network plugin used on OpenShift), the default posture is allow-all. Pods within the same namespace — and across namespaces — can communicate freely. NetworkPolicies are additive deny: creating any NetworkPolicy that selects a pod with `policyTypes: [Ingress]` switches that pod to deny-by-default, requiring explicit allow rules for all legitimate traffic.
+**Rationale:** On OVN-Kubernetes (the network plugin used on OpenShift), the default posture is allow-all. Pods within the same namespace -- and across namespaces -- can communicate freely. NetworkPolicies are additive deny: creating any NetworkPolicy that selects a pod with `policyTypes: [Ingress]` switches that pod to deny-by-default, requiring explicit allow rules for all legitimate traffic.
 
 In practice, the existing gateway NetworkPolicies created a self-defeating cycle:
 
-1. `allow-router` selected the gateway pod and permitted cross-namespace ingress from `openshift-ingress` — but this isolated the gateway pod for all other ingress
+1. `allow-router` selected the gateway pod and permitted cross-namespace ingress from `openshift-ingress` -- but this isolated the gateway pod for all other ingress
 2. `allow-sandbox-v2` was then required to restore sandbox→gateway gRPC connectivity (same namespace, already open without policies)
 3. `sandbox-ssh-v2` was required to restore gateway→sandbox SSH connectivity
 4. `allow-console` was required to restore console→gateway connectivity
@@ -356,7 +356,7 @@ The reconciler SHALL follow HyperShell error handling conventions for all Helm o
 
 - Helm install/upgrade/uninstall errors SHALL be wrapped with context: `fmt.Errorf("helm install gateway %s: %w", gateway.Name, err)`
 - Gateway status SHALL be updated on Helm failure with `State: "Failed"` and error message
-- Reconciler SHALL return explicit errors — NEVER `panic()` on Helm failures
+- Reconciler SHALL return explicit errors -- NEVER `panic()` on Helm failures
 - Partial failures (e.g. Helm install succeeded but console reconciliation failed) SHALL be collected and returned as a multi-error
 - All error paths SHALL propagate to the caller or be logged with full context
 
@@ -431,7 +431,7 @@ The control plane SHALL validate configuration at startup and fail fast with cle
 ## References
 
 - [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell)
-- [OpenShell Helm Chart README — Install on OpenShift](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift) — documents SCC binding as out-of-chart step
+- [OpenShell Helm Chart README -- Install on OpenShift](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift) -- documents SCC binding as out-of-chart step
 - [Helm Go SDK Documentation](https://helm.sh/docs/sdk/)
 - [PR #2728: BackendTLSPolicy support](https://github.com/NVIDIA/OpenShell/pull/2728)
 - [Current gateway spec](./openshell-gateway.spec.md)
