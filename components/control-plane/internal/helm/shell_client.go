@@ -33,7 +33,7 @@ func (c *ShellClient) Install(ctx context.Context, namespace string, values map[
 	if err != nil {
 		return fmt.Errorf("write values file: %w", err)
 	}
-	defer os.Remove(valuesFile)
+	defer func() { _ = os.Remove(valuesFile) }()
 
 	args := []string{
 		"install", ReleaseName, c.ChartPath,
@@ -144,7 +144,7 @@ func (c *ShellClient) Upgrade(ctx context.Context, namespace string, values map[
 	if err != nil {
 		return fmt.Errorf("write values file: %w", err)
 	}
-	defer os.Remove(valuesFile)
+	defer func() { _ = os.Remove(valuesFile) }()
 
 	args := []string{
 		"upgrade", ReleaseName, c.ChartPath,
@@ -188,10 +188,10 @@ func writeValuesFile(values map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create temp values file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(data); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("write values file: %w", err)
 	}
 
