@@ -45,7 +45,7 @@ func (d *gatewayListDao) OrderBy(orderBy string) {
 		return
 	}
 
-	d.GenericDao.Joins(gatewayCreatorJoin)
+	d.Joins(gatewayCreatorJoin)
 	d.GenericDao.OrderBy("gateway_creators.username " + direction)
 	d.GenericDao.OrderBy("gateways.id asc")
 }
