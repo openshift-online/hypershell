@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w \
   -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${BUILD_TIME}'" \
   -o hypershell ./cmd/hypershell
 
-FROM registry.access.redhat.com/hi/static:latest@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
+FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
 COPY --from=builder /workspace/hypershell /usr/local/bin/
 
@@ -29,5 +29,5 @@ ENTRYPOINT ["/usr/local/bin/hypershell"]
 CMD ["serve"]
 
 LABEL org.opencontainers.image.title="HyperShell API Server" \
-      org.opencontainers.image.description="REST + gRPC API server for HyperShell fleet management" \
-      org.opencontainers.image.version="0.0.1"
+  org.opencontainers.image.description="REST + gRPC API server for HyperShell fleet management" \
+  org.opencontainers.image.version="0.0.1"

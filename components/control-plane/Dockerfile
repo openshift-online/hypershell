@@ -18,7 +18,7 @@ COPY components/control-plane/internal/ components/control-plane/internal/
 
 RUN cd components/control-plane && CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
-FROM registry.access.redhat.com/hi/static:latest@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
+FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
 COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
 COPY components/control-plane/manifests/ /manifests/

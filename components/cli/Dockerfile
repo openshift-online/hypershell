@@ -11,7 +11,7 @@ COPY pkg/ pkg/
 
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o hypershell ./cmd/hypershell
 
-FROM registry.access.redhat.com/hi/static:latest@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
+FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
 COPY --from=builder /workspace/hypershell /usr/local/bin/
 
