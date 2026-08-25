@@ -84,6 +84,15 @@ type Config struct {
 	// (see internal/reconciler.ManagedDatabaseReconciler), so gateways backed
 	// by CNPG remain compatible even when this default is "deployment".
 	DatabaseProvider string
+
+	// Helm chart configuration
+	HelmChartPath     string
+	HelmChartRegistry string
+	HelmChartVersion  string
+
+	// External CA issuer configuration for Route passthrough mode
+	ExternalCAIssuerName string
+	ExternalCAIssuerKind string
 }
 
 func Load() (*Config, error) {
@@ -108,10 +117,22 @@ func Load() (*Config, error) {
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
 
 		DatabaseProvider: databaseProvider,
+
+		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
+		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
+		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
+
+		ExternalCAIssuerName: getEnv("EXTERNAL_CA_ISSUER_NAME", ""),
+		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
 	}
 
 	if cfg.GRPCServerAddr == "" {
 		return nil, fmt.Errorf("HYPERSHELL_GRPC_SERVER_ADDR is required")
+	}
+
+	// Validate Helm configuration
+	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
+		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
 	}
 
 	return cfg, nil

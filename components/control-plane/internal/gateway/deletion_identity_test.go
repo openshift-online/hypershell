@@ -33,14 +33,14 @@ func TestDeleteGatewayRetainsIdentityUntilServiceAccountsAreRemoved(t *testing.T
 	client := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
 	identity := &deletionKeycloak{serviceAccountErr: errors.New("identity unavailable")}
 	opts := ReconcileOpts{KeycloakClient: identity, GatewayID: "gateway-id", GatewayName: "renamed", GatewayClientID: "original-gateway-id", DatabaseProvider: "deployment", DeploymentDBNamespace: "database"}
-	if err := DeleteGatewayResources(context.Background(), client, nil, "gateway-ns", opts); err == nil {
+	if err := DeleteGatewayResources(context.Background(), client, nil, nil, "gateway-ns", opts); err == nil {
 		t.Fatal("service account deletion failure was lost")
 	}
 	if identity.parentDeletes != 0 {
 		t.Fatal("gateway identity deleted before account cleanup")
 	}
 	identity.serviceAccountErr = nil
-	if err := DeleteGatewayResources(context.Background(), client, nil, "gateway-ns", opts); err != nil {
+	if err := DeleteGatewayResources(context.Background(), client, nil, nil, "gateway-ns", opts); err != nil {
 		t.Fatal(err)
 	}
 	if len(identity.clientIDs) != 1 || identity.clientIDs[0] != "original-gateway-id" {

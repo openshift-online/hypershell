@@ -83,46 +83,6 @@ allow_unauthenticated_users = false
 	}
 }
 
-// TestRenderGatewayConfigTOML renders against the real base ConfigMap so the
-// artifact under test is exactly the one deployGateway would ship, and confirms
-// that artifact passes its own validation gate.
-func TestRenderGatewayConfigTOML(t *testing.T) {
-	manifests, err := LoadGatewayManifests("../../manifests/gateway")
-	if err != nil {
-		t.Fatalf("load manifests: %v", err)
-	}
-
-	nsConfig := NamespaceConfig{
-		Name: "openshell-abcd1234",
-		Gateway: GatewayConfig{
-			Image:           "quay.io/example/gateway:1",
-			SupervisorImage: "quay.io/example/supervisor:1",
-			ServerDnsNames:  []string{"gw.example.com"},
-			OIDC:            OIDCConfig{Issuer: "https://kc.example/realms/x"},
-		},
-	}
-
-	rendered, err := RenderGatewayConfigTOML(manifests, nsConfig, StaticImageDefaults{})
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
-
-	if !strings.Contains(rendered, "gw.example.com") {
-		t.Errorf("expected server SAN in rendered config:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "[openshell.gateway.oidc]") {
-		t.Errorf("expected OIDC section in rendered config:\n%s", rendered)
-	}
-	if strings.Contains(rendered, "NAMESPACE_PLACEHOLDER") {
-		t.Errorf("expected placeholders substituted:\n%s", rendered)
-	}
-
-	// The artifact the control plane would ship must pass its own validation.
-	if err := ValidateRenderedGatewayConfig(rendered, nsConfig.Gateway); err != nil {
-		t.Fatalf("rendered config failed validation: %v", err)
-	}
-}
-
 // TestRenderedConfigValidationError_Unwraps locks the contract the reconciler
 // relies on: it detects a rendered-config failure through the wrapped error chain
 // with errors.As so it can settle the gateway to Failed with a reason.

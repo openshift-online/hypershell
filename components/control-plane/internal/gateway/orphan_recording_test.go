@@ -55,7 +55,7 @@ func TestDeleteGatewayResources_RecordsOrphanedKeycloakClients(t *testing.T) {
 		},
 	}
 
-	if err := DeleteGatewayResources(context.Background(), client, nil, "gateway-ns", opts); err != nil {
+	if err := DeleteGatewayResources(context.Background(), client, nil, nil, "gateway-ns", opts); err != nil {
 		t.Fatalf("best-effort Keycloak failures must not fail deletion: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestDeleteGatewayResources_NilRecorderIsNoOp(t *testing.T) {
 		GatewayClientID: "gw-gateway-id",
 	}
 
-	if err := DeleteGatewayResources(context.Background(), client, nil, "gateway-ns", opts); err != nil {
+	if err := DeleteGatewayResources(context.Background(), client, nil, nil, "gateway-ns", opts); err != nil {
 		t.Fatalf("nil recorder must be a no-op, got error: %v", err)
 	}
 }

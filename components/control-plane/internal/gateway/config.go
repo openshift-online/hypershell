@@ -254,6 +254,13 @@ type ReconcileOpts struct {
 	// only logged, matching legacy behavior). Implementations must not include
 	// secrets in any argument.
 	RecordOrphan OrphanRecorder
+	// ExternalCAIssuerName is the name of the cert-manager issuer for externally trusted certificates.
+	// Required for Route passthrough mode (TLS termination at pod, client sees cert directly).
+	ExternalCAIssuerName string
+	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer).
+	ExternalCAIssuerKind string
+	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
+	IngressBaseDomain string
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

@@ -545,8 +545,6 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 	case gateway.IngressModeRoute:
 		teardownErr = gateway.DeleteRouteResources(ctx, h.dynamicClient, h.concreteClientset(), namespace, opts)
 	case gateway.IngressModeNone:
-		// No gateway exposure is active. Remove remaining console resources and
-		// clear a stored route address from an earlier configuration.
 		teardownErr = gateway.DeleteConsole(ctx, h.dynamicClient, h.concreteClientset(), namespace, opts)
 		if opts.UpdateRouteAddress != nil {
 			if err := opts.UpdateRouteAddress(ctx, ""); err != nil {

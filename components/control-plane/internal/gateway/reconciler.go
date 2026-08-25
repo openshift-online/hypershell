@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,8 +49,8 @@ func ReconcileGateway(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	clientset *kubernetes.Clientset,
+	helmClient *helm.ShellClient,
 	nsConfig NamespaceConfig,
-	manifests map[string][]*unstructured.Unstructured,
 	opts ReconcileOpts,
 ) error {
 	report := opts.ReportProgress
@@ -108,13 +109,10 @@ func ReconcileGateway(
 		return err
 	}
 
-	if nsConfig.Gateway.CredentialDriver == nil {
-		if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
-			report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to configure database credentials")
-			return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
-		}
-		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
-	} else {
+	// Credential driver resources (Vault RBAC, etc.) are not managed by the
+	// Helm chart; reconcile them here. The chart handles the default credential
+	// KEK secret.
+	if nsConfig.Gateway.CredentialDriver != nil {
 		if err := reconcileCredentialDriverResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
 			report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to configure credential storage")
 			return fmt.Errorf("reconcile credential driver resources in %s: %w", nsConfig.Name, err)
@@ -136,61 +134,31 @@ func ReconcileGateway(
 	// Step 4: GatewayDeployed
 	report(ConditionGatewayDeployed, StatusInProgress, "")
 
-	if opts.HasCertManager {
-		if err := reconcileCertManagerResources(ctx, dynamicClient, nsConfig); err != nil {
-			report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to provision TLS certificates")
-			return fmt.Errorf("reconcile cert-manager resources in %s: %w", nsConfig.Name, err)
-		}
-	} else {
-		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - certificate management is not available")
-		return fmt.Errorf("cert-manager is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
-	}
+	// Copy trusted CA bundle (for OIDC issuer verification)
+	reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
-	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
-
-	// Validate the fully rendered configuration artifact before any config-derived
-	// resource is written. nsConfig.Gateway is final here: the ingress-hostname SAN
-	// injection and the Keycloak client reconcile (which may set OIDC) have already
-	// run, so this validates exactly the gateway.toml deployGateway would ship.
-	// Gating before the first write means an invalid render never writes the
-	// ConfigMap and never rolls the workload, so a Running gateway keeps serving its
-	// last-good configuration. See
-	// specs/platform/generated-gateway-config-validation.spec.md.
-	renderedTOML, err := RenderGatewayConfigTOML(manifests, nsConfig, images)
-	if err != nil {
-		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to generate gateway configuration")
-		return &RenderedConfigValidationError{Err: fmt.Errorf("render gateway configuration: %w", err)}
-	}
-	if err := ValidateRenderedGatewayConfig(renderedTOML, nsConfig.Gateway); err != nil {
-		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - the generated configuration is invalid")
-		return &RenderedConfigValidationError{Err: err}
-	}
-
-	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, images, opts, hasTrustedCA); err != nil {
-		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
-		return fmt.Errorf("deploy gateway in %s: %w", nsConfig.Name, err)
-	}
-
+	// Reconcile OpenShift SCC binding BEFORE Helm install
+	// (sandbox pods need privileged SCC to schedule)
 	if opts.IsOpenShift {
 		if err := reconcileOpenShiftSCC(ctx, dynamicClient, nsConfig.Name); err != nil {
 			log.Printf("WARN failed to reconcile OpenShift SCC binding in %s: %v", nsConfig.Name, err)
 		}
 	}
 
-	// Tenant ingress is environment-adaptive: Gateway API where available,
-	// OpenShift Routes where it is not. See gatewayIngressMode.
+	// Deploy gateway via Helm
+	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
+	// BackendTLSPolicy, Route, credential KEK, NetworkPolicy
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts); err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
+		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
+	}
+
+	// Console reconciliation and route-address publishing are not managed by
+	// the Helm chart. Reconcile them after the Helm release so the gateway
+	// workload is already deployed.
 	switch ingressMode {
 	case IngressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
-			// Propagate this error rather than logging and swallowing it: the only
-			// hard failures reconcileGatewayAPIResources returns are a TLS-secret
-			// wait timeout and a fail-closed route-intent re-check (its best-effort
-			// console/NetworkPolicy/CA steps log internally and never return). Both
-			// leave a routed gateway without a usable route, so Handle must see the
-			// error and mark the gateway Failed -- a Failed gateway is not phase-
-			// gated, so the next watch event re-provisions and rebuilds the route.
-			// Swallowing it here would strand a partial route the phase gate then
-			// blocks any later event from repairing.
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
 				report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to configure network routing")
 				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
@@ -205,9 +173,6 @@ func ReconcileGateway(
 			if err := reconcileRouteResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
 			}
-			// The console uses the same selected ingress mode as the gateway. A
-			// console error must not fail gateway provisioning. The health loop
-			// retries the console until it can serve.
 			if err := ReconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
 			}
@@ -240,10 +205,16 @@ func DeleteGatewayResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	clientset *kubernetes.Clientset,
+	helmClient *helm.ShellClient,
 	namespace string,
 	opts ReconcileOpts,
 	credentialNamespaces ...string,
 ) error {
+	// Uninstall Helm release (removes all chart-managed resources in the namespace)
+	if err := helmClient.Uninstall(ctx, namespace); err != nil {
+		log.Printf("WARN failed to uninstall helm release in namespace %s: %v", namespace, err)
+	}
+
 	crbGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
 		Version:  "v1",
@@ -816,75 +787,6 @@ func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, 
 		log.Printf("INFO Route resources removed from namespace %s", namespace)
 	}
 	return errors.Join(errs...)
-}
-
-func deployGateway(
-	ctx context.Context,
-	dynamicClient dynamic.Interface,
-	clientset *kubernetes.Clientset,
-	nsConfig NamespaceConfig,
-	manifests map[string][]*unstructured.Unstructured,
-	images ImageDefaults,
-	opts ReconcileOpts,
-	hasTrustedCA bool,
-) error {
-	order := []string{
-		"rbac.yaml",
-		"serviceaccount.yaml",
-		"configmap.yaml",
-		"certgen-job.yaml",
-		"service.yaml",
-		"deployment.yaml",
-		"networkpolicy.yaml",
-	}
-
-	for _, filename := range order {
-		resources, ok := manifests[filename]
-		if !ok {
-			log.Printf("WARN manifest file %s not found, skipping", filename)
-			continue
-		}
-
-		for _, manifest := range resources {
-			if opts.SkipNetworkPolicies && manifest.GetKind() == "NetworkPolicy" {
-				logNetworkPoliciesDisabled()
-				continue
-			}
-
-			obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, nsConfig.Gateway, images)
-			if err != nil {
-				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
-			}
-
-			if err := ApplyConfigOverrides(obj, nsConfig.Gateway, nsConfig.Name); err != nil {
-				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
-			}
-
-			if obj.GetKind() == "Deployment" {
-				applyConfigHashAnnotation(ctx, clientset, obj, nsConfig.Name)
-			}
-
-			if obj.GetKind() == "Deployment" && obj.GetName() == GatewayDeploymentName {
-				applyAppliedReleaseAnnotation(obj, nsConfig.Gateway.ReleaseID)
-			}
-
-			if hasTrustedCA && obj.GetKind() == "Deployment" {
-				applyTrustedCAOverrides(obj)
-			}
-
-			if opts.IsOpenShift && obj.GetKind() == "Deployment" {
-				applyOpenShiftOverrides(obj)
-			}
-
-			if err := reconcileResource(ctx, dynamicClient, obj); err != nil {
-				return fmt.Errorf("reconcile resource from %s: %w", filename, err)
-			}
-
-			log.Printf("DEBUG reconciled %s %s in %s", obj.GetKind(), obj.GetName(), nsConfig.Name)
-		}
-	}
-
-	return nil
 }
 
 func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {

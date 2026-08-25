@@ -1268,6 +1268,49 @@ label-selected pod informer.
 
 ## Reconciliation History
 
+### Wave HELM: Helm Adoption (Shell-Out Implementation Complete)
+
+**Scope:** Shift from static YAML manifests to Helm-based gateway deployment (openshell-gateway-helm-adoption.spec.md)
+
+**Status:** Foundation complete - Using shell-out approach instead of Go SDK
+
+**Completed:**
+- ✅ Created `internal/helm/` package with chart validation, values mapping, and shell client wrapper
+- ✅ Added Helm configuration env vars to `internal/config/config.go`
+- ✅ Created `charts/VERSION` file (0.4.0)
+- ✅ Resolved dependency conflicts by using `helm` CLI instead of Go SDK
+- ✅ Implemented `ShellClient` with install/uninstall/upgrade/status operations
+- ✅ Verified build: `go build ./...` and `go vet ./...` pass
+- ✅ Documented decision in `.claude/helm-dependency-resolution-decision.md`
+
+**Pending:**
+- ⏸️ Refactor `ReconcileGateway` to use Helm install instead of `deployGateway`
+- ⏸️ Add Helm uninstall to `DeleteGatewayResources`
+- ⏸️ Remove obsolete code (manifests.go, manifest loading, inline cert-manager/credential/routing reconciliation)
+- ⏸️ Update Dockerfile to embed Helm chart
+- ⏸️ Verify integration tests in dev-cluster
+
+**Decision:** Shell-out to `helm` CLI instead of using Helm Go SDK
+- **Why:** Helm SDK has irreconcilable k8s.io version conflicts (needs v0.27, we need v0.36+)
+- **Approach:** Execute `helm install/uninstall/status` via `exec.Command`
+- **Benefits:** No dependency conflicts, production-ready, simple implementation
+- **Runtime Requirement:** `helm` binary must be in PATH
+
+**Files Created:**
+- `internal/helm/chart.go` - Chart path validation and OCI pull helper
+- `internal/helm/values.go` - Gateway config → Helm values mapping (13 value categories, 189 LOC)
+- `internal/helm/shell_client.go` - Helm CLI wrapper (install/uninstall/upgrade/status, 280 LOC)
+- `charts/VERSION` - Chart version declaration (0.4.0)
+- `.claude/helm-dependency-resolution-decision.md` - Decision rationale and implementation plan
+
+**Files Modified:**
+- `internal/config/config.go` - Added 5 Helm-related env vars
+- `go.mod` - NO Helm SDK dependency (using shell exec instead)
+
+---
+
+## Reconciliation History
+
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
 | 2026-09-07 | working tree | Reconciled gateway-reconcile-concurrency.spec.md (CP-CONC-01..03) | 3/3 scoped requirements present | Made the gateway reconcile worker-pool size deployment configuration via `GATEWAY_RECONCILE_WORKERS` (new `getEnvInt` helper + `Config.GatewayReconcileWorkers`, default 4 = prior hardcoded pool), plumbed config -> `WatchGateways` -> `withWorkers`, clamped non-positive to the default at the watcher boundary (preserving the test-only 0-worker queue pattern), and added config/getEnvInt tests. Per-gateway serialization and bounded throttle already held (existing queue tests). The full-corpus percentage is unchanged. |
@@ -1315,15 +1358,15 @@ label-selected pod informer.
 | 2026-08-31 | 5572127+spec | Dry-run: registered-users | 78% | Authored `platform/registered-users.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Users plugin has persistence + auto-provision but no HTTP/OpenAPI/RBAC/SDK/dashboard wiring. Planned RU-W1 (API+auth+tests) and RU-W2 (dashboard rename+adapter). |
 | 2026-08-31 | eb99f6b | Executed RU-W1 + RU-W2: registered users | 78% | OpenAPI List/Get, `platform:admin`/`hypershell-admins` auth, integration tests, SDK, dashboard `registered-users` metric (layout v14). Registered users 8/8 present. |
 | 2026-08-31 | 217452a | Dry-run: cluster-memory | 78% | Authored `platform/cluster-memory.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Prometheus scrape + BFF route + dashboard adapter not implemented. Planned CM-W1 (scrape), CM-W2 (BFF), CM-W3 (adapter). |
-| 2026-08-31 | working tree | Executed CM-W1–W3: cluster memory | 81% | node-exporter DaemonSet + ServiceMonitor; BFF `GET /api/metrics/cluster-memory`; dashboard `memory` GiB metric; BFF + adapter tests. Cluster memory 8/8 present. |
+| 2026-08-31 | working tree | Executed CM-W1-W3: cluster memory | 81% | node-exporter DaemonSet + ServiceMonitor; BFF `GET /api/metrics/cluster-memory`; dashboard `memory` GiB metric; BFF + adapter tests. Cluster memory 8/8 present. |
 | 2026-08-31 | 9f9b0da | Dry-run: cluster-cpu | 79% | Authored `platform/cluster-cpu.spec.md` (8 reqs). Planned CC-W1 (PromQL docs), CC-W2 (BFF), CC-W3 (adapter). |
-| 2026-08-31 | working tree | Executed CC-W1–W3: cluster CPU | 81% | BFF `GET /api/metrics/cluster-cpu`; dashboard `cpu` cores metric; BFF + adapter tests; `i18n:extract` reorder for `26a62eb`/`dc696eb` drift. Cluster CPU 8/8 present. |
+| 2026-08-31 | working tree | Executed CC-W1-W3: cluster CPU | 81% | BFF `GET /api/metrics/cluster-cpu`; dashboard `cpu` cores metric; BFF + adapter tests; `i18n:extract` reorder for `26a62eb`/`dc696eb` drift. Cluster CPU 8/8 present. |
 | 2026-08-31 | 3466e55 | Dry-run: cluster-pods | 79% | Authored `platform/cluster-pods.spec.md` (8 reqs: 1 present, 1 partial, 6 missing). Requires kube-state-metrics deploy (not node-exporter); BFF route + adapter not implemented. Planned CLP-W1 (ksm scrape + PromQL), CLP-W2 (BFF), CLP-W3 (adapter). Used count includes all phases. |
-| 2026-08-31 | working tree | Executed CLP-W1–W3: cluster pods | 84% | kube-state-metrics Deployment/ServiceMonitor; BFF `GET /api/metrics/cluster-pods`; dashboard `pods` metric; BFF + adapter tests; `DATA_SOURCES.md` + OP-DASH-08 connected. Cluster pods 8/8 present. |
+| 2026-08-31 | working tree | Executed CLP-W1-W3: cluster pods | 84% | kube-state-metrics Deployment/ServiceMonitor; BFF `GET /api/metrics/cluster-pods`; dashboard `pods` metric; BFF + adapter tests; `DATA_SOURCES.md` + OP-DASH-08 connected. Cluster pods 8/8 present. |
 | 2026-08-31 | working tree | OpenShift Keycloak NetworkPolicy for JWKS | 84% | `keycloak-allow-platform` lets platform pods reach Keycloak TCP/8080 across the default-deny project policies so API server JWKS load and Admin API calls succeed. |
 | 2026-08-31 | working tree | OpenShift console redirect URI + Route seeding | 84% | Host `curl` against Keycloak/API Routes registers the web-console `/auth/callback` (realm import only had Kind localhost URIs) and seeds the API. The API server image has no curl, so `oc exec curl` never obtained tokens. |
 | 2026-08-31 | working tree | Dry-run: cluster-nodes | 82% | Authored `platform/cluster-nodes.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Gateway-style `value` + `status` for system-summary; reuses kube-state-metrics from CLP-W1. Planned CLN-W1 (PromQL docs), CLN-W2 (BFF), CLN-W3 (adapter). |
-| 2026-08-31 | working tree | Executed CLN-W1–W3: cluster nodes | 85% | BFF `GET /api/metrics/cluster-nodes`; dashboard `nodes` metric with `healthy`/`failed` status; `SummaryGatewayValue` in system-summary; BFF + adapter tests. Cluster nodes 8/8 present. |
+| 2026-08-31 | working tree | Executed CLN-W1-W3: cluster nodes | 85% | BFF `GET /api/metrics/cluster-nodes`; dashboard `nodes` metric with `healthy`/`failed` status; `SummaryGatewayValue` in system-summary; BFF + adapter tests. Cluster nodes 8/8 present. |
 | 2026-08-31 | working tree | Dry-run: gateway-provision-time | 85% | Authored `platform/gateway-provision-time.spec.md` (8 reqs: 1 present, 7 missing). Mean duration from gateway list timestamps; no BFF route. Planned GPT-W1 (adapter). |
 | 2026-08-31 | 54cf5b0 | OP-DASH-16: status donut + nodes widget alignment | 85% | Shared `StatusDonutChart`; `nodes` widget; layout v17; `i18n:extract` for new dashboard message IDs; OP-DASH-16 scenario aligned with implementation (no chart subtitle). Operational dashboard 16/16 present. |
 | 2026-08-31 | working tree | Executed GPT-W1: gateway provision time | 85% | Adapter computes mean `Running` gateway provision minutes from paginated list; `provision-time` metric connected; adapter tests; `DATA_SOURCES.md` + OP-DASH-08 updated. Gateway provision time 8/8 present. OP-DASH-08 all metrics connected. |
@@ -1339,3 +1382,4 @@ label-selected pod informer.
 | 2026-09-09 | working tree | HYPERSHELL-240 W2 made declarative (config-as-data) | Ephemeral PR Environments 86% (unchanged) | Replaced the imperative post-boot admin-API script with env-gated realm data. `deploy/base/keycloak/keycloak.yaml` now carries the GitHub IdP (`enabled: ${PR_ENV_GITHUB_IDP_ENABLED:false}`), the two hardcoded-role `identityProviderMappers` (`platform:admin`+`gateway:creator`), the `github.org.gate`/`github.username.allowlist` realm attributes, and `hypershell-e2e` `secret: ${HYPERSHELL_E2E_CLIENT_SECRET:e2e-secret}`, all resolved at import from the optional `hypershell-github-oauth` Secret wired into the Keycloak Deployment as `optional: true` secretKeyRefs. Kind/local/stage have no Secret, so every placeholder resolves to its default and the realm is inert (IdP off, secret `e2e-secret`) - consistent with the realm already leaving unresolved `${client_id}` mappers literal. Deleted `scripts/ci/configure-github-broker.sh`; the workflow now provisions the Secret (per-PR random e2e secret, masked) into the `-keycloak` namespace *before* `openshift-up` and fails closed on missing OAuth cfg; `read-e2e-client-secret.sh` reads `hypershell-github-oauth/e2e-client-secret`. Validated: realm JSON parses, `kustomize build deploy/base/keycloak` + `deploy/openshift` render, yamllint + `make ci-test` (21/21) clean. **One gate before merge:** Kind smoke test that Keycloak resolves `${VAR:default}` (blast radius = realm import) - recorded in the handoff. |
 | 2026-09-09 | working tree | HYPERSHELL-240 waves W2-W4: PR-env CI workflow, reaper, GitHub broker | Ephemeral PR Environments 14% -> 86% | **W3:** added `.github/workflows/pr-environment.yml` (origin-only `pull_request` open/reopen/synchronize/closed, per-PR concurrency, unconditional `openshift-up`, Konflux gate + digest swap, e2e with `E2E_OIDC_GRANT=client_credentials`, one marked access comment, `openshift-down` on close) + helper scripts `scripts/ci/{pr-env-lib,stamp-pr-env,swap-openshift-images-by-digest,read-e2e-client-secret,upsert-pr-comment}.sh`. **W4:** `scripts/ci/reap-pr-environments.sh` + `deploy/e2e/reaper/` CronJob/RBAC (expires-at match predicate, deletes expired `pr-*` groups only). **W2 (partial):** `scripts/ci/configure-github-broker.sh` fails closed on missing OAuth cfg, upserts the GitHub IdP (`read:org`, no RH SSO), grants `platform:admin`+`gateway:creator` on broker login, publishes the per-PR `hypershell-e2e` secret; org/allowlist ENFORCEMENT authenticator + developer-principal impersonation handed off (need Keycloak SPI + live cluster). Pure logic unit-tested: `make ci-test` 21/21 (`pr-env-lib` 19, reaper 2); `openshift_driver_test` still 20/20; yamllint + kustomize clean. Registered `scripts/ci/**`, `deploy/e2e/**`, `deploy/openshift/**`, `pr-environment.yml` under the `e2e` component. Handoff list recorded above. |
 | 2026-09-09 | working tree | Began HYPERSHELL-240 (ephemeral-pr-environments) reconcile: W1 + W5 | Ephemeral PR Environments 0% -> 14% | Re-scoped to implement `ephemeral-pr-environments.spec.md` (greenfield). **W1 (PR-ENV-10 code):** made the driver token functions grant-agnostic (`E2E_OIDC_GRANT` password\|client_credentials; admin client-credentials on `hypershell-e2e`; developer Keycloak token-exchange impersonation targeting the requested audience), added `E2E_OIDC_GRANT`/`E2E_OIDC_SA_CLIENT_ID`/`E2E_OIDC_SA_CLIENT_SECRET` defaults, added the `hypershell-e2e` confidential client + service account (platform:admin+gateway:creator, `hypershell-frontend` audience mapper, standard token exchange) to the base realm, and extended `openshift_driver_test.sh` (20/20, no cluster). **W5 (PR-ENV-11):** deprecation header on `components/pr-test/e2e-openshell.sh` + DEVELOPMENT.md pointer to the shared harness; ROKS/GCP + `pr_test` CI wiring untouched. **Remaining (need live OpenShift + a GitHub OAuth App to validate):** W2 realm GitHub-brokering overlay (IdP, org gate + allowlist, dev principal, impersonation perms), W3 the PR-environment CI workflow (identity, CD lifecycle, digest swap, e2e, comment, trust boundary), W4 timebox annotation + out-of-band reaper. |
+| 2026-08-25 | working tree | Helm adoption foundation (Wave HELM partial) | ~74% | Created internal/helm/ package with shell-out implementation (chart validation, values mapping, shell client wrapper); added 5 Helm env vars to config; created charts/VERSION (0.4.0); documented shell-out decision rationale. Resolution: Use `helm` CLI via exec.Command instead of Go SDK to avoid k8s.io version conflicts. Builds successfully. Pending: reconciler refactoring, Dockerfile updates, manifest removal, integration tests. |

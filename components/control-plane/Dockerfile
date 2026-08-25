@@ -11,6 +11,13 @@ FROM go-${BUILDARCH} AS builder
 
 WORKDIR /workspace
 
+# Install tar, git, and Helm for chart packaging during build
+RUN microdnf install -y tar gzip git && \
+    curl -fsSL https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz | tar -xz && \
+    mv linux-amd64/helm /usr/local/bin/helm && \
+    rm -rf linux-amd64 && \
+    microdnf clean all
+
 COPY components/api-server/go.mod components/api-server/go.sum components/api-server/
 COPY components/control-plane/go.mod components/control-plane/go.sum components/control-plane/
 
@@ -27,12 +34,23 @@ COPY components/control-plane/internal/ components/control-plane/internal/
 ARG TARGETARCH
 RUN cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
+# Package Helm chart from fork
+COPY charts/CHART_REPO charts/CHART_REF /tmp/chart-source/
+RUN CHART_REPO=$(cat /tmp/chart-source/CHART_REPO) && \
+    CHART_REF=$(cat /tmp/chart-source/CHART_REF) && \
+    git clone --depth 1 --branch "${CHART_REF}" "${CHART_REPO}" /tmp/openshell && \
+    mkdir -p /workspace/charts && \
+    helm package /tmp/openshell/deploy/helm/openshell --destination /workspace/charts/ && \
+    mv /workspace/charts/*.tgz /workspace/charts/openshell.tgz && \
+    rm -rf /tmp/openshell
+
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:3d43712a61ce01c7049e983e7f4c4609aaad7582c7bbd930b57372f82c446f98 AS static-amd64
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:2ccd532da5e8868a92f479a7268a2fce65279c1f7c8a8dd0880d399c04d6a356 AS static-arm64
 FROM static-${TARGETARCH}
 
-COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
-COPY components/control-plane/manifests/ /manifests/
+COPY --from=builder --chown=1001:0 /workspace/hypershell-controller /usr/local/bin/
+COPY --from=builder --chown=1001:0 /workspace/charts/ /charts/
+COPY --from=builder --chown=1001:0 /usr/local/bin/helm /usr/local/bin/helm
 
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 
