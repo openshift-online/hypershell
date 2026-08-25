@@ -3,12 +3,15 @@
 **Date:** 2026-08-04
 **Status:** Draft
 **Jira:** ENGPROD-10281
+**Related:** `openshift-development.spec.md` -- OpenShift lifecycle (`make openshift-up`) and `CLUSTER_DRIVER`
 
 ## Purpose
 
 HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. The database is provisioned by the control plane reconciler, not by `kind-up` directly. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all baseline images from the local `main` branch instead of pulling from the registry.
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
+
+The same lifecycle model extends to OpenShift. `CLUSTER_DRIVER` selects the target: `kind` (the default, this spec) or `openshift`. When `CLUSTER_DRIVER=openshift`, `make openshift-up` deploys the same components into an ephemeral OpenShift namespace, and the component-swap targets behave the same way. `openshift-development.spec.md` specifies the OpenShift lifecycle commands, the ephemeral-namespace model, and the OpenShift e2e driver.
 
 ## Components Deployed
 

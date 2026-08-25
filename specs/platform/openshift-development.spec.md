@@ -44,7 +44,9 @@ provisioned through the
 [ephemeral-namespace-operator](https://github.com/RedHatInsights/ephemeral-namespace-operator)
 or an equivalent mechanism.
 
-Both contexts use the same lifecycle scripts and the same e2e driver.
+Both contexts use the same lifecycle driver -- `make openshift-up` and the same
+driver functions -- and the same e2e driver, so that a local deployment and a CI
+deployment cannot drift.
 
 ### Scope
 
@@ -72,7 +74,7 @@ root `Makefile` stays the single entry point. Shared lifecycle logic stays
 infrastructure-agnostic. Each infrastructure target supplies a driver that
 implements the infrastructure-specific operations.
 
-```
+```text
 Makefile (single entry point)
     │
     ├── cluster lifecycle (infra-agnostic)
@@ -106,6 +108,11 @@ commands keep their current behavior. Each driver SHALL implement a fixed set of
 lifecycle operations: `cluster_up`, `cluster_down`, `cluster_teardown`,
 `cluster_status`, `component_swap`, and `component_revert`.
 
+Because OpenShift does not create the cluster, the OpenShift driver's
+`cluster_teardown` SHALL behave the same as `cluster_down` -- it removes the
+environment namespace group -- rather than destroy a cluster. The Kind driver's
+`cluster_teardown` SHALL keep its current behavior of destroying the Kind cluster.
+
 The shared lifecycle library SHALL centralize the seams that differ per
 infrastructure, the same way `scripts/kind/lib.sh` centralizes the Kubernetes
 context and the swap tracking today. The Kind driver SHALL reuse the existing
@@ -115,9 +122,14 @@ Each infrastructure target SHALL use its own driver for both lifecycle operation
 and e2e operations. The Kind target SHALL use the Kind lifecycle driver and the
 Kind e2e driver (`tests/e2e/drivers/kind.sh`). The OpenShift target SHALL use the
 OpenShift lifecycle driver and the OpenShift e2e driver
-(`tests/e2e/drivers/openshift.sh`). The lifecycle driver and the e2e driver for a
-target SHALL agree on the same infrastructure conventions, so that the environment
-the lifecycle driver creates is the environment the e2e driver expects.
+(`tests/e2e/drivers/openshift.sh`).
+
+The lifecycle driver and the e2e driver for a target SHALL always select the same
+infrastructure. `E2E_INFRA_DRIVER` SHALL default to the value of `CLUSTER_DRIVER`,
+so that one selector drives both by default. When both variables are set and they
+disagree, a preflight check SHALL fail with a clear error before any deploy or test
+runs, rather than let a Kind lifecycle run with the OpenShift e2e driver (or the
+reverse) and produce misleading route failures or test the wrong environment.
 
 #### Scenario: Default driver preserves Kind behavior
 
@@ -134,6 +146,20 @@ the lifecycle driver creates is the environment the e2e driver expects.
   operations
 - AND the developer does not change the infrastructure-agnostic lifecycle logic
 
+#### Scenario: Mismatched drivers fail preflight
+
+- GIVEN `CLUSTER_DRIVER=kind` and `E2E_INFRA_DRIVER=openshift`
+- WHEN the lifecycle or e2e entry point runs
+- THEN a preflight check fails with a clear error
+- AND no deploy or test runs
+
+#### Scenario: OpenShift teardown removes the namespace group
+
+- GIVEN an OpenShift environment exists
+- WHEN the framework calls `cluster_teardown` for the OpenShift target
+- THEN the driver removes the environment namespace group
+- AND the driver does not attempt to destroy the OpenShift cluster
+
 ### Requirement: OpenShift Lifecycle Up and Down
 
 The `make openshift-up` command SHALL deploy the full HyperShell stack to an
@@ -145,13 +171,30 @@ workflow. When no target OpenShift cluster is available, the command SHALL stop
 with a clear error that tells the developer to provide an OpenShift cluster target,
 rather than deploy nothing or fail without guidance.
 
-The `make openshift-up` command SHALL deploy through `kustomize build
-deploy/openshift/` so that the deployed resources match the blessed overlay. The
-`make openshift-down` command SHALL remove the deployment, including every
-namespace in the environment namespace group. The `make openshift-status` command
-SHALL report the cluster, the environment namespaces, the pods, the services, the
-Routes, the Gateway status, and the component swap state, the same categories that
-`make kind-status` reports.
+The `make openshift-up` command SHALL render the overlay with `kustomize build
+deploy/openshift/` and SHALL apply the rendered manifests to the cluster (for
+example by piping them to `oc apply`), rather than only render them, so that the
+command cannot report success after it produced YAML alone. The overlay's platform
+namespace (`hypershell-system` in the base) SHALL map to `OPENSHIFT_NAMESPACE`, and
+the overlay's Keycloak namespace (`keycloak` in the base) SHALL map to
+`${OPENSHIFT_NAMESPACE}-keycloak`, through the namespace parameterization that the
+Blessed OpenShift Overlay requirement defines. The command SHALL be idempotent: a
+second run SHALL reconcile the environment to the current overlay and SHALL prune
+resources the overlay no longer defines, with pruning scoped to the environment,
+rather than leave stale resources behind.
+
+Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
+developer needs for a working gateway -- a Fleet, a ManagedCluster, a
+GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
+OIDC values for the environment, so that one command produces a working gateway and
+the OpenShift workflow matches the Kind workflow.
+
+The `make openshift-down` command SHALL delete the applied manifests and SHALL
+remove every namespace in the environment namespace group, subject to the ownership
+check that the Ephemeral Namespace Isolation requirement defines. The
+`make openshift-status` command SHALL report the cluster, the environment
+namespaces, the pods, the services, the Routes, the Gateway status, and the
+component swap state, the same categories that `make kind-status` reports.
 
 The command names SHALL mirror the Kind command names by replacing the `kind`
 prefix with `openshift`.
@@ -161,8 +204,10 @@ prefix with `openshift`.
 - GIVEN a developer has a kubeconfig context for an OpenShift cluster
 - AND the developer has permission to create a namespace
 - WHEN the developer runs `make openshift-up`
-- THEN the scripts deploy the API server, the control plane, the web console,
-  PostgreSQL, and Keycloak through `kustomize build deploy/openshift/`
+- THEN the scripts render and apply the API server, the control plane, the web
+  console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
+- AND the scripts seed a Fleet, a ManagedCluster, a GatewayRelease, a
+  ManagedDatabase, and a Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
@@ -188,16 +233,37 @@ prefix with `openshift`.
 Each `make openshift-up` deployment SHALL isolate into an environment namespace
 group so that more than one developer can share one OpenShift cluster without
 collision. An `OPENSHIFT_NAMESPACE` variable SHALL name the platform namespace, the
-same way `KIND_NAMESPACE` names the Kind target namespace. The scripts SHALL derive
-the `-keycloak` namespace from that name (see the Keycloak Namespace requirement).
-The scripts SHALL create the namespaces if they do not exist.
+same way `KIND_NAMESPACE` names the Kind target namespace. Unlike Kind, which
+targets a single-tenant local cluster and defaults `KIND_NAMESPACE` to
+`hypershell-system`, an OpenShift target is shared, so there SHALL be no shared
+default namespace. When `OPENSHIFT_NAMESPACE` is unset, the command SHALL derive a
+unique per-developer default (for example from `oc whoami`) or SHALL stop with a
+clear error, rather than fall back to a shared name that collides.
 
-The scripts SHALL label every namespace in the group so that `make openshift-status`
-and cleanup tooling can find every namespace that belongs to a HyperShell
-deployment, and can tell which namespaces belong to the same environment. The
-scripts SHALL derive per-tenant gateway hostnames from the cluster base domain and
-the platform namespace, so that two deployments on one cluster do not share a
-hostname.
+`OPENSHIFT_NAMESPACE` SHALL be a valid RFC 1123 DNS label of at most 54 characters,
+so that the derived `${OPENSHIFT_NAMESPACE}-keycloak` namespace stays within the
+63-character DNS-label limit for Kubernetes namespaces. The command SHALL validate
+the name and the derived name before it creates any resource, and SHALL stop with a
+clear error when either name is invalid. The scripts SHALL derive the `-keycloak`
+namespace from that name (see the Keycloak Namespace requirement). The scripts SHALL
+create the namespaces if they do not exist.
+
+The scripts SHALL stamp every namespace in the group, at creation, with an
+ownership label that marks the namespace as HyperShell-owned and with an immutable
+environment identifier that ties the namespace to one deployment, so that
+`make openshift-status` and cleanup tooling can find every HyperShell namespace and
+can tell which namespaces belong to the same environment. Before it deploys, the
+command SHALL refuse to adopt an existing namespace whose ownership label or
+environment identifier does not match the current environment, so that a deployment
+cannot take over a namespace that another environment or another team owns. The
+scripts SHALL derive per-tenant gateway hostnames from the gateway base domain (the
+configured `GATEWAY_API_BASE_DOMAIN`) and the platform namespace, so that two
+deployments on one cluster do not share a hostname.
+
+Before it deletes, `make openshift-down` SHALL verify the ownership label and the
+environment identifier on each namespace and SHALL delete only namespaces that match
+the current environment, so that it cannot delete unrelated workloads. The command
+SHALL refuse a mismatch and report it.
 
 #### Scenario: Two developers share one cluster
 
@@ -212,8 +278,17 @@ hostname.
 
 - GIVEN two HyperShell environment namespace groups exist on one cluster
 - WHEN a developer runs `make openshift-down` for one environment
-- THEN the scripts remove only that environment's namespaces
+- THEN the scripts verify the ownership label and the environment identifier
+- AND the scripts remove only that environment's namespaces
 - AND the other environment stays intact
+
+#### Scenario: Deployment refuses a foreign namespace
+
+- GIVEN a namespace with the name `OPENSHIFT_NAMESPACE` already exists and carries a
+  different environment identifier
+- WHEN a developer runs `make openshift-up`
+- THEN the command refuses to adopt the namespace
+- AND the command deploys nothing into, and deletes nothing in, that namespace
 
 ### Requirement: Keycloak Namespace
 
@@ -225,11 +300,25 @@ Keycloak, and two environments on one cluster do not share a Keycloak or collide
 a fixed namespace name. Every other HyperShell component SHALL deploy into the
 platform namespace that `OPENSHIFT_NAMESPACE` names.
 
+Folding Keycloak into the platform namespace would remove one namespace per
+environment, but `deploy/base/keycloak/` already assigns Keycloak its own
+`keycloak` namespace, and both `deploy/kind/` and `deploy/hub/` build on that
+placement. A per-environment `-keycloak` namespace reuses that base structure with
+only a namespace parameterization, so the overlay stays derived from the base
+rather than patching Keycloak into a shared namespace. This is why the spec keeps
+Keycloak in its own namespace.
+
 Together, the platform namespace and its `-keycloak` namespace form the
 deployment's namespace group. The two namespaces SHALL share one lifecycle: the
 scripts create them together, and `make openshift-down` (for local development) or
-the release step (for CI) removes them together. The OpenShift OIDC issuer SHALL
-point at the Keycloak route in the `-keycloak` namespace.
+the release step (for CI) removes them together.
+
+The OpenShift OIDC issuer SHALL derive from the Keycloak Route in the `-keycloak`
+namespace through one hostname formula: the driver reads the Keycloak Route host
+from the `-keycloak` namespace and appends the realm path (`/realms/hypershell`).
+The Keycloak `KC_HOSTNAME`, the e2e `E2E_OIDC_ISSUER`, and the gateway OIDC issuer
+the control plane provisions SHALL all use that same URL, so that token acquisition
+and token validation target the same endpoint.
 
 This spec defines only where Keycloak lands. The broader isolation of other
 non-request-serving components (for example the database and observability) into
@@ -266,18 +355,31 @@ registry that the cluster can pull, rather than use the Kind-specific
 `kind load image-archive`. The driver SHOULD use the OpenShift internal registry
 when it is available, so that the swap does not require an external registry.
 
+Because more than one developer can share one cluster, each working-tree image
+SHALL have an immutable identity scoped to the source commit and to
+`OPENSHIFT_NAMESPACE` -- a digest, or a tag that is unique per commit and per
+environment -- rather than a shared mutable tag that another environment could
+overwrite. The driver SHALL update the component deployment to that exact identity
+and SHALL trigger a rollout when the identity changes, so that the running pods use
+the working-tree build.
+
 The scripts SHALL track the swap state per namespace, the same way `.kind-swaps`
-tracks the Kind swap state, so that `make openshift-status` reports which
-components run a working-tree build and which run the baseline image.
+tracks the Kind swap state, and SHALL record the exact image identity that is
+deployed, so that `make openshift-status` reports which components run a working-tree
+build, which run the baseline image, and the exact image each one runs.
 
 #### Scenario: Swap the API server from the working tree
 
 - GIVEN a HyperShell deployment exists on OpenShift with baseline images
 - WHEN the developer runs `make openshift-api-server-up`
 - THEN the scripts build the API server image from the working tree
+- AND the pushed image has an immutable identity scoped to the commit and
+  `OPENSHIFT_NAMESPACE`
 - AND the scripts push the image to a registry that the cluster can pull
-- AND the scripts update the API server deployment to use the pushed image
-- AND `make openshift-status` reports the API server as a working-tree build
+- AND the scripts record that image identity in the per-namespace swap state
+- AND the scripts roll out the API server deployment to the pushed image
+- AND `make openshift-status` reports the API server as a working-tree build with
+  its exact image identity
 
 #### Scenario: Revert a swapped component
 
@@ -297,23 +399,52 @@ The driver SHALL return values through the global variables that the contract
 defines (`_DISCOVER_API_HOST`, `_DISCOVER_GW_ENDPOINT`, `_OIDC_ACCESS_TOKEN`), so
 that background processes survive in the parent shell.
 
-The driver SHALL implement each function with OpenShift constructs:
+The driver SHALL implement each function with OpenShift constructs, and SHALL scope
+every resource lookup to the target namespace, so that concurrent environments on
+one cluster do not read each other's resources:
 
-- `discover_api_host` SHALL read the API Route host with
-  `oc get route hypershell-api -o jsonpath='{.spec.host}'`.
-- `discover_gateway_endpoint` SHALL find the gateway endpoint from the
-  passthrough Route that targets the gateway service.
-- `get_cluster_domain` SHALL read the cluster base domain with
-  `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'`.
+- `discover_api_host` SHALL read the `hypershell-api` Route host in the platform
+  namespace with `oc get route hypershell-api -n "${OPENSHIFT_NAMESPACE}"
+  -o jsonpath='{.spec.host}'`, and SHALL set `_DISCOVER_API_HOST` to the HTTPS URL.
+- `discover_gateway_endpoint` SHALL take the gateway name and the gateway namespace
+  as arguments, the same as the Kind driver, and SHALL discover the endpoint the
+  same way: read the tenant GRPCRoute hostname and confirm the parent Gateway
+  reports `Programmed=True`, then set `_DISCOVER_GW_ENDPOINT` to
+  `https://<grpc-host>:443`. The driver SHALL NOT expect a per-gateway OpenShift
+  Route; per-tenant gateway traffic uses Gateway API, as
+  `openshell-gateway-routing.spec.md` defines.
+- `get_cluster_domain` SHALL return the configured gateway base domain -- the same
+  `GATEWAY_API_BASE_DOMAIN` value the control plane uses -- so that the driver
+  builds gateway hostnames that match the tenant GRPCRoute hostname and the wildcard
+  certificate on the shared Gateway. The driver SHALL NOT read the cluster apps
+  domain from `ingresses.config.openshift.io`: that value is not the gateway base
+  domain, and a namespace-scoped ephemeral environment does not have permission to
+  read that cluster-scoped resource.
 - `get_cli_binary` SHALL return `oc`.
-- `wait_for_gateway_route` SHALL wait until the OpenShift Route reports
-  `Admitted` in `.status.ingress[].conditions`, and until the gateway GRPCRoute
-  parent reports `Accepted`.
+- `wait_for_gateway_route` SHALL take the gateway name and the gateway namespace as
+  arguments and SHALL wait, up to `E2E_PROVISION_TIMEOUT`, until the parent Gateway
+  reports `Programmed=True` and the tenant GRPCRoute parent reports `Accepted=True`,
+  the same two conditions the Kind driver waits for. The driver SHALL NOT wait for an
+  OpenShift Route `Admitted` condition, because no per-gateway Route exists.
 
-The driver SHALL set the OIDC issuer and related OIDC variables from the running
-cluster's domain, rather than the Kind default `keycloak.hypershell.localhost`.
-The driver SHALL provide the Keycloak admin and role-assignment helpers that the
-e2e RBAC scenarios need, the same helpers that the Kind driver provides.
+The driver SHALL set the OIDC issuer from the Keycloak Route in the `-keycloak`
+namespace, as the Keycloak Namespace requirement defines, rather than the Kind
+default `keycloak.hypershell.localhost`.
+
+The OpenShift suite SHALL use the same per-gateway Keycloak client and role wait
+that the Kind suite uses, because per-gateway audience is production behavior, not a
+Kind-only path: a token minted for the shared frontend client carries the wrong
+`aud` claim and the control plane rejects it. The driver SHALL provide the same
+Keycloak admin and role helpers the Kind driver provides -- `assign_realm_role`,
+`assign_gateway_client_role`, and `acquire_gateway_token_with_role` -- so that the
+OpenShift suite acquires a per-gateway-client token with the required role the same
+way the Kind suite does, and so that no weaker OpenShift OIDC path remains.
+
+The driver SHALL establish trusted TLS without an insecure bypass, the same rule
+`e2e-testing.spec.md` sets. When the shared Gateway serves a publicly trusted or
+cluster-wildcard certificate, the suite SHALL rely on the system trust store. When
+the shared Gateway serves a private CA, the driver SHALL extract that CA and point
+`SSL_CERT_FILE` at it. The suite SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`.
 
 The OpenShift e2e suite SHALL run with `E2E_INFRA_DRIVER=openshift bash
 tests/e2e/e2e-openshell.sh`, and SHALL exercise the same test areas that the Kind
@@ -334,13 +465,32 @@ suite exercises, so that a single suite validates both infrastructure targets.
   `E2E_INFRA_DRIVER=kind`
 - AND the test logic is not changed between the two runs
 
-#### Scenario: Gateway route readiness uses OpenShift Route status
+#### Scenario: Gateway readiness uses Gateway API status
 
-- GIVEN the control plane provisions a Gateway and a GRPCRoute
-- WHEN the e2e suite calls `wait_for_gateway_route`
-- THEN the driver waits until the OpenShift Route reports `Admitted`
-- AND the driver waits until the GRPCRoute parent reports `Accepted`
-- AND the driver returns success only when both conditions are true
+- GIVEN the control plane provisions a Gateway and a tenant GRPCRoute
+- WHEN the e2e suite calls `wait_for_gateway_route` with the gateway name and
+  namespace
+- THEN the driver waits until the parent Gateway reports `Programmed=True`
+- AND the driver waits until the tenant GRPCRoute parent reports `Accepted=True`
+- AND the driver does not wait for an OpenShift Route `Admitted` condition
+- AND the driver returns success only when both conditions are true, or fails after
+  `E2E_PROVISION_TIMEOUT`
+
+#### Scenario: OpenShift uses the per-gateway client token
+
+- GIVEN a gateway has its own Keycloak client with a scoped audience
+- WHEN the e2e suite acquires a token on OpenShift
+- THEN the suite uses `acquire_gateway_token_with_role` with the per-gateway client
+- AND the token carries the gateway's audience
+- AND the control plane accepts the token
+
+#### Scenario: OpenShift trusts TLS without an insecure bypass
+
+- GIVEN the shared Gateway serves the gateway TLS certificate
+- WHEN the e2e suite connects to a gateway on OpenShift
+- THEN the suite verifies the certificate through the system trust store or an
+  extracted CA
+- AND the suite does not set `OPENSHELL_GATEWAY_INSECURE`
 
 ### Requirement: E2E Script Consolidation
 
@@ -385,9 +535,12 @@ The workflow SHALL key the ephemeral environment to the pull request, so that ev
 run for one pull request uses the same environment. On the first run for a pull
 request, the workflow SHALL create the environment and deploy HyperShell. On a
 later run for the same pull request, the workflow SHALL reuse the existing
-environment and redeploy only the changed components on top of the running
-environment, so that the environment serves as a live development and debug
-environment across the life of the pull request.
+environment and redeploy with the same `make openshift-up` reconcile that the first
+run uses. The redeploy SHALL rebuild only the images that changed, and SHALL let the
+overlay reconcile bring the running environment to the new desired state, including
+pruning resources that the overlay no longer declares, so that the environment does
+not drift from the overlay and so that the environment serves as a live development
+and debug environment across the life of the pull request.
 
 The workflow SHALL keep the ephemeral environment alive after the e2e suite
 completes, whether the suite passes or fails, so that the developer can inspect the
@@ -419,8 +572,9 @@ free the environment.
 - GIVEN an ephemeral environment already exists for a pull request
 - WHEN a later push triggers the CI workflow for the same pull request
 - THEN the workflow reuses the existing environment
-- AND the workflow redeploys the changed components on top of the running
-  environment
+- AND the workflow reruns `make openshift-up` to reconcile the full overlay
+- AND the workflow rebuilds only the images that changed
+- AND the reconcile prunes resources that the overlay no longer declares
 
 #### Scenario: Environment survives after tests complete
 
@@ -441,18 +595,24 @@ free the environment.
 
 The CI workflow SHALL give the developer the access details for the ephemeral
 environment, which lives for the life of the pull request, so that the developer
-can inspect a failing test and do live work on the environment. The workflow SHALL
-surface the environment namespaces, the OpenShift console URL for the
-platform namespace, the API Route URL, the web-console Route URL, and the
-`oc login` command or kubeconfig that grants namespace-scoped access.
+can inspect a failing test and do live work on the environment. The access details
+have two parts: non-secret facts and a credential. The non-secret facts are the
+environment namespaces, the OpenShift console URL for the platform namespace, the
+API Route URL, and the web-console Route URL. The credential is a short-lived,
+namespace-scoped token or kubeconfig that grants access to the environment.
 
-The workflow SHALL deliver the access details through a pull request comment. The
-workflow SHALL keep the comment current across runs, so that the comment reflects
-the live environment for the pull request. The workflow SHALL handle credentials
-securely. The workflow SHALL NOT print a kubeconfig, a token, or a password into
-the job logs or into a public artifact. The workflow SHALL deliver credentials
-through a channel that only an authorized developer can read, such as a masked
-secret or a restricted artifact.
+The workflow SHALL deliver the non-secret facts through a pull request comment, and
+SHALL keep the comment current across runs, so that the comment reflects the live
+environment for the pull request. The comment MAY include an `oc login` command
+template, but the template SHALL show the credential as redacted, for example
+`oc login --server=<api-url> --token=<redacted>`. The comment SHALL NOT contain the
+credential itself.
+
+The workflow SHALL deliver the credential only through a channel that only an
+authorized developer can read, such as a masked secret or a restricted artifact.
+The workflow SHALL NOT print a kubeconfig, a token, or a password into a pull
+request comment, into the job logs, or into a public artifact. The credential SHALL
+be short-lived and namespace-scoped, so that a leak has a bounded blast radius.
 
 #### Scenario: Developer receives environment links in a pull request comment
 
@@ -460,23 +620,36 @@ secret or a restricted artifact.
 - WHEN the deployment is ready
 - THEN the workflow posts a pull request comment with the environment namespaces,
   the console URL, the API Route URL, and the web-console Route URL
-- AND the comment provides an `oc login` command or a kubeconfig for
-  namespace-scoped access
+- AND the comment shows any `oc login` template with the credential redacted
+- AND the workflow delivers the credential through a secure channel, not the comment
 
 #### Scenario: Credentials do not leak
 
 - GIVEN the workflow delivers environment access details
-- WHEN a reader inspects the job logs and the public artifacts
-- THEN no kubeconfig, token, or password appears in the logs or the public
+- WHEN a reader inspects the pull request comment, the job logs, and the public
   artifacts
-- AND the credentials are available only through a secure channel
+- THEN no kubeconfig, token, or password appears in the comment, the logs, or the
+  public artifacts
+- AND the credential is available only through a secure channel
 
 ### Requirement: Blessed OpenShift Overlay
 
 The `deploy/openshift/` overlay SHALL derive from `deploy/base/` and SHALL NOT
-duplicate the base resources. The overlay SHALL be validated against a production
-reference, so that the overlay a developer deploys is the same shape as the
-production deployment.
+duplicate the base resources. The production reference is the `deploy/hub/` overlay,
+which itself derives from `deploy/openshift/`. The `deploy/openshift/` overlay SHALL
+be validated against `deploy/hub/`, so that the overlay a developer deploys is the
+same shape as the production deployment.
+
+The overlay SHALL parameterize the namespace, so that a deployment into an ephemeral
+namespace does not require an overlay edit. The overlay SHALL NOT hardcode
+`hypershell-system`; the deployment SHALL set the namespace from configuration, the
+same way `make openshift-up` maps the platform namespace to `OPENSHIFT_NAMESPACE`.
+
+Only a bounded set of fields SHALL differ between `deploy/openshift/` and
+`deploy/hub/`: the namespace, the name prefix, the image references, the gateway
+base domain `GATEWAY_API_BASE_DOMAIN`, and the SSO configuration. Every other
+resource SHALL match, so that a developer environment and the production deployment
+stay the same shape.
 
 The overlay SHALL replace its placeholder values with values that a real
 environment supplies through configuration, not through code. The known
@@ -487,10 +660,11 @@ configuration, so that a deployment to a different cluster does not require an
 overlay edit. The database image SHALL be pinned to a digest (`@sha256:...`), so
 that a deployment is reproducible.
 
-A drift check SHALL compare the overlay against the production reference and SHALL
-fail when the overlay drifts from the reference in a way that the reference does
-not allow. The drift check SHALL run in CI, so that a pull request that changes the
-overlay cannot merge an unintended drift.
+A drift check SHALL compare `deploy/openshift/` against `deploy/hub/` and SHALL fail
+when the overlay drifts outside the bounded set of allowed fields (namespace, name
+prefix, image references, gateway base domain, and SSO configuration). The drift
+check SHALL run in CI, so that a pull request that changes the overlay cannot merge
+an unintended drift.
 
 #### Scenario: Base domain comes from configuration
 
@@ -508,8 +682,8 @@ overlay cannot merge an unintended drift.
 
 #### Scenario: Drift check fails on unintended drift
 
-- GIVEN a production reference for the overlay exists
-- WHEN a pull request changes the overlay in a way the reference does not allow
+- GIVEN `deploy/hub/` is the production reference for the overlay
+- WHEN a pull request changes `deploy/openshift/` outside the allowed fields
 - THEN the drift check fails in CI
 - AND the pull request cannot merge until the drift is resolved
 
@@ -525,11 +699,11 @@ under `deploy/openshift/` or the OpenShift lifecycle scripts SHALL also trigger 
 job.
 
 The job SHALL run these steps in order: gate on Konflux images; reuse or create the
-ephemeral environment for the pull request; deploy with
-`kustomize build deploy/openshift/`, redeploying only the changed components when
-the environment already exists; run `E2E_INFRA_DRIVER=openshift bash
-tests/e2e/e2e-openshell.sh`; collect diagnostics on failure; and post or update the
-pull request comment with the environment access details. The job SHALL keep the
+ephemeral environment for the pull request; deploy with `make openshift-up`, which
+reconciles the full overlay and rebuilds only the images that changed; run
+`E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh`; collect diagnostics on
+failure; and post or update the pull request comment with the environment access
+details. The job SHALL keep the
 environment alive after the run. A separate step, triggered on pull-request merge
 or close, SHALL release the environment. The CI summary gate SHALL include the
 OpenShift job result, so that the gate reflects both drivers.
@@ -564,9 +738,12 @@ lifecycle script paths to the e2e component paths.
 
 The ephemeral-namespace workflow SHALL treat the cluster infrastructure as a
 precondition that the target cluster provides. This infrastructure is the shared
-Gateway `openshell-grpc-gateway` in `openshift-ingress`, the `openshift-default`
-GatewayClass, the certificate issuer, and the wildcard certificate for the gateway
-base domain. An administrator provisions this infrastructure once per cluster, as
+Gateway, the GatewayClass, the certificate issuer, and the wildcard certificate for
+the gateway base domain. The shared Gateway name and namespace SHALL come from
+configuration -- `GATEWAY_API_GATEWAY_NAME` (default `openshell-grpc-gateway`) and
+`GATEWAY_API_GATEWAY_NAMESPACE` (default `openshift-ingress`) -- so that a deployment
+to a cluster with a different shared Gateway does not require a code change. An
+administrator provisions this infrastructure once per cluster, as
 `infrastructure/GATEWAY-SETUP.md` describes. Both local development and pull-request
 CI depend on this precondition, because an ephemeral namespace grants
 namespace-scoped access and does not grant permission to create cluster
@@ -595,35 +772,40 @@ provides this infrastructure.
 
 ### Requirement: Cluster-Scoped Resource Permissions
 
-The OpenShift overlay creates cluster-scoped resources. These are the SCC
-ClusterRoleBindings for the controller and for the sandbox, and the ClusterRole
-that lets the controller bind the privileged SCC per namespace. An ephemeral
-namespace grants namespace-scoped access, so a deployment into an ephemeral
-namespace may not be able to create these cluster-scoped resources.
+The OpenShift overlay grants SecurityContextConstraints through the built-in SCC
+ClusterRoles, not through custom SCC objects. The cluster-scoped resources are the
+ClusterRoleBinding that binds the controller service account to the built-in
+`system:openshift:scc:restricted-v2` ClusterRole, the ClusterRoleBinding that binds
+the sandbox service account to the built-in `system:openshift:scc:privileged`
+ClusterRole, and the ClusterRole plus ClusterRoleBinding that grant the controller
+`bind` on the privileged SCC so that the controller can bind it per namespace. An
+ephemeral namespace grants namespace-scoped access, so a deployment into an ephemeral
+namespace cannot create these cluster-scoped resources.
 
-The deployment SHALL have the permission to create these resources, or the
-deployment SHALL get the same end state through resources that the target cluster
-already provides. When the deployment cannot create the cluster-scoped resources,
-the target cluster SHALL pre-create them, or the overlay SHALL be adapted so that
-the controller and the sandbox get their SCC through a namespace-scoped binding that
-the ephemeral namespace permits. This spec does not choose one resolution; it
-requires that a deployment into an ephemeral namespace does not fail on a missing
-permission.
+The target cluster SHALL pre-create the cluster-scoped resources once, as part of
+the cluster infrastructure prerequisites, so that they exist before any ephemeral
+namespace deploys. Each ephemeral namespace SHALL then attach its controller and
+sandbox service accounts to the built-in SCC ClusterRoles through namespace-scoped
+RoleBindings, which namespace-scoped access permits. A deployment into an ephemeral
+namespace SHALL NOT fail on a missing cluster-scoped permission, because it creates
+only the namespace-scoped RoleBindings.
 
 #### Scenario: Ephemeral namespace has the permissions the overlay needs
 
-- GIVEN a deployment into an ephemeral namespace
-- WHEN the workflow deploys the OpenShift overlay
-- THEN the SCC bindings that the controller and the sandbox need are in place
+- GIVEN the target cluster pre-creates the cluster-scoped SCC ClusterRoleBindings
+- WHEN the workflow deploys the OpenShift overlay into an ephemeral namespace
+- THEN the deployment creates only namespace-scoped RoleBindings that attach the
+  controller and sandbox service accounts to the built-in SCC ClusterRoles
 - AND the deployment does not fail on a missing cluster-scoped permission
 
 ### Requirement: OpenShift Security Context and RBAC Parity
 
 The OpenShift deployment SHALL keep the security posture that the OpenShift overlay
-defines: a restricted SecurityContextConstraints for the controller, a privileged
-SecurityContextConstraints only for the sandbox pods, and a per-namespace
-privileged SCC binding that the controller creates at runtime. A component swap or
-an ephemeral-namespace deployment SHALL NOT relax this posture.
+defines: the controller bound to the built-in `system:openshift:scc:restricted-v2`
+ClusterRole, the built-in `system:openshift:scc:privileged` ClusterRole granted only
+to the sandbox pods, and a per-namespace privileged SCC binding that the controller
+creates at runtime. The overlay SHALL NOT define custom SCC objects. A component
+swap or an ephemeral-namespace deployment SHALL NOT relax this posture.
 
 The OpenShift deployment SHALL enforce RBAC the same way the production overlay
 does, with `RBAC_ENFORCE=true` and the control-plane service account in the RBAC

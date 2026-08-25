@@ -5,7 +5,8 @@
 **Jira:** HYPERSHELL-18
 **Related:** `local-development.spec.md` -- Kind cluster setup;
              `control-plane.spec.md` -- reconciler behavior;
-             `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning
+             `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning;
+             `openshift-development.spec.md` -- OpenShift driver, lifecycle, and CI
 
 ## Purpose
 
@@ -15,7 +16,7 @@ The existing e2e test (`components/pr-test/e2e-openshell.sh`) validates 6 areas 
 
 ### Scope
 
-This spec covers the **Kind driver** and the **Kind-based CI workflow**. The OpenShift driver implementation and its corresponding CI job that deploys to an OpenShift cluster are follow-up work. The driver interface is defined here to establish the contract, but only the Kind driver is implemented in this iteration.
+This spec covers the **Kind driver** and the **Kind-based CI workflow**, and it defines the driver interface contract that every infrastructure target implements. The **OpenShift driver**, the OpenShift lifecycle commands, and the OpenShift CI job that deploys to an ephemeral namespace are specified in `openshift-development.spec.md`, which builds on the contract defined here.
 
 ## Architecture
 
@@ -27,7 +28,7 @@ tests/e2e/e2e-openshell.sh (infra-agnostic test logic)
     └── sources driver via E2E_INFRA_DRIVER (required)
         │
         ├── tests/e2e/drivers/kind.sh         (this spec)
-        └── tests/e2e/drivers/openshift.sh    (follow-up)
+        └── tests/e2e/drivers/openshift.sh    (openshift-development.spec.md)
 ```
 
 The driver model separates test logic from infrastructure mechanics. The main test script calls a fixed set of driver functions; each driver implements those functions for its target infrastructure. Adding a new infrastructure target requires only a new driver file.
@@ -39,10 +40,10 @@ Each driver exports shell functions that abstract infrastructure-specific operat
 | Function | Purpose | Kind Implementation | OpenShift Implementation |
 |----------|---------|---------------------|--------------------------|
 | `discover_api_host` | Find the HyperShell API server URL | HTTPRoute hostname `api.hypershell.localhost` or port-forward to `svc/hypershell-api-server` | `oc get route hypershell-api -o jsonpath='{.spec.host}'` |
-| `discover_gateway_endpoint` | Find the gateway gRPC endpoint | GRPCRoute hostname `<gw-name>.gw.localhost` via Gateway status address | Route with `spec.tls.termination=passthrough` targeting `svc/openshell-gateway` |
-| `get_cluster_domain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
+| `discover_gateway_endpoint` | Find the gateway gRPC endpoint | GRPCRoute hostname `<gw-name>.gw.localhost` via Gateway status address | GRPCRoute hostname via shared Gateway `Programmed=True` (Gateway API, not a per-gateway Route) |
+| `get_cluster_domain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | Configured `GATEWAY_API_BASE_DOMAIN` (not the cluster apps domain) |
 | `get_cli_binary` | Return the Kubernetes CLI binary path | `kubectl` | `oc` |
-| `wait_for_gateway_route` | Block until the gateway is externally reachable | Check Gateway API Gateway status conditions and GRPCRoute parent status | Check OpenShift Route `.status.ingress[].conditions` for `Admitted` |
+| `wait_for_gateway_route` | Block until the gateway is externally reachable | Check Gateway API Gateway status conditions and GRPCRoute parent status | Check Gateway `Programmed=True` and GRPCRoute parent `Accepted=True` |
 
 ### CI Pipeline
 
@@ -123,12 +124,12 @@ The e2e test framework SHALL isolate infrastructure-specific logic into driver s
 - THEN the `tests/e2e/drivers/kind.sh` driver SHALL be sourced
 - AND all infrastructure functions SHALL use `kubectl` and Kind-specific discovery (HTTPRoute hostnames, Gateway API status)
 
-#### Scenario: OpenShift Driver Selected (Follow-Up)
+#### Scenario: OpenShift Driver Selected
 
 - GIVEN `E2E_INFRA_DRIVER=openshift`
 - WHEN the e2e test script starts
 - THEN the `tests/e2e/drivers/openshift.sh` driver SHALL be sourced
-- AND all infrastructure functions SHALL use `oc` and OpenShift-specific discovery (Routes, `ingresses.config.openshift.io`)
+- AND all infrastructure functions SHALL use `oc` and OpenShift-specific discovery as `openshift-development.spec.md` defines (Gateway API status and the configured gateway base domain)
 
 #### Scenario: New Driver Extensibility
 
@@ -152,7 +153,7 @@ The e2e test framework SHALL isolate infrastructure-specific logic into driver s
 
 ### Requirement: Driver Interface Contract
 
-Each driver script SHALL export the following shell functions. The main test script SHALL call only these functions for infrastructure-specific operations. A driver that does not implement all required functions SHALL cause the test script to exit with an error at startup. This spec covers the Kind driver implementations; OpenShift driver implementations are follow-up work.
+Each driver script SHALL export the following shell functions. The main test script SHALL call only these functions for infrastructure-specific operations. A driver that does not implement all required functions SHALL cause the test script to exit with an error at startup. This spec covers the Kind driver implementations; the OpenShift driver implementations are specified in `openshift-development.spec.md`.
 
 #### Scenario: API Host Discovery -- Kind
 
@@ -433,7 +434,7 @@ tests/e2e/
   lib.sh                   -- shared test utilities (pass/fail tracking, colors, retry helpers)
   drivers/
     kind.sh                -- Kind infra driver (this spec)
-    openshift.sh           -- OpenShift infra driver (follow-up)
+    openshift.sh           -- OpenShift infra driver (openshift-development.spec.md)
 deploy/
   base/
     kustomization.yaml
@@ -476,7 +477,7 @@ deploy/
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `E2E_INFRA_DRIVER` | (required) | Infra driver to use: `kind`, `openshift` (follow-up) |
+| `E2E_INFRA_DRIVER` | (required) | Infra driver to use: `kind`, `openshift` (see `openshift-development.spec.md`) |
 | `E2E_NAMESPACE` | `openshell-e2e` | Namespace for e2e test resources (gateway deployment) |
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
@@ -574,6 +575,6 @@ The CI e2e workflow SHALL verify web console distributed tracing end to end, sat
 | e2e workflow skips for irrelevant changes | SDK-only or docs-only PRs do not affect the e2e path. Skipping avoids CI time and Konflux build overhead. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, `pr_test`, and `e2e` component paths for "should we re-run e2e" decisions. Separately, Konflux image builds only trigger on changes under `components/<name>/` source paths -- the workflow checks the actual diff to distinguish e2e-relevant infrastructure changes (which use baseline images) from source changes (which require Konflux-built images) |
 | `make kind-up` accepts image overrides | Passing `IMAGE_TAG=<digest>` or per-component image variables to `make kind-up` allows CI to deploy Konflux-built images directly without a separate load step. Developers can also use this to test specific image versions locally |
 | Backward-compatible migration | The refactoring does not change `make kind-up`. `scripts/kind/up.sh` can be migrated to use `kustomize build deploy/kind/` incrementally. The spec defines the target state; the migration path is incremental |
-| OpenShift overlay and driver are follow-up | The `deploy/openshift/` overlay (Route, SCC) and the `tests/e2e/drivers/openshift.sh` driver are not part of this spec's implementation scope. The driver interface is defined here to establish the contract; the OpenShift implementation and its CI job come in a subsequent iteration |
+| OpenShift overlay and driver specified separately | The `deploy/openshift/` overlay and the `tests/e2e/drivers/openshift.sh` driver are specified in `openshift-development.spec.md`. The driver interface is defined here to establish the contract; the OpenShift implementation, its CI job, and the ephemeral-namespace lifecycle are specified there |
 | Env vars renamed with `E2E_` prefix | The existing `e2e-openshell.sh` uses `SANDBOX_TIMEOUT`, `PROVISION_TIMEOUT`, `SKIP_CLEANUP`, and `GATEWAY_NAMESPACE`. These are renamed to `E2E_SANDBOX_TIMEOUT`, `E2E_PROVISION_TIMEOUT`, `E2E_SKIP_CLEANUP`, and `E2E_NAMESPACE` to avoid namespace collisions with non-e2e configuration and make the e2e origin of these variables explicit |
 | CI uses `make kind-up`, not raw `kind create cluster` | Reuses the same cluster setup path developers use locally. Ensures the CI environment is identical to local development. Avoids a second "create a Kind cluster" implementation that could drift |
