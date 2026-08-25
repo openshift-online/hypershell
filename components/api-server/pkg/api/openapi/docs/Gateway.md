@@ -13,7 +13,7 @@ Name | Type | Description | Notes
 **FleetId** | **string** |  | 
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
-**DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored |
+**DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored | 
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 

@@ -8,7 +8,7 @@ Name | Type | Description | Notes
 **FleetId** | **string** |  | 
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
-**DatabaseId** | **string** | Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase |
+**DatabaseId** | **string** | Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase | 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
