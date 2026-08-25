@@ -205,7 +205,8 @@ print(json.dumps(body))
   dim "  Waiting for controller to provision (timeout: ${PROVISION_TIMEOUT}s)..."
   DEADLINE=$(($(date +%s) + PROVISION_TIMEOUT))
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    if "${HSCTL}" get gateway "${GW_ID}" 2>/dev/null | grep -q "Running"; then
+    GW_JSON=$(curl -sk -H "Authorization: Bearer $HS_TOKEN" "${HS_API_URL}/api/hypershell/v1/gateways/${GW_ID}")
+    if echo "$GW_JSON" | grep -q '"phase":"Running"'; then
       GW_PHASE="Running"
     else
       GW_PHASE="unknown"
