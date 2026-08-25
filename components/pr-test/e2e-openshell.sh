@@ -170,10 +170,10 @@ else
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
-    'database_id': 'e2e-db',
+    'fleet_id': '$FLEET_ID',
+    'cluster_id': '$CLUSTER_ID',
+    'release_id': '$REL_ID',
+    'database_id': '$DB_ID',
     'oidc': json.dumps({
         'issuer': os.environ['OIDC_ISSUER'],
         'audience': os.environ['OIDC_CLIENT_ID'],
