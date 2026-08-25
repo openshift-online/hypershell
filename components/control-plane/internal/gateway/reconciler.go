@@ -3,15 +3,12 @@ package gateway
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,14 +19,14 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/watch"
 )
 
 // networkPoliciesDisabledLogOnce keeps the "network policies disabled" notice to
@@ -598,15 +595,7 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 
 	termination := routeTermination()
 
-	// reencrypt requires the backend CA so the router can verify the gateway
-	// pod's self-signed server certificate. Without it the router falls back to
-	// its default trust bundle, which does not include openshell-ca, and every
-	// backend connection fails TLS verification. Fail closed: skip creating the
-	// Route until the CA is available (the reconcile is retried on the next watch
-	// event), rather than publish a broken reencrypt Route.
 	tlsConfig := map[string]interface{}{
-		// Passthrough preserves the gateway pod's own TLS + client mTLS
-		// end-to-end. No router-side certificate is involved.
 		"termination":                   "passthrough",
 		"insecureEdgeTerminationPolicy": "None",
 	}
@@ -615,9 +604,6 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 		if caData == "" {
 			return fmt.Errorf("reencrypt Route in %s requires openshell-server-tls ca.crt, which is not yet available", namespace)
 		}
-		// No certificate/key fields: the router serves its default
-		// publicly-trusted wildcard automatically. destinationCACertificate lets
-		// the router verify the re-encrypted backend connection to the gateway.
 		tlsConfig = map[string]interface{}{
 			"termination":                   "reencrypt",
 			"insecureEdgeTerminationPolicy": "Redirect",
@@ -625,29 +611,14 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 		}
 	}
 
-	// gRPC streams are long-lived; extend the router timeout well beyond the 30s
-	// default so streams are not torn down.
 	routeAnnotations := map[string]interface{}{
 		"haproxy.router.openshift.io/timeout": "3600s",
 	}
 
-	// Per-gateway public certificate for a reencrypt Route. On OpenShift the
-	// router advertises ALPN h2 on an edge/reencrypt Route only when the Route
-	// carries its own certificate; a Route riding the shared default *.apps
-	// wildcard is denied h2 (cross-route connection-coalescing protection), which
-	// breaks gRPC (grpcs://) even though reencrypt already fixes UnknownIssuer.
-	// When GATEWAY_ROUTE_TLS_ISSUER names a cert-manager ClusterIssuer, annotate
-	// the Route so the cert-manager openshift-routes controller mints a
-	// certificate from it and injects it into spec.tls.{certificate,key}.
 	if issuer := routeTLSIssuer(); termination == RouteTerminationReencrypt && issuer != "" {
 		routeAnnotations["cert-manager.io/issuer-name"] = issuer
 		routeAnnotations["cert-manager.io/issuer-kind"] = "ClusterIssuer"
 
-		// reconcileResource replaces the whole Route on every reconcile, and the
-		// spec built here intentionally omits certificate/key. openshift-routes
-		// co-owns this Route (we own termination + destinationCACertificate, it
-		// owns the edge cert), so carry forward any certificate/key it has already
-		// injected -- otherwise each reconcile strips the cert and flaps h2.
 		if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace, gatewayRouteName); cert != "" {
 			tlsConfig["certificate"] = cert
 			if key != "" {
@@ -692,7 +663,6 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 		return fmt.Errorf("reconcile Route: %w", err)
 	}
 
-	// Allow ingress from the OpenShift router namespace to the gateway ports.
 	routerNS := gatewayIngressNamespace()
 	ingressRule := map[string]interface{}{
 		"ports": []interface{}{
@@ -1126,72 +1096,6 @@ func mergeClusterRoleBindingSubjects(existing, desired *unstructured.Unstructure
 	_ = unstructured.SetNestedSlice(desired.Object, desiredSubjects, "subjects")
 }
 
-func applyConfigHashAnnotation(ctx context.Context, clientset *kubernetes.Clientset, obj *unstructured.Unstructured, namespace string) {
-	h := sha256.New()
-
-	cm, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-gateway-config", metav1.GetOptions{})
-	if err == nil {
-		keys := make([]string, 0, len(cm.Data))
-		for k := range cm.Data {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			h.Write([]byte(k))
-			h.Write([]byte(cm.Data[k]))
-		}
-	} else if !k8serrors.IsNotFound(err) {
-		log.Printf("WARN skipping config-hash annotation in %s: failed to get ConfigMap: %v", namespace, err)
-		return
-	}
-
-	for _, secretName := range []string{"openshell-server-tls", "openshell-gateway-db-credentials"} {
-		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
-		if err == nil {
-			keys := make([]string, 0, len(secret.Data))
-			for k := range secret.Data {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				h.Write([]byte(k))
-				h.Write(secret.Data[k])
-			}
-		} else if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN skipping config-hash annotation in %s: failed to get Secret %s: %v", namespace, secretName, err)
-			return
-		}
-	}
-
-	hashStr := hex.EncodeToString(h.Sum(nil))
-
-	annotations, _, _ := unstructured.NestedMap(obj.Object, "spec", "template", "metadata", "annotations")
-	if annotations == nil {
-		annotations = make(map[string]interface{})
-	}
-	annotations["hypershell.redhat.io/config-hash"] = hashStr
-	_ = unstructured.SetNestedMap(obj.Object, annotations, "spec", "template", "metadata", "annotations")
-}
-
-// applyAppliedReleaseAnnotation stamps the gateway Deployment's metadata with the
-// GatewayRelease id its pod template was rendered from, so the health loop can
-// advance observed_release_id only to the release actually applied. It is set on
-// the Deployment metadata (not the pod template) so it is a pure marker that does
-// not itself trigger a rollout; the image change that accompanies a real release
-// repoint is what rolls the workload. A direct-image gateway (empty releaseID)
-// gets no annotation. See gateway-release-rollout.spec.md.
-func applyAppliedReleaseAnnotation(obj *unstructured.Unstructured, releaseID string) {
-	if releaseID == "" {
-		return
-	}
-	annotations := obj.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[AppliedReleaseAnnotation] = releaseID
-	obj.SetAnnotations(annotations)
-}
-
 func applyOpenShiftOverrides(obj *unstructured.Unstructured) {
 	unstructured.RemoveNestedField(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
 
@@ -1310,56 +1214,6 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 		return false
 	}
 	return true
-}
-
-func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
-	volumes, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "volumes")
-	if !found {
-		return
-	}
-
-	caVolume := map[string]interface{}{
-		"name": "trusted-ca",
-		"configMap": map[string]interface{}{
-			"name": "gateway-trusted-ca",
-		},
-	}
-	volumes = append(volumes, caVolume)
-	_ = unstructured.SetNestedSlice(obj.Object, volumes, "spec", "template", "spec", "volumes")
-
-	containers, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
-	if !found {
-		return
-	}
-	for i, c := range containers {
-		container, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		name, _, _ := unstructured.NestedString(container, "name")
-		if name != "openshell-gateway" {
-			continue
-		}
-
-		volumeMounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
-		volumeMounts = append(volumeMounts, map[string]interface{}{
-			"name":      "trusted-ca",
-			"mountPath": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
-			"subPath":   "ca-bundle.crt",
-			"readOnly":  true,
-		})
-		_ = unstructured.SetNestedSlice(container, volumeMounts, "volumeMounts")
-
-		env, _, _ := unstructured.NestedSlice(container, "env")
-		env = append(env, map[string]interface{}{
-			"name":  "SSL_CERT_FILE",
-			"value": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
-		})
-		_ = unstructured.SetNestedSlice(container, env, "env")
-
-		containers[i] = container
-	}
-	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 }
 
 func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *NamespaceConfig) error {
