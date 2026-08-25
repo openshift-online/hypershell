@@ -2,11 +2,9 @@ package reconciler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"sync"
-	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
@@ -96,7 +94,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 	case watcher.EventCreated, watcher.EventUpdated:
 		for _, kcRole := range kcRoles {
 			log.Printf("INFO assigning keycloak role %s to user %s on client %s", kcRole, username, kcClientID)
-			if err := r.assignClientRoleWithRetry(ctx, kcClientID, username, kcRole); err != nil {
+			if err := r.keycloakClient.AssignClientRole(ctx, kcClientID, username, kcRole); err != nil {
 				reconcileErr = fmt.Errorf("assign keycloak role %s to user %s on client %s: %w", kcRole, username, kcClientID, err)
 				return reconcileErr
 			}
@@ -177,44 +175,4 @@ func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gat
 		return "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
 	return fmt.Sprintf("%s-%s", resp.GetGateway().GetName(), gatewayID), nil
-}
-
-// assignClientRoleWithRetry retries AssignClientRole to handle the race where
-// the RoleBinding event arrives before the Gateway reconciler has finished
-// provisioning the Keycloak client. Only ClientNotFoundError is retried;
-// permanent failures (bad user, auth error) are returned immediately.
-func (r *RoleBindingReconciler) assignClientRoleWithRetry(ctx context.Context, kcClientID, username, kcRole string) error {
-	const maxAttempts = 10
-	backoff := 2 * time.Second
-
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		lastErr = r.keycloakClient.AssignClientRole(ctx, kcClientID, username, kcRole)
-		if lastErr == nil {
-			return nil
-		}
-
-		var notFound *keycloak.ClientNotFoundError
-		if !errors.As(lastErr, &notFound) {
-			return lastErr
-		}
-
-		if attempt == maxAttempts {
-			break
-		}
-
-		log.Printf("INFO keycloak role assignment attempt %d/%d: client %s not yet provisioned (retrying in %v)",
-			attempt, maxAttempts, kcClientID, backoff)
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-		if backoff > 30*time.Second {
-			backoff = 30 * time.Second
-		}
-	}
-	return lastErr
 }

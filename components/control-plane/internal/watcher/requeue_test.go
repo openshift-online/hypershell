@@ -132,6 +132,38 @@ func TestReconcileQueue_RetriesIndefinitely(t *testing.T) {
 	waitForCount(t, h, 20)
 }
 
+func TestReconcileQueue_RetryPolicyDropsRejectedError(t *testing.T) {
+	h := &recordingHandler{failUntil: 1 << 30}
+	q := newReconcileQueue(context.Background(), "Test", h,
+		withRateLimiter[string](fastLimiter()), withWorkers[string](1),
+		withRetryIf[string](func(error) bool { return false }))
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "binding-1", Resource: "v1"})
+	waitForCount(t, h, 1)
+	time.Sleep(30 * time.Millisecond)
+	if got := h.count(); got != 1 {
+		t.Fatalf("handler called %d times, want 1", got)
+	}
+
+	q.enqueue(Event[string]{ResourceID: "binding-1", Resource: "v2"})
+	waitForCount(t, h, 2)
+}
+
+func TestReconcileQueue_StopsAtRetryLimit(t *testing.T) {
+	h := &recordingHandler{failUntil: 1 << 30}
+	q := newReconcileQueue(context.Background(), "Test", h,
+		withRateLimiter[string](fastLimiter()), withWorkers[string](1), withMaxRetries[string](2))
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "binding-1", Resource: "v1"})
+	waitForCount(t, h, 3)
+	time.Sleep(30 * time.Millisecond)
+	if got := h.count(); got != 3 {
+		t.Fatalf("handler called %d times, want 3", got)
+	}
+}
+
 // The reconciler's own phase-status writes emit watch events that re-enqueue (and
 // mark dirty) the key while it is being processed. client-go would then re-queue
 // it for immediate handling on Done, bypassing the retry backoff and spinning --
@@ -388,6 +420,28 @@ func TestReconcileQueue_SerializesPerResource(t *testing.T) {
 	if got := h.maxConcurrent(); got > 1 {
 		t.Fatalf("max concurrent reconciles for one key = %d, want 1", got)
 	}
+}
+
+func TestReconcileQueue_ProcessesDifferentResourcesInParallel(t *testing.T) {
+	h := &recordingHandler{
+		enter:   make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	q := newReconcileQueue(context.Background(), "Test", h, withWorkers[string](2))
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "binding-1", Resource: "slow"})
+	<-h.enter
+	q.enqueue(Event[string]{ResourceID: "binding-2", Resource: "ready"})
+
+	select {
+	case <-h.enter:
+	case <-time.After(time.Second):
+		t.Fatal("the second resource did not start while the first resource was blocked")
+	}
+
+	h.release <- struct{}{}
+	h.release <- struct{}{}
 }
 
 // stop must drain the workers and return, after which no further reconciles run.

@@ -24,6 +24,7 @@ dist/
 playwright-report/
 storybook-static/
 test-results/
+perf-results/
 *.tsbuildinfo
 
 # Agent Package Manager cache

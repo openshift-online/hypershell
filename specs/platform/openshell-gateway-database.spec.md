@@ -89,22 +89,20 @@ Each gateway gets its own dedicated ManagedDatabase (and thus its own PostgreSQL
 
 In both modes, the ManagedDatabase namespace is derived from the ManagedDatabase's KSUID using the same pattern as gateway namespaces: `openshell-db-<hex16>`, where `<hex16>` is the lowercase hexadecimal encoding of 8 bytes from the KSUID's random payload. The API server assigns this namespace in `BeforeCreate`. Example: `openshell-db-a1b2c3d4e5f67890`.
 
-### Automatic Fleet and Database Assignment
+### Automatic Database Assignment
 
-The API server resolves relationship fields at gateway creation time, following a resolution chain: `cluster_id` → `fleet_id` → `database_id`. The Gateway create contract requires the `database_id` property to be present, but its value is server-owned: clients send an empty string, and the API server SHALL ignore and overwrite any non-empty value rather than trusting a caller-selected relationship. Omitting the property is invalid. The server-side `database_id` placement strategy depends on `DATABASE_PROVIDER`:
+The Gateway create contract keeps `cluster_id`, `fleet_id`, and `database_id`. The API server stores `cluster_id` and `fleet_id`, but it SHALL NOT resolve, validate, or use them for database placement. The `database_id` value is server-owned. Clients send an empty string, and the API server SHALL ignore and replace any non-empty value. Omitting the property is invalid. The server-side `database_id` placement strategy depends on `DATABASE_PROVIDER`:
 
-**CNPG mode (`cnpgPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and looks up existing ManagedDatabases:
-1. If `fleet_id` is present (explicitly or resolved from `cluster_id`), query all ManagedDatabases in the fleet. If exactly one exists, auto-assign its ID. If zero or more than one exist, reject the request.
-2. If `fleet_id` is also blank, query all ManagedDatabases globally. If exactly one exists, auto-assign its ID and `fleet_id`. If zero or more than one exist, reject the request.
+**CNPG mode (`cnpgPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and queries all ManagedDatabases. If exactly one ManagedDatabase exists, the API server assigns its ID. If zero or more than one exist, the API server rejects the request. The API server does not change `fleet_id`.
 
-**Deployment mode (`deploymentPlacement`):** For every Gateway creation, the API server ignores the requested `database_id`, auto-creates a new ManagedDatabase (provider=deployment) dedicated to that gateway, and assigns its ID. No pre-existing ManagedDatabase is needed, and a caller cannot opt into sharing another gateway's deployment database.
+**Deployment mode (`deploymentPlacement`):** For every Gateway creation, the API server ignores the requested `database_id`, creates a new ManagedDatabase (provider=deployment) for that gateway, and assigns its ID. No existing ManagedDatabase or Fleet is necessary. A caller cannot select a database that another gateway uses. The API server stores the Gateway `fleet_id` on the Gateway record only. It does not copy this value to the ManagedDatabase.
 
 The admin workflows differ accordingly:
 
 | | CNPG mode | Deployment mode |
 |---|---|---|
-| Pre-requisite | Create a ManagedDatabase (provider=cnpg) in the fleet | None |
-| Gateway creation | Provide `name` (and optionally `cluster_id`); fleet and database auto-resolved | Provide `name` (and optionally `cluster_id`); ManagedDatabase auto-created |
+| Pre-requisite | Create one ManagedDatabase (provider=cnpg) | None |
+| Gateway creation | Provide `name`; database auto-resolved; `cluster_id` and `fleet_id` have no placement effect | Provide `name`; ManagedDatabase auto-created; `cluster_id` and `fleet_id` have no placement effect |
 
 In the Kind development environment, `make kind-up` seeds a single `openshell-db` ManagedDatabase in CNPG mode; no seeding is needed in deployment mode.
 
@@ -265,15 +263,14 @@ The GatewayReconciler SHALL resolve the gateway's `database_id` to a ManagedData
 - AND only after readiness SHALL it read the credentials Secret from the ManagedDatabase's namespace
 - AND copy it into the gateway's tenant namespace as `openshell-gateway-db-credentials`
 
-#### Scenario: Gateway created with cluster_id only (fleet and database auto-resolved, cnpg mode)
+#### Scenario: Gateway created with database auto-resolved (cnpg mode)
 
-- GIVEN `DATABASE_PROVIDER=cnpg` and a Gateway with a non-empty `cluster_id`, blank `fleet_id`, and blank `database_id`
+- GIVEN `DATABASE_PROVIDER=cnpg` and a Gateway with any `cluster_id`, any `fleet_id`, and blank `database_id`
 - WHEN the API server processes the creation request
-- THEN the API server SHALL look up the ManagedCluster by `cluster_id`
-- AND assign the cluster's `fleet_id` to the gateway
-- AND query all ManagedDatabases in the resolved fleet
+- THEN the API server SHALL query all ManagedDatabases without Fleet filtering
 - AND if exactly one exists, assign its ID as the gateway's `database_id`
 - AND if zero or more than one exist, reject the creation with an error
+- AND preserve the requested `cluster_id` and `fleet_id` values
 
 #### Scenario: Gateway created (deployment mode, ManagedDatabase auto-created)
 
@@ -282,6 +279,8 @@ The GatewayReconciler SHALL resolve the gateway's `database_id` to a ManagedData
 - THEN the API server SHALL ignore the property's value, including any non-empty caller-selected ID
 - AND auto-create a new ManagedDatabase (provider=deployment) for this gateway
 - AND assign the new ManagedDatabase's ID as the gateway's `database_id`
+- AND accept an empty `fleet_id`
+- AND not copy the Gateway `fleet_id` to the ManagedDatabase
 
 ---
 

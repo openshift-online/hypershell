@@ -6,9 +6,8 @@ import "fmt"
 // default (unset or empty DATABASE_PROVIDER resolves to it): the API server
 // auto-creates a dedicated deployment-backed ManagedDatabase per gateway
 // (deploymentPlacement) and needs no CNPG APIs. ProviderCNPG selects
-// CNPG-backed placement (cnpgPlacement), resolving database_id against
-// existing ManagedDatabases exactly as before -- unchanged from the prior
-// behavior of this package.
+// CNPG-backed placement (cnpgPlacement) and resolves database_id against the
+// sole existing ManagedDatabase.
 const (
 	ProviderDeployment = "deployment"
 	ProviderCNPG       = "cnpg"

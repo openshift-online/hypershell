@@ -80,14 +80,14 @@ func TestGatewayPost(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
-func TestGatewayPostAllowsEmptyDatabaseID(t *testing.T) {
+func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "local-gateway",
-		FleetId:   "test-fleet_id",
+		FleetId:   "",
 		ClusterId: "",
 		ReleaseId: "",
 	}
@@ -95,7 +95,7 @@ func TestGatewayPostAllowsEmptyDatabaseID(t *testing.T) {
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with server-side database placement: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	Expect(gatewayOutput.FleetId).To(Equal("test-fleet_id"))
+	Expect(gatewayOutput.FleetId).To(BeEmpty())
 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
 	Expect(gatewayOutput.GetDatabaseId()).NotTo(BeEmpty())

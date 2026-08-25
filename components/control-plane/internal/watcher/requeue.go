@@ -30,8 +30,8 @@ const (
 	gatewayReconcileWorkers = 4
 )
 
-// reconcileQueue serializes and durably retries reconciliations per resource,
-// replacing the fire-and-forget requeue goroutine that could race the reconciler.
+// reconcileQueue serializes reconciliations per resource. It retries all errors
+// by default. A caller can limit the count and the accepted error types.
 //
 // It is a thin wrapper over client-go's rate-limiting workqueue plus a map of the
 // latest event seen per resource. Every observed event calls enqueue, which
@@ -47,9 +47,8 @@ const (
 //   - Coalescing to latest desired state: a retry reconciles the newest observed
 //     payload, not a frozen original. A gateway un-routed after a failed
 //     provisioning attempt is therefore torn down on retry, never resurrected.
-//   - Indefinite capped-backoff recovery: AddRateLimited retries forever (bounded
-//     delay), so a transient failure recovers whenever the dependency does,
-//     without a finite budget that could expire mid-outage.
+//   - Capped-backoff recovery: the default policy retries until the handler
+//     succeeds. A caller can use a smaller policy when an error is permanent.
 //
 // The retryTransform hook lets a caller adjust the payload used *only* on retries
 // (NumRequeues > 0). Gateways use it to clear the phase the reconciler itself
@@ -63,6 +62,8 @@ type reconcileQueue[T any] struct {
 	handler        Handler[T]
 	kind           string
 	workers        int
+	maxRetries     int
+	retryIf        func(error) bool
 	retryTransform func(Event[T]) Event[T]
 	// versionOf returns a monotonically increasing version for an event's payload
 	// (for gateways, the resource's updated_at). When set, enqueue coalesces to the
@@ -147,6 +148,17 @@ func withWorkers[T any](n int) queueOption[T] {
 	return func(q *reconcileQueue[T]) { q.workers = n }
 }
 
+// withMaxRetries sets the number of retries after the first attempt. A negative
+// value keeps the default unlimited retry behavior.
+func withMaxRetries[T any](n int) queueOption[T] {
+	return func(q *reconcileQueue[T]) { q.maxRetries = n }
+}
+
+// withRetryIf limits retries to errors that the function accepts.
+func withRetryIf[T any](f func(error) bool) queueOption[T] {
+	return func(q *reconcileQueue[T]) { q.retryIf = f }
+}
+
 // withVersion enables version-aware coalescing keyed on f (see the versionOf
 // field). Used so seed/resync snapshots and live events converge on the newest
 // observed state regardless of the order they are enqueued.
@@ -160,18 +172,19 @@ func withVersion[T any](f func(Event[T]) int64) queueOption[T] {
 func newReconcileQueue[T any](baseCtx context.Context, kind string, handler Handler[T], opts ...queueOption[T]) *reconcileQueue[T] {
 	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](gatewayRequeueBaseDelay, gatewayRequeueMaxDelay)
 	q := &reconcileQueue[T]{
-		baseCtx:   baseCtx,
-		handler:   handler,
-		kind:      kind,
-		workers:   gatewayReconcileWorkers,
-		now:       time.Now,
-		limiter:   limiter,
-		queue:     workqueue.NewTypedRateLimitingQueue(limiter),
-		latest:    make(map[string]Event[T]),
-		forced:    make(map[string]bool),
-		notBefore: make(map[string]time.Time),
-		gen:       make(map[string]int64),
-		stopCh:    make(chan struct{}),
+		baseCtx:    baseCtx,
+		handler:    handler,
+		kind:       kind,
+		workers:    gatewayReconcileWorkers,
+		maxRetries: -1,
+		now:        time.Now,
+		limiter:    limiter,
+		queue:      workqueue.NewTypedRateLimitingQueue(limiter),
+		latest:     make(map[string]Event[T]),
+		forced:     make(map[string]bool),
+		notBefore:  make(map[string]time.Time),
+		gen:        make(map[string]int64),
+		stopCh:     make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(q)
@@ -397,15 +410,23 @@ func (q *reconcileQueue[T]) processNext() bool {
 	}
 
 	if err := q.handler.Handle(q.baseCtx, ev); err != nil {
+		retryAllowed := q.maxRetries < 0 || q.queue.NumRequeues(id) < q.maxRetries
+		if q.retryIf != nil && !q.retryIf(err) {
+			retryAllowed = false
+		}
+		if !retryAllowed {
+			q.queue.Forget(id)
+			q.clearBackoff(id)
+			log.Printf("ERROR %s %s reconcile failed: %v", q.kind, id, err)
+			return true
+		}
 		// When bumps the limiter and returns this attempt's capped-exponential
 		// delay; record it as the key's backoff floor and schedule the retry for
 		// then. Using AddAfter (not AddRateLimited) keeps the delay authoritative
 		// even though dirty re-adds may reach the queue sooner -- the notBefore gate
-		// above re-defers them. The retry is durable: a Handle error keeps retrying
-		// (with retryTransform) until Handle itself succeeds. Later Running/Degraded
-		// events from the independent GatewayHealthReconciler do not cancel it --
-		// they reflect Deployment/route readiness, not that the provisioning Handle
-		// recovered, so abandoning the retry on them would re-strand the gateway.
+		// above re-defers them. The default policy keeps a failed gateway in this
+		// path until it succeeds. Later Running or Degraded events do not cancel it.
+		// These events do not prove that gateway provisioning recovered.
 		delay := q.limiter.When(id)
 		q.mu.Lock()
 		q.notBefore[id] = q.now().Add(delay)
