@@ -28,7 +28,7 @@ rules:
     resources: ["gateways", "grpcroutes", "httproutes", "backendtlspolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["route.openshift.io"]
-    resources: ["routes"]
+    resources: ["routes", "routes/custom-host"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
