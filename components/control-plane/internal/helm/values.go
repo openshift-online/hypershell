@@ -245,12 +245,11 @@ func (b *ValuesBuilder) buildOpenShiftValues(values map[string]interface{}) {
 // splitImageRef splits an image reference into repository and tag.
 // If no tag is present, it defaults to "latest".
 func splitImageRef(image string) (repo, tag string) {
-	parts := strings.Split(image, ":")
-	if len(parts) == 1 {
-		return parts[0], "latest"
-	}
-	// Handle the case where the last ':' separates the tag
+	lastSlash := strings.LastIndex(image, "/")
 	lastColon := strings.LastIndex(image, ":")
+	if lastColon <= lastSlash {
+		return image, "latest"
+	}
 	return image[:lastColon], image[lastColon+1:]
 }
 
@@ -264,10 +263,12 @@ func setNestedValue(m map[string]interface{}, value interface{}, path ...string)
 	current := m
 	for i := 0; i < len(path)-1; i++ {
 		key := path[i]
-		if _, ok := current[key]; !ok {
-			current[key] = make(map[string]interface{})
+		next, ok := current[key].(map[string]interface{})
+		if !ok {
+			next = make(map[string]interface{})
+			current[key] = next
 		}
-		current = current[key].(map[string]interface{})
+		current = next
 	}
 
 	current[path[len(path)-1]] = value

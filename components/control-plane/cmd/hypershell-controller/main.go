@@ -54,7 +54,7 @@ func main() {
 
 	// Verify helm binary is available
 	helmBin := helmBinaryPath()
-	if err := helm.VerifyHelmAvailable(helmBin); err != nil {
+	if err := helm.VerifyHelmAvailable(context.Background(), helmBin); err != nil {
 		log.Fatalf("helm binary verification failed: %v", err)
 	}
 

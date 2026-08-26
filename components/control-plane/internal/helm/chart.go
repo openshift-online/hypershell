@@ -1,9 +1,11 @@
 package helm
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // VerifyChartPath verifies that the Helm chart exists at the specified path.
@@ -31,13 +33,12 @@ func VerifyChartPath(chartPath string) error {
 
 // isChartArchive checks if the file is a Helm chart archive (.tgz).
 func isChartArchive(path string) bool {
-	// Simple check: ends with .tgz or .tar.gz
-	return len(path) > 4 && (path[len(path)-4:] == ".tgz" || path[len(path)-7:] == ".tar.gz")
+	return strings.HasSuffix(path, ".tgz") || strings.HasSuffix(path, ".tar.gz")
 }
 
 // PullChart pulls a Helm chart from an OCI registry to a local path.
 // This is used for development when HELM_CHART_REGISTRY is set.
-func PullChart(registryURL, version, destinationDir string) error {
+func PullChart(ctx context.Context, helmBinary, registryURL, version, destinationDir string) error {
 	if registryURL == "" {
 		return fmt.Errorf("registry URL is required")
 	}
@@ -47,15 +48,17 @@ func PullChart(registryURL, version, destinationDir string) error {
 	if destinationDir == "" {
 		return fmt.Errorf("destination directory is required")
 	}
+	if helmBinary == "" {
+		helmBinary = "helm"
+	}
 
-	// Use helm CLI to pull the chart
 	args := []string{
 		"pull", registryURL,
 		"--version", version,
 		"--destination", destinationDir,
 	}
 
-	cmd := exec.Command("helm", args...)
+	cmd := exec.CommandContext(ctx, helmBinary, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("helm pull %s:%s: %w\nOutput: %s", registryURL, version, err, output)

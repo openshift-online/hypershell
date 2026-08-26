@@ -1263,7 +1263,7 @@ func NewGatewayReconciler(
 	// Derive ingress base domain from environment
 	ingressBaseDomain := os.Getenv("INGRESS_BASE_DOMAIN")
 	if ingressBaseDomain == "" {
-		ingressBaseDomain = "apps.example.com"
+		ingressBaseDomain = "gateway.cluster.local"
 		log.Printf("WARN INGRESS_BASE_DOMAIN not set, using default: %s", ingressBaseDomain)
 	}
 
@@ -1411,7 +1411,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var resolveErr error
 		dbConfig, resolveErr = r.resolveDatabaseConfig(ctx, gw)
 		if resolveErr != nil {
-			log.Printf("INFO gateway %s: skipping database reconciliation: %v", event.ResourceID, resolveErr)
+			log.Printf("WARN gateway %s: skipping database reconciliation: %v", event.ResourceID, resolveErr)
 		}
 	} else {
 		log.Printf("INFO gateway %s has no database_id; skipping database reconciliation (existing database resources left untouched)", event.ResourceID)
