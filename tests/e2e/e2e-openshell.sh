@@ -11,9 +11,11 @@
 #
 # Usage:
 #   E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh
+#   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift \
+#     bash tests/e2e/e2e-openshell.sh
 #
 # Environment variables:
-#   E2E_INFRA_DRIVER      (required) Infra driver: kind, openshift (follow-up)
+#   E2E_INFRA_DRIVER      (required) Infra driver: kind or openshift
 #   E2E_NAMESPACE          Namespace for e2e resources (default: openshell-e2e)
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw)
 #   E2E_MODE               Run depth: long (default, every step) or short (essential steps)
@@ -170,8 +172,8 @@ fi
 
 if e2e_step long; then
 # Verify: unauthenticated API requests return 401
-show_cmd "curl -sk -o /dev/null -w '%{http_code}' ${API_HOST}/api/hypershell/v1/gateways (no auth)"
-UNAUTH_STATUS=$(curl -sk -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
+show_cmd "curl -s -o /dev/null -w '%{http_code}' ${API_HOST}/api/hypershell/v1/gateways (driver TLS policy, no auth)"
+UNAUTH_STATUS=$(_driver_curl -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
 if [[ "$UNAUTH_STATUS" == "401" ]]; then
   pass "API server rejects unauthenticated requests (401)"
 else
@@ -179,7 +181,7 @@ else
 fi
 
 # Verify: authenticated API requests return 200
-show_cmd "curl -sk -H 'Authorization: Bearer ...' ${API_HOST}/api/hypershell/v1/gateways"
+show_cmd "curl -s -H 'Authorization: Bearer ...' ${API_HOST}/api/hypershell/v1/gateways (driver TLS policy)"
 AUTH_STATUS=$(api_curl -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
 if [[ "$AUTH_STATUS" == "200" ]]; then
   pass "API server accepts authenticated requests (200)"
@@ -189,8 +191,8 @@ fi
 
 # Verify: BFF /auth/session returns unauthenticated
 CONSOLE_HOST="${API_HOST/api./console.}"
-show_cmd "curl -sk ${CONSOLE_HOST}/auth/session"
-SESSION_RESP=$(curl -sk "${CONSOLE_HOST}/auth/session" 2>/dev/null || true)
+show_cmd "curl -s ${CONSOLE_HOST}/auth/session (driver TLS policy)"
+SESSION_RESP=$(_driver_curl "${CONSOLE_HOST}/auth/session" 2>/dev/null || true)
 SESSION_AUTH=$(echo "${SESSION_RESP}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('authenticated',''))" 2>/dev/null || true)
 if [[ "$SESSION_AUTH" == "False" ]]; then
   pass "BFF /auth/session returns authenticated: false"
@@ -199,8 +201,8 @@ else
 fi
 
 # Verify: BFF /auth/login redirects to Keycloak with PKCE
-show_cmd "curl -sk -o /dev/null -w '%{redirect_url}' ${CONSOLE_HOST}/auth/login"
-LOGIN_REDIRECT=$(curl -sk -o /dev/null -w '%{redirect_url}' "${CONSOLE_HOST}/auth/login" 2>/dev/null || true)
+show_cmd "curl -s -o /dev/null -w '%{redirect_url}' ${CONSOLE_HOST}/auth/login (driver TLS policy)"
+LOGIN_REDIRECT=$(_driver_curl -o /dev/null -w '%{redirect_url}' "${CONSOLE_HOST}/auth/login" 2>/dev/null || true)
 if echo "${LOGIN_REDIRECT}" | grep -q 'code_challenge_method=S256'; then
   pass "BFF /auth/login redirects to IdP with PKCE"
 else
@@ -728,7 +730,7 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   # provisioned by the control plane. A successful authorization response proves
   # that oauth2.device.authorization.grant.enabled reached Keycloak; polling once
   # after the advertised interval proves that Keycloak recognizes the device code.
-  DEVICE_DISCOVERY=$(curl -sk "${E2E_OIDC_ISSUER}/.well-known/openid-configuration" 2>/dev/null || true)
+  DEVICE_DISCOVERY=$(_driver_curl "${E2E_OIDC_ISSUER}/.well-known/openid-configuration" 2>/dev/null || true)
   DEVICE_AUTH_ENDPOINT=$(echo "$DEVICE_DISCOVERY" | python3 -c "import json,sys; print(json.load(sys.stdin).get('device_authorization_endpoint',''))" 2>/dev/null || true)
   if [[ -z "$DEVICE_AUTH_ENDPOINT" ]]; then
     fail_test "OIDC discovery did not advertise a device authorization endpoint"
@@ -741,7 +743,7 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   DEVICE_CODE_CHALLENGE=$(DEVICE_CODE_VERIFIER="$DEVICE_CODE_VERIFIER" python3 -c "import base64,hashlib,os; print(base64.urlsafe_b64encode(hashlib.sha256(os.environ['DEVICE_CODE_VERIFIER'].encode()).digest()).rstrip(b'=').decode())")
 
   show_cmd "# OAuth 2.0 Device Authorization Grant with PKCE S256 → ${DEVICE_AUTH_ENDPOINT} (client: ${GW_KC_CLIENT_ID})"
-  DEVICE_AUTH_RESPONSE=$(curl -sk -X POST "$DEVICE_AUTH_ENDPOINT" \
+  DEVICE_AUTH_RESPONSE=$(_driver_curl -X POST "$DEVICE_AUTH_ENDPOINT" \
     --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
     --data-urlencode "scope=openid" \
     --data-urlencode "code_challenge=${DEVICE_CODE_CHALLENGE}" \
@@ -763,7 +765,7 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   fi
   sleep "$DEVICE_INTERVAL"
 
-  DEVICE_TOKEN_RESPONSE=$(curl -sk -X POST "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
+  DEVICE_TOKEN_RESPONSE=$(_driver_curl -X POST "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
     --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
     --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
     --data-urlencode "device_code=${DEVICE_CODE}" \
@@ -799,15 +801,19 @@ else
 fi
 
 
-show_cmd "$CLI get secret hypershell-ca-secret -n $E2E_HS_NAMESPACE -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/e2e-hypershell-ca.crt"
-$CLI get secret hypershell-ca-secret -n "$E2E_HS_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > /tmp/e2e-hypershell-ca.crt
-if [[ -s /tmp/e2e-hypershell-ca.crt ]]; then
-  export SSL_CERT_FILE=/tmp/e2e-hypershell-ca.crt
-  pass "CA certificate extracted and SSL_CERT_FILE set"
-  dim "    CA: /tmp/e2e-hypershell-ca.crt"
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
+  show_cmd "$CLI get secret hypershell-ca-secret -n $E2E_HS_NAMESPACE -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/e2e-hypershell-ca.crt"
+  $CLI get secret hypershell-ca-secret -n "$E2E_HS_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > /tmp/e2e-hypershell-ca.crt
+  if [[ -s /tmp/e2e-hypershell-ca.crt ]]; then
+    export SSL_CERT_FILE=/tmp/e2e-hypershell-ca.crt
+    pass "CA certificate extracted and SSL_CERT_FILE set"
+    dim "    CA: /tmp/e2e-hypershell-ca.crt"
+  else
+    fail_test "Failed to extract CA certificate"
+    exit 1
+  fi
 else
-  fail_test "Failed to extract CA certificate"
-  exit 1
+  pass "Gateway TLS trust configured by the OpenShift driver"
 fi
 sep
 
@@ -1393,7 +1399,7 @@ print(json.dumps(body))
   dim "  Expecting 403 Forbidden (developer lacks gateway:creator)..."
 
   DEV_GW_RESP_FILE=$(mktemp)
-  DEV_GW_STATUS=$(curl -sk -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
+  DEV_GW_STATUS=$(_driver_curl -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
     -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Authorization: Bearer ${DEV_TOKEN}" \
     -H "Content-Type: application/json" \
@@ -1408,7 +1414,7 @@ print(json.dumps(body))
     # developer to avoid leaking test state.
     DEV_BAD_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
     if [[ -n "$DEV_BAD_GW_ID" ]]; then
-      curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_BAD_GW_ID}" \
+      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_BAD_GW_ID}" \
         -H "Authorization: Bearer ${DEV_TOKEN}" &>/dev/null || true
     fi
   else
@@ -1461,7 +1467,7 @@ if [[ -n "$PADMIN_TOKEN" ]]; then
   dim "  Expecting 200 OK (platform:admin can view all gateways)..."
 
   PADMIN_LIST_FILE=$(mktemp)
-  PADMIN_LIST_STATUS=$(curl -sk -o "${PADMIN_LIST_FILE}" -w '%{http_code}' \
+  PADMIN_LIST_STATUS=$(_driver_curl -o "${PADMIN_LIST_FILE}" -w '%{http_code}' \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" \
     "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
   PADMIN_LIST_RESP=$(cat "${PADMIN_LIST_FILE}" 2>/dev/null || true)
@@ -1484,7 +1490,7 @@ if [[ -n "$PADMIN_TOKEN" ]]; then
   # Before deleting, verify platform admin is NOT the owner by checking role bindings
   show_cmd "# verify platform admin has NO owner binding on ${GW_NAME}"
   PADMIN_BINDINGS_FILE=$(mktemp)
-  PADMIN_BINDINGS_STATUS=$(curl -sk -o "${PADMIN_BINDINGS_FILE}" -w '%{http_code}' \
+  PADMIN_BINDINGS_STATUS=$(_driver_curl -o "${PADMIN_BINDINGS_FILE}" -w '%{http_code}' \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" \
     "${API_HOST}/api/hypershell/v1/role_bindings?gateway_id=${GW_ID}" 2>/dev/null || true)
 
@@ -1506,7 +1512,7 @@ print('true' if has_owner else 'false')
 
   # Now attempt delete as platform admin
   PADMIN_DELETE_FILE=$(mktemp)
-  PADMIN_DELETE_STATUS=$(curl -sk -o "${PADMIN_DELETE_FILE}" -w '%{http_code}' \
+  PADMIN_DELETE_STATUS=$(_driver_curl -o "${PADMIN_DELETE_FILE}" -w '%{http_code}' \
     -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" 2>/dev/null || true)
   PADMIN_DELETE_RESP=$(cat "${PADMIN_DELETE_FILE}" 2>/dev/null || true)
@@ -1546,7 +1552,7 @@ print(json.dumps(body))
   dim "  Expecting 403 Forbidden (platform:admin lacks gateway:creator)..."
 
   PADMIN_CREATE_FILE=$(mktemp)
-  PADMIN_CREATE_STATUS=$(curl -sk -o "${PADMIN_CREATE_FILE}" -w '%{http_code}' \
+  PADMIN_CREATE_STATUS=$(_driver_curl -o "${PADMIN_CREATE_FILE}" -w '%{http_code}' \
     -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
@@ -1560,7 +1566,7 @@ print(json.dumps(body))
     # Clean up wrongly created gateway
     PADMIN_BAD_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
     if [[ -n "$PADMIN_BAD_GW_ID" ]]; then
-      curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_BAD_GW_ID}" \
+      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_BAD_GW_ID}" \
         -H "Authorization: Bearer ${PADMIN_TOKEN}" &>/dev/null || true
     fi
   else

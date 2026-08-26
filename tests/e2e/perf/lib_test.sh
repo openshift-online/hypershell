@@ -124,6 +124,8 @@ fi
 # --- Bounded concurrency ---
 
 PERF_BG_PIDS=()
+PROGRESS_TICKS=0
+perf_progress_tick() { PROGRESS_TICKS=$((PROGRESS_TICKS + 1)); }
 active_file="${tmp}/active"
 max_file="${tmp}/max"
 lock_dir="${tmp}/lock"
@@ -152,6 +154,58 @@ if [[ "$max_seen" -le 2 && "$max_seen" -ge 1 ]]; then
   pass_u "bounded concurrency never exceeded 2 (saw ${max_seen})"
 else
   fail_u "bounded concurrency max=${max_seen}, expected <=2"
+fi
+if [[ "$PROGRESS_TICKS" -gt 0 ]]; then
+  pass_u "bounded concurrency invokes progress heartbeats"
+else
+  fail_u "bounded concurrency should invoke progress heartbeats while waiting"
+fi
+unset -f perf_progress_tick
+
+# --- Interrupted worker cleanup ---
+
+PERF_BG_PIDS=()
+perf_bg 2 sleep 30
+cancel_pid="${PERF_BG_PIDS[0]}"
+perf_cancel_all
+if ! kill -0 "$cancel_pid" 2>/dev/null && [[ ${#PERF_BG_PIDS[@]} -eq 0 ]]; then
+  pass_u "worker cancellation stops and reaps active jobs"
+else
+  fail_u "worker cancellation left an active job or tracked PID"
+fi
+
+REAP_ARGS=""
+fake_reap_cli() { REAP_ARGS="$*"; }
+perf_reap_namespace fake_reap_cli openshell-test-run
+if [[ "$REAP_ARGS" == "delete namespace openshell-test-run --ignore-not-found --wait=false" ]]; then
+  pass_u "performance cleanup directly reaps tracked namespaces"
+else
+  fail_u "namespace reap command unexpected: ${REAP_ARGS}"
+fi
+unset -f fake_reap_cli
+
+signal_cleanup="${tmp}/signal-cleanup"
+signal_continued="${tmp}/signal-continued"
+set +e
+PERF_TEST_LIB="${SCRIPT_DIR}/../lib.sh" PERF_PERF_LIB="${SCRIPT_DIR}/lib.sh" \
+  PERF_SIGNAL_CLEANUP="$signal_cleanup" PERF_SIGNAL_CONTINUED="$signal_continued" \
+  bash -c '
+    source "$PERF_TEST_LIB"
+    source "$PERF_PERF_LIB"
+    trap '\''printf cleanup > "$PERF_SIGNAL_CLEANUP"'\'' EXIT
+    perf_install_signal_traps
+    sleep 30 & sleeper=$!
+    (sleep 0.1; kill -INT $$ "$sleeper" 2>/dev/null || true) &
+    set +e
+    wait "$sleeper"
+    printf continued > "$PERF_SIGNAL_CONTINUED"
+  ' >/dev/null 2>&1
+signal_rc=$?
+set -e
+if [[ "$signal_rc" -eq 130 && -f "$signal_cleanup" && ! -f "$signal_continued" ]]; then
+  pass_u "SIGINT exits through cleanup even while errexit is disabled"
+else
+  fail_u "SIGINT was swallowed (rc=${signal_rc}, cleanup=$([[ -f "$signal_cleanup" ]] && echo yes || echo no), continued=$([[ -f "$signal_continued" ]] && echo yes || echo no))"
 fi
 
 # --- Driver-not-set message (harness + suite share e2e_die_unknown_driver) ---

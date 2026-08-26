@@ -9,6 +9,12 @@
 # operations start background processes (e.g. a gateway port-forward) that must
 # survive in the parent shell, which a $() subshell would orphan and kill.
 
+# Kind uses locally issued certificates. Other drivers may override this seam
+# while reusing the production OIDC and role-assignment behavior below.
+_driver_curl() {
+  curl -sk "$@"
+}
+
 # discover_api_host - find the HyperShell API server base URL.
 # Sets _DISCOVER_API_HOST to the gateway HTTPS route for the API server. There
 # is no HTTP/port-forward fallback: the HTTPS HTTPRoute is the only supported
@@ -26,7 +32,7 @@ discover_api_host() {
 
   local url="https://${host}"
   local code
-  code=$(curl -sk --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+  code=$(_driver_curl --connect-timeout 5 -o /dev/null -w '%{http_code}' \
     "${url}/api/hypershell/v1/gateways" 2>/dev/null || true)
   # Any HTTP response (401 unauthenticated, 200, 404, ...) proves the route
   # reaches the API server. "000" means the connection never completed -- route
@@ -87,7 +93,7 @@ discover_gateway_endpoint() {
 # audience mapper, and the gateway's Envoy validates aud == that client. A token
 # from the shared frontend client is rejected with InvalidAudience, so gateway and
 # CLI calls must mint tokens against the per-gateway client.
-acquire_oidc_token() {
+_driver_acquire_oidc_token() {
   _OIDC_ACCESS_TOKEN=""
   local username="${1:-${E2E_OIDC_USERNAME}}"
   local password="${2:-${E2E_OIDC_PASSWORD}}"
@@ -95,7 +101,7 @@ acquire_oidc_token() {
 
   local token_endpoint="${E2E_OIDC_ISSUER}/protocol/openid-connect/token"
   local response
-  response=$(curl -sk -X POST "${token_endpoint}" \
+  response=$(_driver_curl -X POST "${token_endpoint}" \
     -d "grant_type=password" \
     -d "client_id=${client_id}" \
     -d "username=${username}" \
@@ -110,6 +116,10 @@ acquire_oidc_token() {
   fi
 }
 
+acquire_oidc_token() {
+  _driver_acquire_oidc_token "$@"
+}
+
 # _kc_base / _kc_realm - derive the Keycloak base URL and realm from the issuer.
 # E2E_OIDC_ISSUER is "<base>/realms/<realm>".
 _kc_base() { echo "${E2E_OIDC_ISSUER%/realms/*}"; }
@@ -122,7 +132,7 @@ _kc_admin_token() {
   _KC_ADMIN_TOKEN=""
   local base response
   base="$(_kc_base)"
-  response=$(curl -sk -X POST "${base}/realms/master/protocol/openid-connect/token" \
+  response=$(_driver_curl -X POST "${base}/realms/master/protocol/openid-connect/token" \
     -d "grant_type=password" \
     -d "client_id=admin-cli" \
     -d "username=${E2E_KC_ADMIN_USER}" \
@@ -156,7 +166,7 @@ assign_gateway_client_role() {
   fi
 
   local client_uuid user_uuid role_json
-  client_uuid=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  client_uuid=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/clients?clientId=${client_id}" 2>/dev/null \
     | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
   if [[ -z "$client_uuid" ]]; then
@@ -164,7 +174,7 @@ assign_gateway_client_role() {
     return 1
   fi
 
-  user_uuid=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  user_uuid=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/users?username=${username}&exact=true" 2>/dev/null \
     | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
   if [[ -z "$user_uuid" ]]; then
@@ -172,7 +182,7 @@ assign_gateway_client_role() {
     return 1
   fi
 
-  role_json=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  role_json=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/clients/${client_uuid}/roles/${role}" 2>/dev/null || true)
   local role_id role_name
   role_id=$(echo "$role_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
@@ -183,7 +193,7 @@ assign_gateway_client_role() {
   fi
 
   local code
-  code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST \
+  code=$(_driver_curl -o /dev/null -w '%{http_code}' -X POST \
     -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     "${base}/admin/realms/${realm}/users/${user_uuid}/role-mappings/clients/${client_uuid}" \
@@ -214,7 +224,7 @@ assign_realm_role() {
   fi
 
   local user_uuid role_json
-  user_uuid=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  user_uuid=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/users?username=${username}&exact=true" 2>/dev/null \
     | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
   if [[ -z "$user_uuid" ]]; then
@@ -222,7 +232,7 @@ assign_realm_role() {
     return 1
   fi
 
-  role_json=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  role_json=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/roles/${role}" 2>/dev/null || true)
   local role_id role_name
   role_id=$(echo "$role_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
@@ -233,7 +243,7 @@ assign_realm_role() {
   fi
 
   local code
-  code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST \
+  code=$(_driver_curl -o /dev/null -w '%{http_code}' -X POST \
     -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     "${base}/admin/realms/${realm}/users/${user_uuid}/role-mappings/realm" \
@@ -306,7 +316,7 @@ acquire_gateway_token_with_role() {
 # (-s silent, -k insecure for the gateway's self-signed cert) and forwards any
 # additional arguments to curl.
 api_curl() {
-  curl -sk -H "Authorization: Bearer ${_OIDC_ACCESS_TOKEN}" "$@"
+  _driver_curl -H "Authorization: Bearer ${_OIDC_ACCESS_TOKEN}" "$@"
 }
 
 # get_cluster_domain - return the base domain for gateway DNS names.

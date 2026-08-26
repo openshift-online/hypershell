@@ -136,6 +136,18 @@ perf_percentiles_json() {
 
 PERF_BG_PIDS=()
 
+perf_interrupt() {
+  local signal="${1:?signal required}" code="${2:?exit code required}"
+  echo ""
+  dim "  Received ${signal}; stopping the run and starting teardown..."
+  exit "$code"
+}
+
+perf_install_signal_traps() {
+  trap 'perf_interrupt INT 130' INT
+  trap 'perf_interrupt TERM 143' TERM
+}
+
 perf_wait_for_slot() {
   local limit="${1:?concurrency required}"
   while true; do
@@ -153,6 +165,9 @@ perf_wait_for_slot() {
     if (( alive < limit )); then
       return 0
     fi
+    if declare -f perf_progress_tick >/dev/null 2>&1; then
+      perf_progress_tick
+    fi
     sleep 0.2
   done
 }
@@ -166,11 +181,46 @@ perf_bg() {
 }
 
 perf_wait_all() {
+  while ((${#PERF_BG_PIDS[@]} > 0)); do
+    local pid alive=0
+    local new_pids=()
+    for pid in "${PERF_BG_PIDS[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        new_pids+=("$pid")
+        alive=$((alive + 1))
+      else
+        wait "$pid" 2>/dev/null || true
+      fi
+    done
+    PERF_BG_PIDS=("${new_pids[@]+"${new_pids[@]}"}")
+    if declare -f perf_progress_tick >/dev/null 2>&1; then
+      perf_progress_tick
+    fi
+    if ((alive > 0)); then
+      sleep 0.2
+    fi
+  done
+}
+
+# Stop active provisioning/deletion workers before teardown starts. This is
+# idempotent and intentionally best-effort: EXIT cleanup must continue even if
+# a worker has already exited between the liveness check and kill.
+perf_cancel_all() {
   local pid
+  for pid in "${PERF_BG_PIDS[@]+"${PERF_BG_PIDS[@]}"}"; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
   for pid in "${PERF_BG_PIDS[@]+"${PERF_BG_PIDS[@]}"}"; do
     wait "$pid" 2>/dev/null || true
   done
   PERF_BG_PIDS=()
+}
+
+# Reap a namespace owned by the performance run without waiting for Kubernetes
+# finalizers. The caller performs a bounded, concurrent completion wait.
+perf_reap_namespace() {
+  local cli="${1:?CLI required}" namespace="${2:?namespace required}"
+  "$cli" delete namespace "$namespace" --ignore-not-found --wait=false >/dev/null
 }
 
 # --- Results JSON (bash state -> file; never parse-merge) ---
@@ -543,8 +593,10 @@ perf_provision_one() {
   start_ms=$(perf_now_ms)
   create_s="null"
   running_s="null"
+  printf '%s\t%s\n' "$name" "authenticating" > "${record}.state"
 
   acquire_oidc_token 2>/dev/null || true
+  printf '%s\t%s\n' "$name" "checking" > "${record}.state"
   e2e_lookup_gateway_by_name "$name"
   if [[ -n "${_GW_ID}" ]]; then
     id="${_GW_ID}"
@@ -555,6 +607,7 @@ perf_provision_one() {
       running_s=$(perf_elapsed_s "$start_ms")
       status="ok"
     else
+      printf '%s\t%s\t%s\t%s\n' "$name" "waiting:${phase:-unknown}" "$id" "$ns" > "${record}.state"
       if phase=$(e2e_wait_gateway_running "$id" "${E2E_PERF_PROVISION_TIMEOUT:-600}"); then
         running_s=$(perf_elapsed_s "$start_ms")
         status="ok"
@@ -568,6 +621,7 @@ perf_provision_one() {
   fi
 
   local body resp post_start
+  printf '%s\t%s\n' "$name" "creating" > "${record}.state"
   body=$(e2e_gateway_create_body "$name")
   post_start=$(perf_now_ms)
   resp=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
@@ -581,6 +635,7 @@ perf_provision_one() {
   fi
   id="$_CREATE_ID"
   ns="$_CREATE_NAMESPACE"
+  printf '%s\t%s\t%s\t%s\n' "$name" "waiting:Provisioning" "$id" "$ns" > "${record}.state"
   if phase=$(e2e_wait_gateway_running "$id" "${E2E_PERF_PROVISION_TIMEOUT:-600}"); then
     running_s=$(perf_elapsed_s "$start_ms")
     status="ok"
@@ -594,12 +649,35 @@ perf_provision_one() {
 perf_delete_gateway_by_name() {
   local name="${1:?gateway name required}"
   local out="${2:?out path required}"
-  acquire_oidc_token 2>/dev/null || true
-  e2e_lookup_gateway_by_name "$name"
-  if [[ -z "${_GW_ID}" ]]; then
-    echo "missing" > "$out"
-    return 0
+  : > "$out"
+  if ! acquire_oidc_token 2>/dev/null; then
+    printf 'error\t\t\t%s\tauth\n' "$name" >> "$out"
+    return 1
   fi
-  api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${_GW_ID}" &>/dev/null || true
-  printf '%s\t%s\t%s\n' "${_GW_ID}" "${_GW_NAMESPACE}" "$name" > "$out"
+
+  # A prior interrupted/retried run may have created duplicate names. Repeat
+  # exact lookup + deletion until none remain, with a defensive upper bound.
+  local deleted=0 attempt code
+  for ((attempt = 1; attempt <= 20; attempt++)); do
+    e2e_lookup_gateway_by_name "$name"
+    if [[ -z "${_GW_ID}" ]]; then
+      if ((deleted == 0)); then
+        printf 'missing\t\t\t%s\t\n' "$name" >> "$out"
+      fi
+      return 0
+    fi
+    code=$(api_curl -o /dev/null -w '%{http_code}' -X DELETE \
+      "${API_HOST}/api/hypershell/v1/gateways/${_GW_ID}" 2>/dev/null || true)
+    if [[ "$code" != "200" && "$code" != "202" && "$code" != "204" ]]; then
+      printf 'error\t%s\t%s\t%s\thttp-%s\n' \
+        "${_GW_ID}" "${_GW_NAMESPACE}" "$name" "${code:-no-response}" >> "$out"
+      return 1
+    fi
+    printf 'deleted\t%s\t%s\t%s\t\n' \
+      "${_GW_ID}" "${_GW_NAMESPACE}" "$name" >> "$out"
+    deleted=$((deleted + 1))
+    sleep 1
+  done
+  printf 'error\t\t\t%s\tduplicate-limit\n' "$name" >> "$out"
+  return 1
 }

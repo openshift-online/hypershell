@@ -9,7 +9,7 @@
 # Usage:
 #   E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-performance.sh
 #   make e2e-performance
-#   E2E_INFRA_DRIVER=openshift make e2e-performance
+#   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift make e2e-performance
 #
 # See specs/platform/e2e-testing.spec.md "Performance Testing".
 set -euo pipefail
@@ -29,6 +29,7 @@ source "${SCRIPT_DIR}/perf/lib.sh"
 : "${E2E_PERF_CHECKPOINT:=1}"
 : "${E2E_PERF_STOP_ON_CHECKPOINT_FAILURE:=1}"
 : "${E2E_PERF_CONCURRENCY:=4}"
+: "${E2E_PERF_PROGRESS_INTERVAL:=10}"
 : "${E2E_PERF_GATEWAY_PREFIX:=perf-gw}"
 : "${E2E_PERF_PROVISION_TIMEOUT:=600}"
 : "${E2E_PERF_RUN_FUNCTIONAL:=1}"
@@ -118,6 +119,37 @@ perf_track() {
 perf_cleanup() {
   local exit_code=$?
   trap - EXIT
+  # Do not let a second terminal signal interrupt cleanup halfway through and
+  # strand live Gateway records. Worker cancellation happens before temp state
+  # is removed so no process can recreate a record beneath us.
+  trap '' INT TERM
+  perf_cancel_all
+
+  # Harvest namespace ownership before removing worker state. Completed batch
+  # records, in-flight state, and the parent tracker cover every point after a
+  # Gateway create response has supplied its namespace.
+  local namespaces=() namespace_names=()
+  local i f state_name state_stage state_id state_ns
+  for ((i = 0; i < ${#PERF_TRACKED_NS[@]}; i++)); do
+    [[ -z "${PERF_TRACKED_NS[$i]}" ]] && continue
+    namespaces+=("${PERF_TRACKED_NS[$i]}")
+    namespace_names+=("${PERF_TRACKED_NAMES[$i]}")
+  done
+  for f in "${PERF_RECORD_DIR}"/*.state; do
+    [[ -f "$f" ]] || continue
+    IFS=$'\t' read -r state_name state_stage state_id state_ns < "$f" || true
+    [[ -z "${state_ns:-}" ]] && continue
+    namespaces+=("$state_ns")
+    namespace_names+=("$state_name")
+  done
+  local record_status record_create record_running record_id record_ns record_name
+  for f in "${PERF_RECORD_DIR}"/*; do
+    [[ -f "$f" && "$f" != *.state ]] || continue
+    IFS=$'\t' read -r record_status record_create record_running record_id record_ns record_name < "$f" || true
+    [[ -z "${record_ns:-}" ]] && continue
+    namespaces+=("$record_ns")
+    namespace_names+=("$record_name")
+  done
   rm -rf "${PERF_RECORD_DIR}"
   if [[ "${E2E_SKIP_CLEANUP}" == "1" ]]; then
     dim "  E2E_SKIP_CLEANUP=1: keeping perf fleet for inspection"
@@ -126,10 +158,9 @@ perf_cleanup() {
   echo ""
   bold "Teardown"
   sep
-  acquire_oidc_token 2>/dev/null || true
+  dim "  Deleting performance gateways through the HyperShell API..."
   local name
   local to_delete=()
-  local i
   for ((i = 1; i <= E2E_PERF_GATEWAY_COUNT; i++)); do
     to_delete+=("${E2E_PERF_GATEWAY_PREFIX}-${i}")
   done
@@ -154,36 +185,98 @@ perf_cleanup() {
   done
   perf_wait_all
 
-  dim "  Waiting for managed namespaces to be garbage collected..."
-  local leftover=0
-  local f id ns
+  local delete_errors=0 deleted=0
+  local result id ns detail
   for f in "${del_dir}"/*; do
     [[ -f "$f" ]] || continue
-    IFS=$'\t' read -r id ns name <<< "$(cat "$f")"
-    [[ "$id" == "missing" || -z "${ns:-}" ]] && continue
-    local deadline=$(($(date +%s) + E2E_GC_TIMEOUT))
-    local gone=false
-    while [[ $(date +%s) -lt $deadline ]]; do
-      if ! "$CLI" get namespace "$ns" &>/dev/null; then
-        gone=true
+    while IFS=$'\t' read -r result id ns name detail; do
+      case "$result" in
+        deleted)
+          deleted=$((deleted + 1))
+          namespaces+=("$ns")
+          namespace_names+=("$name")
+          dim "    delete accepted: ${name} (${id})"
+          ;;
+        error)
+          delete_errors=$((delete_errors + 1))
+          red "    delete failed: ${name} (${detail})"
+          if [[ -n "${ns:-}" ]]; then
+            namespaces+=("$ns")
+            namespace_names+=("$name")
+          fi
+          ;;
+      esac
+    done < "$f"
+  done
+
+  if ((delete_errors > 0)); then
+    red "  ${delete_errors} gateway deletion(s) failed; direct namespace reap will proceed, but live API records may recreate them"
+  fi
+
+  local unique_namespaces=() unique_namespace_names=() candidate existing seen
+  for ((i = 0; i < ${#namespaces[@]}; i++)); do
+    candidate="${namespaces[$i]}"
+    [[ -z "$candidate" ]] && continue
+    seen=false
+    for existing in "${unique_namespaces[@]+"${unique_namespaces[@]}"}"; do
+      if [[ "$existing" == "$candidate" ]]; then
+        seen=true
         break
       fi
-      sleep 5
     done
-    if [[ "$gone" == "true" ]]; then
-      dim "    ${name}: namespace ${ns} gone"
-    else
-      leftover=$((leftover + 1))
-      dim "    ${name}: namespace ${ns} still present"
+    if [[ "$seen" == "false" ]]; then
+      unique_namespaces+=("$candidate")
+      unique_namespace_names+=("${namespace_names[$i]}")
     fi
   done
+  namespaces=("${unique_namespaces[@]+"${unique_namespaces[@]}"}")
+  namespace_names=("${unique_namespace_names[@]+"${unique_namespace_names[@]}"}")
+
+  local leftover=${#namespaces[@]}
+  if ((leftover > 0)); then
+    dim "  Reaping ${leftover} performance namespace(s) directly..."
+    local reap_errors=0
+    for ((i = 0; i < ${#namespaces[@]}; i++)); do
+      if ! perf_reap_namespace "$CLI" "${namespaces[$i]}"; then
+        reap_errors=$((reap_errors + 1))
+        red "    namespace delete failed: ${namespace_names[$i]} (${namespaces[$i]})"
+      fi
+    done
+    if ((reap_errors > 0)); then
+      red "  ${reap_errors} direct namespace deletion(s) failed"
+    fi
+    dim "  Waiting for namespace deletion concurrently (global timeout: ${E2E_GC_TIMEOUT}s)..."
+    local deadline=$(($(date +%s) + E2E_GC_TIMEOUT))
+    local last_report=0 now i
+    while ((leftover > 0 && $(date +%s) < deadline)); do
+      leftover=0
+      for ((i = 0; i < ${#namespaces[@]}; i++)); do
+        [[ -z "${namespaces[$i]}" ]] && continue
+        if "$CLI" get namespace "${namespaces[$i]}" &>/dev/null; then
+          leftover=$((leftover + 1))
+        else
+          dim "    reaped: ${namespace_names[$i]} (${namespaces[$i]})"
+          namespaces[$i]=""
+        fi
+      done
+      now=$(date +%s)
+      if ((leftover > 0 && now - last_report >= 10)); then
+        dim "    cleanup progress: ${leftover} namespace(s) remaining, elapsed=$((E2E_GC_TIMEOUT - (deadline - now)))s"
+        last_report=$now
+      fi
+      if ((leftover > 0)); then
+        sleep 5
+      fi
+    done
+  fi
   rm -rf "$del_dir"
-  if [[ "$leftover" -gt 0 ]]; then
-    dim "  ${leftover} managed namespace(s) not reaped within ${E2E_GC_TIMEOUT}s"
+  if ((leftover > 0)); then
+    red "  ${leftover} performance namespace(s) not deleted within the global ${E2E_GC_TIMEOUT}s timeout"
   fi
   exit "$exit_code"
 }
 trap perf_cleanup EXIT
+perf_install_signal_traps
 
 # --- Helpers ---
 
@@ -195,7 +288,7 @@ perf_collect_batch_metrics() {
   PERF_BATCH_RUNNING=()
   local f status create_s running_s id ns name
   for f in "${dir}"/*; do
-    [[ -f "$f" ]] || continue
+    [[ -f "$f" && "$f" != *.state ]] || continue
     IFS=$'\t' read -r status create_s running_s id ns name <<< "$(cat "$f")"
     if [[ "$status" == "ok" ]]; then
       PERF_BATCH_OK=$((PERF_BATCH_OK + 1))
@@ -206,6 +299,41 @@ perf_collect_batch_metrics() {
     [[ "$running_s" != "null" && -n "$running_s" ]] && PERF_BATCH_RUNNING+=("$running_s")
     [[ -n "$id" ]] && perf_track "$id" "$ns" "$name"
   done
+}
+
+# Called by the bounded worker pool while it is waiting for a free slot and
+# while it drains the active workers. Record files appear atomically when a
+# gateway finishes; state files expose the current stage before that happens.
+perf_progress_tick() {
+  [[ -z "${PERF_PROGRESS_DIR:-}" ]] && return 0
+  local now elapsed force="${1:-0}"
+  now=$(date +%s)
+  if [[ "$force" != "1" && $((now - PERF_PROGRESS_LAST_S)) -lt E2E_PERF_PROGRESS_INTERVAL ]]; then
+    return 0
+  fi
+  PERF_PROGRESS_LAST_S="$now"
+  elapsed=$((now - PERF_PROGRESS_START_S))
+
+  local complete=0 ok=0 failed=0 f status
+  local authenticating=0 checking=0 creating=0 waiting=0
+  for f in "${PERF_PROGRESS_DIR}"/*; do
+    [[ -f "$f" && "$f" != *.state ]] || continue
+    complete=$((complete + 1))
+    IFS=$'\t' read -r status _ < "$f" || true
+    if [[ "$status" == "ok" ]]; then ok=$((ok + 1)); else failed=$((failed + 1)); fi
+  done
+  local name stage
+  for f in "${PERF_PROGRESS_DIR}"/*.state; do
+    [[ -f "$f" && ! -f "${f%.state}" ]] || continue
+    IFS=$'\t' read -r name stage < "$f" || true
+    case "$stage" in
+      authenticating) authenticating=$((authenticating + 1)) ;;
+      checking) checking=$((checking + 1)) ;;
+      creating) creating=$((creating + 1)) ;;
+      waiting:*) waiting=$((waiting + 1)) ;;
+    esac
+  done
+  dim "    progress: complete=${complete}/${PERF_PROGRESS_TOTAL} running=${ok} failed=${failed} waiting=${waiting} creating=${creating} checking=${checking} auth=${authenticating} elapsed=${elapsed}s"
 }
 
 perf_run_mini_test() {
@@ -353,6 +481,11 @@ while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
   mkdir -p "$batch_dir"
 
   bold "  Batch ${start_index}–${batch_end}"
+  PERF_PROGRESS_DIR="$batch_dir"
+  PERF_PROGRESS_TOTAL=$((batch_end - start_index + 1))
+  PERF_PROGRESS_START_S=$(date +%s)
+  PERF_PROGRESS_LAST_S=$((PERF_PROGRESS_START_S - E2E_PERF_PROGRESS_INTERVAL))
+  perf_progress_tick 1
   PERF_BG_PIDS=()
   local_i=""
   for ((local_i = start_index; local_i <= batch_end; local_i++)); do
@@ -377,6 +510,8 @@ while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
     ' _ "$name" "$rec"
   done
   perf_wait_all
+  perf_progress_tick 1
+  PERF_PROGRESS_DIR=""
 
   perf_collect_batch_metrics "${batch_dir}"
   TOTAL_OK=$((TOTAL_OK + PERF_BATCH_OK))

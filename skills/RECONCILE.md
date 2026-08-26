@@ -48,8 +48,8 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete; rebased in e2e performance harness features from 2026-08-25)
-**Spec corpus**: 40 spec files; the coverage table tracks 31 analyzed feature/spec groups after adding OpenShell Gateway Console
+**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete; rebased in e2e performance harness and OpenShift manual e2e driver features from 2026-08-25/26)
+**Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console and OpenShift Development
 **Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 complete)
 
 ### Coverage Summary
@@ -71,11 +71,12 @@ skills/
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 19 | 19 | 0 | 0 | 0 | 100% |
+| Platform - OpenShift Development | 1 | 13 | 0 | 1 | 12 | 0 | 4% |
 | Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **31** | **236** | **187** | **18** | **26** | **5** | **83%** |
+| **TOTAL** | **32** | **249** | **187** | **19** | **38** | **5** | **79%** |
 
 ### Spec Dependency Order
 
@@ -118,6 +119,14 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 - The API, data model, SDKs, CLI, Keycloak client, Secret, Deployment, Service, and NetworkPolicy contracts need no change.
 - GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
 - The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
+
+### openshift-development.spec.md (manual e2e/performance slice)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| OS-E2E-1 | OpenShift E2E Driver | Partial | Manual `make e2e` and `make e2e-performance` can target an existing OpenShift environment. Lifecycle deployment, overlay namespace parameterization, infrastructure bootstrap, and live-cluster validation remain. | `tests/e2e/drivers/openshift.sh`, `tests/e2e/openshift_driver_test.sh` | OS-W1 |
+
+The other 12 OpenShift Development requirements remain missing and are intentionally outside this first slice: lifecycle driver/up-down, namespace isolation, Keycloak namespace deployment, component swaps, legacy-script consolidation, ephemeral CI, access handoff, blessed-overlay reconciliation, CI workflow, infrastructure prerequisites, cluster-scoped permissions, and security/RBAC parity.
 
 ### openshell-gateway-service-accounts.spec.md
 
@@ -578,7 +587,11 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 
 **Scope:** E2E-9, PERF-1..PERF-10 | **Status:** Complete
 
-Added `E2E_MODE=short|long` step tagging in `e2e-openshell.sh` (long remains the default, so CI is unchanged). Added `tests/e2e/perf-lib.sh` (timing, percentiles, bounded concurrency, schema_version=1 JSON I/O), `tests/e2e/e2e-performance.sh` (batched scale-up, canary checkpoints, functional gate, SLO, EXIT-trap cleanup), `scripts/perf-report.sh`, and `make e2e-performance` / `make e2e-performance-report`. `make e2e` now honors `E2E_INFRA_DRIVER` instead of hardcoding `kind`. Verified with `bash -n` and `tests/e2e/perf-lib_test.sh` (no cluster required).
+Added `E2E_MODE=short|long` step tagging in `e2e-openshell.sh` (long remains the default, so CI is unchanged). Added `tests/e2e/perf/lib.sh` (timing, percentiles, bounded concurrency, schema_version=1 JSON I/O), `tests/e2e/e2e-performance.sh` (batched scale-up, canary checkpoints, functional gate, SLO, signal-safe EXIT cleanup), `scripts/perf-report.sh`, and `make e2e-performance` / `make e2e-performance-report`. Batch workers emit periodic stage/count/elapsed heartbeats while concurrent provisioning is in progress. Teardown deletes the run's Gateway records and directly reaps their tracked namespaces under one global timeout, including on INT/TERM, rather than depending on periodic namespace GC. `make e2e` now honors `E2E_INFRA_DRIVER` instead of hardcoding `kind`. Verified with `bash -n` and `tests/e2e/perf/lib_test.sh` (no cluster required).
+
+### Wave OS-W1: Manual OpenShift e2e/performance driver (partial) ✅
+
+Implemented `tests/e2e/drivers/openshift.sh` for an already-deployed environment: namespace-scoped API and Keycloak Route discovery, Gateway API endpoint/readiness checks, gateway base-domain discovery from the running controller Deployment, `oc` selection, shared per-gateway Keycloak role flows, and TLS verification through the system trust store or an extracted private CA. The shared suite now routes direct HTTP calls through the driver TLS seam. Manual runs require only the current `oc` context and `OPENSHIFT_NAMESPACE`. No OpenShift cluster lifecycle, namespace creation, overlay reconciliation, bootstrap, or CI automation is included.
 
 ### Wave R1-R8: RBAC COMPLETED
 
@@ -739,4 +752,5 @@ label-selected pod informer.
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W1..W3 | pending final recount | Added nested REST/OpenAPI, generated SDKs, durable persistence/audit, exact gateway-scoped Keycloak clients, one-time verified secret delivery, role-capped authorization, expiration/revoke/delete reconciliation, and gateway cleanup barriers. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W4 | pending final recount | Extended the CLI generator for the nested gateway collection; added create/list/get/revoke/delete commands, explicit mode-0600 one-time credential output, expiration handling, workspace guidance, and secret-redaction tests. |
 | 2026-08-25 | working tree | Executed PERF-W1 (e2e-testing performance features) | 82% | Short/long `E2E_MODE` in the e2e suite; infra-agnostic performance harness with batched scale-up, canary checkpoints, functional gate, optional SLOs, schema_version=1 JSON history, and `make e2e-performance` / `make e2e-performance-report`. OpenShift driver still belongs to HYPERSHELL-44. |
-| 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 83% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |
+| 2026-08-26 | working tree | Executed OS-W1 (manual OpenShift e2e driver slice) | 78% | Added the OpenShift driver needed to run the existing e2e and performance harnesses against a pre-deployed cluster; lifecycle, overlay, bootstrap, and CI requirements remain missing. |
+| 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 79% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |

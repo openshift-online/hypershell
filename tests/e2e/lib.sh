@@ -178,10 +178,11 @@ e2e_utc_stamp() {
 e2e_list_available_drivers() {
   local drivers_dir="${1:-${_E2E_LIB_DIR}/drivers}"
   if [[ -d "$drivers_dir" ]]; then
-    local f
+    local f drivers=()
     for f in "${drivers_dir}"/*.sh; do
-      [[ -f "$f" ]] && basename "$f" .sh
+      [[ -f "$f" ]] && drivers+=("$(basename "$f" .sh)")
     done
+    ((${#drivers[@]} > 0)) && printf '%s\n' "${drivers[@]}"
   fi
 }
 
