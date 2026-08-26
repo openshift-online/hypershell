@@ -17,9 +17,11 @@ deploys a complete HyperShell environment to an ephemeral namespace on an
 OpenShift cluster. The developer can swap one component at a time from the working
 tree, exactly as `make kind-<component>-up` does today.
 
-This spec also defines automated end-to-end testing on OpenShift. It defines the
-`tests/e2e/drivers/openshift.sh` e2e driver that `e2e-testing.spec.md` leaves as
-follow-up work. It defines a CI workflow that deploys HyperShell to an ephemeral
+This spec also defines automated end-to-end testing on OpenShift. This spec owns the
+OpenShift lifecycle, the `deploy/openshift/` overlay, the cluster bootstrap, and the
+OpenShift CI workflow. `e2e-testing.spec.md` owns the e2e driver interface contract
+and the `tests/e2e/drivers/openshift.sh` driver file that implements the OpenShift
+side of that contract. It defines a CI workflow that deploys HyperShell to an ephemeral
 namespace for each pull request, runs the e2e suite, gives the environment access
 details to the developer, keeps the environment alive for the life of the pull
 request, and releases the environment when the pull request merges or closes. It
@@ -176,7 +178,12 @@ the overlay's Keycloak namespace (`keycloak` in the base) SHALL map to
 Blessed OpenShift Overlay requirement defines. The command SHALL be idempotent: a
 second run SHALL reconcile the environment to the current overlay and SHALL prune
 resources the overlay no longer defines, with pruning scoped to the environment,
-rather than leave stale resources behind.
+rather than leave stale resources behind. The reconcile SHALL preserve an active
+per-namespace component swap: it SHALL keep the working-tree image on a swapped
+Deployment rather than reset it to the overlay's baseline image. When a reconcile
+intentionally resets a swapped Deployment to the baseline image, it SHALL clear that
+component's entry in the per-namespace swap state, so the state cannot keep claiming
+the working-tree image is active.
 
 Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
 developer needs for a working gateway -- a Fleet, a ManagedCluster, a
@@ -232,8 +239,11 @@ same way `KIND_NAMESPACE` names the Kind target namespace. Unlike Kind, which
 targets a single-tenant local cluster and defaults `KIND_NAMESPACE` to
 `hypershell-system`, an OpenShift target is shared, so there SHALL be no shared
 default namespace. When `OPENSHIFT_NAMESPACE` is unset, the command SHALL derive a
-unique per-developer default (for example from `oc whoami`) or SHALL stop with a
-clear error, rather than fall back to a shared name that collides.
+unique per-developer default or SHALL stop with a clear error, rather than fall back
+to a shared name that collides. A derived default SHALL be a valid RFC 1123 DNS label
+-- for example, an `oc whoami` value lowercased, with every character outside
+`[a-z0-9-]` replaced by `-`, and truncated to the length limit -- because raw
+identity values such as `kube:admin` or `user@redhat.com` are not valid DNS labels.
 
 `OPENSHIFT_NAMESPACE` SHALL be a valid RFC 1123 DNS label of at most 54 characters,
 so that the derived `${OPENSHIFT_NAMESPACE}-keycloak` namespace stays within the
@@ -308,12 +318,19 @@ deployment's namespace group. The two namespaces SHALL share one lifecycle: the
 scripts create them together, and `make openshift-down` (for local development) or
 the release step (for CI) removes them together.
 
-The OpenShift OIDC issuer SHALL derive from the Keycloak Route in the `-keycloak`
-namespace through one hostname formula: the driver reads the Keycloak Route host
-from the `-keycloak` namespace and appends the realm path (`/realms/hypershell`).
-The Keycloak `KC_HOSTNAME`, the e2e `E2E_OIDC_ISSUER`, and the gateway OIDC issuer
-the control plane provisions SHALL all use that same URL, so that token acquisition
-and token validation target the same endpoint.
+The OpenShift OIDC configuration SHALL derive from the Keycloak Route in the
+`-keycloak` namespace through one hostname formula: the driver reads the Keycloak
+Route host from the `-keycloak` namespace. The Keycloak `KC_HOSTNAME` SHALL be the
+server base URL `https://<route-host>` with no realm path, because Keycloak treats
+`KC_HOSTNAME` as the base URL and appends the realm path itself when it builds the
+OIDC discovery and issuer URLs. The e2e `E2E_OIDC_ISSUER` and the gateway OIDC issuer
+the control plane provisions SHALL be `https://<route-host>/realms/hypershell` -- the
+base URL plus the realm path -- so that they match the issuer that Keycloak
+advertises in its discovery document, and so that token acquisition and token
+validation target the same endpoint. Embedding the realm path in `KC_HOSTNAME` would
+produce incorrect discovery and issuer URLs and break token validation. This mirrors
+the Kind configuration, where `KC_HOSTNAME` is host-only and only the issuer values
+carry `/realms/hypershell`.
 
 This spec defines only where Keycloak lands. The broader isolation of other
 non-request-serving components (for example the database and observability) into
@@ -531,11 +548,15 @@ run for one pull request uses the same environment. On the first run for a pull
 request, the workflow SHALL create the environment and deploy HyperShell. On a
 later run for the same pull request, the workflow SHALL reuse the existing
 environment and redeploy with the same `make openshift-up` reconcile that the first
-run uses. The redeploy SHALL rebuild only the images that changed, and SHALL let the
-overlay reconcile bring the running environment to the new desired state, including
-pruning resources that the overlay no longer declares, so that the environment does
-not drift from the overlay and so that the environment serves as a live development
-and debug environment across the life of the pull request.
+run uses. The redeploy SHALL deploy the images that Konflux built for the pull
+request, injecting those image references by digest into the deployment the same way
+the Kind job does through `scripts/kind/set-component-images.sh`, rather than rebuild
+images from the working tree, so that the PR e2e job tests the images that ship. The
+redeploy SHALL let the overlay reconcile bring the running environment to the new
+desired state, including pruning resources that the overlay no longer declares, so
+that the environment does not drift from the overlay and so that the environment
+serves as a live development and debug environment across the life of the pull
+request.
 
 The workflow SHALL keep the ephemeral environment alive after the e2e suite
 completes, whether the suite passes or fails, so that the developer can inspect the
@@ -568,7 +589,7 @@ free the environment.
 - WHEN a later push triggers the CI workflow for the same pull request
 - THEN the workflow reuses the existing environment
 - AND the workflow reruns `make openshift-up` to reconcile the full overlay
-- AND the workflow rebuilds only the images that changed
+- AND the workflow deploys the Konflux-built images by digest, without rebuilding from the working tree
 - AND the reconcile prunes resources that the overlay no longer declares
 
 #### Scenario: Environment survives after tests complete
@@ -630,36 +651,47 @@ be short-lived and namespace-scoped, so that a leak has a bounded blast radius.
 ### Requirement: Blessed OpenShift Overlay
 
 The `deploy/openshift/` overlay SHALL derive from `deploy/base/` and SHALL NOT
-duplicate the base resources. The production reference is the `deploy/hub/` overlay,
-which itself derives from `deploy/openshift/`. The `deploy/openshift/` overlay SHALL
-be validated against `deploy/hub/`, so that the overlay a developer deploys is the
-same shape as the production deployment.
+duplicate the base resources. The `deploy/base/` overlay is the independent baseline
+for drift validation: both `deploy/openshift/` and the production `deploy/hub/`
+overlay derive from it, and it is not derived from either, so a change in one overlay
+cannot flow into the reference before the check runs. The drift check SHALL NOT use
+`deploy/hub/` as the reference for `deploy/openshift/`, because `deploy/hub/` derives
+from `deploy/openshift/` and a change would reach the reference before comparison.
 
 The overlay SHALL parameterize the namespace, so that a deployment into an ephemeral
 namespace does not require an overlay edit. The overlay SHALL NOT hardcode
 `hypershell-system`; the deployment SHALL set the namespace from configuration, the
 same way `make openshift-up` maps the platform namespace to `OPENSHIFT_NAMESPACE`.
 
-Only a bounded set of fields SHALL differ between `deploy/openshift/` and
-`deploy/hub/`: the namespace, the name prefix, the image references, the gateway
-base domain `GATEWAY_API_BASE_DOMAIN`, and the SSO configuration. Every other
-resource SHALL match, so that a developer environment and the production deployment
-stay the same shape.
+Each overlay SHALL differ from `deploy/base/` only within a declared allowlist. For
+`deploy/openshift/`, the allowed differences are the OpenShift-specific additions the
+overlay layers on the base (the Route, the SecurityContextConstraints binding, the
+certificates, and the network policies) together with the namespace, the name prefix,
+the image references, the gateway base domain `GATEWAY_API_BASE_DOMAIN`, and the SSO
+configuration. Ephemeral OpenShift and hub intentionally differ: ephemeral OpenShift
+bundles a per-environment Keycloak and the bundled CNPG `Cluster` that the base
+provides, while `deploy/hub/` (production) shares one Keycloak per cluster and uses a
+managed database, so `deploy/hub/` deletes the bundled Keycloak unit and the bundled
+CNPG `Cluster`. The `deploy/hub/` allowlist SHALL therefore additionally permit those
+deletions. These declared differences are intentional, not drift.
 
 The overlay SHALL replace its placeholder values with values that a real
-environment supplies through configuration, not through code. The known
-placeholders to reconcile are the gateway base domain
-`GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com` and the unpinned database
-image `registry.redhat.io/rhel9/postgresql-16`. The base domain SHALL come from
+environment supplies through configuration, not through code. The known placeholder
+to reconcile is the gateway base domain
+`GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com`, which SHALL come from
 configuration, so that a deployment to a different cluster does not require an
-overlay edit. The database image SHALL be pinned to a digest (`@sha256:...`), so
-that a deployment is reproducible.
+overlay edit. The bundled CNPG `Cluster` in `deploy/base/hypershell-db-cluster.yaml`
+sets no explicit `imageName`, so it runs the CloudNativePG operator's default
+PostgreSQL image, which is not pinned for this deployment. For a reproducible
+deployment, the overlay SHALL set an explicit `spec.imageName` on the CNPG `Cluster`
+pinned to a digest (`@sha256:...`), rather than rely on the operator default.
 
-A drift check SHALL compare `deploy/openshift/` against `deploy/hub/` and SHALL fail
-when the overlay drifts outside the bounded set of allowed fields (namespace, name
-prefix, image references, gateway base domain, and SSO configuration). The drift
-check SHALL run in CI, so that a pull request that changes the overlay cannot merge
-an unintended drift.
+A drift check SHALL compare each overlay against `deploy/base/` after a defined
+normalization step, and SHALL fail when an overlay differs from the base outside its
+declared allowlist. The drift check SHALL run in CI, so that a pull request that
+changes an overlay cannot merge an unintended drift. Because both overlays are
+checked against the same independent base, `deploy/openshift/` and `deploy/hub/`
+cannot silently diverge on any resource that neither allowlist covers.
 
 #### Scenario: Base domain comes from configuration
 
@@ -670,15 +702,15 @@ an unintended drift.
 
 #### Scenario: Database image is pinned
 
-- GIVEN the overlay references the PostgreSQL image
+- GIVEN the CNPG `Cluster` sets an explicit `spec.imageName`
 - WHEN a maintainer inspects the overlay
 - THEN the image reference includes a digest
 - AND a deployment pulls the same image bytes every time
 
 #### Scenario: Drift check fails on unintended drift
 
-- GIVEN `deploy/hub/` is the production reference for the overlay
-- WHEN a pull request changes `deploy/openshift/` outside the allowed fields
+- GIVEN `deploy/base/` is the independent baseline for the overlays
+- WHEN a pull request changes `deploy/openshift/` outside its declared allowlist
 - THEN the drift check fails in CI
 - AND the pull request cannot merge until the drift is resolved
 
@@ -695,7 +727,9 @@ job.
 
 The job SHALL run these steps in order: gate on Konflux images; reuse or create the
 ephemeral environment for the pull request; deploy with `make openshift-up`, which
-reconciles the full overlay and rebuilds only the images that changed; run
+reconciles the full overlay, then inject the Konflux-built image references by digest
+(the same digest-injection pattern the Kind job uses through
+`scripts/kind/set-component-images.sh`) rather than rebuild from the working tree; run
 `E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh`; collect diagnostics on
 failure; and post or update the pull request comment with the environment access
 details. The job SHALL keep the
@@ -768,30 +802,47 @@ provides this infrastructure.
 ### Requirement: Cluster-Scoped Resource Permissions
 
 The OpenShift overlay grants SecurityContextConstraints through the built-in SCC
-ClusterRoles, not through custom SCC objects. The cluster-scoped resources are the
-ClusterRoleBinding that binds the controller service account to the built-in
-`system:openshift:scc:restricted-v2` ClusterRole, the ClusterRoleBinding that binds
-the sandbox service account to the built-in `system:openshift:scc:privileged`
-ClusterRole, and the ClusterRole plus ClusterRoleBinding that grant the controller
-`bind` on the privileged SCC so that the controller can bind it per namespace. An
-ephemeral namespace grants namespace-scoped access, so a deployment into an ephemeral
-namespace cannot create these cluster-scoped resources.
+ClusterRoles, not through custom SCC objects. Two different grants are involved, and
+they have different scopes.
 
-The target cluster SHALL pre-create the cluster-scoped resources once, as part of
-the cluster infrastructure prerequisites, so that they exist before any ephemeral
-namespace deploys. Each ephemeral namespace SHALL then attach its controller and
-sandbox service accounts to the built-in SCC ClusterRoles through namespace-scoped
-RoleBindings, which namespace-scoped access permits. A deployment into an ephemeral
-namespace SHALL NOT fail on a missing cluster-scoped permission, because it creates
-only the namespace-scoped RoleBindings.
+The first grant is SCC *use*: a workload runs under an SCC. A namespace-scoped
+RoleBinding to a built-in SCC ClusterRole grants use within one namespace. Each
+ephemeral namespace SHALL attach its controller service account to the built-in
+`system:openshift:scc:restricted-v2` ClusterRole and its sandbox service account to
+the built-in `system:openshift:scc:privileged` ClusterRole through namespace-scoped
+RoleBindings, which namespace-scoped access permits.
+
+The second grant is the `bind` verb on the privileged SCC ClusterRole, which the
+controller needs so that it can itself create the per-namespace privileged RoleBinding
+for a sandbox at runtime. `bind` on `clusterroles` is a cluster-scoped permission. A
+namespace-scoped RoleBinding CANNOT grant it, and a single pre-created
+ClusterRoleBinding with a fixed service-account subject cannot cover the controller
+service account of an unknown future ephemeral namespace. Therefore a privileged
+actor SHALL grant each ephemeral controller service account the cluster-scoped `bind`
+on the privileged SCC. For example, the namespace-provisioning step (the
+ephemeral-namespace operator, or an equivalent cluster-privileged step that creates
+the namespace and its service accounts) SHALL, at namespace-create time, add that
+controller service account as a subject of a `bind` ClusterRoleBinding or create a
+per-namespace ClusterRoleBinding for it. Alternatively, a privileged CI deployer that
+is not the in-namespace controller SHALL create the per-namespace privileged
+RoleBindings for the sandbox, so that the in-namespace controller never needs `bind`.
+
+The deployment into the ephemeral namespace SHALL NOT attempt to grant the
+cluster-scoped `bind` through a namespace-scoped RoleBinding, and SHALL NOT assume the
+namespace-scoped RoleBindings alone let the controller bind the privileged SCC per
+namespace. The cluster-scoped `bind` ClusterRole and the grant of `bind` to each
+ephemeral controller service account SHALL be pre-created or provisioned by the
+privileged actor, as above, before the controller reconciles a sandbox.
 
 #### Scenario: Ephemeral namespace has the permissions the overlay needs
 
-- GIVEN the target cluster pre-creates the cluster-scoped SCC ClusterRoleBindings
+- GIVEN the target cluster pre-creates the cluster-scoped `bind` ClusterRole and its binding
+- AND a privileged actor grants the ephemeral controller service account the cluster-scoped `bind` on the privileged SCC at namespace-create time
 - WHEN the workflow deploys the OpenShift overlay into an ephemeral namespace
 - THEN the deployment creates only namespace-scoped RoleBindings that attach the
-  controller and sandbox service accounts to the built-in SCC ClusterRoles
-- AND the deployment does not fail on a missing cluster-scoped permission
+  controller and sandbox service accounts to the built-in SCC ClusterRoles for SCC use
+- AND the controller can create the per-namespace privileged RoleBinding for a sandbox because the privileged actor granted it `bind`
+- AND the deployment does not attempt to grant the cluster-scoped `bind` through a namespace-scoped RoleBinding
 
 ### Requirement: OpenShift Security Context and RBAC Parity
 
@@ -799,8 +850,10 @@ The OpenShift deployment SHALL keep the security posture that the OpenShift over
 defines: the controller bound to the built-in `system:openshift:scc:restricted-v2`
 ClusterRole, the built-in `system:openshift:scc:privileged` ClusterRole granted only
 to the sandbox pods, and a per-namespace privileged SCC binding that the controller
-creates at runtime. The overlay SHALL NOT define custom SCC objects. A component
-swap or an ephemeral-namespace deployment SHALL NOT relax this posture.
+creates at runtime once a privileged actor has granted the controller service account
+the cluster-scoped `bind` on the privileged SCC (see Cluster-Scoped Resource
+Permissions). The overlay SHALL NOT define custom SCC objects. A component swap or an
+ephemeral-namespace deployment SHALL NOT relax this posture.
 
 The OpenShift deployment SHALL enforce RBAC the same way the production overlay
 does, with `RBAC_ENFORCE=true` and the control-plane service account in the RBAC
