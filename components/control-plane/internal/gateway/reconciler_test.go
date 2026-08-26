@@ -65,7 +65,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 	t.Run("a resurrected typed resource returns false", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "openshell-backend-ca"},
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "openshell-gateway-backend-ca"},
 		})
 		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
 		if err != nil {
