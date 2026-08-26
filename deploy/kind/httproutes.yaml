@@ -56,7 +56,7 @@ spec:
     - name: hypershell-gw
       namespace: hypershell-system
   hostnames:
-    - metrics.hypershell.localhost
+    - observability.hypershell.localhost
   rules:
     - backendRefs:
         - name: hypershell-api-server

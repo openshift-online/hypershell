@@ -71,7 +71,7 @@ API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
 KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
-METRICS_HOSTNAME=metrics.hypershell.localhost
+METRICS_HOSTNAME=observability.hypershell.localhost
 KEYCLOAK_OIDC_ISSUER?=https://$(KEYCLOAK_HOSTNAME)/realms/hypershell
 
 # ============================================================================
