@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -22,9 +23,12 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 	"k8s.io/apimachinery/pkg/runtime"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 func TestGatewayNamespace(t *testing.T) {
@@ -285,8 +289,35 @@ type recordingGatewayServer struct {
 	pb.UnimplementedGatewayServiceServer
 
 	mu        sync.Mutex
+	gateway   *pb.Gateway
 	updates   []recordedGatewayUpdate
 	updateErr error
+}
+
+func (s *recordingGatewayServer) ListGateways(_ context.Context, _ *pb.ListGatewaysRequest) (*pb.ListGatewaysResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.gateway == nil {
+		return &pb.ListGatewaysResponse{Metadata: &pb.ListMeta{}}, nil
+	}
+	return &pb.ListGatewaysResponse{
+		Items:    []*pb.Gateway{s.gateway},
+		Metadata: &pb.ListMeta{Page: 1, Size: 500, Total: 1},
+	}, nil
+}
+
+func (s *recordingGatewayServer) WatchGateways(_ *pb.WatchGatewaysRequest, stream pb.GatewayService_WatchGatewaysServer) error {
+	if err := stream.SendHeader(metadata.Pairs("x-hypershell-test-watch", "ready")); err != nil {
+		return err
+	}
+	<-stream.Context().Done()
+	return stream.Context().Err()
+}
+
+func (s *recordingGatewayServer) setGateway(gw *pb.Gateway) {
+	s.mu.Lock()
+	s.gateway = gw
+	s.mu.Unlock()
 }
 
 func (s *recordingGatewayServer) UpdateGateway(_ context.Context, req *pb.UpdateGatewayRequest) (*pb.UpdateGatewayResponse, error) {
@@ -357,13 +388,15 @@ type mockKeycloakAdminServer struct {
 	clientUUID   string
 	clientID     string
 
-	mu           sync.Mutex
-	clientRep    map[string]interface{}
-	putCalled    int
-	putBodies    []map[string]interface{}
-	forceUUIDErr bool
-	forceMissing bool
-	forcePutErr  bool
+	mu                    sync.Mutex
+	clientRep             map[string]interface{}
+	putCalled             int
+	putBodies             []map[string]interface{}
+	forceUUIDErr          bool
+	forceMissing          bool
+	forcePutErr           bool
+	uuidFailuresRemaining int
+	uuidLookupCalls       int
 }
 
 func newMockKeycloakAdminServer(t *testing.T, clientID, clientUUID string, initialRep map[string]interface{}) *mockKeycloakAdminServer {
@@ -418,7 +451,12 @@ func newMockKeycloakAdminServer(t *testing.T, clientID, clientUUID string, initi
 		}
 
 		m.mu.Lock()
+		m.uuidLookupCalls++
 		forceErr := m.forceUUIDErr
+		if m.uuidFailuresRemaining > 0 {
+			m.uuidFailuresRemaining--
+			forceErr = true
+		}
 		forceMissing := m.forceMissing
 		targetClientID := m.clientID
 		targetUUID := m.clientUUID
@@ -618,6 +656,123 @@ func TestGatewayReconciler_Handle_GatedPhases_ReconcilesKeycloakAndBypassesKuber
 				t.Errorf("expected 0 dynamic actions on gated phase, got %d: %v", len(dynamicActions), dynamicActions)
 			}
 		})
+	}
+}
+
+// Exercise the production WatchGateways queue and GatewayReconciler together.
+// A transient Keycloak failure behind the Running phase gate must retry with the
+// original payload; applying the queue's normal phase-clearing retry transform
+// would expand the second attempt into full Kubernetes provisioning.
+func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
+	gatewayID := "gw-keycloak-queue-retry"
+	gatewayName := "my-gateway"
+	clientID := gatewayName + "-" + gatewayID
+	clientUUID := "uuid-keycloak-queue-retry"
+	phase := "Running"
+	gw := &pb.Gateway{
+		Metadata:  &pb.ObjectReference{Id: gatewayID},
+		Name:      gatewayName,
+		Namespace: "openshell-0011223344556677",
+		Phase:     &phase,
+	}
+
+	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{
+		"id":       clientUUID,
+		"clientId": clientID,
+		"attributes": map[string]interface{}{
+			"oauth2.device.authorization.grant.enabled": "false",
+		},
+	})
+	mockKC.mu.Lock()
+	mockKC.uuidFailuresRemaining = 1
+	mockKC.mu.Unlock()
+
+	grpcConn, gatewayServer := newRecordingGatewayConn(t)
+	gatewayServer.setGateway(gw)
+
+	var kubernetesCalls atomic.Int32
+	kubeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		kubernetesCalls.Add(1)
+		http.Error(w, "unexpected Kubernetes provisioning request", http.StatusInternalServerError)
+	}))
+	t.Cleanup(kubeServer.Close)
+	clientset, err := kubernetes.NewForConfig(&rest.Config{Host: kubeServer.URL})
+	if err != nil {
+		t.Fatalf("create recording Kubernetes client: %v", err)
+	}
+
+	fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
+	r := &GatewayReconciler{
+		active:        make(map[string]struct{}),
+		dynamicClient: fakeDynamic,
+		clientset:     clientset,
+		grpcConn:      grpcConn,
+		keycloakClient: keycloak.NewClient(
+			mockKC.server.URL,
+			mockKC.realm,
+			mockKC.adminClient,
+			mockKC.adminSecret,
+		),
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	watchErr := make(chan error, 1)
+	go func() {
+		watchErr <- watcher.WatchGateways(ctx, grpcConn, r)
+	}()
+
+	deadline := time.NewTimer(8 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		mockKC.mu.Lock()
+		putCalls := mockKC.putCalled
+		mockKC.mu.Unlock()
+		if putCalls == 1 {
+			break
+		}
+		select {
+		case err := <-watchErr:
+			cancel()
+			t.Fatalf("WatchGateways returned before the Keycloak retry succeeded: %v", err)
+		case <-deadline.C:
+			cancel()
+			<-watchErr
+			mockKC.mu.Lock()
+			lookupCalls := mockKC.uuidLookupCalls
+			putCalls := mockKC.putCalled
+			mockKC.mu.Unlock()
+			t.Fatalf("timed out waiting for Keycloak retry: lookups=%d puts=%d", lookupCalls, putCalls)
+		case <-ticker.C:
+		}
+	}
+
+	cancel()
+	select {
+	case err := <-watchErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("WatchGateways returned %v after cancellation, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("WatchGateways did not stop after cancellation")
+	}
+
+	mockKC.mu.Lock()
+	lookupCalls := mockKC.uuidLookupCalls
+	putCalls := mockKC.putCalled
+	mockKC.mu.Unlock()
+	if lookupCalls != 2 || putCalls != 1 {
+		t.Fatalf("Keycloak calls: lookups=%d puts=%d, want one failed lookup followed by one successful lookup and PUT", lookupCalls, putCalls)
+	}
+	if updates := gatewayServer.snapshot(); len(updates) != 0 {
+		t.Fatalf("Keycloak-only retry performed provisioning gRPC updates: %v", updates)
+	}
+	if got := kubernetesCalls.Load(); got != 0 {
+		t.Fatalf("Keycloak-only retry made %d typed Kubernetes request(s), want 0", got)
+	}
+	if actions := fakeDynamic.Actions(); len(actions) != 0 {
+		t.Fatalf("Keycloak-only retry performed dynamic Kubernetes actions: %v", actions)
 	}
 }
 
