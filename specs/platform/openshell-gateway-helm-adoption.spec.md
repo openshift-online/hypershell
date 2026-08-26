@@ -4,7 +4,7 @@
 **Status:** Draft
 **JIRA:** [HYPERSHELL-146](https://redhat.atlassian.net/browse/HYPERSHELL-146)
 **Related:** `openshell-gateway.spec.md` - current provisioning; `control-plane.spec.md` - CP architecture
-**Upstream:** [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell); [Helm Go SDK](https://helm.sh/docs/sdk/); [PR #2728 (BackendTLSPolicy)](https://github.com/NVIDIA/OpenShell/pull/2728)
+**Upstream:** [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell); [Helm Go SDK](https://helm.sh/docs/sdk/); [PR #2728 (BackendTLSPolicy)](https://github.com/NVIDIA/OpenShell/pull/2728); [PR #2939 (namespace-scoped ClusterRole names)](https://github.com/NVIDIA/OpenShell/pull/2939)
 
 ---
 
@@ -36,17 +36,16 @@ GatewayReconciler
   ├─ 3. Reconcile Keycloak client                       ← Go (unchanged)
   ├─ 4. Copy trusted CA ConfigMap (if present)           ← Go (unchanged)
   ├─ 5. Reconcile OpenShift SCC binding                  ← Go (before Helm install)
-  ├─ 6. Adopt cluster-scoped resources                   ← Go (before Helm install, multi-tenant)
-  ├─ 7. Helm install                                     ← NEW (replaces deployGateway)
+  ├─ 6. Helm install                                     ← NEW (replaces deployGateway)
   │     └─ Chart deploys: Deployment, Service, ConfigMap,
-  │        ServiceAccounts, RBAC, certgen Job,
-  │        credential KEK Secret,
+  │        ServiceAccounts, RBAC (ClusterRole/CRB scoped
+  │        by namespace -- see Multi-Tenant section),
+  │        certgen Job, credential KEK Secret,
   │        cert-manager Issuers/Certificates,
   │        GRPCRoute, BackendTLSPolicy, Route,
   │        BackendCA ConfigMap (via certgen)
   │        (NetworkPolicy disabled -- see decision below)
-  ├─ 8. Ensure per-namespace ClusterRoleBinding          ← Go (after Helm install, multi-tenant)
-  └─ 9. Reconcile console                               ← Go (unchanged)
+  └─ 7. Reconcile console                               ← Go (unchanged)
 ```
 
 ```
@@ -279,8 +278,8 @@ The platform is in beta. The migration path is intentionally simple.
 | Service `openshell-gateway` | `manifests/gateway/service.yaml` | `service.yaml` | `service.type`, `service.port` |
 | ServiceAccount `openshell-gateway` | `manifests/gateway/serviceaccount.yaml` | `serviceaccount.yaml` | `serviceAccount.create` |
 | ServiceAccount `openshell-gateway-sandbox` | `manifests/gateway/serviceaccount.yaml` | `serviceaccount.yaml` | `sandboxServiceAccount.create` |
-| ClusterRole `openshell-gateway-node-reader` | `manifests/gateway/rbac.yaml` | `clusterrole.yaml` | Always created (see Multi-Tenant Limitation below) |
-| ClusterRoleBinding `...-node-reader` | `manifests/gateway/rbac.yaml` | `clusterrolebinding.yaml` | Always created (see Multi-Tenant Limitation below) |
+| ClusterRole `...-node-reader-<ns>` | `manifests/gateway/rbac.yaml` | `clusterrole.yaml` | Always created; name scoped by `.Release.Namespace` (PR #2939) |
+| ClusterRoleBinding `...-node-reader-<ns>` | `manifests/gateway/rbac.yaml` | `clusterrolebinding.yaml` | Always created; name scoped by `.Release.Namespace` (PR #2939) |
 | Role `openshell-gateway-sandbox` | `manifests/gateway/rbac.yaml` | `role.yaml` | `workspaceMode=shared` |
 | RoleBinding `openshell-gateway-sandbox` | `manifests/gateway/rbac.yaml` | `rolebinding.yaml` | `workspaceMode=shared` |
 | Job `openshell-gateway-certgen` + RBAC | `manifests/gateway/certgen-job.yaml` | `certgen.yaml` | `pkiInitJob.enabled` |
@@ -304,19 +303,12 @@ The Helm chart covers the OpenShell gateway deployment itself. The control plane
 | # | Resource | Kind | Scope | Why the Control Plane Handles It |
 |---|---|---|---|---|
 | 1 | `openshell-sandbox-privileged-scc` | RoleBinding | Namespace | OpenShift SCC binding granting the `privileged` SCC to the sandbox ServiceAccount. The chart handles `podSecurityContext` values but has no concept of OpenShift SCC grants. This is documented as an out-of-chart step in the [upstream chart README](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift). |
-| 2 | `openshell-gateway-node-reader-<ns>` | ClusterRoleBinding | Cluster | Per-namespace ClusterRoleBinding granting the gateway SA node-reader permissions. Required for multi-tenant support (see Multi-Tenant Limitation below). |
 
 The trusted CA ConfigMap (`gateway-trusted-ca`) is still copied from the CP namespace into the tenant namespace by the control plane, but its injection into the Deployment is handled by the chart via `server.oidc.caConfigMapName` -- no post-Helm SSA patch is needed. The control plane normalizes the ConfigMap key to `ca.crt` (the key the chart expects at the mount path) when copying, regardless of the source key name.
 
-### Multi-Tenant Limitation: Cluster-Scoped Resources
+### Multi-Tenant: Namespace-Scoped ClusterRole Names
 
-The upstream Helm chart creates a ClusterRole (`openshell-gateway-node-reader`) and ClusterRoleBinding with fixed names derived from the release name. Helm tracks ownership of these resources via `meta.helm.sh/release-namespace` annotations. In multi-tenant setups where multiple gateways are installed on the same cluster (each in its own namespace), only one Helm release can own these cluster-scoped resources.
-
-**Workaround:** Before each `helm install` or `helm upgrade`, the control plane adopts the existing cluster-scoped resources by updating their Helm ownership annotations to match the current release namespace. This allows the install to succeed without "resource exists and cannot be imported" errors. Additionally, the control plane creates per-namespace ClusterRoleBindings (`openshell-gateway-node-reader-<ns>`) so that every gateway's ServiceAccount retains node-reader permissions even when the shared Helm-managed ClusterRoleBinding is adopted by a different release.
-
-**Consequence:** When a gateway is uninstalled, Helm deletes the cluster-scoped ClusterRole and ClusterRoleBinding it owns. Other gateways briefly lose node-reader permissions through the shared binding. The per-namespace bindings reference the now-deleted ClusterRole and become dangling. On the next reconciliation loop, the surviving gateway's `helm upgrade` recreates the ClusterRole (since it is now missing), restoring permissions.
-
-**Future fix:** The upstream chart should support a toggle (e.g. `rbac.createClusterResources: false`) to skip creating cluster-scoped resources. The control plane would then manage the ClusterRole and per-namespace ClusterRoleBindings entirely, removing the adoption workaround.
+The upstream Helm chart appends `.Release.Namespace` to the ClusterRole and ClusterRoleBinding names ([PR #2939](https://github.com/NVIDIA/OpenShell/pull/2939)), producing per-release resources like `openshell-gateway-node-reader-<ns>`. Each Helm release owns its own cluster-scoped resources with no annotation conflicts, so multiple gateways on the same cluster install and uninstall independently. The rules are identical and small -- the duplication is harmless.
 
 All other resources the control plane manages (CNPG database provisioning, DB credentials, console, Keycloak clients) are HyperShell platform infrastructure deployed outside the context of the OpenShell gateway itself. The chart's `server.externalDbSecret` value references the DB credentials Secret that the control plane provisions before the Helm install, but the chart does not deploy databases.
 
@@ -350,18 +342,14 @@ Resources have ordering dependencies that the reconciler must respect:
 2. CNPG Database + credentials Secret (must exist before Helm install)
 3. Trusted CA ConfigMap copy          (must exist before Helm install if present)
 4. OpenShift SCC binding              (must run before Helm install)
-5. Adopt cluster-scoped resources     (must run before Helm install -- multi-tenant)
-6. Helm install                       (creates core workload + chart-managed resources)
-7. Per-namespace ClusterRoleBinding   (must run after Helm install -- multi-tenant)
-8. Console resources                  (can run after Helm)
-9. Keycloak clients                   (can run after Helm)
+5. Helm install                       (creates core workload + chart-managed resources)
+6. Console resources                  (can run after Helm)
+7. Keycloak clients                   (can run after Helm)
 ```
 
 The key constraints:
 - The DB credentials Secret (`openshell-gateway-db-credentials`) must be created before the Helm install because the chart's Deployment references it via `server.externalDbSecret`. If the Secret does not exist at install time, the pod will fail to start with a missing Secret error.
 - The OpenShift SCC binding must be created before the Helm install so that sandbox pods can schedule when the chart creates the Deployment.
-- Cluster-scoped resource adoption must run before Helm install to prevent ownership conflicts (see Multi-Tenant Limitation).
-- The per-namespace ClusterRoleBinding must run after Helm install because it references the ClusterRole that Helm creates.
 
 ---
 
@@ -442,7 +430,7 @@ The control plane SHALL validate configuration at startup and fail fast with cle
 | Chart upgrade changes resource names/labels | Orphaned resources, broken selectors | Pin chart version in container image; test upgrades in dev-cluster before production |
 | PR #2728 not merged | BackendTLSPolicy and BackendCA ConfigMap gaps remain | Keep Go-based reconciliation as fallback; gate on chart version |
 | Helm SDK version drift | API incompatibilities | Pin `helm.sh/helm/v3` in `go.mod`; track upstream releases |
-| Multi-tenant ClusterRole conflict | Second gateway install fails; brief permission gap on uninstall | Adopt cluster resources before install; per-namespace CRBs; upstream toggle planned |
+| Namespace-scoped ClusterRole names | Upgrading from fixed-name chart leaves orphaned old ClusterRole | Old `openshell-gateway-node-reader` can be cleaned up manually; new per-namespace resources are independent |
 
 ---
 
@@ -452,6 +440,7 @@ The control plane SHALL validate configuration at startup and fail fast with cle
 - [OpenShell Helm Chart README -- Install on OpenShift](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift) -- documents SCC binding as out-of-chart step
 - [Helm Go SDK Documentation](https://helm.sh/docs/sdk/)
 - [PR #2728: BackendTLSPolicy support](https://github.com/NVIDIA/OpenShell/pull/2728)
+- [PR #2939: namespace-scoped ClusterRole names](https://github.com/NVIDIA/OpenShell/pull/2939)
 - [Current gateway spec](./openshell-gateway.spec.md)
 - [Gateway routing spec](./openshell-gateway-routing.spec.md)
 - [Gateway database spec](./openshell-gateway-database.spec.md)
