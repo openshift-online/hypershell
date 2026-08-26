@@ -205,10 +205,12 @@ func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error 
 		setNestedValue(values, b.GatewayAPIGatewayName, "grpcRoute", "gateway", "name")
 		setNestedValue(values, b.GatewayAPIGatewayNamespace, "grpcRoute", "gateway", "namespace")
 
-		// BackendTLSPolicy (requires PR #2728)
-		setNestedValue(values, true, "grpcRoute", "backendTLSPolicy", "enabled")
-		// Disable mTLS when BackendTLSPolicy is used (per spec)
-		setNestedValue(values, false, "server", "tls", "enableMtls")
+		// BackendTLSPolicy is disabled: the certgen pre-install hook cannot
+		// create the backend CA ConfigMap on first install because the
+		// cert-manager Secret it reads from does not exist until after the
+		// chart resources are applied (chicken-and-egg with pre-install hooks).
+		// Re-enable once a post-install reconciliation path is added.
+		setNestedValue(values, false, "grpcRoute", "backendTLSPolicy", "enabled")
 	} else {
 		// Route passthrough mode (OpenShift < 4.22)
 		setNestedValue(values, true, "openshiftRoute", "enabled")
