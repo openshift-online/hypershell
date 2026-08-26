@@ -155,6 +155,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 
 | Gateway / CP Config | Helm Value | Notes |
 |---|---|---|
+| `ReleaseName` constant (`openshell-gateway`) | `fullnameOverride` | Upstream chart name is `helm-chart`; override pins all resource names to `openshell-gateway` |
 | Gateway `image` field | `image.repository`, `image.tag` | Split at last `:` |
 | Gateway `supervisor_image` field | `supervisorImage.repository`, `supervisorImage.tag` | Split at last `:` |
 | Always `deployment` | `workload.kind` | PostgreSQL backend, never StatefulSet |
@@ -204,7 +205,7 @@ The shared Gateway terminates external TLS with its admin-provisioned wildcard c
 | Gateway / CP Config | Helm Value | Notes |
 |---|---|---|
 | Gateway has `route` config + Gateway API available | `grpcRoute.enabled=true` | Enable GRPCRoute creation |
-| Route hostname | `grpcRoute.hostnames` | `[gw-<ns>.<base-domain>]` |
+| Route hostname | `grpcRoute.hostnames` | `[gw-<ns>.<base-domain>]` where `<base-domain>` is from `GATEWAY_API_BASE_DOMAIN` (set via `deriveGatewayHostname` → `Route.Host`) |
 | Gateway API Gateway ref | `grpcRoute.gateway.name`, `grpcRoute.gateway.namespace` | Cross-namespace parentRef |
 | BackendTLSPolicy support (PR #2728) | `grpcRoute.backendTLSPolicy.enabled=true` | Requires PR #2728 |
 | mTLS toggle (PR #2728) | `server.tls.enableMtls=false` | Required when BackendTLSPolicy is used |

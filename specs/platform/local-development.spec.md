@@ -291,7 +291,7 @@ For each HyperShell Gateway resource, the control plane reconciler creates three
        caCertificateRefs:
        - group: ""
          kind: ConfigMap
-         name: openshell-backend-ca
+         name: openshell-gateway-backend-ca
        hostname: openshell-gateway.hypershell-system.svc.cluster.local
    ```
 
@@ -300,7 +300,7 @@ For each HyperShell Gateway resource, the control plane reconciler creates three
    apiVersion: v1
    kind: ConfigMap
    metadata:
-     name: openshell-backend-ca
+     name: openshell-gateway-backend-ca
      namespace: hypershell-system
    data:
      ca.crt: |
@@ -320,7 +320,7 @@ Client                   Networking Gateway              Gateway Pod
 ```
 
 1. **Client to networking Gateway:** The client connects via HTTPS. The networking Gateway terminates external TLS using the wildcard certificate (`*.gw.localhost`) issued by cert-manager. HTTP/2 is negotiated through ALPN during the TLS handshake.
-2. **Networking Gateway to pod:** BackendTLSPolicy instructs the networking Gateway to re-encrypt traffic to the backend pod. The Gateway verifies the pod's certificate against the CA in the `openshell-backend-ca` ConfigMap. The pod's cert is issued by cert-manager from the same self-signed CA.
+2. **Networking Gateway to pod:** BackendTLSPolicy instructs the networking Gateway to re-encrypt traffic to the backend pod. The Gateway verifies the pod's certificate against the CA in the `openshell-gateway-backend-ca` ConfigMap. The pod's cert is issued by cert-manager from the same self-signed CA.
 
 #### Kind vs Production Differences
 
