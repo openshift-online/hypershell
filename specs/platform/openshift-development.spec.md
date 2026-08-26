@@ -680,11 +680,7 @@ environment supplies through configuration, not through code. The known placehol
 to reconcile is the gateway base domain
 `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com`, which SHALL come from
 configuration, so that a deployment to a different cluster does not require an
-overlay edit. The bundled CNPG `Cluster` in `deploy/base/hypershell-db-cluster.yaml`
-sets no explicit `imageName`, so it runs the CloudNativePG operator's default
-PostgreSQL image, which is not pinned for this deployment. For a reproducible
-deployment, the overlay SHALL set an explicit `spec.imageName` on the CNPG `Cluster`
-pinned to a digest (`@sha256:...`), rather than rely on the operator default.
+overlay edit.
 
 A drift check SHALL compare each overlay against `deploy/base/` after a defined
 normalization step, and SHALL fail when an overlay differs from the base outside its
@@ -699,13 +695,6 @@ cannot silently diverge on any resource that neither allowlist covers.
 - WHEN a developer deploys to a cluster with a different base domain
 - THEN the deployment reads the base domain from configuration
 - AND the developer does not edit the overlay to change the base domain
-
-#### Scenario: Database image is pinned
-
-- GIVEN the CNPG `Cluster` sets an explicit `spec.imageName`
-- WHEN a maintainer inspects the overlay
-- THEN the image reference includes a digest
-- AND a deployment pulls the same image bytes every time
 
 #### Scenario: Drift check fails on unintended drift
 
