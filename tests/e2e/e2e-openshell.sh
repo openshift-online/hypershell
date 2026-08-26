@@ -697,16 +697,16 @@ else
   fail_test "Gateway config ConfigMap not found"
 fi
 
-show_cmd "$CLI get certificate openshell-ca -n $GW_NAMESPACE"
-GW_CA_READY=$($CLI get certificate openshell-ca -n "$GW_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+show_cmd "$CLI get certificate openshell-gateway-ca -n $GW_NAMESPACE"
+GW_CA_READY=$($CLI get certificate openshell-gateway-ca -n "$GW_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
 if [[ "$GW_CA_READY" == "True" ]]; then
   pass "Gateway CA certificate issued"
 else
   fail_test "Gateway CA certificate not ready (status=${GW_CA_READY:-unknown})"
 fi
 
-show_cmd "$CLI get certificate openshell-server -n $GW_NAMESPACE"
-GW_SRV_READY=$($CLI get certificate openshell-server -n "$GW_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+show_cmd "$CLI get certificate openshell-gateway-server -n $GW_NAMESPACE"
+GW_SRV_READY=$($CLI get certificate openshell-gateway-server -n "$GW_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
 if [[ "$GW_SRV_READY" == "True" ]]; then
   pass "Gateway server certificate issued"
 else
