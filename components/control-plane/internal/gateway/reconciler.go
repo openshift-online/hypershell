@@ -144,8 +144,8 @@ func ReconcileGateway(
 
 	// Deploy gateway via Helm
 	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
-	// BackendTLSPolicy, Route, credential KEK, NetworkPolicy
-	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts); err != nil {
+	// BackendTLSPolicy, Route, credential KEK, NetworkPolicy (disabled)
+	if err := deployGatewayViaHelm(ctx, clientset, helmClient, nsConfig, opts); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}
@@ -1180,6 +1180,16 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 		return false
 	}
 
+	data := make(map[string]string, len(sourceCM.Data)+1)
+	for k, v := range sourceCM.Data {
+		data[k] = v
+	}
+	if _, ok := data["ca.crt"]; !ok {
+		if v, ok := data["ca-bundle.crt"]; ok {
+			data["ca.crt"] = v
+		}
+	}
+
 	targetCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      caConfigMapName,
@@ -1191,7 +1201,7 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 				"hypershell.redhat.io/managed": "true",
 			},
 		},
-		Data: sourceCM.Data,
+		Data: data,
 	}
 
 	existing, err := clientset.CoreV1().ConfigMaps(targetNamespace).Get(ctx, caConfigMapName, metav1.GetOptions{})
