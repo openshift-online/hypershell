@@ -96,6 +96,11 @@ func (b *ValuesBuilder) Build() (map[string]interface{}, error) {
 
 // buildCoreValues builds the core Helm chart values.
 func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
+	// The upstream chart name is "helm-chart", not "openshell", so the default
+	// fullname (release-name + chart-name) would produce "openshell-gateway-helm-chart".
+	// Pin fullnameOverride so every chart resource uses the expected name.
+	setNestedValue(values, ReleaseName, "fullnameOverride")
+
 	// Image values
 	if b.Gateway.Image != "" {
 		repo, tag := splitImageRef(b.Gateway.Image)
@@ -205,12 +210,8 @@ func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error 
 		setNestedValue(values, b.GatewayAPIGatewayName, "grpcRoute", "gateway", "name")
 		setNestedValue(values, b.GatewayAPIGatewayNamespace, "grpcRoute", "gateway", "namespace")
 
-		// BackendTLSPolicy is disabled: the certgen pre-install hook cannot
-		// create the backend CA ConfigMap on first install because the
-		// cert-manager Secret it reads from does not exist until after the
-		// chart resources are applied (chicken-and-egg with pre-install hooks).
-		// Re-enable once a post-install reconciliation path is added.
-		setNestedValue(values, false, "grpcRoute", "backendTLSPolicy", "enabled")
+		setNestedValue(values, true, "grpcRoute", "backendTLSPolicy", "enabled")
+		setNestedValue(values, false, "server", "tls", "enableMtls")
 	} else {
 		// Route passthrough mode (OpenShift < 4.22)
 		setNestedValue(values, true, "openshiftRoute", "enabled")
