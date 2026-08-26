@@ -91,6 +91,16 @@ The masthead and browser page titles SHALL use HyperShell product branding and t
 
 Resource collections SHALL use a shared PatternFly table pattern with client-side search, sortable data columns, result counts, pagination, responsive row presentation, and explicit empty and no-match states. API-backed pagination and filtering SHALL be used for the gateway collection to support platform:admin users viewing all gateways across the platform. The gateway list SHALL default to 20 items per page and allow selection up to 100 items per page. Selecting an items-per-page value SHALL reset the collection to its first page and request the selected page size from the authoritative data source. The gateway search input SHALL filter by gateway name, ID, or fleet, be debounced for 300 milliseconds, and cancel in-flight requests when a new search is initiated.
 
+The gateway collection SHALL expose the Created by column as an authoritative sortable column. The console SHALL preserve this sort in URL collection state and request creator username ordering from the API. The API SHALL apply creator ordering before pagination so that each page is part of one globally ordered result set.
+
+#### Scenario: Sort Gateways by Creator
+
+- GIVEN the gateway collection contains gateways created by different users
+- WHEN the user sorts the Created by column
+- THEN the console SHALL request the corresponding creator sort direction
+- AND the API SHALL order the complete visible gateway collection by creator username before selecting the requested page
+- AND the console SHALL preserve the creator sort field and direction in the collection URL
+
 Every resource collection page SHALL expose a PatternFly refresh action in the page heading. The icon-only action SHALL have a localized accessible label, indicate or disable itself while a refresh is active, refetch the collection through its query boundary, and preserve the user's current filter, sort, and pagination state.
 
 The initial route model SHALL include:

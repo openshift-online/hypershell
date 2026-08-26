@@ -310,15 +310,23 @@ func (r *ManagedDatabaseReconciler) handleDeploymentDatabase(ctx context.Context
 
 	// Readiness is observed after desired state has converged. A Ready status is
 	// not a reason to skip reconciliation: image, security, labels, resources, and
-	// copied connection data may have changed since the previous event.
-	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, currentStatus, "Provisioning")
+	// copied connection data may have changed since the previous event. However,
+	// repeatedly writing Ready -> Provisioning -> Ready creates a self-sustaining
+	// watch-event storm because each status write emits another ManagedDatabase
+	// event. Keep Ready while checking an already-ready resource; transition to
+	// Provisioning only when work is not already reported ready.
+	reconcileStatus := currentStatus
+	if currentStatus != "Ready" {
+		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, currentStatus, "Provisioning")
+		reconcileStatus = "Provisioning"
+	}
 
 	if err := r.reconcileDeploymentDatabase(ctx, db); err != nil {
-		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", fmt.Sprintf("Failed: %v", err))
+		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, reconcileStatus, fmt.Sprintf("Failed: %v", err))
 		return fmt.Errorf("reconcile deployment database for ManagedDatabase %s: %w", db.Name, err)
 	}
 
-	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, "Provisioning", "Ready")
+	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, reconcileStatus, "Ready")
 	log.Printf("INFO ManagedDatabase %s deployment database provisioned in namespace %s", event.ResourceID, db.Namespace)
 	return nil
 }

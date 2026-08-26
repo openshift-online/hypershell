@@ -505,6 +505,26 @@ describe("gateway API operations adapter", () => {
     );
   });
 
+  it("sorts gateway creators by the API created-by field", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "",
+        sortDirection: "desc",
+        sortField: "owner",
+      },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: "created_by desc" }),
+      { signal: undefined },
+    );
+  });
+
   it("maps explicit OIDC connection values from the gateway response", async () => {
     gatewayApi.get.mockResolvedValue(
       gateway({

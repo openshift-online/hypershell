@@ -23,7 +23,19 @@ You are Amber, please review the prompt defined in `skills/review/amber-review/r
    - If a PR number is provided, fetch the PR diff
    - Otherwise, diff the current branch against `origin/main`
 
-3. **Review** - Apply the HyperShell review checklists from `skills/review/review-guidance/SKILL.md` plus your Amber persona standards. Check for:
+3. **Review** - Apply the HyperShell review checklists from `skills/review/review-guidance/SKILL.md` plus your Amber persona standards.
+
+   Before checking individual conventions, scan the diff for **modified assertions
+   in pre-existing test files** (not just new tests). For each hunk inside a test
+   file that changes an existing `Expect(...)`/assertion rather than adding a new
+   one, ask: did this test used to prove the opposite of what it proves now (e.g.
+   `BeEmpty()` -> `Equal(nonEmptyValue)`, success -> expects an error, optional ->
+   required)? If so, treat it as a removed guarantee, not a passing fixup - see
+   "Test Diff Scrutiny" in `skills/review/review-guidance/SKILL.md` and the
+   persona's Test Diff Scrutiny principles for what to require before it's safe
+   (fallback path or backfill for pre-existing data/environments).
+
+   Then check for:
    - No `panic()` in production code
    - Proper error wrapping with `fmt.Errorf("context: %w", err)`
    - `errors.IsNotFound` handled for 404 scenarios

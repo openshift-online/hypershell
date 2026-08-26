@@ -52,6 +52,7 @@ const gatewaySortFields = {
   created: "created_at",
   endpoint: "route_address",
   name: "name",
+  owner: "created_by",
   status: "status",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 

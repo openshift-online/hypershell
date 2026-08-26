@@ -44,6 +44,21 @@
         "Overall assessment is APPROVE or COMMENT, not REQUEST_CHANGES",
         "Includes a Findings Summary numbered list and Convention Checklist table (Pass/Fail, no N/A rows)"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review this diff against components/api-server/plugins/gateways for HyperShell conventions. The raw diff is at skills/review/amber-review/evals/files/weakened_test_guarantee.diff - it makes database_id required on gateway creation, auto-resolving it when exactly one ManagedDatabase exists.",
+      "expected_output": "Should identify that the diff modifies an existing test's assertion (TestGatewayPostAllowsEmptyReconcilerOwnedIDs) from proving a blank database_id is accepted and preserved (BeEmpty()) to proving a fixed literal is required (Equal(\"test-database_id\")), which silently removes coverage for the previously-valid blank state rather than adding new coverage alongside it. Should also flag that two unrelated tests (route-default and explicit-route tests) were patched to use a non-empty database_id purely to keep passing under the new requirement, and that the new hard validation error in service.go has no fallback or backfill for gateways/environments that already have a blank database_id in production. Should treat this as a backward-compatibility / breaking-change risk, not merely a new-validation-rule improvement.",
+      "files": ["evals/files/weakened_test_guarantee.diff"],
+      "expectations": [
+        "Explicitly calls out that TestGatewayPostAllowsEmptyReconcilerOwnedIDs's assertion was changed in place (BeEmpty() -> Equal to a non-empty literal), not just that a new test was added",
+        "States or implies that this modification removes/replaces prior coverage proving blank database_id was valid, rather than preserving it as a separate case",
+        "Notes that TestGatewayPostWithoutRouteRemainsUnrouted and TestGatewayPostPreservesExplicitRoute were also changed to use a non-empty database_id, unrelated to what those tests are actually about, as a sign the precondition change was broader than the PR's stated intent",
+        "Flags the absence of a fallback or backfill path for existing gateways/environments where database_id is already blank as a Major or Blocker severity finding, distinct from praising the new TestGatewayPostRejectsEmptyDatabaseId test as good coverage",
+        "Frames this as a backward-compatibility / breaking-change concern (e.g., production data or environments that predate ManagedDatabase could already rely on blank database_id), not just a style or test-hygiene nitpick",
+        "Overall assessment is REQUEST_CHANGES, not APPROVE",
+        "Includes a Findings Summary numbered list and Convention Checklist table (Pass/Fail, no N/A rows)"
+      ]
     }
   ]
 }

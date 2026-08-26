@@ -1,0 +1,83 @@
+diff --git a/components/api-server/plugins/gateways/service.go b/components/api-server/plugins/gateways/service.go
+index f6aae794..8d016670 100644
+--- a/components/api-server/plugins/gateways/service.go
++++ b/components/api-server/plugins/gateways/service.go
+@@ -85,6 +85,15 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gate
+ }
+ 
+ func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
++	if gateway.DatabaseId == "" {
++		if s.dbFinder == nil {
++			return nil, errors.Validation("database_id is required")
++		}
++		dbID, findErr := s.dbFinder.FindSole(ctx)
++		if findErr != nil {
++			return nil, errors.GeneralError("resolve database: %s", findErr)
++		}
++		if dbID == "" {
++			return nil, errors.Validation("database_id is required: zero or multiple ManagedDatabases exist")
++		}
++		gateway.DatabaseId = dbID
++	}
++
+ 	gateway, err := s.gatewayDao.Create(ctx, gateway)
+ 	if err != nil {
+ 		return nil, services.HandleCreateError("Gateway", err)
+diff --git a/components/api-server/plugins/gateways/integration_test.go b/components/api-server/plugins/gateways/integration_test.go
+index 0bae1642..9c290b00 100644
+--- a/components/api-server/plugins/gateways/integration_test.go
++++ b/components/api-server/plugins/gateways/integration_test.go
+@@ -85,7 +85,7 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
+ 		FleetId:    "",
+ 		ClusterId:  "",
+ 		ReleaseId:  "",
+-		DatabaseId: "",
++		DatabaseId: "test-database_id",
+ 	}
+ 
+ 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
+@@ -94,10 +94,28 @@ func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
+ 	Expect(gatewayOutput.FleetId).To(BeEmpty())
+ 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
+ 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
+-	Expect(gatewayOutput.DatabaseId).To(BeEmpty())
++	Expect(gatewayOutput.DatabaseId).To(Equal("test-database_id"))
+ 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
+ }
+ 
++func TestGatewayPostRejectsEmptyDatabaseId(t *testing.T) {
++	h, client := test.RegisterIntegration(t)
++
++	account := h.NewRandAccount()
++	ctx := h.NewAuthenticatedContext(account)
++	gatewayInput := openapi.GatewayCreateRequest{
++		Name:       "no-db-gateway",
++		DatabaseId: "",
++	}
++
++	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
++	Expect(err).To(HaveOccurred())
++	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
++}
++
+ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
+ 	h, client := test.RegisterIntegration(t)
+ 
+@@ -109,7 +127,7 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
+ 		FleetId:    "",
+ 		ClusterId:  "",
+ 		ReleaseId:  "",
+-		DatabaseId: "",
++		DatabaseId: "test-database_id",
+ 	}
+ 
+ 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
+@@ -130,7 +148,7 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
+ 		FleetId:    "",
+ 		ClusterId:  "",
+ 		ReleaseId:  "",
+-		DatabaseId: "",
++		DatabaseId: "test-database_id",
+ 		Route:      openapi.PtrString(customRoute),
+ 	}
+ 

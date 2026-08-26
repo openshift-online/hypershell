@@ -21,11 +21,15 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/pkg/services"
 	"github.com/openshift-online/rh-trex-ai/plugins/events"
 	"github.com/openshift-online/rh-trex-ai/plugins/generic"
 )
 
-type ServiceLocator func() GatewayService
+type ServiceLocator struct {
+	gateway func() GatewayService
+	list    services.GenericService
+}
 
 type dbLookupAdapter struct {
 	svc managedDatabases.ManagedDatabaseService
@@ -72,22 +76,25 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 		glog.Fatalf("gateways: %v", err)
 	}
 
-	return func() GatewayService {
-		var placement PlacementResolver
-		if mdSvc := managedDatabases.Service(&env.Services); mdSvc != nil {
-			if databaseProvider == ProviderDeployment {
-				placement = NewDeploymentPlacement(&dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
-			} else {
-				placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc})
+	return ServiceLocator{
+		gateway: func() GatewayService {
+			var placement PlacementResolver
+			if mdSvc := managedDatabases.Service(&env.Services); mdSvc != nil {
+				if databaseProvider == ProviderDeployment {
+					placement = NewDeploymentPlacement(&dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
+				} else {
+					placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc})
+				}
 			}
-		}
 
-		return NewGatewayService(
-			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
-			dao,
-			events.Service(&env.Services),
-			placement,
-		)
+			return NewGatewayService(
+				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
+				dao,
+				events.Service(&env.Services),
+				placement,
+			)
+		},
+		list: newGatewayListService(&env.Database.SessionFactory),
 	}
 }
 
@@ -97,7 +104,18 @@ func Service(s *environments.Services) GatewayService {
 	}
 	if obj := s.GetService("Gateways"); obj != nil {
 		locator := obj.(ServiceLocator)
-		return locator()
+		return locator.gateway()
+	}
+	return nil
+}
+
+func listService(s *environments.Services) services.GenericService {
+	if s == nil {
+		return nil
+	}
+	if obj := s.GetService("Gateways"); obj != nil {
+		locator := obj.(ServiceLocator)
+		return locator.list
 	}
 	return nil
 }
@@ -124,7 +142,7 @@ func init() {
 			})
 			ownerLookup = rbService
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices), ownerBinding, visibilityFilter, ownerLookup)
+		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)

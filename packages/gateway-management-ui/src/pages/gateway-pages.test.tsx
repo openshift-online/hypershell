@@ -1067,6 +1067,18 @@ describe("gateway shell pages", () => {
       "sort",
     );
 
+    await user.click(within(table).getByRole("button", { name: "Created by" }));
+    expect(onCollectionStateChange).toHaveBeenLastCalledWith(
+      {
+        page: 1,
+        search: "",
+        size: 20,
+        sortDirection: "asc",
+        sortField: "owner",
+      },
+      "sort",
+    );
+
     fireEvent.change(
       screen.getByRole("textbox", {
         name: "Filter by name, cluster, status, or endpoint",
