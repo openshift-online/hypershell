@@ -81,7 +81,7 @@ Makefile (single entry point)
     │       │
     │       ├── sources scripts/cluster/lib.sh (shared seams)
     │       │
-    │       └── selects driver via CLUSTER_DRIVER
+    │       └── the up-target picks the driver (kind-up / openshift-up)
     │               ├── scripts/cluster/drivers/kind.sh       (wraps today's scripts/kind/)
     │               └── scripts/cluster/drivers/openshift.sh  (this spec)
     │
@@ -102,11 +102,12 @@ infrastructure target supplies one of each.
 ### Requirement: Cluster Lifecycle Driver Abstraction
 
 The lifecycle scripts SHALL separate infrastructure-agnostic logic from
-infrastructure-specific logic through a driver model. A `CLUSTER_DRIVER` variable
-SHALL select the driver. The default value SHALL be `kind`, so that existing Kind
-commands keep their current behavior. Each driver SHALL implement a fixed set of
-lifecycle operations: `cluster_up`, `cluster_down`, `cluster_teardown`,
-`cluster_status`, `component_swap`, and `component_revert`.
+infrastructure-specific logic through a driver model. The make target name SHALL
+select the driver: `make kind-up` selects the Kind driver and `make openshift-up`
+selects the OpenShift driver. Existing Kind commands keep their current behavior.
+Each driver SHALL implement a fixed set of lifecycle operations: `cluster_up`,
+`cluster_down`, `cluster_teardown`, `cluster_status`, `component_swap`, and
+`component_revert`.
 
 Because OpenShift does not create the cluster, the OpenShift driver's
 `cluster_teardown` SHALL behave the same as `cluster_down` -- it removes the
@@ -124,16 +125,17 @@ Kind e2e driver (`tests/e2e/drivers/kind.sh`). The OpenShift target SHALL use th
 OpenShift lifecycle driver and the OpenShift e2e driver
 (`tests/e2e/drivers/openshift.sh`).
 
-The lifecycle driver and the e2e driver for a target SHALL always select the same
-infrastructure. `E2E_INFRA_DRIVER` SHALL default to the value of `CLUSTER_DRIVER`,
-so that one selector drives both by default. When both variables are set and they
-disagree, a preflight check SHALL fail with a clear error before any deploy or test
-runs, rather than let a Kind lifecycle run with the OpenShift e2e driver (or the
-reverse) and produce misleading route failures or test the wrong environment.
+The lifecycle driver and the e2e driver for a target SHALL select the same
+infrastructure. The lifecycle driver comes from the make target name. The e2e
+driver comes from `E2E_INFRA_DRIVER`, which the test entry points require (see
+`e2e-testing.spec.md`). The test entry points (`make e2e`, `make e2e-performance`)
+are each one infrastructure-agnostic target, so they need an explicit selector. The
+lifecycle targets do not need a selector, because the target name already fixes the
+infrastructure.
 
 #### Scenario: Default driver preserves Kind behavior
 
-- GIVEN a developer runs `make kind-up` with no `CLUSTER_DRIVER` set
+- GIVEN a developer runs `make kind-up`
 - WHEN the lifecycle scripts run
 - THEN the scripts use the Kind driver
 - AND the deployment result is identical to the current Kind behavior
@@ -145,13 +147,6 @@ reverse) and produce misleading route failures or test the wrong environment.
 - THEN the developer adds one lifecycle driver file that implements the fixed
   operations
 - AND the developer does not change the infrastructure-agnostic lifecycle logic
-
-#### Scenario: Mismatched drivers fail preflight
-
-- GIVEN `CLUSTER_DRIVER=kind` and `E2E_INFRA_DRIVER=openshift`
-- WHEN the lifecycle or e2e entry point runs
-- THEN a preflight check fails with a clear error
-- AND no deploy or test runs
 
 #### Scenario: OpenShift teardown removes the namespace group
 
