@@ -35,7 +35,7 @@ fi
 if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
   export KIND_EXPERIMENTAL_PROVIDER=podman
 fi
-: "${GATEWAY_IMAGE:=ghcr.io/nvidia/openshell/gateway:0.0.109}"
+: "${GATEWAY_IMAGE:=quay.io/bsquizza/openshell-gateway:9d0f8cc}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KEYCLOAK_OIDC_ISSUER:=https://${KEYCLOAK_HOSTNAME}/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"

@@ -37,7 +37,7 @@ const defaultOAuth2ProxyImage = "quay.io/oauth2-proxy/oauth2-proxy:v7.7.1"
 
 type StaticImageDefaults struct{}
 
-const defaultGatewayImage = "ghcr.io/nvidia/openshell/gateway:0.0.109"
+const defaultGatewayImage = "quay.io/bsquizza/openshell-gateway:9d0f8cc"
 const defaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:0.0.109"
 
 // DefaultGatewayImage resolves the gateway server (and certgen) image used when
