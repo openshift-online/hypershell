@@ -123,9 +123,21 @@
     "defaultMessage": "Copy the create-sandbox command",
     "description": "Accessible label for copying the create-sandbox command."
   },
+  "app.gateway.connection.copySandboxConnectCommand": {
+    "defaultMessage": "Copy the connect-sandbox command",
+    "description": "Accessible label for copying the connect-sandbox command."
+  },
   "app.gateway.connection.copySetupCommand": {
     "defaultMessage": "Copy the one-time setup commands",
     "description": "Accessible label for copying the consolidated one-time setup script."
+  },
+  "app.gateway.connection.editEditor": {
+    "defaultMessage": "Editor (editable)",
+    "description": "Accessible label for the inline-editable editor name in the connect-sandbox command."
+  },
+  "app.gateway.connection.editExistingSandboxName": {
+    "defaultMessage": "Existing sandbox name (editable)",
+    "description": "Accessible label for the inline-editable sandbox name in the connect-sandbox command."
   },
   "app.gateway.connection.editModel": {
     "defaultMessage": "Model (editable)",
@@ -138,6 +150,22 @@
   "app.gateway.connection.editSandboxName": {
     "defaultMessage": "Sandbox name (editable)",
     "description": "Accessible label for the inline-editable sandbox name in the create-sandbox command."
+  },
+  "app.gateway.connection.editorOptions": {
+    "defaultMessage": "Supported interactive editors are <code>vscode</code> and <code>cursor</code>.",
+    "description": "Info note listing the supported editor values for the connect-sandbox command. Editor names are wrapped in <code> tags."
+  },
+  "app.gateway.connection.editorOptionsLink": {
+    "defaultMessage": "OpenShell connect documentation",
+    "description": "Link text pointing to the OpenShell sandbox connect CLI documentation."
+  },
+  "app.gateway.connection.editorOptionsLinkNewTab": {
+    "defaultMessage": "Sandbox connect reference (opens in a new tab)",
+    "description": "Accessible name for the sandbox connect docs link, including that it opens in a new tab."
+  },
+  "app.gateway.connection.editorOptionsTitle": {
+    "defaultMessage": "Editor options",
+    "description": "Title for the editor options info alert."
   },
   "app.gateway.connection.installLink": {
     "defaultMessage": "Install the OpenShell CLI",
@@ -166,6 +194,14 @@
   "app.gateway.connection.sandbox.title": {
     "defaultMessage": "Create a sandbox",
     "description": "Title for the create-sandbox connection step."
+  },
+  "app.gateway.connection.sandboxConnect.description": {
+    "defaultMessage": "Already have a sandbox from an earlier session? Run this to reattach.",
+    "description": "Supporting text for the connect-to-sandbox connection step."
+  },
+  "app.gateway.connection.sandboxConnect.title": {
+    "defaultMessage": "Connect to a sandbox",
+    "description": "Title for the connect-to-sandbox connection step."
   },
   "app.gateway.connection.setup.description": {
     "defaultMessage": "Run these once to log in, add the Claude on Vertex AI provider, and select the model.",
