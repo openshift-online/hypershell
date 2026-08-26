@@ -20,7 +20,7 @@ checks manually with `make check`.
 - `components/control-plane/` - Go service, watches API server via gRPC and reconciles gateway resources into K8s
 - `packages/gateway-management-ui/` - Private reusable React package containing canonical gateway management workflows
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
-- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
+- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
 
 ## Key Files
@@ -67,11 +67,13 @@ state (coverage summary, gap table, wave plan), then executes waves to close gap
 Idempotent: safe to run repeatedly.
 
 Support skills available at any point:
+- `/cloud-hub-ingress-bootstrap` -- one-time shared Gateway + wildcard DNS/TLS per Cloud Hub (AWS/IBM)
 - `/review-guidance` -- PR review checklist
 - `/amber-review` -- Amber agent comprehensive code review
 - `/ui-standards` -- UI/UX audit or intent-driven design guidance
 - `/align` -- convention health check
 - `/maintain-ci` -- CI workflow and component registration maintenance
+- `/update-openshell` -- sync HyperShell to a new upstream OpenShell release (self-reinforcing)
 - `/memory` -- project memory management
 
 ## Commands

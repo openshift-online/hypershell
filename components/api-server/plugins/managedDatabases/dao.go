@@ -11,11 +11,15 @@ import (
 
 type ManagedDatabaseDao interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, error)
+	GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, error)
+	ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, error)
 	Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error)
 	Replace(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error)
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (ManagedDatabaseList, error)
 	All(ctx context.Context) (ManagedDatabaseList, error)
+	FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, error)
+	ExistsByDatabaseID(ctx context.Context, databaseID string) (bool, error)
 }
 
 var _ ManagedDatabaseDao = &sqlManagedDatabaseDao{}
@@ -35,6 +39,29 @@ func (d *sqlManagedDatabaseDao) Get(ctx context.Context, id string) (*ManagedDat
 		return nil, err
 	}
 	return &managedDatabase, nil
+}
+
+func (d *sqlManagedDatabaseDao) GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var managedDatabase ManagedDatabase
+	if err := g2.Unscoped().Take(&managedDatabase, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &managedDatabase, nil
+}
+
+func (d *sqlManagedDatabaseDao) ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var managedDatabases []ManagedDatabase
+	if err := g2.Unscoped().
+		Where("deleted_at IS NOT NULL").
+		Order("deleted_at ASC, id ASC").
+		Offset(offset).
+		Limit(limit).
+		Find(&managedDatabases).Error; err != nil {
+		return nil, err
+	}
+	return managedDatabases, nil
 }
 
 func (d *sqlManagedDatabaseDao) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, error) {
@@ -80,4 +107,25 @@ func (d *sqlManagedDatabaseDao) All(ctx context.Context) (ManagedDatabaseList, e
 		return nil, err
 	}
 	return managedDatabases, nil
+}
+
+func (d *sqlManagedDatabaseDao) FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var databases []ManagedDatabase
+	if err := g2.Where("fleet_id = ?", fleetID).Find(&databases).Error; err != nil {
+		return nil, err
+	}
+	if len(databases) == 1 {
+		return &databases[0], nil
+	}
+	return nil, nil
+}
+
+func (d *sqlManagedDatabaseDao) ExistsByDatabaseID(ctx context.Context, databaseID string) (bool, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	if err := g2.Raw("SELECT COUNT(*) FROM gateways WHERE database_id = ? AND deleted_at IS NULL", databaseID).Scan(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

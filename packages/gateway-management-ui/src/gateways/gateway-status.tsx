@@ -1,5 +1,6 @@
 import { Icon, Spinner } from "@patternfly/react-core";
 import {
+  BanIcon,
   CheckCircleIcon,
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
@@ -19,6 +20,12 @@ function GatewayStatusIcon({
   appearance: GatewayStatusAppearance;
 }) {
   switch (appearance) {
+    case "inactive":
+      return (
+        <Icon isInline>
+          <BanIcon aria-hidden />
+        </Icon>
+      );
     case "success":
       return (
         <Icon isInline status="success">
@@ -54,19 +61,25 @@ function GatewayStatusIcon({
   }
 }
 
-export function GatewayStatus({ status }: { status: string }) {
+export function GatewayStatus({
+  label,
+  status,
+}: {
+  label?: React.ReactNode;
+  status: string;
+}) {
   const appearance = gatewayStatusAppearance(status);
 
   return (
     <span
       className={
-        appearance === "unknown"
+        appearance === "unknown" || appearance === "inactive"
           ? [styles.status, styles.unknown].join(" ")
           : styles.status
       }
     >
       <GatewayStatusIcon appearance={appearance} />
-      <span>{status}</span>
+      <span>{label ?? status}</span>
     </span>
   );
 }

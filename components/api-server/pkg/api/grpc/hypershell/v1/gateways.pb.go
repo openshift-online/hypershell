@@ -22,29 +22,30 @@ const (
 )
 
 type Gateway struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Metadata         *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId          string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
-	ClusterId        string                 `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	ReleaseId        string                 `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
-	DatabaseId       string                 `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
-	Namespace        string                 `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	ExternalDns      *string                `protobuf:"bytes,8,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
-	TlsMode          *string                `protobuf:"bytes,9,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
-	ServiceType      *string                `protobuf:"bytes,10,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
-	Status           *string                `protobuf:"bytes,11,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	Phase            *string                `protobuf:"bytes,12,opt,name=phase,proto3,oneof" json:"phase,omitempty"`
-	Image            *string                `protobuf:"bytes,13,opt,name=image,proto3,oneof" json:"image,omitempty"`
-	SupervisorImage  *string                `protobuf:"bytes,19,opt,name=supervisor_image,json=supervisorImage,proto3,oneof" json:"supervisor_image,omitempty"`
-	ServerDnsNames   []string               `protobuf:"bytes,14,rep,name=server_dns_names,json=serverDnsNames,proto3" json:"server_dns_names,omitempty"`
-	RouteAddress     *string                `protobuf:"bytes,15,opt,name=route_address,json=routeAddress,proto3,oneof" json:"route_address,omitempty"`
-	Oidc             *string                `protobuf:"bytes,16,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
-	Route            *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
-	DatabaseConfig   *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
-	CredentialDriver *string                `protobuf:"bytes,20,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Metadata           *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Name               string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	FleetId            string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
+	ClusterId          string                 `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	ReleaseId          string                 `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
+	DatabaseId         string                 `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
+	Namespace          string                 `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	ExternalDns        *string                `protobuf:"bytes,8,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
+	TlsMode            *string                `protobuf:"bytes,9,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
+	ServiceType        *string                `protobuf:"bytes,10,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
+	Status             *string                `protobuf:"bytes,11,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	Phase              *string                `protobuf:"bytes,12,opt,name=phase,proto3,oneof" json:"phase,omitempty"`
+	Image              *string                `protobuf:"bytes,13,opt,name=image,proto3,oneof" json:"image,omitempty"`
+	SupervisorImage    *string                `protobuf:"bytes,19,opt,name=supervisor_image,json=supervisorImage,proto3,oneof" json:"supervisor_image,omitempty"`
+	ServerDnsNames     []string               `protobuf:"bytes,14,rep,name=server_dns_names,json=serverDnsNames,proto3" json:"server_dns_names,omitempty"`
+	RouteAddress       *string                `protobuf:"bytes,15,opt,name=route_address,json=routeAddress,proto3,oneof" json:"route_address,omitempty"`
+	Oidc               *string                `protobuf:"bytes,16,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
+	Route              *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
+	CredentialDriver   *string                `protobuf:"bytes,20,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
+	ActiveSandboxCount *int32                 `protobuf:"varint,21,opt,name=active_sandbox_count,json=activeSandboxCount,proto3,oneof" json:"active_sandbox_count,omitempty"`
+	ConsoleAddress     *string                `protobuf:"bytes,22,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -203,16 +204,23 @@ func (x *Gateway) GetRoute() string {
 	return ""
 }
 
-func (x *Gateway) GetDatabaseConfig() string {
-	if x != nil && x.DatabaseConfig != nil {
-		return *x.DatabaseConfig
+func (x *Gateway) GetCredentialDriver() string {
+	if x != nil && x.CredentialDriver != nil {
+		return *x.CredentialDriver
 	}
 	return ""
 }
 
-func (x *Gateway) GetCredentialDriver() string {
-	if x != nil && x.CredentialDriver != nil {
-		return *x.CredentialDriver
+func (x *Gateway) GetActiveSandboxCount() int32 {
+	if x != nil && x.ActiveSandboxCount != nil {
+		return *x.ActiveSandboxCount
+	}
+	return 0
+}
+
+func (x *Gateway) GetConsoleAddress() string {
+	if x != nil && x.ConsoleAddress != nil {
+		return *x.ConsoleAddress
 	}
 	return ""
 }
@@ -234,7 +242,6 @@ type CreateGatewayRequest struct {
 	ServerDnsNames   []string               `protobuf:"bytes,13,rep,name=server_dns_names,json=serverDnsNames,proto3" json:"server_dns_names,omitempty"`
 	Oidc             *string                `protobuf:"bytes,14,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
 	Route            *string                `protobuf:"bytes,15,opt,name=route,proto3,oneof" json:"route,omitempty"`
-	DatabaseConfig   *string                `protobuf:"bytes,16,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
 	CredentialDriver *string                `protobuf:"bytes,17,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -371,13 +378,6 @@ func (x *CreateGatewayRequest) GetOidc() string {
 func (x *CreateGatewayRequest) GetRoute() string {
 	if x != nil && x.Route != nil {
 		return *x.Route
-	}
-	return ""
-}
-
-func (x *CreateGatewayRequest) GetDatabaseConfig() string {
-	if x != nil && x.DatabaseConfig != nil {
-		return *x.DatabaseConfig
 	}
 	return ""
 }
@@ -540,10 +540,14 @@ type UpdateGatewayRequest struct {
 	RouteAddress     *string                `protobuf:"bytes,15,opt,name=route_address,json=routeAddress,proto3,oneof" json:"route_address,omitempty"`
 	Oidc             *string                `protobuf:"bytes,16,opt,name=oidc,proto3,oneof" json:"oidc,omitempty"`
 	Route            *string                `protobuf:"bytes,17,opt,name=route,proto3,oneof" json:"route,omitempty"`
-	DatabaseConfig   *string                `protobuf:"bytes,18,opt,name=database_config,json=databaseConfig,proto3,oneof" json:"database_config,omitempty"`
 	CredentialDriver *string                `protobuf:"bytes,19,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// active_sandbox_count is intentionally absent: the count is control-plane
+	// owned and written only through AdjustActiveSandboxCount / SetActiveSandboxCount
+	// so the whole-row UpdateGateway path can never clobber it. See
+	// openshell-gateway-sandbox-count.spec.md.
+	ConsoleAddress *string `protobuf:"bytes,20,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -695,16 +699,16 @@ func (x *UpdateGatewayRequest) GetRoute() string {
 	return ""
 }
 
-func (x *UpdateGatewayRequest) GetDatabaseConfig() string {
-	if x != nil && x.DatabaseConfig != nil {
-		return *x.DatabaseConfig
+func (x *UpdateGatewayRequest) GetCredentialDriver() string {
+	if x != nil && x.CredentialDriver != nil {
+		return *x.CredentialDriver
 	}
 	return ""
 }
 
-func (x *UpdateGatewayRequest) GetCredentialDriver() string {
-	if x != nil && x.CredentialDriver != nil {
-		return *x.CredentialDriver
+func (x *UpdateGatewayRequest) GetConsoleAddress() string {
+	if x != nil && x.ConsoleAddress != nil {
+		return *x.ConsoleAddress
 	}
 	return ""
 }
@@ -753,6 +757,206 @@ func (x *UpdateGatewayResponse) GetGateway() *Gateway {
 	return nil
 }
 
+// AdjustActiveSandboxCountRequest applies a relative delta to a gateway's
+// active_sandbox_count, keyed by the gateway's namespace. Deltas are applied
+// atomically at the database and the stored count is floored at zero.
+type AdjustActiveSandboxCountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Delta         int32                  `protobuf:"varint,2,opt,name=delta,proto3" json:"delta,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdjustActiveSandboxCountRequest) Reset() {
+	*x = AdjustActiveSandboxCountRequest{}
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdjustActiveSandboxCountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdjustActiveSandboxCountRequest) ProtoMessage() {}
+
+func (x *AdjustActiveSandboxCountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdjustActiveSandboxCountRequest.ProtoReflect.Descriptor instead.
+func (*AdjustActiveSandboxCountRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AdjustActiveSandboxCountRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *AdjustActiveSandboxCountRequest) GetDelta() int32 {
+	if x != nil {
+		return x.Delta
+	}
+	return 0
+}
+
+type AdjustActiveSandboxCountResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The resulting count after the adjustment. Zero when no live gateway backs
+	// the namespace (the adjustment is a no-op in that case).
+	ActiveSandboxCount int32 `protobuf:"varint,1,opt,name=active_sandbox_count,json=activeSandboxCount,proto3" json:"active_sandbox_count,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AdjustActiveSandboxCountResponse) Reset() {
+	*x = AdjustActiveSandboxCountResponse{}
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdjustActiveSandboxCountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdjustActiveSandboxCountResponse) ProtoMessage() {}
+
+func (x *AdjustActiveSandboxCountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdjustActiveSandboxCountResponse.ProtoReflect.Descriptor instead.
+func (*AdjustActiveSandboxCountResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AdjustActiveSandboxCountResponse) GetActiveSandboxCount() int32 {
+	if x != nil {
+		return x.ActiveSandboxCount
+	}
+	return 0
+}
+
+// SetActiveSandboxCountRequest sets a gateway's active_sandbox_count to an
+// absolute observed value, keyed by the gateway's namespace. Used by the
+// periodic self-heal that reconciles the stored count to the watch cache.
+type SetActiveSandboxCountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Count         int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetActiveSandboxCountRequest) Reset() {
+	*x = SetActiveSandboxCountRequest{}
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetActiveSandboxCountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetActiveSandboxCountRequest) ProtoMessage() {}
+
+func (x *SetActiveSandboxCountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetActiveSandboxCountRequest.ProtoReflect.Descriptor instead.
+func (*SetActiveSandboxCountRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SetActiveSandboxCountRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *SetActiveSandboxCountRequest) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+type SetActiveSandboxCountResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	ActiveSandboxCount int32                  `protobuf:"varint,1,opt,name=active_sandbox_count,json=activeSandboxCount,proto3" json:"active_sandbox_count,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *SetActiveSandboxCountResponse) Reset() {
+	*x = SetActiveSandboxCountResponse{}
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetActiveSandboxCountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetActiveSandboxCountResponse) ProtoMessage() {}
+
+func (x *SetActiveSandboxCountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetActiveSandboxCountResponse.ProtoReflect.Descriptor instead.
+func (*SetActiveSandboxCountResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SetActiveSandboxCountResponse) GetActiveSandboxCount() int32 {
+	if x != nil {
+		return x.ActiveSandboxCount
+	}
+	return 0
+}
+
 type DeleteGatewayRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -762,7 +966,7 @@ type DeleteGatewayRequest struct {
 
 func (x *DeleteGatewayRequest) Reset() {
 	*x = DeleteGatewayRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +978,7 @@ func (x *DeleteGatewayRequest) String() string {
 func (*DeleteGatewayRequest) ProtoMessage() {}
 
 func (x *DeleteGatewayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +991,7 @@ func (x *DeleteGatewayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayRequest.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{7}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DeleteGatewayRequest) GetId() string {
@@ -807,7 +1011,7 @@ type ListGatewaysRequest struct {
 
 func (x *ListGatewaysRequest) Reset() {
 	*x = ListGatewaysRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -819,7 +1023,7 @@ func (x *ListGatewaysRequest) String() string {
 func (*ListGatewaysRequest) ProtoMessage() {}
 
 func (x *ListGatewaysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -832,7 +1036,7 @@ func (x *ListGatewaysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewaysRequest.ProtoReflect.Descriptor instead.
 func (*ListGatewaysRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{8}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListGatewaysRequest) GetPage() int32 {
@@ -859,7 +1063,7 @@ type ListGatewaysResponse struct {
 
 func (x *ListGatewaysResponse) Reset() {
 	*x = ListGatewaysResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +1075,7 @@ func (x *ListGatewaysResponse) String() string {
 func (*ListGatewaysResponse) ProtoMessage() {}
 
 func (x *ListGatewaysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +1088,7 @@ func (x *ListGatewaysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewaysResponse.ProtoReflect.Descriptor instead.
 func (*ListGatewaysResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{9}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListGatewaysResponse) GetItems() []*Gateway {
@@ -909,7 +1113,7 @@ type DeleteGatewayResponse struct {
 
 func (x *DeleteGatewayResponse) Reset() {
 	*x = DeleteGatewayResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -921,7 +1125,7 @@ func (x *DeleteGatewayResponse) String() string {
 func (*DeleteGatewayResponse) ProtoMessage() {}
 
 func (x *DeleteGatewayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -934,7 +1138,7 @@ func (x *DeleteGatewayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayResponse.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{10}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{14}
 }
 
 type WatchGatewaysRequest struct {
@@ -945,7 +1149,7 @@ type WatchGatewaysRequest struct {
 
 func (x *WatchGatewaysRequest) Reset() {
 	*x = WatchGatewaysRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -957,7 +1161,7 @@ func (x *WatchGatewaysRequest) String() string {
 func (*WatchGatewaysRequest) ProtoMessage() {}
 
 func (x *WatchGatewaysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -970,7 +1174,7 @@ func (x *WatchGatewaysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchGatewaysRequest.ProtoReflect.Descriptor instead.
 func (*WatchGatewaysRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{11}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{15}
 }
 
 type WatchGatewaysResponse struct {
@@ -984,7 +1188,7 @@ type WatchGatewaysResponse struct {
 
 func (x *WatchGatewaysResponse) Reset() {
 	*x = WatchGatewaysResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +1200,7 @@ func (x *WatchGatewaysResponse) String() string {
 func (*WatchGatewaysResponse) ProtoMessage() {}
 
 func (x *WatchGatewaysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +1213,7 @@ func (x *WatchGatewaysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchGatewaysResponse.ProtoReflect.Descriptor instead.
 func (*WatchGatewaysResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{12}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *WatchGatewaysResponse) GetType() EventType {
@@ -1037,7 +1241,7 @@ var File_hypershell_v1_gateways_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
-	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xfe\x06\n" +
+	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xce\a\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -1060,10 +1264,11 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x10server_dns_names\x18\x0e \x03(\tR\x0eserverDnsNames\x12(\n" +
 	"\rroute_address\x18\x0f \x01(\tH\aR\frouteAddress\x88\x01\x01\x12\x17\n" +
 	"\x04oidc\x18\x10 \x01(\tH\bR\x04oidc\x88\x01\x01\x12\x19\n" +
-	"\x05route\x18\x11 \x01(\tH\tR\x05route\x88\x01\x01\x12,\n" +
-	"\x0fdatabase_config\x18\x12 \x01(\tH\n" +
-	"R\x0edatabaseConfig\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x14 \x01(\tH\vR\x10credentialDriver\x88\x01\x01B\x0f\n" +
+	"\x05route\x18\x11 \x01(\tH\tR\x05route\x88\x01\x01\x120\n" +
+	"\x11credential_driver\x18\x14 \x01(\tH\n" +
+	"R\x10credentialDriver\x88\x01\x01\x125\n" +
+	"\x14active_sandbox_count\x18\x15 \x01(\x05H\vR\x12activeSandboxCount\x88\x01\x01\x12,\n" +
+	"\x0fconsole_address\x18\x16 \x01(\tH\fR\x0econsoleAddress\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1073,9 +1278,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\x10\n" +
 	"\x0e_route_addressB\a\n" +
 	"\x05_oidcB\b\n" +
-	"\x06_routeB\x12\n" +
-	"\x10_database_configB\x14\n" +
-	"\x12_credential_driver\"\xf5\x05\n" +
+	"\x06_routeB\x14\n" +
+	"\x12_credential_driverB\x17\n" +
+	"\x15_active_sandbox_countB\x12\n" +
+	"\x10_console_address\"\xb3\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x1d\n" +
@@ -1095,10 +1301,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x10supervisor_image\x18\f \x01(\tH\x06R\x0fsupervisorImage\x88\x01\x01\x12(\n" +
 	"\x10server_dns_names\x18\r \x03(\tR\x0eserverDnsNames\x12\x17\n" +
 	"\x04oidc\x18\x0e \x01(\tH\aR\x04oidc\x88\x01\x01\x12\x19\n" +
-	"\x05route\x18\x0f \x01(\tH\bR\x05route\x88\x01\x01\x12,\n" +
-	"\x0fdatabase_config\x18\x10 \x01(\tH\tR\x0edatabaseConfig\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x11 \x01(\tH\n" +
-	"R\x10credentialDriver\x88\x01\x01B\x0f\n" +
+	"\x05route\x18\x0f \x01(\tH\bR\x05route\x88\x01\x01\x120\n" +
+	"\x11credential_driver\x18\x11 \x01(\tH\tR\x10credentialDriver\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1107,8 +1311,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_imageB\x13\n" +
 	"\x11_supervisor_imageB\a\n" +
 	"\x05_oidcB\b\n" +
-	"\x06_routeB\x12\n" +
-	"\x10_database_configB\x14\n" +
+	"\x06_routeB\x14\n" +
 	"\x12_credential_driver\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
@@ -1138,9 +1341,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x10server_dns_names\x18\x0e \x03(\tR\x0eserverDnsNames\x12(\n" +
 	"\rroute_address\x18\x0f \x01(\tH\fR\frouteAddress\x88\x01\x01\x12\x17\n" +
 	"\x04oidc\x18\x10 \x01(\tH\rR\x04oidc\x88\x01\x01\x12\x19\n" +
-	"\x05route\x18\x11 \x01(\tH\x0eR\x05route\x88\x01\x01\x12,\n" +
-	"\x0fdatabase_config\x18\x12 \x01(\tH\x0fR\x0edatabaseConfig\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x13 \x01(\tH\x10R\x10credentialDriver\x88\x01\x01B\a\n" +
+	"\x05route\x18\x11 \x01(\tH\x0eR\x05route\x88\x01\x01\x120\n" +
+	"\x11credential_driver\x18\x13 \x01(\tH\x0fR\x10credentialDriver\x88\x01\x01\x12,\n" +
+	"\x0fconsole_address\x18\x14 \x01(\tH\x10R\x0econsoleAddress\x88\x01\x01B\a\n" +
 	"\x05_nameB\v\n" +
 	"\t_fleet_idB\r\n" +
 	"\v_cluster_idB\r\n" +
@@ -1155,11 +1358,21 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\x10\n" +
 	"\x0e_route_addressB\a\n" +
 	"\x05_oidcB\b\n" +
-	"\x06_routeB\x12\n" +
-	"\x10_database_configB\x14\n" +
-	"\x12_credential_driver\"I\n" +
+	"\x06_routeB\x14\n" +
+	"\x12_credential_driverB\x12\n" +
+	"\x10_console_address\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"&\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
+	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x14\n" +
+	"\x05delta\x18\x02 \x01(\x05R\x05delta\"T\n" +
+	" AdjustActiveSandboxCountResponse\x120\n" +
+	"\x14active_sandbox_count\x18\x01 \x01(\x05R\x12activeSandboxCount\"R\n" +
+	"\x1cSetActiveSandboxCountRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x05R\x05count\"Q\n" +
+	"\x1dSetActiveSandboxCountResponse\x120\n" +
+	"\x14active_sandbox_count\x18\x01 \x01(\x05R\x12activeSandboxCount\"&\n" +
 	"\x14DeleteGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"=\n" +
 	"\x13ListGatewaysRequest\x12\x12\n" +
@@ -1174,7 +1387,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x120\n" +
 	"\agateway\x18\x02 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId2\xae\x04\n" +
+	"resourceId2\x9f\x06\n" +
 	"\x0eGatewayService\x12Q\n" +
 	"\n" +
 	"GetGateway\x12 .hypershell.v1.GetGatewayRequest\x1a!.hypershell.v1.GetGatewayResponse\x12Z\n" +
@@ -1182,7 +1395,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\rUpdateGateway\x12#.hypershell.v1.UpdateGatewayRequest\x1a$.hypershell.v1.UpdateGatewayResponse\x12Z\n" +
 	"\rDeleteGateway\x12#.hypershell.v1.DeleteGatewayRequest\x1a$.hypershell.v1.DeleteGatewayResponse\x12W\n" +
 	"\fListGateways\x12\".hypershell.v1.ListGatewaysRequest\x1a#.hypershell.v1.ListGatewaysResponse\x12\\\n" +
-	"\rWatchGateways\x12#.hypershell.v1.WatchGatewaysRequest\x1a$.hypershell.v1.WatchGatewaysResponse0\x01BgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
+	"\rWatchGateways\x12#.hypershell.v1.WatchGatewaysRequest\x1a$.hypershell.v1.WatchGatewaysResponse0\x01\x12{\n" +
+	"\x18AdjustActiveSandboxCount\x12..hypershell.v1.AdjustActiveSandboxCountRequest\x1a/.hypershell.v1.AdjustActiveSandboxCountResponse\x12r\n" +
+	"\x15SetActiveSandboxCount\x12+.hypershell.v1.SetActiveSandboxCountRequest\x1a,.hypershell.v1.SetActiveSandboxCountResponseBgZegithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1b\x06proto3"
 
 var (
 	file_hypershell_v1_gateways_proto_rawDescOnce sync.Once
@@ -1196,48 +1411,56 @@ func file_hypershell_v1_gateways_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_gateways_proto_rawDescData
 }
 
-var file_hypershell_v1_gateways_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_hypershell_v1_gateways_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_hypershell_v1_gateways_proto_goTypes = []any{
-	(*Gateway)(nil),               // 0: hypershell.v1.Gateway
-	(*CreateGatewayRequest)(nil),  // 1: hypershell.v1.CreateGatewayRequest
-	(*CreateGatewayResponse)(nil), // 2: hypershell.v1.CreateGatewayResponse
-	(*GetGatewayRequest)(nil),     // 3: hypershell.v1.GetGatewayRequest
-	(*GetGatewayResponse)(nil),    // 4: hypershell.v1.GetGatewayResponse
-	(*UpdateGatewayRequest)(nil),  // 5: hypershell.v1.UpdateGatewayRequest
-	(*UpdateGatewayResponse)(nil), // 6: hypershell.v1.UpdateGatewayResponse
-	(*DeleteGatewayRequest)(nil),  // 7: hypershell.v1.DeleteGatewayRequest
-	(*ListGatewaysRequest)(nil),   // 8: hypershell.v1.ListGatewaysRequest
-	(*ListGatewaysResponse)(nil),  // 9: hypershell.v1.ListGatewaysResponse
-	(*DeleteGatewayResponse)(nil), // 10: hypershell.v1.DeleteGatewayResponse
-	(*WatchGatewaysRequest)(nil),  // 11: hypershell.v1.WatchGatewaysRequest
-	(*WatchGatewaysResponse)(nil), // 12: hypershell.v1.WatchGatewaysResponse
-	(*ObjectReference)(nil),       // 13: hypershell.v1.ObjectReference
-	(*ListMeta)(nil),              // 14: hypershell.v1.ListMeta
-	(EventType)(0),                // 15: hypershell.v1.EventType
+	(*Gateway)(nil),                          // 0: hypershell.v1.Gateway
+	(*CreateGatewayRequest)(nil),             // 1: hypershell.v1.CreateGatewayRequest
+	(*CreateGatewayResponse)(nil),            // 2: hypershell.v1.CreateGatewayResponse
+	(*GetGatewayRequest)(nil),                // 3: hypershell.v1.GetGatewayRequest
+	(*GetGatewayResponse)(nil),               // 4: hypershell.v1.GetGatewayResponse
+	(*UpdateGatewayRequest)(nil),             // 5: hypershell.v1.UpdateGatewayRequest
+	(*UpdateGatewayResponse)(nil),            // 6: hypershell.v1.UpdateGatewayResponse
+	(*AdjustActiveSandboxCountRequest)(nil),  // 7: hypershell.v1.AdjustActiveSandboxCountRequest
+	(*AdjustActiveSandboxCountResponse)(nil), // 8: hypershell.v1.AdjustActiveSandboxCountResponse
+	(*SetActiveSandboxCountRequest)(nil),     // 9: hypershell.v1.SetActiveSandboxCountRequest
+	(*SetActiveSandboxCountResponse)(nil),    // 10: hypershell.v1.SetActiveSandboxCountResponse
+	(*DeleteGatewayRequest)(nil),             // 11: hypershell.v1.DeleteGatewayRequest
+	(*ListGatewaysRequest)(nil),              // 12: hypershell.v1.ListGatewaysRequest
+	(*ListGatewaysResponse)(nil),             // 13: hypershell.v1.ListGatewaysResponse
+	(*DeleteGatewayResponse)(nil),            // 14: hypershell.v1.DeleteGatewayResponse
+	(*WatchGatewaysRequest)(nil),             // 15: hypershell.v1.WatchGatewaysRequest
+	(*WatchGatewaysResponse)(nil),            // 16: hypershell.v1.WatchGatewaysResponse
+	(*ObjectReference)(nil),                  // 17: hypershell.v1.ObjectReference
+	(*ListMeta)(nil),                         // 18: hypershell.v1.ListMeta
+	(EventType)(0),                           // 19: hypershell.v1.EventType
 }
 var file_hypershell_v1_gateways_proto_depIdxs = []int32{
-	13, // 0: hypershell.v1.Gateway.metadata:type_name -> hypershell.v1.ObjectReference
+	17, // 0: hypershell.v1.Gateway.metadata:type_name -> hypershell.v1.ObjectReference
 	0,  // 1: hypershell.v1.CreateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
 	0,  // 2: hypershell.v1.GetGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
 	0,  // 3: hypershell.v1.UpdateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
 	0,  // 4: hypershell.v1.ListGatewaysResponse.items:type_name -> hypershell.v1.Gateway
-	14, // 5: hypershell.v1.ListGatewaysResponse.metadata:type_name -> hypershell.v1.ListMeta
-	15, // 6: hypershell.v1.WatchGatewaysResponse.type:type_name -> hypershell.v1.EventType
+	18, // 5: hypershell.v1.ListGatewaysResponse.metadata:type_name -> hypershell.v1.ListMeta
+	19, // 6: hypershell.v1.WatchGatewaysResponse.type:type_name -> hypershell.v1.EventType
 	0,  // 7: hypershell.v1.WatchGatewaysResponse.gateway:type_name -> hypershell.v1.Gateway
 	3,  // 8: hypershell.v1.GatewayService.GetGateway:input_type -> hypershell.v1.GetGatewayRequest
 	1,  // 9: hypershell.v1.GatewayService.CreateGateway:input_type -> hypershell.v1.CreateGatewayRequest
 	5,  // 10: hypershell.v1.GatewayService.UpdateGateway:input_type -> hypershell.v1.UpdateGatewayRequest
-	7,  // 11: hypershell.v1.GatewayService.DeleteGateway:input_type -> hypershell.v1.DeleteGatewayRequest
-	8,  // 12: hypershell.v1.GatewayService.ListGateways:input_type -> hypershell.v1.ListGatewaysRequest
-	11, // 13: hypershell.v1.GatewayService.WatchGateways:input_type -> hypershell.v1.WatchGatewaysRequest
-	4,  // 14: hypershell.v1.GatewayService.GetGateway:output_type -> hypershell.v1.GetGatewayResponse
-	2,  // 15: hypershell.v1.GatewayService.CreateGateway:output_type -> hypershell.v1.CreateGatewayResponse
-	6,  // 16: hypershell.v1.GatewayService.UpdateGateway:output_type -> hypershell.v1.UpdateGatewayResponse
-	10, // 17: hypershell.v1.GatewayService.DeleteGateway:output_type -> hypershell.v1.DeleteGatewayResponse
-	9,  // 18: hypershell.v1.GatewayService.ListGateways:output_type -> hypershell.v1.ListGatewaysResponse
-	12, // 19: hypershell.v1.GatewayService.WatchGateways:output_type -> hypershell.v1.WatchGatewaysResponse
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
+	11, // 11: hypershell.v1.GatewayService.DeleteGateway:input_type -> hypershell.v1.DeleteGatewayRequest
+	12, // 12: hypershell.v1.GatewayService.ListGateways:input_type -> hypershell.v1.ListGatewaysRequest
+	15, // 13: hypershell.v1.GatewayService.WatchGateways:input_type -> hypershell.v1.WatchGatewaysRequest
+	7,  // 14: hypershell.v1.GatewayService.AdjustActiveSandboxCount:input_type -> hypershell.v1.AdjustActiveSandboxCountRequest
+	9,  // 15: hypershell.v1.GatewayService.SetActiveSandboxCount:input_type -> hypershell.v1.SetActiveSandboxCountRequest
+	4,  // 16: hypershell.v1.GatewayService.GetGateway:output_type -> hypershell.v1.GetGatewayResponse
+	2,  // 17: hypershell.v1.GatewayService.CreateGateway:output_type -> hypershell.v1.CreateGatewayResponse
+	6,  // 18: hypershell.v1.GatewayService.UpdateGateway:output_type -> hypershell.v1.UpdateGatewayResponse
+	14, // 19: hypershell.v1.GatewayService.DeleteGateway:output_type -> hypershell.v1.DeleteGatewayResponse
+	13, // 20: hypershell.v1.GatewayService.ListGateways:output_type -> hypershell.v1.ListGatewaysResponse
+	16, // 21: hypershell.v1.GatewayService.WatchGateways:output_type -> hypershell.v1.WatchGatewaysResponse
+	8,  // 22: hypershell.v1.GatewayService.AdjustActiveSandboxCount:output_type -> hypershell.v1.AdjustActiveSandboxCountResponse
+	10, // 23: hypershell.v1.GatewayService.SetActiveSandboxCount:output_type -> hypershell.v1.SetActiveSandboxCountResponse
+	16, // [16:24] is the sub-list for method output_type
+	8,  // [8:16] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name
 	8,  // [8:8] is the sub-list for extension extendee
 	0,  // [0:8] is the sub-list for field type_name
@@ -1258,7 +1481,7 @@ func file_hypershell_v1_gateways_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_gateways_proto_rawDesc), len(file_hypershell_v1_gateways_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

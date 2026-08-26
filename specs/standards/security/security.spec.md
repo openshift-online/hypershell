@@ -6,7 +6,7 @@
 
 ### Secret Handling
 
-**1. No Secrets in Logs or Responses**
+**1. No Secrets in Logs or Routine Responses**
 
 ```go
 // FORBIDDEN
@@ -16,6 +16,13 @@ log.Printf("Connection string: %s", connSecret)
 // REQUIRED
 log.Printf("Secret reference: %s (len=%d)", secretName, len(secretValue))
 ```
+
+Routine resource responses and read endpoints SHALL NOT contain secret values.
+A credential-creation or credential-replacement endpoint MAY return a newly generated
+secret to the authenticated caller. It MAY return that secret only once. The response
+MUST use `Cache-Control: no-store`. Logs and telemetry MUST redact the secret. The
+application MUST NOT store it in a database, event stream, or query cache. Later read
+responses MUST omit it.
 
 **2. Secret References, Not Inline Secrets**
 
@@ -45,11 +52,11 @@ All containers must set:
 - `Capabilities.Drop: ["ALL"]`
 - `runAsNonRoot: true`
 
-**Exception:** Third-party database images (e.g. upstream `postgres`) that run as
-root by default are exempt from `runAsNonRoot`. The gateway database manifest omits
-this constraint so operators can choose any compatible image via `HYPERSHELL_DATABASE_IMAGE`.
-When using images that support non-root (such as Red Hat Hardened Images), configure
-`runAsNonRoot` at the pod or namespace level instead.
+**Note:** All PostgreSQL databases (API server and per-gateway) are provisioned by
+the CloudNativePG (CNPG) operator, which manages its own PostgreSQL pods with
+appropriate security contexts. The CNPG operator enforces non-root execution and
+drops capabilities by default. No database container security configuration is
+needed on the HyperShell side.
 
 ### Fleet Isolation
 
@@ -75,7 +82,8 @@ Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:
 **Secrets:**
 - [ ] No secrets in logs or error messages
 - [ ] Secrets stored as K8s Secret references
-- [ ] Secret values never returned in API responses
+- [ ] Secret values absent from routine API responses
+- [ ] One-time credential responses use `no-store`, redact telemetry, and never persist plaintext
 
 **Input:**
 - [ ] All user input validated

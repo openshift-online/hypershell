@@ -241,6 +241,7 @@ components:
               type: string
             database_id:
               type: string
+              description: Server-assigned ManagedDatabase identifier; client-supplied values are ignored
             namespace:
               type: string
               readOnly: true
@@ -270,6 +271,10 @@ components:
               type: string
               readOnly: true
               description: External route address populated by the control plane
+            console_address:
+              type: string
+              readOnly: true
+              description: Web console address populated by the control plane
             oidc:
               type: string
               readOnly: true
@@ -277,12 +282,18 @@ components:
             route:
               type: string
               description: JSON-encoded route configuration
-            database_config:
-              type: string
-              description: JSON-encoded database provisioning configuration
             credential_driver:
               type: string
               description: JSON-encoded credential storage driver configuration
+            active_sandbox_count:
+              type: integer
+              format: int32
+              readOnly: true
+              description: Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
+            created_by:
+              type: string
+              readOnly: true
+              description: Username of the user who provisioned this gateway, resolved from RBAC role bindings
     GatewayCreateRequest:
       type: object
       required:
@@ -302,6 +313,7 @@ components:
           type: string
         database_id:
           type: string
+          description: Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
         external_dns:
           type: string
         tls_mode:
@@ -329,9 +341,6 @@ components:
         route:
           type: string
           description: JSON-encoded route configuration
-        database_config:
-          type: string
-          description: JSON-encoded database provisioning configuration
         credential_driver:
           type: string
           description: JSON-encoded credential storage driver configuration
@@ -361,6 +370,7 @@ components:
           type: string
         database_id:
           type: string
+          description: Server-owned placement field; values supplied through PATCH are ignored
         external_dns:
           type: string
         tls_mode:
@@ -384,8 +394,6 @@ components:
         oidc:
           type: string
         route:
-          type: string
-        database_config:
           type: string
         credential_driver:
           type: string

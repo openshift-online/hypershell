@@ -1,8 +1,14 @@
 import {
+  defaultOpenShellGatewayServiceAccountListRequest,
   GatewayPage,
+  type OpenShellGatewayServiceAccountListRequest,
+  type OpenShellGatewayServiceAccountSortField,
+  type OpenShellGatewayServiceAccountStatus,
+  type ServiceAccountLeaveGuard,
   toGatewayDetailTab,
 } from "@openshift-online/hypershell-gateway-management-ui";
-import { useParams, useSearchParams } from "react-router";
+import { useCallback, useEffect, useRef } from "react";
+import { useBlocker, useParams, useSearchParams } from "react-router";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(
@@ -10,28 +16,148 @@ export const meta = createPageMeta(
   "app.page.gateway.description",
 );
 
+const serviceAccountStatuses = new Set<OpenShellGatewayServiceAccountStatus>([
+  "degraded",
+  "deleting",
+  "error",
+  "expired",
+  "provisioning",
+  "ready",
+  "revoked",
+  "revoking",
+]);
+const serviceAccountSortFields =
+  new Set<OpenShellGatewayServiceAccountSortField>([
+    "created_at",
+    "expires_at",
+    "name",
+    "role",
+    "status",
+  ]);
+
+function positiveInteger(value: string | null, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function serviceAccountCollectionState(
+  searchParams: URLSearchParams,
+): OpenShellGatewayServiceAccountListRequest {
+  const defaults = defaultOpenShellGatewayServiceAccountListRequest;
+  const status = searchParams.get("sa-status");
+  const sort = searchParams.get("sa-sort");
+  return {
+    order: searchParams.get("sa-order") === "asc" ? "asc" : defaults.order,
+    page: positiveInteger(searchParams.get("sa-page"), defaults.page),
+    search: searchParams.get("sa-search") ?? defaults.search,
+    size: Math.min(
+      100,
+      positiveInteger(searchParams.get("sa-size"), defaults.size),
+    ),
+    sort:
+      sort &&
+      serviceAccountSortFields.has(
+        sort as OpenShellGatewayServiceAccountSortField,
+      )
+        ? (sort as OpenShellGatewayServiceAccountSortField)
+        : defaults.sort,
+    ...(status &&
+    serviceAccountStatuses.has(status as OpenShellGatewayServiceAccountStatus)
+      ? { status: status as OpenShellGatewayServiceAccountStatus }
+      : {}),
+  };
+}
+
+function setOrDelete(
+  params: URLSearchParams,
+  name: string,
+  value: string,
+  defaultValue: string,
+) {
+  if (value === defaultValue) {
+    params.delete(name);
+  } else {
+    params.set(name, value);
+  }
+}
+
 export default function GatewayRoute() {
   const { gatewayId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = toGatewayDetailTab(searchParams.get("tab"));
+  const collectionState = serviceAccountCollectionState(searchParams);
+
+  // The one-time service-account client secret exists only in the mounted
+  // dialog view. Block in-app route navigation (Back/Forward, link clicks)
+  // while it is unsaved so it is not silently discarded. The guard object is
+  // owned by the dialog and surfaced through GatewayPage.
+  const leaveGuardRef = useRef<ServiceAccountLeaveGuard | null>(null);
+  const blocker = useBlocker(
+    useCallback(() => leaveGuardRef.current?.shouldBlock() ?? false, []),
+  );
+  useEffect(() => {
+    if (blocker.state !== "blocked") {
+      return;
+    }
+    const guard = leaveGuardRef.current;
+    if (!guard?.shouldBlock()) {
+      blocker.proceed();
+      return;
+    }
+    guard.confirmLeave({
+      onCancel: () => {
+        blocker.reset();
+      },
+      onConfirm: () => {
+        blocker.proceed();
+      },
+    });
+  }, [blocker]);
 
   return (
     <GatewayPage
       activeTab={activeTab}
       gatewayId={gatewayId}
-      onTabChange={(tab) => {
+      onLeaveGuardChange={(guard) => {
+        leaveGuardRef.current = guard;
+      }}
+      serviceAccountCollectionState={collectionState}
+      onServiceAccountCollectionStateChange={(state, reason) => {
         setSearchParams(
           (previous) => {
             const next = new URLSearchParams(previous);
-            if (tab === "connection") {
-              next.delete("tab");
-            } else {
-              next.set("tab", tab);
-            }
+            const defaults = defaultOpenShellGatewayServiceAccountListRequest;
+            setOrDelete(
+              next,
+              "sa-page",
+              String(state.page),
+              String(defaults.page),
+            );
+            setOrDelete(
+              next,
+              "sa-size",
+              String(state.size),
+              String(defaults.size),
+            );
+            setOrDelete(next, "sa-search", state.search, defaults.search);
+            setOrDelete(next, "sa-sort", state.sort, defaults.sort);
+            setOrDelete(next, "sa-order", state.order, defaults.order);
+            setOrDelete(next, "sa-status", state.status ?? "", "");
             return next;
           },
-          { replace: true },
+          { replace: reason === "filter" },
         );
+      }}
+      onTabChange={(tab) => {
+        setSearchParams((previous) => {
+          const next = new URLSearchParams(previous);
+          if (tab === "connection") {
+            next.delete("tab");
+          } else {
+            next.set("tab", tab);
+          }
+          return next;
+        });
       }}
     />
   );

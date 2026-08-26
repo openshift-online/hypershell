@@ -28,6 +28,19 @@ patches:
                     value: hypershell-gw
                   - name: GATEWAY_API_TLS_ISSUER_NAME
                     value: hypershell-ca-issuer
+                  # The per-gateway console attaches its HTTPRoute to the shared
+                  # Gateway's grpc listener (broadened to accept HTTPRoute in
+                  # gateway.yaml); the console host console-<ns>.gw.localhost is
+                  # covered by the same *.gw.localhost cert as the gRPC route.
+                  - name: GATEWAY_API_HTTP_LISTENER_NAME
+                    value: grpc
+                  # The console dashboard and oauth2-proxy sidecar images are
+                  # public registry images; the control plane's ImageDefaults
+                  # already point at them (dashboard pinned by digest on quay),
+                  # so Kind pulls them at pod start (imagePullPolicy IfNotPresent)
+                  # with no overlay override or pre-load needed. Override
+                  # HYPERSHELL_CONSOLE_IMAGE / HYPERSHELL_OAUTH2_PROXY_IMAGE only
+                  # to test a different build.
                   # Kind's Gateway data plane is cloud-provider-kind's Envoy,
                   # which runs as an out-of-cluster Docker container. Its source
                   # IP cannot be matched by the per-tenant gateway
@@ -37,8 +50,13 @@ patches:
                   # production/OpenShift leaves this unset to keep them enforced.
                   - name: GATEWAY_SKIP_NETWORK_POLICIES
                     value: "true"
-                  - name: HYPERSHELL_DATABASE_IMAGE
-                    value: "registry.access.redhat.com/hi/postgresql:18.4@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
+                  # Shorten periodic namespace GC for e2e (production defaults 5m/10m).
+                  # Go time.ParseDuration accepts seconds too (e.g. 30s, 1m30s).
+                  # tests/e2e seeds a synthetic orphan after gateway provisioning (after step 2); step 11a asserts the reaper deleted it.
+                  - name: GATEWAY_NAMESPACE_GC_INTERVAL
+                    value: "30s"
+                  - name: GATEWAY_NAMESPACE_GC_GRACE_PERIOD
+                    value: "30s"
                   - name: OIDC_ISSUER
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID

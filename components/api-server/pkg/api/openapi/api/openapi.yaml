@@ -1413,6 +1413,288 @@ paths:
       security:
       - Bearer: []
       summary: Update an gateway
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts:
+    get:
+      operationId: listGatewayServiceAccounts
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - in: query
+        name: status
+        required: false
+        schema:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountStatus"
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - in: query
+        name: sort
+        required: false
+        schema:
+          default: created_at
+          enum:
+          - name
+          - role
+          - status
+          - expires_at
+          - created_at
+          type: string
+      - in: query
+        name: order
+        required: false
+        schema:
+          default: desc
+          enum:
+          - asc
+          - desc
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountList"
+          description: Visible service accounts and caller capabilities
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List OpenShell gateway service accounts
+    post:
+      operationId: createGatewayServiceAccount
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenShellGatewayServiceAccountCreateRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountCreateResponse"
+          description: Service account created; the credential is returned once
+          headers:
+            Cache-Control:
+              description: Prevent storage of the one-time credential response
+              schema:
+                example: no-store
+                type: string
+            Pragma:
+              description: Prevent legacy caches from storing the response
+              schema:
+                example: no-cache
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: A service-account quota is exhausted
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Create an OpenShell gateway service account
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}:
+    delete:
+      operationId: deleteGatewayServiceAccount
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: OpenShellGatewayServiceAccount ID
+        in: path
+        name: service_account_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          description: Deletion is persisted and cleanup is still pending
+        "204":
+          description: Keycloak identity removed and resource soft-deleted
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Delete an OpenShell gateway service account
+    get:
+      operationId: getGatewayServiceAccount
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: OpenShellGatewayServiceAccount ID
+        in: path
+        name: service_account_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountGetResponse"
+          description: Service-account metadata and non-secret connection details
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: Get an OpenShell gateway service account
+  /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:
+    post:
+      operationId: revokeGatewayServiceAccount
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: OpenShellGatewayServiceAccount ID
+        in: path
+        name: service_account_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          description: Keycloak client disabled and service account revoked
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          description: Revocation is persisted and disablement is still pending
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Permanently revoke an OpenShell gateway service account
   /api/hypershell/v1/gateway_networks:
     get:
       operationId: listGatewayNetworks
@@ -2029,6 +2311,49 @@ components:
       schema:
         type: string
       style: form
+    gatewayId:
+      description: Selected Gateway ID
+      in: path
+      name: gateway_id
+      required: true
+      schema:
+        type: string
+    status:
+      in: query
+      name: status
+      required: false
+      schema:
+        $ref: "#/components/schemas/OpenShellGatewayServiceAccountStatus"
+    sort:
+      in: query
+      name: sort
+      required: false
+      schema:
+        default: created_at
+        enum:
+        - name
+        - role
+        - status
+        - expires_at
+        - created_at
+        type: string
+    order:
+      in: query
+      name: order
+      required: false
+      schema:
+        default: desc
+        enum:
+        - asc
+        - desc
+        type: string
+    serviceAccountId:
+      description: OpenShellGatewayServiceAccount ID
+      in: path
+      name: service_account_id
+      required: true
+      schema:
+        type: string
   responses:
     UnauthorizedError:
       description: Access token is missing or invalid
@@ -2040,6 +2365,36 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
       description: Unexpected error occurred
+    BadRequestError:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+      description: Invalid request or query value
+    NotFoundError:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+      description: Gateway or service account was not found or is not visible
+    ConflictError:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+      description: Gateway is not ready or the active name already exists
+    TooManyRequestsError:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+      description: A service-account quota is exhausted
+    ServiceUnavailableError:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+      description: Keycloak provisioning or lifecycle verification is unavailable
   schemas:
     List:
       allOf:
@@ -2280,6 +2635,9 @@ components:
             type: string
           provider:
             type: string
+          namespace:
+            readOnly: true
+            type: string
           region:
             type: string
           engine:
@@ -2306,6 +2664,7 @@ components:
         provider: provider
         engine: engine
         name: name
+        namespace: namespace
         id: id
         href: href
         fleet_id: fleet_id
@@ -2339,6 +2698,7 @@ components:
           provider: provider
           engine: engine
           name: name
+          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
@@ -2353,6 +2713,7 @@ components:
           provider: provider
           engine: engine
           name: name
+          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
@@ -2509,6 +2870,8 @@ components:
           release_id:
             type: string
           database_id:
+            description: Server-assigned ManagedDatabase identifier; client-supplied
+              values are ignored
             type: string
           namespace:
             description: API-assigned Kubernetes namespace derived from the Gateway
@@ -2540,6 +2903,10 @@ components:
             description: External route address populated by the control plane
             readOnly: true
             type: string
+          console_address:
+            description: Web console address populated by the control plane
+            readOnly: true
+            type: string
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -2548,11 +2915,19 @@ components:
           route:
             description: JSON-encoded route configuration
             type: string
-          database_config:
-            description: JSON-encoded database provisioning configuration
-            type: string
           credential_driver:
             description: JSON-encoded credential storage driver configuration
+            type: string
+          active_sandbox_count:
+            description: Number of active (Running or Pending) agent sandboxes observed
+              in the gateway namespace by the control plane
+            format: int32
+            readOnly: true
+            type: integer
+          created_by:
+            description: "Username of the user who provisioned this gateway, resolved\
+              \ from RBAC role bindings"
+            readOnly: true
             type: string
         required:
         - cluster_id
@@ -2563,31 +2938,33 @@ components:
         - release_id
         type: object
       example:
-        phase: phase
         release_id: release_id
-        image: image
-        kind: kind
         server_dns_names:
         - server_dns_names
         - server_dns_names
         created_at: 2000-01-23T04:56:07.000+00:00
         credential_driver: credential_driver
-        route_address: route_address
-        oidc: oidc
-        supervisor_image: supervisor_image
         cluster_id: cluster_id
-        service_type: service_type
-        tls_mode: tls_mode
-        route: route
         updated_at: 2000-01-23T04:56:07.000+00:00
-        database_id: database_id
-        database_config: database_config
-        name: name
-        namespace: namespace
         id: id
         href: href
         fleet_id: fleet_id
         external_dns: external_dns
+        phase: phase
+        image: image
+        active_sandbox_count: 5
+        kind: kind
+        console_address: console_address
+        route_address: route_address
+        oidc: oidc
+        created_by: created_by
+        supervisor_image: supervisor_image
+        service_type: service_type
+        tls_mode: tls_mode
+        route: route
+        database_id: database_id
+        name: name
+        namespace: namespace
         status: status
     GatewayList:
       allOf:
@@ -2608,57 +2985,61 @@ components:
         id: id
         href: href
         items:
-        - phase: phase
-          release_id: release_id
-          image: image
-          kind: kind
+        - release_id: release_id
           server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
-          route_address: route_address
-          oidc: oidc
-          supervisor_image: supervisor_image
           cluster_id: cluster_id
-          service_type: service_type
-          tls_mode: tls_mode
-          route: route
           updated_at: 2000-01-23T04:56:07.000+00:00
-          database_id: database_id
-          database_config: database_config
-          name: name
-          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
           external_dns: external_dns
+          phase: phase
+          image: image
+          active_sandbox_count: 5
+          kind: kind
+          console_address: console_address
+          route_address: route_address
+          oidc: oidc
+          created_by: created_by
+          supervisor_image: supervisor_image
+          service_type: service_type
+          tls_mode: tls_mode
+          route: route
+          database_id: database_id
+          name: name
+          namespace: namespace
           status: status
-        - phase: phase
-          release_id: release_id
-          image: image
-          kind: kind
+        - release_id: release_id
           server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
-          route_address: route_address
-          oidc: oidc
-          supervisor_image: supervisor_image
           cluster_id: cluster_id
-          service_type: service_type
-          tls_mode: tls_mode
-          route: route
           updated_at: 2000-01-23T04:56:07.000+00:00
-          database_id: database_id
-          database_config: database_config
-          name: name
-          namespace: namespace
           id: id
           href: href
           fleet_id: fleet_id
           external_dns: external_dns
+          phase: phase
+          image: image
+          active_sandbox_count: 5
+          kind: kind
+          console_address: console_address
+          route_address: route_address
+          oidc: oidc
+          created_by: created_by
+          supervisor_image: supervisor_image
+          service_type: service_type
+          tls_mode: tls_mode
+          route: route
+          database_id: database_id
+          name: name
+          namespace: namespace
           status: status
     GatewayPatchRequest:
       example:
@@ -2677,7 +3058,6 @@ components:
         tls_mode: tls_mode
         route: route
         database_id: database_id
-        database_config: database_config
         name: name
         fleet_id: fleet_id
         external_dns: external_dns
@@ -2692,6 +3072,8 @@ components:
         release_id:
           type: string
         database_id:
+          description: Server-owned placement field; values supplied through PATCH
+            are ignored
           type: string
         external_dns:
           type: string
@@ -2717,10 +3099,402 @@ components:
           type: string
         route:
           type: string
-        database_config:
-          type: string
         credential_driver:
           type: string
+      type: object
+    OpenShellGatewayServiceAccountRole:
+      enum:
+      - openshell-user
+      - openshell-admin
+      type: string
+    OpenShellGatewayServiceAccountStatus:
+      enum:
+      - provisioning
+      - ready
+      - degraded
+      - expired
+      - revoking
+      - revoked
+      - deleting
+      - error
+      type: string
+    OpenShellGatewayServiceAccountCreateRequest:
+      additionalProperties: false
+      example:
+        credential_type: client_secret
+        role: openshell-user
+        expires_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        description: description
+      properties:
+        name:
+          maxLength: 128
+          minLength: 1
+          type: string
+        description:
+          maxLength: 1024
+          nullable: true
+          type: string
+        credential_type:
+          default: client_secret
+          enum:
+          - client_secret
+          type: string
+        role:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountRole"
+        expires_at:
+          format: date-time
+          type: string
+      required:
+      - name
+      type: object
+    OpenShellGatewayServiceAccountListItem:
+      example:
+        role: null
+        subject: subject
+        description: description
+        created_at: 2000-01-23T04:56:07.000+00:00
+        created_by_user_id: created_by_user_id
+        gateway_id: gateway_id
+        client_id: client_id
+        credential_type: client_secret
+        expires_at: 2000-01-23T04:56:07.000+00:00
+        revoked_at: 2000-01-23T04:56:07.000+00:00
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        id: id
+        last_error: last_error
+        status: provisioning
+      properties:
+        id:
+          type: string
+        gateway_id:
+          type: string
+        name:
+          type: string
+        description:
+          nullable: true
+          type: string
+        credential_type:
+          enum:
+          - client_secret
+          type: string
+        role:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountRole"
+        status:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountStatus"
+        created_by_user_id:
+          type: string
+        client_id:
+          type: string
+        subject:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        revoked_at:
+          format: date-time
+          nullable: true
+          type: string
+        last_error:
+          nullable: true
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+      - client_id
+      - created_at
+      - created_by_user_id
+      - credential_type
+      - expires_at
+      - gateway_id
+      - id
+      - name
+      - role
+      - status
+      - subject
+      - updated_at
+      type: object
+    OpenShellGatewayServiceAccountConnection:
+      example:
+        gateway_endpoint: https://openapi-generator.tech
+        audience: audience
+        grant_type: client_credentials
+        access_token_lifetime_seconds: 72
+        issuer: https://openapi-generator.tech
+        client_id: client_id
+        gateway_name: gateway_name
+        token_endpoint: https://openapi-generator.tech
+      properties:
+        gateway_name:
+          type: string
+        gateway_endpoint:
+          format: uri
+          type: string
+        issuer:
+          format: uri
+          type: string
+        token_endpoint:
+          format: uri
+          type: string
+        grant_type:
+          enum:
+          - client_credentials
+          type: string
+        client_id:
+          type: string
+        audience:
+          type: string
+        access_token_lifetime_seconds:
+          maximum: 900
+          minimum: 1
+          type: integer
+      required:
+      - access_token_lifetime_seconds
+      - audience
+      - client_id
+      - gateway_name
+      - grant_type
+      - issuer
+      - token_endpoint
+      type: object
+    OpenShellGatewayServiceAccountCredential:
+      example:
+        gateway_endpoint: https://openapi-generator.tech
+        audience: audience
+        grant_type: client_credentials
+        client_secret: client_secret
+        access_token_lifetime_seconds: 72
+        issuer: https://openapi-generator.tech
+        client_id: client_id
+        gateway_name: gateway_name
+        token_endpoint: https://openapi-generator.tech
+      properties:
+        gateway_name:
+          type: string
+        gateway_endpoint:
+          format: uri
+          type: string
+        issuer:
+          format: uri
+          type: string
+        token_endpoint:
+          format: uri
+          type: string
+        grant_type:
+          enum:
+          - client_credentials
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          format: password
+          readOnly: true
+          type: string
+          x-sensitive: true
+        audience:
+          type: string
+        access_token_lifetime_seconds:
+          maximum: 900
+          minimum: 1
+          type: integer
+      required:
+      - access_token_lifetime_seconds
+      - audience
+      - client_id
+      - client_secret
+      - gateway_name
+      - grant_type
+      - issuer
+      - token_endpoint
+      type: object
+    OpenShellGatewayServiceAccountGetResponse:
+      allOf:
+      - $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+      - properties:
+          connection:
+            $ref: "#/components/schemas/OpenShellGatewayServiceAccountConnection"
+        required:
+        - connection
+        type: object
+      example:
+        role: openshell-user
+        subject: subject
+        description: description
+        created_at: 2000-01-23T04:56:07.000+00:00
+        created_by_user_id: created_by_user_id
+        gateway_id: gateway_id
+        client_id: client_id
+        credential_type: client_secret
+        expires_at: 2000-01-23T04:56:07.000+00:00
+        revoked_at: 2000-01-23T04:56:07.000+00:00
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        connection:
+          gateway_endpoint: https://openapi-generator.tech
+          audience: audience
+          grant_type: client_credentials
+          access_token_lifetime_seconds: 72
+          issuer: https://openapi-generator.tech
+          client_id: client_id
+          gateway_name: gateway_name
+          token_endpoint: https://openapi-generator.tech
+        id: id
+        last_error: last_error
+        status: provisioning
+    OpenShellGatewayServiceAccountCreateResponse:
+      allOf:
+      - $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+      - properties:
+          credential:
+            $ref: "#/components/schemas/OpenShellGatewayServiceAccountCredential"
+        required:
+        - credential
+        type: object
+      example:
+        role: openshell-user
+        subject: subject
+        description: description
+        created_at: 2000-01-23T04:56:07.000+00:00
+        created_by_user_id: created_by_user_id
+        gateway_id: gateway_id
+        client_id: client_id
+        credential_type: client_secret
+        expires_at: 2000-01-23T04:56:07.000+00:00
+        revoked_at: 2000-01-23T04:56:07.000+00:00
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        credential:
+          gateway_endpoint: https://openapi-generator.tech
+          audience: audience
+          grant_type: client_credentials
+          client_secret: client_secret
+          access_token_lifetime_seconds: 72
+          issuer: https://openapi-generator.tech
+          client_id: client_id
+          gateway_name: gateway_name
+          token_endpoint: https://openapi-generator.tech
+        name: name
+        id: id
+        last_error: last_error
+        status: provisioning
+    OpenShellGatewayServiceAccountExpirationPolicy:
+      example:
+        minimum_seconds: 3600
+        default_seconds: 3600
+        maximum_seconds: 7262786
+      properties:
+        default_seconds:
+          minimum: 3600
+          type: integer
+        minimum_seconds:
+          minimum: 3600
+          type: integer
+        maximum_seconds:
+          maximum: 31536000
+          minimum: 3600
+          type: integer
+      required:
+      - default_seconds
+      - maximum_seconds
+      - minimum_seconds
+      type: object
+    OpenShellGatewayServiceAccountCapabilities:
+      example:
+        can_create: true
+        allowed_roles:
+        - openshell-user
+        - openshell-user
+        can_manage_all: true
+        expiration_policy:
+          minimum_seconds: 3600
+          default_seconds: 3600
+          maximum_seconds: 7262786
+      properties:
+        can_create:
+          type: boolean
+        allowed_roles:
+          items:
+            $ref: "#/components/schemas/OpenShellGatewayServiceAccountRole"
+          type: array
+        can_manage_all:
+          type: boolean
+        expiration_policy:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountExpirationPolicy"
+      required:
+      - allowed_roles
+      - can_create
+      - can_manage_all
+      - expiration_policy
+      type: object
+    OpenShellGatewayServiceAccountList:
+      example:
+        total: 1
+        capabilities:
+          can_create: true
+          allowed_roles:
+          - openshell-user
+          - openshell-user
+          can_manage_all: true
+          expiration_policy:
+            minimum_seconds: 3600
+            default_seconds: 3600
+            maximum_seconds: 7262786
+        size: 6
+        page: 0
+        items:
+        - role: null
+          subject: subject
+          description: description
+          created_at: 2000-01-23T04:56:07.000+00:00
+          created_by_user_id: created_by_user_id
+          gateway_id: gateway_id
+          client_id: client_id
+          credential_type: client_secret
+          expires_at: 2000-01-23T04:56:07.000+00:00
+          revoked_at: 2000-01-23T04:56:07.000+00:00
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          id: id
+          last_error: last_error
+          status: provisioning
+        - role: null
+          subject: subject
+          description: description
+          created_at: 2000-01-23T04:56:07.000+00:00
+          created_by_user_id: created_by_user_id
+          gateway_id: gateway_id
+          client_id: client_id
+          credential_type: client_secret
+          expires_at: 2000-01-23T04:56:07.000+00:00
+          revoked_at: 2000-01-23T04:56:07.000+00:00
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          id: id
+          last_error: last_error
+          status: provisioning
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+        capabilities:
+          $ref: "#/components/schemas/OpenShellGatewayServiceAccountCapabilities"
+        items:
+          items:
+            $ref: "#/components/schemas/OpenShellGatewayServiceAccountListItem"
+          type: array
+      required:
+      - capabilities
+      - items
+      - page
+      - size
+      - total
       type: object
     GatewayNetwork:
       allOf:
@@ -2972,7 +3746,6 @@ components:
         tls_mode: tls_mode
         route: route
         database_id: database_id
-        database_config: database_config
         name: name
         fleet_id: fleet_id
         external_dns: external_dns
@@ -2987,6 +3760,8 @@ components:
         release_id:
           type: string
         database_id:
+          description: Required placement placeholder; the API server ignores its
+            value and assigns the ManagedDatabase
           type: string
         external_dns:
           type: string
@@ -3014,9 +3789,6 @@ components:
           type: string
         route:
           description: JSON-encoded route configuration
-          type: string
-        database_config:
-          description: JSON-encoded database provisioning configuration
           type: string
         credential_driver:
           description: JSON-encoded credential storage driver configuration

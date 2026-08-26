@@ -70,6 +70,9 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 
 	gatewayID := created.Gateway.Metadata.Id
 	gatewayNamespace := created.Gateway.Namespace
+	gatewayDatabaseID := created.Gateway.DatabaseId
+	Expect(gatewayDatabaseID).NotTo(BeEmpty())
+	Expect(gatewayDatabaseID).NotTo(Equal(createReq.DatabaseId), "client-supplied database_id must be ignored")
 
 	getReq := &pb.GetGatewayRequest{Id: gatewayID}
 	retrieved, err := grpcClient.GetGateway(ctx, getReq)
@@ -93,6 +96,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.Gateway.Metadata.Id).To(Equal(gatewayID))
 	Expect(updated.Gateway.Namespace).To(Equal(gatewayNamespace))
+	Expect(updated.Gateway.DatabaseId).To(Equal(gatewayDatabaseID), "database_id update must be ignored")
 
 	listReq := &pb.ListGatewaysRequest{
 		Page: 1,
@@ -259,8 +263,11 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	stream, err := grpcClient.WatchGateways(watchCtx, &pb.WatchGatewaysRequest{})
 	Expect(err).NotTo(HaveOccurred())
 
-	// Allow the stream to establish before deleting
-	time.Sleep(200 * time.Millisecond)
+	// Block until the subscription handshake header arrives, so the delete below
+	// cannot fire before the server subscribes. This is deterministic where a
+	// fixed sleep only made the race unlikely.
+	_, err = stream.Header()
+	Expect(err).NotTo(HaveOccurred())
 
 	_, err = grpcClient.DeleteGateway(ctx, &pb.DeleteGatewayRequest{Id: gatewayID})
 	Expect(err).NotTo(HaveOccurred())
@@ -285,6 +292,42 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 		Expect(evt.Gateway.ClusterId).To(Equal("test-cluster"))
 		break
 	}
+}
+
+// TestGRPCWatchGatewaysSendsSubscriptionHeader asserts the watch RPC flushes its
+// response header once the broker subscription is live. The control-plane watcher
+// blocks on this header before it seeds its reconcile queue from a LIST, so the
+// header is what closes the list-watch gap: without it, the client could list
+// state and then miss an event that fires before the subscription registers.
+func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	account := h.NewRandAccount()
+	jwtToken := h.CreateJWTString(account)
+
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
+
+	grpcClient := pb.NewGatewayServiceClient(conn)
+
+	watchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	stream, err := grpcClient.WatchGateways(watchCtx, &pb.WatchGatewaysRequest{})
+	Expect(err).NotTo(HaveOccurred())
+
+	// Header() blocks until the server flushes its header, which it does only after
+	// subscribing. It returning without error proves the handshake fired.
+	_, err = stream.Header()
+	Expect(err).NotTo(HaveOccurred())
 }
 
 func TestGRPCGatewayErrorHandling(t *testing.T) {

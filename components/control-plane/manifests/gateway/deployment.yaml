@@ -57,7 +57,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: openshell-gateway-db-credentials
-                  key: url
+                  key: uri
             - name: OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
@@ -72,9 +72,6 @@ spec:
               readOnly: true
             - name: tls-cert
               mountPath: /etc/openshell-tls/server
-              readOnly: true
-            - name: tls-client-ca
-              mountPath: /etc/openshell-tls/client-ca
               readOnly: true
             - name: tmp
               mountPath: /tmp
@@ -129,13 +126,6 @@ spec:
         - name: tls-cert
           secret:
             secretName: openshell-server-tls
-            defaultMode: 288
-        - name: tls-client-ca
-          secret:
-            secretName: openshell-client-tls
-            items:
-              - key: ca.crt
-                path: ca.crt
             defaultMode: 288
         - name: tmp
           emptyDir: {}

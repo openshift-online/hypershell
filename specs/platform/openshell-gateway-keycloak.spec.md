@@ -4,6 +4,7 @@
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
 **Related:** `openshell-gateway-oidc.spec.md` - OIDC configuration injection into gateway.toml; `security/security.spec.md` - secret management and isolation; `data-model.spec.md` - Gateway kind definition; `web-console/architecture.spec.md` - gateway visibility; `security/rbac-enforcement.spec.md` - scope-aware RBAC model, role hierarchy, and Gateway OIDC Role Bridge
+**OpenShell gateway service accounts:** `openshell-gateway-service-accounts.spec.md` - confidential clients for automation
 **Upstream:** [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/)
 
 ---
@@ -152,6 +153,7 @@ When a user has multiple RoleBindings on the same gateway, the **highest-privile
 
 - **Gateway created** → the control plane provisions the Keycloak client and resolves existing RoleBindings for that gateway (initially the auto-provisioned `gateway:owner` for the creator), assigning the corresponding Keycloak client roles.
 - **RoleBinding created/deleted for a gateway** → the control plane assigns or removes the Keycloak client role on that gateway's Keycloak client.
+- **OpenShellGatewayServiceAccount lifecycle change** → the API records the desired state and the control plane creates, disables, or deletes the related service-account client. See `openshell-gateway-service-accounts.spec.md`.
 - **Gateway deleted** → Keycloak client deletion cascades all role assignments automatically (see Client Cleanup requirement).
 
 ---
@@ -160,7 +162,7 @@ When a user has multiple RoleBindings on the same gateway, the **highest-privile
 
 ### Requirement: Keycloak Service Account Access
 
-Both the API server and the control plane SHALL authenticate to the Keycloak Admin REST API using a shared service account with admin permissions in the configured realm. The service account credentials SHALL be stored in a Kubernetes Secret named `hypershell-keycloak-admin` in the HyperShell namespace.
+The control plane SHALL authenticate to the Keycloak Admin REST API using a service account with admin permissions in the configured realm. The service account credentials SHALL be stored in a Kubernetes Secret named `hypershell-keycloak-admin` in the HyperShell namespace. The API server SHALL NOT mount or read this Secret.
 
 The Secret SHALL contain the following keys:
 
@@ -171,9 +173,9 @@ The Secret SHALL contain the following keys:
 | `client-id` | Service account client ID with realm admin permissions |
 | `client-secret` | Service account client secret |
 
-Both components SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. Each component SHOULD cache and refresh the service account token independently.
+The control plane SHALL obtain an access token from Keycloak using the client credentials grant (`grant_type=client_credentials`) before making Admin REST API calls. It SHOULD cache and refresh that token.
 
-- **Control plane** uses the Secret for read-write operations: provisioning Keycloak clients, roles, mappers during gateway reconciliation, and assigning/removing client roles during the OIDC Role Bridge.
+- **Control plane** uses the Secret for every read-write operation: provisioning Keycloak clients, roles, and mappers; managing OpenShellGatewayServiceAccounts; and assigning or removing client roles during the OIDC Role Bridge.
 
 #### Scenario: Service account credentials available
 
@@ -208,10 +210,11 @@ The client SHALL be created with the following properties:
 | `name` | `{name}-{id}` | Display name in Keycloak admin console |
 | `publicClient` | `true` | PKCE flow, no client secret required |
 | `standardFlowEnabled` | `true` | Authorization code flow for browser/CLI |
-| `directAccessGrantsEnabled` | `true` | Resource owner password grant for non-interactive CI pipelines that cannot use browser-based PKCE flow |
+| `directAccessGrantsEnabled` | `true` | Retained for human-client compatibility. New automation SHALL use credentials for an OpenShellGatewayServiceAccount instead of a human username and password. |
 | `fullScopeAllowed` | `false` | **CRITICAL** -- prevents cross-gateway role leakage |
 | `redirectUris` | `["http://127.0.0.1:*", "http://localhost:*"]` | CLI callback URIs |
 | `attributes.pkce.code.challenge.method` | `S256` | PKCE challenge method |
+| `attributes.oauth2.device.authorization.grant.enabled` | `true` | Enables OAuth 2.0 Device Authorization Grant for browserless CLI authentication |
 | `defaultClientScopes` | `["openid", "profile", "email", "roles", "gateway-roles", "web-origins", "acr"]` | Standard scopes plus `gateway-roles` |
 
 > **`fullScopeAllowed` MUST be `false`.** Keycloak defaults to `true`, which leaks every client's roles into every token. Combined with the built-in `oidc-audience-resolve-mapper`, a token from any client would carry all other gateways' client IDs in `aud` plus their admin roles, breaking per-gateway isolation entirely.
@@ -227,7 +230,16 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 - THEN it SHALL create a Keycloak client with `clientId = "my-gateway-2FhMpQzXBz"`
 - AND the client SHALL have `fullScopeAllowed = false`
 - AND the client SHALL have `publicClient = true` with `pkce.code.challenge.method = S256`
+- AND OAuth 2.0 Device Authorization Grant SHALL be enabled
 - AND the `gateway-roles` client scope SHALL be included in `defaultClientScopes`
+
+#### Scenario: Reconciler enables device authorization on an existing client
+
+- GIVEN a gateway's Keycloak client was provisioned before Device Authorization Grant was enabled
+- WHEN the GatewayReconciler reconciles the existing gateway
+- THEN it SHALL enable OAuth 2.0 Device Authorization Grant on the existing Keycloak client
+- AND it SHALL preserve all other client attributes and settings
+- AND subsequent reconciliations SHALL NOT update the client when the grant is already enabled
 
 #### Scenario: Creator receives admin role on new gateway
 
@@ -466,6 +478,8 @@ This keycloak spec does not define the visibility query mechanism -- that is the
 
 When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the corresponding Keycloak OIDC client to prevent orphaned clients in the realm. Deleting a Keycloak client automatically cascades to its roles, protocol mappers, and all user role assignments on that client.
 
+Keycloak does not delete related service-account clients when it deletes the gateway client. Gateway deletion SHALL disable and delete each service-account client. It SHALL also delete the gateway and console clients. See [`openshell-gateway-service-accounts.spec.md`](./openshell-gateway-service-accounts.spec.md).
+
 #### Scenario: Gateway deletion cleans up Keycloak
 
 - GIVEN a Gateway `my-gateway` (id=`2FhMpQzXBz`) with a corresponding Keycloak client `my-gateway-2FhMpQzXBz`
@@ -473,6 +487,7 @@ When the GatewayReconciler receives a Gateway DELETED event, it SHALL delete the
 - THEN it SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=my-gateway-2FhMpQzXBz`)
 - AND it SHALL delete the client (`DELETE /admin/realms/{realm}/clients/{client-uuid}`)
 - AND the client's roles, mappers, and user role assignments SHALL be automatically removed by Keycloak
+- AND it SHALL separately disable and delete every service-account client for that gateway
 
 #### Scenario: Keycloak cleanup failure is non-blocking
 

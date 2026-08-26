@@ -30,9 +30,11 @@ const forwardedRequestHeaders = [
   "if-none-match",
 ] as const;
 const forwardedResponseHeaders = [
+  "cache-control",
   "content-type",
   "etag",
   "location",
+  "pragma",
   "retry-after",
 ] as const;
 
@@ -224,26 +226,45 @@ export async function buildApp(
   if (config.oidcIssuer) {
     await registerAuth(app, config);
 
-    // CSRF protection: reject mutating requests whose Origin does not match
-    // the Host header. Requests without an Origin header are allowed through
-    // (non-browser clients such as curl may omit it).
+    // CSRF protection for mutating requests. The browser-set Fetch Metadata
+    // header Sec-Fetch-Site is authoritative and cannot be forged by page
+    // script, so it is checked first: same-origin and user-initiated (none)
+    // requests are allowed, anything cross-site is rejected. This holds even
+    // when the Origin header is absent or the literal string "null" -- Firefox
+    // sends Origin: null on same-origin beacons under the no-referrer policy
+    // this app sets, which the Origin/Host comparison alone would reject and so
+    // silently drop legitimate same-origin browser telemetry (WEB-TRACE-02).
+    // For non-browser clients that omit Fetch Metadata (such as curl), fall
+    // back to comparing the Origin host to the Host header; a missing Origin is
+    // allowed through.
     app.addHook("onRequest", async (request, reply) => {
-      if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) {
-        const origin = request.headers.origin;
-        if (typeof origin === "string") {
-          try {
-            const originHost = new URL(origin).host;
-            const requestHost = request.headers.host;
-            if (!requestHost || originHost !== requestHost) {
-              reply.code(403);
-              reply.send({ error: "Forbidden", statusCode: 403 });
-              return;
-            }
-          } catch {
-            reply.code(403);
-            reply.send({ error: "Forbidden", statusCode: 403 });
-            return;
+      if (!["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) {
+        return;
+      }
+
+      const rejectForbidden = () => {
+        reply.code(403);
+        reply.send({ error: "Forbidden", statusCode: 403 });
+      };
+
+      const secFetchSite = request.headers["sec-fetch-site"];
+      if (typeof secFetchSite === "string") {
+        if (secFetchSite !== "same-origin" && secFetchSite !== "none") {
+          rejectForbidden();
+        }
+        return;
+      }
+
+      const origin = request.headers.origin;
+      if (typeof origin === "string") {
+        try {
+          const originHost = new URL(origin).host;
+          const requestHost = request.headers.host;
+          if (!requestHost || originHost !== requestHost) {
+            rejectForbidden();
           }
+        } catch {
+          rejectForbidden();
         }
       }
     });

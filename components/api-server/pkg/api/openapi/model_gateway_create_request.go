@@ -21,10 +21,11 @@ var _ MappedNullable = &GatewayCreateRequest{}
 
 // GatewayCreateRequest struct for GatewayCreateRequest
 type GatewayCreateRequest struct {
-	Name        string  `json:"name"`
-	FleetId     string  `json:"fleet_id"`
-	ClusterId   string  `json:"cluster_id"`
-	ReleaseId   string  `json:"release_id"`
+	Name      string `json:"name"`
+	FleetId   string `json:"fleet_id"`
+	ClusterId string `json:"cluster_id"`
+	ReleaseId string `json:"release_id"`
+	// Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
 	DatabaseId  string  `json:"database_id"`
 	ExternalDns *string `json:"external_dns,omitempty"`
 	TlsMode     *string `json:"tls_mode,omitempty"`
@@ -41,8 +42,6 @@ type GatewayCreateRequest struct {
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
 	Route *string `json:"route,omitempty"`
-	// JSON-encoded database provisioning configuration
-	DatabaseConfig *string `json:"database_config,omitempty"`
 	// JSON-encoded credential storage driver configuration
 	CredentialDriver *string `json:"credential_driver,omitempty"`
 }
@@ -511,38 +510,6 @@ func (o *GatewayCreateRequest) SetRoute(v string) {
 	o.Route = &v
 }
 
-// GetDatabaseConfig returns the DatabaseConfig field value if set, zero value otherwise.
-func (o *GatewayCreateRequest) GetDatabaseConfig() string {
-	if o == nil || IsNil(o.DatabaseConfig) {
-		var ret string
-		return ret
-	}
-	return *o.DatabaseConfig
-}
-
-// GetDatabaseConfigOk returns a tuple with the DatabaseConfig field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GatewayCreateRequest) GetDatabaseConfigOk() (*string, bool) {
-	if o == nil || IsNil(o.DatabaseConfig) {
-		return nil, false
-	}
-	return o.DatabaseConfig, true
-}
-
-// HasDatabaseConfig returns a boolean if a field has been set.
-func (o *GatewayCreateRequest) HasDatabaseConfig() bool {
-	if o != nil && !IsNil(o.DatabaseConfig) {
-		return true
-	}
-
-	return false
-}
-
-// SetDatabaseConfig gets a reference to the given string and assigns it to the DatabaseConfig field.
-func (o *GatewayCreateRequest) SetDatabaseConfig(v string) {
-	o.DatabaseConfig = &v
-}
-
 // GetCredentialDriver returns the CredentialDriver field value if set, zero value otherwise.
 func (o *GatewayCreateRequest) GetCredentialDriver() string {
 	if o == nil || IsNil(o.CredentialDriver) {
@@ -619,9 +586,6 @@ func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Route) {
 		toSerialize["route"] = o.Route
-	}
-	if !IsNil(o.DatabaseConfig) {
-		toSerialize["database_config"] = o.DatabaseConfig
 	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver

@@ -3,42 +3,29 @@ kind: Kustomization
 
 # App-only OpenShift base for the GitOps fleet hub (bootstrap-hyperfleet).
 #
-# This is deploy/openshift MINUS the bundled postgres and keycloak:
+# This is deploy/openshift MINUS the bundled CNPG cluster and keycloak:
 #   - The platform database is provided by the CloudNativePG operator per env
-#     (the consuming overlay supplies the `hypershell-db` Secret).
+#     (the consuming overlay supplies the `hypershell-db-app` Secret with keys:
+#     host, port, dbname, user, password).
 #   - Keycloak is deployed once per cluster as a separate unit (deploy/keycloak,
 #     built on deploy/base/keycloak, in its own namespace) and shared by envs.
 #
 # It inherits everything from deploy/openshift (route, scc, networkpolicies,
-# certificates, controller gateway defaults) and removes only the bundled DB and
-# keycloak, so it stays in lockstep with the OpenShift overlay.
+# certificates, controller gateway defaults) and removes only the bundled CNPG
+# cluster and keycloak, so it stays in lockstep with the OpenShift overlay.
 #
 # NOT meant to be applied standalone: the consuming overlay must provide a
-# `hypershell-db` Secret (db.host/db.name/db.user/db.password) and set the
+# `hypershell-db-app` Secret (host/port/dbname/user/password) and set the
 # per-env namespace, namePrefix, images, GATEWAY_API_BASE_DOMAIN and SSO config.
 resources:
   - ../openshift
 
 patches:
-  # --- remove bundled postgres (replaced by CloudNativePG per env) ---
+  # --- remove bundled CNPG cluster (replaced by per-env CNPG cluster) ---
   - patch: |
       $patch: delete
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: hypershell-postgres
-        namespace: hypershell-system
-  - patch: |
-      $patch: delete
-      apiVersion: v1
-      kind: Service
-      metadata:
-        name: hypershell-postgres
-        namespace: hypershell-system
-  - patch: |
-      $patch: delete
-      apiVersion: v1
-      kind: Secret
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
       metadata:
         name: hypershell-db
         namespace: hypershell-system

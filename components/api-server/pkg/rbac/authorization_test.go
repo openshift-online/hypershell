@@ -1,9 +1,22 @@
 package rbac
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gorilla/mux"
+	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
+
+type authorizationLookup struct {
+	bindings []BindingSummary
+}
+
+func (l authorizationLookup) FindBindingsByUserID(context.Context, string) ([]BindingSummary, error) {
+	return l.bindings, nil
+}
 
 func TestIsExemptEndpoint_RolesListIsExempt(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "/api/hypershell/v1/roles", nil)
@@ -252,5 +265,69 @@ func TestIsAuthorized_PlatformAdminCanAccessRoleBindings(t *testing.T) {
 
 	if !isAuthorized(http.MethodGet, "role_bindings", "", "", bindings) {
 		t.Error("platform:admin should be able to access role_bindings")
+	}
+}
+
+func TestServiceAccountAuthorizationRequiresExactGatewayBinding(t *testing.T) {
+	gatewayID := "gw-a"
+	otherGatewayID := "gw-b"
+	for _, role := range []string{"gateway:owner", "gateway:viewer"} {
+		bindings := []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: &gatewayID}}
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+			if !isAuthorized(method, "service_accounts", "sa-1", gatewayID, bindings) {
+				t.Errorf("%s should authorize %s on the bound gateway", role, method)
+			}
+			if isAuthorized(method, "service_accounts", "sa-1", otherGatewayID, bindings) {
+				t.Errorf("%s must not authorize %s on another gateway", role, method)
+			}
+		}
+	}
+	platformOnly := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
+	if isAuthorized(http.MethodGet, "service_accounts", "sa-1", gatewayID, platformOnly) {
+		t.Error("platform:admin without an exact gateway binding must be denied")
+	}
+}
+
+func TestExtractResourceInfoRecognizesNestedServiceAccountRoutes(t *testing.T) {
+	router := mux.NewRouter()
+	router.HandleFunc("/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+		resource, resourceID := extractResourceInfo(r)
+		if resource != "service_accounts" || resourceID != "sa-1" {
+			t.Errorf("resource = %q, id = %q", resource, resourceID)
+		}
+		if gatewayID := extractGatewayID(r, resource); gatewayID != "gw-1" {
+			t.Errorf("gateway id = %q", gatewayID)
+		}
+	}).Methods(http.MethodPost)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/gateways/gw-1/service_accounts/sa-1/revoke", nil)
+	router.ServeHTTP(recorder, request)
+}
+
+func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true})
+	for _, test := range []struct {
+		method string
+		path   string
+		route  string
+	}{
+		{method: http.MethodPost, path: "/api/hypershell/v1/gateways/gw-1/service_accounts", route: "/api/hypershell/v1/gateways/{gateway_id}/service_accounts"},
+		{method: http.MethodPost, path: "/api/hypershell/v1/gateways/gw-1/service_accounts/sa-1/revoke", route: "/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke"},
+		{method: http.MethodDelete, path: "/api/hypershell/v1/gateways/gw-1/service_accounts/sa-1", route: "/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}"},
+	} {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			router := mux.NewRouter()
+			router.Handle(test.route, middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("denied request reached the handler")
+			}))).Methods(test.method)
+			request := httptest.NewRequest(test.method, test.path, nil)
+			ctx := auth.SetUsernameContext(request.Context(), "unbound-user")
+			ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request.WithContext(ctx))
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404", recorder.Code)
+			}
+		})
 	}
 }

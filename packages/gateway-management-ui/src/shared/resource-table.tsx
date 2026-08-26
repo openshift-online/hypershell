@@ -53,7 +53,9 @@ interface ResourceTableLabels {
 interface ResourceTableProps<Row> {
   ariaLabel: string;
   columns: readonly ResourceTableColumn<Row>[];
+  filterControls?: React.ReactNode;
   getRowKey: (row: Row) => React.Key;
+  hasActiveFilters?: boolean;
   id: string;
   itemCount: number;
   labels: ResourceTableLabels;
@@ -61,6 +63,7 @@ interface ResourceTableProps<Row> {
     state: ResourceTableState,
     reason: ResourceTableStateChangeReason,
   ) => void;
+  onClearFilters?: () => void;
   pageSizeOptions: readonly number[];
   primaryAction?: React.ReactNode;
   renderRowAction?: (row: Row) => React.ReactNode;
@@ -71,11 +74,14 @@ interface ResourceTableProps<Row> {
 export function ResourceTable<Row>({
   ariaLabel,
   columns,
+  filterControls,
   getRowKey,
+  hasActiveFilters,
   id,
   itemCount,
   labels,
   onStateChange,
+  onClearFilters,
   pageSizeOptions,
   primaryAction,
   renderRowAction,
@@ -86,7 +92,7 @@ export function ResourceTable<Row>({
     0,
     columns.findIndex(({ id: columnId }) => columnId === state.sortColumnId),
   );
-  const hasFilter = state.query.trim().length > 0;
+  const hasFilter = hasActiveFilters ?? state.query.trim().length > 0;
 
   const getSortParams = (columnIndex: number): ThProps["sort"] => ({
     columnIndex,
@@ -111,7 +117,11 @@ export function ResourceTable<Row>({
   });
 
   const clearFilter = () => {
-    onStateChange({ ...state, page: 1, query: "" }, "filter");
+    if (onClearFilters) {
+      onClearFilters();
+    } else {
+      onStateChange({ ...state, page: 1, query: "" }, "filter");
+    }
   };
 
   return (
@@ -131,6 +141,7 @@ export function ResourceTable<Row>({
               value={state.query}
             />
           </ToolbarItem>
+          {filterControls ? <ToolbarItem>{filterControls}</ToolbarItem> : null}
           {primaryAction ? <ToolbarItem>{primaryAction}</ToolbarItem> : null}
           <ToolbarItem
             align={{ default: "alignStart", md: "alignEnd" }}

@@ -3,12 +3,15 @@ package gateways
 import (
 	"context"
 	"net/http"
+	"os"
 
+	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
@@ -18,19 +21,80 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/pkg/services"
 	"github.com/openshift-online/rh-trex-ai/plugins/events"
 	"github.com/openshift-online/rh-trex-ai/plugins/generic"
 )
 
-type ServiceLocator func() GatewayService
+type ServiceLocator struct {
+	gateway func() GatewayService
+	list    services.GenericService
+}
+
+type dbLookupAdapter struct {
+	svc managedDatabases.ManagedDatabaseService
+}
+
+func (a *dbLookupAdapter) FindSole(ctx context.Context) (string, error) {
+	all, err := a.svc.All(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(all) == 1 {
+		return all[0].ID, nil
+	}
+	return "", nil
+}
+
+type dbCreatorAdapter struct {
+	svc      managedDatabases.ManagedDatabaseService
+	provider string
+}
+
+func (a *dbCreatorAdapter) CreateForGateway(ctx context.Context, gatewayName string) (string, error) {
+	d, err := a.svc.Create(ctx, &managedDatabases.ManagedDatabase{
+		Name:     "gw-" + gatewayName + "-db",
+		Provider: a.provider,
+	})
+	if err != nil {
+		return "", err
+	}
+	return d.ID, nil
+}
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
-	return func() GatewayService {
-		return NewGatewayService(
-			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
-			NewGatewayDao(&env.Database.SessionFactory),
-			events.Service(&env.Services),
-		)
+	dao := NewGatewayDao(&env.Database.SessionFactory)
+	RegisterGatewayMetrics(dao)
+
+	// Resolved once at server startup (this factory runs a single time via
+	// registry.LoadDiscoveredServices), not per request: an unsupported
+	// DATABASE_PROVIDER value is a startup configuration error, so it must
+	// fail here rather than surface later as a silently-wrong placement
+	// choice on the first gateway creation request.
+	databaseProvider, err := resolveDatabaseProvider(os.Getenv("DATABASE_PROVIDER"))
+	if err != nil {
+		glog.Fatalf("gateways: %v", err)
+	}
+
+	return ServiceLocator{
+		gateway: func() GatewayService {
+			var placement PlacementResolver
+			if mdSvc := managedDatabases.Service(&env.Services); mdSvc != nil {
+				if databaseProvider == ProviderDeployment {
+					placement = NewDeploymentPlacement(&dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
+				} else {
+					placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc})
+				}
+			}
+
+			return NewGatewayService(
+				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
+				dao,
+				events.Service(&env.Services),
+				placement,
+			)
+		},
+		list: newGatewayListService(&env.Database.SessionFactory),
 	}
 }
 
@@ -40,7 +104,18 @@ func Service(s *environments.Services) GatewayService {
 	}
 	if obj := s.GetService("Gateways"); obj != nil {
 		locator := obj.(ServiceLocator)
-		return locator()
+		return locator.gateway()
+	}
+	return nil
+}
+
+func listService(s *environments.Services) services.GenericService {
+	if s == nil {
+		return nil
+	}
+	if obj := s.GetService("Gateways"); obj != nil {
+		locator := obj.(ServiceLocator)
+		return locator.list
 	}
 	return nil
 }
@@ -54,6 +129,7 @@ func init() {
 		envServices := services.(*environments.Services)
 		var ownerBinding OwnerBindingCreator
 		var visibilityFilter GatewayVisibilityFilter
+		var ownerLookup GatewayOwnerLookup
 		rbService := roleBindings.Service(envServices)
 		if rbService != nil {
 			ownerBinding = rbac.NewGatewayBootstrapper(rbService)
@@ -64,8 +140,9 @@ func init() {
 				}
 				return ids, nil
 			})
+			ownerLookup = rbService
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), generic.Service(envServices), ownerBinding, visibilityFilter)
+		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
@@ -112,4 +189,7 @@ func init() {
 	db.RegisterMigration(migrationAddProvisioningFields())
 	db.RegisterMigration(migrationAddSupervisorImage())
 	db.RegisterMigration(migrationAddCredentialDriver())
+	db.RegisterMigration(migrationAddConsoleAddress())
+	db.RegisterMigration(migrationAddActiveSandboxCount())
+	db.RegisterMigration(migrationDropDatabaseConfig())
 }

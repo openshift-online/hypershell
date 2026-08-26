@@ -33,6 +33,7 @@ type ManagedDatabase struct {
 	InstanceClass    *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
 	ConnectionSecret *string                `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
 	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	Namespace        string                 `protobuf:"bytes,11,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -133,6 +134,13 @@ func (x *ManagedDatabase) GetConnectionSecret() string {
 func (x *ManagedDatabase) GetStatus() string {
 	if x != nil && x.Status != nil {
 		return *x.Status
+	}
+	return ""
+}
+
+func (x *ManagedDatabase) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
 	}
 	return ""
 }
@@ -821,7 +829,7 @@ var File_hypershell_v1_managed_databases_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\n" +
-	"%hypershell/v1/managed_databases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xd6\x03\n" +
+	"%hypershell/v1/managed_databases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xf4\x03\n" +
 	"\x0fManagedDatabase\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -833,7 +841,8 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0einstance_class\x18\b \x01(\tH\x03R\rinstanceClass\x88\x01\x01\x120\n" +
 	"\x11connection_secret\x18\t \x01(\tH\x04R\x10connectionSecret\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\n" +
-	" \x01(\tH\x05R\x06status\x88\x01\x01B\t\n" +
+	" \x01(\tH\x05R\x06status\x88\x01\x01\x12\x1c\n" +
+	"\tnamespace\x18\v \x01(\tR\tnamespaceB\t\n" +
 	"\a_regionB\t\n" +
 	"\a_engineB\x11\n" +
 	"\x0f_engine_versionB\x11\n" +

@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+inheritance: true
+tone_instructions: >-
+  Security-first. Be direct. Cite CWE/CVE IDs. No praise, no summaries.
+  Treat dependency, CI/CD, IDE config, and .gitattributes changes as
+  supply chain attack surfaces. Go-only K8s platform: API, Sentinel,
+  Adapter, Broker.
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: true
+  poem: false
+  request_changes_workflow: false
+  enable_prompt_for_ai_agents: true
+
+  slop_detection:
+    enabled: true
+
+  # Exclude generated, vendored, and lock files from review entirely.
+  # See https://docs.coderabbit.ai/guides/review-instructions#path-filtering
+  path_filters:
+    - "!**/vendor/**"
+    - "!**/zz_generated*"
+    - "!**/go.sum"
+    
+##  disable auto reviews as per https://redhat.atlassian.net/browse/HYPERSHELL-28
+  auto_review:
+    enabled: false   
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - WIP
+      - DO NOT MERGE
+    labels:
+      - "!do-not-merge/work-in-progress"
+      - "!do-not-merge/hold"

@@ -1,10 +1,15 @@
 import type {
   GatewayControlPlane,
+  GatewayFailureCode,
   GatewayFailureKind,
   GatewayInvocationContext,
   GatewayListRequest,
   GatewayPlacement,
   GatewayRecord,
+  OpenShellGatewayServiceAccountCapabilities,
+  OpenShellGatewayServiceAccountConnection,
+  OpenShellGatewayServiceAccountCredential,
+  OpenShellGatewayServiceAccountRecord,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import {
   defaultGatewayListRequest,
@@ -15,6 +20,12 @@ import {
   SDKAPIError,
   type Gateway,
   type ManagedCluster,
+  type OpenShellGatewayServiceAccountCapabilities as ApiServiceAccountCapabilities,
+  type OpenShellGatewayServiceAccountConnection as ApiServiceAccountConnection,
+  type OpenShellGatewayServiceAccountCreateResponse,
+  type OpenShellGatewayServiceAccountCredential as ApiServiceAccountCredential,
+  type OpenShellGatewayServiceAccountGetResponse,
+  type OpenShellGatewayServiceAccountListItem,
   type SDKClient,
 } from "@openshift-online/hypershell-sdk";
 
@@ -23,9 +34,14 @@ type GatewayApi = Pick<
   "create" | "delete" | "get" | "list" | "update"
 >;
 type ManagedClusterApi = Pick<SDKClient["managedClusters"], "get" | "list">;
+type ServiceAccountApi = Pick<
+  SDKClient["openShellGatewayServiceAccounts"],
+  "create" | "delete" | "get" | "list" | "revoke"
+>;
 interface GatewayApiClient {
   gateways: GatewayApi;
   managedClusters: ManagedClusterApi;
+  openShellGatewayServiceAccounts: ServiceAccountApi;
 }
 type GatewayApiFactory = (correlationId: string) => GatewayApiClient;
 
@@ -36,6 +52,7 @@ const gatewaySortFields = {
   created: "created_at",
   endpoint: "route_address",
   name: "name",
+  owner: "created_by",
   status: "status",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
@@ -95,10 +112,16 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const oidcAudience = optionalString(oidc?.audience);
   const oidcClientId = optionalString(oidc?.client_id);
   const oidcIssuer = optionalString(oidc?.issuer);
+  const createdBy = optionalString(gateway.created_by);
+  const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
+  const consoleUrl = optionalString(gateway.console_address);
 
   return {
+    ...(activeSandboxCount !== undefined ? { activeSandboxCount } : {}),
     clusterId: gateway.cluster_id,
+    ...(consoleUrl ? { consoleUrl } : {}),
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
+    ...(createdBy ? { createdBy } : {}),
     databaseId: gateway.database_id,
     externalDns:
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
@@ -116,6 +139,79 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
 
 function optionalString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+type ApiServiceAccountRecord =
+  | OpenShellGatewayServiceAccountCreateResponse
+  | OpenShellGatewayServiceAccountGetResponse
+  | OpenShellGatewayServiceAccountListItem;
+
+function toServiceAccountRecord(
+  account: ApiServiceAccountRecord,
+): OpenShellGatewayServiceAccountRecord {
+  const description = optionalString(account.description);
+  const lastError = optionalString(account.last_error);
+  const revokedAt = optionalString(account.revoked_at);
+  return {
+    clientId: account.client_id,
+    createdAt: account.created_at,
+    createdByUserId: account.created_by_user_id,
+    ...(description ? { description } : {}),
+    expiresAt: account.expires_at,
+    gatewayId: account.gateway_id,
+    id: account.id,
+    ...(lastError ? { lastError } : {}),
+    name: account.name,
+    ...(revokedAt ? { revokedAt } : {}),
+    role: account.role,
+    status: account.status,
+    subject: account.subject,
+    updatedAt: account.updated_at,
+  };
+}
+
+function toServiceAccountConnection(
+  connection: ApiServiceAccountConnection,
+): OpenShellGatewayServiceAccountConnection {
+  return {
+    accessTokenLifetimeSeconds: connection.access_token_lifetime_seconds,
+    audience: connection.audience,
+    clientId: connection.client_id,
+    ...(connection.gateway_endpoint
+      ? { gatewayEndpoint: connection.gateway_endpoint }
+      : {}),
+    gatewayName: connection.gateway_name,
+    issuer: connection.issuer,
+    tokenEndpoint: connection.token_endpoint,
+  };
+}
+
+function toServiceAccountCredential(
+  credential: ApiServiceAccountCredential,
+): OpenShellGatewayServiceAccountCredential {
+  return {
+    ...toServiceAccountConnection(credential),
+    clientSecret: credential.client_secret,
+  };
+}
+
+function toServiceAccountCapabilities(
+  capabilities: ApiServiceAccountCapabilities,
+): OpenShellGatewayServiceAccountCapabilities {
+  return {
+    allowedRoles: capabilities.allowed_roles,
+    canCreate: capabilities.can_create,
+    canManageAll: capabilities.can_manage_all,
+    expirationPolicy: {
+      defaultSeconds: capabilities.expiration_policy.default_seconds,
+      maximumSeconds: capabilities.expiration_policy.maximum_seconds,
+      minimumSeconds: capabilities.expiration_policy.minimum_seconds,
+    },
+  };
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
 }
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
@@ -146,6 +242,13 @@ function gatewayFailureKind(statusCode: number): GatewayFailureKind {
   return "unknown";
 }
 
+function gatewayFailureCode(code: string): GatewayFailureCode | undefined {
+  if (code === "service_account_name_exists") {
+    return "service-account-name-exists";
+  }
+  return undefined;
+}
+
 async function mapFailure<T>(task: () => Promise<T>): Promise<T> {
   try {
     return await task();
@@ -153,6 +256,7 @@ async function mapFailure<T>(task: () => Promise<T>): Promise<T> {
     if (error instanceof SDKAPIError) {
       throw new GatewayOperationError(gatewayFailureKind(error.statusCode), {
         cause: error,
+        code: gatewayFailureCode(error.code),
         operationId: error.operationId || undefined,
       });
     }
@@ -164,6 +268,44 @@ export function createGatewayControlPlaneAdapter(
   apiFactory: GatewayApiFactory,
 ): GatewayControlPlane {
   return {
+    async createOpenShellGatewayServiceAccount(gatewayId, input, context) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).openShellGatewayServiceAccounts.create(
+          gatewayId,
+          {
+            ...(input.description === undefined
+              ? {}
+              : { description: input.description }),
+            expires_at: input.expiresAt,
+            name: input.name,
+            role: input.role,
+          },
+          { signal: context.signal },
+        );
+        return {
+          credential: toServiceAccountCredential(response.credential),
+          serviceAccount: toServiceAccountRecord(response),
+        };
+      });
+    },
+    async deleteOpenShellGatewayServiceAccount(
+      gatewayId,
+      serviceAccountId,
+      context,
+    ) {
+      await mapFailure(() =>
+        apiClient(apiFactory, context).openShellGatewayServiceAccounts.delete(
+          gatewayId,
+          serviceAccountId,
+          {
+            signal: context.signal,
+          },
+        ),
+      );
+    },
     async findGatewayPlacements(search, context) {
       return mapFailure(async () => {
         const normalizedSearch = search.trim();
@@ -251,6 +393,24 @@ export function createGatewayControlPlaneAdapter(
         ),
       );
     },
+    async getOpenShellGatewayServiceAccount(
+      gatewayId,
+      serviceAccountId,
+      context,
+    ) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).openShellGatewayServiceAccounts.get(gatewayId, serviceAccountId, {
+          signal: context.signal,
+        });
+        return {
+          connection: toServiceAccountConnection(response.connection),
+          serviceAccount: toServiceAccountRecord(response),
+        };
+      });
+    },
     async listGateways(request, context) {
       return mapFailure(async () => {
         const search = gatewaySearch(request.search);
@@ -279,6 +439,44 @@ export function createGatewayControlPlaneAdapter(
           items: result.items.map(toGatewayRecord),
           page: result.page,
           size: request.size,
+          total: result.total,
+        };
+      });
+    },
+    async listOpenShellGatewayServiceAccounts(gatewayId, request, context) {
+      return mapFailure(async () => {
+        const result = await apiClient(
+          apiFactory,
+          context,
+        ).openShellGatewayServiceAccounts.list(
+          gatewayId,
+          {
+            order: request.order,
+            page: request.page,
+            search: request.search,
+            size: request.size,
+            sort: request.sort,
+            ...(request.status === undefined ? {} : { status: request.status }),
+          },
+          { signal: context.signal },
+        );
+        const pageOffset = (request.page - 1) * request.size;
+        const expectedItemCount = Math.max(
+          0,
+          Math.min(request.size, result.total - pageOffset),
+        );
+        if (
+          result.page !== request.page ||
+          result.total < 0 ||
+          result.items.length !== expectedItemCount
+        ) {
+          throw new GatewayOperationError("unavailable");
+        }
+        return {
+          capabilities: toServiceAccountCapabilities(result.capabilities),
+          items: result.items.map(toServiceAccountRecord),
+          page: result.page,
+          size: result.size,
           total: result.total,
         };
       });
@@ -313,6 +511,24 @@ export function createGatewayControlPlaneAdapter(
           await apiClient(apiFactory, context).gateways.update(
             gatewayId,
             { name },
+            { signal: context.signal },
+          ),
+        ),
+      );
+    },
+    async revokeOpenShellGatewayServiceAccount(
+      gatewayId,
+      serviceAccountId,
+      context,
+    ) {
+      return mapFailure(async () =>
+        toServiceAccountRecord(
+          await apiClient(
+            apiFactory,
+            context,
+          ).openShellGatewayServiceAccounts.revoke(
+            gatewayId,
+            serviceAccountId,
             { signal: context.signal },
           ),
         ),

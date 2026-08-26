@@ -33,12 +33,12 @@ spec:
           command:
             - /usr/local/bin/hypershell
             - migrate
-            - --db-host-file=/secrets/db.host
-            - --db-port-file=/secrets/db.port
-            - --db-name-file=/secrets/db.name
-            - --db-user-file=/secrets/db.user
-            - --db-password-file=/secrets/db.password
-            - --db-sslmode=disable
+            - --db-host-file=/secrets/host
+            - --db-port-file=/secrets/port
+            - --db-name-file=/secrets/dbname
+            - --db-user-file=/secrets/user
+            - --db-password-file=/secrets/password
+            - --db-sslmode=require
           resources:
             requests:
               cpu: 50m
@@ -66,12 +66,12 @@ spec:
             - --health-check-server-bindaddress=0.0.0.0:8434
             - --enable-authz=false
             - --enable-jwt=false
-            - --db-host-file=/secrets/db.host
-            - --db-port-file=/secrets/db.port
-            - --db-name-file=/secrets/db.name
-            - --db-user-file=/secrets/db.user
-            - --db-password-file=/secrets/db.password
-            - --db-sslmode=disable
+            - --db-host-file=/secrets/host
+            - --db-port-file=/secrets/port
+            - --db-name-file=/secrets/dbname
+            - --db-user-file=/secrets/user
+            - --db-password-file=/secrets/password
+            - --db-sslmode=require
           ports:
             - containerPort: 8000
               name: http
@@ -79,6 +79,14 @@ spec:
               name: grpc
             - containerPort: 8434
               name: health
+            - containerPort: 4433
+              name: metrics
+          env:
+            # Plaintext in-cluster gRPC to the control-plane provisioner. A
+            # NetworkPolicy restricts port 9443 to this pod; the channel mirrors
+            # the sibling control-plane -> api-server watch channel (no mTLS).
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
+              value: "hypershell-controller:9443"
           startupProbe:
             httpGet:
               path: /healthcheck
@@ -109,7 +117,7 @@ spec:
       volumes:
         - name: db-secrets
           secret:
-            secretName: hypershell-db
+            secretName: hypershell-db-app
 ---
 apiVersion: v1
 kind: Service
@@ -130,3 +138,6 @@ spec:
     - name: health
       port: 8434
       targetPort: 8434
+    - name: metrics
+      port: 4433
+      targetPort: 4433

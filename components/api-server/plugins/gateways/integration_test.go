@@ -10,7 +10,10 @@ import (
 	"gopkg.in/resty.v1"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/pkg/environments"
 )
 
 func TestGatewayGet(t *testing.T) {
@@ -65,6 +68,8 @@ func TestGatewayPost(t *testing.T) {
 	Expect(*gatewayOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
 	Expect(*gatewayOutput.Kind).To(Equal("Gateway"))
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
+	Expect(gatewayOutput.GetDatabaseId()).NotTo(BeEmpty())
+	Expect(gatewayOutput.GetDatabaseId()).NotTo(Equal("test-database_id"), "client-supplied database_id must be ignored")
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
@@ -78,27 +83,48 @@ func TestGatewayPost(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
-func TestGatewayPostAllowsEmptyReconcilerOwnedIDs(t *testing.T) {
+func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 	gatewayInput := openapi.GatewayCreateRequest{
-		Name:       "local-gateway",
-		FleetId:    "",
-		ClusterId:  "",
-		ReleaseId:  "",
-		DatabaseId: "",
+		Name:      "local-gateway",
+		FleetId:   "",
+		ClusterId: "",
+		ReleaseId: "",
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with local placement: %v", err)
+	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with server-side database placement: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(gatewayOutput.FleetId).To(BeEmpty())
 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
-	Expect(gatewayOutput.DatabaseId).To(BeEmpty())
+	Expect(gatewayOutput.GetDatabaseId()).NotTo(BeEmpty())
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
+}
+
+func TestGatewayPostRejectsMissingDatabaseID(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	jwtToken := ctx.Value(openapi.ContextAccessToken)
+
+	resp, err := resty.R().
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwtToken)).
+		SetBody(map[string]string{
+			"name":       "missing-db-property",
+			"fleet_id":   "test-fleet_id",
+			"cluster_id": "",
+			"release_id": "",
+		}).
+		Post(h.RestURL("/gateways"))
+
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
 func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
@@ -108,11 +134,10 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 	ctx := h.NewAuthenticatedContext(account)
 
 	gatewayInput := openapi.GatewayCreateRequest{
-		Name:       "route-default-test",
-		FleetId:    "",
-		ClusterId:  "",
-		ReleaseId:  "",
-		DatabaseId: "",
+		Name:      "route-default-test",
+		FleetId:   "test-fleet_id",
+		ClusterId: "",
+		ReleaseId: "",
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
@@ -129,12 +154,11 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
 
 	customRoute := `{"enabled":true,"host":"custom.example.com"}`
 	gatewayInput := openapi.GatewayCreateRequest{
-		Name:       "route-explicit-test",
-		FleetId:    "",
-		ClusterId:  "",
-		ReleaseId:  "",
-		DatabaseId: "",
-		Route:      openapi.PtrString(customRoute),
+		Name:      "route-explicit-test",
+		FleetId:   "test-fleet_id",
+		ClusterId: "",
+		ReleaseId: "",
+		Route:     openapi.PtrString(customRoute),
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
@@ -159,6 +183,13 @@ func TestGatewayPatch(t *testing.T) {
 	Expect(*gatewayOutput.CreatedAt).To(BeTemporally("~", gatewayModel.CreatedAt))
 	Expect(*gatewayOutput.Kind).To(Equal("Gateway"))
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
+
+	gatewayOutput, resp, err = client.DefaultAPI.UpdateGateway(ctx, gatewayModel.ID).
+		GatewayPatchRequest(openapi.GatewayPatchRequest{DatabaseId: openapi.PtrString("client-selected-database")}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error patching database_id: %v", err)
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(gatewayOutput.DatabaseId).To(Equal(gatewayModel.DatabaseId), "database_id patch must be ignored")
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
 	restyResp, err := resty.R().
@@ -211,6 +242,36 @@ func TestGatewayPaging(t *testing.T) {
 	Expect(list.GetSize()).To(Equal(int32(5)))
 	Expect(list.GetTotal()).To(Equal(int32(20)))
 	Expect(list.GetPage()).To(Equal(int32(2)))
+}
+
+func TestGatewayPagingSortedByCreator(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gateways, err := newGatewayList("creator-sort", 2)
+	Expect(err).NotTo(HaveOccurred())
+
+	envServices := &environments.Environment().Services
+	userService := users.Service(envServices)
+	bindingService := roleBindings.Service(envServices)
+	creatorNames := []string{"zulu-creator", "alpha-creator"}
+	for i, creatorName := range creatorNames {
+		userID, createErr := userService.UpsertByUsername(context.Background(), creatorName, nil, nil)
+		Expect(createErr).NotTo(HaveOccurred())
+		Expect(bindingService.CreateGatewayOwnerBinding(context.Background(), userID, gateways[i].ID)).To(Succeed())
+	}
+
+	search := fmt.Sprintf("id in ('%s', '%s')", gateways[0].ID, gateways[1].ID)
+	list, _, err := client.DefaultAPI.ListGateways(ctx).
+		Search(search).
+		OrderBy("created_by asc").
+		Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error sorting gateway list by creator: %v", err)
+	Expect(list.Items).To(HaveLen(2))
+	Expect(list.Items[0].GetCreatedBy()).To(Equal("alpha-creator"))
+	Expect(list.Items[1].GetCreatedBy()).To(Equal("zulu-creator"))
 }
 
 func TestGatewayPostWithCredentialDriver(t *testing.T) {

@@ -41,6 +41,14 @@ spec:
               value: "hypershell-system"
             - name: HYPERSHELL_LOG_LEVEL
               value: "info"
+            # Plaintext in-cluster gRPC provisioner endpoint. A NetworkPolicy
+            # restricts port 9443 to the api-server pod; the channel mirrors the
+            # sibling control-plane -> api-server watch channel (no mTLS).
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS
+              value: "0.0.0.0:9443"
+          ports:
+            - containerPort: 9443
+              name: provisioner
           resources:
             requests:
               cpu: 100m
@@ -48,3 +56,17 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+spec:
+  selector:
+    app: hypershell-controller
+  ports:
+    - name: provisioner
+      port: 9443
+      targetPort: 9443
+      appProtocol: grpc

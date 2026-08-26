@@ -509,41 +509,64 @@ echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
 
-show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
-if SB_EXEC_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
-  CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
-  if [[ -n "$CLEAN_EXEC" ]]; then
-    pass "Sandbox exec: command executed inside sandbox"
-    echo "$CLEAN_EXEC" | while IFS= read -r line; do
-      dim "    $line"
-    done
+# The sandbox pod can report Running while the Sandbox CR is still
+# phase=Provisioning, and the openshell CLI gates `sandbox exec` on the CR
+# reaching Ready. Poll a no-op exec until it succeeds so the interaction
+# commands below don't race the sandbox controller.
+SANDBOX_READY=false
+SB_READY_ERR=""
+READY_DEADLINE=$(($(date +%s) + SANDBOX_TIMEOUT))
+dim "  Waiting for sandbox to become ready (up to ${SANDBOX_TIMEOUT}s)..."
+while [[ $(date +%s) -lt $READY_DEADLINE ]]; do
+  if SB_READY_ERR=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- true 2>&1); then
+    SANDBOX_READY=true
+    break
+  fi
+  sleep 5
+done
+
+if [[ "$SANDBOX_READY" != "true" ]]; then
+  fail_test "Sandbox did not become ready within ${SANDBOX_TIMEOUT}s"
+  dim "    ${SB_READY_ERR:0:200}"
+else
+  pass "Sandbox ready"
+
+  show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
+  if SB_EXEC_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a 2>&1); then
+    CLEAN_EXEC=$(echo "$SB_EXEC_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -3)
+    if [[ -n "$CLEAN_EXEC" ]]; then
+      pass "Sandbox exec: command executed inside sandbox"
+      echo "$CLEAN_EXEC" | while IFS= read -r line; do
+        dim "    $line"
+      done
+    else
+      fail_test "Sandbox exec: no output from uname command"
+      dim "    ${SB_EXEC_OUTPUT:0:200}"
+    fi
   else
-    fail_test "Sandbox exec: no output from uname command"
+    fail_test "Sandbox exec: openshell command failed"
     dim "    ${SB_EXEC_OUTPUT:0:200}"
   fi
-else
-  fail_test "Sandbox exec: openshell command failed"
-  dim "    ${SB_EXEC_OUTPUT:0:200}"
-fi
 
-show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
-if SB_LS_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
-  CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
-  if [[ -n "$CLEAN_LS" ]]; then
-    pass "Sandbox workspace: /workspace directory listing"
-    echo "$CLEAN_LS" | while IFS= read -r line; do
-      dim "    $line"
-    done
+  show_cmd "${OPENSHELL} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
+  if SB_LS_OUTPUT=$("${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
+    CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
+    if [[ -n "$CLEAN_LS" ]]; then
+      pass "Sandbox workspace: /workspace directory listing"
+      echo "$CLEAN_LS" | while IFS= read -r line; do
+        dim "    $line"
+      done
+    else
+      fail_test "Sandbox workspace: no output from ls command"
+      dim "    ${SB_LS_OUTPUT:0:200}"
+    fi
   else
-    fail_test "Sandbox workspace: no output from ls command"
-    dim "    ${SB_LS_OUTPUT:0:200}"
-  fi
-else
-  if echo "$SB_LS_OUTPUT" | grep -q "No such file or directory"; then
-    dim "  - /workspace not available (using default working directory)"
-  else
-    fail_test "Sandbox workspace: openshell ls command failed"
-    dim "    ${SB_LS_OUTPUT:0:200}"
+    if echo "$SB_LS_OUTPUT" | grep -q "No such file or directory"; then
+      dim "  - /workspace not available (using default working directory)"
+    else
+      fail_test "Sandbox workspace: openshell ls command failed"
+      dim "    ${SB_LS_OUTPUT:0:200}"
+    fi
   fi
 fi
 

@@ -22,16 +22,17 @@ var _ MappedNullable = &Gateway{}
 
 // Gateway struct for Gateway
 type Gateway struct {
-	Id         *string    `json:"id,omitempty"`
-	Kind       *string    `json:"kind,omitempty"`
-	Href       *string    `json:"href,omitempty"`
-	CreatedAt  *time.Time `json:"created_at,omitempty"`
-	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
-	Name       string     `json:"name"`
-	FleetId    string     `json:"fleet_id"`
-	ClusterId  string     `json:"cluster_id"`
-	ReleaseId  string     `json:"release_id"`
-	DatabaseId string     `json:"database_id"`
+	Id        *string    `json:"id,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Href      *string    `json:"href,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	Name      string     `json:"name"`
+	FleetId   string     `json:"fleet_id"`
+	ClusterId string     `json:"cluster_id"`
+	ReleaseId string     `json:"release_id"`
+	// Server-assigned ManagedDatabase identifier; client-supplied values are ignored
+	DatabaseId string `json:"database_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
 	Namespace   string  `json:"namespace"`
 	ExternalDns *string `json:"external_dns,omitempty"`
@@ -47,14 +48,18 @@ type Gateway struct {
 	ServerDnsNames []string `json:"server_dns_names,omitempty"`
 	// External route address populated by the control plane
 	RouteAddress *string `json:"route_address,omitempty"`
+	// Web console address populated by the control plane
+	ConsoleAddress *string `json:"console_address,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
 	Route *string `json:"route,omitempty"`
-	// JSON-encoded database provisioning configuration
-	DatabaseConfig *string `json:"database_config,omitempty"`
 	// JSON-encoded credential storage driver configuration
 	CredentialDriver *string `json:"credential_driver,omitempty"`
+	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
+	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
+	// Username of the user who provisioned this gateway, resolved from RBAC role bindings
+	CreatedBy *string `json:"created_by,omitempty"`
 }
 
 type _Gateway Gateway
@@ -674,6 +679,38 @@ func (o *Gateway) SetRouteAddress(v string) {
 	o.RouteAddress = &v
 }
 
+// GetConsoleAddress returns the ConsoleAddress field value if set, zero value otherwise.
+func (o *Gateway) GetConsoleAddress() string {
+	if o == nil || IsNil(o.ConsoleAddress) {
+		var ret string
+		return ret
+	}
+	return *o.ConsoleAddress
+}
+
+// GetConsoleAddressOk returns a tuple with the ConsoleAddress field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetConsoleAddressOk() (*string, bool) {
+	if o == nil || IsNil(o.ConsoleAddress) {
+		return nil, false
+	}
+	return o.ConsoleAddress, true
+}
+
+// HasConsoleAddress returns a boolean if a field has been set.
+func (o *Gateway) HasConsoleAddress() bool {
+	if o != nil && !IsNil(o.ConsoleAddress) {
+		return true
+	}
+
+	return false
+}
+
+// SetConsoleAddress gets a reference to the given string and assigns it to the ConsoleAddress field.
+func (o *Gateway) SetConsoleAddress(v string) {
+	o.ConsoleAddress = &v
+}
+
 // GetOidc returns the Oidc field value if set, zero value otherwise.
 func (o *Gateway) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
@@ -738,38 +775,6 @@ func (o *Gateway) SetRoute(v string) {
 	o.Route = &v
 }
 
-// GetDatabaseConfig returns the DatabaseConfig field value if set, zero value otherwise.
-func (o *Gateway) GetDatabaseConfig() string {
-	if o == nil || IsNil(o.DatabaseConfig) {
-		var ret string
-		return ret
-	}
-	return *o.DatabaseConfig
-}
-
-// GetDatabaseConfigOk returns a tuple with the DatabaseConfig field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetDatabaseConfigOk() (*string, bool) {
-	if o == nil || IsNil(o.DatabaseConfig) {
-		return nil, false
-	}
-	return o.DatabaseConfig, true
-}
-
-// HasDatabaseConfig returns a boolean if a field has been set.
-func (o *Gateway) HasDatabaseConfig() bool {
-	if o != nil && !IsNil(o.DatabaseConfig) {
-		return true
-	}
-
-	return false
-}
-
-// SetDatabaseConfig gets a reference to the given string and assigns it to the DatabaseConfig field.
-func (o *Gateway) SetDatabaseConfig(v string) {
-	o.DatabaseConfig = &v
-}
-
 // GetCredentialDriver returns the CredentialDriver field value if set, zero value otherwise.
 func (o *Gateway) GetCredentialDriver() string {
 	if o == nil || IsNil(o.CredentialDriver) {
@@ -800,6 +805,70 @@ func (o *Gateway) HasCredentialDriver() bool {
 // SetCredentialDriver gets a reference to the given string and assigns it to the CredentialDriver field.
 func (o *Gateway) SetCredentialDriver(v string) {
 	o.CredentialDriver = &v
+}
+
+// GetActiveSandboxCount returns the ActiveSandboxCount field value if set, zero value otherwise.
+func (o *Gateway) GetActiveSandboxCount() int32 {
+	if o == nil || IsNil(o.ActiveSandboxCount) {
+		var ret int32
+		return ret
+	}
+	return *o.ActiveSandboxCount
+}
+
+// GetActiveSandboxCountOk returns a tuple with the ActiveSandboxCount field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetActiveSandboxCountOk() (*int32, bool) {
+	if o == nil || IsNil(o.ActiveSandboxCount) {
+		return nil, false
+	}
+	return o.ActiveSandboxCount, true
+}
+
+// HasActiveSandboxCount returns a boolean if a field has been set.
+func (o *Gateway) HasActiveSandboxCount() bool {
+	if o != nil && !IsNil(o.ActiveSandboxCount) {
+		return true
+	}
+
+	return false
+}
+
+// SetActiveSandboxCount gets a reference to the given int32 and assigns it to the ActiveSandboxCount field.
+func (o *Gateway) SetActiveSandboxCount(v int32) {
+	o.ActiveSandboxCount = &v
+}
+
+// GetCreatedBy returns the CreatedBy field value if set, zero value otherwise.
+func (o *Gateway) GetCreatedBy() string {
+	if o == nil || IsNil(o.CreatedBy) {
+		var ret string
+		return ret
+	}
+	return *o.CreatedBy
+}
+
+// GetCreatedByOk returns a tuple with the CreatedBy field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetCreatedByOk() (*string, bool) {
+	if o == nil || IsNil(o.CreatedBy) {
+		return nil, false
+	}
+	return o.CreatedBy, true
+}
+
+// HasCreatedBy returns a boolean if a field has been set.
+func (o *Gateway) HasCreatedBy() bool {
+	if o != nil && !IsNil(o.CreatedBy) {
+		return true
+	}
+
+	return false
+}
+
+// SetCreatedBy gets a reference to the given string and assigns it to the CreatedBy field.
+func (o *Gateway) SetCreatedBy(v string) {
+	o.CreatedBy = &v
 }
 
 func (o Gateway) MarshalJSON() ([]byte, error) {
@@ -860,17 +929,23 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.RouteAddress) {
 		toSerialize["route_address"] = o.RouteAddress
 	}
+	if !IsNil(o.ConsoleAddress) {
+		toSerialize["console_address"] = o.ConsoleAddress
+	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc
 	}
 	if !IsNil(o.Route) {
 		toSerialize["route"] = o.Route
 	}
-	if !IsNil(o.DatabaseConfig) {
-		toSerialize["database_config"] = o.DatabaseConfig
-	}
 	if !IsNil(o.CredentialDriver) {
 		toSerialize["credential_driver"] = o.CredentialDriver
+	}
+	if !IsNil(o.ActiveSandboxCount) {
+		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount
+	}
+	if !IsNil(o.CreatedBy) {
+		toSerialize["created_by"] = o.CreatedBy
 	}
 	return toSerialize, nil
 }

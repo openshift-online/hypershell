@@ -2,6 +2,7 @@ package gateways
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -20,17 +21,33 @@ type GatewayService interface {
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	All(ctx context.Context) (GatewayList, *errors.ServiceError)
 
+	// AdjustActiveSandboxCount applies a relative delta to the
+	// active_sandbox_count of the gateway backing the given namespace and returns
+	// the resulting count. It is a no-op returning 0 when no live gateway backs
+	// the namespace.
+	AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, *errors.ServiceError)
+
+	// SetActiveSandboxCount sets the active_sandbox_count of the gateway backing
+	// the given namespace to an absolute value and returns it (self-heal path).
+	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError)
+
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
 }
 
-func NewGatewayService(lockFactory db.LockFactory, gatewayDao GatewayDao, events services.EventService) GatewayService {
+func NewGatewayService(
+	lockFactory db.LockFactory,
+	gatewayDao GatewayDao,
+	events services.EventService,
+	placement PlacementResolver,
+) GatewayService {
 	return &sqlGatewayService{
 		lockFactory: lockFactory,
 		gatewayDao:  gatewayDao,
 		events:      events,
+		placement:   placement,
 	}
 }
 
@@ -40,6 +57,7 @@ type sqlGatewayService struct {
 	lockFactory db.LockFactory
 	gatewayDao  GatewayDao
 	events      services.EventService
+	placement   PlacementResolver
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
@@ -78,6 +96,21 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
+	// database_id is server-owned. Clear any value that reached the business
+	// layer from an API client before selecting the configured placement strategy.
+	gateway.DatabaseId = ""
+	if s.placement != nil {
+		if err := s.placement.Resolve(ctx, gateway); err != nil {
+			if IsPlacementValidationError(err) {
+				return nil, errors.Validation("gateway placement is invalid: %s", err)
+			}
+			return nil, errors.GeneralError("gateway placement failed: %s", err)
+		}
+	}
+	if gateway.DatabaseId == "" {
+		return nil, errors.GeneralError("gateway placement did not assign database_id")
+	}
+
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleCreateError("Gateway", err)
@@ -119,13 +152,46 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	return gateway, nil
 }
 
+func (s *sqlGatewayService) AdjustActiveSandboxCount(ctx context.Context, namespace string, delta int) (int, *errors.ServiceError) {
+	// The DAO emits the Gateway update Event in the same transaction as the count
+	// mutation (transactional outbox), so there is no separate event write here to
+	// drift from the persisted value.
+	count, err := s.gatewayDao.AdjustActiveSandboxCount(ctx, namespace, delta)
+	if err != nil {
+		return 0, services.HandleUpdateError("Gateway", err)
+	}
+	return count, nil
+}
+
+func (s *sqlGatewayService) SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError) {
+	resulting, err := s.gatewayDao.SetActiveSandboxCount(ctx, namespace, count)
+	if err != nil {
+		return 0, services.HandleUpdateError("Gateway", err)
+	}
+	return resulting, nil
+}
+
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {
 	if _, svcErr := s.Get(ctx, id); svcErr != nil {
 		return svcErr
 	}
 
-	if err := s.gatewayDao.Delete(ctx, id); err != nil {
-		return services.HandleDeleteError("Gateway", errors.GeneralError("Unable to delete gateway: %s", err))
+	// Delete the gateway row through the cleanup barrier so the row disappears
+	// while the service-account lifecycle lock is still held. finalize captures
+	// its own error so a row-deletion failure is reported distinctly from a
+	// cleanup-unavailable failure.
+	var deleteErr error
+	finalize := func(ctx context.Context) error {
+		deleteErr = s.gatewayDao.Delete(ctx, id)
+		return deleteErr
+	}
+	if err := cleanBeforeDeletion(ctx, id, finalize); err != nil {
+		if deleteErr != nil {
+			return services.HandleDeleteError("Gateway", errors.GeneralError("Unable to delete gateway: %s", deleteErr))
+		}
+		serviceErr := errors.GeneralError("gateway service-account cleanup is unavailable")
+		serviceErr.HttpCode = http.StatusServiceUnavailable
+		return serviceErr
 	}
 
 	_, evErr := s.events.Create(ctx, &api.Event{

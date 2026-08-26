@@ -8,6 +8,7 @@ import (
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -24,6 +25,16 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 		username := auth.GetUsernameFromContext(ctx)
 		if isServiceAccount(username, config.ServiceAccounts) {
 			return handler(ctx, req)
+		}
+
+		// Control-plane-only mutations (the sandbox-count writes) are restricted to
+		// the service-account allowlist when one is configured. Any principal that
+		// reaches here is not an allowlisted SA, so deny outright rather than fall
+		// through to the coarse role check, which grants gateway:creator/owner every
+		// non-read method in any namespace. With no allowlist configured, fall
+		// through as a documented fallback to the standard role check.
+		if len(config.ServiceAccounts) > 0 && isServiceAccountOnlyMethod(info.FullMethod) {
+			return nil, status.Errorf(codes.PermissionDenied, "forbidden")
 		}
 
 		userID := GetUserIDFromContext(ctx)
@@ -57,8 +68,24 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 		}
 
 		username := auth.GetUsernameFromContext(ctx)
+		if isManagedDatabaseTombstoneReplay(ctx, info.FullMethod) {
+			// Historical tombstones are fleet-unscoped control-plane recovery data.
+			// Unlike the ordinary live watch, replay is never available through role
+			// bindings or the no-allowlist fallback.
+			if len(config.ServiceAccounts) == 0 || !isServiceAccount(username, config.ServiceAccounts) {
+				return status.Errorf(codes.PermissionDenied, "forbidden")
+			}
+			return handler(srv, wrapped)
+		}
 		if isServiceAccount(username, config.ServiceAccounts) {
 			return handler(srv, wrapped)
+		}
+
+		// See the unary interceptor: control-plane-only mutations are SA-only when an
+		// allowlist is configured. These methods are unary today; guarding the stream
+		// path too keeps the two interceptors symmetric if that ever changes.
+		if len(config.ServiceAccounts) > 0 && isServiceAccountOnlyMethod(info.FullMethod) {
+			return status.Errorf(codes.PermissionDenied, "forbidden")
 		}
 
 		userID := GetUserIDFromContext(ctx)
@@ -80,6 +107,18 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 
 		return handler(srv, wrapped)
 	}
+}
+
+func isManagedDatabaseTombstoneReplay(ctx context.Context, fullMethod string) bool {
+	if fullMethod != "/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases" {
+		return false
+	}
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+	values := md.Get("hypershell-managed-database-replay")
+	return len(values) == 1 && values[0] == "deleted-v1"
 }
 
 func isGRPCReadMethod(fullMethod string) bool {
@@ -115,6 +154,22 @@ func isGRPCAuthorized(fullMethod string, bindings []BindingSummary) bool {
 		}
 	}
 	return false
+}
+
+// isServiceAccountOnlyMethod reports whether a method is a control-plane-only
+// mutation that ordinary role bindings must never reach. AdjustActiveSandboxCount
+// and SetActiveSandboxCount write the control-plane-owned active_sandbox_count and
+// are issued solely by the control plane's service account; without this guard
+// isGRPCAuthorized would grant them to any gateway:creator / gateway:owner in any
+// namespace. The restriction applies only when a service-account allowlist is
+// configured (see the interceptors).
+func isServiceAccountOnlyMethod(fullMethod string) bool {
+	parts := strings.Split(fullMethod, "/")
+	if len(parts) < 3 {
+		return false
+	}
+	method := parts[len(parts)-1]
+	return method == "AdjustActiveSandboxCount" || method == "SetActiveSandboxCount"
 }
 
 func isGRPCDeleteMethod(fullMethod string) bool {

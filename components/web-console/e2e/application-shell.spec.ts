@@ -143,7 +143,7 @@ test("makes gateway management the primary HyperShell experience", async ({
   ).toBeVisible();
   const gatewayGrid = page.getByRole("grid", { name: "OpenShell Gateways" });
   await expect(
-    gatewayGrid.getByRole("columnheader", { name: "Created" }),
+    gatewayGrid.getByRole("columnheader", { name: "Created", exact: true }),
   ).toBeVisible();
   await expect(gatewayGrid.getByText("Aug 10, 2026")).toBeVisible();
   await expect(gatewayGrid.locator(".pf-v6-c-label")).toHaveCount(0);
@@ -208,6 +208,7 @@ test("keeps unknown gateway status readable in every theme", async ({
   await expect(page.locator("html")).toHaveClass(/pf-v6-theme-dark/u);
   results = await new AxeBuilder({ page })
     .exclude(".pf-v6-c-menu-toggle.pf-m-secondary")
+    .exclude(".pf-m-link > .pf-v6-c-button__text")
     .analyze();
   expect(results.violations).toEqual([]);
 

@@ -5,6 +5,9 @@ import {
   type GatewayList,
   type ManagedCluster,
   type ManagedClusterList,
+  type OpenShellGatewayServiceAccountCreateResponse,
+  type OpenShellGatewayServiceAccountList,
+  type OpenShellGatewayServiceAccountListItem,
 } from "@openshift-online/hypershell-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,9 +24,17 @@ const managedClusterApi = {
   get: vi.fn(),
   list: vi.fn(),
 };
+const serviceAccountApi = {
+  create: vi.fn(),
+  delete: vi.fn(),
+  get: vi.fn(),
+  list: vi.fn(),
+  revoke: vi.fn(),
+};
 const gatewayApiFactory = vi.fn(() => ({
   gateways: gatewayApi,
   managedClusters: managedClusterApi,
+  openShellGatewayServiceAccounts: serviceAccountApi,
 }));
 const controlPlane = createGatewayControlPlaneAdapter(gatewayApiFactory);
 const context = {
@@ -39,10 +50,12 @@ const listRequest = {
 
 function gateway(overrides: Partial<Gateway> = {}): Gateway {
   return {
+    active_sandbox_count: 0,
     cluster_id: "",
+    console_address: "",
     created_at: null,
+    created_by: "",
     credential_driver: "",
-    database_config: "",
     database_id: "database-1",
     external_dns: "gateway.example.com",
     fleet_id: "",
@@ -114,6 +127,50 @@ function managedClusterList(
   };
 }
 
+function serviceAccount(
+  overrides: Partial<OpenShellGatewayServiceAccountListItem> = {},
+): OpenShellGatewayServiceAccountListItem {
+  return {
+    client_id: "service-client",
+    created_at: "2026-08-21T12:00:00Z",
+    created_by_user_id: "user-1",
+    credential_type: "client_secret",
+    description: "Deploy bot",
+    expires_at: "2026-11-19T12:00:00Z",
+    gateway_id: "gateway-1",
+    id: "account-1",
+    last_error: null,
+    name: "deploy-bot",
+    revoked_at: null,
+    role: "openshell-user",
+    status: "ready",
+    subject: "service-subject",
+    updated_at: "2026-08-21T12:00:00Z",
+    ...overrides,
+  };
+}
+
+function serviceAccountList(
+  items: OpenShellGatewayServiceAccountListItem[],
+): OpenShellGatewayServiceAccountList {
+  return {
+    capabilities: {
+      allowed_roles: ["openshell-user"],
+      can_create: true,
+      can_manage_all: false,
+      expiration_policy: {
+        default_seconds: 7_776_000,
+        maximum_seconds: 31_536_000,
+        minimum_seconds: 3_600,
+      },
+    },
+    items,
+    page: 1,
+    size: 20,
+    total: items.length,
+  };
+}
+
 describe("gateway API operations adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -152,6 +209,117 @@ describe("gateway API operations adapter", () => {
       },
       { signal: abortController.signal },
     );
+  });
+
+  it("maps one gateway-scoped service-account page and preserves literal search", async () => {
+    serviceAccountApi.list.mockResolvedValue(
+      serviceAccountList([serviceAccount()]),
+    );
+
+    await expect(
+      controlPlane.listOpenShellGatewayServiceAccounts(
+        "gateway-1",
+        {
+          order: "desc",
+          page: 1,
+          search: "bot%_'\\",
+          size: 20,
+          sort: "created_at",
+          status: "ready",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      capabilities: {
+        allowedRoles: ["openshell-user"],
+        canCreate: true,
+        canManageAll: false,
+      },
+      items: [
+        {
+          clientId: "service-client",
+          id: "account-1",
+          subject: "service-subject",
+        },
+      ],
+      total: 1,
+    });
+    expect(serviceAccountApi.list).toHaveBeenCalledWith(
+      "gateway-1",
+      {
+        order: "desc",
+        page: 1,
+        search: "bot%_'\\",
+        size: 20,
+        sort: "created_at",
+        status: "ready",
+      },
+      { signal: undefined },
+    );
+  });
+
+  it("maps one-time create credentials and repeatable lifecycle operations", async () => {
+    const credential = {
+      access_token_lifetime_seconds: 300,
+      audience: "gateway-audience",
+      client_id: "service-client",
+      client_secret: "one-time-secret",
+      gateway_endpoint: "https://gateway.example.test:443",
+      gateway_name: "team-gateway",
+      grant_type: "client_credentials" as const,
+      issuer: "https://issuer.example.test/realms/openshell",
+      token_endpoint:
+        "https://issuer.example.test/realms/openshell/protocol/openid-connect/token",
+    };
+    const created: OpenShellGatewayServiceAccountCreateResponse = {
+      ...serviceAccount(),
+      credential,
+    };
+    serviceAccountApi.create.mockResolvedValue(created);
+    serviceAccountApi.get.mockResolvedValue({
+      ...serviceAccount(),
+      connection: credential,
+    });
+    serviceAccountApi.revoke.mockResolvedValue(
+      serviceAccount({ status: "revoking" }),
+    );
+    serviceAccountApi.delete.mockResolvedValue(undefined);
+
+    await expect(
+      controlPlane.createOpenShellGatewayServiceAccount(
+        "gateway-1",
+        {
+          expiresAt: "2026-11-19T12:00:00Z",
+          name: "deploy-bot",
+          role: "openshell-user",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      credential: { clientSecret: "one-time-secret" },
+      serviceAccount: { id: "account-1" },
+    });
+    await expect(
+      controlPlane.getOpenShellGatewayServiceAccount(
+        "gateway-1",
+        "account-1",
+        context,
+      ),
+    ).resolves.toMatchObject({ connection: { clientId: "service-client" } });
+    await expect(
+      controlPlane.revokeOpenShellGatewayServiceAccount(
+        "gateway-1",
+        "account-1",
+        context,
+      ),
+    ).resolves.toMatchObject({ status: "revoking" });
+    await expect(
+      controlPlane.deleteOpenShellGatewayServiceAccount(
+        "gateway-1",
+        "account-1",
+        context,
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("resolves a managed cluster into a gateway placement", async () => {
@@ -337,6 +505,26 @@ describe("gateway API operations adapter", () => {
     );
   });
 
+  it("sorts gateway creators by the API created-by field", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "",
+        sortDirection: "desc",
+        sortField: "owner",
+      },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: "created_by desc" }),
+      { signal: undefined },
+    );
+  });
+
   it("maps explicit OIDC connection values from the gateway response", async () => {
     gatewayApi.get.mockResolvedValue(
       gateway({
@@ -370,6 +558,28 @@ describe("gateway API operations adapter", () => {
     ).resolves.toMatchObject({
       externalDns: "openshell-gw-test.apps.example.com:443",
     });
+  });
+
+  it("maps console_address to the console URL so the open-console action renders", async () => {
+    gatewayApi.get.mockResolvedValue(
+      gateway({
+        console_address: "https://console-openshell-abc123.gw.localhost",
+      }),
+    );
+
+    await expect(
+      controlPlane.getGateway("gateway-1", context),
+    ).resolves.toMatchObject({
+      consoleUrl: "https://console-openshell-abc123.gw.localhost",
+    });
+  });
+
+  it("leaves the console URL unavailable when console_address is absent", async () => {
+    gatewayApi.get.mockResolvedValue(gateway({ console_address: "" }));
+
+    const result = await controlPlane.getGateway("gateway-1", context);
+
+    expect(result.consoleUrl).toBeUndefined();
   });
 
   it("keeps malformed OIDC connection values unavailable", async () => {
@@ -474,13 +684,47 @@ describe("gateway API operations adapter", () => {
   });
 
   it("maps SDK failures into stable application failures", async () => {
-    gatewayApi.update.mockRejectedValue(
+    serviceAccountApi.create.mockRejectedValue(
       new SDKAPIError({
-        code: "conflict",
+        code: "service_account_name_exists",
         href: "",
         id: "",
         kind: "Error",
         operation_id: "operation-1",
+        reason: "raw provider detail",
+        status_code: 409,
+      }),
+    );
+
+    const failure = await controlPlane
+      .createOpenShellGatewayServiceAccount(
+        "gateway-1",
+        {
+          expiresAt: "2026-11-19T12:00:00Z",
+          name: "deploy-bot",
+          role: "openshell-user",
+        },
+        context,
+      )
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GatewayOperationError);
+    expect(failure).toMatchObject({
+      code: "service-account-name-exists",
+      kind: "conflict",
+      operationId: "operation-1",
+    });
+    expect((failure as Error).message).not.toContain("raw provider detail");
+  });
+
+  it("does not expose unrecognized API error codes", async () => {
+    gatewayApi.update.mockRejectedValue(
+      new SDKAPIError({
+        code: "provider_specific_conflict",
+        href: "",
+        id: "",
+        kind: "Error",
+        operation_id: "operation-2",
         reason: "raw provider detail",
         status_code: 409,
       }),
@@ -492,8 +736,9 @@ describe("gateway API operations adapter", () => {
 
     expect(failure).toBeInstanceOf(GatewayOperationError);
     expect(failure).toMatchObject({
+      code: undefined,
       kind: "conflict",
-      operationId: "operation-1",
+      operationId: "operation-2",
     });
     expect((failure as Error).message).not.toContain("raw provider detail");
   });

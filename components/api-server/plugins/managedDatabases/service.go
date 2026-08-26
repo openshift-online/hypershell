@@ -12,14 +12,22 @@ import (
 
 const managedDatabasesLockType db.LockType = "managed_databases"
 
+const (
+	providerCNPG       = "cnpg"
+	providerDeployment = "deployment"
+)
+
 type ManagedDatabaseService interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
+	GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
+	ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, *errors.ServiceError)
 	Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError)
 	Replace(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError)
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	All(ctx context.Context) (ManagedDatabaseList, *errors.ServiceError)
 
 	FindByIDs(ctx context.Context, ids []string) (ManagedDatabaseList, *errors.ServiceError)
+	FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
@@ -68,7 +76,38 @@ func (s *sqlManagedDatabaseService) Get(ctx context.Context, id string) (*Manage
 	return managedDatabase, nil
 }
 
+// GetUnscoped loads soft-deleted records only for delete watch enrichment.
+func (s *sqlManagedDatabaseService) GetUnscoped(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError) {
+	managedDatabase, err := s.managedDatabaseDao.GetUnscoped(ctx, id)
+	if err != nil {
+		return nil, services.HandleGetError("ManagedDatabase", "id", id, err)
+	}
+	return managedDatabase, nil
+}
+
+// ListDeleted returns durable delete tombstones for watch-stream replay. It is
+// internal to the gRPC watch handshake; public list/get operations remain scoped.
+func (s *sqlManagedDatabaseService) ListDeleted(ctx context.Context, offset, limit int) ([]ManagedDatabase, *errors.ServiceError) {
+	managedDatabases, err := s.managedDatabaseDao.ListDeleted(ctx, offset, limit)
+	if err != nil {
+		return nil, errors.GeneralError("list deleted ManagedDatabases: %s", err)
+	}
+	return managedDatabases, nil
+}
+
+func isSupportedProvider(provider string) bool {
+	return provider == providerCNPG || provider == providerDeployment
+}
+
+func unsupportedProviderError(provider string) *errors.ServiceError {
+	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\" and \"deployment\"", provider)
+}
+
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {
+	if !isSupportedProvider(managedDatabase.Provider) {
+		return nil, unsupportedProviderError(managedDatabase.Provider)
+	}
+
 	managedDatabase, err := s.managedDatabaseDao.Create(ctx, managedDatabase)
 	if err != nil {
 		return nil, services.HandleCreateError("ManagedDatabase", err)
@@ -93,6 +132,17 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
+	persisted, err := s.managedDatabaseDao.Get(ctx, managedDatabase.ID)
+	if err != nil {
+		return nil, services.HandleUpdateError("ManagedDatabase", err)
+	}
+	if !isSupportedProvider(managedDatabase.Provider) {
+		return nil, unsupportedProviderError(managedDatabase.Provider)
+	}
+	if isSupportedProvider(persisted.Provider) && managedDatabase.Provider != persisted.Provider {
+		return nil, errors.Validation("provider cannot be changed from %q to %q", persisted.Provider, managedDatabase.Provider)
+	}
+
 	managedDatabase, err = s.managedDatabaseDao.Replace(ctx, managedDatabase)
 	if err != nil {
 		return nil, services.HandleUpdateError("ManagedDatabase", err)
@@ -113,6 +163,14 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 func (s *sqlManagedDatabaseService) Delete(ctx context.Context, id string) *errors.ServiceError {
 	if _, svcErr := s.Get(ctx, id); svcErr != nil {
 		return svcErr
+	}
+
+	referenced, refErr := s.managedDatabaseDao.ExistsByDatabaseID(ctx, id)
+	if refErr != nil {
+		return errors.GeneralError("check gateway references: %s", refErr)
+	}
+	if referenced {
+		return errors.Conflict("ManagedDatabase %s is referenced by one or more gateways and cannot be deleted", id)
 	}
 
 	if err := s.managedDatabaseDao.Delete(ctx, id); err != nil {
@@ -145,4 +203,12 @@ func (s *sqlManagedDatabaseService) All(ctx context.Context) (ManagedDatabaseLis
 		return nil, errors.GeneralError("Unable to get all managedDatabases: %s", err)
 	}
 	return managedDatabases, nil
+}
+
+func (s *sqlManagedDatabaseService) FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, *errors.ServiceError) {
+	managedDatabase, err := s.managedDatabaseDao.FindSoleInFleet(ctx, fleetID)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to find sole managed database in fleet: %s", err)
+	}
+	return managedDatabase, nil
 }

@@ -8,6 +8,7 @@ Method | HTTP request | Description
 [**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 [**CreateGatewayNetwork**](DefaultAPI.md#CreateGatewayNetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
 [**CreateGatewayRelease**](DefaultAPI.md#CreateGatewayRelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
+[**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
 [**CreateManagedDatabase**](DefaultAPI.md#CreateManagedDatabase) | **Post** /api/hypershell/v1/managed_databases | Create a new managedDatabase
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
@@ -15,6 +16,7 @@ Method | HTTP request | Description
 [**DeleteGateway**](DefaultAPI.md#DeleteGateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 [**DeleteGatewayNetwork**](DefaultAPI.md#DeleteGatewayNetwork) | **Delete** /api/hypershell/v1/gateway_networks/{id} | Delete a gateway network
 [**DeleteGatewayRelease**](DefaultAPI.md#DeleteGatewayRelease) | **Delete** /api/hypershell/v1/gateway_releases/{id} | Delete a gateway release
+[**DeleteGatewayServiceAccount**](DefaultAPI.md#DeleteGatewayServiceAccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
 [**DeleteManagedDatabase**](DefaultAPI.md#DeleteManagedDatabase) | **Delete** /api/hypershell/v1/managed_databases/{id} | Delete a managed database
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
@@ -22,6 +24,7 @@ Method | HTTP request | Description
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 [**GetGatewayNetwork**](DefaultAPI.md#GetGatewayNetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
 [**GetGatewayRelease**](DefaultAPI.md#GetGatewayRelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
+[**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 [**GetManagedCluster**](DefaultAPI.md#GetManagedCluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
 [**GetManagedDatabase**](DefaultAPI.md#GetManagedDatabase) | **Get** /api/hypershell/v1/managed_databases/{id} | Get an managedDatabase by id
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
@@ -30,11 +33,13 @@ Method | HTTP request | Description
 [**ListFleets**](DefaultAPI.md#ListFleets) | **Get** /api/hypershell/v1/fleets | Returns a list of fleets
 [**ListGatewayNetworks**](DefaultAPI.md#ListGatewayNetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
 [**ListGatewayReleases**](DefaultAPI.md#ListGatewayReleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
+[**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 [**ListManagedClusters**](DefaultAPI.md#ListManagedClusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
 [**ListManagedDatabases**](DefaultAPI.md#ListManagedDatabases) | **Get** /api/hypershell/v1/managed_databases | Returns a list of managedDatabases
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
+[**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
 [**UpdateFleet**](DefaultAPI.md#UpdateFleet) | **Patch** /api/hypershell/v1/fleets/{id} | Update an fleet
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateGatewayNetwork**](DefaultAPI.md#UpdateGatewayNetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
@@ -285,6 +290,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**GatewayRelease**](GatewayRelease.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## CreateGatewayServiceAccount
+
+> OpenShellGatewayServiceAccountCreateResponse CreateGatewayServiceAccount(ctx, gatewayId).OpenShellGatewayServiceAccountCreateRequest(openShellGatewayServiceAccountCreateRequest).Execute()
+
+Create an OpenShell gateway service account
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	openShellGatewayServiceAccountCreateRequest := *openapiclient.NewOpenShellGatewayServiceAccountCreateRequest("Name_example") // OpenShellGatewayServiceAccountCreateRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.CreateGatewayServiceAccount(context.Background(), gatewayId).OpenShellGatewayServiceAccountCreateRequest(openShellGatewayServiceAccountCreateRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateGatewayServiceAccount``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `CreateGatewayServiceAccount`: OpenShellGatewayServiceAccountCreateResponse
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateGatewayServiceAccount`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreateGatewayServiceAccountRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **openShellGatewayServiceAccountCreateRequest** | [**OpenShellGatewayServiceAccountCreateRequest**](OpenShellGatewayServiceAccountCreateRequest.md) |  | 
+
+### Return type
+
+[**OpenShellGatewayServiceAccountCreateResponse**](OpenShellGatewayServiceAccountCreateResponse.md)
 
 ### Authorization
 
@@ -756,6 +831,77 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## DeleteGatewayServiceAccount
+
+> OpenShellGatewayServiceAccountListItem DeleteGatewayServiceAccount(ctx, gatewayId, serviceAccountId).Execute()
+
+Delete an OpenShell gateway service account
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	serviceAccountId := "serviceAccountId_example" // string | OpenShellGatewayServiceAccount ID
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.DeleteGatewayServiceAccount(context.Background(), gatewayId, serviceAccountId).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteGatewayServiceAccount``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `DeleteGatewayServiceAccount`: OpenShellGatewayServiceAccountListItem
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.DeleteGatewayServiceAccount`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiDeleteGatewayServiceAccountRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+
+### Return type
+
+[**OpenShellGatewayServiceAccountListItem**](OpenShellGatewayServiceAccountListItem.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## DeleteManagedCluster
 
 > DeleteManagedCluster(ctx, id).Execute()
@@ -1211,6 +1357,77 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**GatewayRelease**](GatewayRelease.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetGatewayServiceAccount
+
+> OpenShellGatewayServiceAccountGetResponse GetGatewayServiceAccount(ctx, gatewayId, serviceAccountId).Execute()
+
+Get an OpenShell gateway service account
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	serviceAccountId := "serviceAccountId_example" // string | OpenShellGatewayServiceAccount ID
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetGatewayServiceAccount(context.Background(), gatewayId, serviceAccountId).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetGatewayServiceAccount``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetGatewayServiceAccount`: OpenShellGatewayServiceAccountGetResponse
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetGatewayServiceAccount`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetGatewayServiceAccountRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+
+### Return type
+
+[**OpenShellGatewayServiceAccountGetResponse**](OpenShellGatewayServiceAccountGetResponse.md)
 
 ### Authorization
 
@@ -1773,6 +1990,86 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## ListGatewayServiceAccounts
+
+> OpenShellGatewayServiceAccountList ListGatewayServiceAccounts(ctx, gatewayId).Page(page).Size(size).Status(status).Search(search).Sort(sort).Order(order).Execute()
+
+List OpenShell gateway service accounts
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	status := openapiclient.OpenShellGatewayServiceAccountStatus("provisioning") // OpenShellGatewayServiceAccountStatus |  (optional)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	sort := "sort_example" // string |  (optional) (default to "created_at")
+	order := "order_example" // string |  (optional) (default to "desc")
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListGatewayServiceAccounts(context.Background(), gatewayId).Page(page).Size(size).Status(status).Search(search).Sort(sort).Order(order).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListGatewayServiceAccounts``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListGatewayServiceAccounts`: OpenShellGatewayServiceAccountList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListGatewayServiceAccounts`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListGatewayServiceAccountsRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **status** | [**OpenShellGatewayServiceAccountStatus**](OpenShellGatewayServiceAccountStatus.md) |  | 
+ **search** | **string** | Specifies the search criteria | 
+ **sort** | **string** |  | [default to &quot;created_at&quot;]
+ **order** | **string** |  | [default to &quot;desc&quot;]
+
+### Return type
+
+[**OpenShellGatewayServiceAccountList**](OpenShellGatewayServiceAccountList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## ListGateways
 
 > GatewayList ListGateways(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -2118,6 +2415,77 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**RoleList**](RoleList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## RevokeGatewayServiceAccount
+
+> OpenShellGatewayServiceAccountListItem RevokeGatewayServiceAccount(ctx, gatewayId, serviceAccountId).Execute()
+
+Permanently revoke an OpenShell gateway service account
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	serviceAccountId := "serviceAccountId_example" // string | OpenShellGatewayServiceAccount ID
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.RevokeGatewayServiceAccount(context.Background(), gatewayId, serviceAccountId).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.RevokeGatewayServiceAccount``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `RevokeGatewayServiceAccount`: OpenShellGatewayServiceAccountListItem
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.RevokeGatewayServiceAccount`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+**serviceAccountId** | **string** | OpenShellGatewayServiceAccount ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiRevokeGatewayServiceAccountRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+
+### Return type
+
+[**OpenShellGatewayServiceAccountListItem**](OpenShellGatewayServiceAccountListItem.md)
 
 ### Authorization
 

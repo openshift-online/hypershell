@@ -18,6 +18,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | PostgreSQL provisioning, credential security, manual rotation, deletion protection |
 | [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (encrypted DB, Kubernetes Secrets, Vault), RBAC, TOML generation |
 | [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) | Automated per-gateway Keycloak OIDC client provisioning, RBAC-driven role assignment, visibility scoping |
+| [`openshell-gateway-console.spec.md`](./openshell-gateway-console.spec.md) | Per-gateway Gateway Console (OpenShell dashboard) with an oauth2-proxy sidecar, deployed when the gateway has a route |
 
 ---
 
@@ -302,7 +303,6 @@ The GatewayReconciler SHALL load gateway resource manifests from the container f
 - THEN it SHALL read all YAML files from the manifests directory
 - AND it SHALL parse each file into Kubernetes resource objects
 - AND it SHALL substitute `NAMESPACE_PLACEHOLDER` with the target namespace name
-- AND it SHALL substitute `DB_IMAGE_PLACEHOLDER` and `DB_STORAGE_PLACEHOLDER` before `IMAGE_PLACEHOLDER` to avoid substring collision
 - AND it SHALL substitute `IMAGE_PLACEHOLDER` with the Gateway resource's `image` field
 
 #### Scenario: Required manifest files missing
@@ -610,9 +610,9 @@ Sandbox pods need to connect back to the gateway for gRPC communication:
 
 See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) for the `openshell-gateway-allow-router` NetworkPolicy that allows ingress from Gateway-labeled Envoy proxy pods.
 
-#### Database NetworkPolicy
+#### Database Access
 
-See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for the `openshell-gateway-db` NetworkPolicy that restricts database ingress to gateway pods only.
+Gateway databases are provisioned via the CNPG operator in the shared CNPG Cluster namespace. Network access to the CNPG Cluster is managed by the CNPG operator. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
 ---
 
@@ -671,7 +671,7 @@ topology                   = "single-cluster"
 image = "<supervisor-image>"
 ```
 
-The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.101`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
+The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.109`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
 
 #### OIDC Section (conditional)
 
@@ -686,9 +686,9 @@ When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OI
 
 ### Requirement: OpenShift-Specific Gateway Provisioning
 
-When the control plane detects that it is running on an OpenShift cluster (the `route.openshift.io` API group is available), the GatewayReconciler SHALL adjust the gateway deployment to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. These adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
+When the control plane detects that it is running on an OpenShift cluster (the `route.openshift.io` API group is available), its reconcilers SHALL adjust gateway and standalone ManagedDatabase PostgreSQL Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
 
-**Key difference from vanilla Kubernetes:** OpenShift enforces the `restricted` PodSecurity standard by default. The OpenShell Helm chart's hardcoded `fsGroup` and `runAsUser` values conflict with OpenShift's SCC admission controller, which assigns UIDs and GIDs from the namespace's allocated ranges. Additionally, sandbox pods require the `privileged` SCC to function correctly.
+**Key difference from vanilla Kubernetes:** OpenShift enforces the `restricted` PodSecurity standard by default. Hardcoded `fsGroup`, `runAsUser`, and `runAsGroup` values conflict with OpenShift's SCC admission controller, which assigns UIDs and GIDs from each namespace's allocated ranges. Additionally, sandbox pods require the `privileged` SCC to function correctly.
 
 **TLS is NOT disabled.** The NVIDIA docs show `--set server.disableTls=true` for evaluation scenarios. HyperShell does NOT use this setting because BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, which requires the gateway to serve TLS. The gateway's self-signed certificate (generated by cert-manager) is used for the backend TLS segment.
 
@@ -709,6 +709,15 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 - THEN it SHALL clear the `podSecurityContext.fsGroup` field (set to null/omit) so that OpenShift's SCC admission controller assigns the fsGroup from the namespace's allocated UID range
 - AND it SHALL clear the `securityContext.runAsUser` field (set to null/omit) so that OpenShift's SCC admission controller assigns the UID from the namespace's allocated range
 - AND all gateway containers SHALL set `securityContext.seccompProfile.type` to `RuntimeDefault` to satisfy the `restricted:latest` PodSecurity standard
+
+#### Scenario: Standalone PostgreSQL security context adjustments for OpenShift
+
+- GIVEN the ManagedDatabaseReconciler is deploying standalone PostgreSQL to an OpenShift cluster
+- WHEN it applies the PostgreSQL Deployment and its init containers
+- THEN it SHALL omit fixed `runAsUser` and `runAsGroup` values from every container security context
+- AND it SHALL omit fixed `runAsUser`, `runAsGroup`, `fsGroup`, and `fsGroupChangePolicy` values from the pod security context
+- AND it SHALL retain `runAsNonRoot`, `RuntimeDefault` seccomp, read-only root filesystem, disabled privilege escalation, and dropped `ALL` capabilities
+- AND it SHALL NOT bind the database service account to a broader SCC
 
 #### Scenario: Gateway deployment on vanilla Kubernetes (unchanged)
 
@@ -786,8 +795,8 @@ Control Plane
 |---|---|---|---|
 | `name` | Yes | - | Resource name (typically `openshell-gateway`) |
 | `namespace` | No | API assigned | Read-only Kubernetes namespace derived from the Gateway identifier |
-| `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.101` | Gateway container image reference |
-| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.101` | Supervisor sidecar container image |
+| `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.109` | Gateway container image reference |
+| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.109` | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
 | `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
 | `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
@@ -800,10 +809,8 @@ Control Plane
 | `route` | No | - | Route configuration for external exposure |
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
-| `database` | No | - | Database backend configuration |
-| `database.storageSize` | No | `5Gi` | PVC size for PostgreSQL data |
-| `database.image` | No | `registry.redhat.io/rhel9/postgresql-16:latest` | PostgreSQL container image (Red Hat hardened) |
-| `database.externalSecretRef` | No | - | Name of Secret with `url` key. Skips DB provisioning. Reserved (Phase 2) |
+
+> **Database provisioning:** Gateway databases are provisioned automatically by the control plane using the CloudNativePG operator. The gateway's `database_id` field references a ManagedDatabase resource (provider=cnpg) that determines which CNPG Cluster hosts the gateway's logical database. When `database_id` is blank at creation time and the fleet has exactly one ManagedDatabase, the API server auto-assigns it. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
 ### Control Plane Environment Variables
 
@@ -812,6 +819,8 @@ Control Plane
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
+| ~~`CNPG_CLUSTER_NAME`~~ | *(removed)* | Replaced by per-ManagedDatabase resolution via `database_id` |
+| ~~`CNPG_CLUSTER_NAMESPACE`~~ | *(removed)* | Replaced by per-ManagedDatabase resolution via `database_id` |
 
 ### Example: Full Gateway Configuration
 
@@ -826,16 +835,13 @@ oidc:
   issuer: https://keycloak.example.com/realms/hypershell
   audience: hypershell-frontend
 route: {}
-database:
-  storageSize: 10Gi
-  image: registry.redhat.io/rhel9/postgresql-16:latest
 ```
 
 ---
 
 ## Data Model Changes
 
-The Gateway kind in `data-model.spec.md` SHALL include `oidc`, `route`, `routeAddress`, and `database` fields:
+The Gateway kind in `data-model.spec.md` SHALL include `oidc`, `route`, and `routeAddress` fields:
 
 ```
 Gateway {
@@ -843,7 +849,6 @@ Gateway {
     jsonb  oidc         "nullable - OIDC authentication config: {issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}"
     jsonb  route        "nullable - route exposure config (host)"
     text   routeAddress "nullable - read-only external address populated by control plane"
-    jsonb  database     "nullable - database backend config: {storageSize, image, externalSecretRef}"
 }
 ```
 
@@ -853,8 +858,12 @@ Database migrations SHALL add the columns to the `gateways` table:
 ALTER TABLE gateways ADD COLUMN oidc JSONB;
 ALTER TABLE gateways ADD COLUMN route JSONB;
 ALTER TABLE gateways ADD COLUMN route_address TEXT;
-ALTER TABLE gateways ADD COLUMN database JSONB;
 ```
+
+> **Database provisioning:** The `database` JSONB column has been removed. Gateway databases are provisioned automatically by the control plane via CNPG CRDs. The migration SHALL drop the column:
+> ```sql
+> ALTER TABLE gateways DROP COLUMN IF EXISTS database;
+> ```
 
 ---
 

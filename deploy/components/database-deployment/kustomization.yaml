@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ../../base/postgres.yaml
+patches:
+  # Remove the CNPG Cluster - the static PostgreSQL Deployment replaces it.
+  - target:
+      group: postgresql.cnpg.io
+      version: v1
+      kind: Cluster
+      name: hypershell-db
+    patch: |
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: hypershell-db
+  # The static Deployment does not terminate TLS; switch sslmode from require
+  # to disable in both the migrate init container and the api-server container.
+  # DATABASE_PROVIDER is deliberately NOT injected here: unset/empty already
+  # means "deployment" for both the API server and control plane (see
+  # specs/platform/openshell-gateway-database.spec.md), so this component only
+  # needs to swap the CNPG Cluster for the static Deployment above; injecting
+  # the env var explicitly here would be redundant with that default.
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+      namespace: hypershell-system
+    patch: |
+      - op: replace
+        path: /spec/template/spec/initContainers/0/command/7
+        value: "--db-sslmode=disable"
+      - op: replace
+        path: /spec/template/spec/containers/0/command/12
+        value: "--db-sslmode=disable"

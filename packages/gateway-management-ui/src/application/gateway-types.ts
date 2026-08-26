@@ -1,7 +1,9 @@
 export interface GatewayRecord {
+  activeSandboxCount?: number;
   clusterId: string;
   consoleUrl?: string;
   createdAt?: string;
+  createdBy?: string;
   databaseId: string;
   externalDns?: string;
   id: string;
@@ -30,7 +32,7 @@ export interface GatewayPlacementOptions {
 
 export type GatewaySortDirection = "asc" | "desc";
 export type GatewaySortField =
-  "cluster" | "created" | "endpoint" | "name" | "status";
+  "cluster" | "created" | "endpoint" | "name" | "owner" | "status";
 
 export interface GatewayListRequest {
   page: number;
@@ -68,19 +70,133 @@ export interface GatewayProvisionInput {
   name: string;
 }
 
+export type OpenShellGatewayServiceAccountRole =
+  "openshell-admin" | "openshell-user";
+
+export type OpenShellGatewayServiceAccountStatus =
+  | "degraded"
+  | "deleting"
+  | "error"
+  | "expired"
+  | "provisioning"
+  | "ready"
+  | "revoked"
+  | "revoking";
+
+export interface OpenShellGatewayServiceAccountRecord {
+  clientId: string;
+  createdAt: string;
+  createdByUserId: string;
+  description?: string;
+  expiresAt: string;
+  gatewayId: string;
+  id: string;
+  lastError?: string;
+  name: string;
+  revokedAt?: string;
+  role: OpenShellGatewayServiceAccountRole;
+  status: OpenShellGatewayServiceAccountStatus;
+  subject: string;
+  updatedAt: string;
+}
+
+export interface OpenShellGatewayServiceAccountConnection {
+  accessTokenLifetimeSeconds: number;
+  audience: string;
+  clientId: string;
+  gatewayEndpoint?: string;
+  gatewayName: string;
+  issuer: string;
+  tokenEndpoint: string;
+}
+
+export interface OpenShellGatewayServiceAccountCredential extends OpenShellGatewayServiceAccountConnection {
+  clientSecret: string;
+}
+
+export interface OpenShellGatewayServiceAccountExpirationPolicy {
+  defaultSeconds: number;
+  maximumSeconds: number;
+  minimumSeconds: number;
+}
+
+export interface OpenShellGatewayServiceAccountCapabilities {
+  allowedRoles: readonly OpenShellGatewayServiceAccountRole[];
+  canCreate: boolean;
+  canManageAll: boolean;
+  expirationPolicy: OpenShellGatewayServiceAccountExpirationPolicy;
+}
+
+export interface OpenShellGatewayServiceAccountPage {
+  capabilities: OpenShellGatewayServiceAccountCapabilities;
+  items: readonly OpenShellGatewayServiceAccountRecord[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+export interface OpenShellGatewayServiceAccountDetail {
+  connection: OpenShellGatewayServiceAccountConnection;
+  serviceAccount: OpenShellGatewayServiceAccountRecord;
+}
+
+export interface OpenShellGatewayServiceAccountCreateResult {
+  credential: OpenShellGatewayServiceAccountCredential;
+  serviceAccount: OpenShellGatewayServiceAccountRecord;
+}
+
+export interface OpenShellGatewayServiceAccountCreateInput {
+  description?: string;
+  expiresAt: string;
+  name: string;
+  role: OpenShellGatewayServiceAccountRole;
+}
+
+export type OpenShellGatewayServiceAccountSortField =
+  "created_at" | "expires_at" | "name" | "role" | "status";
+
+export interface OpenShellGatewayServiceAccountListRequest {
+  order: GatewaySortDirection;
+  page: number;
+  search: string;
+  size: number;
+  sort: OpenShellGatewayServiceAccountSortField;
+  status?: OpenShellGatewayServiceAccountStatus;
+}
+
+export const openShellGatewayServiceAccountPageSizes = [
+  10, 20, 50, 100,
+] as const;
+
+export const defaultOpenShellGatewayServiceAccountListRequest: Readonly<OpenShellGatewayServiceAccountListRequest> =
+  Object.freeze({
+    order: "desc",
+    page: 1,
+    search: "",
+    size: openShellGatewayServiceAccountPageSizes[1],
+    sort: "created_at",
+  });
+
 export type GatewayFailureKind =
   "cancelled" | "conflict" | "denied" | "not-found" | "unavailable" | "unknown";
 
+export type GatewayFailureCode = "service-account-name-exists";
+
 export class GatewayOperationError extends Error {
+  readonly code?: GatewayFailureCode;
   readonly kind: GatewayFailureKind;
   readonly operationId?: string;
 
   constructor(
     kind: GatewayFailureKind,
-    options: ErrorOptions & { operationId?: string } = {},
+    options: ErrorOptions & {
+      code?: GatewayFailureCode;
+      operationId?: string;
+    } = {},
   ) {
     super(`Gateway operation failed: ${kind}`, options);
     this.name = "GatewayOperationError";
+    this.code = options.code;
     this.kind = kind;
     this.operationId = options.operationId;
   }
@@ -88,6 +204,16 @@ export class GatewayOperationError extends Error {
 
 /** Application-owned driven port for the HyperShell gateway control plane. */
 export interface GatewayControlPlane {
+  createOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    input: OpenShellGatewayServiceAccountCreateInput,
+    context: GatewayInvocationContext,
+  ): Promise<OpenShellGatewayServiceAccountCreateResult>;
+  deleteOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    serviceAccountId: string,
+    context: GatewayInvocationContext,
+  ): Promise<void>;
   findGatewayPlacements(
     search: string,
     context: GatewayInvocationContext,
@@ -104,10 +230,20 @@ export interface GatewayControlPlane {
     gatewayId: string,
     context: GatewayInvocationContext,
   ): Promise<GatewayRecord>;
+  getOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    serviceAccountId: string,
+    context: GatewayInvocationContext,
+  ): Promise<OpenShellGatewayServiceAccountDetail>;
   listGateways(
     request: GatewayListRequest,
     context: GatewayInvocationContext,
   ): Promise<GatewayPage<GatewayRecord>>;
+  listOpenShellGatewayServiceAccounts(
+    gatewayId: string,
+    request: OpenShellGatewayServiceAccountListRequest,
+    context: GatewayInvocationContext,
+  ): Promise<OpenShellGatewayServiceAccountPage>;
   provisionGateway(
     input: GatewayProvisionInput,
     context: GatewayInvocationContext,
@@ -121,10 +257,25 @@ export interface GatewayControlPlane {
     name: string,
     context: GatewayInvocationContext,
   ): Promise<GatewayRecord>;
+  revokeOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    serviceAccountId: string,
+    context: GatewayInvocationContext,
+  ): Promise<OpenShellGatewayServiceAccountRecord>;
 }
 
 /** Driving entry port used by the Gateway UI presentation adapters. */
 export interface GatewayOperations {
+  createOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    input: OpenShellGatewayServiceAccountCreateInput,
+    signal?: AbortSignal,
+  ): Promise<OpenShellGatewayServiceAccountCreateResult>;
+  deleteOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    serviceAccountId: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
   findGatewayPlacements(
     search: string,
     signal?: AbortSignal,
@@ -138,10 +289,20 @@ export interface GatewayOperations {
     signal?: AbortSignal,
   ): Promise<readonly GatewayPlacement[]>;
   getGateway(gatewayId: string, signal?: AbortSignal): Promise<GatewayRecord>;
+  getOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    serviceAccountId: string,
+    signal?: AbortSignal,
+  ): Promise<OpenShellGatewayServiceAccountDetail>;
   listGateways(
     request: GatewayListRequest,
     signal?: AbortSignal,
   ): Promise<GatewayPage<GatewayRecord>>;
+  listOpenShellGatewayServiceAccounts(
+    gatewayId: string,
+    request: OpenShellGatewayServiceAccountListRequest,
+    signal?: AbortSignal,
+  ): Promise<OpenShellGatewayServiceAccountPage>;
   provisionGateway(
     input: GatewayProvisionInput,
     signal?: AbortSignal,
@@ -152,6 +313,11 @@ export interface GatewayOperations {
     name: string,
     signal?: AbortSignal,
   ): Promise<GatewayRecord>;
+  revokeOpenShellGatewayServiceAccount(
+    gatewayId: string,
+    serviceAccountId: string,
+    signal?: AbortSignal,
+  ): Promise<OpenShellGatewayServiceAccountRecord>;
 }
 
 /** Application-owned port for nondeterministic workflow context. */

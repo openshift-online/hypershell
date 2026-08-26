@@ -234,6 +234,9 @@ components:
               type: string
             provider:
               type: string
+            namespace:
+              type: string
+              readOnly: true
             region:
               type: string
             engine:

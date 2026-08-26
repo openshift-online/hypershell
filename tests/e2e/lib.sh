@@ -95,6 +95,8 @@ retry_until() {
 : "${E2E_GATEWAY_NAME:=e2e-gw}"
 : "${E2E_SANDBOX_TIMEOUT:=120}"
 : "${E2E_PROVISION_TIMEOUT:=180}"
+: "${E2E_GC_TIMEOUT:=180}"
+: "${E2E_ORPHAN_GC_TIMEOUT:=90}"
 : "${E2E_SKIP_CLEANUP:=0}"
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"
@@ -112,3 +114,24 @@ retry_until() {
 # own Keycloak client, mirroring what the RoleBinding reconciler does in prod).
 : "${E2E_KC_ADMIN_USER:=admin}"
 : "${E2E_KC_ADMIN_PASSWORD:=admin}"
+
+# RFC3339 timestamp N minutes in the past (macOS BSD date and GNU date).
+e2e_gc_eligible_since_backdate() {
+  local minutes="${1:-3}"
+  if date -u -v-"${minutes}"M +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
+    date -u -v-"${minutes}"M +%Y-%m-%dT%H:%M:%SZ
+  else
+    date -u -d "${minutes} minutes ago" +%Y-%m-%dT%H:%M:%SZ
+  fi
+}
+
+# Print allowlisted namespace-GC lines from controller logs. Avoids dumping raw
+# controller output that may contain OIDC endpoints or other sensitive config.
+e2e_dump_namespace_gc_logs() {
+  local hs_namespace="${1:-hypershell-system}"
+  local cli="${2:-kubectl}"
+  "$cli" logs -l app=hypershell-controller -n "$hs_namespace" --tail=200 2>/dev/null \
+    | grep -E 'namespace gc:|GarbageCollected|recordGCEvent|deleted namespace' \
+    | tail -20 \
+    | while IFS= read -r line; do dim "    $line"; done || true
+}

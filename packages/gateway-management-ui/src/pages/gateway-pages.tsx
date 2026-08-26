@@ -3,6 +3,7 @@ import {
   AlertActionCloseButton,
   AlertGroup,
   Button,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -16,7 +17,7 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
@@ -25,8 +26,10 @@ import {
   type GatewayListRequest,
   type GatewayRecord,
   type GatewaySortField,
+  type OpenShellGatewayServiceAccountListRequest,
 } from "../application/gateway-types";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
+import { useConsoleWaitTracker } from "../gateways/console-wait-tracker";
 import { type GatewayConnection } from "../gateways/gateway-connections";
 import { GatewayConnectionSteps } from "../gateways/gateway-connection-steps";
 import {
@@ -55,6 +58,8 @@ import {
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
 import { useDebouncedValue } from "../shared/use-debounced-value";
+import { ServiceAccountsPage } from "../service-accounts/service-accounts-page";
+import { type ServiceAccountLeaveGuard } from "../service-accounts/service-account-create-dialog";
 import { messages } from "../messages";
 import styles from "./gateway-pages.module.css";
 
@@ -76,7 +81,9 @@ export interface GatewaysPageProps {
 }
 
 function isGatewaySortField(value: string): value is GatewaySortField {
-  return ["cluster", "created", "endpoint", "name", "status"].includes(value);
+  return ["cluster", "created", "endpoint", "name", "owner", "status"].includes(
+    value,
+  );
 }
 
 function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
@@ -243,6 +250,7 @@ export function GatewaysPage({
 }: GatewaysPageProps = {}) {
   const intl = useIntl();
   const { gateways: gatewayOperations, navigation } = useGatewayUi();
+  const trackConsoleWait = useConsoleWaitTracker();
   const createLink = useGatewayLink(navigation.createHref);
   const [deletedGatewayName, setDeletedGatewayName] = useState<string>();
   const [isInitialDeletionDismissed, setIsInitialDeletionDismissed] =
@@ -272,7 +280,18 @@ export function GatewaysPage({
         items: result.items.map((gateway) =>
           toGatewayConnection(gateway, intl.formatMessage(messages.hubCluster)),
         ),
-        shouldPollStatus: result.items.some(gatewayNeedsStatusPolling),
+        // Map before reducing: trackConsoleWait records each gateway's
+        // console-wait start as a side effect, so every returned gateway must be
+        // observed. some() short-circuits, which would leave later gateways
+        // without a wait clock.
+        shouldPollStatus: result.items
+          .map((gateway) =>
+            gatewayNeedsStatusPolling(
+              gateway,
+              trackConsoleWait(gateway.id, gateway),
+            ),
+          )
+          .some(Boolean),
       };
     },
     queryKey: gatewayListQueryKey(gatewayRequest),
@@ -340,7 +359,20 @@ export function GatewaysPage({
       id: "name",
       label: intl.formatMessage(messages.gatewayName),
       render: (gateway) => <GatewayDetailLink gateway={gateway} />,
-      width: 25,
+      width: 20,
+    },
+    {
+      // active_sandbox_count is control-plane-owned and advisory; the API does
+      // not sort on it, so this column is not sortable. An unset value renders
+      // the localized not-available fallback rather than a misleading zero.
+      id: "activeSandboxes",
+      label: intl.formatMessage(messages.activeSandboxes),
+      render: ({ activeSandboxCount }) =>
+        typeof activeSandboxCount === "number"
+          ? String(activeSandboxCount)
+          : intl.formatMessage(messages.notAvailable),
+      sortable: false,
+      width: 10,
     },
     {
       id: "cluster",
@@ -358,13 +390,20 @@ export function GatewaysPage({
       id: "status",
       label: intl.formatMessage(messages.status),
       render: ({ status }) => <GatewayStatus status={status} />,
-      width: 15,
+      width: 10,
     },
     {
       id: "created",
       label: intl.formatMessage(messages.created),
       render: ({ createdAt }) => <GatewayCreatedDate createdAt={createdAt} />,
-      width: 15,
+      width: 10,
+    },
+    {
+      id: "owner",
+      label: intl.formatMessage(messages.owner),
+      render: ({ createdBy }) =>
+        createdBy ?? intl.formatMessage(messages.notAvailable),
+      width: 10,
     },
     {
       id: "endpoint",
@@ -469,10 +508,11 @@ export function GatewaysPage({
   );
 }
 
-export type GatewayDetailTab = "connection" | "details";
+export type GatewayDetailTab = "connection" | "details" | "service-accounts";
 
 const gatewayDetailTabs: readonly GatewayDetailTab[] = [
   "connection",
+  "service-accounts",
   "details",
 ];
 
@@ -490,7 +530,13 @@ export interface GatewayPageProps {
   gateway?: GatewayRecord;
   gatewayId: string;
   onDeleted?: (gatewayName: string) => Promise<void> | void;
+  onLeaveGuardChange?: (guard: ServiceAccountLeaveGuard | null) => void;
+  onServiceAccountCollectionStateChange?: (
+    state: OpenShellGatewayServiceAccountListRequest,
+    reason: ResourceTableStateChangeReason,
+  ) => void;
   onTabChange?: (tab: GatewayDetailTab) => void;
+  serviceAccountCollectionState?: OpenShellGatewayServiceAccountListRequest;
 }
 
 export function GatewayPage({
@@ -498,28 +544,62 @@ export function GatewayPage({
   gateway,
   gatewayId,
   onDeleted,
+  onLeaveGuardChange,
+  onServiceAccountCollectionStateChange,
   onTabChange,
+  serviceAccountCollectionState,
 }: GatewayPageProps) {
   const intl = useIntl();
   const { gateways, navigation } = useGatewayUi();
+  const trackConsoleWait = useConsoleWaitTracker();
   const [localTab, setLocalTab] = useState<GatewayDetailTab>("connection");
   const currentTab = activeTab ?? localTab;
+  // The service-accounts tab may register a guard while it holds an
+  // unrecoverable one-time secret. Consulting it here prevents a tab switch from
+  // silently unmounting the dialog and discarding that secret. The same guard is
+  // forwarded to the host (via onLeaveGuardChange) so a route-level blocker can
+  // also intercept SPA route changes and browser Back/Forward.
+  const leaveGuardRef = useRef<ServiceAccountLeaveGuard | null>(null);
+  const registerLeaveGuard = useCallback(
+    (guard: ServiceAccountLeaveGuard | null) => {
+      leaveGuardRef.current = guard;
+      onLeaveGuardChange?.(guard);
+    },
+    [onLeaveGuardChange],
+  );
   const changeTab = (tab: GatewayDetailTab) => {
-    if (onTabChange) {
-      onTabChange(tab);
-    } else {
-      setLocalTab(tab);
+    const applyTab = () => {
+      if (onTabChange) {
+        onTabChange(tab);
+      } else {
+        setLocalTab(tab);
+      }
+    };
+    const guard = leaveGuardRef.current;
+    if (tab !== currentTab && guard?.shouldBlock()) {
+      // Cancelling keeps the current tab, so there is nothing to undo.
+      const keepCurrentTab = () => undefined;
+      guard.confirmLeave({ onCancel: keepCurrentTab, onConfirm: applyTab });
+      return;
     }
+    applyTab();
   };
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const gatewayQuery = useQuery({
     enabled: gateway === undefined && gatewayId.length > 0,
     queryFn: ({ signal }) => gateways.getGateway(gatewayId, signal),
     queryKey: gatewayQueryKey(gatewayId),
-    refetchInterval: ({ state }) =>
-      state.data && gatewayNeedsStatusPolling(state.data)
+    refetchInterval: ({ state }) => {
+      if (!state.data) {
+        return false;
+      }
+      return gatewayNeedsStatusPolling(
+        state.data,
+        trackConsoleWait(state.data.id, state.data),
+      )
         ? gatewayStatusPollMilliseconds
-        : false,
+        : false;
+    },
     refetchIntervalInBackground: false,
   });
   const visibleGateway = gateway ?? gatewayQuery.data;
@@ -538,6 +618,13 @@ export function GatewayPage({
     visibleGateway,
     intl.formatMessage(messages.hubCluster),
   );
+  // Anchor the console-ready deadline the detail header shows to when the UI
+  // first observed this gateway awaiting its console, matching the polling clock
+  // above rather than the gateway's createdAt.
+  const consoleWaitStartedAt = trackConsoleWait(
+    visibleGateway.id,
+    visibleGateway,
+  );
 
   return (
     <>
@@ -549,6 +636,7 @@ export function GatewayPage({
       />
       <PageSection hasBodyWrapper={false}>
         <GatewayDetailHeader
+          consoleWaitStartedAt={consoleWaitStartedAt}
           gateway={connection}
           onDeleted={() => {
             if (onDeleted) {
@@ -570,6 +658,7 @@ export function GatewayPage({
           onSelect={(_event, eventKey) => {
             changeTab(toGatewayDetailTab(String(eventKey)));
           }}
+          unmountOnExit
         >
           <Tab
             eventKey="connection"
@@ -579,7 +668,35 @@ export function GatewayPage({
               </TabTitleText>
             }
           >
+            <Content component="p">
+              <Button
+                isInline
+                onClick={() => {
+                  changeTab("service-accounts");
+                }}
+                variant="link"
+              >
+                <FormattedMessage {...messages.manageServiceAccounts} />
+              </Button>
+            </Content>
             <GatewayConnectionSteps gateway={connection} />
+          </Tab>
+          <Tab
+            eventKey="service-accounts"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.serviceAccountsTab} />
+              </TabTitleText>
+            }
+          >
+            <ServiceAccountsPage
+              collectionState={serviceAccountCollectionState}
+              gatewayId={gatewayId}
+              isActive={currentTab === "service-accounts"}
+              key={gatewayId}
+              onCollectionStateChange={onServiceAccountCollectionStateChange}
+              registerLeaveGuard={registerLeaveGuard}
+            />
           </Tab>
           <Tab
             eventKey="details"

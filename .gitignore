@@ -24,6 +24,7 @@ dist/
 playwright-report/
 storybook-static/
 test-results/
+perf-results/
 *.tsbuildinfo
 
 # Agent Package Manager cache
@@ -46,3 +47,4 @@ components/cli/hypershell
 GAP_ANALYSIS.md
 RECONCILE_COMPLETE.md
 loop.txt
+/components/cli/hsctl

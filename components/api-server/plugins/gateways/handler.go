@@ -28,19 +28,25 @@ type GatewayVisibilityFilter interface {
 
 var _ handlers.RestHandler = gatewayHandler{}
 
+type GatewayOwnerLookup interface {
+	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
+}
+
 type gatewayHandler struct {
 	gateway          GatewayService
 	generic          services.GenericService
 	ownerBinding     OwnerBindingCreator
 	visibilityFilter GatewayVisibilityFilter
+	ownerLookup      GatewayOwnerLookup
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup) *gatewayHandler {
 	return &gatewayHandler{
 		gateway:          gateway,
 		generic:          generic,
 		ownerBinding:     ownerBinding,
 		visibilityFilter: visibilityFilter,
+		ownerLookup:      ownerLookup,
 	}
 }
 
@@ -64,7 +70,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			return PresentGateway(gatewayModel), nil
+			return PresentGateway(gatewayModel, ""), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -98,9 +104,8 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.ReleaseId != nil {
 				found.ReleaseId = *patch.ReleaseId
 			}
-			if patch.DatabaseId != nil {
-				found.DatabaseId = *patch.DatabaseId
-			}
+			// database_id is server-owned placement state. Ignore any value supplied
+			// through the public API; only gateway creation business logic assigns it.
 			if patch.ExternalDns != nil {
 				found.ExternalDns = patch.ExternalDns
 			}
@@ -119,6 +124,9 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Image != nil {
 				found.Image = patch.Image
 			}
+			if patch.SupervisorImage != nil {
+				found.SupervisorImage = patch.SupervisorImage
+			}
 			if len(patch.ServerDnsNames) > 0 {
 				data, _ := json.Marshal(patch.ServerDnsNames)
 				s := string(data)
@@ -127,14 +135,21 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.RouteAddress != nil {
 				found.RouteAddress = patch.RouteAddress
 			}
+			// console_address is a control-plane-owned, readOnly field. It is the
+			// trusted "Open gateway console" link shown to viewers, so it must not
+			// be settable through the public REST PATCH (a gateway owner could
+			// otherwise store an arbitrary phishing URL). It is written only via
+			// the internal gRPC UpdateGateway path used by the control plane.
+			// active_sandbox_count is a control-plane-owned observability signal
+			// written only via the gRPC AdjustActiveSandboxCount / SetActiveSandboxCount
+			// RPCs (readOnly on the REST Gateway schema); it is intentionally not
+			// settable via the public REST PATCH, and gRPC UpdateGateway refuses to
+			// mutate it as well.
 			if patch.Oidc != nil {
 				found.Oidc = patch.Oidc
 			}
 			if patch.Route != nil {
 				found.Route = patch.Route
-			}
-			if patch.DatabaseConfig != nil {
-				found.DatabaseConfig = patch.DatabaseConfig
 			}
 			if patch.CredentialDriver != nil {
 				if found.CredentialDriver != nil && *found.CredentialDriver != "" && *patch.CredentialDriver != *found.CredentialDriver {
@@ -147,7 +162,7 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
-			return PresentGateway(gatewayModel), nil
+			return PresentGateway(gatewayModel, ""), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -208,8 +223,18 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 				Items: []openapi.Gateway{},
 			}
 
+			gatewayIDs := make([]string, len(gateways))
+			for i, gw := range gateways {
+				gatewayIDs[i] = gw.ID
+			}
+			ownerUsernames := map[string]string{}
+			if h.ownerLookup != nil {
+				if owners, lookupErr := h.ownerLookup.FindOwnerUsernamesByGatewayIDs(ctx, gatewayIDs); lookupErr == nil {
+					ownerUsernames = owners
+				}
+			}
 			for _, gateway := range gateways {
-				converted := PresentGateway(&gateway)
+				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID])
 				gatewayList.Items = append(gatewayList.Items, converted)
 			}
 			if listArgs.Fields != nil {
@@ -251,7 +276,7 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 					gateway.ID, gateway.Name, username, userID)
 			}
 
-			return PresentGateway(gateway), nil
+			return PresentGateway(gateway, ""), nil
 		},
 	}
 

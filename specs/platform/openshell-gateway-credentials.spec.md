@@ -233,7 +233,7 @@ The `credential_driver` configuration on a Gateway SHALL be immutable after the 
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: ghcr.io/nvidia/openshell/gateway:0.0.101
+image: ghcr.io/nvidia/openshell/gateway:0.0.109
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 credential_driver:
@@ -248,7 +248,7 @@ credential_driver:
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: ghcr.io/nvidia/openshell/gateway:0.0.101
+image: ghcr.io/nvidia/openshell/gateway:0.0.109
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 credential_driver:
@@ -266,7 +266,7 @@ credential_driver:
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: ghcr.io/nvidia/openshell/gateway:0.0.101
+image: ghcr.io/nvidia/openshell/gateway:0.0.109
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 ```

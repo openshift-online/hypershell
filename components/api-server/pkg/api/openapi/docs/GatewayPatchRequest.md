@@ -8,7 +8,7 @@ Name | Type | Description | Notes
 **FleetId** | Pointer to **string** |  | [optional] 
 **ClusterId** | Pointer to **string** |  | [optional] 
 **ReleaseId** | Pointer to **string** |  | [optional] 
-**DatabaseId** | Pointer to **string** |  | [optional] 
+**DatabaseId** | Pointer to **string** | Server-owned placement field; values supplied through PATCH are ignored | [optional] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -20,7 +20,6 @@ Name | Type | Description | Notes
 **RouteAddress** | Pointer to **string** |  | [optional] 
 **Oidc** | Pointer to **string** |  | [optional] 
 **Route** | Pointer to **string** |  | [optional] 
-**DatabaseConfig** | Pointer to **string** |  | [optional] 
 **CredentialDriver** | Pointer to **string** |  | [optional] 
 
 ## Methods
@@ -441,31 +440,6 @@ SetRoute sets Route field to given value.
 `func (o *GatewayPatchRequest) HasRoute() bool`
 
 HasRoute returns a boolean if a field has been set.
-
-### GetDatabaseConfig
-
-`func (o *GatewayPatchRequest) GetDatabaseConfig() string`
-
-GetDatabaseConfig returns the DatabaseConfig field if non-nil, zero value otherwise.
-
-### GetDatabaseConfigOk
-
-`func (o *GatewayPatchRequest) GetDatabaseConfigOk() (*string, bool)`
-
-GetDatabaseConfigOk returns a tuple with the DatabaseConfig field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetDatabaseConfig
-
-`func (o *GatewayPatchRequest) SetDatabaseConfig(v string)`
-
-SetDatabaseConfig sets DatabaseConfig field to given value.
-
-### HasDatabaseConfig
-
-`func (o *GatewayPatchRequest) HasDatabaseConfig() bool`
-
-HasDatabaseConfig returns a boolean if a field has been set.
 
 ### GetCredentialDriver
 

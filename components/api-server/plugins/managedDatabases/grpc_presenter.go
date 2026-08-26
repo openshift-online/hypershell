@@ -17,6 +17,7 @@ func managedDatabaseToProto(d *ManagedDatabase) *pb.ManagedDatabase {
 		Name:             d.Name,
 		FleetId:          d.FleetId,
 		Provider:         d.Provider,
+		Namespace:        d.Namespace,
 		Region:           d.Region,
 		Engine:           d.Engine,
 		EngineVersion:    d.EngineVersion,

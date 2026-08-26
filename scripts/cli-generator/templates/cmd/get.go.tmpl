@@ -5,6 +5,9 @@ import (
 {{range .Resources}}
 	"{{$.Module}}/cmd/{{$.Binary}}/get/{{.NameLower}}"
 {{- end}}
+{{- if .HasGatewayServiceAccounts}}
+	"{{$.Module}}/cmd/{{$.Binary}}/get/serviceAccount"
+{{- end}}
 )
 
 var Cmd = &cobra.Command{
@@ -16,5 +19,8 @@ var Cmd = &cobra.Command{
 func init() {
 {{- range .Resources}}
 	Cmd.AddCommand({{.NameLower}}.Cmd)
+{{- end}}
+{{- if .HasGatewayServiceAccounts}}
+	Cmd.AddCommand(serviceAccount.Cmd)
 {{- end}}
 }
