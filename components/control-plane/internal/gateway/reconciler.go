@@ -128,7 +128,7 @@ func ReconcileGateway(
 	// Deploy gateway via Helm
 	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
 	// BackendTLSPolicy, Route, credential KEK, NetworkPolicy (disabled)
-	if err := deployGatewayViaHelm(ctx, clientset, helmClient, nsConfig, opts); err != nil {
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts); err != nil {
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}
 
