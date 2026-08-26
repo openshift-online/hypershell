@@ -8,3 +8,4 @@ resources:
   - web-console.yaml
   - certificates/
   - networkpolicies.yaml
+  - servicemonitor.yaml
