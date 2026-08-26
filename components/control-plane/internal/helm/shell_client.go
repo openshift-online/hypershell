@@ -200,8 +200,8 @@ func writeValuesFile(values map[string]interface{}) (string, error) {
 
 // VerifyHelmAvailable checks if the helm binary is available.
 // It returns an error if helm is not found or if the version is too old.
-func VerifyHelmAvailable(helmBinary string) error {
-	cmd := exec.Command(helmBinary, "version", "--short")
+func VerifyHelmAvailable(ctx context.Context, helmBinary string) error {
+	cmd := exec.CommandContext(ctx, helmBinary, "version", "--short")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
