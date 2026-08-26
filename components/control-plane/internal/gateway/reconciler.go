@@ -72,6 +72,9 @@ func ReconcileGateway(
 			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
 		} else {
 			nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
+			if nsConfig.Gateway.Route.Host == "" {
+				nsConfig.Gateway.Route.Host = hostname
+			}
 		}
 	}
 
