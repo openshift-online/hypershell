@@ -1,0 +1,539 @@
+#!/usr/bin/env bash
+# e2e-performance.sh - infrastructure-agnostic performance harness.
+#
+# Provisions a fleet of gateways in batches, runs the e2e suite in short mode
+# after each batch (checkpoint), then runs the suite in long mode as a
+# functional gate. Reuses the e2e driver interface: no kubectl/oc/kind
+# commands appear in this file.
+#
+# Usage:
+#   E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-performance.sh
+#   make e2e-performance
+#   E2E_INFRA_DRIVER=openshift make e2e-performance
+#
+# See specs/platform/e2e-testing.spec.md "Performance Testing".
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# shellcheck source=lib.sh
+source "${SCRIPT_DIR}/lib.sh"
+# shellcheck source=perf/lib.sh
+source "${SCRIPT_DIR}/perf/lib.sh"
+
+# --- Performance defaults ---
+
+: "${E2E_PERF_GATEWAY_COUNT:=5}"
+: "${E2E_PERF_BATCH_SIZE:=5}"
+: "${E2E_PERF_CHECKPOINT:=1}"
+: "${E2E_PERF_STOP_ON_CHECKPOINT_FAILURE:=1}"
+: "${E2E_PERF_CONCURRENCY:=4}"
+: "${E2E_PERF_GATEWAY_PREFIX:=perf-gw}"
+: "${E2E_PERF_PROVISION_TIMEOUT:=600}"
+: "${E2E_PERF_RUN_FUNCTIONAL:=1}"
+: "${E2E_PERF_FUNCTIONAL_GATEWAY_NAME:=perf-e2e-gw}"
+: "${E2E_PERF_RESULTS_DIR:=perf-results}"
+: "${E2E_PERF_CSV:=0}"
+# Optional SLO thresholds: unset means no gate.
+: "${E2E_PERF_MIN_SUCCESS_RATE:=}"
+: "${E2E_PERF_MAX_PROVISION_P99:=}"
+
+# Checkpoints disabled: provision the full fleet in one pass, no mini tests.
+if [[ "${E2E_PERF_CHECKPOINT}" != "1" ]]; then
+  E2E_PERF_BATCH_SIZE="${E2E_PERF_GATEWAY_COUNT}"
+fi
+
+DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
+
+# --- Driver selection ---
+
+if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
+  e2e_die_unknown_driver "E2E_INFRA_DRIVER is not set."
+fi
+
+DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"
+if [[ ! -f "$DRIVER_FILE" ]]; then
+  e2e_die_unknown_driver "Unknown driver '${E2E_INFRA_DRIVER}'. Driver file not found: ${DRIVER_FILE}"
+fi
+
+# shellcheck source=drivers/kind.sh
+source "$DRIVER_FILE"
+
+REQUIRED_FUNCTIONS=(
+  discover_api_host discover_gateway_endpoint get_cluster_domain get_cli_binary
+  wait_for_gateway_route acquire_oidc_token api_curl acquire_gateway_token_with_role
+)
+for fn in "${REQUIRED_FUNCTIONS[@]}"; do
+  if ! declare -f "$fn" >/dev/null 2>&1; then
+    red "ERROR: Driver '${E2E_INFRA_DRIVER}' does not implement required function: ${fn}"
+    exit 1
+  fi
+done
+
+CLI=$(get_cli_binary)
+
+# --- Run state ---
+
+PERF_STARTED_AT="$(e2e_utc_now)"
+PERF_STAMP="$(e2e_utc_stamp)"
+PERF_RESULTS_DIR="${E2E_PERF_RESULTS_DIR}"
+if [[ "${PERF_RESULTS_DIR}" != /* ]]; then
+  PERF_RESULTS_DIR="${REPO_ROOT}/${PERF_RESULTS_DIR}"
+fi
+mkdir -p "${PERF_RESULTS_DIR}"
+PERF_RESULTS_FILE="${PERF_RESULTS_DIR}/${E2E_INFRA_DRIVER}-${PERF_STAMP}.json"
+
+PERF_RUN_RESULT="pass"
+PERF_STOPPED_EARLY=false
+PERF_BREAKING_SCALE=""
+PERF_FUNCTIONAL_RAN=false
+PERF_FUNCTIONAL_PASSED=""
+PERF_SCALE_START_MS=""
+PERF_SCALE_WALL_S=""
+
+# Per-gateway records: tab-separated status/create_s/running_s/id/namespace/name
+PERF_RECORD_DIR=$(mktemp -d)
+
+CANARY_NAME="${E2E_PERF_GATEWAY_PREFIX}-canary"
+CANARY_ID=""
+CANARY_NS=""
+
+# Track every gateway this run created or reused so teardown can delete them.
+PERF_TRACKED_IDS=()
+PERF_TRACKED_NS=()
+PERF_TRACKED_NAMES=()
+
+perf_track() {
+  local id="${1:-}" ns="${2:-}" name="${3:-}"
+  [[ -z "$id" ]] && return
+  PERF_TRACKED_IDS+=("$id")
+  PERF_TRACKED_NS+=("$ns")
+  PERF_TRACKED_NAMES+=("$name")
+}
+
+# --- Cleanup trap ---
+
+perf_cleanup() {
+  local exit_code=$?
+  trap - EXIT
+  rm -rf "${PERF_RECORD_DIR}"
+  if [[ "${E2E_SKIP_CLEANUP}" == "1" ]]; then
+    dim "  E2E_SKIP_CLEANUP=1: keeping perf fleet for inspection"
+    exit "$exit_code"
+  fi
+  echo ""
+  bold "Teardown"
+  sep
+  acquire_oidc_token 2>/dev/null || true
+  local name
+  local to_delete=()
+  local i
+  for ((i = 1; i <= E2E_PERF_GATEWAY_COUNT; i++)); do
+    to_delete+=("${E2E_PERF_GATEWAY_PREFIX}-${i}")
+  done
+  to_delete+=("${CANARY_NAME}" "${E2E_PERF_FUNCTIONAL_GATEWAY_NAME}")
+
+  local del_dir
+  del_dir=$(mktemp -d)
+  PERF_BG_PIDS=()
+  for name in "${to_delete[@]}"; do
+    perf_bg "${E2E_PERF_CONCURRENCY}" bash -c '
+      set -euo pipefail
+      source "'"${SCRIPT_DIR}"'/lib.sh"
+      source "'"${SCRIPT_DIR}"'/perf/lib.sh"
+      source "'"${DRIVER_FILE}"'"
+      export API_HOST="'"${API_HOST:-}"'"
+      export E2E_OIDC_ISSUER="'"${E2E_OIDC_ISSUER}"'"
+      export E2E_OIDC_CLIENT_ID="'"${E2E_OIDC_CLIENT_ID}"'"
+      export E2E_OIDC_USERNAME="'"${E2E_OIDC_USERNAME}"'"
+      export E2E_OIDC_PASSWORD="'"${E2E_OIDC_PASSWORD}"'"
+      perf_delete_gateway_by_name "$1" "$2"
+    ' _ "$name" "${del_dir}/${name}"
+  done
+  perf_wait_all
+
+  dim "  Waiting for managed namespaces to be garbage collected..."
+  local leftover=0
+  local f id ns
+  for f in "${del_dir}"/*; do
+    [[ -f "$f" ]] || continue
+    IFS=$'\t' read -r id ns name <<< "$(cat "$f")"
+    [[ "$id" == "missing" || -z "${ns:-}" ]] && continue
+    local deadline=$(($(date +%s) + E2E_GC_TIMEOUT))
+    local gone=false
+    while [[ $(date +%s) -lt $deadline ]]; do
+      if ! "$CLI" get namespace "$ns" &>/dev/null; then
+        gone=true
+        break
+      fi
+      sleep 5
+    done
+    if [[ "$gone" == "true" ]]; then
+      dim "    ${name}: namespace ${ns} gone"
+    else
+      leftover=$((leftover + 1))
+      dim "    ${name}: namespace ${ns} still present"
+    fi
+  done
+  rm -rf "$del_dir"
+  if [[ "$leftover" -gt 0 ]]; then
+    dim "  ${leftover} managed namespace(s) not reaped within ${E2E_GC_TIMEOUT}s"
+  fi
+  exit "$exit_code"
+}
+trap perf_cleanup EXIT
+
+# --- Helpers ---
+
+perf_collect_batch_metrics() {
+  local dir="${1:?batch dir required}"
+  PERF_BATCH_OK=0
+  PERF_BATCH_FAIL=0
+  PERF_BATCH_CREATE=()
+  PERF_BATCH_RUNNING=()
+  local f status create_s running_s id ns name
+  for f in "${dir}"/*; do
+    [[ -f "$f" ]] || continue
+    IFS=$'\t' read -r status create_s running_s id ns name <<< "$(cat "$f")"
+    if [[ "$status" == "ok" ]]; then
+      PERF_BATCH_OK=$((PERF_BATCH_OK + 1))
+    else
+      PERF_BATCH_FAIL=$((PERF_BATCH_FAIL + 1))
+    fi
+    [[ "$create_s" != "null" && -n "$create_s" ]] && PERF_BATCH_CREATE+=("$create_s")
+    [[ "$running_s" != "null" && -n "$running_s" ]] && PERF_BATCH_RUNNING+=("$running_s")
+    [[ -n "$id" ]] && perf_track "$id" "$ns" "$name"
+  done
+}
+
+perf_run_mini_test() {
+  local start_ms
+  start_ms=$(perf_now_ms)
+  # Prefix the child env only - do not export into the harness, so the EXIT
+  # trap still tears the canary and fleet down. Suite output goes to the
+  # terminal; rc/duration are stored in PERF_MINI_RC / PERF_MINI_S.
+  set +e
+  E2E_GATEWAY_NAME="${CANARY_NAME}" \
+    E2E_SKIP_CLEANUP=1 \
+    E2E_MODE=short \
+    E2E_PAUSE=0 \
+    E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
+    bash "${SCRIPT_DIR}/e2e-openshell.sh"
+  PERF_MINI_RC=$?
+  set -e
+  PERF_MINI_S=$(perf_elapsed_s "$start_ms")
+}
+
+perf_collect_diagnostics() {
+  perf_diag_begin "Performance failure diagnostics"
+  echo ""
+  bold "Pending pods"
+  "$CLI" get pods -A --field-selector=status.phase=Pending -o wide 2>/dev/null \
+    | while IFS= read -r line; do dim "  $line"; done || true
+  echo ""
+  bold "Node capacity"
+  "$CLI" get nodes -o custom-columns=NAME:.metadata.name,CPU:.status.capacity.cpu,MEM:.status.capacity.memory,ALLOC_CPU:.status.allocatable.cpu,ALLOC_MEM:.status.allocatable.memory 2>/dev/null \
+    | while IFS= read -r line; do dim "  $line"; done || true
+  echo ""
+  bold "Perf gateway phases"
+  acquire_oidc_token 2>/dev/null || true
+  local i name
+  for ((i = 1; i <= E2E_PERF_GATEWAY_COUNT; i++)); do
+    name="${E2E_PERF_GATEWAY_PREFIX}-${i}"
+    e2e_lookup_gateway_by_name "$name"
+    dim "  ${name}: id=${_GW_ID:-<none>} phase=${_GW_PHASE:-<none>} ns=${_GW_NAMESPACE:-<none>}"
+  done
+  e2e_lookup_gateway_by_name "$CANARY_NAME"
+  dim "  ${CANARY_NAME}: id=${_GW_ID:-<none>} phase=${_GW_PHASE:-<none>}"
+  echo ""
+  bold "Control-plane logs"
+  e2e_dump_namespace_gc_logs "${E2E_HS_NAMESPACE}" "$CLI"
+  "$CLI" logs -l app=hypershell-controller -n "${E2E_HS_NAMESPACE}" --tail=80 2>/dev/null \
+    | tail -40 | while IFS= read -r line; do dim "    $line"; done || true
+  perf_diag_end
+}
+
+# --- Preflight ---
+
+echo ""
+bold "HyperShell Performance Test"
+sep
+echo ""
+
+if ! discover_api_host; then
+  red "ERROR: Could not discover HyperShell API host"
+  exit 1
+fi
+API_HOST="${_DISCOVER_API_HOST}"
+
+if ! acquire_oidc_token; then
+  red "ERROR: Could not acquire OIDC token"
+  exit 1
+fi
+
+if ! e2e_discover_seed_ids; then
+  red "ERROR: Seeded fleet/cluster/release not found. Run make kind-up (or the OpenShift deploy) first."
+  exit 1
+fi
+
+if [[ "${DB_PROVIDER}" == "cnpg" && -z "${E2E_DATABASE_ID}" ]]; then
+  red "ERROR: No ManagedDatabase found (required for DATABASE_PROVIDER=cnpg)"
+  exit 1
+fi
+
+dim "  Driver:            ${E2E_INFRA_DRIVER}"
+dim "  HyperShell API:    ${API_HOST}"
+dim "  Gateway count:     ${E2E_PERF_GATEWAY_COUNT}"
+dim "  Batch size:        ${E2E_PERF_BATCH_SIZE}"
+dim "  Concurrency:       ${E2E_PERF_CONCURRENCY}"
+dim "  Prefix:            ${E2E_PERF_GATEWAY_PREFIX}"
+dim "  Checkpoint:        ${E2E_PERF_CHECKPOINT}"
+dim "  Functional:        ${E2E_PERF_RUN_FUNCTIONAL}"
+dim "  Results:           ${PERF_RESULTS_FILE}"
+dim "  fleet_id:          ${E2E_FLEET_ID}"
+dim "  cluster_id:        ${E2E_CLUSTER_ID}"
+dim "  release_id:        ${E2E_RELEASE_ID}"
+[[ -n "${E2E_DATABASE_ID}" ]] && dim "  database_id:       ${E2E_DATABASE_ID}"
+echo ""
+sep
+
+perf_results_init "${PERF_RESULTS_FILE}"
+
+# --- Canary ---
+
+if [[ "${E2E_PERF_CHECKPOINT}" == "1" ]]; then
+  echo ""
+  bold "Preflight: canary gateway ${CANARY_NAME}"
+  echo ""
+  local_record="${PERF_RECORD_DIR}/canary"
+  perf_provision_one "$CANARY_NAME" "$local_record"
+  IFS=$'\t' read -r status create_s running_s CANARY_ID CANARY_NS _ <<< "$(cat "$local_record")"
+  if [[ "$status" != "ok" || -z "$CANARY_ID" ]]; then
+    red "ERROR: Canary gateway ${CANARY_NAME} did not reach Running"
+    PERF_RUN_RESULT="fail"
+    PERF_RES_RESULT="fail"
+    PERF_RES_FINISHED_AT="$(e2e_utc_now)"
+    perf_results_write
+    perf_collect_diagnostics
+    exit 1
+  fi
+  pass "Canary running: ${CANARY_NAME} (${CANARY_ID})"
+  perf_track "$CANARY_ID" "$CANARY_NS" "$CANARY_NAME"
+
+  GW_KC_CLIENT_ID="${CANARY_NAME}-${CANARY_ID}"
+  show_cmd "# grant canary OIDC role once (acquire_gateway_token_with_role)"
+  if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
+    pass "Canary OIDC role granted (openshell-admin on ${GW_KC_CLIENT_ID})"
+  else
+    fail_test "Failed to grant canary OIDC role; checkpoints may fail"
+  fi
+fi
+
+# --- Scale-up ---
+
+echo ""
+bold "Scale-up"
+echo ""
+
+PERF_SCALE_START_MS=$(perf_now_ms)
+TOTAL_OK=0
+TOTAL_FAIL=0
+ALL_CREATE=()
+ALL_RUNNING=()
+
+start_index=1
+while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
+  batch_end=$((start_index + E2E_PERF_BATCH_SIZE - 1))
+  if (( batch_end > E2E_PERF_GATEWAY_COUNT )); then
+    batch_end=$E2E_PERF_GATEWAY_COUNT
+  fi
+  batch_dir="${PERF_RECORD_DIR}/batch-${start_index}-${batch_end}"
+  mkdir -p "$batch_dir"
+
+  bold "  Batch ${start_index}–${batch_end}"
+  PERF_BG_PIDS=()
+  local_i=""
+  for ((local_i = start_index; local_i <= batch_end; local_i++)); do
+    name="${E2E_PERF_GATEWAY_PREFIX}-${local_i}"
+    rec="${batch_dir}/${local_i}"
+    perf_bg "${E2E_PERF_CONCURRENCY}" bash -c '
+      set -euo pipefail
+      source "'"${SCRIPT_DIR}"'/lib.sh"
+      source "'"${SCRIPT_DIR}"'/perf/lib.sh"
+      source "'"${DRIVER_FILE}"'"
+      export API_HOST="'"${API_HOST}"'"
+      export E2E_FLEET_ID="'"${E2E_FLEET_ID}"'"
+      export E2E_CLUSTER_ID="'"${E2E_CLUSTER_ID}"'"
+      export E2E_RELEASE_ID="'"${E2E_RELEASE_ID}"'"
+      export E2E_DATABASE_ID="'"${E2E_DATABASE_ID:-}"'"
+      export E2E_OIDC_ISSUER="'"${E2E_OIDC_ISSUER}"'"
+      export E2E_OIDC_CLIENT_ID="'"${E2E_OIDC_CLIENT_ID}"'"
+      export E2E_OIDC_USERNAME="'"${E2E_OIDC_USERNAME}"'"
+      export E2E_OIDC_PASSWORD="'"${E2E_OIDC_PASSWORD}"'"
+      export E2E_PERF_PROVISION_TIMEOUT="'"${E2E_PERF_PROVISION_TIMEOUT}"'"
+      perf_provision_one "$1" "$2"
+    ' _ "$name" "$rec"
+  done
+  perf_wait_all
+
+  perf_collect_batch_metrics "${batch_dir}"
+  TOTAL_OK=$((TOTAL_OK + PERF_BATCH_OK))
+  TOTAL_FAIL=$((TOTAL_FAIL + PERF_BATCH_FAIL))
+  ALL_CREATE+=("${PERF_BATCH_CREATE[@]+"${PERF_BATCH_CREATE[@]}"}")
+  ALL_RUNNING+=("${PERF_BATCH_RUNNING[@]+"${PERF_BATCH_RUNNING[@]}"}")
+
+  dim "    provisioned=${PERF_BATCH_OK} failed=${PERF_BATCH_FAIL} (cumulative running=${TOTAL_OK})"
+
+  if [[ "${E2E_PERF_CHECKPOINT}" == "1" ]]; then
+    echo ""
+    dim "  Checkpoint mini test (E2E_MODE=short, gateway=${CANARY_NAME})..."
+    perf_run_mini_test
+    if [[ "$PERF_MINI_RC" == "0" ]]; then
+      mini_result="pass"
+      pass "Checkpoint at ${TOTAL_OK} gateways passed (${PERF_MINI_S}s)"
+    else
+      mini_result="fail"
+      fail_test "Checkpoint at ${TOTAL_OK} gateways failed (${PERF_MINI_S}s)"
+    fi
+
+    perf_percentiles "${PERF_BATCH_RUNNING[@]+"${PERF_BATCH_RUNNING[@]}"}"
+    perf_results_add_checkpoint "${TOTAL_OK}" "$(e2e_utc_now)" "short" "$mini_result" "$PERF_MINI_S"
+
+    if [[ "$mini_result" == "fail" ]]; then
+      PERF_RUN_RESULT="fail"
+      if [[ "${E2E_PERF_STOP_ON_CHECKPOINT_FAILURE}" == "1" ]]; then
+        PERF_STOPPED_EARLY=true
+        PERF_BREAKING_SCALE="${TOTAL_OK}"
+        PERF_RES_PROVISIONED="${TOTAL_OK}"
+        PERF_RES_FAILED="${TOTAL_FAIL}"
+        PERF_RES_STOPPED_EARLY=true
+        PERF_RES_BREAKING_SCALE="${TOTAL_OK}"
+        perf_results_write
+        perf_collect_diagnostics
+        break
+      fi
+    fi
+  fi
+
+  start_index=$((batch_end + 1))
+done
+
+PERF_SCALE_WALL_S=$(perf_elapsed_s "$PERF_SCALE_START_MS")
+
+# --- Scale-up metrics ---
+
+REQUESTED="${E2E_PERF_GATEWAY_COUNT}"
+if [[ "$PERF_STOPPED_EARLY" == "true" ]]; then
+  REQUESTED="${PERF_BREAKING_SCALE}"
+fi
+PROVISIONED="${TOTAL_OK}"
+FAILED="${TOTAL_FAIL}"
+if [[ $((PROVISIONED + FAILED)) -gt 0 ]]; then
+  SUCCESS_RATE=$(perf_pct_1 "$PROVISIONED" $((PROVISIONED + FAILED)))
+else
+  SUCCESS_RATE=0
+fi
+THROUGHPUT=$(perf_throughput "$PROVISIONED" "$PERF_SCALE_WALL_S")
+
+CREATE_JSON=$(perf_percentiles_json "${ALL_CREATE[@]+"${ALL_CREATE[@]}"}")
+TTR_JSON=$(perf_percentiles_json "${ALL_RUNNING[@]+"${ALL_RUNNING[@]}"}")
+TTR_P99="$PERF_P99"
+
+PERF_RES_REQUESTED="${E2E_PERF_GATEWAY_COUNT}"
+PERF_RES_PROVISIONED="$PROVISIONED"
+PERF_RES_FAILED="$FAILED"
+PERF_RES_SUCCESS_RATE="$SUCCESS_RATE"
+PERF_RES_WALL="$PERF_SCALE_WALL_S"
+PERF_RES_THROUGHPUT="$THROUGHPUT"
+PERF_RES_CREATE_JSON="$CREATE_JSON"
+PERF_RES_TTR_JSON="$TTR_JSON"
+PERF_RES_STOPPED_EARLY=$( [[ "$PERF_STOPPED_EARLY" == "true" ]] && echo true || echo false )
+PERF_RES_BREAKING_SCALE=$(perf_num_or_null "${PERF_BREAKING_SCALE}")
+perf_results_write
+
+if [[ "$FAILED" -gt 0 ]]; then
+  perf_collect_diagnostics
+fi
+
+# --- Functional ---
+
+if [[ "${E2E_PERF_RUN_FUNCTIONAL}" == "1" && "$PERF_STOPPED_EARLY" != "true" ]]; then
+  echo ""
+  bold "Functional check (E2E_MODE=long, gateway=${E2E_PERF_FUNCTIONAL_GATEWAY_NAME})"
+  echo ""
+  PERF_FUNCTIONAL_RAN=true
+  set +e
+  E2E_GATEWAY_NAME="${E2E_PERF_FUNCTIONAL_GATEWAY_NAME}" \
+    E2E_MODE=long \
+    E2E_PAUSE=0 \
+    E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
+    bash "${SCRIPT_DIR}/e2e-openshell.sh"
+  func_rc=$?
+  set -e
+  if [[ "$func_rc" == "0" ]]; then
+    PERF_FUNCTIONAL_PASSED=true
+    pass "Functional suite passed under load"
+  else
+    PERF_FUNCTIONAL_PASSED=false
+    PERF_RUN_RESULT="fail"
+    fail_test "Functional suite failed under load"
+    perf_collect_diagnostics
+  fi
+  PERF_RES_FUNC_RAN=true
+  PERF_RES_FUNC_PASSED=$( [[ "$PERF_FUNCTIONAL_PASSED" == "true" ]] && echo true || echo false )
+  PERF_RES_FUNC_GW="${E2E_PERF_FUNCTIONAL_GATEWAY_NAME}"
+  perf_results_write
+else
+  PERF_RES_FUNC_RAN=false
+  PERF_RES_FUNC_PASSED="null"
+  PERF_RES_FUNC_GW="null"
+  perf_results_write
+fi
+
+# --- SLO ---
+
+SLO_PASSED=true
+if [[ -n "${E2E_PERF_MIN_SUCCESS_RATE}" ]]; then
+  if perf_ge "$SUCCESS_RATE" "$E2E_PERF_MIN_SUCCESS_RATE"; then
+    :
+  else
+    SLO_PASSED=false
+    PERF_RUN_RESULT="fail"
+    fail_test "Success rate ${SUCCESS_RATE}% is below E2E_PERF_MIN_SUCCESS_RATE=${E2E_PERF_MIN_SUCCESS_RATE}"
+  fi
+fi
+if [[ -n "${E2E_PERF_MAX_PROVISION_P99}" && -n "${TTR_P99}" && "${TTR_P99}" != "null" ]]; then
+  if perf_le "$TTR_P99" "$E2E_PERF_MAX_PROVISION_P99"; then
+    :
+  else
+    SLO_PASSED=false
+    PERF_RUN_RESULT="fail"
+    fail_test "p99 ${TTR_P99}s is above E2E_PERF_MAX_PROVISION_P99=${E2E_PERF_MAX_PROVISION_P99}"
+  fi
+fi
+
+PERF_RES_SLO_PASSED=$( [[ "$SLO_PASSED" == "true" ]] && echo true || echo false )
+PERF_RES_FINISHED_AT="$(e2e_utc_now)"
+PERF_RES_RESULT="$PERF_RUN_RESULT"
+perf_results_write
+
+perf_results_point_latest "${PERF_RESULTS_FILE}"
+
+if [[ "${E2E_PERF_CSV}" == "1" ]]; then
+  perf_csv_append "${PERF_RESULTS_DIR}/history.csv" "${PERF_RESULTS_FILE}"
+fi
+
+# --- Report ---
+
+echo ""
+bold "Performance summary"
+sep
+perf_print_summary
+
+print_results
+
+if [[ "${PERF_RUN_RESULT}" != "pass" ]]; then
+  exit 1
+fi

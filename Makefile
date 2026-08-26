@@ -114,6 +114,8 @@ help:
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
 	@echo "    e2e                      Run E2E tests locally (requires Kind cluster)"
+	@echo "    e2e-performance          Run the performance harness (requires a running cluster)"
+	@echo "    e2e-performance-report   Tabulate recent local performance runs"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
 	@echo "    lint-cli                 Lint CLI (gofmt, go vet, golangci-lint)"
@@ -447,15 +449,30 @@ generate-sdk-go:
 # E2E Tests
 # ============================================================================
 
+# Default driver is kind; honor E2E_INFRA_DRIVER=openshift make e2e on the CLI.
+E2E_INFRA_DRIVER ?= kind
+
 .PHONY: e2e
 e2e:
 	@echo ""
-	@echo "==> Running E2E tests (Kind)"
+	@echo "==> Running E2E tests ($(E2E_INFRA_DRIVER))"
 	@echo ""
-	@E2E_INFRA_DRIVER=kind \
+	@E2E_INFRA_DRIVER=$(E2E_INFRA_DRIVER) \
 		E2E_PROVISION_TIMEOUT=300 \
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-openshell.sh
+
+.PHONY: e2e-performance
+e2e-performance:
+	@echo ""
+	@echo "==> Running E2E performance harness ($(E2E_INFRA_DRIVER))"
+	@echo ""
+	@E2E_INFRA_DRIVER=$(E2E_INFRA_DRIVER) \
+		bash tests/e2e/e2e-performance.sh
+
+.PHONY: e2e-performance-report
+e2e-performance-report:
+	@bash scripts/perf-report.sh
 
 # Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
 # cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
