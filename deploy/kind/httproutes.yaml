@@ -49,6 +49,22 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  name: metrics
+  namespace: hypershell-system
+spec:
+  parentRefs:
+    - name: hypershell-gw
+      namespace: hypershell-system
+  hostnames:
+    - metrics.hypershell.localhost
+  rules:
+    - backendRefs:
+        - name: hypershell-api-server
+          port: 4433
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
   name: keycloak
   namespace: keycloak
 spec:

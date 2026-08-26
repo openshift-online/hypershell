@@ -67,6 +67,7 @@ spec:
             - --api-server-bindaddress=0.0.0.0:8000
             - --grpc-server-bindaddress=0.0.0.0:9000
             - --health-check-server-bindaddress=0.0.0.0:8434
+            - --metrics-server-bindaddress=0.0.0.0:4433
             - --enable-authz=false
             - --enable-jwt=false
             - --db-host-file=/secrets/host

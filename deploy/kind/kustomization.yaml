@@ -91,6 +91,13 @@ patches:
                       secretKeyRef:
                         name: hypershell-cp-oidc
                         key: client-secret
+                  - name: HYPERSHELL_GRPC_SERVER_ADDR
+                    value: "hypershell-api-server.hypershell-system.svc.cluster.local:9000"
+                  - name: HYPERSHELL_API_SERVER_URL
+                    value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
+            dnsConfig:
+              options:
+                - name: use-vc
   # --- Web console: OIDC ---
   - patch: |
       apiVersion: apps/v1

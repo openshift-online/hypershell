@@ -71,6 +71,7 @@ API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
 HEALTH_HOSTNAME=health.hypershell.localhost
 KEYCLOAK_HOSTNAME=keycloak.hypershell.localhost
+METRICS_HOSTNAME=metrics.hypershell.localhost
 KEYCLOAK_OIDC_ISSUER?=https://$(KEYCLOAK_HOSTNAME)/realms/hypershell
 
 # ============================================================================
@@ -300,7 +301,7 @@ export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
 export api_server_local control_plane_local web_console_local
 export build_version build_time
-export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
+export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME METRICS_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
 
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
@@ -374,6 +375,7 @@ kind-env:
 	@echo "export CONSOLE_HOSTNAME=$(CONSOLE_HOSTNAME)"
 	@echo "export HEALTH_HOSTNAME=$(HEALTH_HOSTNAME)"
 	@echo "export KEYCLOAK_HOSTNAME=$(KEYCLOAK_HOSTNAME)"
+	@echo "export METRICS_HOSTNAME=$(METRICS_HOSTNAME)"
 	@echo "export KEYCLOAK_OIDC_ISSUER=$(KEYCLOAK_OIDC_ISSUER)"
 	@echo "export KIND_DNS_PORT=$(KIND_DNS_PORT)"
 	@echo "export API_SERVER_IMAGE=$(API_SERVER_IMAGE)"

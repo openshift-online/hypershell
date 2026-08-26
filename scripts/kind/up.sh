@@ -775,6 +775,7 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
   info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
   info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
   info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
+  info "Metrics:      https://${METRICS_HOSTNAME}${PORT_SUFFIX}/metrics"
 
   if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
@@ -792,6 +793,7 @@ else
   info "HTTP API:     http://localhost:8000"
   info "Web Console:  http://localhost:3000"
   info "Health:       http://localhost:8000/healthz"
+  info "Metrics:      http://localhost:4433/metrics"
 
   if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Keycloak:     http://localhost:8080 (admin/admin)"

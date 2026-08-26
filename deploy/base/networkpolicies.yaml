@@ -12,6 +12,9 @@ spec:
       app: hypershell-controller
   policyTypes:
     - Ingress
+    - Egress
+  egress:
+    - {}
   ingress:
     - from:
         - podSelector:
