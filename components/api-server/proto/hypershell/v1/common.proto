@@ -12,6 +12,8 @@ message ObjectReference {
   google.protobuf.Timestamp updated_at = 3;
   string kind = 4;
   string href = 5;
+  optional string traceparent = 6;
+  optional string tracestate = 7;
 }
 
 message ListMeta {

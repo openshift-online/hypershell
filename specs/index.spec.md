@@ -54,6 +54,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/e2e-testing.spec.md` | platform | Infra drivers, e2e test suite, CI workflow, deploy overlays | ALL | local-development, control-plane, openshell-gateway-routing |
 | `platform/api-server-observability.spec.md` | platform | API OTel SDK bootstrap, HTTP/gRPC server spans, W3C trace continuation, request metrics | API | web-console/tracing, security, local-development, e2e-testing |
 | `platform/control-plane-observability.spec.md` | platform | CP OTel SDK bootstrap, reconcile spans, gRPC client spans, watch lifecycle, K8s API spans, reconcile metrics | CP | api-server-observability, control-plane, security, local-development |
+| `platform/reconcile-trace-correlation.spec.md` | platform | Trace context persistence, span links, reconcile-to-request correlation | API, CP | api-server-observability, control-plane-observability, data-model |
 | `standards/ui/foundations.spec.md` | standards | UI foundations | WEB | - |
 | `standards/ui/brand-color.spec.md` | standards | Red Hat brand color | WEB | foundations, accessibility |
 | `standards/ui/interaction.spec.md` | standards | UI interaction | WEB | foundations |
