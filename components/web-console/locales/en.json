@@ -647,6 +647,42 @@
     "defaultMessage": "Log out",
     "description": "Sign-out action in the masthead identity menu."
   },
+  "app.metrics.dashboard.loadError": {
+    "defaultMessage": "Metrics could not be loaded",
+    "description": "Shown when the metrics endpoint returns an error."
+  },
+  "app.metrics.dashboard.loadErrorBody": {
+    "defaultMessage": "Check that Prometheus is running and reachable, then refresh.",
+    "description": "Recovery guidance shown below the metrics load error title."
+  },
+  "app.metrics.dashboard.loading": {
+    "defaultMessage": "Loading metrics",
+    "description": "Accessible label for the metrics loading spinner."
+  },
+  "app.metrics.dashboard.title": {
+    "defaultMessage": "Gateway metrics",
+    "description": "Heading for the gateway metrics dashboard page."
+  },
+  "app.metrics.phase.degraded": {
+    "defaultMessage": "Degraded",
+    "description": "Label for the Degraded gateway phase metric card."
+  },
+  "app.metrics.phase.failed": {
+    "defaultMessage": "Failed",
+    "description": "Label for the Failed gateway phase metric card."
+  },
+  "app.metrics.phase.gateways": {
+    "defaultMessage": "{count, plural, one {# gateway} other {# gateways}}",
+    "description": "Pluralized gateway count shown inside each phase card."
+  },
+  "app.metrics.phase.provisioning": {
+    "defaultMessage": "Provisioning",
+    "description": "Label for the Provisioning gateway phase metric card."
+  },
+  "app.metrics.phase.running": {
+    "defaultMessage": "Running",
+    "description": "Label for the Running gateway phase metric card."
+  },
   "app.nav.gateways": {
     "defaultMessage": "OpenShell Gateways",
     "description": "Page and resource collection label for OpenShell gateways."
