@@ -15,12 +15,16 @@ export interface OperationalDashboardMetrics {
 }
 
 export interface DashboardControlPlane {
-  getOperationalMetrics(signal?: AbortSignal): Promise<OperationalDashboardMetrics>;
+  getOperationalMetrics(
+    signal?: AbortSignal,
+  ): Promise<OperationalDashboardMetrics>;
 }
 
 export function createDashboardControlPlaneAdapter(): DashboardControlPlane {
   return {
-    async getOperationalMetrics(signal?: AbortSignal): Promise<OperationalDashboardMetrics> {
+    async getOperationalMetrics(
+      signal?: AbortSignal,
+    ): Promise<OperationalDashboardMetrics> {
       const counts: GatewayPhaseCounts = await fetchGatewayMetrics(signal);
 
       return {
