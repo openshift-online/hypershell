@@ -43,47 +43,52 @@ E2E_MODE=long
 
 # --- Seed ids for short-mode throwaway gateway ---
 
-gw_json='{"items":[{"name":"perf-gw-canary","fleet_id":"fleet-1","cluster_id":"cluster-1","release_id":"release-1","database_id":"db-1"}]}'
-E2E_FLEET_ID="" E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+gw_json='{"items":[{"name":"perf-gw-canary","cluster_id":"cluster-1","release_id":"release-1","database_id":"db-1"}]}'
+E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
 e2e_apply_seed_ids_from_gateway_json "$gw_json" "perf-gw-canary"
-if [[ "$E2E_FLEET_ID" == "fleet-1" && "$E2E_CLUSTER_ID" == "cluster-1" && "$E2E_RELEASE_ID" == "release-1" && "$E2E_DATABASE_ID" == "db-1" ]]; then
+if [[ "$E2E_CLUSTER_ID" == "cluster-1" && "$E2E_RELEASE_ID" == "release-1" && "$E2E_DATABASE_ID" == "db-1" ]]; then
   pass_u "seed ids copied from reused gateway JSON"
 else
-  fail_u "apply seed ids from gateway JSON failed: fleet=${E2E_FLEET_ID} cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+  fail_u "apply seed ids from gateway JSON failed: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
 fi
 
-E2E_FLEET_ID="only-fleet"
-E2E_CLUSTER_ID=""
+E2E_CLUSTER_ID="only-cluster"
 E2E_RELEASE_ID=""
 if e2e_seed_ids_ready; then
-  fail_u "seed ids should not be ready without cluster and release"
+  fail_u "seed ids should not be ready without release"
 else
-  pass_u "seed ids are incomplete when cluster/release are missing"
+  pass_u "seed ids are incomplete when release is missing"
 fi
 
 _orig_discover=$(declare -f e2e_discover_seed_ids)
 e2e_discover_seed_ids() {
-  E2E_FLEET_ID="fleet-x"
   E2E_CLUSTER_ID="cluster-x"
   E2E_RELEASE_ID="release-x"
 }
-E2E_FLEET_ID="only-fleet"
-E2E_CLUSTER_ID=""
+E2E_CLUSTER_ID="only-cluster"
 E2E_RELEASE_ID=""
 if e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "cluster-x" && "$E2E_RELEASE_ID" == "release-x" ]]; then
-  pass_u "ensure seed ids rediscovers when fleet is set but cluster/release are not"
+  pass_u "ensure seed ids rediscovers when cluster is set but release is not"
 else
   fail_u "ensure seed ids did not fill cluster/release: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
 fi
 eval "$_orig_discover"
 unset _orig_discover
-E2E_FLEET_ID="" E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
 
-mini=$(sed -n '/^perf_run_mini_test()/,/^}/p' "${SCRIPT_DIR}/../e2e-performance.sh")
-if echo "$mini" | grep -q 'E2E_CLUSTER_ID=' && echo "$mini" | grep -q 'E2E_RELEASE_ID=' && echo "$mini" | grep -q 'E2E_FLEET_ID='; then
-  pass_u "checkpoint mini test forwards seeded fleet/cluster/release ids"
+E2E_CLUSTER_ID=c1 E2E_RELEASE_ID=r1 E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
+body=$(e2e_gateway_create_body gw-test)
+if echo "$body" | grep -q '"cluster_id": "c1"' && ! echo "$body" | grep -q 'fleet_id'; then
+  pass_u "gateway create body omits fleet_id"
 else
-  fail_u "perf_run_mini_test does not forward seed ids"
+  fail_u "gateway create body unexpected: ${body:0:200}"
+fi
+E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+mini=$(sed -n '/^perf_run_mini_test()/,/^}/p' "${SCRIPT_DIR}/../e2e-performance.sh")
+if echo "$mini" | grep -q 'E2E_CLUSTER_ID=' && echo "$mini" | grep -q 'E2E_RELEASE_ID=' && ! echo "$mini" | grep -q 'E2E_FLEET_ID='; then
+  pass_u "checkpoint mini test forwards cluster/release ids and not fleet"
+else
+  fail_u "perf_run_mini_test seed id forwarding unexpected"
 fi
 
 if grep -nE "bash -c" "${SCRIPT_DIR}/../e2e-performance.sh" | grep -q 'E2E_OIDC_PASSWORD'; then

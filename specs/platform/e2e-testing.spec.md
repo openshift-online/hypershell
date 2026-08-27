@@ -713,7 +713,6 @@ deploy/
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8 and 11 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only) |
-| `E2E_SEED_FLEET_NAME` | `default` on kind; unset otherwise | Pin seed discovery to this fleet name. Unset means the first list item (single-seed CI/dev). Multi-seed clusters SHOULD set this |
 | `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
 | `E2E_SEED_RELEASE_NAME` | `dev-release` on kind; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
@@ -797,7 +796,7 @@ The performance test measures how the platform behaves when many gateways run at
 
 The performance test reuses the e2e driver abstraction. It runs against any infrastructure target that supplies a driver. A user selects the target with `E2E_INFRA_DRIVER`, the same as the e2e suite. A user runs the test against Kind for local checks. A user runs the test against any OpenShift cluster for on-demand load tests.
 
-The performance test does not build images and does not create the cluster. It targets a cluster that already runs. It reuses the resources that `make kind-up` (or the OpenShift deploy) already seeded: one fleet, one managed cluster, one release, and one managed database. Each perf gateway create body reuses those ids, the same as the e2e suite (see `discover ... managed_databases` flow in `tests/e2e/e2e-openshell.sh`).
+The performance test does not build images and does not create the cluster. It targets a cluster that already runs. It reuses the resources that `make kind-up` (or the OpenShift deploy) already seeded: one managed cluster, one release, and (when `DATABASE_PROVIDER=cnpg`) one managed database. Each perf gateway create body reuses the cluster and release ids.
 
 ### Performance Architecture
 
@@ -809,7 +808,7 @@ tests/e2e/e2e-performance.sh (infra-agnostic performance harness)
     │
     ├── sources driver via E2E_INFRA_DRIVER (required: kind | openshift)
     │
-    ├── Phase 1  Preflight        -- discover API host, OIDC token, fleet/db ids, baseline;
+    ├── Phase 1  Preflight        -- discover API host, OIDC token, cluster/release ids, baseline;
     │                                provision the canary gateway and grant its OIDC role once
     ├── Phase 2  Batched scale-up -- add E2E_PERF_BATCH_SIZE gateways (bounded concurrency),
     │                                then run the e2e suite in short mode against the canary
@@ -845,7 +844,7 @@ The system SHALL provide a `make e2e-performance` target. The target SHALL run `
 
 The performance harness (`tests/e2e/e2e-performance.sh`) SHALL be infrastructure-agnostic. It SHALL call only the driver interface functions for infrastructure operations. It SHALL select the driver with `E2E_INFRA_DRIVER`, the same as the e2e suite. It SHALL exit with a non-zero status at startup if `E2E_INFRA_DRIVER` is unset or names a missing driver, and SHALL list the available drivers. It SHALL NOT contain any `kubectl`-only, `oc`-only, or `kind`-only command.
 
-The harness SHALL obtain the seeded fleet, cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids. When `E2E_SEED_FLEET_NAME` / `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME` are set, discovery SHALL select the matching name; when they are unset it SHALL take the first list item (the single-seed Kind/CI layout). On `E2E_INFRA_DRIVER=kind` those names SHALL default to the `make kind-up` seeds (`default`, `local-kind`, `dev-release`). Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
+The harness SHALL obtain the seeded cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids. When `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME` are set, discovery SHALL select the matching name; when they are unset it SHALL take the first list item (the single-seed Kind/CI layout). On `E2E_INFRA_DRIVER=kind` those names SHALL default to the `make kind-up` seeds (`local-kind`, `dev-release`). Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
 
 The OpenShift driver is delivered by this spec as a partial implementation of `openshift-development.spec.md` (HYPERSHELL-44); the performance harness uses it for OpenShift runs (see [Scope](#scope)). The harness SHALL contain no infra-specific code: it works with either driver with no change. OpenShift runs are manual and on-demand; the performance test is not wired into CI for any target (see [Design Decisions](#design-decisions)).
 
@@ -871,7 +870,7 @@ The harness SHALL wait until each gateway reaches `Running` phase, or until `E2E
 
 #### Scenario: Fleet Provisioned
 
-- GIVEN a running target cluster with the seeded managed database
+- GIVEN a running target cluster with the seeded managed cluster, release, and managed database
 - WHEN the harness runs the scale-up phase with `E2E_PERF_GATEWAY_COUNT=N`
 - THEN it SHALL create N gateways named `<prefix>-1` through `<prefix>-N`
 - AND it SHALL wait until each gateway reports `Running` phase or the provision timeout elapses
@@ -959,13 +958,13 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | 10. Platform-admin RBAC | n/a; skipped in short (its assertion deletes a gateway) | full platform-admin matrix, including gateway deletion |
 | 11. Namespace GC | delete-driven GC with a bounded wait, on a throwaway namespace (not the reused gateway) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
 
-Short mode SHALL follow the same reuse-or-create pattern as the perf harness: when `E2E_GATEWAY_NAME` names an existing gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated short runs). This constraint governs the two areas that would otherwise tear a gateway down: the platform-admin RBAC area (area 10) SHALL NOT run its gateway-deletion step in short mode, and the namespace-GC area (area 11) SHALL exercise delete-driven GC against a throwaway gateway it creates, never against the supplied gateway. Creating that throwaway gateway SHALL reuse the seeded `fleet_id`, `cluster_id`, and `release_id`: the suite SHALL take them from the environment when a parent (the performance harness) forwards them, from the reused gateway's JSON when that gateway already exists, or by discovering them from the API when any of the three is missing. It SHALL NOT skip discovery merely because `fleet_id` is already set. Any long-only step that deletes the run's own gateway SHALL NOT run in short mode.
+Short mode SHALL follow the same reuse-or-create pattern as the perf harness: when `E2E_GATEWAY_NAME` names an existing gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated short runs). This constraint governs the two areas that would otherwise tear a gateway down: the platform-admin RBAC area (area 10) SHALL NOT run its gateway-deletion step in short mode, and the namespace-GC area (area 11) SHALL exercise delete-driven GC against a throwaway gateway it creates, never against the supplied gateway. Creating that throwaway gateway SHALL reuse the seeded `cluster_id` and `release_id`. The suite SHALL take cluster and release ids from the environment when a parent (the performance harness) forwards them, from the reused gateway's JSON when that gateway already exists, or by discovering them from the API when either is missing. Any long-only step that deletes the run's own gateway SHALL NOT run in short mode.
 
 #### Scenario: Short Mode Throwaway Uses Seed Ids
 
 - GIVEN `E2E_MODE=short` and a reused canary gateway
 - WHEN the suite creates the namespace-GC throwaway gateway
-- THEN it SHALL POST that gateway with the seeded fleet, cluster, and release ids
+- THEN it SHALL POST that gateway with the seeded cluster and release ids
 - AND it SHALL NOT fail with unknown seed ids when the parent forwarded those ids or the reused gateway JSON contains them
 
 #### Scenario: Long Mode by Default

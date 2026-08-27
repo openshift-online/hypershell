@@ -457,7 +457,7 @@ The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HY
 | L19 | cloud-provider-kind | Present | Patched build (podman 6+ fix); `--enable-lb-port-mapping`; verified in PATH | `Makefile`, `scripts/kind/up.sh` |
 | L20 | cert-manager | Present | Installed from release manifest; waits for deployments ready | `scripts/kind/up.sh` |
 | L21 | Keycloak | Present | Full realm with `hypershell-frontend`, `hypershell-provisioner`, users, custom theme; `KIND_KEYCLOAK_URL` skips | `deploy/kind/prerequisites/keycloak.yaml` |
-| L22 | Gateway Resource | Present | User-initiated via REST API; `kind-up` seeds prerequisites (Fleet, Cluster, Release, DB) but not the Gateway itself; documented in DEVELOPMENT.md | `DEVELOPMENT.md` |
+| L22 | Gateway Resource | Present | User-initiated via REST API; `kind-up` seeds Cluster, Release, and optional DB (not Fleet) and may also seed a Gateway; documented in DEVELOPMENT.md | `DEVELOPMENT.md` |
 | L23 | Gateway API Routing | Present | Networking Gateway + HTTPRoutes + wildcard TLS certs via cert-manager | `deploy/kind/prerequisites/` |
 | L24 | Multi-Namespace Deployments | Missing | Manifests have hardcoded `hypershell-system`; no namespace templating or scoped HTTPRoutes | - |
 | L25 | Single Root Makefile | Present | All kind-* targets in root Makefile; component Makefiles deprecated | `Makefile` |

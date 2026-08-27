@@ -239,40 +239,35 @@ else:
 " 2>/dev/null)" || true
 }
 
-# Discover the seeded fleet, cluster, release, and managed-database ids via the API.
-# Sets E2E_FLEET_ID, E2E_CLUSTER_ID, E2E_RELEASE_ID, E2E_DATABASE_ID.
+# Discover the seeded cluster, release, and managed-database ids via the API.
+# Sets E2E_CLUSTER_ID, E2E_RELEASE_ID, E2E_DATABASE_ID.
 # Requires API_HOST and api_curl. Never hardcodes ids.
 #
-# Name pins (optional): E2E_SEED_FLEET_NAME, E2E_SEED_CLUSTER_NAME,
-# E2E_SEED_RELEASE_NAME. On kind these default to the make kind-up seeds
-# (default, local-kind, dev-release). When a name is unset, the first list
-# item is used — that matches single-seed CI/dev; multi-seed clusters should
-# set the name pins instead of relying on API order.
+# Name pins (optional): E2E_SEED_CLUSTER_NAME, E2E_SEED_RELEASE_NAME.
+# On kind these default to the make kind-up seeds (local-kind, dev-release).
+# When a name is unset, the first list item is used - that matches
+# single-seed CI/dev; multi-seed clusters should set the name pins instead
+# of relying on API order.
 e2e_discover_seed_ids() {
-  local fleets clusters releases databases
+  local clusters releases databases
   if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]]; then
-    : "${E2E_SEED_FLEET_NAME:=default}"
     : "${E2E_SEED_CLUSTER_NAME:=local-kind}"
     : "${E2E_SEED_RELEASE_NAME:=dev-release}"
   else
-    : "${E2E_SEED_FLEET_NAME:=}"
     : "${E2E_SEED_CLUSTER_NAME:=}"
     : "${E2E_SEED_RELEASE_NAME:=}"
   fi
 
-  fleets=$(api_curl "${API_HOST}/api/hypershell/v1/fleets" 2>/dev/null || true)
   clusters=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters" 2>/dev/null || true)
   releases=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_releases" 2>/dev/null || true)
   databases=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
 
-  E2E_FLEET_ID=$(echo "$fleets" | e2e_json_first_id "${E2E_SEED_FLEET_NAME}")
   E2E_CLUSTER_ID=$(echo "$clusters" | e2e_json_first_id "${E2E_SEED_CLUSTER_NAME}")
   E2E_RELEASE_ID=$(echo "$releases" | e2e_json_first_id "${E2E_SEED_RELEASE_NAME}")
   E2E_DATABASE_ID=$(echo "$databases" | e2e_json_first_id)
 
-  if [[ -z "${E2E_FLEET_ID}" || -z "${E2E_CLUSTER_ID}" || -z "${E2E_RELEASE_ID}" ]]; then
-    red "ERROR: could not discover seeded fleet/cluster/release ids from the API"
-    dim "  fleet=${E2E_SEED_FLEET_NAME:-<first>} id=${E2E_FLEET_ID:-<empty>}"
+  if [[ -z "${E2E_CLUSTER_ID}" || -z "${E2E_RELEASE_ID}" ]]; then
+    red "ERROR: could not discover seeded cluster/release ids from the API"
     dim "  cluster=${E2E_SEED_CLUSTER_NAME:-<first>} id=${E2E_CLUSTER_ID:-<empty>}"
     dim "  release=${E2E_SEED_RELEASE_NAME:-<first>} id=${E2E_RELEASE_ID:-<empty>}"
     return 1
@@ -280,17 +275,17 @@ e2e_discover_seed_ids() {
 }
 
 e2e_seed_ids_ready() {
-  [[ -n "${E2E_FLEET_ID:-}" && -n "${E2E_CLUSTER_ID:-}" && -n "${E2E_RELEASE_ID:-}" ]]
+  [[ -n "${E2E_CLUSTER_ID:-}" && -n "${E2E_RELEASE_ID:-}" ]]
 }
 
-# Fill any missing seed ids from the API. Rediscover when fleet is set but
-# cluster/release are not (the create path in e2e-openshell.sh only sets fleet).
+# Fill any missing seed ids from the API. Rediscover when cluster is set but
+# release is not (or the reverse).
 e2e_ensure_seed_ids() {
   e2e_seed_ids_ready && return 0
   e2e_discover_seed_ids
 }
 
-# Copy fleet/cluster/release/database ids from a gateway JSON object or list.
+# Copy cluster/release/database ids from a gateway JSON object or list.
 # Does not overwrite ids that are already set.
 e2e_apply_seed_ids_from_gateway_json() {
   local json="${1:-}" name="${2:-}"
@@ -311,32 +306,29 @@ if isinstance(data, dict) and 'items' in data:
             break
 if not isinstance(obj, dict):
     sys.exit(0)
-print('%s\t%s\t%s\t%s' % (
-    obj.get('fleet_id', '') or '',
+print('%s\t%s\t%s' % (
     obj.get('cluster_id', '') or '',
     obj.get('release_id', '') or '',
     obj.get('database_id', '') or '',
 ))
 " 2>/dev/null || true)
-  local fleet cluster release database
-  IFS=$'\t' read -r fleet cluster release database <<< "$parsed" || true
-  [[ -z "${E2E_FLEET_ID:-}" && -n "$fleet" ]] && E2E_FLEET_ID="$fleet"
+  local cluster release database
+  IFS=$'\t' read -r cluster release database <<< "$parsed" || true
   [[ -z "${E2E_CLUSTER_ID:-}" && -n "$cluster" ]] && E2E_CLUSTER_ID="$cluster"
   [[ -z "${E2E_RELEASE_ID:-}" && -n "$release" ]] && E2E_RELEASE_ID="$release"
   [[ -z "${E2E_DATABASE_ID:-}" && -n "$database" ]] && E2E_DATABASE_ID="$database"
 }
 
-# Print a gateway create body that reuses the seeded fleet/cluster/release/database ids.
+# Print a gateway create body that reuses the seeded cluster/release/database ids.
 e2e_gateway_create_body() {
   local name="${1:?gateway name required}"
   GW_NAME="$name" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
-    E2E_FLEET_ID="${E2E_FLEET_ID}" E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
+    E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
     E2E_RELEASE_ID="${E2E_RELEASE_ID}" E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': os.environ['E2E_FLEET_ID'],
     'cluster_id': os.environ['E2E_CLUSTER_ID'],
     'release_id': os.environ['E2E_RELEASE_ID'],
     'database_id': os.environ.get('E2E_DATABASE_ID', ''),

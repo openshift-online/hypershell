@@ -377,12 +377,7 @@ for item in data.get('items', []):
 " 2>/dev/null || true)
 
   if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-    E2E_DATABASE_ID=$(echo "$E2E_MD_RESP" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-items = data.get('items', [])
-print(items[0].get('id', '') if items else '')
-" 2>/dev/null || true)
+    E2E_DATABASE_ID=$(echo "$E2E_MD_RESP" | e2e_json_first_id)
     if [[ -z "$E2E_DATABASE_ID" ]]; then
       fail_test "Could not discover CNPG database_id from ManagedDatabase API"
       exit 1
@@ -390,31 +385,14 @@ print(items[0].get('id', '') if items else '')
   else
     E2E_DATABASE_ID=""
   fi
-  dim "  database_id is assigned by ${DB_PROVIDER} placement"
+  if ! e2e_ensure_seed_ids; then
+    fail_test "Could not discover seeded cluster/release ids"
+    exit 1
+  fi
+  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; database_id is assigned by ${DB_PROVIDER} placement"
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, database_id: <placement placeholder>, oidc: ...}'"
-  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
-    E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
-import json, os
-body = {
-    'name': os.environ['GW_NAME'],
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
-    'database_id': os.environ['E2E_DATABASE_ID'],
-    'oidc': json.dumps({
-        'issuer': os.environ['E2E_OIDC_ISSUER'],
-        'audience': os.environ['E2E_OIDC_CLIENT_ID'],
-        'roles_claim': 'groups',
-        'admin_role': 'hypershell-admins',
-        'user_role': 'hypershell-users'
-    }),
-    'route': json.dumps({
-        'enabled': True
-    })
-}
-print(json.dumps(body))
-")
+  GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
   CREATE_RESPONSE=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
     -d "${GW_CREATE_BODY}" 2>/dev/null || true)
@@ -1597,7 +1575,7 @@ if [[ "$E2E_MODE" == "short" ]]; then
   THROW_NS="${_GW_NAMESPACE}"
   if [[ -z "$THROW_ID" ]]; then
     if ! e2e_seed_ids_ready; then
-      fail_test "Cannot create throwaway gateway: seeded fleet/cluster/release ids are unknown"
+      fail_test "Cannot create throwaway gateway: seeded cluster/release ids are unknown"
     else
       THROW_BODY=$(e2e_gateway_create_body "$THROW_NAME")
       THROW_RESP=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \

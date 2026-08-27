@@ -397,7 +397,6 @@ but does not create a Gateway. Create one via the API:
 # Get the seeded resource IDs
 CLUSTER_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_clusters | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 RELEASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/gateway_releases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
-DATABASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_databases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 
 # Create a gateway with OIDC
 curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
@@ -406,8 +405,7 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
     \"name\": \"dev-gateway\",
     \"cluster_id\": \"${CLUSTER_ID}\",
     \"release_id\": \"${RELEASE_ID}\",
-    \"database_id\": \"${DATABASE_ID}\",
-    \"namespace\": \"openshell-dev\",
+    \"database_id\": \"\",
     \"oidc\": \"{\\\"issuer\\\":\\\"https://keycloak.hypershell.localhost/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
   }"
 ```

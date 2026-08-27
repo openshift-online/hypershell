@@ -123,7 +123,6 @@ perf_export_child_env() {
   export E2E_OIDC_CLIENT_ID="${E2E_OIDC_CLIENT_ID:-}"
   export E2E_OIDC_USERNAME="${E2E_OIDC_USERNAME:-}"
   export E2E_OIDC_PASSWORD="${E2E_OIDC_PASSWORD:-}"
-  export E2E_FLEET_ID="${E2E_FLEET_ID:-}"
   export E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}"
   export E2E_RELEASE_ID="${E2E_RELEASE_ID:-}"
   export E2E_DATABASE_ID="${E2E_DATABASE_ID:-}"
@@ -364,7 +363,6 @@ perf_run_mini_test() {
     E2E_MODE=short \
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
-    E2E_FLEET_ID="${E2E_FLEET_ID}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
     E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
     E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
@@ -422,7 +420,7 @@ if ! acquire_oidc_token; then
 fi
 
 if ! e2e_discover_seed_ids; then
-  red "ERROR: Seeded fleet/cluster/release not found. Run make kind-up (or the OpenShift deploy) first."
+  red "ERROR: Seeded cluster/release not found. Run make kind-up (or the OpenShift deploy) first."
   exit 1
 fi
 perf_export_child_env
@@ -441,7 +439,6 @@ dim "  Prefix:            ${E2E_PERF_GATEWAY_PREFIX}"
 dim "  Checkpoint:        ${E2E_PERF_CHECKPOINT}"
 dim "  Functional:        ${E2E_PERF_RUN_FUNCTIONAL}"
 dim "  Results:           ${PERF_RESULTS_FILE}"
-dim "  fleet_id:          ${E2E_FLEET_ID}"
 dim "  cluster_id:        ${E2E_CLUSTER_ID}"
 dim "  release_id:        ${E2E_RELEASE_ID}"
 [[ -n "${E2E_DATABASE_ID}" ]] && dim "  database_id:       ${E2E_DATABASE_ID}"
@@ -615,7 +612,6 @@ if [[ "${E2E_PERF_RUN_FUNCTIONAL}" == "1" && "$PERF_STOPPED_EARLY" != "true" ]];
     E2E_MODE=long \
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
-    E2E_FLEET_ID="${E2E_FLEET_ID}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
     E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
     E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
