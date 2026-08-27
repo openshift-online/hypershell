@@ -11,7 +11,14 @@ HyperShell provides a single-command local development environment using Kind (K
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
 
-The same lifecycle model extends to OpenShift. The make target name selects the infrastructure: `make kind-up` deploys to Kind (this spec) and `make openshift-up` deploys the same components into an ephemeral OpenShift namespace. The per-component swap targets follow the same pattern. `openshift-development.spec.md` specifies the OpenShift lifecycle commands, the ephemeral-namespace model, and the OpenShift e2e driver.
+The same lifecycle model extends to OpenShift. The make target name selects the
+infrastructure: `make kind-up` deploys to Kind (this spec) and `make openshift-up`
+deploys the same components into an ephemeral OpenShift namespace group. Kind
+targets dispatch through `scripts/cluster/` with `CLUSTER_DRIVER=kind`, wrapping
+`scripts/kind/` so Kind behavior does not change. The per-component swap targets
+follow the same pattern. `openshift-development.spec.md` specifies the OpenShift
+lifecycle commands, the ephemeral-namespace model, cluster-scoped RBAC, and the
+OpenShift e2e driver.
 
 ## Components Deployed
 
@@ -579,13 +586,14 @@ The system SHALL track which components have been swapped to local builds using 
 
 The repository SHALL include a `DEVELOPMENT.md` guide that documents the local development environment. The guide SHALL cover:
 
-- Prerequisites (Docker or Podman, Kind, kubectl)
+- Prerequisites (Docker or Podman, Kind, kubectl; `oc` for the OpenShift path)
 - `make kind-up` quickstart with expected output
 - Per-component swap workflow (`make kind-<component>-up` / `make kind-<component>-down`)
 - Hot reload setup for the web console (`KIND_HOT_RELOAD=true`)
 - Environment variable reference (all `KIND_*`, `IMAGE_*`, and `CONTAINER_ENGINE` variables)
 - Keycloak configuration and `KIND_KEYCLOAK_URL` for external OIDC
 - Troubleshooting common issues (port conflicts, container engine not running, image pull failures)
+- The OpenShift counterpart (`make openshift-up`, `make openshift-<component>-up`) in the same guide; that workflow is specified by `openshift-development.spec.md`
 
 The documentation SHALL be kept in sync with this spec. When a new Make target, environment variable, or component is added, the guide SHALL be updated in the same PR.
 
@@ -593,9 +601,10 @@ The documentation SHALL be kept in sync with this spec. When a new Make target, 
 - GIVEN a developer clones the repository
 - WHEN they look for local development instructions
 - THEN `DEVELOPMENT.md` SHALL exist and describe how to set up and use the Kind environment
+- AND it SHALL document `make openshift-up` against an existing OpenShift cluster
 
 #### Scenario: Documentation Stays Current
-- GIVEN a PR adds or changes a `kind-*` Make target or environment variable
+- GIVEN a PR adds or changes a `kind-*` or `openshift-*` Make target or environment variable
 - WHEN the PR is reviewed
 - THEN the reviewer SHALL verify that `DEVELOPMENT.md` is updated to reflect the change
 
@@ -796,7 +805,7 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 
 ## Make Targets Summary
 
-All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
+All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). OpenShift uses the same target names with an `openshift-` prefix (`make openshift-up`, `make openshift-api-server-up`, and siblings); those commands are specified in `openshift-development.spec.md`. `make kind-teardown` destroys the Kind cluster. `make openshift-teardown` is the same as `make openshift-down` -- there is no OpenShift cluster to destroy.
 
 | Target | Behavior |
 |--------|----------|
@@ -848,4 +857,4 @@ All targets operate on `KIND_NAMESPACE` (default: `hypershell-system`).
 | OIDC only, no mTLS | Team agreed to drop mTLS client auth; OIDC is the recommended auth mode for Kubernetes deployments per upstream docs |
 | TLS always enabled | BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod (see Gateway API Routing section); the gateway must serve TLS even in local environments. cert-manager issues a self-signed CA for both the wildcard listener cert and the pod's server cert |
 | Configurable `IMAGE_REGISTRY` and `IMAGE_TAG` | Allows teams to test against different builds or staging registries |
-| Single root Makefile | All targets live in the root Makefile - build, test, codegen, and cluster lifecycle. Component-level Makefiles (`components/api-server/Makefile`, etc.) are deprecated; a single entrypoint eliminates indirection and makes `make <tab>` discoverable. Kind cluster lifecycle shell logic lives in `scripts/kind/` (`lib.sh`, `up.sh`, `down.sh`, `teardown.sh`, `status.sh`, `build-images.sh`, `swap-component.sh`); the Makefile exports configuration and dispatches to these scripts. Output uses colored headers (`NO_COLOR` respected) |
+| Single root Makefile | All targets live in the root Makefile - build, test, codegen, and cluster lifecycle. Component-level Makefiles (`components/api-server/Makefile`, etc.) are deprecated; a single entrypoint eliminates indirection and makes `make <tab>` discoverable. Kind and OpenShift lifecycle dispatch through `scripts/cluster/` (`CLUSTER_DRIVER=kind` or `openshift`). The Kind driver wraps `scripts/kind/` (`lib.sh`, `up.sh`, `down.sh`, `teardown.sh`, `status.sh`, `build-images.sh`, `swap-component.sh`) without behavior change. The Makefile exports configuration and selects the driver by target name. Output uses colored headers (`NO_COLOR` respected) |

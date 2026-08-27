@@ -66,6 +66,13 @@ HYPERSHELL_DATABASE_IMAGE?=
 KIND_CONFIG=deploy/kind/kind-config.yaml
 KIND_DNS_PORT?=5553
 
+# OpenShift ephemeral-namespace development. The cluster is a precondition;
+# these names select the shared Gateway the administrator already provisioned.
+# The gateway base domain is discovered from that Gateway's listener hostname.
+GATEWAY_API_GATEWAY_NAME?=openshell-grpc-gateway
+GATEWAY_API_GATEWAY_NAMESPACE?=openshift-ingress
+GATEWAY_IMAGE?=ghcr.io/nvidia/openshell/gateway:0.0.109
+
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
 CONSOLE_HOSTNAME=console.hypershell.localhost
@@ -84,26 +91,32 @@ help:
 	@echo "  HyperShell Makefile"
 	@echo "  ==================="
 	@echo ""
-	@echo "  Local Development (Kind)"
-	@echo "    All targets operate on KIND_NAMESPACE (default: hypershell-system)."
+	@echo "  Local Development"
+	@echo "    Targets are kind-<name> or openshift-<name>. They do the same work."
 	@echo ""
+	@echo "    Kind uses KIND_NAMESPACE (default hypershell-system); kind-up creates the cluster."
+	@echo "    OpenShift uses the current oc project (oc project -q); OPENSHIFT_NAMESPACE overrides."
+	@echo "    OpenShift requires an existing cluster — openshift-up does not create one."
+	@echo ""
+	@echo "    <prefix>-up                   Deploy the stack (Kind also creates the cluster)"
+	@echo "    <prefix>-down                 Remove the environment namespace(s)"
+	@echo "    <prefix>-teardown             Kind: destroy the cluster. OpenShift: same as -down"
+	@echo "    <prefix>-status               Show cluster, pods, services/Routes, swap state"
+	@echo "    <prefix>-api-server-up        Build + swap API server from working tree"
+	@echo "    <prefix>-api-server-down      Revert API server to baseline image"
+	@echo "    <prefix>-control-plane-up     Build + swap control plane from working tree"
+	@echo "    <prefix>-control-plane-down   Revert control plane to baseline image"
+	@echo "    <prefix>-web-console-up       Swap web console (Kind: hot reload by default)"
+	@echo "    <prefix>-web-console-down     Revert web console to baseline image"
+	@echo ""
+	@echo "    Kind Specific"
 	@echo "    kind-env                 Print environment variables for local setup"
-	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
-	@echo "                             LOCAL_IMAGES=true: build from working tree (default)"
-	@echo "                             LOCAL_IMAGES=true BUILD_SOURCE=baseline: build from origin/main"
-	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
-	@echo "    kind-down                Remove namespace and its resources"
-	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
-	@echo "    kind-status              Show cluster info, pods, services, swap state"
+	@echo "                             KIND_SKIP_SEED=true: defer seeding during kind-up"
 	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
-	@echo "    kind-api-server-up       Build + swap API server from working tree"
-	@echo "    kind-api-server-down     Revert API server to baseline image"
-	@echo "    kind-control-plane-up    Build + swap control plane from working tree"
-	@echo "    kind-control-plane-down  Revert control plane to baseline image"
-	@echo "    kind-web-console-up      Hot reload (default) or build + swap web console (KIND_HOT_RELOAD=false)"
-	@echo "    kind-web-console-down    Revert web console to baseline image"
 	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
+	@echo "    LOCAL_IMAGES=true        Build baseline images from the working tree (kind-up)"
+	@echo "    BUILD_SOURCE=baseline    With LOCAL_IMAGES=true, build from origin/main"
 	@echo ""
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
@@ -305,6 +318,8 @@ export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME METRICS_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
+export OPENSHIFT_NAMESPACE OPENSHIFT_IMAGE_REGISTRY
+export GATEWAY_API_GATEWAY_NAME GATEWAY_API_GATEWAY_NAMESPACE GATEWAY_IMAGE
 
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
 # (TLS re-encryption to backends).  The fork also bundles the podman 6+ kind
@@ -386,7 +401,7 @@ kind-env:
 
 .PHONY: kind-up
 kind-up:
-	@scripts/kind/up.sh
+	@CLUSTER_DRIVER=kind scripts/cluster/up.sh
 
 .PHONY: kind-seed
 kind-seed:
@@ -394,15 +409,15 @@ kind-seed:
 
 .PHONY: kind-down
 kind-down:
-	@scripts/kind/down.sh
+	@CLUSTER_DRIVER=kind scripts/cluster/down.sh
 
 .PHONY: kind-teardown
 kind-teardown:
-	@scripts/kind/teardown.sh
+	@CLUSTER_DRIVER=kind scripts/cluster/teardown.sh
 
 .PHONY: kind-status
 kind-status:
-	@scripts/kind/status.sh
+	@CLUSTER_DRIVER=kind scripts/cluster/status.sh
 
 .PHONY: kind-fix-ports
 kind-fix-ports:
@@ -410,31 +425,79 @@ kind-fix-ports:
 
 .PHONY: kind-api-server-up
 kind-api-server-up:
-	@scripts/kind/swap-component.sh up api-server
+	@CLUSTER_DRIVER=kind scripts/cluster/swap.sh up api-server
 
 .PHONY: kind-api-server-down
 kind-api-server-down:
-	@scripts/kind/swap-component.sh down api-server
+	@CLUSTER_DRIVER=kind scripts/cluster/swap.sh down api-server
 
 .PHONY: kind-control-plane-up
 kind-control-plane-up:
-	@scripts/kind/swap-component.sh up control-plane
+	@CLUSTER_DRIVER=kind scripts/cluster/swap.sh up control-plane
 
 .PHONY: kind-control-plane-down
 kind-control-plane-down:
-	@scripts/kind/swap-component.sh down control-plane
+	@CLUSTER_DRIVER=kind scripts/cluster/swap.sh down control-plane
 
 .PHONY: kind-web-console-up
 kind-web-console-up:
-	@scripts/kind/swap-component.sh up web-console
+	@CLUSTER_DRIVER=kind scripts/cluster/swap.sh up web-console
 
 .PHONY: kind-web-console-down
 kind-web-console-down:
-	@scripts/kind/swap-component.sh down web-console
+	@CLUSTER_DRIVER=kind scripts/cluster/swap.sh down web-console
 
 .PHONY: kind-gateway-trust
 kind-gateway-trust:
 	@scripts/kind/gateway-trust.sh
+
+# ============================================================================
+# OpenShift cluster lifecycle - shell logic lives in scripts/cluster/
+# ============================================================================
+
+.PHONY: openshift-up
+openshift-up:
+	@CLUSTER_DRIVER=openshift scripts/cluster/up.sh
+
+.PHONY: openshift-down
+openshift-down:
+	@CLUSTER_DRIVER=openshift scripts/cluster/down.sh
+
+.PHONY: openshift-teardown
+openshift-teardown:
+	@CLUSTER_DRIVER=openshift scripts/cluster/teardown.sh
+
+.PHONY: openshift-status
+openshift-status:
+	@CLUSTER_DRIVER=openshift scripts/cluster/status.sh
+
+.PHONY: openshift-api-server-up
+openshift-api-server-up:
+	@CLUSTER_DRIVER=openshift scripts/cluster/swap.sh up api-server
+
+.PHONY: openshift-api-server-down
+openshift-api-server-down:
+	@CLUSTER_DRIVER=openshift scripts/cluster/swap.sh down api-server
+
+.PHONY: openshift-control-plane-up
+openshift-control-plane-up:
+	@CLUSTER_DRIVER=openshift scripts/cluster/swap.sh up control-plane
+
+.PHONY: openshift-control-plane-down
+openshift-control-plane-down:
+	@CLUSTER_DRIVER=openshift scripts/cluster/swap.sh down control-plane
+
+.PHONY: openshift-web-console-up
+openshift-web-console-up:
+	@CLUSTER_DRIVER=openshift scripts/cluster/swap.sh up web-console
+
+.PHONY: openshift-web-console-down
+openshift-web-console-down:
+	@CLUSTER_DRIVER=openshift scripts/cluster/swap.sh down web-console
+
+.PHONY: openshift-test
+openshift-test:
+	@bash scripts/cluster/lib_test.sh
 
 generate-cli:
 	cd scripts/cli-generator && go run . \

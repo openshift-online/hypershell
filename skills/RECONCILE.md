@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete; rebased in e2e performance harness and OpenShift manual e2e driver features from 2026-08-25/26)
+**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete; OpenShift local-dev lifecycle and manual e2e driver features rebased in from 2026-08-25/27)
 **Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console and OpenShift Development
-**Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 complete)
+**Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 + OpenShift local-dev)
 
 ### Coverage Summary
 
@@ -71,12 +71,12 @@ skills/
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 19 | 19 | 0 | 0 | 0 | 100% |
-| Platform - OpenShift Development | 1 | 13 | 0 | 1 | 12 | 0 | 4% |
+| Platform - OpenShift Development | 1 | 13 | 7 | 2 | 4 | 0 | 54% |
 | Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **32** | **249** | **187** | **19** | **38** | **5** | **79%** |
+| **TOTAL** | **32** | **249** | **194** | **20** | **30** | **5** | **82%** |
 
 ### Spec Dependency Order
 
@@ -120,13 +120,25 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 - GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
 - The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
 
-### openshift-development.spec.md (manual e2e/performance slice)
+### openshift-development.spec.md (local-dev lifecycle)
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| OS-E2E-1 | OpenShift E2E Driver | Partial | Manual `make e2e` and `make e2e-performance` can target an existing OpenShift environment. Lifecycle deployment, overlay namespace parameterization, infrastructure bootstrap, and live-cluster validation remain. | `tests/e2e/drivers/openshift.sh`, `tests/e2e/openshift_driver_test.sh` | OS-W1 |
+| OS-1 | Cluster Lifecycle Driver Abstraction | Present | Kind targets keep current behavior via a thin wrapper around `scripts/kind/` | `scripts/cluster/`, `Makefile` | OS-W2 |
+| OS-2 | OpenShift Lifecycle Up and Down | Present | `make openshift-up` / `openshift-down` / `openshift-status`. `openshift-teardown` is an alias of down (no cluster to destroy). Down deletes the platform project and `${name}-keycloak`. | `scripts/cluster/drivers/openshift.sh` | OS-W2 |
+| OS-3 | Ephemeral Namespace Isolation | Present | Current `oc project -q` by default; `OPENSHIFT_NAMESPACE` overrides. Unlabeled existing projects are the developer's chosen target (no prompt; namespace labeling is best-effort). Refuse other HyperShell env ids and reserved names. Down tries `oc delete project` for the platform and `-keycloak` projects; if forbidden, deletes HyperShell resources (including unlabeled Keycloak) in both. Labels are not a delete gate. | `scripts/cluster/lib.sh`, `drivers/openshift.sh` | OS-W2 |
+| OS-4 | Keycloak Namespace | Present | `${OPENSHIFT_NAMESPACE}-keycloak` via `oc new-project`; apply while that project is selected, then switch back; OIDC issuer from Keycloak Route; `KC_HOSTNAME` is host-only; `keycloak-allow-platform` NetworkPolicy lets platform pods reach JWKS/Admin API; console redirect URIs and API seeding use host `curl` against Routes (API server image has no curl) | `rewrite-namespaces.py`, `drivers/openshift.sh`, `deploy/openshift/keycloak-networkpolicy.yaml` | OS-W2 |
+| OS-5 | Component Swap on OpenShift | Present | Build, push immutable commit+namespace identity, per-namespace `.openshift-swaps/`, reconcile preserves swaps | `drivers/openshift.sh`, `Makefile` | OS-W2 |
+| OS-E2E-1 | OpenShift E2E Driver | Partial | Manual `make e2e` / `make e2e-performance` against a pre-deployed cluster. Out of scope for OS-W2. | `tests/e2e/drivers/openshift.sh` | OS-W1 |
+| OS-7 | E2E Script Consolidation | Missing | Intentionally deferred: not local-dev lifecycle | `components/pr-test/` | Future |
+| OS-8 | Ephemeral CI Environment Provisioning | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
+| OS-9 | Environment Access Handoff | Missing | Intentionally deferred: CI-only | - | Future |
+| OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
+| OS-11 | OpenShift CI Workflow Shape | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
+| OS-12 | Cluster Infrastructure Prerequisites | Present | `make openshift-up` fails fast when the shared Gateway is missing or not Programmed. GatewayClass is cluster-scoped and not GET-checked (developers typically cannot read it). | `drivers/openshift.sh` `check_infrastructure` | OS-W2 |
+| OS-13 | Cluster-Scoped Permissions + SCC/RBAC posture | Present | Namespace-scoped SCC *use* RoleBindings; per-namespace `bind` ClusterRoleBinding; overlay keeps `RBAC_ENFORCE=true`. E2E RBAC scenarios stay with the e2e suite. | `deploy/openshift/scc.yaml`, `drivers/openshift.sh` | OS-W2 |
 
-The other 12 OpenShift Development requirements remain missing and are intentionally outside this first slice: lifecycle driver/up-down, namespace isolation, Keycloak namespace deployment, component swaps, legacy-script consolidation, ephemeral CI, access handoff, blessed-overlay reconciliation, CI workflow, infrastructure prerequisites, cluster-scoped permissions, and security/RBAC parity.
+Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemented. E2E driver completion beyond the OS-W1 manual slice, legacy `pr-test` consolidation, ephemeral CI, access handoff, overlay drift CI, and the OpenShift e2e workflow remain out of scope for this wave.
 
 ### openshell-gateway-service-accounts.spec.md
 
@@ -593,6 +605,10 @@ Added `E2E_MODE=short|long` step tagging in `e2e-openshell.sh` (long remains the
 
 Implemented `tests/e2e/drivers/openshift.sh` for an already-deployed environment: namespace-scoped API and Keycloak Route discovery, Gateway API endpoint/readiness checks, gateway base-domain discovery from the running controller Deployment, `oc` selection, shared per-gateway Keycloak role flows, and TLS verification through the system trust store or an extracted private CA. The shared suite now routes direct HTTP calls through the driver TLS seam. Manual runs require only the current `oc` context and `OPENSHIFT_NAMESPACE`. No OpenShift cluster lifecycle, namespace creation, overlay reconciliation, bootstrap, or CI automation is included.
 
+### Wave OS-W2: OpenShift local-dev lifecycle (up/down/swap) ✅
+
+Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's `scripts/kind/` with no behavior change. `make openshift-up` deploys `kustomize build deploy/openshift/` into an ephemeral namespace group (`OPENSHIFT_NAMESPACE` + `${OPENSHIFT_NAMESPACE}-keycloak`), stamps ownership labels, refuses foreign namespaces, fails fast when the shared Gateway is missing, reads the gateway base domain from that Gateway's listener hostname, seeds Fleet/ManagedCluster/GatewayRelease/ManagedDatabase/Gateway, and prints Routes. `make openshift-down` deletes only owned namespaces. Component swaps (`make openshift-api-server-up` and siblings) build, push an immutable commit+namespace identity to the internal registry, record per-namespace state in `.openshift-swaps/`, and are preserved across reconcile. Overlay: web-console + Keycloak Routes; SCC *use* is namespace-scoped RoleBindings. E2E, CI, `pr-test` consolidation, and overlay drift CI were explicitly out of scope.
+
 ### Wave R1-R8: RBAC COMPLETED
 
 | Wave | Scope | Status |
@@ -753,4 +769,7 @@ label-selected pod informer.
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W4 | pending final recount | Extended the CLI generator for the nested gateway collection; added create/list/get/revoke/delete commands, explicit mode-0600 one-time credential output, expiration handling, workspace guidance, and secret-redaction tests. |
 | 2026-08-25 | working tree | Executed PERF-W1 (e2e-testing performance features) | 82% | Short/long `E2E_MODE` in the e2e suite; infra-agnostic performance harness with batched scale-up, canary checkpoints, functional gate, optional SLOs, schema_version=1 JSON history, and `make e2e-performance` / `make e2e-performance-report`. OpenShift driver still belongs to HYPERSHELL-44. |
 | 2026-08-26 | working tree | Executed OS-W1 (manual OpenShift e2e driver slice) | 78% | Added the OpenShift driver needed to run the existing e2e and performance harnesses against a pre-deployed cluster; lifecycle, overlay, bootstrap, and CI requirements remain missing. |
+| 2026-08-27 | working tree | Executed OS-W2 (OpenShift local-dev up/down/swap) | 77% | Lifecycle driver model, `make openshift-up`/`down`/`status`, namespace isolation, Keycloak namespace, component swaps via internal registry, overlay namespace parameterization. E2E/CI left deferred. |
+| 2026-08-31 | working tree | OpenShift Keycloak NetworkPolicy for JWKS | 77% | `keycloak-allow-platform` lets platform pods reach Keycloak TCP/8080 across the default-deny project policies so API server JWKS load and Admin API calls succeed. |
+| 2026-08-31 | working tree | OpenShift console redirect URI + Route seeding | 77% | Host `curl` against Keycloak/API Routes registers the web-console `/auth/callback` (realm import only had Kind localhost URIs) and seeds the API. The API server image has no curl, so `oc exec curl` never obtained tokens. |
 | 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 79% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |

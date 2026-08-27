@@ -1,10 +1,12 @@
 # Local Development Environment
 
-HyperShell provides a single-command local development environment using
-[Kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) clusters. The
-environment deploys all platform components -- API server, control plane, and
-web console -- so developers can test changes end-to-end without external
-infrastructure.
+HyperShell provides a single-command local development environment. Kind
+([Kind](https://kind.sigs.k8s.io/), Kubernetes in Docker) is the default
+single-tenant path. OpenShift uses the same make-target pattern
+(`make openshift-up`, `make openshift-<component>-up`) against an existing
+cluster and an ephemeral namespace group. The environment deploys all platform
+components -- API server, control plane, and web console -- so developers can
+test changes end-to-end.
 
 ## Prerequisites
 
@@ -284,6 +286,83 @@ make kind-status    # Show cluster info, pods, services, swap state
 `make kind-up` is idempotent -- running it again on an existing cluster
 reapplies manifests and waits for readiness. Swapped components are preserved.
 
+## OpenShift Development
+
+`make openshift-up` deploys the same stack into an isolated namespace group on
+an OpenShift cluster selected by the current kubeconfig context. It does not
+create the cluster. An administrator must already have provisioned the shared
+Gateway, GatewayClass, certificate issuer, and wildcard certificate (see
+`deploy/openshift/infrastructure/GATEWAY-SETUP.md`).
+
+The platform namespace is the current oc project. Select it first, then bring
+the environment up:
+
+```bash
+oc project alice
+make openshift-up
+```
+
+`OPENSHIFT_NAMESPACE` overrides that project when you need to target a
+namespace other than the one `oc project -q` reports:
+
+```bash
+OPENSHIFT_NAMESPACE=alice make openshift-up
+```
+
+The name must be a valid RFC 1123 DNS label of at most 54 characters so the
+companion Keycloak namespace `${name}-keycloak` stays within the 63-character
+limit. If no project is selected and `OPENSHIFT_NAMESPACE` is unset, the
+command stops with an error.
+
+`make openshift-up` deploys into the project you selected. It does not ask
+for confirmation, and it does not require permission to label the namespace.
+When the account can patch namespaces, the scripts stamp HyperShell ownership
+labels. When it cannot, the scripts warn and continue. Namespaces that already
+belong to a different HyperShell environment, and reserved names (`default`,
+`kube-*`, `openshift-*`), are still refused.
+
+The companion Keycloak project `${name}-keycloak` is created with
+`oc new-project` when it does not exist (developers can ProjectRequest; they
+typically cannot `oc create namespace`). The scripts switch to that project to
+apply Keycloak, then switch back to the platform project for the rest of the
+stack. OpenShift's default project NetworkPolicies only allow ingress from the
+same namespace and from `openshift-ingress`, so the overlay also applies
+`keycloak-allow-platform` in the Keycloak project. That policy lets the API
+server load JWKS and the control plane call the Admin API over the in-cluster
+Service.
+
+This renders `kustomize build deploy/openshift/`, maps `hypershell-system` to
+that platform namespace and `keycloak` to `${platform}-keycloak`, applies the
+manifests (with prune scoped to this environment), registers the web-console
+Route as the Keycloak `hypershell-frontend` redirect URI, seeds a
+ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway from this machine
+against the API and Keycloak Routes (the API server image has no `curl`), and
+prints the API, web-console, and Keycloak Routes. The gateway base domain is
+read from the shared Gateway's listener hostname, not from
+`GATEWAY_API_BASE_DOMAIN`.
+
+`make openshift-down` and `make openshift-teardown` are the same command.
+There is no OpenShift cluster to destroy. Both delete the platform project
+and the companion `${name}-keycloak` project. If project deletion is
+forbidden, they delete HyperShell resources inside both projects (including
+unlabeled Keycloak) and leave the projects. Labels are not required.
+
+### Per-component swap
+
+```bash
+make openshift-api-server-up
+make openshift-control-plane-up
+make openshift-web-console-up
+```
+
+Each swap builds from the working tree, pushes an immutable image (commit +
+namespace) to the OpenShift internal registry, and rolls out that exact
+identity. Matching `-down` targets revert to the baseline registry image.
+`make openshift-status` reports which components run a working-tree build
+and the exact image each one uses. Swap state is tracked per namespace in
+`.openshift-swaps/` (gitignored). A subsequent `make openshift-up` preserves
+active swaps.
+
 ## Environment Variable Reference
 
 | Variable | Default | Description |
@@ -306,6 +385,10 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18.4@sha256:9b19...` | Database image for Gateway; override for OSS dev |
 | `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
 | `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
+| `OPENSHIFT_NAMESPACE` | `oc project -q` | Override for the platform namespace. Unset, the current oc project is used. Max 54 chars; Keycloak lands in `${name}-keycloak`. |
+| `GATEWAY_API_GATEWAY_NAME` | `openshell-grpc-gateway` | Pre-existing shared Gateway name |
+| `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace of the shared Gateway |
+| `OPENSHIFT_IMAGE_REGISTRY` | `oc registry info` | Registry used to push swapped images |
 
 ## Make Targets
 
@@ -322,6 +405,16 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-web-console-up` | Hot reload (default) or build + swap web console |
 | `make kind-web-console-down` | Revert web console to baseline image |
 | `make kind-fix-ports` | Re-establish host port forwarding (443) |
+| `make openshift-up` | Deploy into an ephemeral OpenShift namespace group |
+| `make openshift-down` | Remove the namespace group (platform project and `${name}-keycloak`) |
+| `make openshift-teardown` | Same as `openshift-down` (OpenShift has no cluster to destroy) |
+| `make openshift-status` | Show namespaces, pods, Routes, Gateway, swap state |
+| `make openshift-api-server-up` | Build, push, and swap API server from working tree |
+| `make openshift-api-server-down` | Revert API server to baseline image |
+| `make openshift-control-plane-up` | Build, push, and swap control plane from working tree |
+| `make openshift-control-plane-down` | Revert control plane to baseline image |
+| `make openshift-web-console-up` | Build, push, and swap web console from working tree |
+| `make openshift-web-console-down` | Revert web console to baseline image |
 
 ## Gateway Access
 

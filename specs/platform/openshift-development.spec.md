@@ -150,12 +150,13 @@ infrastructure.
   operations
 - AND the developer does not change the infrastructure-agnostic lifecycle logic
 
-#### Scenario: OpenShift teardown removes the namespace group
+#### Scenario: OpenShift teardown is an alias of down
 
 - GIVEN an OpenShift environment exists
-- WHEN the framework calls `cluster_teardown` for the OpenShift target
-- THEN the driver removes the environment namespace group
-- AND the driver does not attempt to destroy the OpenShift cluster
+- WHEN the developer runs `make openshift-teardown` or `make openshift-down`
+- THEN both commands remove the environment namespace group (the platform
+  project and the `${OPENSHIFT_NAMESPACE}-keycloak` project)
+- AND neither command attempts to destroy the OpenShift cluster
 
 ### Requirement: OpenShift Lifecycle Up and Down
 
@@ -192,8 +193,19 @@ OIDC values for the environment, so that one command produces a working gateway 
 the OpenShift workflow matches the Kind workflow.
 
 The `make openshift-down` command SHALL delete the applied manifests and SHALL
-remove every namespace in the environment namespace group, subject to the ownership
-check that the Ephemeral Namespace Isolation requirement defines. The
+remove every project in the environment namespace group: the platform project
+the developer selected with `OPENSHIFT_NAMESPACE` or the current `oc project`,
+and the companion `${OPENSHIFT_NAMESPACE}-keycloak` project. `make
+openshift-teardown` SHALL be the same command. OpenShift does not create the
+cluster, so teardown cannot destroy it; the Kind-shaped target exists for
+compatibility. Ownership labels are not a delete gate: typical developers
+cannot patch Namespace objects, so down SHALL NOT require those labels. The
+command SHALL still refuse reserved names and namespaces labeled as a different
+HyperShell environment. The command SHALL wait until each project is gone before it reports success,
+rather than return after it has only requested deletion. When `oc delete project`
+is forbidden, the command SHALL delete HyperShell resources inside both projects
+— including the bundled Keycloak workload, which is unlabeled — wait for those
+deletes, and leave the projects. The
 `make openshift-status` command SHALL report the cluster, the environment
 namespaces, the pods, the services, the Routes, the Gateway status, and the
 component swap state, the same categories that `make kind-status` reports.
@@ -213,12 +225,33 @@ prefix with `openshift`.
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
+#### Scenario: Console login and API seeding use the OpenShift Routes
+
+The API server image does not include `curl`. Token grants, Keycloak Admin
+updates, and seed POSTs SHALL run from the developer machine against the
+Keycloak and API Routes, the same way `make kind-up` talks to Keycloak through
+its hostname rather than `oc exec`. The imported realm only allows
+`https://console.hypershell.localhost` redirect URIs; the driver SHALL set
+`hypershell-frontend` redirect URIs to the web-console Route origin
+(`https://<web-console-host>/auth/callback` and `https://<web-console-host>`)
+so the BFF authorization-code callback succeeds. Wildcard redirect URIs SHALL
+NOT be registered.
+
+- GIVEN a developer runs `make openshift-up`
+- WHEN the deployment is ready
+- THEN `hypershell-frontend` redirect URIs include the web-console Route `/auth/callback`
+- AND the driver obtained the seed API token from the Keycloak Route
+- AND Keycloak accepts the BFF `redirect_uri` for that console host
+
 #### Scenario: Remove the deployment
 
 - GIVEN a HyperShell deployment exists from `make openshift-up`
-- WHEN the developer runs `make openshift-down`
-- THEN the scripts remove the HyperShell resources from every namespace in the
-  environment
+- WHEN the developer runs `make openshift-down` or `make openshift-teardown`
+- THEN the scripts delete the platform project and the companion `-keycloak` project
+- AND the command does not return until both projects are gone, or until project
+  deletion is forbidden and HyperShell resources in both projects have been removed
+- AND when project deletion is forbidden, the scripts remove HyperShell
+  resources from both projects, including Keycloak
 - AND the scripts do not delete resources that belong to other environments or to
   cluster infrastructure
 
@@ -250,25 +283,48 @@ so that the derived `${OPENSHIFT_NAMESPACE}-keycloak` namespace stays within the
 63-character DNS-label limit for Kubernetes namespaces. The command SHALL validate
 the name and the derived name before it creates any resource, and SHALL stop with a
 clear error when either name is invalid. The scripts SHALL derive the `-keycloak`
-namespace from that name (see the Keycloak Namespace requirement). The scripts SHALL
-create the namespaces if they do not exist.
+namespace from that name (see the Keycloak Namespace requirement). Missing projects
+SHALL be created with `oc new-project` (an OpenShift ProjectRequest), not
+`oc create namespace`. `oc new-project` selects the new project as the current oc
+project. After Keycloak is applied in the `-keycloak` project, the scripts SHALL
+switch the current project back to the platform project for the rest of the
+deployment.
 
-The scripts SHALL stamp every namespace in the group, at creation, with an
-ownership label that marks the namespace as HyperShell-owned and with an immutable
-environment identifier that ties the namespace to one deployment, so that
-`make openshift-status` and cleanup tooling can find every HyperShell namespace and
-can tell which namespaces belong to the same environment. Before it deploys, the
-command SHALL refuse to adopt an existing namespace whose ownership label or
-environment identifier does not match the current environment, so that a deployment
-cannot take over a namespace that another environment or another team owns. The
-scripts SHALL derive per-tenant gateway hostnames from the gateway base domain (the
-configured `GATEWAY_API_BASE_DOMAIN`) and the platform namespace, so that two
-deployments on one cluster do not share a hostname.
+The developer selects the target with `OPENSHIFT_NAMESPACE` or the current
+`oc project`. That selection is the authority for `make openshift-up`. The
+command SHALL deploy into that namespace group without prompting, and SHALL
+NOT require permission to patch namespace objects. Typical developer accounts
+on a shared cluster can create resources inside a project and cannot label the
+Namespace itself.
 
-Before it deletes, `make openshift-down` SHALL verify the ownership label and the
-environment identifier on each namespace and SHALL delete only namespaces that match
-the current environment, so that it cannot delete unrelated workloads. The command
-SHALL refuse a mismatch and report it.
+When the account can patch namespaces, the scripts SHALL stamp every namespace
+in the group with an ownership label that marks the namespace as HyperShell-owned
+and with an immutable environment identifier that ties the namespace to one
+deployment, so that `make openshift-status` and cleanup tooling can find every
+HyperShell namespace and can tell which namespaces belong to the same
+environment. When labeling is forbidden, the scripts SHALL warn and continue,
+and SHALL recover a previously applied environment identifier from workload
+labels when those labels are present.
+
+Before it deploys, the command SHALL refuse an existing namespace whose
+ownership label and environment identifier mark it as a different HyperShell
+environment, so that a deployment cannot take over a namespace that another
+environment owns. An unlabeled existing project is not foreign: the developer
+already pointed `make openshift-up` at it. Reserved names (`default`, `kube-*`,
+`openshift-*`) SHALL still be refused. The scripts SHALL derive per-tenant
+gateway hostnames from the gateway base domain (the configured
+`GATEWAY_API_BASE_DOMAIN`) and the platform namespace, so that two deployments
+on one cluster do not share a hostname.
+
+Before it deletes, `make openshift-down` SHALL use the same project selection as
+`make openshift-up`. It SHALL refuse reserved names and namespaces whose
+ownership labels mark them as a different HyperShell environment. An unlabeled
+project is the developer's chosen target: the command SHALL attempt
+`oc delete project` for the platform namespace and for
+`${OPENSHIFT_NAMESPACE}-keycloak`. When project deletion is forbidden, the
+command SHALL remove HyperShell resources inside both projects and SHALL leave
+the projects. The command SHALL NOT require namespace labels in order to delete.
+`make openshift-teardown` SHALL perform the same steps.
 
 #### Scenario: Two developers share one cluster
 
@@ -283,8 +339,7 @@ SHALL refuse a mismatch and report it.
 
 - GIVEN two HyperShell environment namespace groups exist on one cluster
 - WHEN a developer runs `make openshift-down` for one environment
-- THEN the scripts verify the ownership label and the environment identifier
-- AND the scripts remove only that environment's namespaces
+- THEN the scripts remove only that environment's platform project and `-keycloak` project, or the HyperShell resources in them
 - AND the other environment stays intact
 
 #### Scenario: Deployment refuses a foreign namespace
@@ -294,6 +349,15 @@ SHALL refuse a mismatch and report it.
 - WHEN a developer runs `make openshift-up`
 - THEN the command refuses to adopt the namespace
 - AND the command deploys nothing into, and deletes nothing in, that namespace
+
+#### Scenario: Existing unlabeled project is used without labeling
+
+- GIVEN the current oc project already exists and is not HyperShell-labeled
+- AND the developer cannot patch namespace objects
+- WHEN the developer runs `make openshift-up`
+- THEN the command deploys into that project without prompting
+- AND the command does not stop because namespace labeling is forbidden
+- AND `make openshift-down` for that project deletes the platform and `-keycloak` projects, or the HyperShell resources in them
 
 ### Requirement: Keycloak Namespace
 
@@ -315,8 +379,10 @@ Keycloak in its own namespace.
 
 Together, the platform namespace and its `-keycloak` namespace form the
 deployment's namespace group. The two namespaces SHALL share one lifecycle: the
-scripts create them together, and `make openshift-down` (for local development) or
-the release step (for CI) removes them together.
+scripts create missing ones with `oc new-project`, apply Keycloak while that
+project is selected, switch back to the platform project for the remaining
+components, and `make openshift-down` / `make openshift-teardown` (for local development) or the release step
+(for CI) removes them together.
 
 The OpenShift OIDC configuration SHALL derive from the Keycloak Route in the
 `-keycloak` namespace through one hostname formula: the driver reads the Keycloak
@@ -339,15 +405,33 @@ their own namespaces is out of scope here and belongs to a separate spec.
 #### Scenario: Keycloak runs in its own namespace
 
 - GIVEN a developer runs `make openshift-up` with `OPENSHIFT_NAMESPACE=alice`
+- AND the `alice-keycloak` project does not exist
 - WHEN the deployment is ready
-- THEN Keycloak runs in the `alice-keycloak` namespace
+- THEN the scripts have created `alice-keycloak` with `oc new-project`
+- AND Keycloak runs in the `alice-keycloak` namespace
 - AND every other HyperShell component runs in the `alice` namespace
+- AND the current oc project is `alice` after Keycloak is applied
 - AND the OIDC issuer points at the Keycloak route in `alice-keycloak`
+
+#### Scenario: Platform workloads can reach Keycloak across the namespace group
+
+`oc new-project` installs default-deny Ingress NetworkPolicies in each
+project (same-namespace pods and the `openshift-ingress` namespace). Keycloak
+runs in `${OPENSHIFT_NAMESPACE}-keycloak`, so platform pods cannot reach it
+until an additional policy allows that traffic. Without it, the API server
+hangs while loading JWKS and the rollout never completes.
+
+- GIVEN a developer runs `make openshift-up` with `OPENSHIFT_NAMESPACE=alice`
+- AND `oc new-project` has created default-deny Ingress policies in `alice-keycloak`
+- WHEN the deployment is ready
+- THEN a NetworkPolicy in `alice-keycloak` allows TCP/8080 from the `alice` namespace
+- AND the API server can load JWKS from `keycloak-service.alice-keycloak`
+- AND the control plane can reach the Keycloak Admin API on that Service
 
 #### Scenario: The namespace group shares one lifecycle
 
 - GIVEN a deployment has a platform namespace and its `-keycloak` namespace
-- WHEN the deployment is removed
+- WHEN the developer runs `make openshift-down` or `make openshift-teardown`
 - THEN both namespaces are removed together
 - AND the `-keycloak` namespace is not left behind
 

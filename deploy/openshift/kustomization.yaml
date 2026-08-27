@@ -7,6 +7,8 @@ resources:
   - certificates.yaml
   - networkpolicies.yaml
   - route.yaml
+  - keycloak-route.yaml
+  - keycloak-networkpolicy.yaml
   - scc.yaml
 patches:
   - patch: |

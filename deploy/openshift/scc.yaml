@@ -1,7 +1,11 @@
+# SCC *use* is namespace-scoped: a RoleBinding to a built-in SCC ClusterRole
+# grants use within one namespace. Ephemeral environments cannot share a
+# ClusterRoleBinding name, and namespace-scoped access is enough for use.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: hypershell-controller-scc
+  namespace: hypershell-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -13,10 +17,13 @@ subjects:
 ---
 # Sandbox pods require the privileged SCC for container-in-container
 # execution (see specs/platform/openshell-gateway.spec.md §OpenShift).
+# The controller creates additional per-tenant RoleBindings at runtime
+# (reconcileOpenShiftSCC) once a privileged actor has granted it bind.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: hypershell-sandbox-scc
+  namespace: hypershell-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

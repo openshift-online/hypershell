@@ -1,0 +1,26 @@
+# oc new-project installs default-deny Ingress policies (same-namespace +
+# openshift-ingress only). Platform pods live in a different namespace, so
+# without this policy the API server cannot load JWKS and the control plane
+# cannot reach the Keycloak Admin API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-allow-platform
+  namespace: keycloak
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hypershell-system
+      ports:
+        - protocol: TCP
+          port: 8080

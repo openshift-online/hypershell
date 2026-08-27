@@ -36,6 +36,12 @@ apm_modules/
 # Kind swap tracking
 .kind-swaps
 
+# OpenShift per-namespace swap tracking
+.openshift-swaps/
+
+# Temporary kustomize wrap dirs used by openshift-up
+.openshift-render.*/
+
 # Local tool binaries (built by make kind-prereqs)
 bin/
 
