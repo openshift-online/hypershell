@@ -24,6 +24,7 @@ func routeResourceListKinds() map[schema.GroupVersionResource]string {
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}:         "GRPCRouteList",
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}: "BackendTLSPolicyList",
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}:         "HTTPRouteList",
+		{Group: "route.openshift.io", Version: "v1", Resource: "routes"}:                    "RouteList",
 		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}:            "NetworkPolicyList",
 		{Group: "apps", Version: "v1", Resource: "deployments"}:                             "DeploymentList",
 	}
@@ -39,7 +40,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 	t.Run("all absent returns true", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -48,12 +49,24 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		}
 	})
 
+	t.Run("all absent in route mode returns true", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeRoute, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !absent {
+			t.Fatal("want absent=true when no Route-mode resources exist")
+		}
+	})
+
 	t.Run("a resurrected dynamic resource returns false", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
 			labeledResource("gateway.networking.k8s.io/v1", "GRPCRoute", ns, "openshell-gateway", true),
 		)
 		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -62,12 +75,60 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		}
 	})
 
+	t.Run("route mode probes the gateway Route", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
+			labeledResource("route.openshift.io/v1", "Route", ns, "openshell-gateway", true),
+		)
+		cs := k8sfake.NewSimpleClientset()
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeRoute, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if absent {
+			t.Fatal("want absent=false when the gateway Route reappeared")
+		}
+	})
+
+	for _, tc := range []struct {
+		name       string
+		mode       string
+		apiVersion string
+		kind       string
+	}{
+		{
+			name:       "gateway api mode probes an inactive console Route",
+			mode:       IngressModeGatewayAPI,
+			apiVersion: "route.openshift.io/v1",
+			kind:       "Route",
+		},
+		{
+			name:       "route mode probes an inactive console HTTPRoute",
+			mode:       IngressModeRoute,
+			apiVersion: "gateway.networking.k8s.io/v1",
+			kind:       "HTTPRoute",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
+				labeledResource(tc.apiVersion, tc.kind, ns, consoleName, true),
+			)
+			cs := k8sfake.NewSimpleClientset()
+			absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, tc.mode, nil, "")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if absent {
+				t.Fatalf("want absent=false when the inactive console %s reappeared", tc.kind)
+			}
+		})
+	}
+
 	t.Run("a resurrected typed resource returns false", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "openshell-backend-ca"},
 		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -82,7 +143,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		cs.PrependReactor("get", "configmaps", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, fmt.Errorf("apiserver unavailable")
 		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err == nil {
 			t.Fatal("want an error when a probe cannot observe the resource")
 		}
@@ -98,7 +159,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{exists: true}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -113,7 +174,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{err: fmt.Errorf("keycloak unreachable")}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
 		if err == nil {
 			t.Fatal("want an error when the Keycloak client cannot be observed")
 		}
@@ -128,7 +189,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{exists: false}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

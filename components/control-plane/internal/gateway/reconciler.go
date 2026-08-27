@@ -57,6 +57,7 @@ func ReconcileGateway(
 	if images == nil {
 		images = StaticImageDefaults{}
 	}
+	ingressMode := gatewayIngressMode(opts)
 
 	if !namespaceExists(ctx, clientset, nsConfig.Name) {
 		if err := createNamespace(ctx, clientset, nsConfig.Name); err != nil {
@@ -76,7 +77,7 @@ func ReconcileGateway(
 	// hostname as a SAN or clients fail verification. The controller derives
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
-	if mode := gatewayIngressMode(opts); mode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
+	if ingressMode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
 		hostname, err := deriveGatewayHostname(nsConfig)
 		if err != nil {
 			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
@@ -156,7 +157,7 @@ func ReconcileGateway(
 
 	// Tenant ingress is environment-adaptive: Gateway API where available,
 	// OpenShift Routes where it is not. See gatewayIngressMode.
-	switch mode := gatewayIngressMode(opts); mode {
+	switch ingressMode {
 	case IngressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
 			// Propagate this error rather than logging and swallowing it: the only
@@ -181,8 +182,14 @@ func ReconcileGateway(
 			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
 			}
+			// The console uses the same selected ingress mode as the gateway. A
+			// console error must not fail gateway provisioning. The health loop
+			// retries the console until it can serve.
+			if err := ReconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+				log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
+			}
 		} else {
-			if err := deleteRouteResources(ctx, dynamicClient, nsConfig.Name, opts); err != nil {
+			if err := DeleteRouteResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
 				log.Printf("WARN failed to remove Route resources in %s: %v", nsConfig.Name, err)
 			}
 		}
@@ -427,14 +434,11 @@ type ConsoleClientChecker interface {
 	ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error)
 }
 
-// RouteResourcesAbsent reports whether every route- and console-owned resource
-// this control plane creates for a routed gateway is absent -- both the
-// namespaced Kubernetes objects and the external Keycloak console client. It
-// lets the health loop's route teardown converge on the gateway's actual
-// observed state rather than trusting a cached completion marker: a stale
-// provisioning pass can recreate these resources after a teardown believed
-// itself finished, and cleared address fields do not prove the resources are
-// gone. Unknown state must never be read as absence.
+// RouteResourcesAbsent reports whether the resources for the selected gateway
+// ingress mode and all console resources are absent. It checks both console
+// exposure kinds because cleanup removes an inactive exposure after a mode
+// change. It also checks the external Keycloak console client. Unknown state
+// must never be read as absence.
 //
 // It returns (true, nil) only when every probed resource is confirmed absent.
 // The first resource found present short-circuits to (false, nil). Any probe
@@ -442,24 +446,42 @@ type ConsoleClientChecker interface {
 // so the caller treats absence as unconfirmed (and re-runs teardown) rather than
 // trusting an unknown state. The Keycloak client probe is skipped when
 // consoleClient is nil or consoleClientID is empty (no Keycloak configured).
-func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
+func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace, ingressMode string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
 	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
 	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
 	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	openShiftRouteGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
 	netpolGVR := schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}
 
-	dynamicProbes := []struct {
+	type dynamicProbe struct {
 		gvr  schema.GroupVersionResource
 		name string
-	}{
-		{grpcRouteGVR, "openshell-gateway"},
-		{btlsGVR, "openshell-gateway"},
-		{netpolGVR, "openshell-gateway-allow-router"},
-		{httpRouteGVR, consoleName},
-		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
-		{netpolGVR, "openshell-console-allow-router"},
-		{netpolGVR, "openshell-gateway-allow-console"},
 	}
+	var dynamicProbes []dynamicProbe
+	switch ingressMode {
+	case IngressModeGatewayAPI:
+		dynamicProbes = append(dynamicProbes,
+			dynamicProbe{grpcRouteGVR, "openshell-gateway"},
+			dynamicProbe{btlsGVR, "openshell-gateway"},
+			dynamicProbe{netpolGVR, "openshell-gateway-allow-router"},
+		)
+	case IngressModeRoute:
+		dynamicProbes = append(dynamicProbes,
+			dynamicProbe{openShiftRouteGVR, "openshell-gateway"},
+			dynamicProbe{netpolGVR, "openshell-gateway-allow-router"},
+		)
+	case IngressModeNone:
+		// There is no selected gateway exposure to probe.
+	default:
+		return false, fmt.Errorf("unsupported ingress mode %q for resource absence probe", ingressMode)
+	}
+	dynamicProbes = append(dynamicProbes,
+		dynamicProbe{httpRouteGVR, consoleName},
+		dynamicProbe{openShiftRouteGVR, consoleName},
+		dynamicProbe{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
+		dynamicProbe{netpolGVR, "openshell-console-allow-router"},
+		dynamicProbe{netpolGVR, "openshell-gateway-allow-console"},
+	)
 	for _, p := range dynamicProbes {
 		if _, err := dynamicClient.Resource(p.gvr).Namespace(namespace).Get(ctx, p.name, metav1.GetOptions{}); err == nil {
 			return false, nil
@@ -468,10 +490,12 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 		}
 	}
 
-	if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{}); err == nil {
-		return false, nil
-	} else if !k8serrors.IsNotFound(err) {
-		return false, fmt.Errorf("probe configmap openshell-backend-ca in %s: %w", namespace, err)
+	if ingressMode == IngressModeGatewayAPI {
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{}); err == nil {
+			return false, nil
+		} else if !k8serrors.IsNotFound(err) {
+			return false, fmt.Errorf("probe configmap openshell-backend-ca in %s: %w", namespace, err)
+		}
 	}
 	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
 		return false, nil
@@ -622,14 +646,20 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 	return nil
 }
 
-func deleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, namespace string, opts ReconcileOpts) error {
+// DeleteRouteResources removes the OpenShift gateway Route, the router
+// NetworkPolicy, and all console resources. It also clears the stored route
+// address. It attempts all operations and returns all errors so the health loop
+// can retry incomplete cleanup.
+func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
+	var errs []error
+
 	routeGVR := schema.GroupVersionResource{
 		Group:    "route.openshift.io",
 		Version:  "v1",
 		Resource: "routes",
 	}
 	if err := dynamicClient.Resource(routeGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete Route: %v", err)
+		errs = append(errs, fmt.Errorf("delete gateway Route in %s: %w", namespace, err))
 	}
 
 	netpolGVR := schema.GroupVersionResource{
@@ -638,19 +668,25 @@ func deleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, 
 		Resource: "networkpolicies",
 	}
 	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete router NetworkPolicy: %v", err)
+		errs = append(errs, fmt.Errorf("delete router NetworkPolicy in %s: %w", namespace, err))
+	}
+
+	if err := DeleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
+		errs = append(errs, err)
 	}
 
 	if opts.UpdateRouteAddress != nil {
 		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
-			log.Printf("WARN failed to clear routeAddress for gateway in %s: %v", namespace, err)
+			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
 		} else {
 			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
 		}
 	}
 
-	log.Printf("INFO Route resources removed from namespace %s", namespace)
-	return nil
+	if len(errs) == 0 {
+		log.Printf("INFO Route resources removed from namespace %s", namespace)
+	}
+	return errors.Join(errs...)
 }
 
 func NamespaceExists(ctx context.Context, clientset kubernetes.Interface, namespace string) bool {
