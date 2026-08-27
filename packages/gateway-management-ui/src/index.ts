@@ -89,3 +89,10 @@ export type {
   ServiceAccountLeaveDecision,
   ServiceAccountLeaveGuard,
 } from "./service-accounts/service-account-create-dialog";
+export {
+  fetchGatewayMetrics,
+  gatewayMetricsQueryKey,
+  gatewayPhases,
+  type GatewayPhaseCounts,
+} from "./metrics/gateway-metrics-data";
+export { GatewayMetricsDashboard } from "./metrics/gateway-metrics-dashboard";

@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Expose the live count of Gateway instances by phase — Running, Provisioning, Degraded, and Failed — as a built-in dashboard in the HyperShell web console, so operators can assess fleet health at a glance without leaving the product UI or querying Prometheus directly. The metric is collected by a custom Prometheus Collector in the API server that queries the database on each scrape; it is scraped by a Prometheus instance deployed alongside the platform; and it is surfaced in the web console through a BFF proxy route that shields the browser from direct Prometheus access.
+Expose the live count of Gateway instances by phase  -  Running, Provisioning, Degraded, and Failed  -  as a built-in dashboard in the HyperShell web console, so operators can assess fleet health at a glance without leaving the product UI or querying Prometheus directly. The metric is collected by a custom Prometheus Collector in the API server that queries the database on each scrape; it is scraped by a Prometheus instance deployed alongside the platform; and it is surfaced in the web console through a BFF proxy route that shields the browser from direct Prometheus access.
 
 This specification covers the full vertical slice: the API server metric, the Prometheus deployment and scrape configuration, the BFF metrics route, the shared dashboard component, the SPA route and navigation, and the Kubernetes manifests required to deploy and operate the pipeline on any cluster.
 
@@ -15,7 +15,7 @@ This specification covers the full vertical slice: the API server metric, the Pr
 
 The API server SHALL expose a custom Prometheus Collector named `hypershell_gateways_total` with a `phase` label that reports the current count of Gateway instances in each of the four known phases: `Running`, `Provisioning`, `Degraded`, and `Failed`.
 
-The Collector SHALL query the database once per scrape via `CountByPhase` — a single `SELECT phase, count(*) FROM gateways GROUP BY phase` — and emit one `GaugeValue` sample per phase. All four phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
+The Collector SHALL query the database once per scrape via `CountByPhase`  -  a single `SELECT phase, count(*) FROM gateways GROUP BY phase`  -  and emit one `GaugeValue` sample per phase. All four phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
 
 When the database query fails, the Collector SHALL emit a `prometheus.NewInvalidMetric` so the scrape registers as failed and the error is surfaced to Prometheus rather than silently dropped.
 
