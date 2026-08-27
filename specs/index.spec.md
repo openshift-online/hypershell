@@ -38,6 +38,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/openshell-gateway-credentials.spec.md` | platform | Credential storage drivers, KEK conditional provisioning | CP | openshell-gateway, openshell-gateway-database |
 | `platform/openshell-gateway-secret-rotation.spec.md` | platform | Secret rotation: DB password, KEK, TLS certificates | CP | openshell-gateway-database, openshell-gateway-credentials, openshell-gateway-tls |
 | `platform/openshell-gateway-keycloak.spec.md` | platform | Keycloak OIDC client provisioning, per-gateway OIDC role bridge | CP | openshell-gateway, openshell-gateway-oidc, rbac-enforcement |
+| `platform/openshell-gateway-console.spec.md` | platform | Per-gateway OpenShell dashboard, oauth2-proxy, HTTP ingress | CP | openshell-gateway, openshell-gateway-routing, openshell-gateway-keycloak |
 | `platform/openshell-gateway-service-accounts.spec.md` | platform | OpenShellGatewayServiceAccounts and Keycloak client-credentials lifecycle | API, CP, CLI, WEB, SDK | openshell-gateway-keycloak, openshell-gateway-oidc, rbac-enforcement, security, UI standards |
 | `platform/openshell-inference-routing.spec.md` | platform | Inference router, inference.local, credential-free sandbox model access, provider translation | CP | openshell-gateway, openshell-gateway-credentials |
 | `platform/global-architecture.spec.md` | platform | Global hub, multi-cloud, CNPG, Tekton, ArgoCD, Vault | CP, ALL | data-model, control-plane |
