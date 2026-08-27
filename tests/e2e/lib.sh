@@ -242,21 +242,39 @@ else:
 # Discover the seeded fleet, cluster, release, and managed-database ids via the API.
 # Sets E2E_FLEET_ID, E2E_CLUSTER_ID, E2E_RELEASE_ID, E2E_DATABASE_ID.
 # Requires API_HOST and api_curl. Never hardcodes ids.
+#
+# Name pins (optional): E2E_SEED_FLEET_NAME, E2E_SEED_CLUSTER_NAME,
+# E2E_SEED_RELEASE_NAME. On kind these default to the make kind-up seeds
+# (default, local-kind, dev-release). When a name is unset, the first list
+# item is used — that matches single-seed CI/dev; multi-seed clusters should
+# set the name pins instead of relying on API order.
 e2e_discover_seed_ids() {
   local fleets clusters releases databases
+  if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]]; then
+    : "${E2E_SEED_FLEET_NAME:=default}"
+    : "${E2E_SEED_CLUSTER_NAME:=local-kind}"
+    : "${E2E_SEED_RELEASE_NAME:=dev-release}"
+  else
+    : "${E2E_SEED_FLEET_NAME:=}"
+    : "${E2E_SEED_CLUSTER_NAME:=}"
+    : "${E2E_SEED_RELEASE_NAME:=}"
+  fi
+
   fleets=$(api_curl "${API_HOST}/api/hypershell/v1/fleets" 2>/dev/null || true)
   clusters=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters" 2>/dev/null || true)
   releases=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_releases" 2>/dev/null || true)
   databases=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
 
-  E2E_FLEET_ID=$(echo "$fleets" | e2e_json_first_id)
-  E2E_CLUSTER_ID=$(echo "$clusters" | e2e_json_first_id)
-  E2E_RELEASE_ID=$(echo "$releases" | e2e_json_first_id)
+  E2E_FLEET_ID=$(echo "$fleets" | e2e_json_first_id "${E2E_SEED_FLEET_NAME}")
+  E2E_CLUSTER_ID=$(echo "$clusters" | e2e_json_first_id "${E2E_SEED_CLUSTER_NAME}")
+  E2E_RELEASE_ID=$(echo "$releases" | e2e_json_first_id "${E2E_SEED_RELEASE_NAME}")
   E2E_DATABASE_ID=$(echo "$databases" | e2e_json_first_id)
 
   if [[ -z "${E2E_FLEET_ID}" || -z "${E2E_CLUSTER_ID}" || -z "${E2E_RELEASE_ID}" ]]; then
     red "ERROR: could not discover seeded fleet/cluster/release ids from the API"
-    dim "  fleet_id=${E2E_FLEET_ID:-<empty>} cluster_id=${E2E_CLUSTER_ID:-<empty>} release_id=${E2E_RELEASE_ID:-<empty>}"
+    dim "  fleet=${E2E_SEED_FLEET_NAME:-<first>} id=${E2E_FLEET_ID:-<empty>}"
+    dim "  cluster=${E2E_SEED_CLUSTER_NAME:-<first>} id=${E2E_CLUSTER_ID:-<empty>}"
+    dim "  release=${E2E_SEED_RELEASE_NAME:-<first>} id=${E2E_RELEASE_ID:-<empty>}"
     return 1
   fi
 }

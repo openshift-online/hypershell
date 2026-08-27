@@ -401,8 +401,8 @@ perf_results_init() {
   PERF_RES_SUCCESS_RATE="null"
   PERF_RES_WALL="null"
   PERF_RES_THROUGHPUT="null"
-  PERF_RES_CREATE_JSON='{"p50": null, "p90": null, "p99": null, "max": null}'
-  PERF_RES_TTR_JSON='{"p50": null, "p90": null, "p99": null, "max": null}'
+  PERF_RES_CREATE_JSON='{"avg": null, "p50": null, "p90": null, "p99": null, "max": null}'
+  PERF_RES_TTR_JSON='{"avg": null, "p50": null, "p90": null, "p99": null, "max": null}'
   PERF_RES_STOPPED_EARLY=false
   PERF_RES_BREAKING_SCALE="null"
   PERF_RES_CHECKPOINTS=()

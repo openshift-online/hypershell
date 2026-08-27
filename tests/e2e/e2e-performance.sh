@@ -114,6 +114,26 @@ perf_track() {
   PERF_TRACKED_NAMES+=("$name")
 }
 
+# Export worker-needed env so bash -c children inherit it. Do not splice
+# secrets into the command string (they would appear in argv / ps).
+perf_export_child_env() {
+  export API_HOST="${API_HOST:-}"
+  export E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER:-}"
+  export E2E_OIDC_ISSUER="${E2E_OIDC_ISSUER:-}"
+  export E2E_OIDC_CLIENT_ID="${E2E_OIDC_CLIENT_ID:-}"
+  export E2E_OIDC_USERNAME="${E2E_OIDC_USERNAME:-}"
+  export E2E_OIDC_PASSWORD="${E2E_OIDC_PASSWORD:-}"
+  export E2E_FLEET_ID="${E2E_FLEET_ID:-}"
+  export E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}"
+  export E2E_RELEASE_ID="${E2E_RELEASE_ID:-}"
+  export E2E_DATABASE_ID="${E2E_DATABASE_ID:-}"
+  export E2E_PERF_PROVISION_TIMEOUT="${E2E_PERF_PROVISION_TIMEOUT:-}"
+  export E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-}"
+  if [[ -n "${OPENSHIFT_NAMESPACE:-}" ]]; then
+    export OPENSHIFT_NAMESPACE
+  fi
+}
+
 # --- Cleanup trap ---
 
 perf_cleanup() {
@@ -159,6 +179,7 @@ perf_cleanup() {
   bold "Teardown"
   sep
   dim "  Deleting performance gateways through the HyperShell API..."
+  perf_export_child_env
   local name
   local to_delete=()
   for ((i = 1; i <= E2E_PERF_GATEWAY_COUNT; i++)); do
@@ -175,11 +196,6 @@ perf_cleanup() {
       source "'"${SCRIPT_DIR}"'/lib.sh"
       source "'"${SCRIPT_DIR}"'/perf/lib.sh"
       source "'"${DRIVER_FILE}"'"
-      export API_HOST="'"${API_HOST:-}"'"
-      export E2E_OIDC_ISSUER="'"${E2E_OIDC_ISSUER}"'"
-      export E2E_OIDC_CLIENT_ID="'"${E2E_OIDC_CLIENT_ID}"'"
-      export E2E_OIDC_USERNAME="'"${E2E_OIDC_USERNAME}"'"
-      export E2E_OIDC_PASSWORD="'"${E2E_OIDC_PASSWORD}"'"
       perf_delete_gateway_by_name "$1" "$2"
     ' _ "$name" "${del_dir}/${name}"
   done
@@ -409,6 +425,7 @@ if ! e2e_discover_seed_ids; then
   red "ERROR: Seeded fleet/cluster/release not found. Run make kind-up (or the OpenShift deploy) first."
   exit 1
 fi
+perf_export_child_env
 
 if [[ "${DB_PROVIDER}" == "cnpg" && -z "${E2E_DATABASE_ID}" ]]; then
   red "ERROR: No ManagedDatabase found (required for DATABASE_PROVIDER=cnpg)"
@@ -500,16 +517,6 @@ while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
       source "'"${SCRIPT_DIR}"'/lib.sh"
       source "'"${SCRIPT_DIR}"'/perf/lib.sh"
       source "'"${DRIVER_FILE}"'"
-      export API_HOST="'"${API_HOST}"'"
-      export E2E_FLEET_ID="'"${E2E_FLEET_ID}"'"
-      export E2E_CLUSTER_ID="'"${E2E_CLUSTER_ID}"'"
-      export E2E_RELEASE_ID="'"${E2E_RELEASE_ID}"'"
-      export E2E_DATABASE_ID="'"${E2E_DATABASE_ID:-}"'"
-      export E2E_OIDC_ISSUER="'"${E2E_OIDC_ISSUER}"'"
-      export E2E_OIDC_CLIENT_ID="'"${E2E_OIDC_CLIENT_ID}"'"
-      export E2E_OIDC_USERNAME="'"${E2E_OIDC_USERNAME}"'"
-      export E2E_OIDC_PASSWORD="'"${E2E_OIDC_PASSWORD}"'"
-      export E2E_PERF_PROVISION_TIMEOUT="'"${E2E_PERF_PROVISION_TIMEOUT}"'"
       perf_provision_one "$1" "$2"
     ' _ "$name" "$rec"
   done

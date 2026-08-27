@@ -86,6 +86,21 @@ else
   fail_u "perf_run_mini_test does not forward seed ids"
 fi
 
+if grep -nE "bash -c" "${SCRIPT_DIR}/../e2e-performance.sh" | grep -q 'E2E_OIDC_PASSWORD'; then
+  fail_u "worker bash -c still interpolates E2E_OIDC_PASSWORD into argv"
+else
+  pass_u "worker bash -c does not splice OIDC password into argv"
+fi
+
+list_json='{"items":[{"name":"other","id":"id-other"},{"name":"default","id":"id-default"}]}'
+picked=$(echo "$list_json" | e2e_json_first_id default)
+first=$(echo "$list_json" | e2e_json_first_id)
+if [[ "$picked" == "id-default" && "$first" == "id-other" ]]; then
+  pass_u "e2e_json_first_id selects by name when given and first item otherwise"
+else
+  fail_u "e2e_json_first_id name/first unexpected: picked=${picked} first=${first}"
+fi
+
 # --- Percentiles (nearest-rank: ceil(p/100*n) for 1..10 -> 5, 9, 10, 10) ---
 
 json=$(perf_percentiles_json 1 2 3 4 5 6 7 8 9 10)
@@ -125,6 +140,11 @@ E2E_PERF_RUN_FUNCTIONAL=1
 E2E_PERF_MIN_SUCCESS_RATE=""
 E2E_PERF_MAX_PROVISION_P99=""
 perf_results_init "$results"
+if grep -q '"avg": null' "$results" && grep -q '"time_to_running_seconds": {"avg": null' "$results"; then
+  pass_u "init JSON includes avg: null in latency objects"
+else
+  fail_u "init JSON missing avg key"
+fi
 
 PERF_P50=92 PERF_P90=140 PERF_P99=150 PERF_MAX=152
 perf_results_add_checkpoint 5 "2026-08-21T15:33:10Z" short pass 34
