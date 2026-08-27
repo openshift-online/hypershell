@@ -32,8 +32,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedDatabase",
 	Long: "Create a new managedDatabase.\n\n" +
 		"Examples:\n" +
-		"  hypershell create managedDatabase --connection-secret <value> --engine <value> --engine-version <value> --instance-class <value> --name <value> --provider <value> --region <value> --status <value> \n" +
-		"  hypershell create managedDatabase --body request.json",
+		"  hsctl create managedDatabase --connection-secret <value> --engine <value> --engine-version <value> --instance-class <value> --name <value> --provider <value> --region <value> --status <value> \n" +
+		"  hsctl create managedDatabase --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }

@@ -8,10 +8,13 @@ import (
 )
 
 type Config struct {
-	AccessToken string `json:"access_token,omitempty"`
-	URL         string `json:"url,omitempty"`
-	Insecure    bool   `json:"insecure,omitempty"`
-	Pager       string `json:"pager,omitempty"`
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	IssuerURL    string `json:"issuer_url,omitempty"`
+	ClientID     string `json:"client_id,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Insecure     bool   `json:"insecure,omitempty"`
+	Pager        string `json:"pager,omitempty"`
 }
 
 func Load() (cfg *Config, err error) {
@@ -106,6 +109,9 @@ func (c *Config) Armed() (armed bool, reason string) {
 
 func (c *Config) Disarm() {
 	c.AccessToken = ""
+	c.RefreshToken = ""
+	c.IssuerURL = ""
+	c.ClientID = ""
 	c.URL = ""
 	c.Insecure = false
 }

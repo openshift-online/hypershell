@@ -29,8 +29,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a gatewayNetwork",
 	Long: "Create a new gatewayNetwork.\n\n" +
 		"Examples:\n" +
-		"  hypershell create gatewayNetwork --hub-gateway-id <value> --name <value> --status <value> --topology <value> --tunnel-mode <value> \n" +
-		"  hypershell create gatewayNetwork --body request.json",
+		"  hsctl create gatewayNetwork --hub-gateway-id <value> --name <value> --status <value> --topology <value> --tunnel-mode <value> \n" +
+		"  hsctl create gatewayNetwork --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }

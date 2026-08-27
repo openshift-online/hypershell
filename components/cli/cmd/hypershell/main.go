@@ -16,12 +16,13 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/logout"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/revoke"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/version"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/whoami"
 )
 
 var root = &cobra.Command{
-	Use:           "hypershell",
-	Short:         "hypershell CLI",
-	Long:          "Command line tool for the hypershell API server.",
+	Use:           "hsctl",
+	Short:         "hsctl CLI",
+	Long:          "Command line tool for the HyperShell API server.",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -37,6 +38,7 @@ func init() {
 	root.AddCommand(logout.Cmd)
 	root.AddCommand(revoke.Cmd)
 	root.AddCommand(version.Cmd)
+	root.AddCommand(whoami.Cmd)
 }
 
 func main() {

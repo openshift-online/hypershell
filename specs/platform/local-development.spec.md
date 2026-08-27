@@ -105,7 +105,8 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Setting | Value |
 |---------|-------|
 | Realm | `hypershell` |
-| Client | `hypershell-frontend` (public, standard flow + direct access grants) |
+| Client | `hypershell-frontend` (public, standard flow + direct access grants, used by web console BFF) |
+| CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
 | Admin role | `hypershell-admins` |
 | User role | `hypershell-users` |

@@ -30,8 +30,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a gatewayRelease",
 	Long: "Create a new gatewayRelease.\n\n" +
 		"Examples:\n" +
-		"  hypershell create gatewayRelease --canary-duration <value> --canary-percent <value> --image <value> --name <value> --rollout-strategy <value> --status <value> \n" +
-		"  hypershell create gatewayRelease --body request.json",
+		"  hsctl create gatewayRelease --canary-duration <value> --canary-percent <value> --image <value> --name <value> --rollout-strategy <value> --status <value> \n" +
+		"  hsctl create gatewayRelease --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }

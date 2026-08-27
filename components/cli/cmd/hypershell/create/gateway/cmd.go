@@ -37,8 +37,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a gateway",
 	Long: "Create a new gateway.\n\n" +
 		"Examples:\n" +
-		"  hypershell create gateway --cluster-id <value> --database-id <value> --external-dns <value> --image <value> --name <value> --phase <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
-		"  hypershell create gateway --body request.json",
+		"  hsctl create gateway --cluster-id <value> --database-id <value> --external-dns <value> --image <value> --name <value> --phase <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
+		"  hsctl create gateway --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }
@@ -103,9 +103,11 @@ func run(cmd *cobra.Command, argv []string) error {
 		if args.releaseId != "" {
 			request["release_id"] = args.releaseId
 		}
-		if args.route != "" {
-			request["route"] = args.route
+		route := args.route
+		if route == "" {
+			route = `{"enabled":true}`
 		}
+		request["route"] = route
 		if args.serverDnsNames != "" {
 			request["server_dns_names"] = args.serverDnsNames
 		}

@@ -309,11 +309,13 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 
 #### Auth & Context
 
-| Operation | `hypershell` Command | Status |
+| Operation | `hsctl` Command | Status |
 |---|---|---|
-| Authenticate | `hsctl login [SERVER_URL] --token <t>` | ✅ implemented |
+| Authenticate (browser PKCE) | `hsctl login --url <url> --issuer-url <issuer>` | ✅ implemented |
+| Authenticate (device flow) | `hsctl login --no-browser --url <url> --issuer-url <issuer>` | ✅ implemented |
+| Authenticate (static token) | `hsctl login --token-file <path> --url <url>` | ✅ implemented |
 | Log out | `hsctl logout` | ✅ implemented |
-| Identity | `hsctl whoami` | 🔲 planned |
+| Identity | `hsctl whoami` | ✅ implemented |
 | Config get | `hsctl config get <key>` | ✅ implemented |
 | Config set | `hsctl config set <key> <value>` | ✅ implemented |
 
@@ -428,6 +430,22 @@ cat gateway.yaml | hsctl apply -f -
 | `-o json` | JSON output (most `get`/`create` commands) |
 | `-o wide` | Wide table output |
 | `--limit <n>` | Max items to return (default: 100) |
+
+### Authentication Context
+
+The CLI stores credentials and context in `~/.config/hypershell/config.json` (or `HYPERSHELL_CONFIG` env var override). The config holds the API server URL, OIDC issuer URL, client ID, access token, and refresh token.
+
+```sh
+# Interactive login (opens browser via PKCE)
+hsctl login --url https://api.example.com --issuer-url https://keycloak.example.com/realms/hypershell
+
+# Headless login (device flow -- prints a URL and code, polls until complete)
+hsctl login --no-browser --url https://api.example.com --issuer-url https://keycloak.example.com/realms/hypershell
+
+hsctl list gateways
+hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0 --database-id db-1
+```
+
 
 ## Design Decisions
 

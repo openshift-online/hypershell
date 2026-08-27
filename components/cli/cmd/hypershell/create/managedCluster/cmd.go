@@ -30,8 +30,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedCluster",
 	Long: "Create a new managedCluster.\n\n" +
 		"Examples:\n" +
-		"  hypershell create managedCluster --api-server-url <value> --kubeconfig-secret <value> --name <value> --provider <value> --region <value> --status <value> \n" +
-		"  hypershell create managedCluster --body request.json",
+		"  hsctl create managedCluster --api-server-url <value> --kubeconfig-secret <value> --name <value> --provider <value> --region <value> --status <value> \n" +
+		"  hsctl create managedCluster --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }
