@@ -139,7 +139,7 @@ _perf_print_recent() {
     [[ -n "$f" ]] || continue
     n=$((n + 1))
     (( n > limit )) && break
-    lines+=("$(_perf_dash "$(perf_json_first "$f" started_at)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" driver)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" gateway_count)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" success_rate)")"$'\t'"$(_perf_dash "$(perf_json_object_field "$f" time_to_running_seconds p99)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" throughput_per_min)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" result)")")
+    lines+=("$(_perf_dash "$(perf_json_first "$f" started_at)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" driver)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" gateway_count)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" success_rate)")"$'\t'"$(_perf_dash "$(perf_json_object_field "$f" time_to_running_seconds avg)")"$'\t'"$(_perf_dash "$(perf_json_object_field "$f" time_to_running_seconds p99)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" throughput_per_min)")"$'\t'"$(_perf_dash "$(perf_json_first "$f" result)")")
   done < <(_perf_list_runs)
 
   if (( ${#lines[@]} == 0 )); then
@@ -147,7 +147,7 @@ _perf_print_recent() {
     echo "Run \`make e2e-performance\` to produce a history file."
     return 0
   fi
-  printf '%s\n' "${lines[@]}" | _perf_print_table timestamp driver count 'success%' p99 'tput/min' result
+  printf '%s\n' "${lines[@]}" | _perf_print_table timestamp driver count 'success%' avg p99 'tput/min' result
 }
 
 _perf_print_checkpoints() {
@@ -161,7 +161,7 @@ _perf_print_checkpoints() {
     return 0
   fi
   echo ""
-  printf '%s\n' "$cps" | _perf_print_table count 'batch p99' 'mini s' result
+  printf '%s\n' "$cps" | _perf_print_table count 'batch avg' 'batch p99' 'mini s' result
 }
 
 if [[ -n "$RUN_SELECTOR" ]]; then

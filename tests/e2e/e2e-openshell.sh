@@ -358,6 +358,7 @@ for gw in data.get('items', []):
         break
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
+  e2e_apply_seed_ids_from_gateway_json "$EXISTING_GW" "$GW_NAME"
 else
   # database_id is a required request property but its value is server-owned.
   # CNPG placement resolves the sole ManagedDatabase; deployment
@@ -1590,14 +1591,12 @@ if [[ "$E2E_MODE" == "short" ]]; then
   THROW_NAME="${GW_NAME}-gc-throwaway"
   dim "  Delete-driven GC on throwaway gateway ${THROW_NAME} (not ${GW_NAME})"
   acquire_oidc_token 2>/dev/null || true
-  if [[ -z "${E2E_FLEET_ID:-}" ]]; then
-    e2e_discover_seed_ids || true
-  fi
+  e2e_ensure_seed_ids || true
   e2e_lookup_gateway_by_name "$THROW_NAME"
   THROW_ID="${_GW_ID}"
   THROW_NS="${_GW_NAMESPACE}"
   if [[ -z "$THROW_ID" ]]; then
-    if [[ -z "${E2E_FLEET_ID:-}" || -z "${E2E_CLUSTER_ID:-}" || -z "${E2E_RELEASE_ID:-}" ]]; then
+    if ! e2e_seed_ids_ready; then
       fail_test "Cannot create throwaway gateway: seeded fleet/cluster/release ids are unknown"
     else
       THROW_BODY=$(e2e_gateway_create_body "$THROW_NAME")

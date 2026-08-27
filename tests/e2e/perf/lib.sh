@@ -85,18 +85,51 @@ perf_throughput() {
   printf '%d.%02d' $((x / 100)) $((x % 100))
 }
 
+# Seconds (int or decimal) -> HH:MM:SS. Empty/null -> empty.
+perf_format_hms() {
+  local s="${1:-}" ms total h m sec
+  [[ -z "$s" || "$s" == "null" ]] && { echo ""; return; }
+  ms=$(perf_to_milli "$s")
+  [[ -z "$ms" ]] && { echo ""; return; }
+  total=$((ms / 1000))
+  h=$((total / 3600))
+  m=$(( (total % 3600) / 60 ))
+  sec=$((total % 60))
+  printf '%02d:%02d:%02d' "$h" "$m" "$sec"
+}
+
+# Value of key from a compact one-line JSON object (quoted or numeric).
+perf_json_compact_field() {
+  local json="${1:-}" key="${2:-}" rest
+  [[ "$json" == *"\"${key}\":"* ]] || { echo ""; return; }
+  rest="${json#*\"${key}\":}"
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  if [[ "$rest" == \"* ]]; then
+    rest="${rest#\"}"
+    echo "${rest%%\"*}"
+    return
+  fi
+  rest="${rest%%,*}"
+  rest="${rest%%\}*}"
+  rest="${rest%"${rest##*[![:space:]]}"}"
+  echo "$rest"
+}
+
 # --- Percentiles (nearest-rank, NIST: rank = ceil(p/100 * n)) ---
 #
-# Sets PERF_P50 PERF_P90 PERF_P99 PERF_MAX (each a number or "null").
+# Sets PERF_AVG PERF_P50 PERF_P90 PERF_P99 PERF_MAX (number or "null").
 # Usage: perf_percentiles [n...]
 
 perf_percentiles() {
-  PERF_P50=null PERF_P90=null PERF_P99=null PERF_MAX=null
+  PERF_AVG=null PERF_P50=null PERF_P90=null PERF_P99=null PERF_MAX=null
   (( $# == 0 )) && return 0
-  local ms_list=() v ms
+  local ms_list=() v ms sum=0
   for v in "$@"; do
     ms=$(perf_to_milli "$v")
-    [[ -n "$ms" ]] && ms_list+=("$ms")
+    if [[ -n "$ms" ]]; then
+      ms_list+=("$ms")
+      sum=$((sum + ms))
+    fi
   done
   local n=${#ms_list[@]}
   (( n == 0 )) && return 0
@@ -114,6 +147,7 @@ perf_percentiles() {
     echo "$rank"
   }
 
+  PERF_AVG=$(perf_ms_to_s "$((sum / n))")
   PERF_P50=$(perf_ms_to_s "${sorted[$(( $(_perf_rank 50 "$n") - 1 ))]}")
   PERF_P90=$(perf_ms_to_s "${sorted[$(( $(_perf_rank 90 "$n") - 1 ))]}")
   PERF_P99=$(perf_ms_to_s "${sorted[$(( $(_perf_rank 99 "$n") - 1 ))]}")
@@ -122,7 +156,8 @@ perf_percentiles() {
 
 perf_percentiles_json() {
   perf_percentiles "$@"
-  printf '{"p50": %s, "p90": %s, "p99": %s, "max": %s}' \
+  printf '{"avg": %s, "p50": %s, "p90": %s, "p99": %s, "max": %s}' \
+    "$(perf_num_or_null "$PERF_AVG")" \
     "$(perf_num_or_null "$PERF_P50")" \
     "$(perf_num_or_null "$PERF_P90")" \
     "$(perf_num_or_null "$PERF_P99")" \
@@ -245,8 +280,8 @@ PERF_RES_FAILED=0
 PERF_RES_SUCCESS_RATE="null"
 PERF_RES_WALL="null"
 PERF_RES_THROUGHPUT="null"
-PERF_RES_CREATE_JSON='{"p50": null, "p90": null, "p99": null, "max": null}'
-PERF_RES_TTR_JSON='{"p50": null, "p90": null, "p99": null, "max": null}'
+PERF_RES_CREATE_JSON='{"avg": null, "p50": null, "p90": null, "p99": null, "max": null}'
+PERF_RES_TTR_JSON='{"avg": null, "p50": null, "p90": null, "p99": null, "max": null}'
 PERF_RES_STOPPED_EARLY=false
 PERF_RES_BREAKING_SCALE="null"
 PERF_RES_CHECKPOINTS=()
@@ -381,11 +416,12 @@ perf_results_init() {
 
 perf_results_add_checkpoint() {
   local count="$1" at="$2" mode="$3" mini="$4" mini_s="$5"
-  local p50="${PERF_P50}" p90="${PERF_P90}" p99="${PERF_P99}" mx="${PERF_MAX}"
+  local avg="${PERF_AVG:-null}" p50="${PERF_P50}" p90="${PERF_P90}" p99="${PERF_P99}" mx="${PERF_MAX}"
   local obj
-  obj=$(printf '{"gateways_running": %s, "at": %s, "batch_time_to_running_seconds": {"p50": %s, "p90": %s, "p99": %s, "max": %s}, "mode": %s, "mini_test": %s, "mini_test_seconds": %s}' \
+  obj=$(printf '{"gateways_running": %s, "at": %s, "batch_time_to_running_seconds": {"avg": %s, "p50": %s, "p90": %s, "p99": %s, "max": %s}, "mode": %s, "mini_test": %s, "mini_test_seconds": %s}' \
     "$count" \
     "$(perf_json_str "$at")" \
+    "$(perf_num_or_null "$avg")" \
     "$(perf_num_or_null "$p50")" \
     "$(perf_num_or_null "$p90")" \
     "$(perf_num_or_null "$p99")" \
@@ -410,19 +446,24 @@ perf_csv_append() {
   [[ -f "$csv_path" ]] || new=1
   mkdir -p "$(dirname "$csv_path")"
   if [[ "$new" == "1" ]]; then
-    printf '%s\n' 'started_at,driver,gateway_count,success_rate,p99,throughput_per_min,result' > "$csv_path"
+    printf '%s\n' 'started_at,driver,gateway_count,success_rate,avg,p99,throughput_per_min,result' > "$csv_path"
   fi
-  local p99=""
+  local avg="" p99=""
+  [[ "$PERF_RES_TTR_JSON" == *'"avg": '* ]] && avg="${PERF_RES_TTR_JSON#*\"avg\": }"
+  avg="${avg%%,*}"
+  avg="${avg# }"
+  [[ "$avg" == "null" ]] && avg=""
   [[ "$PERF_RES_TTR_JSON" == *'"p99": '* ]] && p99="${PERF_RES_TTR_JSON#*\"p99\": }"
   p99="${p99%%,*}"
   p99="${p99%%\}*}"
   p99="${p99# }"
   [[ "$p99" == "null" ]] && p99=""
-  printf '%s,%s,%s,%s,%s,%s,%s\n' \
+  printf '%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "$PERF_RES_STARTED_AT" \
     "$PERF_RES_DRIVER" \
     "$PERF_RES_GATEWAY_COUNT" \
     "${PERF_RES_SUCCESS_RATE}" \
+    "$avg" \
     "$p99" \
     "${PERF_RES_THROUGHPUT}" \
     "${PERF_RES_RESULT}" >> "$csv_path"
@@ -490,6 +531,10 @@ perf_json_object_field() {
   [[ -f "$file" ]] || { echo ""; return; }
   while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ "$line" == *"\"${obj}\":"* ]]; then
+      if [[ "$line" != *"\"${key}\":"* ]]; then
+        echo ""
+        return 0
+      fi
       rest="${line#*\"${key}\":}"
       perf_json_unquote "${rest%%,*}"
       return 0
@@ -498,65 +543,63 @@ perf_json_object_field() {
   echo ""
 }
 
-# Print checkpoint rows: count<TAB>p99<TAB>mini_s<TAB>result
+# Print checkpoint rows: count<TAB>avg<TAB>p99<TAB>mini_s<TAB>result
 perf_json_checkpoints() {
   local file="$1" line
   [[ -f "$file" ]] || return 0
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == *"\"gateways_running\":"* ]] || continue
-    local count p99 mini result rest
-    count=$(perf_json_unquote "${line#*\"gateways_running\":}")
-    count="${count%%,*}"
-    count=$(perf_json_unquote "$count")
-    rest="${line#*\"p99\":}"
-    p99=$(perf_json_unquote "${rest%%,*}")
-    rest="${line#*\"mini_test_seconds\":}"
-    mini=$(perf_json_unquote "${rest%%,*}")
-    rest="${line#*\"mini_test\":}"
-    result=$(perf_json_unquote "${rest%%,*}")
-    printf '%s\t%s\t%s\t%s\n' "$count" "$p99" "$mini" "$result"
+    local count avg p99 mini result
+    count=$(perf_json_compact_field "$line" gateways_running)
+    avg=$(perf_json_compact_field "$line" avg)
+    p99=$(perf_json_compact_field "$line" p99)
+    mini=$(perf_json_compact_field "$line" mini_test_seconds)
+    result=$(perf_json_compact_field "$line" mini_test)
+    printf '%s\t%s\t%s\t%s\t%s\n' "$count" "$avg" "$p99" "$mini" "$result"
   done < "$file"
 }
 
 perf_print_summary() {
   local dash='-'
   _n() { [[ -z "$1" || "$1" == "null" ]] && echo "$dash" || echo "$1"; }
-  local cl_p50 cl_p90 cl_p99 cl_max ttr_p50 ttr_p90 ttr_p99 ttr_max
-  cl_p50=$(perf_json_unquote "${PERF_RES_CREATE_JSON#*\"p50\": }"); cl_p50="${cl_p50%%,*}"
-  cl_p90=$(perf_json_unquote "${PERF_RES_CREATE_JSON#*\"p90\": }"); cl_p90="${cl_p90%%,*}"
-  cl_p99=$(perf_json_unquote "${PERF_RES_CREATE_JSON#*\"p99\": }"); cl_p99="${cl_p99%%,*}"
-  cl_max=$(perf_json_unquote "${PERF_RES_CREATE_JSON#*\"max\": }"); cl_max="${cl_max%%\}*}"
-  ttr_p50=$(perf_json_unquote "${PERF_RES_TTR_JSON#*\"p50\": }"); ttr_p50="${ttr_p50%%,*}"
-  ttr_p90=$(perf_json_unquote "${PERF_RES_TTR_JSON#*\"p90\": }"); ttr_p90="${ttr_p90%%,*}"
-  ttr_p99=$(perf_json_unquote "${PERF_RES_TTR_JSON#*\"p99\": }"); ttr_p99="${ttr_p99%%,*}"
-  ttr_max=$(perf_json_unquote "${PERF_RES_TTR_JSON#*\"max\": }"); ttr_max="${ttr_max%%\}*}"
+  local cl_avg cl_p50 cl_p90 cl_p99 cl_max ttr_avg ttr_p50 ttr_p90 ttr_p99 ttr_max wall
+  cl_avg=$(perf_json_compact_field "$PERF_RES_CREATE_JSON" avg)
+  cl_p50=$(perf_json_compact_field "$PERF_RES_CREATE_JSON" p50)
+  cl_p90=$(perf_json_compact_field "$PERF_RES_CREATE_JSON" p90)
+  cl_p99=$(perf_json_compact_field "$PERF_RES_CREATE_JSON" p99)
+  cl_max=$(perf_json_compact_field "$PERF_RES_CREATE_JSON" max)
+  ttr_avg=$(perf_json_compact_field "$PERF_RES_TTR_JSON" avg)
+  ttr_p50=$(perf_json_compact_field "$PERF_RES_TTR_JSON" p50)
+  ttr_p90=$(perf_json_compact_field "$PERF_RES_TTR_JSON" p90)
+  ttr_p99=$(perf_json_compact_field "$PERF_RES_TTR_JSON" p99)
+  ttr_max=$(perf_json_compact_field "$PERF_RES_TTR_JSON" max)
+  wall=$(perf_format_hms "$PERF_RES_WALL")
 
-  printf '  %-22s  %s\n' driver "$PERF_RES_DRIVER"
-  printf '  %-22s  %s\n' result "$(_n "$PERF_RES_RESULT")"
-  printf '  %-22s  %s\n' requested "$PERF_RES_REQUESTED"
-  printf '  %-22s  %s\n' provisioned "$PERF_RES_PROVISIONED"
-  printf '  %-22s  %s\n' failed "$PERF_RES_FAILED"
-  printf '  %-22s  %s\n' 'success rate %' "$(_n "$PERF_RES_SUCCESS_RATE")"
-  printf '  %-22s  %s\n' 'wall clock s' "$(_n "$PERF_RES_WALL")"
-  printf '  %-22s  %s\n' 'throughput /min' "$(_n "$PERF_RES_THROUGHPUT")"
-  printf '  %-22s  %s\n' 'create p50/p90/p99/max' "$(_n "$cl_p50") / $(_n "$cl_p90") / $(_n "$cl_p99") / $(_n "$cl_max")"
-  printf '  %-22s  %s\n' 'ttr p50/p90/p99/max' "$(_n "$ttr_p50") / $(_n "$ttr_p90") / $(_n "$ttr_p99") / $(_n "$ttr_max")"
-  printf '  %-22s  %s\n' 'stopped early' "$PERF_RES_STOPPED_EARLY"
-  printf '  %-22s  %s\n' 'breaking scale' "$(_n "$PERF_RES_BREAKING_SCALE")"
+  printf '  %-26s  %s\n' driver "$PERF_RES_DRIVER"
+  printf '  %-26s  %s\n' result "$(_n "$PERF_RES_RESULT")"
+  printf '  %-26s  %s\n' requested "$PERF_RES_REQUESTED"
+  printf '  %-26s  %s\n' provisioned "$PERF_RES_PROVISIONED"
+  printf '  %-26s  %s\n' failed "$PERF_RES_FAILED"
+  printf '  %-26s  %s\n' 'success rate %' "$(_n "$PERF_RES_SUCCESS_RATE")"
+  printf '  %-26s  %s\n' 'wall clock' "$(_n "$wall")"
+  printf '  %-26s  %s\n' 'gateways / min' "$(_n "$PERF_RES_THROUGHPUT")"
+  printf '  %-26s  %s\n' 'create avg/p50/p90/p99/max' "$(_n "$cl_avg") / $(_n "$cl_p50") / $(_n "$cl_p90") / $(_n "$cl_p99") / $(_n "$cl_max")"
+  printf '  %-26s  %s\n' 'ttr avg/p50/p90/p99/max' "$(_n "$ttr_avg") / $(_n "$ttr_p50") / $(_n "$ttr_p90") / $(_n "$ttr_p99") / $(_n "$ttr_max")"
+  printf '  %-26s  %s\n' 'stopped early' "$PERF_RES_STOPPED_EARLY"
+  printf '  %-26s  %s\n' 'breaking scale' "$(_n "$PERF_RES_BREAKING_SCALE")"
   if (( ${#PERF_RES_CHECKPOINTS[@]} > 0 )); then
     echo ""
     echo "  checkpoints"
-    printf '    %6s  %8s  %6s  %8s  %s\n' count 'batch p99' mode 'mini s' result
-    local line count p99 mini mode result
+    printf '    %5s  %9s  %9s  %-5s  %6s  %s\n' count 'batch avg' 'batch p99' mode 'mini s' result
+    local line count avg p99 mini mode result
     for line in "${PERF_RES_CHECKPOINTS[@]}"; do
-      count=$(perf_json_unquote "${line#*\"gateways_running\":}")
-      count="${count%%,*}"
-      count=$(perf_json_unquote "$count")
-      p99=$(perf_json_unquote "${line#*\"p99\": }"); p99="${p99%%,*}"
-      mini=$(perf_json_unquote "${line#*\"mini_test_seconds\": }"); mini="${mini%%\}*}"
-      mode=$(perf_json_unquote "${line#*\"mode\": }"); mode="${mode%%,*}"
-      result=$(perf_json_unquote "${line#*\"mini_test\": }"); result="${result%%,*}"
-      printf '    %6s  %8s  %6s  %8s  %s\n' "$count" "$(_n "$p99")" "$mode" "$(_n "$mini")" "$result"
+      count=$(perf_json_compact_field "$line" gateways_running)
+      avg=$(perf_json_compact_field "$line" avg)
+      p99=$(perf_json_compact_field "$line" p99)
+      mini=$(perf_json_compact_field "$line" mini_test_seconds)
+      mode=$(perf_json_compact_field "$line" mode)
+      result=$(perf_json_compact_field "$line" mini_test)
+      printf '    %5s  %9s  %9s  %-5s  %6s  %s\n' "$count" "$(_n "$avg")" "$(_n "$p99")" "$mode" "$(_n "$mini")" "$result"
     done
   fi
   echo ""
@@ -608,7 +651,7 @@ perf_provision_one() {
       status="ok"
     else
       printf '%s\t%s\t%s\t%s\n' "$name" "waiting:${phase:-unknown}" "$id" "$ns" > "${record}.state"
-      if phase=$(e2e_wait_gateway_running "$id" "${E2E_PERF_PROVISION_TIMEOUT:-600}"); then
+      if phase=$(e2e_wait_gateway_running "$id" "${E2E_PERF_PROVISION_TIMEOUT:-180}"); then
         running_s=$(perf_elapsed_s "$start_ms")
         status="ok"
       else
@@ -636,7 +679,7 @@ perf_provision_one() {
   id="$_CREATE_ID"
   ns="$_CREATE_NAMESPACE"
   printf '%s\t%s\t%s\t%s\n' "$name" "waiting:Provisioning" "$id" "$ns" > "${record}.state"
-  if phase=$(e2e_wait_gateway_running "$id" "${E2E_PERF_PROVISION_TIMEOUT:-600}"); then
+  if phase=$(e2e_wait_gateway_running "$id" "${E2E_PERF_PROVISION_TIMEOUT:-180}"); then
     running_s=$(perf_elapsed_s "$start_ms")
     status="ok"
   else

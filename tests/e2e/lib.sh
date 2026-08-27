@@ -261,6 +261,53 @@ e2e_discover_seed_ids() {
   fi
 }
 
+e2e_seed_ids_ready() {
+  [[ -n "${E2E_FLEET_ID:-}" && -n "${E2E_CLUSTER_ID:-}" && -n "${E2E_RELEASE_ID:-}" ]]
+}
+
+# Fill any missing seed ids from the API. Rediscover when fleet is set but
+# cluster/release are not (the create path in e2e-openshell.sh only sets fleet).
+e2e_ensure_seed_ids() {
+  e2e_seed_ids_ready && return 0
+  e2e_discover_seed_ids
+}
+
+# Copy fleet/cluster/release/database ids from a gateway JSON object or list.
+# Does not overwrite ids that are already set.
+e2e_apply_seed_ids_from_gateway_json() {
+  local json="${1:-}" name="${2:-}"
+  local parsed
+  parsed=$(echo "$json" | WANT_NAME="$name" python3 -c "
+import json, sys, os
+name = os.environ.get('WANT_NAME', '')
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+obj = data
+if isinstance(data, dict) and 'items' in data:
+    obj = None
+    for it in data.get('items') or []:
+        if not name or it.get('name', '') == name:
+            obj = it
+            break
+if not isinstance(obj, dict):
+    sys.exit(0)
+print('%s\t%s\t%s\t%s' % (
+    obj.get('fleet_id', '') or '',
+    obj.get('cluster_id', '') or '',
+    obj.get('release_id', '') or '',
+    obj.get('database_id', '') or '',
+))
+" 2>/dev/null || true)
+  local fleet cluster release database
+  IFS=$'\t' read -r fleet cluster release database <<< "$parsed" || true
+  [[ -z "${E2E_FLEET_ID:-}" && -n "$fleet" ]] && E2E_FLEET_ID="$fleet"
+  [[ -z "${E2E_CLUSTER_ID:-}" && -n "$cluster" ]] && E2E_CLUSTER_ID="$cluster"
+  [[ -z "${E2E_RELEASE_ID:-}" && -n "$release" ]] && E2E_RELEASE_ID="$release"
+  [[ -z "${E2E_DATABASE_ID:-}" && -n "$database" ]] && E2E_DATABASE_ID="$database"
+}
+
 # Print a gateway create body that reuses the seeded fleet/cluster/release/database ids.
 e2e_gateway_create_body() {
   local name="${1:?gateway name required}"

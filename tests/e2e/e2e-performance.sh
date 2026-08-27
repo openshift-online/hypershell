@@ -31,7 +31,7 @@ source "${SCRIPT_DIR}/perf/lib.sh"
 : "${E2E_PERF_CONCURRENCY:=4}"
 : "${E2E_PERF_PROGRESS_INTERVAL:=10}"
 : "${E2E_PERF_GATEWAY_PREFIX:=perf-gw}"
-: "${E2E_PERF_PROVISION_TIMEOUT:=600}"
+: "${E2E_PERF_PROVISION_TIMEOUT:=180}"
 : "${E2E_PERF_RUN_FUNCTIONAL:=1}"
 : "${E2E_PERF_FUNCTIONAL_GATEWAY_NAME:=perf-e2e-gw}"
 : "${E2E_PERF_RESULTS_DIR:=perf-results}"
@@ -348,6 +348,10 @@ perf_run_mini_test() {
     E2E_MODE=short \
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
+    E2E_FLEET_ID="${E2E_FLEET_ID}" \
+    E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
+    E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
+    E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   PERF_MINI_RC=$?
   set -e
@@ -604,6 +608,10 @@ if [[ "${E2E_PERF_RUN_FUNCTIONAL}" == "1" && "$PERF_STOPPED_EARLY" != "true" ]];
     E2E_MODE=long \
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
+    E2E_FLEET_ID="${E2E_FLEET_ID}" \
+    E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
+    E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
+    E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   func_rc=$?
   set -e

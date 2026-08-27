@@ -41,20 +41,71 @@ else
 fi
 E2E_MODE=long
 
+# --- Seed ids for short-mode throwaway gateway ---
+
+gw_json='{"items":[{"name":"perf-gw-canary","fleet_id":"fleet-1","cluster_id":"cluster-1","release_id":"release-1","database_id":"db-1"}]}'
+E2E_FLEET_ID="" E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+e2e_apply_seed_ids_from_gateway_json "$gw_json" "perf-gw-canary"
+if [[ "$E2E_FLEET_ID" == "fleet-1" && "$E2E_CLUSTER_ID" == "cluster-1" && "$E2E_RELEASE_ID" == "release-1" && "$E2E_DATABASE_ID" == "db-1" ]]; then
+  pass_u "seed ids copied from reused gateway JSON"
+else
+  fail_u "apply seed ids from gateway JSON failed: fleet=${E2E_FLEET_ID} cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+fi
+
+E2E_FLEET_ID="only-fleet"
+E2E_CLUSTER_ID=""
+E2E_RELEASE_ID=""
+if e2e_seed_ids_ready; then
+  fail_u "seed ids should not be ready without cluster and release"
+else
+  pass_u "seed ids are incomplete when cluster/release are missing"
+fi
+
+_orig_discover=$(declare -f e2e_discover_seed_ids)
+e2e_discover_seed_ids() {
+  E2E_FLEET_ID="fleet-x"
+  E2E_CLUSTER_ID="cluster-x"
+  E2E_RELEASE_ID="release-x"
+}
+E2E_FLEET_ID="only-fleet"
+E2E_CLUSTER_ID=""
+E2E_RELEASE_ID=""
+if e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "cluster-x" && "$E2E_RELEASE_ID" == "release-x" ]]; then
+  pass_u "ensure seed ids rediscovers when fleet is set but cluster/release are not"
+else
+  fail_u "ensure seed ids did not fill cluster/release: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+fi
+eval "$_orig_discover"
+unset _orig_discover
+E2E_FLEET_ID="" E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+
+mini=$(sed -n '/^perf_run_mini_test()/,/^}/p' "${SCRIPT_DIR}/../e2e-performance.sh")
+if echo "$mini" | grep -q 'E2E_CLUSTER_ID=' && echo "$mini" | grep -q 'E2E_RELEASE_ID=' && echo "$mini" | grep -q 'E2E_FLEET_ID='; then
+  pass_u "checkpoint mini test forwards seeded fleet/cluster/release ids"
+else
+  fail_u "perf_run_mini_test does not forward seed ids"
+fi
+
 # --- Percentiles (nearest-rank: ceil(p/100*n) for 1..10 -> 5, 9, 10, 10) ---
 
 json=$(perf_percentiles_json 1 2 3 4 5 6 7 8 9 10)
-if [[ "$json" == '{"p50": 5, "p90": 9, "p99": 10, "max": 10}' ]]; then
-  pass_u "percentiles: nearest-rank p50=5 p90=9 p99=10 max=10 for 1..10"
+if [[ "$json" == '{"avg": 5.5, "p50": 5, "p90": 9, "p99": 10, "max": 10}' ]]; then
+  pass_u "latency stats: avg=5.5 and nearest-rank p50=5 p90=9 p99=10 max=10 for 1..10"
 else
   fail_u "percentiles unexpected: ${json}"
 fi
 
 empty=$(perf_percentiles_json)
-if [[ "$empty" == '{"p50": null, "p90": null, "p99": null, "max": null}' ]]; then
+if [[ "$empty" == '{"avg": null, "p50": null, "p90": null, "p99": null, "max": null}' ]]; then
   pass_u "empty percentiles are null"
 else
   fail_u "empty percentiles should be null: ${empty}"
+fi
+
+if [[ "$(perf_format_hms 92)" == "00:01:32" && "$(perf_format_hms 0)" == "00:00:00" && "$(perf_format_hms 3661)" == "01:01:01" ]]; then
+  pass_u "wall clock formats as HH:MM:SS"
+else
+  fail_u "wall clock format unexpected: 92=$(perf_format_hms 92) 0=$(perf_format_hms 0) 3661=$(perf_format_hms 3661)"
 fi
 
 # --- JSON results (bash state, no merge-from-stdin) ---
@@ -66,7 +117,7 @@ PERF_STARTED_AT="2026-08-21T15:30:00Z"
 E2E_PERF_GATEWAY_COUNT=20
 E2E_PERF_BATCH_SIZE=5
 E2E_PERF_CONCURRENCY=4
-E2E_PERF_PROVISION_TIMEOUT=600
+E2E_PERF_PROVISION_TIMEOUT=180
 E2E_PERF_GATEWAY_PREFIX=perf-gw
 E2E_PERF_CHECKPOINT=1
 E2E_PERF_STOP_ON_CHECKPOINT_FAILURE=1
@@ -83,7 +134,7 @@ missing=()
 for k in "${need[@]}"; do
   grep -q "\"${k}\"" "$results" || missing+=("$k")
 done
-if [[ ${#missing[@]} -eq 0 ]] && grep -q '"schema_version": "1"' "$results" && grep -q '"gateways_running": 5' "$results"; then
+if [[ ${#missing[@]} -eq 0 ]] && grep -q '"schema_version": "1"' "$results" && grep -q '"avg":' "$results" && grep -q '"gateways_running": 5' "$results"; then
   pass_u "results JSON has documented schema_version=1 keys and incremental checkpoints"
 else
   fail_u "results JSON missing keys: ${missing[*]:-schema/checkpoint}"
@@ -108,17 +159,59 @@ PERF_RES_PATH="${tmp}/hist/kind-20260821T160000Z.json"
 perf_results_write
 
 report=$(E2E_PERF_RESULTS_DIR="${tmp}/hist" E2E_PERF_REPORT_LIMIT=10 bash "${SCRIPT_DIR}/../../../scripts/perf-report.sh")
-if echo "$report" | grep -q 'kind' && echo "$report" | grep -q 'fail' && echo "$report" | grep -q 'pass'; then
+if echo "$report" | grep -q 'kind' && echo "$report" | grep -q 'avg' && echo "$report" | grep -q 'fail' && echo "$report" | grep -q 'pass'; then
   pass_u "report tabulates recent runs"
 else
   fail_u "report output missing expected rows: ${report:0:200}"
 fi
 
 ckpt=$(E2E_PERF_RESULTS_DIR="${tmp}/hist" E2E_PERF_REPORT_RUN=20260821T153000Z bash "${SCRIPT_DIR}/../../../scripts/perf-report.sh")
-if echo "$ckpt" | grep -q 'batch p99' && echo "$ckpt" | grep -q '150'; then
+if echo "$ckpt" | grep -q 'batch avg' && echo "$ckpt" | grep -q 'batch p99' && echo "$ckpt" | grep -q '150'; then
   pass_u "report renders a single run's checkpoints"
 else
   fail_u "checkpoint report unexpected: ${ckpt:0:200}"
+fi
+
+PERF_RES_DRIVER=kind
+PERF_RES_RESULT=fail
+PERF_RES_REQUESTED=10
+PERF_RES_PROVISIONED=2
+PERF_RES_FAILED=0
+PERF_RES_SUCCESS_RATE=100.0
+PERF_RES_WALL=92
+PERF_RES_THROUGHPUT=1.30
+PERF_RES_CREATE_JSON='{"avg": 0, "p50": 0, "p90": 0, "p99": 0, "max": 0}'
+PERF_RES_TTR_JSON='{"avg": 39, "p50": 36, "p90": 42, "p99": 42, "max": 42}'
+PERF_RES_STOPPED_EARLY=true
+PERF_RES_BREAKING_SCALE=2
+PERF_RES_PATH="${tmp}/hist/kind-summary.json"
+PERF_AVG=39 PERF_P50=36 PERF_P90=42 PERF_P99=42 PERF_MAX=42
+PERF_RES_CHECKPOINTS=()
+perf_results_add_checkpoint 2 "2026-08-26T19:54:08Z" short fail 49
+summary=$(perf_print_summary)
+if echo "$summary" | grep -q '00:01:32' && echo "$summary" | grep -q 'gateways / min' && echo "$summary" | grep -q '1.30'; then
+  pass_u "summary shows wall clock as HH:MM:SS and throughput as gateways / min"
+else
+  fail_u "summary duration/throughput unexpected: ${summary}"
+fi
+if echo "$summary" | grep -q 'short"' || echo "$summary" | grep -q 'fail"'; then
+  fail_u "summary left quotes on checkpoint strings: ${summary}"
+else
+  pass_u "summary checkpoint mode and result are unquoted"
+fi
+hdr=$(echo "$summary" | grep -E '^[[:space:]]+count[[:space:]]+batch avg')
+row=$(echo "$summary" | grep -E '^[[:space:]]+2[[:space:]]+39')
+if [[ -n "$hdr" && -n "$row" ]]; then
+  # Values must sit under their headers: 'short' under 'mode', not shifted by overflow.
+  mode_at=$(awk '{print index($0, "mode")}' <<< "$hdr")
+  short_at=$(awk '{print index($0, "short")}' <<< "$row")
+  if [[ "$mode_at" -gt 0 && "$short_at" -eq "$mode_at" ]]; then
+    pass_u "checkpoint table columns are aligned"
+  else
+    fail_u "checkpoint table misaligned (mode@${mode_at} short@${short_at}):"$'\n'"${hdr}"$'\n'"${row}"
+  fi
+else
+  fail_u "could not find checkpoint header/row in summary: ${summary}"
 fi
 
 # --- Bounded concurrency ---
