@@ -28,7 +28,7 @@ rules:
     resources: ["gateways", "grpcroutes", "httproutes", "backendtlspolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["route.openshift.io"]
-    resources: ["routes", "routes/custom-host"]
+    resources: ["routes"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # OpenShift checks this subresource when the controller sets spec.host.
   - apiGroups: ["route.openshift.io"]
