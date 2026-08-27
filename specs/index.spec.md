@@ -49,6 +49,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `security/rbac-enforcement.spec.md` | security | User, Role, RoleBinding, RBAC middleware | API | data-model |
 | `standards/security/security.spec.md` | standards | - | ALL | - |
 | `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |
+| `platform/openshell-branch-build.spec.md` | platform | OpenShell branch builds, dev gateway provisioning | ALL | local-development, openshell-gateway |
 | `platform/oidc-integration.spec.md` | platform | API JWT validation, BFF OIDC session, IdP client config, Kind opt-in | API, WEB, CP | local-development, openshell-gateway-oidc, web-console/architecture |
 | `platform/e2e-testing.spec.md` | platform | Infra drivers, e2e test suite, CI workflow, deploy overlays | ALL | local-development, control-plane, openshell-gateway-routing |
 | `platform/api-server-observability.spec.md` | platform | API OTel SDK bootstrap, HTTP/gRPC server spans, W3C trace continuation, request metrics | API | web-console/tracing, security, local-development, e2e-testing |
