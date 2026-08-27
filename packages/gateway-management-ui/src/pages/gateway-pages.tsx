@@ -81,7 +81,9 @@ export interface GatewaysPageProps {
 }
 
 function isGatewaySortField(value: string): value is GatewaySortField {
-  return ["cluster", "created", "endpoint", "name", "status"].includes(value);
+  return ["cluster", "created", "endpoint", "name", "owner", "status"].includes(
+    value,
+  );
 }
 
 function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
@@ -401,7 +403,6 @@ export function GatewaysPage({
       label: intl.formatMessage(messages.owner),
       render: ({ createdBy }) =>
         createdBy ?? intl.formatMessage(messages.notAvailable),
-      sortable: false,
       width: 10,
     },
     {

@@ -34,6 +34,7 @@ function sortFieldFrom(value: string | null) {
     case "created":
     case "endpoint":
     case "name":
+    case "owner":
     case "status":
       return value;
     default:

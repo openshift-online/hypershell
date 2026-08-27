@@ -109,10 +109,11 @@ func (d *sqlRoleBindingDao) FindOwnerUsernamesByGatewayIDs(ctx context.Context, 
 	}
 	var rows []result
 	if err := g2.Model(&RoleBinding{}).
-		Select("role_bindings.gateway_id, users.username").
+		Select("DISTINCT ON (role_bindings.gateway_id) role_bindings.gateway_id, users.username").
 		Joins("JOIN roles ON roles.id = role_bindings.role_id AND roles.deleted_at IS NULL").
 		Joins("JOIN users ON users.id = role_bindings.user_id AND users.deleted_at IS NULL").
 		Where("role_bindings.gateway_id IN ? AND roles.name = ? AND role_bindings.deleted_at IS NULL", gatewayIDs, roles.RoleGatewayOwner).
+		Order("role_bindings.gateway_id, role_bindings.created_at ASC, role_bindings.id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}

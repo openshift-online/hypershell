@@ -38,7 +38,10 @@ spec:
             - --db-name-file=/secrets/dbname
             - --db-user-file=/secrets/user
             - --db-password-file=/secrets/password
-            - --db-sslmode=require
+            - --db-sslmode=$(DB_SSLMODE)
+          env:
+            - name: DB_SSLMODE
+              value: require
           resources:
             requests:
               cpu: 50m
@@ -71,7 +74,7 @@ spec:
             - --db-name-file=/secrets/dbname
             - --db-user-file=/secrets/user
             - --db-password-file=/secrets/password
-            - --db-sslmode=require
+            - --db-sslmode=$(DB_SSLMODE)
           ports:
             - containerPort: 8000
               name: http
@@ -87,6 +90,8 @@ spec:
             # the sibling control-plane -> api-server watch channel (no mTLS).
             - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
               value: "hypershell-controller:9443"
+            - name: DB_SSLMODE
+              value: require
           startupProbe:
             httpGet:
               path: /healthcheck

@@ -46,8 +46,17 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			return
 		}
 
-		username := auth.GetUsernameFromContext(r.Context())
-		if username == "" {
+		// Derive identity from the JWT payload directly (like
+		// UserProvisioningMiddleware), NOT from GetUsernameFromContext. Both this
+		// middleware and UserProvisioningMiddleware are attached on the parent
+		// apiV1Router, which runs BEFORE the child-subrouter AuthenticateAccountJWT
+		// that populates the username context. On HTTP the framework's global
+		// jwtHandler has already validated the token and placed it in the request
+		// context, so GetAuthPayload works at this level while GetUsernameFromContext
+		// is still empty. (The gRPC path is unaffected: its post-auth interceptor
+		// runs after AuthUnaryInterceptor, which sets the username.)
+		payload, err := auth.GetAuthPayload(r)
+		if err != nil || payload == nil || payload.Username == "" {
 			http.Error(w, "Unauthorized: missing identity", http.StatusUnauthorized)
 			return
 		}

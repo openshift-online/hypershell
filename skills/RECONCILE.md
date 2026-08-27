@@ -45,9 +45,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-21 (HYPERSHELL-49 spec delta only)
-**Spec corpus**: 40 spec files; the coverage table tracks 31 previously analyzed feature/spec groups after adding OpenShellGatewayServiceAccounts
-**Codebase commit**: 2b5eaf4 (spec/machine-account-client-secret)
+**Last analyzed**: 2026-08-27 (OpenShell Gateway Console GC-W1 complete)
+**Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console
+**Codebase commit**: 9984ed0 (fix/console OpenShift Route ingress)
 
 ### Coverage Summary
 
@@ -60,6 +60,7 @@ skills/
 | Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
 | Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
+| Platform - Gateway Console | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Keycloak | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Service Accounts | 1 | 15 | 15 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 1 | 2 | 63% |
@@ -71,7 +72,7 @@ skills/
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **31** | **215** | **166** | **18** | **26** | **5** | **81%** |
+| **TOTAL** | **32** | **224** | **175** | **18** | **26** | **5** | **82%** |
 
 ### Spec Dependency Order
 
@@ -84,6 +85,7 @@ Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
 Layer 4.5:        openshell-gateway-secret-rotation (depends on database, credentials, TLS)
 Layer 5:          openshell-gateway-routing (depends on TLS for BackendTLSPolicy)
 Layer 5.5:        openshell-gateway-keycloak (depends on oidc, rbac-enforcement)
+Layer 5.6:        openshell-gateway-console (depends on routing, keycloak)
 Layer 5.75:       openshell-gateway-service-accounts (depends on keycloak, oidc, rbac-enforcement, security)
 Layer 6:          local-development (depends on all platform specs)
 Layer 1.5:        security/rbac-enforcement (depends on data-model)
@@ -93,6 +95,26 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
+
+### openshell-gateway-console.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GC-1 | Console enablement follows the selected ingress mode | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
+| GC-2 | Confidential console Keycloak client | Present | - | `control-plane/internal/keycloak/client.go`, `gateway/console.go` | - |
+| GC-3 | Stable console credential Secret | Present | - | `control-plane/internal/gateway/console.go` | - |
+| GC-4 | Console Deployment | Present | - | `control-plane/internal/gateway/console.go` | - |
+| GC-5 | Service and mode-selected HTTP exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
+| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace and supports both ingress controllers. | `control-plane/internal/gateway/console.go` | - |
+| GC-7 | Console lifecycle and cleanup | Present | - | `control-plane/internal/gateway/{console.go,reconciler.go}`, `reconciler/health.go` | GC-W1 |
+| GC-8 | Provisioning atomicity and idempotency | Present | - | `control-plane/internal/gateway/console.go`, `internal/keycloak/client.go` | - |
+| GC-9 | Console address discovery | Present | - | `control-plane/internal/reconciler/reconciler.go`, `gateway/console.go` | GC-W1 |
+
+**Scoped analysis notes:**
+
+- The API, data model, SDKs, CLI, Keycloak client, Secret, Deployment, Service, and NetworkPolicy contracts need no change.
+- GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
+- The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
 
 ### openshell-gateway-service-accounts.spec.md
 
@@ -418,6 +440,22 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 ## Wave Plan
 
+### GC-W1: OpenShift Route support for the Gateway Console
+
+**Scope:** GC-1, GC-5, GC-7, GC-9
+**Dependency:** Existing Gateway Console and Route ingress implementations
+**Status:** Complete
+
+1. Select console exposure from the effective gateway ingress mode.
+2. Create an edge-terminated OpenShift Route for `openshell-console` in Route mode.
+3. Observe HTTPRoute acceptance or OpenShift Route admission for address publication.
+4. Reconcile initial provisioning, health repair, inactive exposure removal, and teardown for both modes.
+5. Add `routes/custom-host` controller RBAC.
+6. Add unit tests for resource shape, readiness, mode selection, and cleanup.
+7. Run control-plane build, vet, test, alignment, and review checks.
+
+**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by ingress mode, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
+
 ### HYPERSHELL-49 OpenShellGatewayServiceAccount waves
 
 | Wave | Scope | Status |
@@ -629,6 +667,8 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-08-27 | 9984ed0 | Completed Gateway Console GC-W1 | 82% | Added mode-selected Route exposure, admission readiness, lifecycle cleanup, custom-host RBAC, and tests. All nine console requirements are present. |
+| 2026-08-27 | 612b373 | Gateway Console scoped gap analysis | 81% | Added the console spec to the registry and found four partial requirements. Planned one control-plane wave for OpenShift Route exposure, readiness, cleanup, RBAC, and tests. |
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
 | 2026-08-05 | working tree | Registered UI standards | 100% platform | UI standards are evaluated by `/ui-standards`, not counted as feature reconciliation requirements |
 | 2026-08-05 | working tree | Added PatternFly standard | 100% platform | PatternFly 6, canonical reuse, and duplicate-component prevention apply to the web console |
