@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
@@ -321,7 +322,13 @@ func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
 				t.Fatal("denied request reached the handler")
 			}))).Methods(test.method)
 			request := httptest.NewRequest(test.method, test.path, nil)
-			ctx := auth.SetUsernameContext(request.Context(), "unbound-user")
+			// Inject identity the way the real HTTP flow does: the framework's
+			// global jwtHandler validates the token and places it in the request
+			// context under ContextAuthKey. AuthorizeApi reads it via GetAuthPayload,
+			// NOT via GetUsernameFromContext (which is only set later, on the child
+			// subrouter, and therefore empty at this parent-router middleware).
+			token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "unbound-user"}}
+			ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
 			ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
 			recorder := httptest.NewRecorder()
 			router.ServeHTTP(recorder, request.WithContext(ctx))
@@ -329,5 +336,39 @@ func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
 				t.Fatalf("status = %d, want 404", recorder.Code)
 			}
 		})
+	}
+}
+
+// TestAuthorizeApiAllowsBoundUserFromJWTContext is the regression guard for the
+// middleware-ordering bug: AuthorizeApi is attached on the PARENT apiV1Router,
+// which runs before the child-subrouter AuthenticateAccountJWT that sets the
+// username context. Deriving identity via GetUsernameFromContext therefore yielded
+// an empty username and rejected every authenticated request with 401. Identity
+// must come from the validated JWT token in context (GetAuthPayload) instead. This
+// test drives the full middleware with a bound gateway:creator and asserts the
+// request reaches the handler.
+func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
+	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+
+	router := mux.NewRouter()
+	reached := false
+	router.Handle("/api/hypershell/v1/gateways", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))).Methods(http.MethodPost)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/gateways", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "creator-user"}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if !reached {
+		t.Fatal("bound gateway:creator request did not reach the handler")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
 	}
 }
