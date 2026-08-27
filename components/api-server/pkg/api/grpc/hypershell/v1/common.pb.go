@@ -75,14 +75,19 @@ func (EventType) EnumDescriptor() ([]byte, []int) {
 }
 
 type ObjectReference struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
-	Href          string                 `protobuf:"bytes,5,opt,name=href,proto3" json:"href,omitempty"`
-	Traceparent   *string                `protobuf:"bytes,6,opt,name=traceparent,proto3,oneof" json:"traceparent,omitempty"`
-	Tracestate    *string                `protobuf:"bytes,7,opt,name=tracestate,proto3,oneof" json:"tracestate,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Kind      string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Href      string                 `protobuf:"bytes,5,opt,name=href,proto3" json:"href,omitempty"`
+	// W3C Trace Context traceparent of the API request that created or last
+	// updated this resource (e.g. "00-{traceID}-{spanID}-{flags}").
+	// Empty when OpenTelemetry is disabled or the resource predates tracing.
+	Traceparent *string `protobuf:"bytes,6,opt,name=traceparent,proto3,oneof" json:"traceparent,omitempty"`
+	// W3C Trace Context tracestate carrying vendor-specific key-value pairs.
+	// Empty when no vendor state was present on the originating request.
+	Tracestate    *string `protobuf:"bytes,7,opt,name=tracestate,proto3,oneof" json:"tracestate,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
