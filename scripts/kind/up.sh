@@ -1006,6 +1006,7 @@ if [[ -z "${seed_failed}" ]]; then
     # Always send database_id; deployment mode uses the empty placeholder.
     GW_BODY="{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
     GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
+    GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
     GW_HTTP=$(echo "${GW_RAW}" | tail -1)
