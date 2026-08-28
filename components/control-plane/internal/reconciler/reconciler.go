@@ -1322,7 +1322,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			var dbErr error
 			deleteDBConfig, dbErr = r.resolveDatabaseConfig(ctx, gw)
 			if dbErr != nil {
-				deleteErrs = append(deleteErrs, fmt.Errorf("resolve database config for deleted gateway %s: %w", event.ResourceID, dbErr))
+				// Deletion must be idempotent. When the ManagedDatabase is already
+				// gone (a legitimate delete ordering) there is no DB config left to
+				// resolve and nothing more to tear down for it, so treat NotFound as
+				// already-cleaned and continue finalizing the gateway. Appending it to
+				// deleteErrs instead would fail the whole delete-reconcile, which the
+				// watcher retries every 30s -- forever, because the ManagedDatabase
+				// never comes back. Any other error still fails so it is retried.
+				if status.Code(dbErr) == codes.NotFound {
+					log.Printf("INFO gateway %s: ManagedDatabase %s already deleted; skipping database cleanup", event.ResourceID, gw.DatabaseId)
+				} else {
+					deleteErrs = append(deleteErrs, fmt.Errorf("resolve database config for deleted gateway %s: %w", event.ResourceID, dbErr))
+				}
 			}
 		}
 
