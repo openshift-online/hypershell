@@ -353,3 +353,99 @@ func TestCopyDeploymentDatabaseCredentialsRejectsIncompleteSource(t *testing.T) 
 		t.Fatal("copyDeploymentDatabaseCredentials = nil, want missing-key error")
 	}
 }
+
+// TestReconcileRouteResourcesTermination covers the GATEWAY_ROUTE_TERMINATION
+// knob: passthrough is the default, and reencrypt sets a router-terminated TLS
+// block whose destinationCACertificate comes from the openshell-server-tls
+// secret (failing closed when that CA is not yet available).
+func TestReconcileRouteResourcesTermination(t *testing.T) {
+	routesGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+	nsConfig := NamespaceConfig{
+		Name: "openshell-test",
+		Gateway: GatewayConfig{
+			Route: RouteConfig{Enabled: true, Host: "gw-openshell-test.apps.example.com"},
+		},
+	}
+
+	getRouteTLS := func(t *testing.T, dc *dynamicfake.FakeDynamicClient) map[string]interface{} {
+		t.Helper()
+		obj, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get Route: %v", err)
+		}
+		tls, found, err := unstructured.NestedMap(obj.Object, "spec", "tls")
+		if err != nil || !found {
+			t.Fatalf("route spec.tls missing: found=%v err=%v", found, err)
+		}
+		return tls
+	}
+
+	t.Run("passthrough is the default", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		tls := getRouteTLS(t, dc)
+		if tls["termination"] != "passthrough" {
+			t.Errorf("termination = %v, want passthrough", tls["termination"])
+		}
+		if tls["insecureEdgeTerminationPolicy"] != "None" {
+			t.Errorf("insecureEdgeTerminationPolicy = %v, want None", tls["insecureEdgeTerminationPolicy"])
+		}
+		if _, ok := tls["destinationCACertificate"]; ok {
+			t.Errorf("passthrough Route must not set destinationCACertificate")
+		}
+	})
+
+	t.Run("reencrypt sets destinationCACertificate from server TLS secret", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+		const caPEM = "-----BEGIN CERTIFICATE-----\ntest-openshell-ca\n-----END CERTIFICATE-----\n"
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset(&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: nsConfig.Name},
+			Data:       map[string][]byte{"ca.crt": []byte(caPEM)},
+		})
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		tls := getRouteTLS(t, dc)
+		if tls["termination"] != "reencrypt" {
+			t.Errorf("termination = %v, want reencrypt", tls["termination"])
+		}
+		if tls["insecureEdgeTerminationPolicy"] != "Redirect" {
+			t.Errorf("insecureEdgeTerminationPolicy = %v, want Redirect", tls["insecureEdgeTerminationPolicy"])
+		}
+		if tls["destinationCACertificate"] != caPEM {
+			t.Errorf("destinationCACertificate = %q, want the secret ca.crt", tls["destinationCACertificate"])
+		}
+		// The router serves its own publicly-trusted wildcard, so the Route must
+		// not carry an edge certificate/key.
+		if _, ok := tls["certificate"]; ok {
+			t.Errorf("reencrypt Route must not set certificate")
+		}
+		if _, ok := tls["key"]; ok {
+			t.Errorf("reencrypt Route must not set key")
+		}
+	})
+
+	t.Run("reencrypt without CA fails closed and creates no Route", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset() // no openshell-server-tls secret
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err == nil {
+			t.Fatal("reconcileRouteResources = nil, want error when ca.crt is unavailable")
+		}
+
+		if _, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+			t.Errorf("expected no Route to be created, get err = %v", err)
+		}
+	})
+}

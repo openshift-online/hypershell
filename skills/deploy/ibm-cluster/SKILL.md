@@ -402,6 +402,15 @@ must keep aligned with this cluster:
 
 - `GATEWAY_INGRESS_MODE=route` and `GATEWAY_API_BASE_DOMAIN=<ingress subdomain>`
   (`oc get ingresscontroller default -n openshift-ingress-operator -o jsonpath='{.status.domain}'`).
+  Route TLS termination defaults to `passthrough` (this cluster); ROKS keeps it
+  because IBM's shared `*.containers.appdomain.cloud` wildcard is not operator-owned,
+  so no publicly trusted edge cert is issuable. On a cluster whose router already
+  serves a trusted `*.apps` wildcard (for example ROSA), set
+  `GATEWAY_ROUTE_TERMINATION=reencrypt` instead so clients connect with no custom CA
+  bundle; the control plane then emits a `reencrypt` Route whose
+  `destinationCACertificate` is the tenant's `openshell-server-tls` `ca.crt`.
+  Reencrypt requires the default `IngressController` to have HTTP/2 enabled (the
+  gateway speaks gRPC): `oc annotate ingresscontroller/default -n openshift-ingress-operator ingress.operator.openshift.io/default-enable-http2=true`.
 - `HYPERSHELL_DATABASE_IMAGE=...svc:5000/openshift/postgres:18` - the per-tenant
   gateway database image (nodes can't pull Docker Hub `postgres:18`).
 - Image transformers repointing api-server/controller/postgresql at `.svc:5000/hypershell/*`.

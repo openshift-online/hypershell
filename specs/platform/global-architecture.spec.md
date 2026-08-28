@@ -622,18 +622,53 @@ OpenShift `Route` objects for data-plane gRPC traffic.
 #### Requirement: Tenant Gateway Ingress via OpenShift Route (`route` mode)
 
 In `route` mode, tenant gateway traffic SHALL be exposed through an OpenShift
-`Route` with `tls.termination: passthrough`, so the gateway pod's own server TLS
-is preserved end-to-end. In this mode the control plane SHALL NOT require a
+`Route`. The TLS termination of that `Route` SHALL be selectable via the
+control-plane env var `GATEWAY_ROUTE_TERMINATION` (`passthrough` | `reencrypt`),
+defaulting to `passthrough`. In this mode the control plane SHALL NOT require a
 shared `Gateway`, a wildcard certificate, or external DNS integration.
+
+- **`passthrough`** (default): the `Route` uses `tls.termination: passthrough`
+  with `insecureEdgeTerminationPolicy: None`, so the gateway pod's own server TLS
+  is preserved end-to-end and the router forwards the raw TLS stream. This is the
+  ROKS path, where the operator does not control the ingress zone and a publicly
+  trusted edge certificate is not issuable.
+- **`reencrypt`**: the `Route` uses `tls.termination: reencrypt` with
+  `insecureEdgeTerminationPolicy: Redirect`, so the router terminates the client's
+  TLS with its own default publicly trusted `*.apps` wildcard certificate and
+  re-encrypts to the gateway pod. The `Route` SHALL carry no edge `certificate`
+  or `key` (the router serves its default wildcard) and SHALL set
+  `tls.destinationCACertificate` to the `ca.crt` of the per-namespace
+  `openshell-server-tls` secret so the router validates the backend. This is the
+  ROSA trusted-TLS path: the client connects with no custom CA bundle.
+
+Because the gateway server config carries no `client_ca_path`, the openshell
+server accepts the connection the router presents without a client certificate;
+OIDC remains the sole client authentication. gRPC over a `reencrypt` `Route`
+therefore requires the router to negotiate HTTP/2 to the backend, so the cluster
+`IngressController` SHALL have HTTP/2 enabled (see § Route Reencrypt Prerequisites).
 
 ##### Scenario: Gateway provisioning creates a passthrough Route
 
-- GIVEN a cluster in `route` mode (`GATEWAY_INGRESS_MODE=route`)
+- GIVEN a cluster in `route` mode (`GATEWAY_INGRESS_MODE=route`) with `GATEWAY_ROUTE_TERMINATION` unset or `passthrough`
 - WHEN the control plane provisions a new tenant gateway with ingress enabled
-- THEN it SHALL create a `Route` `openshell-gateway` in the tenant namespace with `spec.tls.termination: passthrough` and `port.targetPort: grpc` to `Service openshell-gateway`
+- THEN it SHALL create a `Route` `openshell-gateway` in the tenant namespace with `spec.tls.termination: passthrough`, `insecureEdgeTerminationPolicy: None`, and `port.targetPort: grpc` to `Service openshell-gateway`
 - AND the route hostname SHALL be `gw-<tenant>.<base-domain>` (or the gateway's explicit `route.host`)
 - AND it SHALL publish `grpcs://<host>:443` as the gateway's route address
 - AND it SHALL NOT create a `GRPCRoute`, shared `Gateway`, or `BackendTLSPolicy`
+
+##### Scenario: Gateway provisioning creates a reencrypt Route
+
+- GIVEN a cluster in `route` mode with `GATEWAY_ROUTE_TERMINATION=reencrypt` and a per-namespace `openshell-server-tls` secret carrying `ca.crt`
+- WHEN the control plane provisions a new tenant gateway with ingress enabled
+- THEN it SHALL create a `Route` `openshell-gateway` with `spec.tls.termination: reencrypt` and `insecureEdgeTerminationPolicy: Redirect`
+- AND it SHALL set `spec.tls.destinationCACertificate` to the `ca.crt` of `openshell-server-tls`
+- AND it SHALL NOT set `spec.tls.certificate` or `spec.tls.key` (the router serves its default trusted wildcard)
+
+##### Scenario: Reencrypt without the server CA fails closed
+
+- GIVEN a cluster in `route` mode with `GATEWAY_ROUTE_TERMINATION=reencrypt` where the `openshell-server-tls` secret has no `ca.crt` yet
+- WHEN the control plane reconciles the tenant gateway
+- THEN it SHALL return an error and SHALL NOT create the `Route` (a reencrypt `Route` without a `destinationCACertificate` would let the router skip backend validation)
 
 ##### Scenario: Disabling ingress removes the mode's routing objects
 
@@ -683,6 +718,35 @@ selectable via the `GATEWAY_INGRESS_MODE` env var (`gateway-api` | `route` |
 - GIVEN `GATEWAY_INGRESS_MODE` is unset
 - WHEN the control plane reconciles a gateway
 - THEN it SHALL select `gateway-api` if the Gateway API is detected, otherwise `route` on OpenShift, otherwise skip managed ingress
+
+#### Requirement: Route Reencrypt Prerequisites
+
+The `reencrypt` Route termination (`GATEWAY_ROUTE_TERMINATION=reencrypt`) SHALL be
+configuration-driven and SHALL default off (`passthrough`), so existing `route`-mode
+clusters (ROKS) keep their end-to-end passthrough behavior with no change. Selecting
+`reencrypt` SHALL NOT introduce new RBAC: the control plane already reads the
+per-namespace `openshell-server-tls` secret for the Gateway API `BackendTLSPolicy`
+path, and the reencrypt Route reuses that same read.
+
+Because the router re-encrypts to the gateway pod and the gateway serves gRPC (HTTP/2
+via ALPN `h2`), the cluster `IngressController` SHALL have HTTP/2 enabled for the
+router to negotiate HTTP/2 to the backend. Operators enabling `reencrypt` SHALL set
+`spec.httpEmptyRequestsPolicy`/HTTP/2 on the default `IngressController` (for example
+`oc annotate ingresscontroller/default -n openshift-ingress-operator ingress.operator.openshift.io/default-enable-http2=true`)
+before switching tenants to `reencrypt`; without it, gRPC calls over the Route fail
+to negotiate HTTP/2.
+
+##### Scenario: Termination defaults to passthrough on existing clusters
+
+- GIVEN a `route`-mode cluster where `GATEWAY_ROUTE_TERMINATION` is unset
+- WHEN the control plane provisions a tenant gateway
+- THEN it SHALL create a `passthrough` Route, preserving the prior ROKS behavior
+
+##### Scenario: Reencrypt requires no additional RBAC
+
+- GIVEN a `route`-mode cluster switched to `GATEWAY_ROUTE_TERMINATION=reencrypt`
+- WHEN the control plane reads `ca.crt` from the `openshell-server-tls` secret to populate `destinationCACertificate`
+- THEN it SHALL use the existing secret-read permission (the same one the `BackendTLSPolicy` path uses) and SHALL NOT require a new Role or ClusterRole rule
 
 #### Requirement: cert-manager Is a Mode-Independent Prerequisite
 
