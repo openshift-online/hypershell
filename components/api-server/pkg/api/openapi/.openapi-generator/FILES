@@ -8,9 +8,6 @@ client.go
 configuration.go
 docs/DefaultAPI.md
 docs/Error.md
-docs/Fleet.md
-docs/FleetList.md
-docs/FleetPatchRequest.md
 docs/Gateway.md
 docs/GatewayCreateRequest.md
 docs/GatewayList.md
@@ -48,9 +45,6 @@ git_push.sh
 go.mod
 go.sum
 model_error.go
-model_fleet.go
-model_fleet_list.go
-model_fleet_patch_request.go
 model_gateway.go
 model_gateway_create_request.go
 model_gateway_list.go

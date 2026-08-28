@@ -125,11 +125,8 @@ components:
               type: string
               enum:
                 - global
-                - fleet
                 - gateway
             user_id:
-              type: string
-            fleet_id:
               type: string
             gateway_id:
               type: string

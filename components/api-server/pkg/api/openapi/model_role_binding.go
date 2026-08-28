@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -30,7 +30,6 @@ type RoleBinding struct {
 	RoleId    string     `json:"role_id"`
 	Scope     string     `json:"scope"`
 	UserId    *string    `json:"user_id,omitempty"`
-	FleetId   *string    `json:"fleet_id,omitempty"`
 	GatewayId *string    `json:"gateway_id,omitempty"`
 }
 
@@ -295,38 +294,6 @@ func (o *RoleBinding) SetUserId(v string) {
 	o.UserId = &v
 }
 
-// GetFleetId returns the FleetId field value if set, zero value otherwise.
-func (o *RoleBinding) GetFleetId() string {
-	if o == nil || IsNil(o.FleetId) {
-		var ret string
-		return ret
-	}
-	return *o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *RoleBinding) GetFleetIdOk() (*string, bool) {
-	if o == nil || IsNil(o.FleetId) {
-		return nil, false
-	}
-	return o.FleetId, true
-}
-
-// HasFleetId returns a boolean if a field has been set.
-func (o *RoleBinding) HasFleetId() bool {
-	if o != nil && !IsNil(o.FleetId) {
-		return true
-	}
-
-	return false
-}
-
-// SetFleetId gets a reference to the given string and assigns it to the FleetId field.
-func (o *RoleBinding) SetFleetId(v string) {
-	o.FleetId = &v
-}
-
 // GetGatewayId returns the GatewayId field value if set, zero value otherwise.
 func (o *RoleBinding) GetGatewayId() string {
 	if o == nil || IsNil(o.GatewayId) {
@@ -388,9 +355,6 @@ func (o RoleBinding) ToMap() (map[string]interface{}, error) {
 	toSerialize["scope"] = o.Scope
 	if !IsNil(o.UserId) {
 		toSerialize["user_id"] = o.UserId
-	}
-	if !IsNil(o.FleetId) {
-		toSerialize["fleet_id"] = o.FleetId
 	}
 	if !IsNil(o.GatewayId) {
 		toSerialize["gateway_id"] = o.GatewayId

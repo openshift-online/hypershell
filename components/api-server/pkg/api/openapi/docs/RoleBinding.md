@@ -12,7 +12,6 @@ Name | Type | Description | Notes
 **RoleId** | **string** |  | 
 **Scope** | **string** |  | 
 **UserId** | Pointer to **string** |  | [optional] 
-**FleetId** | Pointer to **string** |  | [optional] 
 **GatewayId** | Pointer to **string** |  | [optional] 
 
 ## Methods
@@ -223,31 +222,6 @@ SetUserId sets UserId field to given value.
 `func (o *RoleBinding) HasUserId() bool`
 
 HasUserId returns a boolean if a field has been set.
-
-### GetFleetId
-
-`func (o *RoleBinding) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *RoleBinding) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *RoleBinding) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
-
-### HasFleetId
-
-`func (o *RoleBinding) HasFleetId() bool`
-
-HasFleetId returns a boolean if a field has been set.
 
 ### GetGatewayId
 

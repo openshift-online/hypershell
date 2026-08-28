@@ -10,7 +10,6 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**FleetId** | **string** |  | 
 **Provider** | **string** |  | 
 **Region** | Pointer to **string** |  | [optional] 
 **KubeconfigSecret** | **string** |  | 
@@ -21,7 +20,7 @@ Name | Type | Description | Notes
 
 ### NewManagedCluster
 
-`func NewManagedCluster(name string, fleetId string, provider string, kubeconfigSecret string, ) *ManagedCluster`
+`func NewManagedCluster(name string, provider string, kubeconfigSecret string, ) *ManagedCluster`
 
 NewManagedCluster instantiates a new ManagedCluster object
 This constructor will assign default values to properties that have it defined,
@@ -179,26 +178,6 @@ and a boolean to check if the value has been set.
 `func (o *ManagedCluster) SetName(v string)`
 
 SetName sets Name field to given value.
-
-
-### GetFleetId
-
-`func (o *ManagedCluster) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *ManagedCluster) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *ManagedCluster) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
 
 
 ### GetProvider

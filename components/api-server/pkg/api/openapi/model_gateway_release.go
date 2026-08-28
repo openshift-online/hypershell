@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -28,7 +28,6 @@ type GatewayRelease struct {
 	CreatedAt       *time.Time `json:"created_at,omitempty"`
 	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
 	Name            string     `json:"name"`
-	FleetId         string     `json:"fleet_id"`
 	Image           string     `json:"image"`
 	RolloutStrategy *string    `json:"rollout_strategy,omitempty"`
 	CanaryPercent   *int32     `json:"canary_percent,omitempty"`
@@ -42,10 +41,9 @@ type _GatewayRelease GatewayRelease
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayRelease(name string, fleetId string, image string) *GatewayRelease {
+func NewGatewayRelease(name string, image string) *GatewayRelease {
 	this := GatewayRelease{}
 	this.Name = name
-	this.FleetId = fleetId
 	this.Image = image
 	return &this
 }
@@ -242,30 +240,6 @@ func (o *GatewayRelease) SetName(v string) {
 	o.Name = v
 }
 
-// GetFleetId returns the FleetId field value
-func (o *GatewayRelease) GetFleetId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value
-// and a boolean to check if the value has been set.
-func (o *GatewayRelease) GetFleetIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.FleetId, true
-}
-
-// SetFleetId sets field value
-func (o *GatewayRelease) SetFleetId(v string) {
-	o.FleetId = v
-}
-
 // GetImage returns the Image field value
 func (o *GatewayRelease) GetImage() string {
 	if o == nil {
@@ -444,7 +418,6 @@ func (o GatewayRelease) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["image"] = o.Image
 	if !IsNil(o.RolloutStrategy) {
 		toSerialize["rollout_strategy"] = o.RolloutStrategy
@@ -467,7 +440,6 @@ func (o *GatewayRelease) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"fleet_id",
 		"image",
 	}
 

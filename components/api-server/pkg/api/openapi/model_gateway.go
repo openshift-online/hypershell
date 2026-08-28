@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -28,7 +28,6 @@ type Gateway struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Name      string     `json:"name"`
-	FleetId   string     `json:"fleet_id"`
 	ClusterId string     `json:"cluster_id"`
 	ReleaseId string     `json:"release_id"`
 	// Server-assigned ManagedDatabase identifier; client-supplied values are ignored
@@ -68,10 +67,9 @@ type _Gateway Gateway
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGateway(name string, fleetId string, clusterId string, releaseId string, databaseId string, namespace string) *Gateway {
+func NewGateway(name string, clusterId string, releaseId string, databaseId string, namespace string) *Gateway {
 	this := Gateway{}
 	this.Name = name
-	this.FleetId = fleetId
 	this.ClusterId = clusterId
 	this.ReleaseId = releaseId
 	this.DatabaseId = databaseId
@@ -269,30 +267,6 @@ func (o *Gateway) GetNameOk() (*string, bool) {
 // SetName sets field value
 func (o *Gateway) SetName(v string) {
 	o.Name = v
-}
-
-// GetFleetId returns the FleetId field value
-func (o *Gateway) GetFleetId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetFleetIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.FleetId, true
-}
-
-// SetFleetId sets field value
-func (o *Gateway) SetFleetId(v string) {
-	o.FleetId = v
 }
 
 // GetClusterId returns the ClusterId field value
@@ -897,7 +871,6 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
 	toSerialize["database_id"] = o.DatabaseId
@@ -956,7 +929,6 @@ func (o *Gateway) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"fleet_id",
 		"cluster_id",
 		"release_id",
 		"database_id",
