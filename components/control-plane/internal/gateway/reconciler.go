@@ -598,6 +598,37 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 		}
 	}
 
+	// gRPC streams are long-lived; extend the router timeout well beyond the 30s
+	// default so streams are not torn down.
+	routeAnnotations := map[string]interface{}{
+		"haproxy.router.openshift.io/timeout": "3600s",
+	}
+
+	// Per-gateway public certificate for a reencrypt Route. On OpenShift the
+	// router advertises ALPN h2 on an edge/reencrypt Route only when the Route
+	// carries its own certificate; a Route riding the shared default *.apps
+	// wildcard is denied h2 (cross-route connection-coalescing protection), which
+	// breaks gRPC (grpcs://) even though reencrypt already fixes UnknownIssuer.
+	// When GATEWAY_ROUTE_TLS_ISSUER names a cert-manager ClusterIssuer, annotate
+	// the Route so the cert-manager openshift-routes controller mints a
+	// certificate from it and injects it into spec.tls.{certificate,key}.
+	if issuer := routeTLSIssuer(); termination == RouteTerminationReencrypt && issuer != "" {
+		routeAnnotations["cert-manager.io/issuer-name"] = issuer
+		routeAnnotations["cert-manager.io/issuer-kind"] = "ClusterIssuer"
+
+		// reconcileResource replaces the whole Route on every reconcile, and the
+		// spec built here intentionally omits certificate/key. openshift-routes
+		// co-owns this Route (we own termination + destinationCACertificate, it
+		// owns the edge cert), so carry forward any certificate/key it has already
+		// injected -- otherwise each reconcile strips the cert and flaps h2.
+		if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace); cert != "" {
+			tlsConfig["certificate"] = cert
+			if key != "" {
+				tlsConfig["key"] = key
+			}
+		}
+	}
+
 	publishRouteAddress(ctx, opts, namespace, hostname)
 
 	route := &unstructured.Unstructured{
@@ -613,11 +644,7 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 					"app.kubernetes.io/managed-by": "hypershell-control-plane",
 					"hypershell.redhat.io/managed": "true",
 				},
-				"annotations": map[string]interface{}{
-					// gRPC streams are long-lived; extend the router timeout well
-					// beyond the 30s default so streams are not torn down.
-					"haproxy.router.openshift.io/timeout": "3600s",
-				},
+				"annotations": routeAnnotations,
 			},
 			"spec": map[string]interface{}{
 				"host": hostname,
@@ -2078,6 +2105,33 @@ func routeTermination() string {
 		return RouteTerminationReencrypt
 	}
 	return RouteTerminationPassthrough
+}
+
+// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-gateway
+// public certificate for a reencrypt Route, from GATEWAY_ROUTE_TLS_ISSUER. Empty
+// (the default) leaves the Route on the router's shared default *.apps wildcard,
+// which does not advertise ALPN h2 and therefore cannot serve gRPC. Only
+// meaningful with reencrypt termination; reconcileRouteResources ignores it
+// otherwise.
+func routeTLSIssuer() string {
+	return strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TLS_ISSUER"))
+}
+
+// readInjectedRouteCert returns the certificate and key that the cert-manager
+// openshift-routes controller has injected into the existing openshell-gateway
+// Route's spec.tls, or empty strings when the Route or those fields are absent.
+// The route reconcile does a full replace, so reconcileRouteResources carries
+// these forward to avoid clobbering the injected edge certificate (which would
+// flap ALPN h2, and hence gRPC, on every reconcile).
+func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (string, string) {
+	gvr := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, "openshell-gateway", metav1.GetOptions{})
+	if err != nil {
+		return "", ""
+	}
+	cert, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "certificate")
+	key, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "key")
+	return cert, key
 }
 
 // IngressMode resolves how tenant-gateway ingress is provisioned from

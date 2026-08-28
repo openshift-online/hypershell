@@ -411,6 +411,17 @@ must keep aligned with this cluster:
   `destinationCACertificate` is the tenant's `openshell-server-tls` `ca.crt`.
   Reencrypt requires the default `IngressController` to have HTTP/2 enabled (the
   gateway speaks gRPC): `oc annotate ingresscontroller/default -n openshift-ingress-operator ingress.operator.openshift.io/default-enable-http2=true`.
+  HTTP/2 on the IngressController is necessary but **not sufficient**: OpenShift
+  advertises client-facing ALPN `h2` (which gRPC over TLS needs) only on Routes
+  that carry their **own** `spec.tls.certificate` - Routes riding the shared
+  default `*.apps` wildcard are denied `h2` by the router's connection-coalescing
+  protection. To give the gateway Route its own trusted cert, set
+  `GATEWAY_ROUTE_TLS_ISSUER=<cert-manager ClusterIssuer>` (for example
+  `letsencrypt-http01`); the control plane then annotates the reencrypt Route with
+  `cert-manager.io/issuer-name`/`issuer-kind: ClusterIssuer` and preserves the cert
+  the `openshift-routes` controller injects into `spec.tls`. Both the ClusterIssuer
+  and the `openshift-routes` injector must exist on the cluster (see the gitops
+  `cert-manager` bases).
 - `HYPERSHELL_DATABASE_IMAGE=...svc:5000/openshift/postgres:18` - the per-tenant
   gateway database image (nodes can't pull Docker Hub `postgres:18`).
 - Image transformers repointing api-server/controller/postgresql at `.svc:5000/hypershell/*`.

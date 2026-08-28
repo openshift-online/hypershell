@@ -736,6 +736,15 @@ router to negotiate HTTP/2 to the backend. Operators enabling `reencrypt` SHALL 
 before switching tenants to `reencrypt`; without it, gRPC calls over the Route fail
 to negotiate HTTP/2.
 
+Enabling HTTP/2 on the `IngressController` is necessary but NOT sufficient for
+client-facing gRPC: OpenShift advertises ALPN `h2` to external clients only on
+edge/reencrypt Routes that carry their own `spec.tls.certificate`. A `reencrypt`
+Route relying on the router's shared default `*.apps` wildcard is deliberately
+denied `h2` (to prevent client connection coalescing across Routes sharing one
+certificate), so it fixes `UnknownIssuer` but still cannot serve gRPC. Serving
+client HTTP/2 additionally requires a per-gateway Route certificate (see
+§ Per-Gateway Route Certificate for Client-Facing HTTP/2).
+
 ##### Scenario: Termination defaults to passthrough on existing clusters
 
 - GIVEN a `route`-mode cluster where `GATEWAY_ROUTE_TERMINATION` is unset
@@ -747,6 +756,56 @@ to negotiate HTTP/2.
 - GIVEN a `route`-mode cluster switched to `GATEWAY_ROUTE_TERMINATION=reencrypt`
 - WHEN the control plane reads `ca.crt` from the `openshell-server-tls` secret to populate `destinationCACertificate`
 - THEN it SHALL use the existing secret-read permission (the same one the `BackendTLSPolicy` path uses) and SHALL NOT require a new Role or ClusterRole rule
+
+#### Requirement: Per-Gateway Route Certificate for Client-Facing HTTP/2
+
+To serve gRPC to external clients over a `reencrypt` Route, the control plane
+SHALL support a `GATEWAY_ROUTE_TLS_ISSUER` env var naming a cert-manager
+`ClusterIssuer`. When set together with `GATEWAY_ROUTE_TERMINATION=reencrypt`, the
+control plane SHALL annotate the tenant `openshell-gateway` Route with
+`cert-manager.io/issuer-name: <issuer>` and `cert-manager.io/issuer-kind:
+ClusterIssuer`, delegating per-gateway certificate issuance and injection into
+`spec.tls.{certificate,key}` to the cert-manager openshift-routes controller. The
+issued certificate covers the gateway's Route host (`gw-<tenant>.<base-domain>`),
+which makes the router advertise ALPN `h2` to clients. `GATEWAY_ROUTE_TLS_ISSUER`
+SHALL default off; when unset the Route keeps the shared default wildcard (trusted
+TLS, but no client-facing HTTP/2). It SHALL be ignored unless termination is
+`reencrypt` (a passthrough Route has no router-terminated edge certificate).
+
+Because the control plane reconciles the Route with a full replace, it SHALL
+preserve any `spec.tls.certificate`/`spec.tls.key` already injected by the
+openshift-routes controller across reconciles. The two controllers co-own the
+Route - the control plane owns `termination` and `destinationCACertificate`, the
+openshift-routes controller owns the edge certificate - and neither SHALL clobber
+the other's fields (which would otherwise flap ALPN `h2`, and hence gRPC, on every
+reconcile). This introduces no new control-plane RBAC: issuance is performed by
+the openshift-routes controller, not the control plane.
+
+##### Scenario: Issuer set annotates the Route for cert-manager
+
+- GIVEN a `route`-mode cluster with `GATEWAY_ROUTE_TERMINATION=reencrypt` and `GATEWAY_ROUTE_TLS_ISSUER=letsencrypt-http01`
+- WHEN the control plane provisions a tenant gateway
+- THEN the `openshell-gateway` Route SHALL carry annotations `cert-manager.io/issuer-name: letsencrypt-http01` and `cert-manager.io/issuer-kind: ClusterIssuer`
+- AND the control plane SHALL still own `spec.tls.termination: reencrypt` and `destinationCACertificate`
+
+##### Scenario: Issuer unset keeps the shared wildcard
+
+- GIVEN a `route`-mode reencrypt cluster where `GATEWAY_ROUTE_TLS_ISSUER` is unset
+- WHEN the control plane provisions a tenant gateway
+- THEN the Route SHALL carry no `cert-manager.io/*` annotation and SHALL rely on the router's default `*.apps` wildcard (trusted TLS, but the router will not advertise ALPN `h2` to clients)
+
+##### Scenario: Reconcile preserves an injected edge certificate
+
+- GIVEN a `reencrypt` Route whose `spec.tls.certificate`/`key` were injected by the openshift-routes controller
+- WHEN the control plane reconciles the tenant gateway again
+- THEN it SHALL carry the injected `certificate` and `key` forward unchanged
+- AND it SHALL continue to own `termination` and `destinationCACertificate`
+
+##### Scenario: Issuer is ignored without reencrypt
+
+- GIVEN a `route`-mode cluster with `GATEWAY_ROUTE_TLS_ISSUER` set but `GATEWAY_ROUTE_TERMINATION` unset or `passthrough`
+- WHEN the control plane provisions a tenant gateway
+- THEN the Route SHALL NOT carry the cert-manager annotations
 
 #### Requirement: cert-manager Is a Mode-Independent Prerequisite
 

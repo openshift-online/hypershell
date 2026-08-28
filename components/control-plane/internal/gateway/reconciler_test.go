@@ -449,3 +449,132 @@ func TestReconcileRouteResourcesTermination(t *testing.T) {
 		}
 	})
 }
+
+// TestReconcileRouteResourcesTLSIssuer covers the GATEWAY_ROUTE_TLS_ISSUER knob:
+// with reencrypt it annotates the Route for the cert-manager openshift-routes
+// controller and preserves any edge certificate that controller has injected; it
+// is ignored for passthrough and when unset.
+func TestReconcileRouteResourcesTLSIssuer(t *testing.T) {
+	routesGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+	nsConfig := NamespaceConfig{
+		Name: "openshell-test",
+		Gateway: GatewayConfig{
+			Route: RouteConfig{Enabled: true, Host: "gw-openshell-test.apps.example.com"},
+		},
+	}
+	const caPEM = "-----BEGIN CERTIFICATE-----\ntest-openshell-ca\n-----END CERTIFICATE-----\n"
+
+	serverTLSSecret := func() *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: nsConfig.Name},
+			Data:       map[string][]byte{"ca.crt": []byte(caPEM)},
+		}
+	}
+	getRoute := func(t *testing.T, dc *dynamicfake.FakeDynamicClient) *unstructured.Unstructured {
+		t.Helper()
+		obj, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get Route: %v", err)
+		}
+		return obj
+	}
+
+	t.Run("reencrypt + issuer annotates the Route", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset(serverTLSSecret())
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		ann, _, _ := unstructured.NestedStringMap(getRoute(t, dc).Object, "metadata", "annotations")
+		if ann["cert-manager.io/issuer-name"] != "letsencrypt-http01" {
+			t.Errorf("issuer-name annotation = %q, want letsencrypt-http01", ann["cert-manager.io/issuer-name"])
+		}
+		if ann["cert-manager.io/issuer-kind"] != "ClusterIssuer" {
+			t.Errorf("issuer-kind annotation = %q, want ClusterIssuer", ann["cert-manager.io/issuer-kind"])
+		}
+		if ann["haproxy.router.openshift.io/timeout"] != "3600s" {
+			t.Errorf("haproxy timeout annotation lost: %q", ann["haproxy.router.openshift.io/timeout"])
+		}
+	})
+
+	t.Run("passthrough ignores the issuer", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01") // no reencrypt
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		ann, _, _ := unstructured.NestedStringMap(getRoute(t, dc).Object, "metadata", "annotations")
+		if _, ok := ann["cert-manager.io/issuer-name"]; ok {
+			t.Errorf("passthrough Route must not carry the cert-manager issuer annotation")
+		}
+	})
+
+	t.Run("reencrypt without issuer carries no cert-manager annotation", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset(serverTLSSecret())
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		ann, _, _ := unstructured.NestedStringMap(getRoute(t, dc).Object, "metadata", "annotations")
+		if _, ok := ann["cert-manager.io/issuer-name"]; ok {
+			t.Errorf("Route must not carry the cert-manager annotation when the issuer is unset")
+		}
+	})
+
+	t.Run("reconcile preserves an injected edge certificate", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
+		const injectedCert = "-----BEGIN CERTIFICATE-----\ninjected-by-openshift-routes\n-----END CERTIFICATE-----\n"
+		const injectedKey = "-----BEGIN PRIVATE KEY-----\ninjected-key\n-----END PRIVATE KEY-----\n"
+
+		// A Route already reconciled once and since patched by openshift-routes to
+		// carry its issued edge certificate/key.
+		seedRoute := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "route.openshift.io/v1",
+			"kind":       "Route",
+			"metadata":   map[string]interface{}{"name": "openshell-gateway", "namespace": nsConfig.Name},
+			"spec": map[string]interface{}{
+				"host": nsConfig.Gateway.Route.Host,
+				"tls": map[string]interface{}{
+					"termination": "reencrypt",
+					"certificate": injectedCert,
+					"key":         injectedKey,
+				},
+			},
+		}}
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(), seedRoute)
+		cs := k8sfake.NewSimpleClientset(serverTLSSecret())
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		tls, _, _ := unstructured.NestedMap(getRoute(t, dc).Object, "spec", "tls")
+		if tls["certificate"] != injectedCert {
+			t.Errorf("injected certificate not preserved: got %q", tls["certificate"])
+		}
+		if tls["key"] != injectedKey {
+			t.Errorf("injected key not preserved: got %q", tls["key"])
+		}
+		// The reconcile still owns termination + destinationCACertificate.
+		if tls["termination"] != "reencrypt" {
+			t.Errorf("termination = %v, want reencrypt", tls["termination"])
+		}
+		if tls["destinationCACertificate"] != caPEM {
+			t.Errorf("destinationCACertificate = %q, want the secret ca.crt", tls["destinationCACertificate"])
+		}
+	})
+}
