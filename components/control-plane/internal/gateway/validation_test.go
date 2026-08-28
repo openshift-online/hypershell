@@ -67,9 +67,12 @@ func TestValidateOIDCConfig(t *testing.T) {
 		{name: "no issuer skips validation", oidc: OIDCConfig{}, wantErr: false},
 		{name: "issuer without roles is valid", oidc: OIDCConfig{Issuer: "https://kc/realm"}, wantErr: false},
 		{
-			name:    "roles mapped without roles_claim is rejected (P3-1 dead-on-arrival)",
+			// A BYO config that sets roles but omits roles_claim delegates to the
+			// gateway's own default (groups); validation must not reject it on the
+			// reconcile path, or pre-existing gateways would fail to reconcile.
+			name:    "roles mapped without roles_claim delegates to gateway default",
 			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", UserRole: "user"},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "roles mapped with top-level roles_claim is valid",

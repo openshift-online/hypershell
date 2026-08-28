@@ -173,17 +173,14 @@ func ValidateOIDCConfig(oidc OIDCConfig) error {
 		return fmt.Errorf("both admin_role and user_role must be set, or both must be empty")
 	}
 
-	rolesMapped := oidc.AdminRole != "" || oidc.UserRole != ""
-
-	// A well-formed roles_claim is required whenever role mapping is configured:
-	// without a claim to read roles from, no token can ever map to admin/user and
-	// the gateway is dead on arrival (P3-1). The claim path itself must be a valid
-	// JWT claim reference so it can locate the roles in the token.
-	if rolesMapped && oidc.RolesClaim == "" {
-		return fmt.Errorf("roles_claim is required when admin_role/user_role are set; " +
-			"set it to the claim the realm emits (e.g. \"roles\", \"realm_access.roles\", or \"hypershell.roles\")")
-	}
-
+	// Format-validate roles_claim only when it is set. A blank roles_claim is left
+	// to the gateway's own default (groups), so a BYO OIDC config that sets
+	// admin_role/user_role and omits roles_claim keeps delegating to that default
+	// rather than being rejected. Validation runs on the reconcile path
+	// (ReconcileGateway), so hard-failing a pre-existing config here would break
+	// its reconciliation with no migration. A claim the realm never emits still
+	// can't be caught here without the token (P3-1); this only rejects a
+	// syntactically invalid claim path.
 	if oidc.RolesClaim != "" && !claimPathRegex.MatchString(oidc.RolesClaim) {
 		return fmt.Errorf("invalid roles_claim %q: must be a dot-separated JWT claim path (e.g. \"roles\" or \"realm_access.roles\")", oidc.RolesClaim)
 	}
