@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -158,9 +159,8 @@ func TestConsoleDeployment_OpenShiftOverrideStripsFsGroup(t *testing.T) {
 	}
 }
 
-// consoleRouteWithConditions builds a console HTTPRoute unstructured object whose
-// single parent reports the given Accepted/ResolvedRefs condition statuses.
-func consoleRouteWithConditions(namespace string, conditions []interface{}) *unstructured.Unstructured {
+// consoleHTTPRouteWithConditions builds a console HTTPRoute with one parent.
+func consoleHTTPRouteWithConditions(namespace string, conditions []interface{}) *unstructured.Unstructured {
 	route := &unstructured.Unstructured{}
 	route.SetGroupVersionKind(consoleHTTPRouteGVR.GroupVersion().WithKind("HTTPRoute"))
 	route.SetNamespace(namespace)
@@ -176,6 +176,23 @@ func consoleRouteWithConditions(namespace string, conditions []interface{}) *uns
 	return route
 }
 
+// consoleOpenShiftRouteWithConditions builds a console Route with one router.
+func consoleOpenShiftRouteWithConditions(namespace string, conditions []interface{}) *unstructured.Unstructured {
+	route := &unstructured.Unstructured{}
+	route.SetGroupVersionKind(consoleOpenShiftRouteGVR.GroupVersion().WithKind("Route"))
+	route.SetNamespace(namespace)
+	route.SetName(consoleName)
+	if conditions != nil {
+		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
+			map[string]interface{}{
+				"host":       "console.example.com",
+				"conditions": conditions,
+			},
+		}, "status", "ingress")
+	}
+	return route
+}
+
 func routeCondition(condType, status, reason string) map[string]interface{} {
 	return map[string]interface{}{
 		"type":   condType,
@@ -187,7 +204,8 @@ func routeCondition(condType, status, reason string) map[string]interface{} {
 func newConsoleRouteDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	scheme := runtime.NewScheme()
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		consoleHTTPRouteGVR: "HTTPRouteList",
+		consoleHTTPRouteGVR:      "HTTPRouteList",
+		consoleOpenShiftRouteGVR: "RouteList",
 	}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
 }
@@ -196,18 +214,18 @@ func newConsoleRouteDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynam
 // missing or misnamed HTTP listener on the shared Gateway). Publishing
 // console_address then yields a dead "Open console" link, so readiness must
 // require the route to be Accepted AND its backend refs resolved.
-func TestConsoleRouteReady(t *testing.T) {
+func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 	ctx := context.Background()
 	const ns = "openshell-abc"
 
 	t.Run("accepted and resolved is ready", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleRouteWithConditions(ns, []interface{}{
+		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, []interface{}{
 			routeCondition("Accepted", "True", "Accepted"),
 			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
 		}))
-		ready, reason, err := ConsoleRouteReady(ctx, client, ns)
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
 		if err != nil {
-			t.Fatalf("ConsoleRouteReady: %v", err)
+			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
 		if !ready {
 			t.Errorf("expected ready; reason=%q", reason)
@@ -215,13 +233,13 @@ func TestConsoleRouteReady(t *testing.T) {
 	})
 
 	t.Run("rejected listener is not ready and reports reason", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleRouteWithConditions(ns, []interface{}{
+		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, []interface{}{
 			routeCondition("Accepted", "False", "NoMatchingListenerHostname"),
 			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
 		}))
-		ready, reason, err := ConsoleRouteReady(ctx, client, ns)
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
 		if err != nil {
-			t.Fatalf("ConsoleRouteReady: %v", err)
+			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
 		if ready {
 			t.Error("expected not ready when the route is not Accepted")
@@ -232,13 +250,13 @@ func TestConsoleRouteReady(t *testing.T) {
 	})
 
 	t.Run("unresolved backend refs is not ready", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleRouteWithConditions(ns, []interface{}{
+		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, []interface{}{
 			routeCondition("Accepted", "True", "Accepted"),
 			routeCondition("ResolvedRefs", "False", "BackendNotFound"),
 		}))
-		ready, reason, err := ConsoleRouteReady(ctx, client, ns)
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
 		if err != nil {
-			t.Fatalf("ConsoleRouteReady: %v", err)
+			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
 		if ready {
 			t.Error("expected not ready when backend refs are unresolved")
@@ -249,10 +267,10 @@ func TestConsoleRouteReady(t *testing.T) {
 	})
 
 	t.Run("no parent status yet is not ready", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleRouteWithConditions(ns, nil))
-		ready, _, err := ConsoleRouteReady(ctx, client, ns)
+		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, nil))
+		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
 		if err != nil {
-			t.Fatalf("ConsoleRouteReady: %v", err)
+			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
 		if ready {
 			t.Error("expected not ready when the route has no parent status")
@@ -261,9 +279,9 @@ func TestConsoleRouteReady(t *testing.T) {
 
 	t.Run("missing route is not ready without error", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient()
-		ready, reason, err := ConsoleRouteReady(ctx, client, ns)
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
 		if err != nil {
-			t.Fatalf("ConsoleRouteReady on missing route should not error: %v", err)
+			t.Fatalf("ConsoleExposureReady on missing route should not error: %v", err)
 		}
 		if ready {
 			t.Error("expected not ready when the console HTTPRoute is absent")
@@ -272,6 +290,221 @@ func TestConsoleRouteReady(t *testing.T) {
 			t.Error("expected a reason describing the missing route")
 		}
 	})
+}
+
+func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
+	ctx := context.Background()
+	const ns = "openshell-abc"
+
+	t.Run("admitted route is ready", func(t *testing.T) {
+		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
+			routeCondition("Admitted", "True", "RouteAdmitted"),
+		}))
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if !ready {
+			t.Errorf("expected ready; reason=%q", reason)
+		}
+	})
+
+	t.Run("rejected route reports the admission reason", func(t *testing.T) {
+		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
+			routeCondition("Admitted", "False", "HostAlreadyClaimed"),
+		}))
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if ready {
+			t.Fatal("expected a rejected Route to be not ready")
+		}
+		if !strings.Contains(reason, "HostAlreadyClaimed") {
+			t.Errorf("reason = %q, want the admission reason", reason)
+		}
+	})
+
+	t.Run("one admitted router makes the route ready", func(t *testing.T) {
+		route := consoleOpenShiftRouteWithConditions(ns, []interface{}{
+			routeCondition("Admitted", "False", "HostAlreadyClaimed"),
+		})
+		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
+			map[string]interface{}{
+				"host": "console.example.com",
+				"conditions": []interface{}{
+					routeCondition("Admitted", "False", "HostAlreadyClaimed"),
+				},
+			},
+			map[string]interface{}{
+				"host": "console.example.com",
+				"conditions": []interface{}{
+					routeCondition("Admitted", "True", "RouteAdmitted"),
+				},
+			},
+		}, "status", "ingress")
+
+		client := newConsoleRouteDynamicClient(route)
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if !ready {
+			t.Errorf("expected ready; reason=%q", reason)
+		}
+	})
+
+	t.Run("a generic rejection keeps an earlier specific reason", func(t *testing.T) {
+		route := consoleOpenShiftRouteWithConditions(ns, nil)
+		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
+			map[string]interface{}{
+				"conditions": []interface{}{
+					routeCondition("Admitted", "False", "HostAlreadyClaimed"),
+				},
+			},
+			map[string]interface{}{
+				"conditions": []interface{}{
+					routeCondition("Admitted", "False", ""),
+				},
+			},
+		}, "status", "ingress")
+
+		client := newConsoleRouteDynamicClient(route)
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if ready {
+			t.Fatal("expected a rejected Route to be not ready")
+		}
+		if !strings.Contains(reason, "HostAlreadyClaimed") {
+			t.Errorf("reason = %q, want the specific admission reason", reason)
+		}
+	})
+
+	t.Run("route without router status is not ready", func(t *testing.T) {
+		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, nil))
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if ready || reason == "" {
+			t.Errorf("ready = %v, reason = %q; want not ready with a reason", ready, reason)
+		}
+	})
+
+	t.Run("missing route is not ready", func(t *testing.T) {
+		client := newConsoleRouteDynamicClient()
+		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if ready || reason == "" {
+			t.Errorf("ready = %v, reason = %q; want not ready with a reason", ready, reason)
+		}
+	})
+}
+
+func TestBuildConsoleOpenShiftRoute(t *testing.T) {
+	const (
+		namespace = "openshell-abc"
+		host      = "console-openshell-abc.apps.example.com"
+	)
+	route := buildConsoleOpenShiftRoute(namespace, host)
+
+	if route.GetAPIVersion() != "route.openshift.io/v1" || route.GetKind() != "Route" {
+		t.Errorf("route GVK = %s %s, want route.openshift.io/v1 Route", route.GetAPIVersion(), route.GetKind())
+	}
+	if route.GetName() != consoleName || route.GetNamespace() != namespace {
+		t.Errorf("route identity = %s/%s, want %s/%s", route.GetNamespace(), route.GetName(), namespace, consoleName)
+	}
+	if got := route.GetLabels()["app.kubernetes.io/component"]; got != "console" {
+		t.Errorf("component label = %q, want console", got)
+	}
+
+	checks := []struct {
+		name string
+		path []string
+		want string
+	}{
+		{name: "host", path: []string{"spec", "host"}, want: host},
+		{name: "service kind", path: []string{"spec", "to", "kind"}, want: "Service"},
+		{name: "service name", path: []string{"spec", "to", "name"}, want: consoleName},
+		{name: "target port", path: []string{"spec", "port", "targetPort"}, want: "http"},
+		{name: "TLS termination", path: []string{"spec", "tls", "termination"}, want: "edge"},
+		{name: "insecure policy", path: []string{"spec", "tls", "insecureEdgeTerminationPolicy"}, want: "Redirect"},
+	}
+	for _, check := range checks {
+		got, found, err := unstructured.NestedString(route.Object, check.path...)
+		if err != nil || !found || got != check.want {
+			t.Errorf("%s = %q, found=%v, err=%v; want %q", check.name, got, found, err, check.want)
+		}
+	}
+}
+
+func TestReconcileConsoleExposureSelectsOneMode(t *testing.T) {
+	const (
+		namespace = "openshell-abc"
+		host      = "console-openshell-abc.apps.example.com"
+	)
+
+	tests := []struct {
+		name        string
+		mode        string
+		desiredGVR  schema.GroupVersionResource
+		inactiveGVR schema.GroupVersionResource
+		inactive    runtime.Object
+	}{
+		{
+			name:        "Gateway API mode",
+			mode:        IngressModeGatewayAPI,
+			desiredGVR:  consoleHTTPRouteGVR,
+			inactiveGVR: consoleOpenShiftRouteGVR,
+			inactive:    buildConsoleOpenShiftRoute(namespace, host),
+		},
+		{
+			name:        "OpenShift Route mode",
+			mode:        IngressModeRoute,
+			desiredGVR:  consoleOpenShiftRouteGVR,
+			inactiveGVR: consoleHTTPRouteGVR,
+			inactive:    buildConsoleHTTPRoute(namespace, host),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newConsoleRouteDynamicClient(test.inactive)
+			for pass := 1; pass <= 2; pass++ {
+				if err := reconcileConsoleExposure(context.Background(), client, namespace, host, test.mode); err != nil {
+					t.Fatalf("reconcileConsoleExposure pass %d: %v", pass, err)
+				}
+			}
+
+			if _, err := client.Resource(test.desiredGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); err != nil {
+				t.Errorf("selected exposure is absent: %v", err)
+			}
+			if _, err := client.Resource(test.inactiveGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+				t.Errorf("inactive exposure still exists: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteConsoleExposuresDeletesBothKinds(t *testing.T) {
+	const namespace = "openshell-abc"
+	client := newConsoleRouteDynamicClient(
+		buildConsoleHTTPRoute(namespace, "console.example.com"),
+		buildConsoleOpenShiftRoute(namespace, "console.example.com"),
+	)
+
+	if err := deleteConsoleExposures(context.Background(), client, namespace); err != nil {
+		t.Fatalf("deleteConsoleExposures: %v", err)
+	}
+	for _, gvr := range []schema.GroupVersionResource{consoleHTTPRouteGVR, consoleOpenShiftRouteGVR} {
+		if _, err := client.Resource(gvr).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+			t.Errorf("%s exposure still exists: %v", gvr.Resource, err)
+		}
+	}
 }
 
 // In production the issuer is publicly trusted and the trusted-CA ConfigMap is
@@ -390,260 +623,5 @@ func TestReconcileConsoleSecret_PreservesCookieOnUpdate(t *testing.T) {
 	}
 	if v := got.StringData["client-secret"]; v != "client-v2" {
 		t.Errorf("client-secret = %q, want refreshed %q", v, "client-v2")
-	}
-}
-
-// newConsoleIngressDynamicClient returns a fake dynamic client that knows both
-// the console HTTPRoute (gateway-api mode) and the console OpenShift Route (route
-// mode) list kinds, so reconcileConsoleIngress can create either.
-func newConsoleIngressDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
-	scheme := runtime.NewScheme()
-	gvrToListKind := map[schema.GroupVersionResource]string{
-		consoleHTTPRouteGVR: "HTTPRouteList",
-		consoleRouteGVR:     "RouteList",
-	}
-	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
-}
-
-// P0-1/P0-2: the console ingress must follow the effective ingress mode. On a
-// route-mode cluster GATEWAY_API_GATEWAY_NAME is unset, so emitting the
-// gateway-api HTTPRoute unconditionally produced an object with an empty
-// parentRef.name that the API server rejected and the self-heal loop retried
-// forever. reconcileConsoleIngress now emits an OpenShift Route in route mode,
-// an HTTPRoute (guarded against the empty name) in gateway-api mode, and nothing
-// in none mode.
-func TestReconcileConsoleIngress(t *testing.T) {
-	ctx := context.Background()
-	const ns = "openshell-abc"
-	const host = "console-openshell-abc.apps.example.com"
-
-	getUnstructured := func(t *testing.T, client *dynamicfake.FakeDynamicClient, gvr schema.GroupVersionResource) (*unstructured.Unstructured, error) {
-		t.Helper()
-		return client.Resource(gvr).Namespace(ns).Get(ctx, consoleName, metav1.GetOptions{})
-	}
-
-	t.Run("route mode creates an OpenShift Route, not an HTTPRoute", func(t *testing.T) {
-		client := newConsoleIngressDynamicClient()
-		if err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeRoute); err != nil {
-			t.Fatalf("reconcileConsoleIngress(route): %v", err)
-		}
-		route, err := getUnstructured(t, client, consoleRouteGVR)
-		if err != nil {
-			t.Fatalf("expected a console Route to be created: %v", err)
-		}
-		if h, _, _ := unstructured.NestedString(route.Object, "spec", "host"); h != host {
-			t.Errorf("Route host = %q, want %q", h, host)
-		}
-		if term, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "termination"); term != "edge" {
-			t.Errorf("Route tls.termination = %q, want edge (oauth2-proxy serves plain HTTP)", term)
-		}
-		if tp, _, _ := unstructured.NestedString(route.Object, "spec", "port", "targetPort"); tp != "http" {
-			t.Errorf("Route port.targetPort = %q, want http", tp)
-		}
-		if _, err := getUnstructured(t, client, consoleHTTPRouteGVR); err == nil {
-			t.Error("route mode must NOT create a gateway-api HTTPRoute")
-		}
-	})
-
-	t.Run("gateway-api mode with the gateway name set creates a valid HTTPRoute", func(t *testing.T) {
-		t.Setenv("GATEWAY_API_GATEWAY_NAME", "shared-gw")
-		client := newConsoleIngressDynamicClient()
-		if err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeGatewayAPI); err != nil {
-			t.Fatalf("reconcileConsoleIngress(gateway-api): %v", err)
-		}
-		route, err := getUnstructured(t, client, consoleHTTPRouteGVR)
-		if err != nil {
-			t.Fatalf("expected a console HTTPRoute to be created: %v", err)
-		}
-		parents, _, _ := unstructured.NestedSlice(route.Object, "spec", "parentRefs")
-		if len(parents) != 1 {
-			t.Fatalf("expected 1 parentRef, got %d", len(parents))
-		}
-		name, _, _ := unstructured.NestedString(parents[0].(map[string]interface{}), "name")
-		if name != "shared-gw" {
-			t.Errorf("parentRef.name = %q, want the configured gateway name", name)
-		}
-	})
-
-	// P0-2: fail fast instead of submitting an HTTPRoute with parentRef.name="".
-	t.Run("gateway-api mode with the gateway name unset fails fast and creates nothing", func(t *testing.T) {
-		t.Setenv("GATEWAY_API_GATEWAY_NAME", "")
-		client := newConsoleIngressDynamicClient()
-		err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeGatewayAPI)
-		if err == nil {
-			t.Fatal("expected an error when GATEWAY_API_GATEWAY_NAME is unset in gateway-api mode")
-		}
-		if !strings.Contains(err.Error(), "GATEWAY_API_GATEWAY_NAME") {
-			t.Errorf("error = %q, want it to name the missing variable", err)
-		}
-		if _, getErr := getUnstructured(t, client, consoleHTTPRouteGVR); getErr == nil {
-			t.Error("no HTTPRoute must be created when the required gateway name is missing")
-		}
-	})
-
-	t.Run("none mode creates neither ingress object", func(t *testing.T) {
-		client := newConsoleIngressDynamicClient()
-		if err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeNone); err != nil {
-			t.Fatalf("reconcileConsoleIngress(none): %v", err)
-		}
-		if _, err := getUnstructured(t, client, consoleRouteGVR); err == nil {
-			t.Error("none mode must not create a Route")
-		}
-		if _, err := getUnstructured(t, client, consoleHTTPRouteGVR); err == nil {
-			t.Error("none mode must not create an HTTPRoute")
-		}
-	})
-}
-
-// consoleOpenShiftRouteWithConditions builds a console OpenShift Route whose
-// single status.ingress entry reports the given conditions.
-func consoleOpenShiftRouteWithConditions(namespace string, conditions []interface{}) *unstructured.Unstructured {
-	route := &unstructured.Unstructured{}
-	route.SetGroupVersionKind(consoleRouteGVR.GroupVersion().WithKind("Route"))
-	route.SetNamespace(namespace)
-	route.SetName(consoleName)
-	if conditions != nil {
-		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
-			map[string]interface{}{
-				"host":       "console.example.com",
-				"conditions": conditions,
-			},
-		}, "status", "ingress")
-	}
-	return route
-}
-
-// A console Deployment can be Ready while its OpenShift Route is un-admitted
-// (e.g. a host collision with another Route). Publishing console_address then
-// yields a dead link, so route-mode readiness must require Admitted=True.
-func TestConsoleOpenShiftRouteReady(t *testing.T) {
-	ctx := context.Background()
-	const ns = "openshell-abc"
-
-	t.Run("admitted is ready", func(t *testing.T) {
-		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
-			routeCondition("Admitted", "True", "Admitted"),
-		}))
-		ready, reason, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
-		if err != nil {
-			t.Fatalf("ConsoleOpenShiftRouteReady: %v", err)
-		}
-		if !ready {
-			t.Errorf("expected ready; reason=%q", reason)
-		}
-	})
-
-	t.Run("un-admitted is not ready and reports reason", func(t *testing.T) {
-		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
-			routeCondition("Admitted", "False", "HostAlreadyClaimed"),
-		}))
-		ready, reason, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
-		if err != nil {
-			t.Fatalf("ConsoleOpenShiftRouteReady: %v", err)
-		}
-		if ready {
-			t.Error("expected not ready when the Route is not Admitted")
-		}
-		if !strings.Contains(reason, "HostAlreadyClaimed") {
-			t.Errorf("reason = %q, want it to carry the rejection reason", reason)
-		}
-	})
-
-	t.Run("no ingress status yet is not ready", func(t *testing.T) {
-		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, nil))
-		ready, _, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
-		if err != nil {
-			t.Fatalf("ConsoleOpenShiftRouteReady: %v", err)
-		}
-		if ready {
-			t.Error("expected not ready when the Route has no ingress status")
-		}
-	})
-
-	t.Run("missing route is not ready without error", func(t *testing.T) {
-		client := newConsoleIngressDynamicClient()
-		ready, reason, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
-		if err != nil {
-			t.Fatalf("ConsoleOpenShiftRouteReady on missing route should not error: %v", err)
-		}
-		if ready {
-			t.Error("expected not ready when the console Route is absent")
-		}
-		if reason == "" {
-			t.Error("expected a reason describing the missing route")
-		}
-	})
-}
-
-// ConsoleExposureReady must dispatch to the readiness check matching the ingress
-// mode so a route-mode console is not gated on a non-existent HTTPRoute (and vice
-// versa), and treats "none" mode as ready (no managed ingress to gate on).
-func TestConsoleExposureReady_DispatchesByMode(t *testing.T) {
-	ctx := context.Background()
-	const ns = "openshell-abc"
-
-	t.Run("route mode reads the OpenShift Route", func(t *testing.T) {
-		// Only the OpenShift Route exists and is admitted; the HTTPRoute is absent.
-		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
-			routeCondition("Admitted", "True", "Admitted"),
-		}))
-		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady(route): %v", err)
-		}
-		if !ready {
-			t.Error("route mode should report ready from the admitted OpenShift Route")
-		}
-	})
-
-	t.Run("gateway-api mode reads the HTTPRoute", func(t *testing.T) {
-		// Only the HTTPRoute exists and is accepted; the OpenShift Route is absent.
-		client := newConsoleIngressDynamicClient(consoleRouteWithConditions(ns, []interface{}{
-			routeCondition("Accepted", "True", "Accepted"),
-			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
-		}))
-		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady(gateway-api): %v", err)
-		}
-		if !ready {
-			t.Error("gateway-api mode should report ready from the accepted HTTPRoute")
-		}
-	})
-
-	t.Run("none mode is ready with no managed ingress", func(t *testing.T) {
-		client := newConsoleIngressDynamicClient()
-		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeNone)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady(none): %v", err)
-		}
-		if !ready {
-			t.Error("none mode has no managed console ingress and should report ready")
-		}
-	})
-}
-
-// buildConsoleRoute must terminate TLS at the router (edge) -- the oauth2-proxy
-// sidecar serves plain HTTP -- and redirect cleartext callers so the OAuth
-// cookie is never sent over HTTP.
-func TestBuildConsoleRoute(t *testing.T) {
-	const ns = "openshell-abc"
-	const host = "console-openshell-abc.apps.example.com"
-	route := buildConsoleRoute(ns, host)
-
-	if kind := route.GetKind(); kind != "Route" {
-		t.Errorf("kind = %q, want Route", kind)
-	}
-	if got, _, _ := unstructured.NestedString(route.Object, "spec", "host"); got != host {
-		t.Errorf("host = %q, want %q", got, host)
-	}
-	if term, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "termination"); term != "edge" {
-		t.Errorf("tls.termination = %q, want edge", term)
-	}
-	if pol, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "insecureEdgeTerminationPolicy"); pol != "Redirect" {
-		t.Errorf("insecureEdgeTerminationPolicy = %q, want Redirect", pol)
-	}
-	if toName, _, _ := unstructured.NestedString(route.Object, "spec", "to", "name"); toName != consoleName {
-		t.Errorf("to.name = %q, want %q", toName, consoleName)
 	}
 }

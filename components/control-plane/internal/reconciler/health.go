@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -35,17 +36,9 @@ const defaultListGatewaysPageSize = 100
 // routeVerifyInterval is the minimum time between residual route/console
 // absence re-checks for a settled (torn-down, addressless) gateway.
 //
-// Verification is deliberately NOT bounded to a fixed window after teardown.
-// A stale in-flight provisioning pass creates the GRPCRoute before its
-// TLS-secret wait and fail-closed route-intent re-check, so elapsed wall-clock
-// time is not proof that every stale writer has drained -- a late pass can
-// resurrect resources after any wall-clock window would have expired. Instead
-// the health loop keeps re-verifying absence indefinitely, but at most once per
-// interval, so a settled non-routed gateway costs one cheap absence probe per
-// interval (not per tick). That bounds steady-state Keycloak/apiserver traffic
-// at fleet scale while never trusting a wall-clock guess that resources stay
-// gone. Comfortably larger than the provisioning path's 60s TLS wait plus
-// reconcile time, so the steady-state cost is low.
+// Verification does not stop after a fixed time. A stale provisioning pass can
+// create resources after cleanup. The health loop continues to verify absence,
+// but it does this at most once per interval. This limit reduces API traffic.
 const routeVerifyInterval = 5 * time.Minute
 
 // GatewayHealthReconciler continuously observes the health of provisioned
@@ -65,6 +58,7 @@ type GatewayHealthReconciler struct {
 	keycloakConfig      *gateway.KeycloakConfig
 	isOpenShift         bool
 	hasGatewayAPI       bool
+	ingressMode         string
 	skipNetworkPolicies bool
 
 	// consoleClientChecker is a single, long-lived Keycloak client reused across
@@ -117,8 +111,11 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 			keycloakConfig.ClientSecret,
 		)
 	}
-	// Mirror GatewayReconciler's environment detection so the health loop's
-	// console self-heal produces the same resources the provisioning path would.
+	// Use the same cluster capabilities and mode resolver as the provisioning
+	// reconciler. This keeps console repair and cleanup on the selected ingress.
+	isOpenShift := gateway.DetectOpenShift(clientset)
+	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
+	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 	return &GatewayHealthReconciler{
 		clientset:            clientset,
 		dynamicClient:        dynamicClient,
@@ -128,8 +125,9 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		routeReadyTimeout:    routeReadyTimeout(),
 		keycloakConfig:       keycloakConfig,
 		consoleClientChecker: consoleClientChecker,
-		isOpenShift:          gateway.DetectOpenShift(clientset),
-		hasGatewayAPI:        gateway.DetectGatewayAPI(clientset),
+		isOpenShift:          isOpenShift,
+		hasGatewayAPI:        hasGatewayAPI,
+		ingressMode:          ingressMode,
 		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
 		now:                  time.Now,
 		routeNotReadySince:   make(map[string]time.Time),
@@ -152,7 +150,7 @@ func routeReadyTimeout() time.Duration {
 
 // Run drives the health reconciliation loop until the context is cancelled.
 func (h *GatewayHealthReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO gateway health reconciler started (interval=%s routeReadyTimeout=%s)", h.interval, h.routeReadyTimeout)
+	log.Printf("INFO gateway health reconciler started (interval=%s routeReadyTimeout=%s ingressMode=%s)", h.interval, h.routeReadyTimeout, h.ingressMode)
 	ticker := time.NewTicker(h.interval)
 	defer ticker.Stop()
 
@@ -233,7 +231,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// Keep the console_address in sync with the console pod's readiness so the web
 	// UI's console button only appears once the console can serve (and disappears
 	// if it later goes unready). Independent of the gateway workload's own phase.
-	consoleServable := syncConsoleAddress(ctx, h.clientset, h.dynamicClient, client, gatewayID, gw, h.exposure != nil, gateway.IngressMode(h.hasGatewayAPI, h.isOpenShift))
+	consoleServable := syncConsoleAddress(ctx, h.clientset, h.dynamicClient, client, gatewayID, gw, h.ingressMode)
 
 	// Self-heal the console. A console failure is deliberately non-fatal to the
 	// gateway, so once the gateway reaches Running the provisioning path never runs
@@ -246,16 +244,9 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		h.selfHealConsole(ctx, gatewayID, gw)
 	}
 
-	// Reconcile the route's desired absence. A gateway whose route was removed
-	// keeps its route resources (GRPCRoute, BackendTLSPolicy, backend-CA
-	// ConfigMap, router NetworkPolicy) and its console (Deployment, Service,
-	// HTTPRoute, Keycloak client), plus the published route_address and
-	// console_address, until torn down. syncConsoleAddress and selfHealConsole
-	// both no-op for a non-routed gateway, and the provisioning path never runs
-	// again for a gateway the health loop owns (phase gate), so this is the only
-	// place an un-routed gateway's route and console are cleaned up. Clearing the
-	// torn-down marker while routed lets a later un-routing trigger a fresh
-	// teardown.
+	// Remove ingress and console resources when the gateway route is disabled.
+	// The health loop owns this work after the provisioning phase gate closes.
+	// Clear the cleanup marker when the route is enabled again.
 	if isRoutedGateway(gw) {
 		h.clearRouteTornDown(gatewayID)
 	} else {
@@ -319,11 +310,11 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 // selfHealConsole re-reconciles the per-gateway console when it is observed not
 // servable, so a console that failed to provision or has since drifted is
 // recreated without a gateway spec change. It is a no-op unless the gateway is
-// routed (its console lifecycle follows the route) and Keycloak is configured.
+// routed, an ingress mode is selected, and Keycloak is configured.
 // The reconcile is idempotent and its failures are logged, never propagated:
 // they must not perturb the gateway's own health phase.
 func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID string, gw *pb.Gateway) {
-	if h.exposure == nil || !isRoutedGateway(gw) || h.keycloakConfig == nil {
+	if h.ingressMode == gateway.IngressModeNone || !isRoutedGateway(gw) || h.keycloakConfig == nil {
 		return
 	}
 	namespace, err := gatewayNamespace(gw)
@@ -346,21 +337,10 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 	log.Printf("INFO console self-heal reconciled in %s", namespace)
 }
 
-// teardownRoute reconciles the desired absence of the route -- and the console
-// that follows it -- for a gateway the health loop owns that is no longer routed,
-// mirroring the provisioning path's route-disabled branch (which the phase gate
-// prevents from running again once the gateway is Running). It removes the
-// GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap, router NetworkPolicy and all
-// console resources + Keycloak client, and clears the published route_address and
-// console_address.
-//
-// It keeps retrying every tick until DeleteGatewayAPIResources reports a clean
-// pass (no residual resources, no address left to clear), then records the
-// gateway as torn down so subsequent ticks add no delete or Keycloak traffic. A
-// teardown that fails part-way is deliberately left unmarked so the next tick
-// retries -- teardown must converge on full absence, not stop on partial cleanup.
-// Failures are logged, never propagated: route teardown must not perturb the
-// gateway's own health phase.
+// teardownRoute removes the exposure for the selected ingress mode and removes
+// all console resources. It also clears the published addresses. It retries on
+// each health tick until cleanup succeeds. A cleanup error does not change the
+// gateway health phase.
 func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway) {
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
@@ -376,12 +356,8 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 	// actually absent; if any reappeared -- or absence cannot be confirmed --
 	// drop the marker and re-run teardown so cleanup converges on real absence.
 	if h.teardownSettled(gatewayID, gw) {
-		// Re-verify absence at a low, indefinite cadence rather than only within a
-		// wall-clock window after teardown: a stale provisioning pass can create the
-		// GRPCRoute before its TLS wait and fail-closed route-intent re-check, so no
-		// elapsed time proves the resurrection race has drained. Between verifications
-		// trust the completion marker so a settled non-routed gateway costs at most one
-		// probe per routeVerifyInterval -- not one per tick -- at fleet scale.
+		// Continue to verify absence at a low rate. A stale provisioning pass can
+		// recreate an exposure after cleanup.
 		if !h.dueForVerify(gatewayID) {
 			return
 		}
@@ -395,7 +371,7 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 		if h.consoleClientChecker != nil && gw.GetName() != "" && gatewayID != "" {
 			consoleClientID = fmt.Sprintf("%s-%s-console", gw.GetName(), gatewayID)
 		}
-		absent, perr := gateway.RouteResourcesAbsent(ctx, h.dynamicClient, h.clientset, namespace, h.consoleClientChecker, consoleClientID)
+		absent, perr := gateway.RouteResourcesAbsent(ctx, h.dynamicClient, h.clientset, namespace, h.ingressMode, h.consoleClientChecker, consoleClientID)
 		switch {
 		case perr != nil:
 			// Leave the verification timestamp stale so the next tick re-probes rather
@@ -413,6 +389,7 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 	}
 	opts := gateway.ReconcileOpts{
 		IsOpenShift:         h.isOpenShift,
+		HasGatewayAPI:       h.hasGatewayAPI,
 		SkipNetworkPolicies: h.skipNetworkPolicies,
 		Keycloak:            h.keycloakConfig,
 		GatewayID:           gatewayID,
@@ -438,10 +415,28 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 			return uerr
 		}
 	}
-	if err := gateway.DeleteGatewayAPIResources(ctx, h.dynamicClient, h.clientset, namespace, opts); err != nil {
+	var teardownErr error
+	switch h.ingressMode {
+	case gateway.IngressModeGatewayAPI:
+		teardownErr = gateway.DeleteGatewayAPIResources(ctx, h.dynamicClient, h.clientset, namespace, opts)
+	case gateway.IngressModeRoute:
+		teardownErr = gateway.DeleteRouteResources(ctx, h.dynamicClient, h.clientset, namespace, opts)
+	case gateway.IngressModeNone:
+		// No gateway exposure is active. Remove remaining console resources and
+		// clear a stored route address from an earlier configuration.
+		teardownErr = gateway.DeleteConsole(ctx, h.dynamicClient, h.clientset, namespace, opts)
+		if opts.UpdateRouteAddress != nil {
+			if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
+				teardownErr = errors.Join(teardownErr, fmt.Errorf("clear route address in %s: %w", namespace, err))
+			}
+		}
+	default:
+		teardownErr = fmt.Errorf("unsupported gateway ingress mode %q", h.ingressMode)
+	}
+	if teardownErr != nil {
 		// Leave the gateway unmarked so the next tick retries until every
 		// route-owned resource and stored address is gone.
-		log.Printf("WARN route teardown in %s (gateway no longer routed): %v", namespace, err)
+		log.Printf("WARN route teardown in %s (gateway no longer routed): %v", namespace, teardownErr)
 		return
 	}
 	h.markRouteTornDown(gatewayID)

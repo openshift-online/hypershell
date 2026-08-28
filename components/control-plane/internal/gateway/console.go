@@ -100,40 +100,32 @@ var consoleHTTPRouteGVR = schema.GroupVersionResource{
 	Resource: "httproutes",
 }
 
-// consoleRouteGVR is the GroupVersionResource for the console OpenShift Route
-// (route-mode ingress).
-var consoleRouteGVR = schema.GroupVersionResource{
+// consoleOpenShiftRouteGVR is the GroupVersionResource for the console Route.
+var consoleOpenShiftRouteGVR = schema.GroupVersionResource{
 	Group:    "route.openshift.io",
 	Version:  "v1",
 	Resource: "routes",
 }
 
-// ConsoleExposureReady reports whether the per-gateway console's public ingress
-// is actually serving, using the readiness check appropriate to the effective
-// ingress mode: the HTTPRoute in gateway-api mode, the OpenShift Route in route
-// mode. In "none" mode there is no managed console ingress, so servability is
-// gated on the console Deployment alone and this returns ready. Callers publish
-// console_address only when this (and the Deployment) is ready, so the web UI's
-// console button never points at a dead link. See syncConsoleAddress.
-func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, namespace, mode string) (ready bool, reason string, err error) {
-	switch mode {
-	case IngressModeRoute:
-		return ConsoleOpenShiftRouteReady(ctx, dynamicClient, namespace)
+// ConsoleExposureReady reports the readiness of the console exposure for the
+// selected ingress mode. A Gateway API HTTPRoute needs Accepted=True and
+// ResolvedRefs=True on one parent. An OpenShift Route needs Admitted=True from
+// one router. The reason describes a known rejection or an incomplete status.
+func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, namespace, ingressMode string) (ready bool, reason string, err error) {
+	switch ingressMode {
 	case IngressModeGatewayAPI:
-		return ConsoleRouteReady(ctx, dynamicClient, namespace)
+		return consoleHTTPRouteReady(ctx, dynamicClient, namespace)
+	case IngressModeRoute:
+		return consoleOpenShiftRouteReady(ctx, dynamicClient, namespace)
+	case IngressModeNone:
+		return false, "no console ingress mode selected", nil
 	default:
-		return true, "", nil
+		return false, "", fmt.Errorf("unsupported console ingress mode %q", ingressMode)
 	}
 }
 
-// ConsoleRouteReady reports whether the per-gateway console HTTPRoute is actually
-// serving: at least one parent (the shared Gateway listener) must report both
-// Accepted=True and ResolvedRefs=True. A Ready console Deployment does not prove
-// the public route works -- a missing or misnamed HTTP listener leaves the
-// HTTPRoute rejected while the Deployment stays Ready -- so the reconciler gates
-// console_address on this too, to avoid publishing a dead "Open console" link.
-// When not ready, reason carries the parent/listener rejection descriptor.
-func ConsoleRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (ready bool, reason string, err error) {
+// consoleHTTPRouteReady reports the readiness of the console HTTPRoute.
+func consoleHTTPRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (ready bool, reason string, err error) {
 	route, err := dynamicClient.Resource(consoleHTTPRouteGVR).Namespace(namespace).Get(ctx, consoleName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -173,46 +165,57 @@ func ConsoleRouteReady(ctx context.Context, dynamicClient dynamic.Interface, nam
 	return false, reason, nil
 }
 
-// ConsoleOpenShiftRouteReady reports whether the per-gateway console OpenShift
-// Route (route-mode ingress) has been admitted by the router: at least one
-// status.ingress entry must report an Admitted=True condition. A Ready console
-// Deployment does not prove the Route is admitted -- a host collision or router
-// rejection leaves the Route un-admitted while the Deployment stays Ready -- so
-// the reconciler gates console_address on this too, mirroring ConsoleRouteReady
-// for the Gateway API path. When not ready, reason carries the rejection
-// descriptor.
-func ConsoleOpenShiftRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (ready bool, reason string, err error) {
-	route, err := dynamicClient.Resource(consoleRouteGVR).Namespace(namespace).Get(ctx, consoleName, metav1.GetOptions{})
+// consoleOpenShiftRouteReady reports the admission state of the console Route.
+func consoleOpenShiftRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (ready bool, reason string, err error) {
+	route, err := dynamicClient.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(ctx, consoleName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			return false, "console Route not found", nil
+			return false, "console OpenShift Route not found", nil
 		}
-		return false, "", fmt.Errorf("get console Route %s/%s: %w", namespace, consoleName, err)
+		return false, "", fmt.Errorf("get console OpenShift Route %s/%s: %w", namespace, consoleName, err)
 	}
 
 	ingress, found, err := unstructured.NestedSlice(route.Object, "status", "ingress")
 	if err != nil {
-		return false, "", fmt.Errorf("read console Route %s/%s status: %w", namespace, consoleName, err)
+		return false, "", fmt.Errorf("read console OpenShift Route %s/%s status: %w", namespace, consoleName, err)
 	}
 	if !found || len(ingress) == 0 {
-		return false, "console Route has no ingress status yet", nil
+		return false, "console OpenShift Route has no router status yet", nil
 	}
 
-	reason = "console Route not admitted"
-	for _, i := range ingress {
-		ing, ok := i.(map[string]interface{})
+	const noAdmissionReason = "console OpenShift Route has no Admitted condition"
+	reason = noAdmissionReason
+	for _, item := range ingress {
+		router, ok := item.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		conditions, _, _ := unstructured.NestedSlice(ing, "conditions")
-		admitted, admittedReason := routeConditionState(conditions, "Admitted")
-		if admitted {
-			return true, "", nil
+		conditions, _, nestedErr := unstructured.NestedSlice(router, "conditions")
+		if nestedErr != nil {
+			return false, "", fmt.Errorf("read console OpenShift Route %s/%s ingress conditions: %w", namespace, consoleName, nestedErr)
 		}
-		if admittedReason != "" {
-			reason = fmt.Sprintf("console Route not admitted: %s", admittedReason)
+		for _, item := range conditions {
+			condition, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			conditionType, _, _ := unstructured.NestedString(condition, "type")
+			if conditionType != "Admitted" {
+				continue
+			}
+			status, _, _ := unstructured.NestedString(condition, "status")
+			if status == "True" {
+				return true, "", nil
+			}
+			rejectionReason, _, _ := unstructured.NestedString(condition, "reason")
+			if rejectionReason != "" {
+				reason = fmt.Sprintf("console OpenShift Route not admitted: %s", rejectionReason)
+			} else if reason == noAdmissionReason {
+				reason = "console OpenShift Route not admitted: router rejected the route"
+			}
 		}
 	}
+
 	return false, reason, nil
 }
 
@@ -249,13 +252,13 @@ func consoleListenerName() string {
 }
 
 // ReconcileConsole idempotently reconciles the per-gateway console (Keycloak
-// client, credential Secret, Deployment, Service, HTTPRoute, NetworkPolicies)
-// for an already-provisioned routed gateway. It exists so the continuous health
-// reconciler can self-heal the console independently of the provisioning phase
-// gate: a console failure is deliberately non-fatal to the gateway, so once the
-// gateway reaches Running the provisioning path never runs again and a transient
-// console failure (or later drift, e.g. a deleted HTTPRoute) would otherwise
-// never be retried. It is a thin, exported wrapper over reconcileConsole using
+// client, credential Secret, Deployment, Service, selected exposure, and
+// NetworkPolicies) for an already-provisioned routed gateway. It exists so the
+// continuous health reconciler can self-heal the console independently of the
+// provisioning phase gate. A console failure does not stop the gateway. Thus,
+// the provisioning path does not run again after the gateway reaches Running.
+// The health reconciler repairs a transient failure or later drift. This
+// function is a thin, exported wrapper over reconcileConsole that uses
 // the default image set; callers pass the same ReconcileOpts fields the console
 // reads (Keycloak, GatewayName, GatewayID, IsOpenShift, SkipNetworkPolicies).
 func ReconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
@@ -267,25 +270,21 @@ func ReconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 }
 
 // DeleteConsole removes the per-gateway console (Keycloak client, credential
-// Secret, Deployment, Service, HTTPRoute, NetworkPolicies) and clears the stored
-// console_address via opts.UpdateConsoleAddress. It is the exported counterpart
-// to ReconcileConsole, letting the continuous health reconciler reconcile the
-// console's desired *absence* independently of the provisioning phase gate: when
-// a Running gateway's route is removed the provisioning path never runs again
-// (see the reconciler's phase gate), so without this the console and its
-// Keycloak client would leak. Idempotent -- absent resources are ignored -- so it
-// is safe to call on every health tick. It returns the joined errors of every
-// deletion that failed (an empty console yields nil) so callers can retry until
-// the console is actually absent rather than stopping on partial cleanup.
+// Secret, Deployment, Service, both exposure kinds, and NetworkPolicies). It
+// clears the stored console_address through opts.UpdateConsoleAddress. It is the
+// exported counterpart to ReconcileConsole. The continuous health reconciler
+// can remove the console independently of the provisioning phase gate. This
+// prevents a console and its Keycloak client from remaining after route removal.
+// The function ignores absent resources, so each health check can call it. It
+// returns all deletion errors so callers can retry partial cleanup.
 func DeleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
 	return deleteConsole(ctx, dynamicClient, clientset, namespace, opts)
 }
 
 // reconcileConsole deploys the per-gateway OpenShell dashboard and its
-// oauth2-proxy sidecar. It runs only from the Gateway API pass (route enabled +
-// Gateway API available), so console lifecycle follows the route. Missing
-// prerequisites (Keycloak, base domain) are logged and skipped without failing
-// the gateway reconciliation.
+// oauth2-proxy sidecar. It uses the selected gateway ingress mode for the
+// console exposure. Missing prerequisites are logged and skipped without a
+// gateway reconciliation failure.
 //
 // The Keycloak work (client, mappers, secret) is treated as one atomic step:
 // ProvisionConsoleClient rolls the client back if mapper creation fails, and a
@@ -294,6 +293,11 @@ func DeleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts, images ImageDefaults) error {
 	namespace := nsConfig.Name
 
+	ingressMode := gatewayIngressMode(opts)
+	if ingressMode == IngressModeNone {
+		log.Printf("WARN console: no ingress mode selected; skipping console for namespace %s", namespace)
+		return nil
+	}
 	if opts.Keycloak == nil {
 		log.Printf("WARN console: Keycloak not configured; skipping console for namespace %s", namespace)
 		return nil
@@ -391,8 +395,8 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		return fmt.Errorf("reconcile console Service in %s: %w", namespace, err)
 	}
 
-	if err := reconcileConsoleIngress(ctx, dynamicClient, namespace, host, gatewayIngressMode(opts)); err != nil {
-		return err
+	if err := reconcileConsoleExposure(ctx, dynamicClient, namespace, host, ingressMode); err != nil {
+		return fmt.Errorf("reconcile console exposure in %s: %w", namespace, err)
 	}
 
 	if opts.SkipNetworkPolicies {
@@ -774,46 +778,9 @@ func buildConsoleHTTPRoute(namespace, host string) *unstructured.Unstructured {
 	}
 }
 
-// reconcileConsoleIngress emits the per-gateway console's public ingress for the
-// effective ingress mode, mirroring the gateway ingress path (gatewayIngressMode):
-// a Kubernetes Gateway API HTTPRoute where the Gateway API runs, an OpenShift
-// Route where it does not (e.g. IBM Cloud ROKS), and nothing in "none" mode.
-//
-// Emitting an HTTPRoute unconditionally is invalid on a route-mode cluster, where
-// GATEWAY_API_GATEWAY_NAME is unset and the HTTPRoute's parentRef.name would
-// render empty -- the API server rejects it and the self-heal loop retries
-// forever, so the console never becomes servable. In gateway-api mode it fails
-// fast on the missing required var instead of submitting an object the API
-// server will reject and the reconcile loop will retry indefinitely, mirroring
-// the gateway path's guard in reconcileGatewayAPIResources.
-func reconcileConsoleIngress(ctx context.Context, dynamicClient dynamic.Interface, namespace, host, mode string) error {
-	switch mode {
-	case IngressModeGatewayAPI:
-		if gatewayIngressName() == "" {
-			return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required for the console HTTPRoute in gateway-api mode -- set it to the name of a pre-existing Gateway resource")
-		}
-		if err := reconcileResource(ctx, dynamicClient, buildConsoleHTTPRoute(namespace, host)); err != nil {
-			return fmt.Errorf("reconcile console HTTPRoute in %s: %w", namespace, err)
-		}
-	case IngressModeRoute:
-		if err := reconcileResource(ctx, dynamicClient, buildConsoleRoute(namespace, host)); err != nil {
-			return fmt.Errorf("reconcile console Route in %s: %w", namespace, err)
-		}
-	default:
-		log.Printf("INFO console ingress skipped in %s (ingress mode none)", namespace)
-	}
-	return nil
-}
-
-// buildConsoleRoute builds the OpenShift Route exposing the console Service at
-// console-<ns>.<base-domain> in route mode (where the Gateway API is unavailable
-// or non-functional, e.g. IBM Cloud ROKS). Unlike the gateway Route
-// (passthrough, because the gateway pod terminates its own TLS), the console's
-// oauth2-proxy sidecar serves plain HTTP on the proxy port, so the router
-// terminates TLS with edge termination and forwards HTTP to the Service.
-// insecureEdgeTerminationPolicy=Redirect sends plain-HTTP callers to HTTPS so
-// the OAuth cookie is never exposed over cleartext.
-func buildConsoleRoute(namespace, host string) *unstructured.Unstructured {
+// buildConsoleOpenShiftRoute builds the edge-terminated Route for the console.
+// The OpenShift router sends HTTP traffic to the named Service port.
+func buildConsoleOpenShiftRoute(namespace, host string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "route.openshift.io/v1",
@@ -826,9 +793,8 @@ func buildConsoleRoute(namespace, host string) *unstructured.Unstructured {
 			"spec": map[string]interface{}{
 				"host": host,
 				"to": map[string]interface{}{
-					"kind":   "Service",
-					"name":   consoleName,
-					"weight": int64(100),
+					"kind": "Service",
+					"name": consoleName,
 				},
 				"port": map[string]interface{}{
 					"targetPort": "http",
@@ -837,10 +803,58 @@ func buildConsoleRoute(namespace, host string) *unstructured.Unstructured {
 					"termination":                   "edge",
 					"insecureEdgeTerminationPolicy": "Redirect",
 				},
-				"wildcardPolicy": "None",
 			},
 		},
 	}
+}
+
+// reconcileConsoleExposure creates only the exposure for the selected mode.
+// It first removes the inactive exposure to prevent two controllers from
+// claiming the same host during a mode change.
+func reconcileConsoleExposure(ctx context.Context, dynamicClient dynamic.Interface, namespace, host, ingressMode string) error {
+	var desired *unstructured.Unstructured
+	var inactiveGVR schema.GroupVersionResource
+	var inactiveKind string
+
+	switch ingressMode {
+	case IngressModeGatewayAPI:
+		desired = buildConsoleHTTPRoute(namespace, host)
+		inactiveGVR = consoleOpenShiftRouteGVR
+		inactiveKind = "OpenShift Route"
+	case IngressModeRoute:
+		desired = buildConsoleOpenShiftRoute(namespace, host)
+		inactiveGVR = consoleHTTPRouteGVR
+		inactiveKind = "HTTPRoute"
+	default:
+		return fmt.Errorf("unsupported console ingress mode %q", ingressMode)
+	}
+
+	if err := deleteConsoleExposureResource(ctx, dynamicClient, namespace, inactiveGVR, inactiveKind); err != nil {
+		return fmt.Errorf("remove inactive exposure: %w", err)
+	}
+	if err := reconcileResource(ctx, dynamicClient, desired); err != nil {
+		return fmt.Errorf("reconcile selected %s exposure: %w", ingressMode, err)
+	}
+	return nil
+}
+
+// deleteConsoleExposureResource deletes one console exposure. An absent
+// resource is already converged and does not cause an error.
+func deleteConsoleExposureResource(ctx context.Context, dynamicClient dynamic.Interface, namespace string, gvr schema.GroupVersionResource, kind string) error {
+	err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{})
+	if err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete console %s in %s: %w", kind, namespace, err)
+	}
+	return nil
+}
+
+// deleteConsoleExposures removes both exposure kinds. It attempts both deletes
+// so cleanup can converge after an ingress mode change.
+func deleteConsoleExposures(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {
+	return errors.Join(
+		deleteConsoleExposureResource(ctx, dynamicClient, namespace, consoleHTTPRouteGVR, "HTTPRoute"),
+		deleteConsoleExposureResource(ctx, dynamicClient, namespace, consoleOpenShiftRouteGVR, "OpenShift Route"),
+	)
 }
 
 // buildConsoleNetworkPolicies builds the two console NetworkPolicies: ingress to
@@ -944,17 +958,8 @@ func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 		errs = append(errs, fmt.Errorf("delete console Service in %s: %w", namespace, err))
 	}
 
-	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
-	if err := dynamicClient.Resource(httpRouteGVR).Namespace(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console HTTPRoute in %s: %w", namespace, err))
-	}
-
-	// Delete the console OpenShift Route (route-mode ingress) too. Both ingress
-	// objects are swept regardless of the current mode so a console that switched
-	// modes -- or was provisioned under a different mode -- leaves nothing behind.
-	// A missing route.openshift.io CRD surfaces as NotFound and is ignored.
-	if err := dynamicClient.Resource(consoleRouteGVR).Namespace(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console Route in %s: %w", namespace, err))
+	if err := deleteConsoleExposures(ctx, dynamicClient, namespace); err != nil {
+		errs = append(errs, err)
 	}
 
 	netpolGVR := schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}

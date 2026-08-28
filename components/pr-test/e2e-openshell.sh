@@ -89,7 +89,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-API_HOST=$($CLI get route hypershell-api-server -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+API_HOST=$($CLI get route hypershell-api -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -z "$API_HOST" ]]; then
   red "ERROR: HyperShell API route not found in namespace ${HS_NAMESPACE}"
   exit 1
@@ -170,10 +170,10 @@ else
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
-    'database_id': 'e2e-db',
+    'fleet_id': '$FLEET_ID',
+    'cluster_id': '$CLUSTER_ID',
+    'release_id': '$REL_ID',
+    'database_id': '$DB_ID',
     'oidc': json.dumps({
         'issuer': os.environ['OIDC_ISSUER'],
         'audience': os.environ['OIDC_CLIENT_ID'],
@@ -205,8 +205,12 @@ print(json.dumps(body))
   dim "  Waiting for controller to provision (timeout: ${PROVISION_TIMEOUT}s)..."
   DEADLINE=$(($(date +%s) + PROVISION_TIMEOUT))
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    GW_PHASE=$("${HSCTL}" get gateway "${GW_ID}" 2>/dev/null | \
-      python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
+    GW_JSON=$(curl -sk -H "Authorization: Bearer $HS_TOKEN" "https://${API_HOST}/api/hypershell/v1/gateways/${GW_ID}")
+    if echo "$GW_JSON" | grep -q '"phase":"Running"'; then
+      GW_PHASE="Running"
+    else
+      GW_PHASE="unknown"
+    fi
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
     fi

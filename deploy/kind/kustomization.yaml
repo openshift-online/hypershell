@@ -1,6 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  # base is app-only (keycloak + CNPG db-cluster were decoupled out of it so the
+  # GitOps hub overlay can inject them per-environment). Kind is a self-contained
+  # dev overlay, so it re-adds both here, mirroring deploy/openshift. The keycloak
+  # Deployment and the hypershell-db Cluster below are required targets for the
+  # keycloak patch in this file and the CNPG-Cluster delete in the
+  # database-deployment component (scripts/kind/up.sh).
+  - ../base/hypershell-db-cluster.yaml
+  - ../base/keycloak/
   - ../base
   - certificates.yaml
   - gateway.yaml
@@ -197,6 +205,14 @@ patches:
                 env:
                   - name: KC_HOSTNAME
                     value: "https://keycloak.hypershell.localhost"
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+    path: wait-for-keycloak.patch.yaml
+  - target:
+      kind: Deployment
+      name: hypershell-web-console
+    path: wait-for-keycloak.patch.yaml
 images:
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
     newTag: latest
