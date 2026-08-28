@@ -392,3 +392,258 @@ func TestReconcileConsoleSecret_PreservesCookieOnUpdate(t *testing.T) {
 		t.Errorf("client-secret = %q, want refreshed %q", v, "client-v2")
 	}
 }
+
+// newConsoleIngressDynamicClient returns a fake dynamic client that knows both
+// the console HTTPRoute (gateway-api mode) and the console OpenShift Route (route
+// mode) list kinds, so reconcileConsoleIngress can create either.
+func newConsoleIngressDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
+	scheme := runtime.NewScheme()
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		consoleHTTPRouteGVR: "HTTPRouteList",
+		consoleRouteGVR:     "RouteList",
+	}
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
+}
+
+// P0-1/P0-2: the console ingress must follow the effective ingress mode. On a
+// route-mode cluster GATEWAY_API_GATEWAY_NAME is unset, so emitting the
+// gateway-api HTTPRoute unconditionally produced an object with an empty
+// parentRef.name that the API server rejected and the self-heal loop retried
+// forever. reconcileConsoleIngress now emits an OpenShift Route in route mode,
+// an HTTPRoute (guarded against the empty name) in gateway-api mode, and nothing
+// in none mode.
+func TestReconcileConsoleIngress(t *testing.T) {
+	ctx := context.Background()
+	const ns = "openshell-abc"
+	const host = "console-openshell-abc.apps.example.com"
+
+	getUnstructured := func(t *testing.T, client *dynamicfake.FakeDynamicClient, gvr schema.GroupVersionResource) (*unstructured.Unstructured, error) {
+		t.Helper()
+		return client.Resource(gvr).Namespace(ns).Get(ctx, consoleName, metav1.GetOptions{})
+	}
+
+	t.Run("route mode creates an OpenShift Route, not an HTTPRoute", func(t *testing.T) {
+		client := newConsoleIngressDynamicClient()
+		if err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeRoute); err != nil {
+			t.Fatalf("reconcileConsoleIngress(route): %v", err)
+		}
+		route, err := getUnstructured(t, client, consoleRouteGVR)
+		if err != nil {
+			t.Fatalf("expected a console Route to be created: %v", err)
+		}
+		if h, _, _ := unstructured.NestedString(route.Object, "spec", "host"); h != host {
+			t.Errorf("Route host = %q, want %q", h, host)
+		}
+		if term, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "termination"); term != "edge" {
+			t.Errorf("Route tls.termination = %q, want edge (oauth2-proxy serves plain HTTP)", term)
+		}
+		if tp, _, _ := unstructured.NestedString(route.Object, "spec", "port", "targetPort"); tp != "http" {
+			t.Errorf("Route port.targetPort = %q, want http", tp)
+		}
+		if _, err := getUnstructured(t, client, consoleHTTPRouteGVR); err == nil {
+			t.Error("route mode must NOT create a gateway-api HTTPRoute")
+		}
+	})
+
+	t.Run("gateway-api mode with the gateway name set creates a valid HTTPRoute", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_GATEWAY_NAME", "shared-gw")
+		client := newConsoleIngressDynamicClient()
+		if err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeGatewayAPI); err != nil {
+			t.Fatalf("reconcileConsoleIngress(gateway-api): %v", err)
+		}
+		route, err := getUnstructured(t, client, consoleHTTPRouteGVR)
+		if err != nil {
+			t.Fatalf("expected a console HTTPRoute to be created: %v", err)
+		}
+		parents, _, _ := unstructured.NestedSlice(route.Object, "spec", "parentRefs")
+		if len(parents) != 1 {
+			t.Fatalf("expected 1 parentRef, got %d", len(parents))
+		}
+		name, _, _ := unstructured.NestedString(parents[0].(map[string]interface{}), "name")
+		if name != "shared-gw" {
+			t.Errorf("parentRef.name = %q, want the configured gateway name", name)
+		}
+	})
+
+	// P0-2: fail fast instead of submitting an HTTPRoute with parentRef.name="".
+	t.Run("gateway-api mode with the gateway name unset fails fast and creates nothing", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_GATEWAY_NAME", "")
+		client := newConsoleIngressDynamicClient()
+		err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeGatewayAPI)
+		if err == nil {
+			t.Fatal("expected an error when GATEWAY_API_GATEWAY_NAME is unset in gateway-api mode")
+		}
+		if !strings.Contains(err.Error(), "GATEWAY_API_GATEWAY_NAME") {
+			t.Errorf("error = %q, want it to name the missing variable", err)
+		}
+		if _, getErr := getUnstructured(t, client, consoleHTTPRouteGVR); getErr == nil {
+			t.Error("no HTTPRoute must be created when the required gateway name is missing")
+		}
+	})
+
+	t.Run("none mode creates neither ingress object", func(t *testing.T) {
+		client := newConsoleIngressDynamicClient()
+		if err := reconcileConsoleIngress(ctx, client, ns, host, IngressModeNone); err != nil {
+			t.Fatalf("reconcileConsoleIngress(none): %v", err)
+		}
+		if _, err := getUnstructured(t, client, consoleRouteGVR); err == nil {
+			t.Error("none mode must not create a Route")
+		}
+		if _, err := getUnstructured(t, client, consoleHTTPRouteGVR); err == nil {
+			t.Error("none mode must not create an HTTPRoute")
+		}
+	})
+}
+
+// consoleOpenShiftRouteWithConditions builds a console OpenShift Route whose
+// single status.ingress entry reports the given conditions.
+func consoleOpenShiftRouteWithConditions(namespace string, conditions []interface{}) *unstructured.Unstructured {
+	route := &unstructured.Unstructured{}
+	route.SetGroupVersionKind(consoleRouteGVR.GroupVersion().WithKind("Route"))
+	route.SetNamespace(namespace)
+	route.SetName(consoleName)
+	if conditions != nil {
+		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
+			map[string]interface{}{
+				"host":       "console.example.com",
+				"conditions": conditions,
+			},
+		}, "status", "ingress")
+	}
+	return route
+}
+
+// A console Deployment can be Ready while its OpenShift Route is un-admitted
+// (e.g. a host collision with another Route). Publishing console_address then
+// yields a dead link, so route-mode readiness must require Admitted=True.
+func TestConsoleOpenShiftRouteReady(t *testing.T) {
+	ctx := context.Background()
+	const ns = "openshell-abc"
+
+	t.Run("admitted is ready", func(t *testing.T) {
+		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
+			routeCondition("Admitted", "True", "Admitted"),
+		}))
+		ready, reason, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
+		if err != nil {
+			t.Fatalf("ConsoleOpenShiftRouteReady: %v", err)
+		}
+		if !ready {
+			t.Errorf("expected ready; reason=%q", reason)
+		}
+	})
+
+	t.Run("un-admitted is not ready and reports reason", func(t *testing.T) {
+		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
+			routeCondition("Admitted", "False", "HostAlreadyClaimed"),
+		}))
+		ready, reason, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
+		if err != nil {
+			t.Fatalf("ConsoleOpenShiftRouteReady: %v", err)
+		}
+		if ready {
+			t.Error("expected not ready when the Route is not Admitted")
+		}
+		if !strings.Contains(reason, "HostAlreadyClaimed") {
+			t.Errorf("reason = %q, want it to carry the rejection reason", reason)
+		}
+	})
+
+	t.Run("no ingress status yet is not ready", func(t *testing.T) {
+		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, nil))
+		ready, _, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
+		if err != nil {
+			t.Fatalf("ConsoleOpenShiftRouteReady: %v", err)
+		}
+		if ready {
+			t.Error("expected not ready when the Route has no ingress status")
+		}
+	})
+
+	t.Run("missing route is not ready without error", func(t *testing.T) {
+		client := newConsoleIngressDynamicClient()
+		ready, reason, err := ConsoleOpenShiftRouteReady(ctx, client, ns)
+		if err != nil {
+			t.Fatalf("ConsoleOpenShiftRouteReady on missing route should not error: %v", err)
+		}
+		if ready {
+			t.Error("expected not ready when the console Route is absent")
+		}
+		if reason == "" {
+			t.Error("expected a reason describing the missing route")
+		}
+	})
+}
+
+// ConsoleExposureReady must dispatch to the readiness check matching the ingress
+// mode so a route-mode console is not gated on a non-existent HTTPRoute (and vice
+// versa), and treats "none" mode as ready (no managed ingress to gate on).
+func TestConsoleExposureReady_DispatchesByMode(t *testing.T) {
+	ctx := context.Background()
+	const ns = "openshell-abc"
+
+	t.Run("route mode reads the OpenShift Route", func(t *testing.T) {
+		// Only the OpenShift Route exists and is admitted; the HTTPRoute is absent.
+		client := newConsoleIngressDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
+			routeCondition("Admitted", "True", "Admitted"),
+		}))
+		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady(route): %v", err)
+		}
+		if !ready {
+			t.Error("route mode should report ready from the admitted OpenShift Route")
+		}
+	})
+
+	t.Run("gateway-api mode reads the HTTPRoute", func(t *testing.T) {
+		// Only the HTTPRoute exists and is accepted; the OpenShift Route is absent.
+		client := newConsoleIngressDynamicClient(consoleRouteWithConditions(ns, []interface{}{
+			routeCondition("Accepted", "True", "Accepted"),
+			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
+		}))
+		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady(gateway-api): %v", err)
+		}
+		if !ready {
+			t.Error("gateway-api mode should report ready from the accepted HTTPRoute")
+		}
+	})
+
+	t.Run("none mode is ready with no managed ingress", func(t *testing.T) {
+		client := newConsoleIngressDynamicClient()
+		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeNone)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady(none): %v", err)
+		}
+		if !ready {
+			t.Error("none mode has no managed console ingress and should report ready")
+		}
+	})
+}
+
+// buildConsoleRoute must terminate TLS at the router (edge) -- the oauth2-proxy
+// sidecar serves plain HTTP -- and redirect cleartext callers so the OAuth
+// cookie is never sent over HTTP.
+func TestBuildConsoleRoute(t *testing.T) {
+	const ns = "openshell-abc"
+	const host = "console-openshell-abc.apps.example.com"
+	route := buildConsoleRoute(ns, host)
+
+	if kind := route.GetKind(); kind != "Route" {
+		t.Errorf("kind = %q, want Route", kind)
+	}
+	if got, _, _ := unstructured.NestedString(route.Object, "spec", "host"); got != host {
+		t.Errorf("host = %q, want %q", got, host)
+	}
+	if term, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "termination"); term != "edge" {
+		t.Errorf("tls.termination = %q, want edge", term)
+	}
+	if pol, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "insecureEdgeTerminationPolicy"); pol != "Redirect" {
+		t.Errorf("insecureEdgeTerminationPolicy = %q, want Redirect", pol)
+	}
+	if toName, _, _ := unstructured.NestedString(route.Object, "spec", "to", "name"); toName != consoleName {
+		t.Errorf("to.name = %q, want %q", toName, consoleName)
+	}
+}

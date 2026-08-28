@@ -1629,7 +1629,7 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 			// End the poll rather than publishing against the stale snapshot.
 			return true
 		}
-		return syncConsoleAddress(ctx, r.clientset, r.dynamicClient, client, gatewayID, current, r.exposure != nil)
+		return syncConsoleAddress(ctx, r.clientset, r.dynamicClient, client, gatewayID, current, r.exposure != nil, gateway.IngressMode(r.hasGatewayAPI, r.isOpenShift))
 	})
 }
 
@@ -1789,7 +1789,7 @@ func consoleAddressFor(ready bool, url string) string {
 // leaves the address untouched on a transient readiness-observation error rather
 // than flapping the button. It returns whether the console is currently servable,
 // so a caller polling during provisioning can stop once the address is published.
-func syncConsoleAddress(ctx context.Context, clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway, hasExposure bool) bool {
+func syncConsoleAddress(ctx context.Context, clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway, hasExposure bool, ingressMode string) bool {
 	if gatewayID == "" || !hasExposure || !isRoutedGateway(gw) {
 		return false
 	}
@@ -1808,10 +1808,13 @@ func syncConsoleAddress(ctx context.Context, clientset *kubernetes.Clientset, dy
 		return false
 	}
 	if ready {
-		// The Deployment is Ready; require the public route to be accepted too
-		// before publishing the address, logging the listener rejection reason
-		// otherwise so a misconfigured HTTP listener is diagnosable.
-		routeReady, reason, routeErr := gateway.ConsoleRouteReady(ctx, dynamicClient, namespace)
+		// The Deployment is Ready; require the public ingress to be accepted too
+		// before publishing the address, logging the rejection reason otherwise so
+		// a misconfigured listener/route is diagnosable. The readiness check
+		// follows the effective ingress mode (HTTPRoute in gateway-api mode, the
+		// OpenShift Route in route mode) so a route-mode console is not gated on a
+		// non-existent HTTPRoute.
+		routeReady, reason, routeErr := gateway.ConsoleExposureReady(ctx, dynamicClient, namespace, ingressMode)
 		if routeErr != nil {
 			log.Printf("WARN console route readiness for %s: %v", namespace, routeErr)
 			return false

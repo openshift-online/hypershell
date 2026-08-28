@@ -64,6 +64,7 @@ type GatewayHealthReconciler struct {
 	routeReadyTimeout   time.Duration
 	keycloakConfig      *gateway.KeycloakConfig
 	isOpenShift         bool
+	hasGatewayAPI       bool
 	skipNetworkPolicies bool
 
 	// consoleClientChecker is a single, long-lived Keycloak client reused across
@@ -128,6 +129,7 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		keycloakConfig:       keycloakConfig,
 		consoleClientChecker: consoleClientChecker,
 		isOpenShift:          gateway.DetectOpenShift(clientset),
+		hasGatewayAPI:        gateway.DetectGatewayAPI(clientset),
 		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
 		now:                  time.Now,
 		routeNotReadySince:   make(map[string]time.Time),
@@ -231,7 +233,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// Keep the console_address in sync with the console pod's readiness so the web
 	// UI's console button only appears once the console can serve (and disappears
 	// if it later goes unready). Independent of the gateway workload's own phase.
-	consoleServable := syncConsoleAddress(ctx, h.clientset, h.dynamicClient, client, gatewayID, gw, h.exposure != nil)
+	consoleServable := syncConsoleAddress(ctx, h.clientset, h.dynamicClient, client, gatewayID, gw, h.exposure != nil, gateway.IngressMode(h.hasGatewayAPI, h.isOpenShift))
 
 	// Self-heal the console. A console failure is deliberately non-fatal to the
 	// gateway, so once the gateway reaches Running the provisioning path never runs
@@ -331,6 +333,7 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 	}
 	opts := gateway.ReconcileOpts{
 		IsOpenShift:         h.isOpenShift,
+		HasGatewayAPI:       h.hasGatewayAPI,
 		SkipNetworkPolicies: h.skipNetworkPolicies,
 		Keycloak:            h.keycloakConfig,
 		GatewayID:           gatewayID,
