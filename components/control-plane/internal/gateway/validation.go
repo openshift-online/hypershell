@@ -158,6 +158,12 @@ func validateIdentifier(value string) error {
 	return nil
 }
 
+// claimPathRegex matches a JWT claim reference: one or more dot-separated
+// segments of letters, digits, and underscores. It accepts both top-level
+// claims ("roles", "groups") and nested paths ("realm_access.roles",
+// "hypershell.roles") that realms emit for role mapping.
+var claimPathRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$`)
+
 func ValidateOIDCConfig(oidc OIDCConfig) error {
 	if oidc.Issuer == "" {
 		return nil
@@ -165,6 +171,21 @@ func ValidateOIDCConfig(oidc OIDCConfig) error {
 
 	if (oidc.AdminRole != "") != (oidc.UserRole != "") {
 		return fmt.Errorf("both admin_role and user_role must be set, or both must be empty")
+	}
+
+	rolesMapped := oidc.AdminRole != "" || oidc.UserRole != ""
+
+	// A well-formed roles_claim is required whenever role mapping is configured:
+	// without a claim to read roles from, no token can ever map to admin/user and
+	// the gateway is dead on arrival (P3-1). The claim path itself must be a valid
+	// JWT claim reference so it can locate the roles in the token.
+	if rolesMapped && oidc.RolesClaim == "" {
+		return fmt.Errorf("roles_claim is required when admin_role/user_role are set; " +
+			"set it to the claim the realm emits (e.g. \"roles\", \"realm_access.roles\", or \"hypershell.roles\")")
+	}
+
+	if oidc.RolesClaim != "" && !claimPathRegex.MatchString(oidc.RolesClaim) {
+		return fmt.Errorf("invalid roles_claim %q: must be a dot-separated JWT claim path (e.g. \"roles\" or \"realm_access.roles\")", oidc.RolesClaim)
 	}
 
 	return nil

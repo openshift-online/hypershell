@@ -58,6 +58,64 @@ func TestValidateGatewayConfigRouteHost(t *testing.T) {
 	}
 }
 
+func TestValidateOIDCConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		oidc    OIDCConfig
+		wantErr bool
+	}{
+		{name: "no issuer skips validation", oidc: OIDCConfig{}, wantErr: false},
+		{name: "issuer without roles is valid", oidc: OIDCConfig{Issuer: "https://kc/realm"}, wantErr: false},
+		{
+			name:    "roles mapped without roles_claim is rejected (P3-1 dead-on-arrival)",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", UserRole: "user"},
+			wantErr: true,
+		},
+		{
+			name:    "roles mapped with top-level roles_claim is valid",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", UserRole: "user", RolesClaim: "roles"},
+			wantErr: false,
+		},
+		{
+			name:    "roles mapped with nested roles_claim is valid",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", UserRole: "user", RolesClaim: "realm_access.roles"},
+			wantErr: false,
+		},
+		{
+			name:    "managed model claim path is valid",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "openshell-admin", UserRole: "openshell-user", RolesClaim: "hypershell.roles"},
+			wantErr: false,
+		},
+		{
+			name:    "only admin_role set is rejected",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", RolesClaim: "roles"},
+			wantErr: true,
+		},
+		{
+			name:    "malformed roles_claim with spaces is rejected",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", RolesClaim: "realm access.roles"},
+			wantErr: true,
+		},
+		{
+			name:    "malformed roles_claim with leading dot is rejected",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", RolesClaim: ".roles"},
+			wantErr: true,
+		},
+		{
+			name:    "roles_claim without role mapping still validates format",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", RolesClaim: "groups"},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateOIDCConfig(tt.oidc); (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateOIDCConfig(%+v) error = %v, wantErr %v", tt.oidc, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateCredentialDriverConfig(t *testing.T) {
 	tests := []struct {
 		name    string
