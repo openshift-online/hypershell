@@ -91,6 +91,8 @@ help:
 	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
 	@echo "                             LOCAL_IMAGES=true: build from working tree (default)"
 	@echo "                             LOCAL_IMAGES=true BUILD_SOURCE=baseline: build from origin/main"
+	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
+	@echo "    kind-seed                Seed platform resources into a running cluster"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
@@ -382,6 +384,10 @@ kind-env:
 .PHONY: kind-up
 kind-up:
 	@scripts/kind/up.sh
+
+.PHONY: kind-seed
+kind-seed:
+	@scripts/kind/seed.sh
 
 .PHONY: kind-down
 kind-down:
