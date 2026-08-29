@@ -34,96 +34,83 @@ func migration() *gormigrate.Migration {
 	}
 }
 
+// Column-adding migrations use raw idempotent DDL rather than tx.AutoMigrate.
+// AutoMigrate on an already-existing table calls the postgres migrator's
+// ColumnTypes introspection, whose query places a clause.Expr (CURRENT_SCHEMA())
+// after a scalar bind parameter. Under the framework's testcontainer stack
+// (gorm PreferSimpleProtocol + lib/pq), that ordering breaks placeholder
+// renumbering and fails with "pq: got 2 parameters but the statement requires 1".
+// Explicit "ADD COLUMN IF NOT EXISTS" avoids the introspection path entirely and
+// stays schema-equivalent to what AutoMigrate produced in already-migrated
+// environments. See plugins/managedDatabases/migration.go for the same pattern.
 func migrationAddProvisioningFields() *gormigrate.Migration {
-	type Gateway struct {
-		db.Model
-		Image          *string
-		ServerDnsNames *string `gorm:"type:jsonb"`
-		RouteAddress   *string
-		Oidc           *string `gorm:"type:jsonb"`
-		Route          *string `gorm:"type:jsonb"`
-	}
-
 	return &gormigrate.Migration{
 		ID: "2026080712000001",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			return tx.Exec(`ALTER TABLE gateways
+				ADD COLUMN IF NOT EXISTS image TEXT,
+				ADD COLUMN IF NOT EXISTS server_dns_names JSONB,
+				ADD COLUMN IF NOT EXISTS route_address TEXT,
+				ADD COLUMN IF NOT EXISTS oidc JSONB,
+				ADD COLUMN IF NOT EXISTS route JSONB`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			for _, col := range []string{"image", "server_dns_names", "route_address", "oidc", "route"} {
-				if err := tx.Migrator().DropColumn(&Gateway{}, col); err != nil {
-					return err
-				}
-			}
-			return nil
+			return tx.Exec(`ALTER TABLE gateways
+				DROP COLUMN IF EXISTS image,
+				DROP COLUMN IF EXISTS server_dns_names,
+				DROP COLUMN IF EXISTS route_address,
+				DROP COLUMN IF EXISTS oidc,
+				DROP COLUMN IF EXISTS route`).Error
 		},
 	}
 }
 
 func migrationAddCredentialDriver() *gormigrate.Migration {
-	type Gateway struct {
-		db.Model
-		CredentialDriver *string `gorm:"type:jsonb"`
-	}
-
 	return &gormigrate.Migration{
 		ID: "2026081112000005",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS credential_driver JSONB").Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			return tx.Migrator().DropColumn(&Gateway{}, "credential_driver")
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS credential_driver").Error
 		},
 	}
 }
 
 func migrationAddSupervisorImage() *gormigrate.Migration {
-	type Gateway struct {
-		db.Model
-		SupervisorImage *string
-	}
-
 	return &gormigrate.Migration{
 		ID: "2026080712000002",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS supervisor_image TEXT").Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			return tx.Migrator().DropColumn(&Gateway{}, "supervisor_image")
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS supervisor_image").Error
 		},
 	}
 }
 
 func migrationAddConsoleAddress() *gormigrate.Migration {
-	type Gateway struct {
-		db.Model
-		ConsoleAddress *string
-	}
-
 	return &gormigrate.Migration{
 		ID: "2026081112000006",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS console_address TEXT").Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			return tx.Migrator().DropColumn(&Gateway{}, "console_address")
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS console_address").Error
 		},
 	}
 }
 
 func migrationAddActiveSandboxCount() *gormigrate.Migration {
-	type Gateway struct {
-		db.Model
-		ActiveSandboxCount *int
-	}
-
 	return &gormigrate.Migration{
 		ID: "2026081712000006",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			// gorm maps Go int to bigint on postgres; match that so already-migrated
+			// environments keep an identical column type.
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS active_sandbox_count BIGINT").Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			return tx.Migrator().DropColumn(&Gateway{}, "active_sandbox_count")
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS active_sandbox_count").Error
 		},
 	}
 }

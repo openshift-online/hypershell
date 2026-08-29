@@ -293,7 +293,9 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(retrieved.CredentialDriver).NotTo(BeNil())
-	Expect(*retrieved.CredentialDriver).To(Equal(credDriver))
+	// Read-back goes through the jsonb column, which canonicalizes whitespace,
+	// so compare JSON semantically rather than byte-for-byte.
+	Expect(*retrieved.CredentialDriver).To(MatchJSON(credDriver))
 }
 
 func TestGatewayPatchCredentialDriver(t *testing.T) {
@@ -319,7 +321,9 @@ func TestGatewayPatchCredentialDriver(t *testing.T) {
 	retrieved, resp, err := client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(*retrieved.CredentialDriver).To(Equal(credDriver))
+	// Read-back goes through the jsonb column, which canonicalizes whitespace,
+	// so compare JSON semantically rather than byte-for-byte.
+	Expect(*retrieved.CredentialDriver).To(MatchJSON(credDriver))
 }
 
 func TestGatewayListSearch(t *testing.T) {
