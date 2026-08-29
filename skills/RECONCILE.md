@@ -147,8 +147,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| DM-1 | Fleet (Sector) Lifecycle CRUD | Present | Naming: spec says "Sector", code says "Fleet" | `plugins/fleets/` | - |
-| DM-2 | Fleet-Scoped Resources (FK) | Present | `fleet_id` instead of `sector_id` | all child models | - |
+| DM-1 | ~~Fleet (Sector) Lifecycle CRUD~~ | Removed | Fleet/Sector grouping removed; all resources are top-level, tenancy via RBAC | (removed) | - |
+| DM-2 | ~~Fleet-Scoped Resources (FK)~~ | Removed | `fleet_id` field dropped from all models and contracts | (removed) | - |
 | DM-3a | Gateway field: `image` | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3b | Gateway field: `server_dns_names` | Present | Added as JSONB (model `*string`), proto `repeated string`, OpenAPI `[]string` | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3c | Gateway field: `oidc` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
@@ -208,7 +208,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | D1 | ManagedDatabase Reconciliation (provider=cnpg) | Present | ManagedDatabaseReconciler creates CNPG Cluster CRs | `reconciler.go` | W8 ✅ |
 | D2 | Per-gateway Database/DatabaseRole/Secret CRs | Present | GatewayReconciler provisions CNPG Database+DatabaseRole+Secret in ManagedDB namespace | `gateway/reconciler.go` | W8 ✅ |
 | D3 | ManagedDatabase Deletion Protection | Present | API rejects delete (409) when gateways reference it | `plugins/managedDatabases/service.go` | W8 ✅ |
-| D4 | Gateway Database Resolution (auto fleet+db) | Present | fleet_id auto-resolved from cluster_id; database_id auto-assigned when sole DB in fleet | `plugins/gateways/service.go` | W8 ✅ |
+| D4 | Gateway Database Resolution (auto db) | Present | database_id auto-assigned when a sole ManagedDatabase exists | `plugins/gateways/service.go` | W8 ✅ |
 | D5 | Gateway Credentials Secret (tenant namespace) | Present | `openshell-gateway-db-credentials` created in tenant NS with host/port/dbname/user/password/uri | `gateway/reconciler.go` | W8 ✅ |
 | D6 | Database Provisioning Readiness | Present | `waitForCNPGDatabase()` waits 2min for CNPG Database CR `status.applied: true` | `gateway/reconciler.go` | W8 ✅ |
 | D7 | Database Credential Security (crypto/rand) | Present | 32-byte hex password; create-or-skip semantics | `gateway/reconciler.go` | W8 ✅ |

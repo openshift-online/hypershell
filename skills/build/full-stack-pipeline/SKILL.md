@@ -139,7 +139,7 @@ New Kinds use the generator:
 cd components/api-server
 go run ./scripts/generator.go \
   --kind YourKind \
-  --fields "name:string:required,fleet_id:string:required,status:string" \
+  --fields "name:string:required,cluster_id:string:required,status:string" \
   --project hypershell \
   --repo github.com/openshift-online/hypershell/components/api-server \
   --library github.com/openshift-online/rh-trex-ai
@@ -200,7 +200,7 @@ Template files:
 
 ### Common Pitfalls
 
-- **Nested resource base path (TS):** Generator uses first path segment as base - wrong for nested resources like `/fleets/{fleet_id}/gateways`. May need hand-crafted extensions.
+- **Nested resource base path (TS):** Generator uses first path segment as base - wrong for nested resources like `/gateways/{gateway_id}/service_accounts`. May need hand-crafted extensions.
 - **Required fields:** OpenAPI `required[]` must match spec ERD exactly
 - **Generated variable names:** Ensure route path params match handler `mux.Vars()` keys
 - **CLI output formats:** Always support `-o json` for scriptability

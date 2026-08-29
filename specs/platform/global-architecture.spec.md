@@ -138,7 +138,7 @@ graph TB
 
 **Components**:
 - API Server, Control Plane, Web UI (HA deployment)
-- PostgreSQL (via CNPG) - source of truth for Fleet, Gateway, ManagedCluster resources
+- PostgreSQL (via CNPG) - source of truth for Gateway, ManagedCluster resources
 - ArgoCD - self-reconciles *this* Cloud Hub's operator stack and HyperShell platform components (API server, control plane, Web UI) by pulling its own path from the central GitOps repo; it does **not** reconcile into ManagedClusters
 - Keycloak - federates to Global Keycloak, serves cloud services
 - Vault - secrets for cloud hub services (API server, control plane)
@@ -252,7 +252,7 @@ sequenceDiagram
 ```
 
 **Key Points**:
-- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources - Fleet, Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
+- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources - Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
 - Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams
 - Control Plane reconciles *tenant* resources into ManagedClusters via kubeconfig secrets (runtime push; distinct from the platform GitOps pull below)
@@ -1155,7 +1155,7 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Federated Keycloak chain | RH SSO → Global → Cloud Hub → ManagedCluster - identity flows down, authentication bubbles up |
 | Vault per tier with distinct purposes | Cloud Hub Vault: service secrets; ManagedCluster Vault: gateway keystores |
 | CNPG on all clusters | Kubernetes-native lifecycle, portable across clouds, no vendor lock-in |
-| PostgreSQL on Cloud Hub as source of truth | All Fleet/Gateway/ManagedCluster resource state lives in Cloud Hub database |
+| PostgreSQL on Cloud Hub as source of truth | All Gateway/ManagedCluster resource state lives in Cloud Hub database |
 | ManagedClusters can be standard K8s | Maximizes deployment flexibility; only hubs need OpenShift |
 | Tekton over bash scripts | Deterministic, auditable, cattle-not-pets infrastructure |
 | ArgoCD on every cluster (pull model) | Every cluster runs its own ArgoCD and self-reconciles only its own path from the central GitOps repo. No cluster stores another's kubeconfig and no hub pushes manifests outward, so credential blast radius is minimized and a hub outage never stalls a spoke's platform reconciliation. (Distinct from control-plane tenant reconciliation, which remains a runtime push from the Cloud Hub.) |

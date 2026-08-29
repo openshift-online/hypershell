@@ -91,7 +91,6 @@ When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL
 
 - `/grpc.health.v1.Health/`
 - `/grpc.reflection.v1alpha.ServerReflection/`
-- `/hypershell.v1.FleetService/WatchFleets`
 - `/hypershell.v1.GatewayService/WatchGateways`
 - `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
 - `/hypershell.v1.ManagedClusterService/WatchManagedClusters`

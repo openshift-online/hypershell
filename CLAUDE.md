@@ -35,17 +35,19 @@ checks manually with `make check`.
 
 | Kind | Purpose |
 |------|---------|
-| **Fleet** | Top-level organizational unit (tenant/project) |
 | **Gateway** | API gateway instance deployed on a cluster |
 | **GatewayNetwork** | Network connectivity topology between gateways |
 | **GatewayRelease** | Versioned container images for gateway deployments |
-| **ManagedCluster** | Kubernetes cluster registered into a fleet |
-| **ManagedDatabase** | Database instance provisioned for a fleet |
+| **ManagedCluster** | Kubernetes cluster registered into the platform |
+| **ManagedDatabase** | Database instance provisioned for gateway use |
+
+All resources are top-level; there is no Fleet/Sector grouping. Tenancy is
+enforced by RBAC (platform-level and per-gateway), not by a resource grouping.
 
 ## Resource Flow
 
 ```
-Fleet Created -> Clusters/DBs Registered -> Release Published ->
+Clusters/DBs Registered -> Release Published ->
 Gateway Deployed on Cluster -> Network Mesh Established -> Traffic Flows
 ```
 

@@ -65,8 +65,8 @@ YAML. Those are follow-up implementation work.
 
 ### Reserved Terms
 
-This spec adds no new domain kinds. It refers to the existing kinds (Fleet,
-Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only
+This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
+GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only
 where a scenario provisions one.
 
 ## Architecture
@@ -186,7 +186,7 @@ component's entry in the per-namespace swap state, so the state cannot keep clai
 the working-tree image is active.
 
 Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
-developer needs for a working gateway -- a Fleet, a ManagedCluster, a
+developer needs for a working gateway -- a ManagedCluster, a
 GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
 OIDC values for the environment, so that one command produces a working gateway and
 the OpenShift workflow matches the Kind workflow.
@@ -208,7 +208,7 @@ prefix with `openshift`.
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a Fleet, a ManagedCluster, a GatewayRelease, a
+- AND the scripts seed a ManagedCluster, a GatewayRelease, a
   ManagedDatabase, and a Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready

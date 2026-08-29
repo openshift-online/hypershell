@@ -45,7 +45,7 @@ hsctl apply -k overlays/tenant-a/
     ▼
 API Server (PostgreSQL)
     │  authorizes via RBAC (caller must have gateway:creator role)
-    │  persists Gateway resource with fleet_id, auto-provisions gateway:owner RoleBinding for the creator
+    │  persists Gateway resource, auto-provisions gateway:owner RoleBinding for the creator
     │  emits gRPC watch event
     ▼
 Control Plane - GatewayReconciler (internal/reconciler/)

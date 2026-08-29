@@ -435,9 +435,9 @@ OpenAPI `readOnly` marking):
 
 ```bash
 API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
-# ...create Fleet, ManagedCluster, GatewayRelease, ManagedDatabase first...
+# ...create ManagedCluster, GatewayRelease, ManagedDatabase first...
 curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' -d '{
-  "name":"ibm-test-gw","fleet_id":"...","cluster_id":"...","release_id":"...","database_id":"...",
+  "name":"ibm-test-gw","cluster_id":"...","release_id":"...","database_id":"...",
   "namespace":"openshell-ibmtest",
   "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.109",
   "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.109",
