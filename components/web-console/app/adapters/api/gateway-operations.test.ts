@@ -58,7 +58,6 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     credential_driver: "",
     database_id: "database-1",
     external_dns: "gateway.example.com",
-    fleet_id: "",
     href: "/api/hypershell/v1/gateways/gateway-1",
     id: "gateway-1",
     image: "",
@@ -100,7 +99,6 @@ function managedCluster(
   return {
     api_server_url: "https://api.east.example.com",
     created_at: null,
-    fleet_id: "fleet-1",
     href: "/api/hypershell/v1/managed_clusters/cluster-east",
     id: "cluster-east",
     kind: "ManagedCluster",
@@ -646,7 +644,6 @@ describe("gateway API operations adapter", () => {
       {
         cluster_id: "cluster-east",
         database_id: "",
-        fleet_id: "",
         name: "team-gateway",
         release_id: "",
         route: '{"enabled":true}',

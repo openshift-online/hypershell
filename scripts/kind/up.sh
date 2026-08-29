@@ -751,7 +751,7 @@ trap cleanup_pf EXIT
 info "Waiting for API server to answer through the port-forward..."
 api_reachable=""
 for _ in $(seq 1 30); do
-  if curl -s -o /dev/null -m 3 "${API_URL}/api/hypershell/v1/fleets" 2>/dev/null; then
+  if curl -s -o /dev/null -m 3 "${API_URL}/api/hypershell/v1/gateways" 2>/dev/null; then
     api_reachable=true
     break
   fi
@@ -776,7 +776,7 @@ info "Obtaining API token from Keycloak..."
 # HTTP authz middleware (unlike the gRPC interceptor) has no service-account
 # bypass -- every write requires the caller's JWT to carry the `gateway:creator`
 # realm role. The `hypershell-control-plane` client holds no such role, so its
-# token 403s on `POST /fleets` onward and (because seeding is non-fatal) would
+# token 403s on `POST /managed_clusters` onward and (because seeding is non-fatal) would
 # leave the cluster with no seeded resources behind a scroll-past warning. The
 # `admin` user has `gateway:creator`, and `hypershell-frontend` permits the
 # password grant (publicClient + directAccessGrantsEnabled), so this token is
@@ -845,39 +845,9 @@ extract_id() {
 }
 
 seed_failed=""
-FLEET_ID=""
 CLUSTER_ID=""
 RELEASE_ID=""
 DATABASE_ID=""
-
-# Check for existing Fleet first
-info "Checking for existing default Fleet..."
-EXISTING_FLEET_RAW=$(api_get "${API_URL}/api/hypershell/v1/fleets")
-EXISTING_FLEET_HTTP=$(echo "${EXISTING_FLEET_RAW}" | tail -1)
-EXISTING_FLEET_RESP=$(echo "${EXISTING_FLEET_RAW}" | sed '$d')
-
-if [[ "${EXISTING_FLEET_HTTP}" == "200" ]]; then
-  FLEET_ID=$(echo "${EXISTING_FLEET_RESP}" | grep -o '"name":"default"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
-  if [[ -n "${FLEET_ID}" ]]; then
-    success "default Fleet already exists: ${FLEET_ID}"
-  fi
-fi
-
-if [[ -z "${FLEET_ID}" ]]; then
-  info "Creating default Fleet..."
-  FLEET_RAW=$(api_post "${API_URL}/api/hypershell/v1/fleets" \
-    '{"name":"default","description":"Local development fleet"}')
-  FLEET_HTTP=$(echo "${FLEET_RAW}" | tail -1)
-  FLEET_RESP=$(echo "${FLEET_RAW}" | sed '$d')
-  FLEET_ID=$(extract_id "${FLEET_RESP}")
-
-  if [[ -z "${FLEET_ID}" ]]; then
-    warn "Fleet creation failed (HTTP ${FLEET_HTTP}): ${FLEET_RESP:-no response}"
-    seed_failed=true
-  else
-    success "Fleet created: ${FLEET_ID}"
-  fi
-fi
 
 if [[ -z "${seed_failed}" ]]; then
   # Check for existing ManagedCluster
@@ -896,7 +866,7 @@ if [[ -z "${seed_failed}" ]]; then
   if [[ -z "${CLUSTER_ID}" ]]; then
     info "Creating ManagedCluster..."
     MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
-      "{\"name\":\"local-kind\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
+      "{\"name\":\"local-kind\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
     MC_HTTP=$(echo "${MC_RAW}" | tail -1)
     MC_RESP=$(echo "${MC_RAW}" | sed '$d')
     CLUSTER_ID=$(extract_id "${MC_RESP}")
@@ -927,7 +897,7 @@ if [[ -z "${seed_failed}" ]]; then
   if [[ -z "${RELEASE_ID}" ]]; then
     info "Creating GatewayRelease..."
     GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
-      "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")
+      "{\"name\":\"dev-release\",\"image\":\"${GATEWAY_IMAGE}\"}")
     GR_HTTP=$(echo "${GR_RAW}" | tail -1)
     GR_RESP=$(echo "${GR_RAW}" | sed '$d')
     RELEASE_ID=$(extract_id "${GR_RESP}")
@@ -962,7 +932,7 @@ if [[ -z "${seed_failed}" ]]; then
     if [[ -z "${DATABASE_ID}" ]]; then
       info "Creating ManagedDatabase (provider=${DB_PROVIDER})..."
       MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-        "{\"name\":\"openshell-db\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"${DB_PROVIDER}\"}")
+        "{\"name\":\"openshell-db\",\"provider\":\"${DB_PROVIDER}\"}")
       MD_HTTP=$(echo "${MD_RAW}" | tail -1)
       MD_RESP=$(echo "${MD_RAW}" | sed '$d')
 
@@ -1004,7 +974,7 @@ if [[ -z "${seed_failed}" ]]; then
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
     # Always send database_id; deployment mode uses the empty placeholder.
-    GW_BODY="{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
+    GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
     GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
     GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"

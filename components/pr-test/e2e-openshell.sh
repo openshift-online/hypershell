@@ -170,7 +170,6 @@ else
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': '$FLEET_ID',
     'cluster_id': '$CLUSTER_ID',
     'release_id': '$REL_ID',
     'database_id': '$DB_ID',
