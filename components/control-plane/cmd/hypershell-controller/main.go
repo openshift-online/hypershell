@@ -163,7 +163,6 @@ func main() {
 		}
 	}
 
-	fleetReconciler := reconciler.NewFleetReconciler()
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
 	var databaseReconciler watcher.Handler[*pb.ManagedDatabase]
 	if managedDatabaseWatchEligible(clientset, dynamicClient) {
@@ -229,7 +228,7 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
-	watchCount := 5 // fleets, managed clusters, gateway releases, gateways, networks
+	watchCount := 4 // managed clusters, gateway releases, gateways, networks
 	if databaseReconciler != nil {
 		watchCount++
 	}
@@ -253,7 +252,6 @@ func main() {
 		log.Printf("INFO service-account provisioner disabled")
 	}
 
-	go func() { errCh <- watcher.WatchFleets(ctx, conn, fleetReconciler) }()
 	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
 	if databaseReconciler != nil {
 		go func() { errCh <- watcher.WatchManagedDatabases(ctx, conn, databaseReconciler) }()

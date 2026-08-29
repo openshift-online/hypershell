@@ -39,36 +39,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type FleetReconciler struct {
-	mu     sync.Mutex
-	active map[string]struct{}
-}
-
-func NewFleetReconciler() *FleetReconciler {
-	return &FleetReconciler{active: make(map[string]struct{})}
-}
-
-func (r *FleetReconciler) Handle(ctx context.Context, event watcher.Event[*pb.Fleet]) error {
-	r.mu.Lock()
-	if _, ok := r.active[event.ResourceID]; ok {
-		r.mu.Unlock()
-		return nil
-	}
-	r.active[event.ResourceID] = struct{}{}
-	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		delete(r.active, event.ResourceID)
-		r.mu.Unlock()
-	}()
-
-	_, endSpan := cpotel.StartReconcileSpan(ctx, "Fleet", event.Type.String())
-	defer func() { endSpan(nil) }()
-
-	log.Printf("INFO reconciling Fleet %s (event=%d)", event.ResourceID, event.Type)
-	return nil
-}
-
 type ManagedClusterReconciler struct {
 	mu     sync.Mutex
 	active map[string]struct{}
@@ -1927,7 +1897,7 @@ type databaseConfig struct {
 
 func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (databaseConfig, error) {
 	if gw.DatabaseId == "" {
-		return databaseConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the fleet")
+		return databaseConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the gateway")
 	}
 
 	client := pb.NewManagedDatabaseServiceClient(r.grpcConn)

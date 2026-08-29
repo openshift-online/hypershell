@@ -62,32 +62,6 @@ func toEventType(t pb.EventType) EventType {
 	}
 }
 
-func WatchFleets(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Fleet]) error {
-	client := pb.NewFleetServiceClient(conn)
-	return watchLoop(ctx, "Fleet", func(ctx context.Context) error {
-		stream, err := client.WatchFleets(ctx, &pb.WatchFleetsRequest{})
-		if err != nil {
-			return fmt.Errorf("starting fleet watch: %w", err)
-		}
-		for {
-			event, err := stream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("receiving fleet event: %w", err)
-			}
-			if err := handler.Handle(ctx, Event[*pb.Fleet]{
-				Type:       toEventType(event.Type),
-				ResourceID: event.ResourceId,
-				Resource:   event.Fleet,
-			}); err != nil {
-				log.Printf("ERROR handling fleet %s: %v", event.ResourceId, err)
-			}
-		}
-	})
-}
-
 func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.ManagedCluster]) error {
 	client := pb.NewManagedClusterServiceClient(conn)
 	return watchLoop(ctx, "ManagedCluster", func(ctx context.Context) error {
