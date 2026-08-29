@@ -27,7 +27,6 @@ type ManagedDatabaseService interface {
 	All(ctx context.Context) (ManagedDatabaseList, *errors.ServiceError)
 
 	FindByIDs(ctx context.Context, ids []string) (ManagedDatabaseList, *errors.ServiceError)
-	FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
@@ -203,12 +202,4 @@ func (s *sqlManagedDatabaseService) All(ctx context.Context) (ManagedDatabaseLis
 		return nil, errors.GeneralError("Unable to get all managedDatabases: %s", err)
 	}
 	return managedDatabases, nil
-}
-
-func (s *sqlManagedDatabaseService) FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, *errors.ServiceError) {
-	managedDatabase, err := s.managedDatabaseDao.FindSoleInFleet(ctx, fleetID)
-	if err != nil {
-		return nil, errors.GeneralError("Unable to find sole managed database in fleet: %s", err)
-	}
-	return managedDatabase, nil
 }

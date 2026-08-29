@@ -18,7 +18,6 @@ type ManagedDatabaseDao interface {
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (ManagedDatabaseList, error)
 	All(ctx context.Context) (ManagedDatabaseList, error)
-	FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, error)
 	ExistsByDatabaseID(ctx context.Context, databaseID string) (bool, error)
 }
 
@@ -107,18 +106,6 @@ func (d *sqlManagedDatabaseDao) All(ctx context.Context) (ManagedDatabaseList, e
 		return nil, err
 	}
 	return managedDatabases, nil
-}
-
-func (d *sqlManagedDatabaseDao) FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, error) {
-	g2 := (*d.sessionFactory).New(ctx)
-	var databases []ManagedDatabase
-	if err := g2.Where("fleet_id = ?", fleetID).Find(&databases).Error; err != nil {
-		return nil, err
-	}
-	if len(databases) == 1 {
-		return &databases[0], nil
-	}
-	return nil, nil
 }
 
 func (d *sqlManagedDatabaseDao) ExistsByDatabaseID(ctx context.Context, databaseID string) (bool, error) {

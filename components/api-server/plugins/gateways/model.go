@@ -14,7 +14,6 @@ const gatewayNamespacePrefix = "openshell-"
 type Gateway struct {
 	api.Meta
 	Name               string  `json:"name"`
-	FleetId            string  `json:"fleet_id"`
 	ClusterId          string  `json:"cluster_id"`
 	ReleaseId          string  `json:"release_id"`
 	DatabaseId         string  `json:"database_id"`
@@ -59,7 +58,6 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 
 type GatewayPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
-	FleetId          *string `json:"fleet_id,omitempty"`
 	ClusterId        *string `json:"cluster_id,omitempty"`
 	ReleaseId        *string `json:"release_id,omitempty"`
 	DatabaseId       *string `json:"database_id,omitempty"`

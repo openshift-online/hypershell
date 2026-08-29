@@ -15,7 +15,6 @@ func gatewayReleaseToProto(d *GatewayRelease) *pb.GatewayRelease {
 			Href:      "/api/hypershell/v1/gateway_releases/" + d.ID,
 		},
 		Name:            d.Name,
-		FleetId:         d.FleetId,
 		Image:           d.Image,
 		RolloutStrategy: d.RolloutStrategy,
 		CanaryPercent: func() *int32 {

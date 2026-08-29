@@ -56,19 +56,6 @@ func (d *managedDatabaseDaoMock) All(ctx context.Context) (ManagedDatabaseList, 
 	return d.managedDatabases, nil
 }
 
-func (d *managedDatabaseDaoMock) FindSoleInFleet(ctx context.Context, fleetID string) (*ManagedDatabase, error) {
-	var matches []*ManagedDatabase
-	for _, db := range d.managedDatabases {
-		if db.FleetId == fleetID {
-			matches = append(matches, db)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	return nil, nil
-}
-
 func (d *managedDatabaseDaoMock) ExistsByDatabaseID(ctx context.Context, databaseID string) (bool, error) {
 	return false, nil
 }

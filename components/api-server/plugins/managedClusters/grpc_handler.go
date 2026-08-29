@@ -42,9 +42,6 @@ func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, re
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("fleet_id", req.FleetId, true); err != nil {
-		return nil, err
-	}
 	if err := grpcutil.ValidateStringField("provider", req.Provider, true); err != nil {
 		return nil, err
 	}
@@ -54,7 +51,6 @@ func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, re
 
 	managedCluster := &ManagedCluster{
 		Name:             req.Name,
-		FleetId:          req.FleetId,
 		Provider:         req.Provider,
 		Region:           req.Region,
 		KubeconfigSecret: req.KubeconfigSecret,
@@ -74,11 +70,6 @@ func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, re
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.FleetId != nil {
-		if err := grpcutil.ValidateStringField("fleet_id", *req.FleetId, false); err != nil {
 			return nil, err
 		}
 	}
@@ -114,9 +105,6 @@ func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, re
 	}
 	if req.Name != nil {
 		managedCluster.Name = *req.Name
-	}
-	if req.FleetId != nil {
-		managedCluster.FleetId = *req.FleetId
 	}
 	if req.Provider != nil {
 		managedCluster.Provider = *req.Provider

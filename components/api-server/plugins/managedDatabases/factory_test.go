@@ -13,7 +13,6 @@ func newManagedDatabase(id string) (*managedDatabases.ManagedDatabase, error) {
 
 	managedDatabase := &managedDatabases.ManagedDatabase{
 		Name:             "test-name",
-		FleetId:          "test-fleet_id",
 		Provider:         "deployment",
 		Region:           stringPtr("test-region"),
 		Engine:           stringPtr("test-engine"),

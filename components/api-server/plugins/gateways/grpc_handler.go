@@ -43,9 +43,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("fleet_id", req.FleetId, true); err != nil {
-		return nil, err
-	}
 	if err := grpcutil.ValidateStringField("cluster_id", req.ClusterId, true); err != nil {
 		return nil, err
 	}
@@ -64,7 +61,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 
 	gateway := &Gateway{
 		Name:           req.Name,
-		FleetId:        req.FleetId,
 		ClusterId:      req.ClusterId,
 		ReleaseId:      req.ReleaseId,
 		DatabaseId:     req.DatabaseId,
@@ -91,11 +87,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.FleetId != nil {
-		if err := grpcutil.ValidateStringField("fleet_id", *req.FleetId, false); err != nil {
 			return nil, err
 		}
 	}
@@ -141,9 +132,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.Name != nil {
 		gateway.Name = *req.Name
-	}
-	if req.FleetId != nil {
-		gateway.FleetId = *req.FleetId
 	}
 	if req.ClusterId != nil {
 		gateway.ClusterId = *req.ClusterId

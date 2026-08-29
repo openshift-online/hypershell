@@ -14,7 +14,6 @@ const dbNamespacePrefix = "openshell-db-"
 type ManagedDatabase struct {
 	api.Meta
 	Name             string  `json:"name"`
-	FleetId          string  `json:"fleet_id"`
 	Provider         string  `json:"provider"`
 	Namespace        string  `json:"namespace"`
 	Region           *string `json:"region"`
@@ -49,7 +48,6 @@ func (d *ManagedDatabase) BeforeCreate(tx *gorm.DB) error {
 
 type ManagedDatabasePatchRequest struct {
 	Name             *string `json:"name,omitempty"`
-	FleetId          *string `json:"fleet_id,omitempty"`
 	Provider         *string `json:"provider,omitempty"`
 	Region           *string `json:"region,omitempty"`
 	Engine           *string `json:"engine,omitempty"`

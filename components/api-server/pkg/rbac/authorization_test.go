@@ -148,13 +148,13 @@ func TestIsAuthorized_NoBindingsDenied(t *testing.T) {
 	}
 }
 
-func TestIsAuthorized_GatewayViewerCannotAccessFleets(t *testing.T) {
+func TestIsAuthorized_GatewayViewerCannotAccessGatewayReleases(t *testing.T) {
 	bindings := []BindingSummary{
 		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")},
 	}
 
-	if isAuthorized(http.MethodGet, "fleets", "", "", bindings) {
-		t.Error("gateway:viewer must not access fleets")
+	if isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings) {
+		t.Error("gateway:viewer must not access gateway_releases")
 	}
 }
 
@@ -168,13 +168,13 @@ func TestIsAuthorized_GatewayOwnerCannotAccessManagedClusters(t *testing.T) {
 	}
 }
 
-func TestIsAuthorized_GatewayCreatorCanAccessFleets(t *testing.T) {
+func TestIsAuthorized_GatewayCreatorCanAccessGatewayReleases(t *testing.T) {
 	bindings := []BindingSummary{
 		{RoleName: "gateway:creator", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodGet, "fleets", "", "", bindings) {
-		t.Error("gateway:creator should access fleets")
+	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings) {
+		t.Error("gateway:creator should access gateway_releases")
 	}
 }
 

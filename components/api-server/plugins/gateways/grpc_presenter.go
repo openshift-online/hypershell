@@ -17,7 +17,6 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 			Href:      "/api/hypershell/v1/gateways/" + d.ID,
 		},
 		Name:             d.Name,
-		FleetId:          d.FleetId,
 		ClusterId:        d.ClusterId,
 		ReleaseId:        d.ReleaseId,
 		DatabaseId:       d.DatabaseId,

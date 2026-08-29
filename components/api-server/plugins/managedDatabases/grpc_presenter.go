@@ -15,7 +15,6 @@ func managedDatabaseToProto(d *ManagedDatabase) *pb.ManagedDatabase {
 			Href:      "/api/hypershell/v1/managed_databases/" + d.ID,
 		},
 		Name:             d.Name,
-		FleetId:          d.FleetId,
 		Provider:         d.Provider,
 		Namespace:        d.Namespace,
 		Region:           d.Region,

@@ -14,7 +14,6 @@ func ConvertGatewayNetwork(gatewayNetwork openapi.GatewayNetwork) *GatewayNetwor
 		},
 	}
 	c.Name = gatewayNetwork.Name
-	c.FleetId = gatewayNetwork.FleetId
 	c.Topology = gatewayNetwork.Topology
 	c.TunnelMode = gatewayNetwork.TunnelMode
 	c.HubGatewayId = gatewayNetwork.HubGatewayId
@@ -37,7 +36,6 @@ func PresentGatewayNetwork(gatewayNetwork *GatewayNetwork) openapi.GatewayNetwor
 		CreatedAt:    openapi.PtrTime(gatewayNetwork.CreatedAt),
 		UpdatedAt:    openapi.PtrTime(gatewayNetwork.UpdatedAt),
 		Name:         gatewayNetwork.Name,
-		FleetId:      gatewayNetwork.FleetId,
 		Topology:     gatewayNetwork.Topology,
 		TunnelMode:   gatewayNetwork.TunnelMode,
 		HubGatewayId: gatewayNetwork.HubGatewayId,

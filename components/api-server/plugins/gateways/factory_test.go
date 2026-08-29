@@ -13,7 +13,6 @@ func newGateway(id string) (*gateways.Gateway, error) {
 
 	gateway := &gateways.Gateway{
 		Name:        "test-name",
-		FleetId:     "test-fleet_id",
 		ClusterId:   "test-cluster_id",
 		ReleaseId:   "test-release_id",
 		DatabaseId:  "test-database_id",

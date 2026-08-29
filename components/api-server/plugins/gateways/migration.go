@@ -144,3 +144,38 @@ func migrationDropDatabaseConfig() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationDropFleetId() *gormigrate.Migration {
+	type Gateway struct{ db.Model }
+
+	return &gormigrate.Migration{
+		ID: "2026082813000001",
+		Migrate: func(tx *gorm.DB) error {
+			if tx.Migrator().HasColumn(&Gateway{}, "fleet_id") {
+				return tx.Migrator().DropColumn(&Gateway{}, "fleet_id")
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
+		},
+	}
+}
+
+func migrationDropFleetsTable() *gormigrate.Migration {
+	// The Fleet resource was removed platform-wide; drop its orphaned table.
+	type Fleet struct{ db.Model }
+
+	return &gormigrate.Migration{
+		ID: "2026082813000007",
+		Migrate: func(tx *gorm.DB) error {
+			if tx.Migrator().HasTable(&Fleet{}) {
+				return tx.Migrator().DropTable(&Fleet{})
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
+		},
+	}
+}
