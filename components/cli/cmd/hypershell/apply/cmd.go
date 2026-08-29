@@ -207,8 +207,6 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 	// Map kind to API path
 	var basePath string
 	switch kind {
-	case "Fleet":
-		basePath = urls.FleetsPath
 	case "Gateway":
 		basePath = urls.GatewaysPath
 	case "GatewayNetwork":

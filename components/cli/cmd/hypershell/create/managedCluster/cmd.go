@@ -17,7 +17,6 @@ import (
 
 var args struct {
 	apiServerUrl     string
-	fleetId          string
 	kubeconfigSecret string
 	name             string
 	provider         string
@@ -31,7 +30,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedCluster",
 	Long: "Create a new managedCluster.\n\n" +
 		"Examples:\n" +
-		"  hypershell create managedCluster --api-server-url <value> --fleet-id <value> --kubeconfig-secret <value> --name <value> --provider <value> --region <value> --status <value> \n" +
+		"  hypershell create managedCluster --api-server-url <value> --kubeconfig-secret <value> --name <value> --provider <value> --region <value> --status <value> \n" +
 		"  hypershell create managedCluster --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -40,7 +39,6 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.apiServerUrl, "api-server-url", "", "api_server_url value.")
-	fs.StringVar(&args.fleetId, "fleet-id", "", "fleet_id value.")
 	fs.StringVar(&args.kubeconfigSecret, "kubeconfig-secret", "", "kubeconfig_secret value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.provider, "provider", "", "provider value.")
@@ -72,9 +70,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		request := map[string]interface{}{}
 		if args.apiServerUrl != "" {
 			request["api_server_url"] = args.apiServerUrl
-		}
-		if args.fleetId != "" {
-			request["fleet_id"] = args.fleetId
 		}
 		if args.kubeconfigSecret != "" {
 			request["kubeconfig_secret"] = args.kubeconfigSecret
