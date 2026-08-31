@@ -88,7 +88,7 @@ func (tp *TokenProvider) Token() (string, error) {
 
 	tp.token = token
 	// Refresh at 80% of TTL to avoid using an expired token.
-	tp.expiry = time.Now().Add(time.Duration(float64(expiresIn) * 0.8))
+	tp.expiry = time.Now().Add(time.Duration(expiresIn) * time.Second * 8 / 10)
 
 	return tp.token, nil
 }
