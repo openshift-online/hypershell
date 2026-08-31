@@ -69,8 +69,8 @@ type GatewayHealthReconciler struct {
 
 	// consoleClientChecker is one long-lived Keycloak client for residual-absence
 	// checks. It keeps its token cache between passes. It is nil when Keycloak is
-	// not configured. The client protects its shared token state for concurrent
-	// use by the bounded gateway workers.
+	// not configured. The client returns a mutex-protected token snapshot to each
+	// bounded gateway worker.
 	consoleClientChecker gateway.ConsoleClientChecker
 
 	// now is the clock, overridable in tests.
