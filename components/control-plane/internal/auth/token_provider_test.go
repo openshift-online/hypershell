@@ -1,14 +1,51 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestTokenGrantLogContainsSafeRefreshDetails(t *testing.T) {
+	var output bytes.Buffer
+	priorWriter := log.Writer()
+	priorFlags := log.Flags()
+	priorPrefix := log.Prefix()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(priorWriter)
+		log.SetFlags(priorFlags)
+		log.SetPrefix(priorPrefix)
+	})
+
+	var grants atomic.Int32
+	server := newTokenServer(t, &grants)
+	provider := NewTokenProvider("https://issuer.invalid", "client-id\nforged-entry", "client-secret")
+	provider.SetTokenEndpoint(server.URL)
+
+	if _, err := provider.Token(); err != nil {
+		t.Fatalf("Token() failed: %v", err)
+	}
+
+	message := output.String()
+	if !strings.Contains(message, `client "client-id\nforged-entry"; refresh in 4m0s`) {
+		t.Fatalf("token grant log = %q, want quoted client ID and refresh interval", message)
+	}
+	for _, forbidden := range []string{"token-1", "client-secret", "\nforged-entry"} {
+		if strings.Contains(message, forbidden) {
+			t.Fatalf("token grant log contains unsafe value %q: %q", forbidden, message)
+		}
+	}
+}
 
 func TestTokenReusesCachedToken(t *testing.T) {
 	t.Parallel()

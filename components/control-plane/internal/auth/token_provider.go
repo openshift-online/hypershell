@@ -89,7 +89,9 @@ func (tp *TokenProvider) Token() (string, error) {
 	tp.token = token
 	// Refresh at 80% of TTL to avoid using an expired token.
 	ttl := time.Duration(expiresIn) * time.Second
-	tp.expiry = time.Now().Add(ttl * 8 / 10)
+	refreshAfter := ttl * 8 / 10
+	tp.expiry = time.Now().Add(refreshAfter)
+	log.Printf("INFO got OIDC access token for client %q; refresh in %s", tp.clientID, refreshAfter)
 
 	return tp.token, nil
 }
