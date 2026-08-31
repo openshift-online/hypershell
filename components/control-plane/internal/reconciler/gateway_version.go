@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
@@ -129,6 +130,9 @@ func (o *httpGatewayVersionObserver) Observe(ctx context.Context, namespace stri
 	version := strings.TrimSpace(health.Version)
 	if version == "" {
 		return "", fmt.Errorf("gateway health response has no version")
+	}
+	if strings.IndexFunc(version, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("gateway health version contains a control character")
 	}
 	if len(version) > maxGatewayVersionLength {
 		return "", fmt.Errorf("gateway health version is too long")

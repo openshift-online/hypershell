@@ -56,6 +56,12 @@ func TestHTTPGatewayVersionObserver(t *testing.T) {
 			wantError:  "has no version",
 		},
 		{
+			name:       "rejects an embedded control character",
+			statusCode: http.StatusOK,
+			body:       `{"version":"v0.0.109\nforged log entry"}`,
+			wantError:  "contains a control character",
+		},
+		{
 			name:       "rejects a long version",
 			statusCode: http.StatusOK,
 			body:       `{"version":"` + strings.Repeat("v", maxGatewayVersionLength+1) + `"}`,
