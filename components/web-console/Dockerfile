@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:e2a04f7443db3d27751ed6e9d74ee5c3a02217dbf6c8769e468ef3b1b2a3e6fa AS build
+FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:09e16ab3b22a1a1a9f7efae92e03e5ad53c948bc4a18a0196893052d59446c66 AS build
 
 USER root
 
@@ -28,7 +28,7 @@ RUN pnpm run build:web \
   && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
   && cp -R components/web-console/build/client /tmp/web-console/public
 
-FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:07b0f6cf5dabef30b1efa030eea020095b1ea227c088dbcbe0ebd35bb24b7ad9
+FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:6b2089244198989d5cb89722abed9fad93cff1bd5165cbf4beaee5aecd276be2
 
 LABEL org.opencontainers.image.title="HyperShell web console" \
       org.opencontainers.image.description="HyperShell web console BFF and static application" \
