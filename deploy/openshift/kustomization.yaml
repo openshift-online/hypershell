@@ -71,18 +71,32 @@ patches:
       name: hypershell-api-server
       namespace: hypershell-system
     patch: |
+      # Append each OpenShift setting. Do not replace the base environment
+      # list. The base list contains the database and service-account
+      # provisioner settings.
       - op: add
-        path: /spec/template/spec/containers/0/env
+        path: /spec/template/spec/containers/0/env/-
         value:
-          - name: JWK_CERT_URL
-            valueFrom:
-              secretKeyRef:
-                name: hypershell-api-config
-                key: api-service.jwkCertUrl
-          - name: RBAC_ENFORCE
-            value: "true"
-          - name: RBAC_SERVICE_ACCOUNTS
-            value: "service-account-hypershell-control-plane"
+          name: API_ENV
+          value: "development_oidc"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: JWK_CERT_URL
+          valueFrom:
+            secretKeyRef:
+              name: hypershell-api-config
+              key: api-service.jwkCertUrl
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: RBAC_ENFORCE
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: RBAC_SERVICE_ACCOUNTS
+          value: "service-account-hypershell-control-plane"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--enable-jwt=true"
