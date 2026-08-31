@@ -2,6 +2,8 @@ module github.com/openshift-online/hypershell
 
 go 1.26.4
 
+toolchain go1.26.7
+
 tool github.com/evilmartians/lefthook/v2
 
 require github.com/gorilla/mux v1.8.1
