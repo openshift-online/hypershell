@@ -473,6 +473,63 @@ func TestReconcileServiceAccountPerformsNoWritesWhenConverged(t *testing.T) {
 	}
 }
 
+func TestReconcileServiceAccountPerformsNoWritesWithBuiltInServiceAccountScope(t *testing.T) {
+	rep := convergedClientRepresentation()
+	rep["defaultClientScopes"] = []string{"service_account"}
+	var writes []string
+	server := httptest.NewServer(reconcileHandler(t, rep, convergedProtocolMappers(), &writes))
+	t.Cleanup(server.Close)
+	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+	if err := client.ReconcileServiceAccount(t.Context(), reconcileSpec(), "service-uuid", "service-subject", true); err != nil {
+		t.Fatalf("ReconcileServiceAccount() error = %v", err)
+	}
+	if len(writes) != 0 {
+		t.Fatalf("converged reconciliation performed writes: %v", writes)
+	}
+}
+
+func TestUpdateRepresentationSendsEmptyClientScopeLists(t *testing.T) {
+	type updatePayload struct {
+		Enabled                bool     `json:"enabled"`
+		ServiceAccountsEnabled bool     `json:"serviceAccountsEnabled"`
+		DefaultClientScopes    []string `json:"defaultClientScopes"`
+		OptionalClientScopes   []string `json:"optionalClientScopes"`
+	}
+	updates := make(chan updatePayload, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+		case r.URL.Path == "/admin/realms/realm/clients/service-uuid" && r.Method == http.MethodPut:
+			var payload updatePayload
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, "invalid update payload", http.StatusBadRequest)
+				return
+			}
+			updates <- payload
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, fmt.Sprintf("unexpected %s %s", r.Method, r.URL.Path), http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "realm", "provisioner", "admin-secret")
+	if err := client.updateRepresentation(t.Context(), "service-uuid", reconcileSpec(), false); err != nil {
+		t.Fatalf("updateRepresentation() error = %v", err)
+	}
+	payload := <-updates
+	if payload.Enabled || !payload.ServiceAccountsEnabled {
+		t.Fatalf("client state = enabled %t, service accounts enabled %t", payload.Enabled, payload.ServiceAccountsEnabled)
+	}
+	if payload.DefaultClientScopes == nil || len(payload.DefaultClientScopes) != 0 {
+		t.Fatalf("default client scopes = %v, want an explicit empty list", payload.DefaultClientScopes)
+	}
+	if payload.OptionalClientScopes == nil || len(payload.OptionalClientScopes) != 0 {
+		t.Fatalf("optional client scopes = %v, want an explicit empty list", payload.OptionalClientScopes)
+	}
+}
+
 func TestReconcileServiceAccountRepairsSecurityBroadeningDrift(t *testing.T) {
 	// Each case flips exactly one security-relevant field on an otherwise
 	// converged client. The zero-write predicate must reject every one of them so
@@ -489,6 +546,15 @@ func TestReconcileServiceAccountRepairsSecurityBroadeningDrift(t *testing.T) {
 		{name: "direct access grants enabled", mutate: func(rep map[string]any) { rep["directAccessGrantsEnabled"] = true }},
 		{name: "redirect origin added", mutate: func(rep map[string]any) { rep["redirectUris"] = []string{"https://attacker.example"} }},
 		{name: "default client scope injected", mutate: func(rep map[string]any) { rep["defaultClientScopes"] = []string{"rogue-scope"} }},
+		{name: "default client scope added to built-in scope", mutate: func(rep map[string]any) {
+			rep["defaultClientScopes"] = []string{"service_account", "rogue-scope"}
+		}},
+		{name: "built-in default client scope duplicated", mutate: func(rep map[string]any) {
+			rep["defaultClientScopes"] = []string{"service_account", "service_account"}
+		}},
+		{name: "optional client scope injected", mutate: func(rep map[string]any) {
+			rep["optionalClientScopes"] = []string{"rogue-scope"}
+		}},
 		{name: "device grant enabled", mutate: func(rep map[string]any) {
 			rep["attributes"].(map[string]string)[deviceGrantAttribute] = "true"
 		}},

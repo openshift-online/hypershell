@@ -45,9 +45,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-27 (OpenShell Gateway Console GC-W1 complete)
+**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete)
 **Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console
-**Codebase commit**: 9984ed0 (fix/console OpenShift Route ingress)
+**Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 complete)
 
 ### Coverage Summary
 
@@ -68,11 +68,11 @@ skills/
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
-| Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
+| Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **32** | **224** | **175** | **18** | **26** | **5** | **82%** |
+| **TOTAL** | **32** | **225** | **176** | **18** | **26** | **5** | **82%** |
 
 ### Spec Dependency Order
 
@@ -133,13 +133,14 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SA-11 | Workspace membership is a separate grant | Present | - | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W1, W4, W5 |
 | SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
 | SA-13 | Auditability and secret redaction | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs, `components/web-console/bff/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3, W5 |
-| SA-14 | Reconciliation and drift repair | Present | Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction | `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-14 | Reconciliation and drift repair | Present | The control-plane convergence predicate accepts Keycloak's built-in `service_account` scope and rejects all other client scopes. Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction. | `components/control-plane/internal/serviceaccountkeycloak/client.go`, `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | KC-ES-W1 |
 | SA-15 | Verification coverage | Present | - | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go`, `components/cli/pkg/serviceaccount/*_test.go`, `packages/gateway-management-ui/src/service-accounts/*_test.ts*`, `components/web-console/**/*test*` | SA-W1..W6 |
 
 **Scoped analysis notes:**
 
 - The nested API, generated SDKs, CLI, Keycloak lifecycle, reconciliation, cleanup barrier, and gateway-detail management UI now implement the resource's public behavior.
 - The SDK and CLI generators now project the nested service-account collection. Generated clients and commands remain reproducible from the OpenAPI contract.
+- Keycloak 26.1 and later adds the built-in `service_account` default client scope. The control-plane convergence predicate accepts this provider-managed scope without a write and rejects all additional scopes.
 - The spec forbids retrieving or regenerating a delivered client secret during reconciliation, while the full-scope drift scenario asks reconciliation to issue and inspect another Client Credentials token. Creation can perform this token test because it still holds the new secret. Later reconciliation can verify and repair structural Keycloak state but cannot perform a new grant without violating the stronger one-time-secret rule. This remains a specification mismatch; reconciliation will not fetch the secret.
 - The BFF forwards `Cache-Control` and `Pragma`, preserving the one-time response's no-store policy end to end.
 
@@ -331,6 +332,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OI-4 | BFF Browser Session Contract | Present | GET /auth/session with identity, roles, expiry; no tokens | `bff/src/auth.ts` | OIDC ✅ |
 | OI-5 | Kind OIDC Always-On | Present | OIDC enabled unconditionally in kind-up; KIND_ENABLE_OIDC removed | `scripts/kind/`, `Makefile` | OIDC ✅ |
 | OI-6 | Identity Provider Client Security | Partial | redirectUris restricted but port wildcard pattern not supported by Keycloak; needs explicit port URIs | `keycloak.yaml` | Follow-up |
+| OI-7 | Control Plane Service Token Reuse | Present | - | `components/control-plane/internal/auth/token_provider.go`, `components/control-plane/internal/auth/token_provider_test.go` | KC-ES-W1 |
 
 ### rbac-enforcement.spec.md
 
@@ -439,6 +441,21 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Wave Plan
+
+### KC-ES-W1: Stop the Keycloak event storm
+
+**Scope:** OI-7, SA-14
+**Dependency:** Existing control-plane token provider and service-account Keycloak reconciliation
+**Status:** Complete
+
+1. Interpret the token response's `expires_in` value as seconds and keep the 80 percent refresh threshold.
+2. Add a regression test that proves that repeated calls reuse one token.
+3. Accept an empty default-scope list or one built-in `service_account` scope as converged.
+4. Reject every other default scope and every optional scope as drift.
+5. Add regression tests for the provider-managed scope and additional-scope drift.
+6. Run control-plane tests, race tests, vet, build, alignment, and review checks.
+
+**KC-ES-W1 summary:** The token provider now interprets `expires_in` as seconds and refreshes after 80 percent of the token lifetime. Service-account reconciliation now accepts Keycloak's built-in `service_account` scope without a write and repairs every other client scope. Sequential, concurrent, threshold, no-write, drift, and update-payload tests cover the changes. The complete control-plane test suite, affected-package race tests, vet, lint, build, alignment scan, and independent review passed.
 
 ### GC-W1: OpenShift Route support for the Gateway Console
 
@@ -667,6 +684,8 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-08-31 | working tree | Completed Keycloak event-storm KC-ES-W1 | 82% | Corrected the token lifetime unit, reused tokens until the 80 percent threshold, accepted the provider-managed service-account scope, rejected all other client scopes, and added regression tests. OI-7 and SA-14 are present. |
+| 2026-08-31 | 9ac4354 | Keycloak event-storm scoped gap analysis | 82% | Found two partial requirements: the token cache uses nanoseconds for `expires_in`, and service-account convergence rejects Keycloak's built-in scope. Planned control-plane wave KC-ES-W1. |
 | 2026-08-27 | 9984ed0 | Completed Gateway Console GC-W1 | 82% | Added mode-selected Route exposure, admission readiness, lifecycle cleanup, custom-host RBAC, and tests. All nine console requirements are present. |
 | 2026-08-27 | 612b373 | Gateway Console scoped gap analysis | 81% | Added the console spec to the registry and found four partial requirements. Planned one control-plane wave for OpenShift Route exposure, readiness, cleanup, RBAC, and tests. |
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
