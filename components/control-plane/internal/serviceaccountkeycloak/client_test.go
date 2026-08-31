@@ -475,7 +475,7 @@ func TestReconcileServiceAccountPerformsNoWritesWhenConverged(t *testing.T) {
 
 func TestReconcileServiceAccountPerformsNoWritesWithBuiltInServiceAccountScope(t *testing.T) {
 	rep := convergedClientRepresentation()
-	rep["defaultClientScopes"] = []string{"service_account"}
+	rep["defaultClientScopes"] = []string{builtInServiceAccountScope}
 	var writes []string
 	server := httptest.NewServer(reconcileHandler(t, rep, convergedProtocolMappers(), &writes))
 	t.Cleanup(server.Close)
@@ -547,10 +547,10 @@ func TestReconcileServiceAccountRepairsSecurityBroadeningDrift(t *testing.T) {
 		{name: "redirect origin added", mutate: func(rep map[string]any) { rep["redirectUris"] = []string{"https://attacker.example"} }},
 		{name: "default client scope injected", mutate: func(rep map[string]any) { rep["defaultClientScopes"] = []string{"rogue-scope"} }},
 		{name: "default client scope added to built-in scope", mutate: func(rep map[string]any) {
-			rep["defaultClientScopes"] = []string{"service_account", "rogue-scope"}
+			rep["defaultClientScopes"] = []string{builtInServiceAccountScope, "rogue-scope"}
 		}},
 		{name: "built-in default client scope duplicated", mutate: func(rep map[string]any) {
-			rep["defaultClientScopes"] = []string{"service_account", "service_account"}
+			rep["defaultClientScopes"] = []string{builtInServiceAccountScope, builtInServiceAccountScope}
 		}},
 		{name: "optional client scope injected", mutate: func(rep map[string]any) {
 			rep["optionalClientScopes"] = []string{"rogue-scope"}

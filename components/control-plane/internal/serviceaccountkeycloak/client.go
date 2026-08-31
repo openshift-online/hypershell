@@ -31,6 +31,7 @@ const (
 	clientRefreshTokenAttribute    = "client_credentials.use_refresh_token"
 	deviceGrantAttribute           = "oauth2.device.authorization.grant.enabled"
 	cibaGrantAttribute             = "oidc.ciba.grant.enabled"
+	builtInServiceAccountScope     = "service_account"
 	defaultAccessTokenLifetimeSecs = 300
 )
 
@@ -309,7 +310,7 @@ func (c *Client) reconcileConverged(ctx context.Context, spec ServiceAccountSpec
 // when service accounts are enabled. The repair payload stays empty because
 // Keycloak owns this scope. All other scopes are drift.
 func defaultClientScopesConverged(scopes []string) bool {
-	return len(scopes) == 0 || (len(scopes) == 1 && scopes[0] == "service_account")
+	return len(scopes) == 0 || (len(scopes) == 1 && scopes[0] == builtInServiceAccountScope)
 }
 
 // roleMappingSet is the shape Keycloak returns for both user role-mappings and
