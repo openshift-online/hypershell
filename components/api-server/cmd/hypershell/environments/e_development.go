@@ -1,6 +1,7 @@
 package environments
 
 import (
+	"github.com/golang/glog"
 	"github.com/openshift-online/rh-trex-ai/pkg/config"
 	"github.com/openshift-online/rh-trex-ai/pkg/db/db_session"
 	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
@@ -18,9 +19,29 @@ func (e *DevEnvImpl) OverrideDatabase(c *pkgenv.Database) error {
 }
 
 func (e *DevEnvImpl) OverrideConfig(c *config.ApplicationConfig) error {
+	// OverrideConfig runs after CLI flags are parsed, so c.Auth.EnableJWT already
+	// reflects an explicit --enable-jwt=true. Force-disabling it here silently
+	// would leave every authenticated request returning 401 with no clue why, so
+	// surface the contradiction loudly (P2-3) before applying the override. Use
+	// API_ENV=development_oidc for JWT/RBAC enforcement.
+	if warning := devJWTOverrideWarning(c.Auth.EnableJWT); warning != "" {
+		glog.Warning(warning)
+	}
 	c.Auth.EnableJWT = false
 	c.Server.EnableHTTPS = false
 	return nil
+}
+
+// devJWTOverrideWarning returns the operator-facing warning that should be
+// logged when the development environment disables JWT. It is non-empty only
+// when JWT was explicitly requested, so the log states why enforcement is off
+// despite --enable-jwt=true. Extracted for testability.
+func devJWTOverrideWarning(requestedJWT bool) string {
+	if requestedJWT {
+		return "API_ENV=development force-disables JWT authentication; this overrides --enable-jwt=true. " +
+			"Use API_ENV=development_oidc to run with JWT/RBAC enforcement."
+	}
+	return ""
 }
 
 func (e *DevEnvImpl) OverrideServices(s *pkgenv.Services) error {
