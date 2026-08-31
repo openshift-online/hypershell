@@ -6,8 +6,6 @@ toolchain go1.26.7
 
 tool github.com/evilmartians/lefthook/v2
 
-require github.com/gorilla/mux v1.8.1
-
 require (
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect
 	charm.land/lipgloss/v2 v2.0.5 // indirect
