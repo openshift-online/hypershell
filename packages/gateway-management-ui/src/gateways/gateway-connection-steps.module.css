@@ -157,10 +157,20 @@
   margin-block: var(--pf-t--global--spacer--sm);
 }
 
+.prereqContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.prereqContent > p {
+  margin-block-end: 0;
+}
+
 /*
- * AlertActionLink uses the default link token, which fails AA contrast on the
- * info-alert surface in dark theme. Regular text on that surface meets 4.5:1;
- * pf-m-link keeps the underline so the control is still identifiable as a link.
+ * The link uses the default link token. That token does not have AA contrast
+ * on the information alert in the dark theme. Regular text has sufficient
+ * contrast. The link keeps its underline.
  */
 .prereqAlert:global(.pf-v6-c-alert)
   :global(.pf-v6-c-alert__action-group .pf-v6-c-button.pf-m-link) {

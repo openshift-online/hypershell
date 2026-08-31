@@ -50,6 +50,8 @@ type Gateway struct {
 	RouteAddress *string `json:"route_address,omitempty"`
 	// Web console address populated by the control plane
 	ConsoleAddress *string `json:"console_address,omitempty"`
+	// Runtime version from the last successful gateway health response
+	GatewayVersion *string `json:"gateway_version,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
@@ -711,6 +713,38 @@ func (o *Gateway) SetConsoleAddress(v string) {
 	o.ConsoleAddress = &v
 }
 
+// GetGatewayVersion returns the GatewayVersion field value if set, zero value otherwise.
+func (o *Gateway) GetGatewayVersion() string {
+	if o == nil || IsNil(o.GatewayVersion) {
+		var ret string
+		return ret
+	}
+	return *o.GatewayVersion
+}
+
+// GetGatewayVersionOk returns a tuple with the GatewayVersion field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetGatewayVersionOk() (*string, bool) {
+	if o == nil || IsNil(o.GatewayVersion) {
+		return nil, false
+	}
+	return o.GatewayVersion, true
+}
+
+// HasGatewayVersion returns a boolean if a field has been set.
+func (o *Gateway) HasGatewayVersion() bool {
+	if o != nil && !IsNil(o.GatewayVersion) {
+		return true
+	}
+
+	return false
+}
+
+// SetGatewayVersion gets a reference to the given string and assigns it to the GatewayVersion field.
+func (o *Gateway) SetGatewayVersion(v string) {
+	o.GatewayVersion = &v
+}
+
 // GetOidc returns the Oidc field value if set, zero value otherwise.
 func (o *Gateway) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
@@ -931,6 +965,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ConsoleAddress) {
 		toSerialize["console_address"] = o.ConsoleAddress
+	}
+	if !IsNil(o.GatewayVersion) {
+		toSerialize["gateway_version"] = o.GatewayVersion
 	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc

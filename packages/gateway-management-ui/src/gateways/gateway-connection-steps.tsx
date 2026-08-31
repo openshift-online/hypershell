@@ -1,6 +1,6 @@
 import {
   Alert,
-  AlertActionLink,
+  Button,
   Content,
   Skeleton,
   Title,
@@ -10,10 +10,11 @@ import { type ReactNode, useState } from "react";
 import { useIntl } from "react-intl";
 
 import { messages } from "../messages";
-import { EditableCommand } from "./editable-command";
+import { CommandBlock } from "./editable-command";
 import {
+  buildOneTimeSetupScript,
+  buildOpenShellInstallCommand,
   buildSandboxCreateCommand,
-  buildSetupScript,
   claudeModel,
   type GatewayConnection,
   installDocsUrl,
@@ -65,11 +66,12 @@ export function GatewayConnectionSteps({
 
   // Marker form drives the (stable) highlight; the resolved form drives copy and
   // matches a whole-block text selection exactly.
-  const setupTemplate = buildSetupScript(gateway, {
+  const installCommand = buildOpenShellInstallCommand(gateway);
+  const setupTemplate = buildOneTimeSetupScript(gateway, {
     model: modelMarker,
     providerName: providerMarker,
   });
-  const setupCopy = buildSetupScript(gateway, { model, providerName });
+  const setupCopy = buildOneTimeSetupScript(gateway, { model, providerName });
 
   return (
     <ol className={styles.steps}>
@@ -77,32 +79,45 @@ export function GatewayConnectionSteps({
         description={intl.formatMessage(messages.connectionSetupDescription)}
         title={intl.formatMessage(messages.connectionSetupTitle)}
       >
-        <Alert
-          actionLinks={
-            <AlertActionLink
-              aria-label={intl.formatMessage(
-                messages.connectionInstallLinkNewTab,
-              )}
-              component="a"
-              href={installDocsUrl}
-              icon={<ExternalLinkAltIcon aria-hidden />}
-              iconPosition="end"
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              {intl.formatMessage(messages.connectionInstallLink)}
-            </AlertActionLink>
-          }
-          className={styles.prereqAlert}
-          component="h3"
-          isInline
-          title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
-          variant="info"
-        >
-          {intl.formatMessage(messages.connectionInstallPrereq)}
-        </Alert>
+        {installCommand ? (
+          <Alert
+            actionLinks={
+              <Button
+                aria-label={intl.formatMessage(
+                  messages.connectionInstallLinkNewTab,
+                )}
+                component="a"
+                href={installDocsUrl}
+                icon={<ExternalLinkAltIcon aria-hidden />}
+                iconPosition="end"
+                isInline
+                rel="noopener noreferrer"
+                size="sm"
+                target="_blank"
+                variant="link"
+              >
+                {intl.formatMessage(messages.connectionInstallLink)}
+              </Button>
+            }
+            className={styles.prereqAlert}
+            component="h3"
+            isInline
+            title={intl.formatMessage(messages.connectionInstallPrereqTitle)}
+            variant="info"
+          >
+            <div className={styles.prereqContent}>
+              <Content component="p">
+                {intl.formatMessage(messages.connectionInstallPrereq)}
+              </Content>
+              <CommandBlock
+                copyAriaLabel={intl.formatMessage(messages.copyInstallCommand)}
+                copyText={installCommand}
+              />
+            </div>
+          </Alert>
+        ) : null}
         {setupTemplate && setupCopy ? (
-          <EditableCommand
+          <CommandBlock
             copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
             copyText={setupCopy}
             labels={{
@@ -139,7 +154,7 @@ export function GatewayConnectionSteps({
         description={intl.formatMessage(messages.connectionSandboxDescription)}
         title={intl.formatMessage(messages.connectionSandboxTitle)}
       >
-        <EditableCommand
+        <CommandBlock
           copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
           copyText={buildSandboxCreateCommand(sandboxName, model)}
           labels={{

@@ -33,6 +33,10 @@ const defaultRouteReadyTimeout = 10 * time.Minute
 // when retrieving the full gateway fleet for health observation.
 const defaultListGatewaysPageSize = 100
 
+// gatewayHealthWorkerCount limits the number of gateways that the health
+// reconciler processes at the same time. Work for one gateway stays serial.
+const gatewayHealthWorkerCount = 4
+
 // routeVerifyInterval is the minimum time between residual route/console
 // absence re-checks for a settled (torn-down, addressless) gateway.
 //
@@ -49,25 +53,24 @@ const routeVerifyInterval = 5 * time.Minute
 // moved to Degraded, and a Degraded gateway whose workload and exposure recover
 // is moved back to Running. See openshell-gateway-health.spec.md.
 type GatewayHealthReconciler struct {
-	clientset           *kubernetes.Clientset
-	dynamicClient       dynamic.Interface
-	grpcConn            *grpc.ClientConn
-	interval            time.Duration
-	exposure            exposure.Port
-	routeReadyTimeout   time.Duration
-	keycloakConfig      *gateway.KeycloakConfig
-	isOpenShift         bool
-	hasGatewayAPI       bool
-	ingressMode         string
-	skipNetworkPolicies bool
+	clientset             *kubernetes.Clientset
+	dynamicClient         dynamic.Interface
+	grpcConn              *grpc.ClientConn
+	interval              time.Duration
+	exposure              exposure.Port
+	routeReadyTimeout     time.Duration
+	keycloakConfig        *gateway.KeycloakConfig
+	isOpenShift           bool
+	hasGatewayAPI         bool
+	ingressMode           string
+	skipNetworkPolicies   bool
+	versionObserver       gatewayVersionObserver
+	controlPlaneNamespace string
 
-	// consoleClientChecker is a single, long-lived Keycloak client reused across
-	// every tick's residual-absence checks. Constructed once (when Keycloak is
-	// configured) so its token cache is preserved: a fresh client per check would
-	// perform a client-credentials token request on every settled gateway every
-	// tick, fleet-amplifying admin authentication in the serial health loop. Nil
-	// when Keycloak is unconfigured. The health loop is serial, so a single shared
-	// client needs no additional synchronization.
+	// consoleClientChecker is one long-lived Keycloak client for residual-absence
+	// checks. It keeps its token cache between passes. It is nil when Keycloak is
+	// not configured. The client returns a mutex-protected token snapshot to each
+	// bounded gateway worker.
 	consoleClientChecker gateway.ConsoleClientChecker
 
 	// now is the clock, overridable in tests.
@@ -99,7 +102,7 @@ type GatewayHealthReconciler struct {
 	routeVerifiedAt    map[string]time.Time
 }
 
-func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig) *GatewayHealthReconciler {
+func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, controlPlaneNamespace string) *GatewayHealthReconciler {
 	// Build one long-lived Keycloak client for residual-absence checks so its
 	// token cache survives across ticks (see consoleClientChecker).
 	var consoleClientChecker gateway.ConsoleClientChecker
@@ -117,22 +120,24 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
 	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 	return &GatewayHealthReconciler{
-		clientset:            clientset,
-		dynamicClient:        dynamicClient,
-		grpcConn:             grpcConn,
-		interval:             defaultHealthInterval,
-		exposure:             exposurePort,
-		routeReadyTimeout:    routeReadyTimeout(),
-		keycloakConfig:       keycloakConfig,
-		consoleClientChecker: consoleClientChecker,
-		isOpenShift:          isOpenShift,
-		hasGatewayAPI:        hasGatewayAPI,
-		ingressMode:          ingressMode,
-		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
-		now:                  time.Now,
-		routeNotReadySince:   make(map[string]time.Time),
-		routeTornDown:        make(map[string]bool),
-		routeVerifiedAt:      make(map[string]time.Time),
+		clientset:             clientset,
+		dynamicClient:         dynamicClient,
+		grpcConn:              grpcConn,
+		interval:              defaultHealthInterval,
+		exposure:              exposurePort,
+		routeReadyTimeout:     routeReadyTimeout(),
+		keycloakConfig:        keycloakConfig,
+		consoleClientChecker:  consoleClientChecker,
+		isOpenShift:           isOpenShift,
+		hasGatewayAPI:         hasGatewayAPI,
+		ingressMode:           ingressMode,
+		skipNetworkPolicies:   os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
+		versionObserver:       newHTTPGatewayVersionObserver(),
+		controlPlaneNamespace: controlPlaneNamespace,
+		now:                   time.Now,
+		routeNotReadySince:    make(map[string]time.Time),
+		routeTornDown:         make(map[string]bool),
+		routeVerifiedAt:       make(map[string]time.Time),
 	}
 }
 
@@ -151,6 +156,11 @@ func routeReadyTimeout() time.Duration {
 // Run drives the health reconciliation loop until the context is cancelled.
 func (h *GatewayHealthReconciler) Run(ctx context.Context) error {
 	log.Printf("INFO gateway health reconciler started (interval=%s routeReadyTimeout=%s ingressMode=%s)", h.interval, h.routeReadyTimeout, h.ingressMode)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	h.reconcileOnce(ctx)
+
 	ticker := time.NewTicker(h.interval)
 	defer ticker.Stop()
 
@@ -180,9 +190,63 @@ func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 		return
 	}
 
-	for _, gw := range gateways {
-		h.reconcileGatewayHealth(ctx, client, gw)
+	h.reconcileGateways(ctx, client, gateways)
+}
+
+// reconcileGateways processes different gateways concurrently with a bounded
+// worker count. It keeps all work for one gateway in one serial pass. Health
+// and console work run before the version request, so a slow version endpoint
+// cannot delay a health update for the same gateway.
+func (h *GatewayHealthReconciler) reconcileGateways(ctx context.Context, client pb.GatewayServiceClient, gateways []*pb.Gateway) {
+	runGatewayWorkers(ctx, gateways, func(gatewayRecord *pb.Gateway) {
+		namespace, ready := h.reconcileGatewayHealth(ctx, client, gatewayRecord)
+		if ready {
+			h.reconcileGatewayVersion(ctx, client, gatewayRecord, namespace)
+		}
+	})
+}
+
+func runGatewayWorkers(ctx context.Context, gateways []*pb.Gateway, reconcile func(*pb.Gateway)) {
+	if len(gateways) == 0 {
+		return
 	}
+
+	workerCount := gatewayHealthWorkerCount
+	if len(gateways) < workerCount {
+		workerCount = len(gateways)
+	}
+
+	jobs := make(chan *pb.Gateway)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for gatewayRecord := range jobs {
+				reconcile(gatewayRecord)
+			}
+		}()
+	}
+
+	seen := make(map[string]struct{}, len(gateways))
+sendLoop:
+	for _, gatewayRecord := range gateways {
+		gatewayID := gatewayRecord.GetMetadata().GetId()
+		if gatewayID == "" {
+			continue
+		}
+		if _, exists := seen[gatewayID]; exists {
+			continue
+		}
+		seen[gatewayID] = struct{}{}
+		select {
+		case jobs <- gatewayRecord:
+		case <-ctx.Done():
+			break sendLoop
+		}
+	}
+	close(jobs)
+	workers.Wait()
 }
 
 // listAllGateways retrieves all gateways from the API server across all pages.
@@ -212,10 +276,10 @@ func (h *GatewayHealthReconciler) listAllGateways(ctx context.Context, client pb
 	return all, nil
 }
 
-func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, client pb.GatewayServiceClient, gw *pb.Gateway) {
+func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, client pb.GatewayServiceClient, gw *pb.Gateway) (string, bool) {
 	gatewayID := gw.GetMetadata().GetId()
 	if gatewayID == "" {
-		return
+		return "", false
 	}
 	phase := gw.GetPhase()
 
@@ -225,7 +289,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	switch phase {
 	case "Running", "Degraded", "Provisioning":
 	default:
-		return
+		return "", false
 	}
 
 	// Keep the console_address in sync with the console pod's readiness so the web
@@ -256,12 +320,12 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
-		return
+		return "", false
 	}
 	ready, reason, err := gateway.DeploymentReadiness(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
-		return
+		return "", false
 	}
 
 	var desiredPhase, desiredStatus string
@@ -270,7 +334,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		// The Deployment has not been created yet; the provisioning path still
 		// owns this gateway. Leave its phase untouched.
 		if reason == "deployment not found" {
-			return
+			return namespace, false
 		}
 		h.clearRouteTimer(gatewayID)
 		desiredPhase, desiredStatus = "Degraded", reason
@@ -278,33 +342,38 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		// Deployment is Ready; a routed gateway additionally requires its external
 		// exposure to be observed Ready before it can be Running.
 		desiredPhase, desiredStatus = h.evaluateRouteReadiness(ctx, gatewayID, namespace, phase)
-		if desiredPhase == "" {
-			// Transient error observing the exposure; leave the phase untouched
-			// rather than flap the gateway.
-			return
-		}
 	default:
 		h.clearRouteTimer(gatewayID)
 		desiredPhase, desiredStatus = "Running", "Healthy"
 	}
 
-	// active_sandbox_count is maintained independently by the event-driven
-	// sandbox-count reconciler (see openshell-gateway-sandbox-count.spec.md); the
-	// health reconciler only owns phase and status.
-	if phase == desiredPhase && gw.GetStatus() == desiredStatus {
-		return
+	request := gatewayHealthUpdateRequest(gw, desiredPhase, desiredStatus)
+	if request != nil {
+		if _, err := client.UpdateGateway(ctx, request); err != nil {
+			log.Printf("WARN gateway health: update observed state for %s: %v", gatewayID, err)
+		} else {
+			log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
+		}
+	}
+	return namespace, ready
+}
+
+// gatewayHealthUpdateRequest builds a field-scoped update for state owned by
+// the health reconciler. It returns nil when the observed state did not change.
+func gatewayHealthUpdateRequest(gw *pb.Gateway, desiredPhase, desiredStatus string) *pb.UpdateGatewayRequest {
+	if gw == nil || gw.GetMetadata().GetId() == "" {
+		return nil
 	}
 
-	if _, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:     gatewayID,
-		Phase:  &desiredPhase,
-		Status: &desiredStatus,
-	}); err != nil {
-		log.Printf("WARN gateway health: update %s to %s: %v", gatewayID, desiredPhase, err)
-		return
+	request := &pb.UpdateGatewayRequest{Id: gw.GetMetadata().GetId()}
+	if desiredPhase != "" && (gw.GetPhase() != desiredPhase || gw.GetStatus() != desiredStatus) {
+		request.Phase = &desiredPhase
+		request.Status = &desiredStatus
 	}
-
-	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
+	if request.Phase == nil {
+		return nil
+	}
+	return request
 }
 
 // selfHealConsole re-reconciles the per-gateway console when it is observed not

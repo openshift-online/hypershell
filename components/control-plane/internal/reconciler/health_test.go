@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -465,6 +466,111 @@ func (f *fakeGatewayClient) UpdateGateway(ctx context.Context, in *pb.UpdateGate
 		return f.updateFn(ctx, in, opts...)
 	}
 	return &pb.UpdateGatewayResponse{}, nil
+}
+
+func TestRunGatewayWorkersDoesNotBlockOtherGateways(t *testing.T) {
+	slowStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	processed := make(chan string, 3)
+	finished := make(chan struct{})
+
+	gateways := []*pb.Gateway{
+		{Metadata: &pb.ObjectReference{Id: "slow"}},
+		{Metadata: &pb.ObjectReference{Id: "fast"}},
+		{Metadata: &pb.ObjectReference{Id: "fast"}},
+	}
+	go func() {
+		runGatewayWorkers(context.Background(), gateways, func(gatewayRecord *pb.Gateway) {
+			gatewayID := gatewayRecord.GetMetadata().GetId()
+			if gatewayID == "slow" {
+				close(slowStarted)
+				<-releaseSlow
+			}
+			processed <- gatewayID
+		})
+		close(finished)
+	}()
+
+	select {
+	case <-slowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("slow gateway did not start")
+	}
+	select {
+	case gatewayID := <-processed:
+		if gatewayID != "fast" {
+			t.Fatalf("first completed gateway = %q, want fast", gatewayID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fast gateway was blocked by slow gateway")
+	}
+
+	close(releaseSlow)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("gateway workers did not finish")
+	}
+
+	if gatewayID := <-processed; gatewayID != "slow" {
+		t.Fatalf("second completed gateway = %q, want slow", gatewayID)
+	}
+	select {
+	case gatewayID := <-processed:
+		t.Fatalf("duplicate gateway was processed: %q", gatewayID)
+	default:
+	}
+}
+
+func TestRunGatewayWorkersBoundsConcurrency(t *testing.T) {
+	gateways := make([]*pb.Gateway, gatewayHealthWorkerCount+2)
+	for i := range gateways {
+		gateways[i] = &pb.Gateway{Metadata: &pb.ObjectReference{Id: string(rune('a' + i))}}
+	}
+
+	started := make(chan struct{}, len(gateways))
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	var active atomic.Int32
+	var maximum atomic.Int32
+	go func() {
+		runGatewayWorkers(context.Background(), gateways, func(*pb.Gateway) {
+			current := active.Add(1)
+			for {
+				previous := maximum.Load()
+				if current <= previous || maximum.CompareAndSwap(previous, current) {
+					break
+				}
+			}
+			started <- struct{}{}
+			<-release
+			active.Add(-1)
+		})
+		close(finished)
+	}()
+
+	for range gatewayHealthWorkerCount {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("expected worker did not start")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatalf("more than %d workers ran at the same time", gatewayHealthWorkerCount)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("gateway workers did not finish")
+	}
+	if got := maximum.Load(); got != gatewayHealthWorkerCount {
+		t.Fatalf("maximum workers = %d, want %d", got, gatewayHealthWorkerCount)
+	}
 }
 
 func TestListAllGateways_Pagination(t *testing.T) {

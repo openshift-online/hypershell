@@ -96,6 +96,28 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openshell-gateway-allow-controller-health
+  namespace: hypershell-system
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: openshell-gateway
+      app.kubernetes.io/name: openshell
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: hypershell-controller
+      ports:
         - protocol: TCP
           port: 8081
 ---

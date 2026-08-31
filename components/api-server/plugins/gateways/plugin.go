@@ -192,4 +192,5 @@ func init() {
 	db.RegisterMigration(migrationAddConsoleAddress())
 	db.RegisterMigration(migrationAddActiveSandboxCount())
 	db.RegisterMigration(migrationDropDatabaseConfig())
+	db.RegisterMigration(migrationAddGatewayVersion())
 }

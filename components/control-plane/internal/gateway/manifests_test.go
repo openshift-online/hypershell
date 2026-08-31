@@ -7,6 +7,53 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+func TestApplyManifestToNamespace_ReplacesControlPlaneNamespace(t *testing.T) {
+	manifest := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "networking.k8s.io/v1",
+		"kind":       "NetworkPolicy",
+		"metadata": map[string]interface{}{
+			"name":      "gateway-health",
+			"namespace": "NAMESPACE_PLACEHOLDER",
+			"annotations": map[string]interface{}{
+				"control-plane-namespace": "CONTROL_PLANE_NAMESPACE_PLACEHOLDER",
+			},
+		},
+	}}
+
+	result, err := ApplyManifestToNamespace(manifest, "tenant-ns", "control-plane-ns", GatewayConfig{}, StaticImageDefaults{})
+	if err != nil {
+		t.Fatalf("ApplyManifestToNamespace() error = %v", err)
+	}
+	if result.GetNamespace() != "tenant-ns" {
+		t.Fatalf("namespace = %q, want %q", result.GetNamespace(), "tenant-ns")
+	}
+	value, found, err := unstructured.NestedString(result.Object, "metadata", "annotations", "control-plane-namespace")
+	if err != nil || !found {
+		t.Fatalf("control plane namespace annotation not found: found=%v error=%v", found, err)
+	}
+	if value != "control-plane-ns" {
+		t.Fatalf("control plane namespace = %q, want %q", value, "control-plane-ns")
+	}
+}
+
+func TestApplyManifestToNamespace_RequiresControlPlaneNamespace(t *testing.T) {
+	manifest := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "networking.k8s.io/v1",
+		"kind":       "NetworkPolicy",
+		"metadata": map[string]interface{}{
+			"name": "gateway-health",
+			"annotations": map[string]interface{}{
+				"control-plane-namespace": "CONTROL_PLANE_NAMESPACE_PLACEHOLDER",
+			},
+		},
+	}}
+
+	_, err := ApplyManifestToNamespace(manifest, "tenant-ns", "", GatewayConfig{}, StaticImageDefaults{})
+	if err == nil || !strings.Contains(err.Error(), "control plane namespace is required") {
+		t.Fatalf("ApplyManifestToNamespace() error = %v, want required namespace error", err)
+	}
+}
+
 func TestApplyCredentialDriverToml_KubernetesSecrets(t *testing.T) {
 	lines := []string{
 		"[openshell.gateway]",

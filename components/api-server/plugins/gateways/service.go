@@ -2,7 +2,10 @@ package gateways
 
 import (
 	"context"
+	stderrors "errors"
 	"net/http"
+
+	"gorm.io/gorm"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -30,6 +33,10 @@ type GatewayService interface {
 	// SetActiveSandboxCount sets the active_sandbox_count of the gateway backing
 	// the given namespace to an absolute value and returns it (self-heal path).
 	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (int, *errors.ServiceError)
+
+	// SetGatewayVersion sets the last runtime version that the health reconciler
+	// observed. It does not change any other gateway field.
+	SetGatewayVersion(ctx context.Context, id, version string) (string, *errors.ServiceError)
 
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
@@ -167,6 +174,17 @@ func (s *sqlGatewayService) SetActiveSandboxCount(ctx context.Context, namespace
 	resulting, err := s.gatewayDao.SetActiveSandboxCount(ctx, namespace, count)
 	if err != nil {
 		return 0, services.HandleUpdateError("Gateway", err)
+	}
+	return resulting, nil
+}
+
+func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version string) (string, *errors.ServiceError) {
+	resulting, err := s.gatewayDao.SetGatewayVersion(ctx, id, version)
+	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return "", services.HandleGetError("Gateway", "id", id, err)
+		}
+		return "", services.HandleUpdateError("Gateway", err)
 	}
 	return resulting, nil
 }

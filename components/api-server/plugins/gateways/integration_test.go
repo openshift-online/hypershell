@@ -41,6 +41,7 @@ func TestGatewayGet(t *testing.T) {
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", gatewayModel.ID)))
 	Expect(*gatewayOutput.CreatedAt).To(BeTemporally("~", gatewayModel.CreatedAt))
 	Expect(*gatewayOutput.UpdatedAt).To(BeTemporally("~", gatewayModel.UpdatedAt))
+	Expect(gatewayOutput.GetGatewayVersion()).To(Equal("0.0.109"))
 }
 
 func TestGatewayPost(t *testing.T) {

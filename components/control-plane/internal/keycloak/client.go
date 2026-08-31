@@ -615,12 +615,12 @@ func (c *Client) deleteClientByUUID(ctx context.Context, clientUUID string) erro
 	return err
 }
 
-func (c *Client) ensureToken(ctx context.Context) error {
+func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.token != "" && time.Now().Before(c.tokenExpiry) {
-		return nil
+		return c.token, nil
 	}
 
 	log.Printf("INFO keycloak: acquiring admin token from %s/realms/%s (client_id=%s)", c.serverURL, c.realm, c.clientID)
@@ -633,19 +633,19 @@ func (c *Client) ensureToken(ctx context.Context) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return fmt.Errorf("create token request: %w", err)
+		return "", fmt.Errorf("create token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("token request: %w", err)
+		return "", fmt.Errorf("token request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var tok struct {
@@ -653,10 +653,10 @@ func (c *Client) ensureToken(ctx context.Context) error {
 		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &tok); err != nil {
-		return fmt.Errorf("parse token response: %w", err)
+		return "", fmt.Errorf("parse token response: %w", err)
 	}
 	if tok.AccessToken == "" {
-		return fmt.Errorf("empty access token from keycloak")
+		return "", fmt.Errorf("empty access token from keycloak")
 	}
 	if tok.ExpiresIn <= 0 {
 		tok.ExpiresIn = 300
@@ -665,7 +665,7 @@ func (c *Client) ensureToken(ctx context.Context) error {
 	c.token = tok.AccessToken
 	c.tokenExpiry = time.Now().Add(time.Duration(float64(tok.ExpiresIn)*0.8) * time.Second)
 	log.Printf("INFO keycloak: acquired admin token (expires_in=%ds)", tok.ExpiresIn)
-	return nil
+	return c.token, nil
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body []byte) ([]byte, error) {
@@ -684,7 +684,8 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 }
 
 func (c *Client) doRequestRaw(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
-	if err := c.ensureToken(ctx); err != nil {
+	token, err := c.ensureToken(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("authenticate to keycloak: %w", err)
 	}
 
@@ -698,7 +699,7 @@ func (c *Client) doRequestRaw(ctx context.Context, method, path string, body []b
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

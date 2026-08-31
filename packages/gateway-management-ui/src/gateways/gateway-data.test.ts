@@ -27,6 +27,7 @@ function gateway(overrides: Partial<GatewayRecord> = {}): GatewayRecord {
     createdAt: CREATED_AT,
     databaseId: "database-1",
     externalDns: "gateway.example.com",
+    gatewayVersion: " 0.0.109 ",
     id: "gateway-1",
     name: "Team gateway",
     namespace: "openshell",
@@ -64,6 +65,7 @@ describe("gateway presentation data", () => {
       clusterName: "Localized hub cluster",
       createdAt: "2026-08-10T14:30:00Z",
       endpoint: "https://gateway.example.com:443",
+      gatewayVersion: "0.0.109",
       id: "gateway-1",
       name: "Team gateway",
       phase: "Running",
@@ -136,6 +138,36 @@ describe("gateway presentation data", () => {
         gateway({ externalDns: undefined, phase: "Running" }),
         CONSOLE_WAIT_START,
         WITHIN_CONSOLE_WINDOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps polling a running routed gateway until its version arrives", () => {
+    const noVersion = gateway({
+      consoleUrl: "https://console.example.com",
+      gatewayVersion: undefined,
+      phase: "Running",
+    });
+    expect(
+      gatewayNeedsStatusPolling(
+        noVersion,
+        CONSOLE_WAIT_START,
+        WITHIN_CONSOLE_WINDOW,
+      ),
+    ).toBe(true);
+
+    expect(
+      gatewayNeedsStatusPolling(
+        { ...noVersion, gatewayVersion: "v0.0.109-rh9a8f8" },
+        CONSOLE_WAIT_START,
+        WITHIN_CONSOLE_WINDOW,
+      ),
+    ).toBe(false);
+    expect(
+      gatewayNeedsStatusPolling(
+        noVersion,
+        CONSOLE_WAIT_START,
+        PAST_CONSOLE_WINDOW,
       ),
     ).toBe(false);
   });
@@ -321,12 +353,17 @@ describe("gateway presentation data", () => {
 
   it("keeps API-owned connection values unavailable when they are absent", () => {
     const connection = toGatewayConnection(
-      gateway({ externalDns: undefined, status: undefined }),
+      gateway({
+        externalDns: undefined,
+        gatewayVersion: undefined,
+        status: undefined,
+      }),
       "Hub cluster",
     );
 
     expect(connection.endpoint).toBeUndefined();
     expect(connection.consoleUrl).toBeUndefined();
+    expect(connection.gatewayVersion).toBeUndefined();
     expect(connection.oidcIssuer).toBeUndefined();
     expect(connection.status).toBe("Unknown");
   });

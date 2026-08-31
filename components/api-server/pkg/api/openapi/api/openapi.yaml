@@ -2907,6 +2907,10 @@ components:
             description: Web console address populated by the control plane
             readOnly: true
             type: string
+          gateway_version:
+            description: Runtime version from the last successful gateway health response
+            readOnly: true
+            type: string
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -2949,6 +2953,7 @@ components:
         id: id
         href: href
         fleet_id: fleet_id
+        gateway_version: gateway_version
         external_dns: external_dns
         phase: phase
         image: image
@@ -2996,6 +3001,7 @@ components:
           id: id
           href: href
           fleet_id: fleet_id
+          gateway_version: gateway_version
           external_dns: external_dns
           phase: phase
           image: image
@@ -3024,6 +3030,7 @@ components:
           id: id
           href: href
           fleet_id: fleet_id
+          gateway_version: gateway_version
           external_dns: external_dns
           phase: phase
           image: image

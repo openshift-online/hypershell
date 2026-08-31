@@ -6,6 +6,7 @@ export interface GatewayConnection {
   createdAt?: string;
   createdBy?: string;
   endpoint?: string;
+  gatewayVersion?: string;
   id: string;
   name: string;
   oidcAudience?: string;
@@ -77,6 +78,39 @@ export const vertexProviderName = "my-gcp";
 export const installDocsUrl =
   "https://docs.nvidia.com/openshell/about/installation";
 
+const installScriptUrl =
+  "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh";
+
+/**
+ * Builds an installation command that matches the reconciled gateway version.
+ */
+export function buildOpenShellInstallCommand(
+  gateway: GatewayConnection,
+): string | undefined {
+  const gatewayVersion = gateway.gatewayVersion?.trim();
+  if (!isGatewayReadyToConnect(gateway) || !gatewayVersion) {
+    return undefined;
+  }
+
+  const postfixStart = gatewayVersion.indexOf("-");
+  const versionWithoutPostfix =
+    postfixStart === -1
+      ? gatewayVersion
+      : gatewayVersion.slice(0, postfixStart);
+  if (!versionWithoutPostfix) {
+    return undefined;
+  }
+  const installerVersion = versionWithoutPostfix.startsWith("v")
+    ? versionWithoutPostfix
+    : `v${versionWithoutPostfix}`;
+
+  return [
+    "curl -LsSf \\",
+    `  ${installScriptUrl} \\`,
+    `  | OPENSHELL_VERSION=${shellArgument(installerVersion)} sh`,
+  ].join("\n");
+}
+
 /** Default sandbox name shown in the copyable create-sandbox command. */
 export const sandboxName = "mysand";
 
@@ -131,14 +165,10 @@ export function buildSandboxCreateCommand(
 }
 
 /**
- * One-time setup script that logs in to the gateway, adds the Claude on Vertex AI
- * provider, and selects the model, combined into a single copyable block so
- * operators paste the whole preamble at once instead of stepping through three
- * commands. Returns `undefined` until the gateway is ready to connect, because
- * registration requires a running gateway endpoint; the caller renders a pending
- * state in that case.
+ * Builds the one-time gateway registration and provider setup commands. The
+ * function returns `undefined` until the gateway is ready.
  */
-export function buildSetupScript(
+export function buildOneTimeSetupScript(
   gateway: GatewayConnection,
   overrides: { model?: string; providerName?: string } = {},
 ): string | undefined {
@@ -150,7 +180,7 @@ export function buildSetupScript(
   const { model = claudeModel, providerName = vertexProviderName } = overrides;
 
   return [
-    "# 1. Log in to the gateway",
+    "# 1. Register the gateway",
     gatewayAdd,
     "",
     "# 2. Add the Claude on Vertex AI provider",

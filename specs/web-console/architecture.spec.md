@@ -352,15 +352,41 @@ Gateway renaming SHALL use the existing `PATCH /gateways/{id}` contract and send
 
 Gateway deletion SHALL use the existing `DELETE /gateways/{id}` contract. Both delete entry points SHALL present the same explicit confirmation before commitment, prevent duplicate submission while deletion is pending, preserve the confirmation with recovery guidance on failure, and provide an accurate success notification after deletion. Successful deletion from a detail page SHALL return the user to the gateway collection and invalidate both collection and deleted-detail query state.
 
+The `Connection` tab SHALL show this OpenShell CLI installation command in a code block:
+
+```bash
+curl -LsSf \
+  https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
+  | OPENSHELL_VERSION=v<gateway-version> sh
+```
+
+The command SHALL use the read-only `gateway_version` value that the control
+plane reconciles from the gateway runtime. It SHALL encode the version as a safe
+shell argument. Before it sets `OPENSHELL_VERSION`, it SHALL remove the first
+hyphen and all text after that hyphen from the reported version. For example,
+`v0.0.109-rh9a8f8` SHALL become `v0.0.109`. It SHALL NOT require an installed
+OpenShell CLI or `jq`. The installation prerequisite and its code block SHALL
+appear before the one-time setup commands. The `openshell gateway add` command
+SHALL be in the same code
+block as the provider setup commands and SHALL appear before those provider
+commands. All command code blocks in the `Connection` tab SHALL use the same
+shared component and shell syntax highlighting. The installation code block
+SHALL not show line numbers. A small link named `View installation
+documentation` SHALL remain below the code block and SHALL open the NVIDIA
+OpenShell installation documentation in a new tab. The UI SHALL not show the
+installation prerequisite, its documentation link, or its command until the
+gateway is ready to connect and has a reconciled version. A gateway is ready to
+connect only when its phase is `Running` and its endpoint is available.
+
 The generated command SHALL include the gateway name, OIDC issuer, OIDC client ID, OIDC audience, and endpoint. Values SHALL be encoded as safe shell arguments before being presented for copying. Copy controls SHALL have an accessible name and visible success feedback, and the full command SHALL remain available at narrow widths without causing page-level horizontal overflow.
 
 Preview placeholders MAY be used while the API contract is under development, but they SHALL be isolated to explicit Storybook, test, or development fixtures and clearly removable. Production data mappers SHALL preserve missing connection values as unavailable and SHALL NOT replace them with a preview gateway's endpoint, console URL, issuer, client ID, or audience. Production connection values SHALL come from an authorized server response and SHALL NOT be inferred from unrelated deployment fields or embedded as build-time environment constants. Console and CLI controls SHALL be absent or disabled with truthful explanation until all values required by that action are available.
 
 Gateway status presentation SHALL use an explicit bounded mapping and the compact inline status pattern used by Red Hat Hybrid Cloud Console: a semantic icon or inline progress indicator followed by visible plain text, without a label or chip container. Ready, Running, and other success states SHALL use the PatternFly semantic success status and its brand success-green token, not the non-status green palette; known failure states SHALL use their defined error or warning semantics; pending or transitional states SHALL use neutral or informational semantics; and unknown, absent, or unrecognized values SHALL use gray. Status text SHALL remain visible so color is never the only carrier.
 
-While the active gateway collection page contains a gateway whose lifecycle is pending, transitional, or not yet initialized, the UI SHALL poll that page with one list request approximately every five seconds. It SHALL NOT issue one polling request per row or poll inactive pagination requests. The gateway detail page SHALL poll its selected gateway at the same interval while that gateway is pending, transitional, or awaiting its initial lifecycle value. Rapid polling SHALL stop when the current response contains only terminal states, when the owning view unmounts, or while the document is in the background.
+While the active gateway collection page contains a gateway whose lifecycle is pending, transitional, or not yet initialized, the UI SHALL poll that page with one list request approximately every five seconds. It SHALL also use a bounded polling window when a settled routed Gateway waits for its console address or reconciled runtime version. It SHALL NOT issue one polling request per row or poll inactive pagination requests. The gateway detail page SHALL use the same rules and interval for its selected gateway. Rapid polling SHALL stop when no Gateway needs these updates, when the bounded window ends, when the owning view unmounts, or while the document is in the background.
 
-**Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic inline indicators with visible text and no label or chip container. Return an uninitialized lifecycle followed by Pending, Provisioning, and Running responses; verify the active collection page uses one periodic list request, detail uses one periodic detail request, each view updates to Running without user input, and polling then stops. Verify inactive pages and background documents do not poll. Verify creation dates are localized and sort through the API's creation-timestamp field. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior. At the responsive table breakpoint, verify the row actions trigger occupies the top-end action-cell position and does not appear below the labeled row values.
+**Verification:** Exercise the landing and detail experiences with zero, one, many, long-named, unauthorized, and unavailable gateways. Verify this command order: OpenShell installation, gateway registration, and provider setup. Verify that gateway registration and provider setup use one code block. Verify that all command code blocks use the same component and shell syntax highlighting. Verify that the installation command uses the reconciled runtime version, removes a postfix that starts with `-`, does not call `openshell` or `jq`, uses the specified continuation lines, and has no line numbers. Verify that the installation documentation link has the specified name, size, destination, and new-tab behavior. Give a `Provisioning` gateway an endpoint and version and verify that the installation prerequisite, documentation link, and command are absent. Give a `Running` gateway an endpoint but no version and verify the same result. Then publish the version and verify that bounded polling shows the command without a manual refresh. Feed an API gateway with every connection field absent and verify that no preview URL or command appears in the production-composed page. Exercise every documented gateway status plus an unrecognized future value and verify semantic inline indicators with visible text and no label or chip container. Return an uninitialized lifecycle followed by Pending, Provisioning, and Running responses; verify the active collection page uses one periodic list request, detail uses one periodic detail request, each view updates to Running without user input, and polling then stops. Verify inactive pages and background documents do not poll. Verify creation dates are localized and sort through the API's creation-timestamp field. Copy and execute representative safe commands, inject shell metacharacters into every source field, verify the console destination, and test keyboard, screen-reader, zoom, and narrow viewport behavior. At the responsive table breakpoint, verify the row actions trigger occupies the top-end action-cell position and does not appear below the labeled row values.
 
 ### Requirement WEB-UI-03A: Platform Admin Gateway List
 
@@ -502,8 +528,6 @@ The `Connection` tab SHALL guide the user through three ordered steps using an a
 
 3. **Create a sandbox.** The step SHALL present an `openshell sandbox create` command that names a sandbox, attaches the provider from step 2, and launches the agent, as a read-only Clipboard Copy value.
 
-The `Connection` tab SHALL also contain a secondary `Create or manage service accounts` link with its introductory content, before the walkthrough. The link SHALL set `tab=service-accounts`. It SHALL not start a create operation.
-
 The `Service accounts` tab SHALL own the gateway-scoped automation identity workflow. It SHALL include the heading, create action, responsive collection, one-time credential handoff, command groups, and lifecycle actions defined in [`openshell-gateway-service-accounts.spec.md`](../platform/openshell-gateway-service-accounts.spec.md).
 
 The tab SHALL use the canonical shared resource-table components. It SHALL consume service-account operations through the gateway management UI package's application port and the host API adapter.
@@ -514,7 +538,7 @@ The one-time view SHALL keep the client secret in local component state only. It
 
 Every Clipboard Copy control SHALL have a localized accessible name and visible success feedback, and each command SHALL remain usable at narrow viewport widths without causing page-level horizontal overflow. Step commands other than the login command describe the OpenShell CLI workflow and SHALL NOT be presented as authorized live values from the HyperShell API; user- or environment-specific values the console cannot supply SHALL be shown as clearly editable placeholders or read from the user's own environment by the CLI. The provider and sandbox steps SHALL NOT issue HyperShell API requests.
 
-**Verification:** Open a gateway detail page and confirm `Connection` is selected by default. Confirm that `Service accounts` is the second tab and `Details` renders the former description list unchanged. Switch tabs and confirm the URL, refresh, and browser Back and Forward restore selection. Confirm a missing or invalid value selects `Connection`. Use the automation link and confirm it selects `Service accounts` without a mutation. Copy each interactive command and verify visible feedback and accessible names. Feed a gateway with missing connection values and confirm that the login step reports the problem without a partial command. Confirm that the provider details retain the ADC prerequisite, environment variables, inference-routing command, and `inference.local` and `CLAUDE_CODE_USE_VERTEX` caveats. Confirm that the provider and sandbox steps issue no HyperShell API requests and expose no Google Cloud credentials. Exercise the service-account collection, create form, one-time view, setup commands, revoke, delete, loading, empty, no-match, error, and uncertain-create states. Register both an interactive and a service-account connection to one gateway and confirm that their local aliases do not collide. Confirm the client secret never enters query data, navigation state, context, probes, logs, or URLs. Exercise keyboard, screen-reader, zoom, localization, RTL, and narrow-viewport behavior for the complete journey.
+**Verification:** Open a gateway detail page and confirm `Connection` is selected by default. Confirm that `Service accounts` is the second tab and `Details` renders the former description list unchanged. Confirm that the `Connection` tab does not contain a service-account management link. Switch tabs and confirm the URL, refresh, and browser Back and Forward restore selection. Confirm a missing or invalid value selects `Connection`. Copy each interactive command and verify visible feedback and accessible names. Feed a gateway with missing connection values and confirm that the login step reports the problem without a partial command. Confirm that the provider details retain the ADC prerequisite, environment variables, inference-routing command, and `inference.local` and `CLAUDE_CODE_USE_VERTEX` caveats. Confirm that the provider and sandbox steps issue no HyperShell API requests and expose no Google Cloud credentials. Exercise the service-account collection, create form, one-time view, setup commands, revoke, delete, loading, empty, no-match, error, and uncertain-create states. Register both an interactive and a service-account connection to one gateway and confirm that their local aliases do not collide. Confirm the client secret never enters query data, navigation state, context, probes, logs, or URLs. Exercise keyboard, screen-reader, zoom, localization, RTL, and narrow-viewport behavior for the complete journey.
 
 #### Scenario: Connection Tab Is the Default
 
@@ -524,14 +548,6 @@ Every Clipboard Copy control SHALL have a localized accessible name and visible 
 - AND the three ordered connection steps SHALL be visible
 - AND the `Service accounts` tab SHALL be available
 - AND the operational description list SHALL be available under the `Details` tab
-
-#### Scenario: Automation link opens service-account management
-
-- GIVEN an authenticated user is viewing the `Connection` tab
-- WHEN the user activates `Create or manage service accounts`
-- THEN the `Service accounts` tab SHALL become selected
-- AND the selected tab SHALL be encoded in the URL
-- AND the UI SHALL not create a service account until the user submits the create form
 
 #### Scenario: Login Command Uses Authorized Values
 

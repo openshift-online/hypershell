@@ -20,7 +20,7 @@ requirements. Provisioning mechanics are defined in
 
 ## Domain Vocabulary
 
-A Gateway carries two independently-observable fields:
+A Gateway carries three independently observable fields:
 
 - **`phase`** - the lifecycle state managed by the control plane. Allowed
   values:
@@ -44,6 +44,8 @@ A Gateway carries two independently-observable fields:
 - **`status`** - a short human-readable health descriptor for the workload
   (e.g. the reason a gateway is `Degraded`). It complements `phase` and is
   surfaced alongside it in the console.
+- **`gateway_version`** - the runtime version from the last successful gateway
+  health response. The control plane manages this read-only field.
 
 `Running` is the only phase that asserts the gateway is serving. `Degraded` and
 `Failed` are the two distinct unhealthy states: `Degraded` is recoverable
@@ -178,6 +180,79 @@ still be able to return to `Running`.
 - THEN the control plane SHALL skip re-applying the gateway manifests
 - BUT it SHALL still update the `phase` to `Degraded` if the workload is
   observed unhealthy
+
+### Requirement: Gateway Runtime Version Is Reconciled
+
+The control plane SHALL read the runtime version from the gateway `/health`
+endpoint after the gateway Deployment is Ready. The control plane SHALL store a
+valid, non-empty value in the read-only `gateway_version` field. It SHALL
+NOT derive this value from an image reference or a release record.
+
+The health reconciler SHALL run an initial list when it starts and SHALL repeat
+the list at the health reconciliation interval. Each pass SHALL compare the
+observed version with the stored value. It SHALL update only the fields that it
+owns and only when a value changes. The request to the gateway health endpoint
+SHALL have a bounded timeout and SHALL NOT follow redirects. The reconciler
+SHALL accept a valid version from the healthy HTTP 200 response or the unhealthy
+HTTP 503 response because the gateway includes its runtime version in both.
+
+The API SHALL provide a dedicated atomic write for `gateway_version`. A general
+Gateway replacement SHALL NOT write this field. Thus, an unrelated Gateway
+update cannot overwrite the last version that the health reconciler stored. The
+health reconciler SHALL use a bounded worker count for different Gateways. It
+SHALL keep health and version work for one Gateway in one serial pass. Health
+and console work SHALL run before the version request. Thus, a slow or failed
+version request does not block the health update for that Gateway or work for
+other Gateways.
+
+If the request fails or returns an invalid version, the reconciler SHALL keep
+the last verified value. It SHALL record the error in its log and retry during
+the next pass. A version observation failure SHALL NOT prevent a valid `phase`
+or `status` update.
+
+The dedicated `openshell-gateway-health` Service SHALL expose the health
+endpoint on an internal port. A NetworkPolicy SHALL permit access to this port
+only from the control plane controller in the control plane namespace. Before
+each version request, the health reconciler SHALL reconcile this Service and
+NetworkPolicy with update-or-create operations. This reconciliation SHALL repair
+existing gateways after a control plane upgrade and SHALL repair later drift or
+deletion.
+
+#### Scenario: Runtime version is observed for the first time
+
+- GIVEN a Gateway with a Ready Deployment and no `gateway_version`
+- WHEN its `/health` endpoint returns a non-empty version
+- THEN the control plane SHALL store that version in `gateway_version`
+- AND it SHALL NOT update an unchanged `phase` or `status`
+
+#### Scenario: Runtime version changes
+
+- GIVEN a Gateway with a stored `gateway_version`
+- WHEN its Ready Deployment reports a different version from `/health`
+- THEN the control plane SHALL replace `gateway_version` with the observed value
+
+#### Scenario: Runtime version observation fails
+
+- GIVEN a Gateway with a stored `gateway_version`
+- WHEN its `/health` request fails, times out, or returns an invalid value
+- THEN the control plane SHALL keep the stored `gateway_version`
+- AND it SHALL retry the observation during the next reconciliation pass
+
+#### Scenario: One runtime endpoint is slow
+
+- GIVEN one Gateway runtime does not answer before the request timeout
+- AND another Gateway is ready for reconciliation
+- WHEN the health reconciler processes both Gateways
+- THEN the slow Gateway SHALL NOT block the other Gateway
+- AND no more than the configured number of workers SHALL run at the same time
+
+#### Scenario: Reconciler starts after a gateway is ready
+
+- GIVEN a Gateway that was Ready before the health reconciler started
+- WHEN the reconciler starts
+- THEN its initial list SHALL include the Gateway
+- AND the reconciler SHALL observe its runtime version without waiting for an
+  event
 
 ### Requirement: Console Reflects Recoverable States
 

@@ -275,6 +275,10 @@ components:
               type: string
               readOnly: true
               description: Web console address populated by the control plane
+            gateway_version:
+              type: string
+              readOnly: true
+              description: Runtime version from the last successful gateway health response
             oidc:
               type: string
               readOnly: true

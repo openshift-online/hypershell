@@ -34,6 +34,10 @@ type GatewayDao interface {
 	// return and event-emission contract matches AdjustActiveSandboxCount.
 	SetActiveSandboxCount(ctx context.Context, namespace string, count int) (resulting int, err error)
 
+	// SetGatewayVersion atomically sets the runtime version of the live gateway.
+	// It emits an update event only when the stored value changes.
+	SetGatewayVersion(ctx context.Context, id, version string) (resulting string, err error)
+
 	CountByPhase(ctx context.Context) (map[string]int64, error)
 }
 
@@ -42,6 +46,11 @@ type GatewayDao interface {
 type sandboxCountRow struct {
 	ID                 string
 	ActiveSandboxCount *int
+}
+
+type gatewayVersionRow struct {
+	ID             string
+	GatewayVersion *string
 }
 
 var _ GatewayDao = &sqlGatewayDao{}
@@ -83,11 +92,9 @@ func (d *sqlGatewayDao) Create(ctx context.Context, gateway *Gateway) (*Gateway,
 
 func (d *sqlGatewayDao) Replace(ctx context.Context, gateway *Gateway) (*Gateway, error) {
 	g2 := (*d.sessionFactory).New(ctx)
-	// Omit active_sandbox_count: it is owned exclusively by the atomic
-	// AdjustActiveSandboxCount / SetActiveSandboxCount path. Saving it here would
-	// write back the value read into `gateway`, clobbering any concurrent
-	// count adjustment with a stale number.
-	if err := g2.Omit(clause.Associations, "ActiveSandboxCount").Save(gateway).Error; err != nil {
+	// Omit fields that have dedicated reconciliation writers. Saving these
+	// values here could overwrite a concurrent observation with stale data.
+	if err := g2.Omit(clause.Associations, "ActiveSandboxCount", "GatewayVersion").Save(gateway).Error; err != nil {
 		db.MarkForRollback(ctx, err)
 		return nil, err
 	}
@@ -145,6 +152,45 @@ WHERE namespace = ? AND deleted_at IS NULL
   AND active_sandbox_count IS DISTINCT FROM GREATEST(0, ?)
 RETURNING id, active_sandbox_count`
 	return d.execSandboxCount(ctx, namespace, stmt, count, namespace, count)
+}
+
+func (d *sqlGatewayDao) SetGatewayVersion(ctx context.Context, id, version string) (string, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+
+	var resulting string
+	txErr := g2.Transaction(func(tx *gorm.DB) error {
+		var row gatewayVersionRow
+		if err := tx.Raw(`
+UPDATE gateways
+SET gateway_version = ?, updated_at = NOW()
+WHERE id = ? AND deleted_at IS NULL
+  AND gateway_version IS DISTINCT FROM ?
+RETURNING id, gateway_version`, version, id, version).Scan(&row).Error; err != nil {
+			return err
+		}
+		if row.ID != "" {
+			resulting = derefString(row.GatewayVersion)
+			return emitGatewayEventTx(tx, row.ID)
+		}
+
+		var current gatewayVersionRow
+		if err := tx.Raw(
+			`SELECT id, gateway_version FROM gateways WHERE id = ? AND deleted_at IS NULL`,
+			id,
+		).Scan(&current).Error; err != nil {
+			return err
+		}
+		if current.ID == "" {
+			return gorm.ErrRecordNotFound
+		}
+		resulting = derefString(current.GatewayVersion)
+		return nil
+	})
+	if txErr != nil {
+		db.MarkForRollback(ctx, txErr)
+		return "", txErr
+	}
+	return resulting, nil
 }
 
 // execSandboxCount runs a guarded sandbox-count UPDATE ... RETURNING inside a
@@ -212,6 +258,13 @@ func derefCount(v *int) int {
 		return 0
 	}
 	return *v
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (d *sqlGatewayDao) CountByPhase(ctx context.Context) (map[string]int64, error) {

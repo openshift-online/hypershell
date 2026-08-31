@@ -77,6 +77,15 @@ func (d *gatewayDaoMock) SetActiveSandboxCount(ctx context.Context, namespace st
 	return count, nil
 }
 
+func (d *gatewayDaoMock) SetGatewayVersion(ctx context.Context, id, version string) (string, error) {
+	gw, err := d.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	gw.GatewayVersion = &version
+	return version, nil
+}
+
 func (d *gatewayDaoMock) CountByPhase(ctx context.Context) (map[string]int64, error) {
 	counts := make(map[string]int64)
 	for _, gw := range d.gateways {

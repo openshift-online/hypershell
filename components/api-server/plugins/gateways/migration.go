@@ -144,3 +144,20 @@ func migrationDropDatabaseConfig() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddGatewayVersion() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		GatewayVersion *string
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026082712000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "gateway_version")
+		},
+	}
+}

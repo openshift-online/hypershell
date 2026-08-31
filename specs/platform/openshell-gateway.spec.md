@@ -444,6 +444,7 @@ For each Gateway resource, the GatewayReconciler SHALL deploy the following Kube
 All gateway resources SHALL use fixed names (one gateway per namespace):
 - Deployment: `openshell-gateway`
 - Service: `openshell-gateway` (ClusterIP, ports: `grpc:8080` with `appProtocol: grpc`, `metrics:9090`)
+- Internal health Service: `openshell-gateway-health` (ClusterIP, port: `health:8081`)
 - ServiceAccounts: `openshell-gateway`, `openshell-gateway-sandbox`, `openshell-gateway-certgen`
 - ConfigMap: `openshell-gateway-config` (contains `gateway.toml`)
 - Roles, RoleBindings, ClusterRole, ClusterRoleBinding (see RBAC section below)
@@ -604,7 +605,14 @@ Sandbox pods need to connect back to the gateway for gRPC communication:
 
 3. **`openshell-gateway-allow-sandbox-v2`**:
    - Selects gateway pods (`app.kubernetes.io/instance: openshell-gateway`, `app.kubernetes.io/name: openshell`)
-   - Allows ingress on TCP ports 8080 and 8081 from pods with label `agents.x-k8s.io/sandbox-name-hash` (exists)
+   - Allows ingress on TCP port 8080 from pods with label `agents.x-k8s.io/sandbox-name-hash` (exists)
+
+#### Controller Health NetworkPolicy
+
+4. **`openshell-gateway-allow-controller-health`**:
+   - Selects gateway pods (`app.kubernetes.io/instance: openshell-gateway`, `app.kubernetes.io/name: openshell`)
+   - Allows ingress on TCP port 8081 only from the HyperShell controller pods in the control plane namespace
+   - Lets the health reconciler read the gateway runtime version
 
 #### Router Ingress NetworkPolicy
 

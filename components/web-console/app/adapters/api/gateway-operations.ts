@@ -115,6 +115,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const createdBy = optionalString(gateway.created_by);
   const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
   const consoleUrl = optionalString(gateway.console_address);
+  const gatewayVersion = optionalString(gateway.gateway_version);
 
   return {
     ...(activeSandboxCount !== undefined ? { activeSandboxCount } : {}),
@@ -125,6 +126,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     databaseId: gateway.database_id,
     externalDns:
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
+    ...(gatewayVersion ? { gatewayVersion } : {}),
     id: gateway.id,
     name: gateway.name,
     namespace: gateway.namespace,

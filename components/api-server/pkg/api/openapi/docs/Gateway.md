@@ -25,6 +25,7 @@ Name | Type | Description | Notes
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
+**GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
@@ -544,6 +545,31 @@ SetConsoleAddress sets ConsoleAddress field to given value.
 `func (o *Gateway) HasConsoleAddress() bool`
 
 HasConsoleAddress returns a boolean if a field has been set.
+
+### GetGatewayVersion
+
+`func (o *Gateway) GetGatewayVersion() string`
+
+GetGatewayVersion returns the GatewayVersion field if non-nil, zero value otherwise.
+
+### GetGatewayVersionOk
+
+`func (o *Gateway) GetGatewayVersionOk() (*string, bool)`
+
+GetGatewayVersionOk returns a tuple with the GatewayVersion field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetGatewayVersion
+
+`func (o *Gateway) SetGatewayVersion(v string)`
+
+SetGatewayVersion sets GatewayVersion field to given value.
+
+### HasGatewayVersion
+
+`func (o *Gateway) HasGatewayVersion() bool`
+
+HasGatewayVersion returns a boolean if a field has been set.
 
 ### GetOidc
 

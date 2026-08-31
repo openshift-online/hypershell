@@ -75,7 +75,7 @@ func LoadGatewayManifests(manifestsDir string) (map[string][]*unstructured.Unstr
 	return manifests, nil
 }
 
-func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace string, config GatewayConfig, images ImageDefaults) (*unstructured.Unstructured, error) {
+func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace, controlPlaneNamespace string, config GatewayConfig, images ImageDefaults) (*unstructured.Unstructured, error) {
 	obj := manifest.DeepCopy()
 
 	jsonBytes, err := obj.MarshalJSON()
@@ -84,6 +84,12 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	}
 
 	manifestJSON := string(jsonBytes)
+	if strings.Contains(manifestJSON, "CONTROL_PLANE_NAMESPACE_PLACEHOLDER") {
+		if strings.TrimSpace(controlPlaneNamespace) == "" {
+			return nil, fmt.Errorf("control plane namespace is required")
+		}
+		manifestJSON = strings.ReplaceAll(manifestJSON, "CONTROL_PLANE_NAMESPACE_PLACEHOLDER", controlPlaneNamespace)
+	}
 	manifestJSON = strings.ReplaceAll(manifestJSON, "NAMESPACE_PLACEHOLDER", namespace)
 
 	supervisorImage := images.DefaultSupervisorImage()

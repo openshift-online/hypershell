@@ -79,6 +79,13 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(retrieved.Gateway.Metadata.Id).To(Equal(gatewayID))
 
+	versionResp, err := grpcClient.SetGatewayVersion(ctx, &pb.SetGatewayVersionRequest{
+		Id:             gatewayID,
+		GatewayVersion: "v0.0.109-rh9a8f8",
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(versionResp.GetGatewayVersion()).To(Equal("v0.0.109-rh9a8f8"))
+
 	updateReq := &pb.UpdateGatewayRequest{
 		Id:          gatewayID,
 		Name:        func() *string { s := "UpdatedName"; return &s }(),
@@ -97,6 +104,11 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(updated.Gateway.Metadata.Id).To(Equal(gatewayID))
 	Expect(updated.Gateway.Namespace).To(Equal(gatewayNamespace))
 	Expect(updated.Gateway.DatabaseId).To(Equal(gatewayDatabaseID), "database_id update must be ignored")
+
+	retrieved, err = grpcClient.GetGateway(ctx, getReq)
+	Expect(err).NotTo(HaveOccurred())
+	// A whole-row update must not overwrite the independently reconciled version.
+	Expect(retrieved.Gateway.GetGatewayVersion()).To(Equal("v0.0.109-rh9a8f8"))
 
 	listReq := &pb.ListGatewaysRequest{
 		Page: 1,

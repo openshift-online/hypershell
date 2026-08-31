@@ -99,6 +99,7 @@ erDiagram
         string service_type
         string status
         string phase
+        string gateway_version
         time created_at
         time updated_at
         time deleted_at
@@ -205,6 +206,7 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
+| `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `database` | JSONB | Database backend config: `{storageSize, image, externalSecretRef}` |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 

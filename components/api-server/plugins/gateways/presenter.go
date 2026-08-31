@@ -58,6 +58,7 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 		SupervisorImage:  gateway.SupervisorImage,
 		RouteAddress:     gateway.RouteAddress,
 		ConsoleAddress:   gateway.ConsoleAddress,
+		GatewayVersion:   gateway.GatewayVersion,
 		Oidc:             gateway.Oidc,
 		Route:            gateway.Route,
 		CredentialDriver: gateway.CredentialDriver,

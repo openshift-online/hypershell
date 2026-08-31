@@ -226,6 +226,23 @@ func (h *gatewayGRPCHandler) SetActiveSandboxCount(ctx context.Context, req *pb.
 	return &pb.SetActiveSandboxCountResponse{ActiveSandboxCount: int32(count)}, nil
 }
 
+// SetGatewayVersion stores only the last runtime version that the health
+// reconciler observed. The dedicated write cannot overwrite unrelated fields.
+func (h *gatewayGRPCHandler) SetGatewayVersion(ctx context.Context, req *pb.SetGatewayVersionRequest) (*pb.SetGatewayVersionResponse, error) {
+	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
+		return nil, err
+	}
+	if err := grpcutil.ValidateStringField("gateway_version", req.GatewayVersion, true); err != nil {
+		return nil, err
+	}
+
+	version, svcErr := h.service.SetGatewayVersion(ctx, req.Id, req.GatewayVersion)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	return &pb.SetGatewayVersionResponse{GatewayVersion: version}, nil
+}
+
 func (h *gatewayGRPCHandler) DeleteGateway(ctx context.Context, req *pb.DeleteGatewayRequest) (*pb.DeleteGatewayResponse, error) {
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err

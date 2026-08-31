@@ -29,6 +29,7 @@ type Gateway struct {
 	ServerDnsNames     *string `json:"server_dns_names" gorm:"type:jsonb"`
 	RouteAddress       *string `json:"route_address"`
 	ConsoleAddress     *string `json:"console_address"`
+	GatewayVersion     *string `json:"gateway_version"`
 	Oidc               *string `json:"oidc" gorm:"type:jsonb"`
 	Route              *string `json:"route" gorm:"type:jsonb"`
 	CredentialDriver   *string `json:"credential_driver" gorm:"type:jsonb"`

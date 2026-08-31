@@ -84,22 +84,21 @@ export const messages = defineMessages({
   },
   connectionInstallLink: {
     id: "app.gateway.connection.installLink",
-    defaultMessage: "Install the OpenShell CLI",
+    defaultMessage: "View installation documentation",
     description:
       "Link text pointing to the NVIDIA OpenShell installation documentation.",
   },
   connectionInstallLinkNewTab: {
     id: "app.gateway.connection.installLinkNewTab",
-    defaultMessage: "Install the OpenShell CLI (opens in a new tab)",
+    defaultMessage: "View installation documentation (opens in a new tab)",
     description:
-      "Accessible name for the OpenShell CLI install docs link, including that it opens in a new tab.",
+      "Accessible name for the OpenShell CLI installation documentation link, including that it opens in a new tab.",
   },
   connectionInstallPrereq: {
     id: "app.gateway.connection.installPrereq",
     defaultMessage:
-      "The OpenShell CLI must be installed before running the commands below.",
-    description:
-      "Prerequisite note shown above the connection steps directing operators to install the CLI first.",
+      "Install the OpenShell CLI version for this gateway before you add the provider.",
+    description: "Prerequisite note shown before the one-time setup commands.",
   },
   connectionInstallPrereqTitle: {
     id: "app.gateway.connection.installPrereqTitle",
@@ -127,7 +126,7 @@ export const messages = defineMessages({
   connectionSetupDescription: {
     id: "app.gateway.connection.setup.description",
     defaultMessage:
-      "Run these once to log in, add the Claude on Vertex AI provider, and select the model.",
+      "Run these commands in order to register the gateway, add the Claude on Vertex AI provider, and select the model.",
     description: "Supporting text for the one-time setup connection step.",
   },
   connectionSetupTitle: {
@@ -172,6 +171,12 @@ export const messages = defineMessages({
     description:
       "Accessible label for copying a specific gateway's network endpoint.",
   },
+  copyInstallCommand: {
+    id: "app.gateway.connection.copyInstallCommand",
+    defaultMessage: "Copy the OpenShell installation command",
+    description:
+      "Accessible label for copying the version-matched OpenShell installation command.",
+  },
   copySandboxCommand: {
     id: "app.gateway.connection.copySandboxCommand",
     defaultMessage: "Copy the create-sandbox command",
@@ -181,7 +186,7 @@ export const messages = defineMessages({
     id: "app.gateway.connection.copySetupCommand",
     defaultMessage: "Copy the one-time setup commands",
     description:
-      "Accessible label for copying the consolidated one-time setup script.",
+      "Accessible label for copying the gateway registration, provider creation, and model selection commands.",
   },
   created: {
     id: "app.table.column.created",
@@ -522,12 +527,6 @@ export const messages = defineMessages({
     defaultMessage:
       "Use service accounts for automation. Each account exchanges client credentials for short-lived JWTs that work only with this gateway.",
     description: "Introductory text for gateway service accounts.",
-  },
-  manageServiceAccounts: {
-    id: "app.gateway.serviceAccounts.manage",
-    defaultMessage: "Create or manage service accounts",
-    description:
-      "Link from the interactive connection workflow to service-account management.",
   },
   createServiceAccount: {
     id: "app.gateway.serviceAccounts.create",

@@ -59,6 +59,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     database_id: "database-1",
     external_dns: "gateway.example.com",
     fleet_id: "",
+    gateway_version: "",
     href: "/api/hypershell/v1/gateways/gateway-1",
     id: "gateway-1",
     image: "",
@@ -572,6 +573,16 @@ describe("gateway API operations adapter", () => {
     ).resolves.toMatchObject({
       consoleUrl: "https://console-openshell-abc123.gw.localhost",
     });
+  });
+
+  it("maps gateway_version to the reconciled gateway version", async () => {
+    gatewayApi.get.mockResolvedValue(
+      gateway({ gateway_version: " v0.0.109-rh9a8f8 " }),
+    );
+
+    await expect(
+      controlPlane.getGateway("gateway-1", context),
+    ).resolves.toMatchObject({ gatewayVersion: "v0.0.109-rh9a8f8" });
   });
 
   it("leaves the console URL unavailable when console_address is absent", async () => {
