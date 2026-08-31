@@ -334,6 +334,8 @@ the projects. The command SHALL NOT require namespace labels in order to delete.
 - THEN each deployment runs in its own namespace group
 - AND each deployment has distinct gateway hostnames
 - AND neither deployment changes, conflicts with, or interacts with the other
+- AND each environment's ClusterRoleBindings are prefixed with that environment's platform namespace and refer to ClusterRole `hypershell-e2e`
+- AND neither environment patches unprefixed names such as `hypershell-controller` that another instance (for example stage) already owns
 
 #### Scenario: Namespace cleanup removes only one deployment
 
@@ -935,32 +937,46 @@ controller needs so that it can itself create the per-namespace privileged RoleB
 for a sandbox at runtime. `bind` on `clusterroles` is a cluster-scoped permission. A
 namespace-scoped RoleBinding CANNOT grant it, and a single pre-created
 ClusterRoleBinding with a fixed service-account subject cannot cover the controller
-service account of an unknown future ephemeral namespace. Therefore a privileged
-actor SHALL grant each ephemeral controller service account the cluster-scoped `bind`
-on the privileged SCC. For example, the namespace-provisioning step (the
-ephemeral-namespace operator, or an equivalent cluster-privileged step that creates
-the namespace and its service accounts) SHALL, at namespace-create time, add that
-controller service account as a subject of a `bind` ClusterRoleBinding or create a
-per-namespace ClusterRoleBinding for it. Alternatively, a privileged CI deployer that
-is not the in-namespace controller SHALL create the per-namespace privileged
-RoleBindings for the sandbox, so that the in-namespace controller never needs `bind`.
+service account of an unknown future ephemeral namespace.
+
+For local-dev, `make openshift-up` is that privileged actor. It SHALL apply one
+shared ClusterRole named `hypershell-e2e` (create or patch when the rules differ),
+per-environment ClusterRoleBindings whose names are prefixed with the platform
+namespace and whose `roleRef` is `hypershell-e2e`, and the privileged SCC RoleBinding
+`hypershell-sandbox-scc`. Gateways and sandboxes cannot run without those grants, so
+the command SHALL fail if the ClusterRole is missing and cannot be created, or if the
+per-environment bindings cannot be applied. If `hypershell-e2e` already exists and
+the current user cannot patch it, the command SHALL reuse the existing ClusterRole.
+It SHALL NOT create, patch, or delete ClusterRole `hypershell-controller` or
+ClusterRoleBinding `hypershell-controller`; those names belong to other instances
+that share the cluster, such as stage. Built-in ClusterRoles whose names start with
+`system:` SHALL NOT be renamed. `make openshift-down` SHALL delete only this
+environment's prefixed ClusterRoleBindings, not ClusterRole `hypershell-e2e`.
 
 The deployment into the ephemeral namespace SHALL NOT attempt to grant the
 cluster-scoped `bind` through a namespace-scoped RoleBinding, and SHALL NOT assume the
 namespace-scoped RoleBindings alone let the controller bind the privileged SCC per
-namespace. The cluster-scoped `bind` ClusterRole and the grant of `bind` to each
-ephemeral controller service account SHALL be pre-created or provisioned by the
-privileged actor, as above, before the controller reconciles a sandbox.
+namespace.
 
 #### Scenario: Ephemeral namespace has the permissions the overlay needs
 
-- GIVEN the target cluster pre-creates the cluster-scoped `bind` ClusterRole and its binding
-- AND a privileged actor grants the ephemeral controller service account the cluster-scoped `bind` on the privileged SCC at namespace-create time
-- WHEN the workflow deploys the OpenShift overlay into an ephemeral namespace
-- THEN the deployment creates only namespace-scoped RoleBindings that attach the
-  controller and sandbox service accounts to the built-in SCC ClusterRoles for SCC use
-- AND the controller can create the per-namespace privileged RoleBinding for a sandbox because the privileged actor granted it `bind`
+- GIVEN ClusterRole `hypershell-e2e` can be applied, or already exists
+- AND the developer can apply per-namespace ClusterRoleBindings and the privileged SCC RoleBinding
+- WHEN the developer runs `make openshift-up`
+- THEN the command applies ClusterRole `hypershell-e2e` (creating it or patching it when it differs)
+- AND applies ClusterRoleBindings prefixed with the platform namespace whose `roleRef` is `hypershell-e2e`
+- AND the command does not patch ClusterRole `hypershell-controller` or ClusterRoleBinding `hypershell-controller`
+- AND applies RoleBinding `hypershell-sandbox-scc` for the sandbox service account
+- AND the controller can create the per-namespace privileged RoleBinding for a sandbox because it was granted `bind`
 - AND the deployment does not attempt to grant the cluster-scoped `bind` through a namespace-scoped RoleBinding
+
+#### Scenario: Cluster-scoped RBAC cannot be applied
+
+- GIVEN the current user cannot create ClusterRoleBindings or grant the privileged SCC
+- WHEN the developer runs `make openshift-up`
+- THEN the command fails
+- AND the error states that cluster-scoped RBAC is required to provision gateways and sandboxes
+- AND the command does not report the overlay as applied
 
 ### Requirement: OpenShift Security Context and RBAC Parity
 

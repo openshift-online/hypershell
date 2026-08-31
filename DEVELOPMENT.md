@@ -333,13 +333,21 @@ Service.
 
 This renders `kustomize build deploy/openshift/`, maps `hypershell-system` to
 that platform namespace and `keycloak` to `${platform}-keycloak`, applies the
+required cluster-scoped RBAC (shared ClusterRole `hypershell-e2e`, per-namespace
+ClusterRoleBindings, and the privileged SCC RoleBinding), applies the
 manifests (with prune scoped to this environment), registers the web-console
 Route as the Keycloak `hypershell-frontend` redirect URI, seeds a
 ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway from this machine
 against the API and Keycloak Routes (the API server image has no `curl`), and
 prints the API, web-console, and Keycloak Routes. The gateway base domain is
 read from the shared Gateway's listener hostname, not from
-`GATEWAY_API_BASE_DOMAIN`.
+`GATEWAY_API_BASE_DOMAIN`. ClusterRole `hypershell-e2e` is shared by every e2e
+environment on the cluster (`oc apply` creates or patches it). ClusterRoleBindings
+are prefixed per project so they do not touch stage's `hypershell-controller`.
+Cluster-scoped RBAC is not optional: without it the controller cannot create
+gateway namespaces or sandboxes, so `make openshift-up` fails if `hypershell-e2e`
+is missing and cannot be created. `make openshift-down` deletes this
+environment's prefixed ClusterRoleBindings and leaves `hypershell-e2e` in place.
 
 `make openshift-down` and `make openshift-teardown` are the same command.
 There is no OpenShift cluster to destroy. Both delete the platform project

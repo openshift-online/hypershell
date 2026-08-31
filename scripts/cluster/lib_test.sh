@@ -73,17 +73,47 @@ if grep -E 'deletion started|removal started' "${SCRIPT_DIR}/drivers/openshift.s
 else
   PASS=$((PASS + 1))
 fi
-if grep -A40 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'OPENSHIFT_KEYCLOAK_NAMESPACE'; then
+if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'OPENSHIFT_KEYCLOAK_NAMESPACE'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_down does not remove the Keycloak namespace'
 fi
-if grep -E 'oc_cli exec.*curl|oc exec.*curl' "${SCRIPT_DIR}/drivers/openshift.sh" >/dev/null; then
+if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete clusterrole '; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift driver still oc execs curl in a pod'
+  echo 'FAIL: OpenShift cluster_down deletes a ClusterRole (must not remove shared hypershell-e2e or stage)'
 else
   PASS=$((PASS + 1))
+fi
+if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'clusterrolebinding "${OPENSHIFT_NAMESPACE}-hypershell-controller"'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_down does not delete this environment'\''s prefixed ClusterRoleBinding'
+fi
+if grep -E 'delete clusterrole(binding)? "hypershell-controller' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift down deletes unprefixed cluster-scoped names (would hit stage)'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -q 'optional cluster-scoped RBAC (best-effort)' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift still treats cluster-scoped RBAC as best-effort'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -q 'Skipping ClusterRole' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift still skips ClusterRole apply'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A80 '^apply_required_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'fail_required_cluster_rbac'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: apply_required_cluster_rbac does not fail when cluster RBAC cannot be applied'
 fi
 assert_eq "alice-keycloak" "$(keycloak_namespace_for alice)" "keycloak namespace suffix"
 assert_ok "derived keycloak ns fits 63" validate_rfc1123_label "$(keycloak_namespace_for "$(printf 'a%.0s' {1..54})")" 63
@@ -246,19 +276,25 @@ if printf '%s' "${rewritten}" | grep -q 'controllerroleRef'; then
 else
   PASS=$((PASS + 1))
 fi
-# ClusterRole name and roleRef.name must stay unprefixed
+# Shared ClusterRole hypershell-e2e; ClusterRoleBinding roleRef points at it
 if printf '%s' "${rewritten}" | grep -q 'kind: ClusterRole' \
-  && printf '%s' "${rewritten}" | awk '/kind: ClusterRole$/{p=1} p&&/name:/{print; exit}' | grep -q 'name: hypershell-controller'; then
+  && printf '%s' "${rewritten}" | awk '/kind: ClusterRole$/{p=1} p&&/^  name:/{print; exit}' | grep -q 'name: hypershell-e2e'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: ClusterRole name should stay hypershell-controller'
+  echo 'FAIL: ClusterRole name should be hypershell-e2e'
 fi
-if printf '%s' "${rewritten}" | grep -A4 'roleRef:' | grep -q 'name: hypershell-controller'; then
+if printf '%s' "${rewritten}" | grep -A4 'roleRef:' | grep -q 'name: hypershell-e2e'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: roleRef.name should stay hypershell-controller'
+  echo 'FAIL: ClusterRoleBinding roleRef.name should be hypershell-e2e'
+fi
+if printf '%s' "${rewritten}" | awk '/kind: ClusterRole$/{p=1} p&&/^  name:/{print; exit}' | grep -qx '  name: hypershell-controller'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: ClusterRole metadata.name was left as hypershell-controller (would collide with stage)'
+else
+  PASS=$((PASS + 1))
 fi
 if printf '%s' "${rewritten}" | grep -q 'value: alice'; then
   PASS=$((PASS + 1))
@@ -372,6 +408,49 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: roleRef was not kept as its own line'
 fi
+if printf '%s' "${crb_out}" | grep -A3 '^roleRef:' | grep -qx '  name: hypershell-e2e'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: ClusterRoleBinding roleRef.name should be hypershell-e2e'
+  printf '%s\n' "${crb_out}"
+fi
+
+sys_crb="$(mktemp)"
+cat > "${sys_crb}" <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hypershell-sandbox-scc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+- kind: ServiceAccount
+  name: openshell-gateway-sandbox
+  namespace: hypershell-system
+EOF
+sys_out="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
+  --platform-namespace alice \
+  --keycloak-namespace alice-keycloak \
+  --omit-namespaces \
+  --only-namespace __cluster__ \
+  --include-cluster-scoped < "${sys_crb}")"
+rm -f "${sys_crb}"
+if printf '%s' "${sys_out}" | grep -qx '  name: alice-hypershell-sandbox-scc'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: ClusterRoleBinding to a built-in ClusterRole was not name-prefixed'
+fi
+if printf '%s' "${sys_out}" | grep -A3 '^roleRef:' | grep -qx '  name: system:openshift:scc:privileged'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: built-in system: ClusterRole roleRef was renamed'
+  printf '%s\n' "${sys_out}"
+fi
 omit_cr="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
   --platform-namespace alice \
   --keycloak-namespace alice-keycloak \
@@ -382,6 +461,26 @@ omit_cr="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
 if printf '%s' "${omit_cr}" | grep -q 'kind: ClusterRole'; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: --omit-kinds kept ClusterRole'
+else
+  PASS=$((PASS + 1))
+fi
+
+only_cr="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
+  --platform-namespace alice \
+  --keycloak-namespace alice-keycloak \
+  --omit-namespaces \
+  --only-namespace __cluster__ \
+  --include-cluster-scoped \
+  --only-kinds ClusterRole <<<"${rewritten}")"
+if printf '%s' "${only_cr}" | grep -q 'kind: ClusterRole'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: --only-kinds ClusterRole dropped ClusterRole'
+fi
+if printf '%s' "${only_cr}" | grep -q 'kind: ClusterRoleBinding'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: --only-kinds ClusterRole kept ClusterRoleBinding'
 else
   PASS=$((PASS + 1))
 fi
@@ -450,6 +549,29 @@ if command -v kustomize >/dev/null 2>&1; then
     else
       FAIL=$((FAIL + 1))
       echo 'FAIL: rewritten overlay still contains hypershell-system'
+    fi
+    unprefixed="$(python3 -c '
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+import sys
+rw = SourceFileLoader("rewrite", sys.argv[1]).load_module()
+bad = rw.unprefixed_cluster_scoped(Path(sys.argv[2]).read_text(), "alice-")
+if bad:
+    print("\n".join(bad))
+    raise SystemExit(1)
+' "${SCRIPT_DIR}/rewrite-namespaces.py" "${os_out}")" || true
+    if [[ -z "${unprefixed}" ]]; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo "FAIL: rewritten overlay has unprefixed cluster-scoped names:"
+      printf '%s\n' "${unprefixed}"
+    fi
+    if grep -q 'name: system:openshift:scc:privileged' "${os_out}"; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo 'FAIL: namespaced SCC RoleBinding lost built-in system: roleRef'
     fi
   else
     FAIL=$((FAIL + 1))

@@ -266,16 +266,63 @@ check_infrastructure() {
   info "Gateway base domain: ${GATEWAY_API_BASE_DOMAIN} (from ${gw_ns}/${gw_name} listener)"
 }
 
-apply_bind_grant() {
-  # Privileged local-dev actor: grant this environment's controller SA the
-  # cluster-scoped bind on the privileged SCC. Typical developers cannot
-  # create ClusterRoleBindings; skip rather than fail the whole bring-up.
+fail_required_cluster_rbac() {
+  local err="$1"
+  error "Cluster-scoped RBAC is required to provision gateways and sandboxes."
+  error "${err}"
+  error "An administrator must apply ClusterRole hypershell-e2e once on this cluster, plus this namespace's ClusterRoleBindings and RoleBinding hypershell-sandbox-scc."
+  error "Do not change ClusterRole hypershell-controller; that belongs to stage."
+  exit 1
+}
+
+assert_expected_cluster_scoped() {
+  local rendered="$1"
+  local bad
+  if ! bad="$(python3 -c '
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+import sys
+rw = SourceFileLoader("rewrite", sys.argv[1]).load_module()
+bad = rw.unprefixed_cluster_scoped(Path(sys.argv[2]).read_text(), sys.argv[3])
+if bad:
+    print("\n".join(bad))
+    raise SystemExit(1)
+' "${CLUSTER_SCRIPT_DIR}/rewrite-namespaces.py" "${rendered}" "${OPENSHIFT_NAMESPACE}-")"; then
+    error "Refusing cluster-scoped names that would collide with stage:"
+    error "${bad}"
+    exit 1
+  fi
+}
+
+ensure_e2e_cluster_role() {
+  # One shared ClusterRole for every e2e environment. oc apply creates or
+  # patches when the rules differ. If this user cannot apply it, reuse it
+  # when it already exists; fail if it is missing.
+  local rendered="$1"
   local err
-  if err="$(oc_cli apply -f - 2>&1 <<EOF
+  assert_expected_cluster_scoped "${rendered}"
+  if err="$(oc_cli apply -f "${rendered}" 2>&1)"; then
+    info "ClusterRole hypershell-e2e applied"
+    printf '%s\n' "${err}"
+    rm -f "${rendered}"
+    return 0
+  fi
+  rm -f "${rendered}"
+  if grep -qi 'forbidden' <<<"${err}" && oc_cli get clusterrole hypershell-e2e >/dev/null 2>&1; then
+    warn "Cannot update ClusterRole hypershell-e2e (forbidden); using the existing role."
+    return 0
+  fi
+  fail_required_cluster_rbac "${err}"
+}
+
+apply_sandbox_scc() {
+  local err
+  if err="$(oc_cli apply -n "${OPENSHIFT_NAMESPACE}" -f - 2>&1 <<EOF
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: ${OPENSHIFT_NAMESPACE}-hypershell-controller-scc-bind
+  name: hypershell-sandbox-scc
+  namespace: ${OPENSHIFT_NAMESPACE}
   labels:
     ${OWNED_LABEL}: "true"
     ${ENV_LABEL}: "${OPENSHIFT_ENVIRONMENT_ID}"
@@ -284,22 +331,45 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: hypershell-controller-scc-bind
+  name: system:openshift:scc:privileged
 subjects:
   - kind: ServiceAccount
-    name: hypershell-controller
+    name: openshell-gateway-sandbox
     namespace: ${OPENSHIFT_NAMESPACE}
 EOF
 )"; then
     printf '%s\n' "${err}"
     return 0
   fi
-  if grep -qi 'forbidden' <<<"${err}"; then
-    warn "Skipping ClusterRoleBinding ${OPENSHIFT_NAMESPACE}-hypershell-controller-scc-bind (forbidden)."
-    return 0
+  fail_required_cluster_rbac "${err}"
+}
+
+apply_required_cluster_rbac() {
+  info "Applying required cluster-scoped RBAC..."
+  local roles bindings err
+  if ! roles="$(render_openshift_manifests \
+    --only-namespace __cluster__ \
+    --include-cluster-scoped \
+    --only-kinds ClusterRole)"; then
+    exit 1
   fi
-  error "${err}"
-  return 1
+  ensure_e2e_cluster_role "${roles}"
+
+  if ! bindings="$(render_openshift_manifests \
+    --only-namespace __cluster__ \
+    --include-cluster-scoped \
+    --only-kinds ClusterRoleBinding)"; then
+    exit 1
+  fi
+  assert_expected_cluster_scoped "${bindings}"
+  if ! err="$(oc_cli apply -f "${bindings}" 2>&1)"; then
+    rm -f "${bindings}"
+    fail_required_cluster_rbac "${err}"
+  fi
+  printf '%s\n' "${err}"
+  rm -f "${bindings}"
+
+  apply_sandbox_scc
 }
 
 create_bootstrap_secrets() {
@@ -440,29 +510,6 @@ apply_rendered_overlay() {
   rm -f "${rendered}"
 }
 
-apply_optional() {
-  local rendered="$1"
-  local what="$2"
-  if [[ ! -s "${rendered}" ]]; then
-    rm -f "${rendered}"
-    return 0
-  fi
-  local err
-  if err="$(oc_cli apply -f "${rendered}" 2>&1)"; then
-    printf '%s\n' "${err}"
-    rm -f "${rendered}"
-    return 0
-  fi
-  rm -f "${rendered}"
-  if grep -qi 'forbidden' <<<"${err}"; then
-    warn "Skipping ${what}: the current user cannot apply cluster-scoped or privileged RBAC."
-    warn "An administrator must grant this namespace's hypershell-controller SA the shared ClusterRole and privileged SCC bind."
-    return 0
-  fi
-  error "${err}"
-  return 1
-}
-
 apply_postgres_fallback() {
   info "CNPG operator is not installed; deploying bundled PostgreSQL Deployment"
   local rendered
@@ -484,9 +531,8 @@ apply_postgres_fallback() {
 }
 
 configure_postgres_fallback_ssl() {
-  oc_cli set env deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" -c migrate \
-    DB_SSLMODE=disable >/dev/null
-  oc_cli set env deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" -c api-server \
+  # migrate is an initContainer; omit -c so oc sets both init and app containers.
+  oc_cli set env deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" \
     DB_SSLMODE=disable >/dev/null
 }
 
@@ -529,48 +575,7 @@ apply_overlay() {
     configure_postgres_fallback_ssl
   fi
 
-  info "Applying optional cluster-scoped RBAC (best-effort)..."
-  if rendered="$(render_openshift_manifests --only-namespace __cluster__ --include-cluster-scoped)"; then
-    apply_optional "${rendered}" "ClusterRole / ClusterRoleBinding"
-  fi
-  apply_sandbox_scc_best_effort
-
   success "Overlay applied"
-}
-
-apply_sandbox_scc_best_effort() {
-  local err
-  if err="$(oc_cli apply -n "${OPENSHIFT_NAMESPACE}" -f - 2>&1 <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: hypershell-sandbox-scc
-  namespace: ${OPENSHIFT_NAMESPACE}
-  labels:
-    ${OWNED_LABEL}: "true"
-    ${ENV_LABEL}: "${OPENSHIFT_ENVIRONMENT_ID}"
-    ${MANAGED_LABEL}: "${MANAGED_VALUE}"
-    ${PART_OF_LABEL}: "${PART_OF_VALUE}"
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: system:openshift:scc:privileged
-subjects:
-  - kind: ServiceAccount
-    name: openshell-gateway-sandbox
-    namespace: ${OPENSHIFT_NAMESPACE}
-EOF
-)"; then
-    printf '%s\n' "${err}"
-    return 0
-  fi
-  if grep -qi 'forbidden' <<<"${err}"; then
-    warn "Skipping privileged SCC RoleBinding (the current user cannot grant privileged)."
-    warn "Gateway sandboxes will not start until an administrator creates hypershell-sandbox-scc in ${OPENSHIFT_NAMESPACE}."
-    return 0
-  fi
-  error "${err}"
-  return 1
 }
 
 restore_swaps_after_reconcile() {
@@ -968,8 +973,8 @@ cluster_up() {
   check_infrastructure
   ensure_namespace_group
   create_bootstrap_secrets
+  apply_required_cluster_rbac
   apply_overlay
-  apply_bind_grant
   restore_swaps_after_reconcile
   configure_oidc_from_routes
   wait_for_deployments
@@ -1093,7 +1098,7 @@ cluster_down() {
     return 0
   fi
 
-  info "Deleting per-namespace SCC bind ClusterRoleBinding..."
+  info "Deleting this environment's ClusterRoleBindings..."
   oc_cli delete clusterrolebinding "${OPENSHIFT_NAMESPACE}-hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
   oc_cli delete clusterrolebinding "${OPENSHIFT_NAMESPACE}-hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
 

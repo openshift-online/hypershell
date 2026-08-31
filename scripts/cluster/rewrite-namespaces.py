@@ -3,8 +3,12 @@
 
 Maps the overlay's platform namespace (hypershell-system) to OPENSHIFT_NAMESPACE
 and the bundled Keycloak namespace (keycloak) to ${OPENSHIFT_NAMESPACE}-keycloak.
-ClusterRoleBindings are renamed so two environments on one cluster do not share
-a binding name. ClusterRoles stay shared.
+
+ClusterRoles from the overlay are merged into one shared ClusterRole named
+hypershell-e2e so every e2e environment reuses the same rules and does not patch
+stage's hypershell-controller. ClusterRoleBindings stay prefixed per platform
+namespace; their roleRef points at hypershell-e2e unless it is a built-in
+system: ClusterRole.
 """
 from __future__ import annotations
 
@@ -14,6 +18,8 @@ import sys
 
 PLATFORM_NS = "hypershell-system"
 KEYCLOAK_NS = "keycloak"
+E2E_CLUSTER_ROLE = "hypershell-e2e"
+CLUSTER_SCOPED_KINDS = frozenset({"ClusterRole", "ClusterRoleBinding"})
 
 
 def split_docs(text: str) -> list[str]:
@@ -34,8 +40,8 @@ def kind_of(doc: str) -> str:
     return match.group(1) if match else ""
 
 
-def prefix_cluster_role_binding_name(doc: str, prefix: str) -> str:
-    """Prefix metadata.name only; leave roleRef.name unchanged."""
+def prefix_metadata_name(doc: str, prefix: str) -> str:
+    """Prefix metadata.name only; do not touch roleRef or subjects."""
     parts = re.split(r"^(roleRef:|subjects:)", doc, maxsplit=1, flags=re.M)
     head = parts[0]
     rest = "".join(parts[1:]) if len(parts) > 1 else ""
@@ -50,6 +56,23 @@ def prefix_cluster_role_binding_name(doc: str, prefix: str) -> str:
     # swallow the newline before roleRef, gluing `name: foo` onto `roleRef:`.
     head = re.sub(r"^(  name:\s*)(\S+)[^\S\n]*$", repl, head, count=1, flags=re.M)
     return head + rest
+
+
+def set_e2e_cluster_role_ref(doc: str) -> str:
+    """Point roleRef at hypershell-e2e unless it is a built-in system: ClusterRole."""
+    parts = re.split(r"^(roleRef:)", doc, maxsplit=1, flags=re.M)
+    if len(parts) < 3:
+        return doc
+    head, marker, rest = parts[0], parts[1], parts[2]
+
+    def repl(match: re.Match[str]) -> str:
+        name = match.group(2)
+        if name.startswith("system:") or name == E2E_CLUSTER_ROLE:
+            return match.group(0)
+        return f"{match.group(1)}{E2E_CLUSTER_ROLE}"
+
+    rest = re.sub(r"^(  name:\s*)(\S+)[^\S\n]*$", repl, rest, count=1, flags=re.M)
+    return head + marker + rest
 
 
 def rewrite_doc(doc: str, platform_ns: str, keycloak_ns: str) -> str:
@@ -69,7 +92,8 @@ def rewrite_doc(doc: str, platform_ns: str, keycloak_ns: str) -> str:
             flags=re.M,
         )
     if kind == "ClusterRoleBinding":
-        rewritten = prefix_cluster_role_binding_name(rewritten, f"{platform_ns}-")
+        rewritten = prefix_metadata_name(rewritten, f"{platform_ns}-")
+        rewritten = set_e2e_cluster_role_ref(rewritten)
     return rewritten
 
 
@@ -90,6 +114,62 @@ def metadata_name(doc: str) -> str | None:
     return name.group(1) if name else None
 
 
+def unprefixed_cluster_scoped(text: str, prefix: str) -> list[str]:
+    """Return cluster-scoped ids that would collide with stage or another instance.
+
+    ClusterRole must be the shared hypershell-e2e name. ClusterRoleBinding names
+    must start with the platform-namespace prefix.
+    """
+    bad: list[str] = []
+    for doc in split_docs(text):
+        kind = kind_of(doc)
+        name = metadata_name(doc) or ""
+        if kind == "ClusterRole":
+            if name != E2E_CLUSTER_ROLE:
+                bad.append(f"{kind}/{name or '(missing name)'}")
+        elif kind == "ClusterRoleBinding":
+            if not name.startswith(prefix):
+                bad.append(f"{kind}/{name or '(missing name)'}")
+    return bad
+
+
+def cluster_role_rules_block(doc: str) -> str:
+    match = re.search(r"^rules:\n(.*)\Z", doc, re.S | re.M)
+    if not match:
+        return ""
+    return match.group(1).rstrip("\n")
+
+
+def merge_e2e_cluster_role(docs: list[str]) -> list[str]:
+    """Collapse overlay ClusterRoles into one shared hypershell-e2e ClusterRole."""
+    others: list[str] = []
+    rule_blocks: list[str] = []
+    for doc in docs:
+        if kind_of(doc) != "ClusterRole":
+            others.append(doc)
+            continue
+        rules = cluster_role_rules_block(doc)
+        if rules:
+            rule_blocks.append(rules)
+    if not rule_blocks and not any(kind_of(d) == "ClusterRole" for d in docs):
+        return others
+    rules_yaml = "\n".join(rule_blocks) if rule_blocks else "  []"
+    merged = (
+        "apiVersion: rbac.authorization.k8s.io/v1\n"
+        "kind: ClusterRole\n"
+        "metadata:\n"
+        f"  name: {E2E_CLUSTER_ROLE}\n"
+        "  labels:\n"
+        "    app.kubernetes.io/name: hypershell\n"
+        "    app.kubernetes.io/component: e2e\n"
+        "    app.kubernetes.io/part-of: hypershell\n"
+        '    hypershell.redhat.io/shared-e2e: "true"\n'
+        "rules:\n"
+        f"{rules_yaml}\n"
+    )
+    return [merged] + others
+
+
 def keep_doc(
     doc: str,
     *,
@@ -98,11 +178,14 @@ def keep_doc(
     include_cluster_scoped: bool,
     omit_kinds: set[str] | None = None,
     omit_names: set[str] | None = None,
+    only_kinds: set[str] | None = None,
 ) -> bool:
     if not doc.strip():
         return False
     kind = kind_of(doc)
     if omit_namespaces and kind == "Namespace":
+        return False
+    if only_kinds and kind not in only_kinds:
         return False
     if omit_kinds and kind in omit_kinds:
         return False
@@ -127,8 +210,10 @@ def rewrite(
     include_cluster_scoped: bool = False,
     omit_kinds: set[str] | None = None,
     omit_names: set[str] | None = None,
+    only_kinds: set[str] | None = None,
 ) -> str:
     docs = [rewrite_doc(doc, platform_ns, keycloak_ns) for doc in split_docs(text)]
+    docs = merge_e2e_cluster_role(docs)
     docs = [
         doc
         for doc in docs
@@ -139,6 +224,7 @@ def rewrite(
             include_cluster_scoped=include_cluster_scoped,
             omit_kinds=omit_kinds,
             omit_names=omit_names,
+            only_kinds=only_kinds,
         )
     ]
     rendered = "\n---\n".join(docs)
@@ -182,6 +268,11 @@ def main() -> int:
         help="Comma-separated kinds to drop (e.g. ClusterRole,ClusterRoleBinding,Cluster).",
     )
     parser.add_argument(
+        "--only-kinds",
+        default="",
+        help="Comma-separated kinds to keep (e.g. ClusterRole,ClusterRoleBinding).",
+    )
+    parser.add_argument(
         "--omit-names",
         default="",
         help="Comma-separated metadata.names to drop (e.g. hypershell-sandbox-scc).",
@@ -194,6 +285,7 @@ def main() -> int:
     args = parser.parse_args()
     omit_kinds = {k for k in args.omit_kinds.split(",") if k}
     omit_names = {n for n in args.omit_names.split(",") if n}
+    only_kinds = {k for k in args.only_kinds.split(",") if k}
     rendered = rewrite(
         sys.stdin.read(),
         args.platform_namespace,
@@ -203,6 +295,7 @@ def main() -> int:
         include_cluster_scoped=args.include_cluster_scoped,
         omit_kinds=omit_kinds or None,
         omit_names=omit_names or None,
+        only_kinds=only_kinds or None,
     )
     if args.strip_openshift_uids:
         rendered = strip_openshift_fixed_uids(rendered)
