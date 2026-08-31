@@ -376,10 +376,11 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
-      - name: Install openshell CLI
-        run: |
-          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | OPENSHELL_VERSION=v0.0.110 sh
-          openshell --version
+      # The openshell CLI is not pre-installed here. The e2e test installs it
+      # using the same gateway-matched command the console recommends, derived
+      # from the reconciled gateway_version API field
+      # (tests/e2e/e2e-openshell.sh, step 5). This keeps CI exercising the exact
+      # command shipped to users instead of a separately pinned version.
 
       - name: Create Kind cluster with OIDC
         env:

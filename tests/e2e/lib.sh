@@ -89,6 +89,35 @@ retry_until() {
   return 1
 }
 
+# --- openshell CLI install command ---
+#
+# The console recommends a gateway-matched install command to users. This helper
+# reproduces the version-derivation rule so the e2e test installs the CLI the
+# exact same way, catching regressions where the recommended command would break
+# (notably for downstream gateway images whose reported version carries a
+# "-rh…" build suffix).
+#
+# CANONICAL SOURCE - keep this in lockstep with buildOpenShellInstallCommand in
+#   packages/gateway-management-ui/src/gateways/gateway-connections.ts
+# The rule: trim, drop the first "-" and everything after it, then ensure a
+# leading "v". Returns non-zero when no usable version can be derived (the UI
+# returns undefined in the same cases).
+openshell_installer_version() {
+  local raw="$1"
+  # trim leading/trailing whitespace (mirrors the TS .trim())
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  raw="${raw%"${raw##*[![:space:]]}"}"
+  [[ -z "$raw" ]] && return 1
+  # Strip the first "-" and all following text (v0.0.109-rh9a8f8 -> v0.0.109).
+  local base="${raw%%-*}"
+  [[ -z "$base" ]] && return 1
+  if [[ "$base" == v* ]]; then
+    printf '%s' "$base"
+  else
+    printf 'v%s' "$base"
+  fi
+}
+
 # --- Environment defaults ---
 
 : "${E2E_NAMESPACE:=openshell-e2e}"
@@ -100,6 +129,17 @@ retry_until() {
 : "${E2E_SKIP_CLEANUP:=0}"
 : "${E2E_PAUSE:=1}"
 : "${OPENSHELL_BIN:=openshell}"
+# How the e2e test obtains the openshell CLI:
+#   auto   - install the gateway-matched version via the console-recommended
+#            command if the CLI is not already present (default)
+#   always - always install the gateway-matched version, even if one is present
+#   never  - require a pre-installed CLI; do not install
+: "${E2E_OPENSHELL_INSTALL:=auto}"
+# Upstream install script the console links to (installScriptUrl in the UI).
+: "${OPENSHELL_INSTALL_SCRIPT_URL:=https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh}"
+# Bounded wait for the control plane to reconcile gateway_version from the
+# gateway's health endpoint before deriving the install command.
+: "${E2E_GATEWAY_VERSION_TIMEOUT:=120}"
 : "${E2E_KEYCLOAK_NAMESPACE:=keycloak}"
 : "${E2E_OIDC_ISSUER:=https://keycloak.hypershell.localhost/realms/hypershell}"
 : "${E2E_OIDC_CLIENT_ID:=hypershell-frontend}"
