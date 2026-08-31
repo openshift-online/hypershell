@@ -69,6 +69,7 @@ func (s *sqlGatewayReleaseService) Get(ctx context.Context, id string) (*Gateway
 }
 
 func (s *sqlGatewayReleaseService) Create(ctx context.Context, gatewayRelease *GatewayRelease) (*GatewayRelease, *errors.ServiceError) {
+	gatewayRelease.CaptureTraceContext(ctx)
 	gatewayRelease, err := s.gatewayReleaseDao.Create(ctx, gatewayRelease)
 	if err != nil {
 		return nil, services.HandleCreateError("GatewayRelease", err)
@@ -93,6 +94,7 @@ func (s *sqlGatewayReleaseService) Replace(ctx context.Context, gatewayRelease *
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
+	gatewayRelease.CaptureTraceContext(ctx)
 	gatewayRelease, err = s.gatewayReleaseDao.Replace(ctx, gatewayRelease)
 	if err != nil {
 		return nil, services.HandleUpdateError("GatewayRelease", err)

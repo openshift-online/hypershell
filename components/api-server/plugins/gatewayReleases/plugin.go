@@ -93,4 +93,5 @@ func init() {
 	presenters.RegisterKind(&GatewayRelease{}, "GatewayRelease")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddTraceContext())
 }

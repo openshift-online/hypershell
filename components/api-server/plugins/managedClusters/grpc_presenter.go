@@ -8,11 +8,13 @@ import (
 func managedClusterToProto(d *ManagedCluster) *pb.ManagedCluster {
 	return &pb.ManagedCluster{
 		Metadata: &pb.ObjectReference{
-			Id:        d.ID,
-			CreatedAt: timestamppb.New(d.CreatedAt),
-			UpdatedAt: timestamppb.New(d.UpdatedAt),
-			Kind:      "ManagedCluster",
-			Href:      "/api/hypershell/v1/managed_clusters/" + d.ID,
+			Id:          d.ID,
+			CreatedAt:   timestamppb.New(d.CreatedAt),
+			UpdatedAt:   timestamppb.New(d.UpdatedAt),
+			Kind:        "ManagedCluster",
+			Href:        "/api/hypershell/v1/managed_clusters/" + d.ID,
+			Traceparent: d.Traceparent,
+			Tracestate:  d.Tracestate,
 		},
 		Name:             d.Name,
 		FleetId:          d.FleetId,

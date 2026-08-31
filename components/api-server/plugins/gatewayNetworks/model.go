@@ -1,12 +1,14 @@
 package gatewayNetworks
 
 import (
+	hypershellapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"gorm.io/gorm"
 )
 
 type GatewayNetwork struct {
 	api.Meta
+	hypershellapi.TraceMeta
 	Name         string  `json:"name"`
 	FleetId      string  `json:"fleet_id"`
 	Topology     *string `json:"topology"`

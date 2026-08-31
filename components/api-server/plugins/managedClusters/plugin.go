@@ -93,4 +93,5 @@ func init() {
 	presenters.RegisterKind(&ManagedCluster{}, "ManagedCluster")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddTraceContext())
 }

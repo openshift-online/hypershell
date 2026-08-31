@@ -8,11 +8,13 @@ import (
 func managedDatabaseToProto(d *ManagedDatabase) *pb.ManagedDatabase {
 	return &pb.ManagedDatabase{
 		Metadata: &pb.ObjectReference{
-			Id:        d.ID,
-			CreatedAt: timestamppb.New(d.CreatedAt),
-			UpdatedAt: timestamppb.New(d.UpdatedAt),
-			Kind:      "ManagedDatabase",
-			Href:      "/api/hypershell/v1/managed_databases/" + d.ID,
+			Id:          d.ID,
+			CreatedAt:   timestamppb.New(d.CreatedAt),
+			UpdatedAt:   timestamppb.New(d.UpdatedAt),
+			Kind:        "ManagedDatabase",
+			Href:        "/api/hypershell/v1/managed_databases/" + d.ID,
+			Traceparent: d.Traceparent,
+			Tracestate:  d.Tracestate,
 		},
 		Name:             d.Name,
 		FleetId:          d.FleetId,

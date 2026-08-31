@@ -54,11 +54,65 @@ func TestStartReconcileSpanDisabled(t *testing.T) {
 	defer func() { enabled = prev }()
 
 	ctx := context.Background()
-	ctx2, end := StartReconcileSpan(ctx, "Fleet", "reconcile")
+	ctx2, end := StartReconcileSpan(ctx, "Fleet", "reconcile", "")
 	end(nil)
 
 	if ctx2 != ctx {
 		t.Error("disabled StartReconcileSpan should return the same context")
+	}
+}
+
+func TestParseTraceparentLink(t *testing.T) {
+	tests := []struct {
+		name        string
+		traceparent string
+		wantOK      bool
+		wantTraceID string
+		wantSpanID  string
+	}{
+		{
+			"valid traceparent",
+			"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+			true,
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+			"00f067aa0ba902b7",
+		},
+		{
+			"valid unsampled",
+			"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+			true,
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+			"00f067aa0ba902b7",
+		},
+		{"empty string", "", false, "", ""},
+		{"too few parts", "00-abc-def", false, "", ""},
+		{"too many parts", "00-a-b-c-d", false, "", ""},
+		{"all-zero trace ID", "00-00000000000000000000000000000000-00f067aa0ba902b7-01", false, "", ""},
+		{"all-zero span ID", "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01", false, "", ""},
+		{"invalid hex in trace ID", "00-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ-00f067aa0ba902b7-01", false, "", ""},
+		{"short trace ID", "00-4bf92f35-00f067aa0ba902b7-01", false, "", ""},
+		{"invalid flags hex", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-ZZ", false, "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			link, ok := parseTraceparentLink(tt.traceparent)
+			if ok != tt.wantOK {
+				t.Fatalf("parseTraceparentLink(%q) ok = %v, want %v", tt.traceparent, ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if got := link.SpanContext.TraceID().String(); got != tt.wantTraceID {
+				t.Errorf("traceID = %q, want %q", got, tt.wantTraceID)
+			}
+			if got := link.SpanContext.SpanID().String(); got != tt.wantSpanID {
+				t.Errorf("spanID = %q, want %q", got, tt.wantSpanID)
+			}
+			if !link.SpanContext.IsRemote() {
+				t.Error("link should be marked as remote")
+			}
+		})
 	}
 }
 

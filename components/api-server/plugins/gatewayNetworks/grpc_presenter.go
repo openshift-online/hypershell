@@ -8,11 +8,13 @@ import (
 func gatewayNetworkToProto(d *GatewayNetwork) *pb.GatewayNetwork {
 	return &pb.GatewayNetwork{
 		Metadata: &pb.ObjectReference{
-			Id:        d.ID,
-			CreatedAt: timestamppb.New(d.CreatedAt),
-			UpdatedAt: timestamppb.New(d.UpdatedAt),
-			Kind:      "GatewayNetwork",
-			Href:      "/api/hypershell/v1/gateway_networks/" + d.ID,
+			Id:          d.ID,
+			CreatedAt:   timestamppb.New(d.CreatedAt),
+			UpdatedAt:   timestamppb.New(d.UpdatedAt),
+			Kind:        "GatewayNetwork",
+			Href:        "/api/hypershell/v1/gateway_networks/" + d.ID,
+			Traceparent: d.Traceparent,
+			Tracestate:  d.Tracestate,
 		},
 		Name:         d.Name,
 		FleetId:      d.FleetId,

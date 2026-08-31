@@ -69,6 +69,7 @@ func (s *sqlFleetService) Get(ctx context.Context, id string) (*Fleet, *errors.S
 }
 
 func (s *sqlFleetService) Create(ctx context.Context, fleet *Fleet) (*Fleet, *errors.ServiceError) {
+	fleet.CaptureTraceContext(ctx)
 	fleet, err := s.fleetDao.Create(ctx, fleet)
 	if err != nil {
 		return nil, services.HandleCreateError("Fleet", err)
@@ -93,6 +94,7 @@ func (s *sqlFleetService) Replace(ctx context.Context, fleet *Fleet) (*Fleet, *e
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
+	fleet.CaptureTraceContext(ctx)
 	fleet, err = s.fleetDao.Replace(ctx, fleet)
 	if err != nil {
 		return nil, services.HandleUpdateError("Fleet", err)

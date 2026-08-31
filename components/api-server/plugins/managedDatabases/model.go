@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	hypershellapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/segmentio/ksuid"
 	"gorm.io/gorm"
@@ -13,6 +14,7 @@ const dbNamespacePrefix = "openshell-db-"
 
 type ManagedDatabase struct {
 	api.Meta
+	hypershellapi.TraceMeta
 	Name             string  `json:"name"`
 	FleetId          string  `json:"fleet_id"`
 	Provider         string  `json:"provider"`

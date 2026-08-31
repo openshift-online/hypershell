@@ -75,12 +75,19 @@ func (EventType) EnumDescriptor() ([]byte, []int) {
 }
 
 type ObjectReference struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
-	Href          string                 `protobuf:"bytes,5,opt,name=href,proto3" json:"href,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Kind      string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Href      string                 `protobuf:"bytes,5,opt,name=href,proto3" json:"href,omitempty"`
+	// W3C Trace Context traceparent of the API request that created or last
+	// updated this resource (e.g. "00-{traceID}-{spanID}-{flags}").
+	// Empty when OpenTelemetry is disabled or the resource predates tracing.
+	Traceparent *string `protobuf:"bytes,6,opt,name=traceparent,proto3,oneof" json:"traceparent,omitempty"`
+	// W3C Trace Context tracestate carrying vendor-specific key-value pairs.
+	// Empty when no vendor state was present on the originating request.
+	Tracestate    *string `protobuf:"bytes,7,opt,name=tracestate,proto3,oneof" json:"tracestate,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -146,6 +153,20 @@ func (x *ObjectReference) GetKind() string {
 func (x *ObjectReference) GetHref() string {
 	if x != nil {
 		return x.Href
+	}
+	return ""
+}
+
+func (x *ObjectReference) GetTraceparent() string {
+	if x != nil && x.Traceparent != nil {
+		return *x.Traceparent
+	}
+	return ""
+}
+
+func (x *ObjectReference) GetTracestate() string {
+	if x != nil && x.Tracestate != nil {
+		return *x.Tracestate
 	}
 	return ""
 }
@@ -298,7 +319,7 @@ var File_hypershell_v1_common_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x1ahypershell/v1/common.proto\x12\rhypershell.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xbf\x01\n" +
+	"\x1ahypershell/v1/common.proto\x12\rhypershell.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaa\x02\n" +
 	"\x0fObjectReference\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\n" +
@@ -306,7 +327,13 @@ const file_hypershell_v1_common_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x12\n" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x12\n" +
-	"\x04href\x18\x05 \x01(\tR\x04href\"H\n" +
+	"\x04href\x18\x05 \x01(\tR\x04href\x12%\n" +
+	"\vtraceparent\x18\x06 \x01(\tH\x00R\vtraceparent\x88\x01\x01\x12#\n" +
+	"\n" +
+	"tracestate\x18\a \x01(\tH\x01R\n" +
+	"tracestate\x88\x01\x01B\x0e\n" +
+	"\f_traceparentB\r\n" +
+	"\v_tracestate\"H\n" +
 	"\bListMeta\x12\x12\n" +
 	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x05R\x04size\x12\x14\n" +
@@ -360,6 +387,7 @@ func file_hypershell_v1_common_proto_init() {
 	if File_hypershell_v1_common_proto != nil {
 		return
 	}
+	file_hypershell_v1_common_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

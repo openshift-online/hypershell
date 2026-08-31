@@ -10,11 +10,13 @@ import (
 func gatewayToProto(d *Gateway) *pb.Gateway {
 	gw := &pb.Gateway{
 		Metadata: &pb.ObjectReference{
-			Id:        d.ID,
-			CreatedAt: timestamppb.New(d.CreatedAt),
-			UpdatedAt: timestamppb.New(d.UpdatedAt),
-			Kind:      "Gateway",
-			Href:      "/api/hypershell/v1/gateways/" + d.ID,
+			Id:          d.ID,
+			CreatedAt:   timestamppb.New(d.CreatedAt),
+			UpdatedAt:   timestamppb.New(d.UpdatedAt),
+			Kind:        "Gateway",
+			Href:        "/api/hypershell/v1/gateways/" + d.ID,
+			Traceparent: d.Traceparent,
+			Tracestate:  d.Tracestate,
 		},
 		Name:             d.Name,
 		FleetId:          d.FleetId,

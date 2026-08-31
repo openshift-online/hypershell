@@ -69,6 +69,7 @@ func (s *sqlGatewayNetworkService) Get(ctx context.Context, id string) (*Gateway
 }
 
 func (s *sqlGatewayNetworkService) Create(ctx context.Context, gatewayNetwork *GatewayNetwork) (*GatewayNetwork, *errors.ServiceError) {
+	gatewayNetwork.CaptureTraceContext(ctx)
 	gatewayNetwork, err := s.gatewayNetworkDao.Create(ctx, gatewayNetwork)
 	if err != nil {
 		return nil, services.HandleCreateError("GatewayNetwork", err)
@@ -93,6 +94,7 @@ func (s *sqlGatewayNetworkService) Replace(ctx context.Context, gatewayNetwork *
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
+	gatewayNetwork.CaptureTraceContext(ctx)
 	gatewayNetwork, err = s.gatewayNetworkDao.Replace(ctx, gatewayNetwork)
 	if err != nil {
 		return nil, services.HandleUpdateError("GatewayNetwork", err)

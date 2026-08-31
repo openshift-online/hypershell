@@ -108,6 +108,7 @@ func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase 
 		return nil, unsupportedProviderError(managedDatabase.Provider)
 	}
 
+	managedDatabase.CaptureTraceContext(ctx)
 	managedDatabase, err := s.managedDatabaseDao.Create(ctx, managedDatabase)
 	if err != nil {
 		return nil, services.HandleCreateError("ManagedDatabase", err)
@@ -143,6 +144,7 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 		return nil, errors.Validation("provider cannot be changed from %q to %q", persisted.Provider, managedDatabase.Provider)
 	}
 
+	managedDatabase.CaptureTraceContext(ctx)
 	managedDatabase, err = s.managedDatabaseDao.Replace(ctx, managedDatabase)
 	if err != nil {
 		return nil, services.HandleUpdateError("ManagedDatabase", err)

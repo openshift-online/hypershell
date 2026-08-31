@@ -93,4 +93,5 @@ func init() {
 	presenters.RegisterKind(&Fleet{}, "Fleet")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddTraceContext())
 }

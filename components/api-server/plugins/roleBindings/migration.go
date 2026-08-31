@@ -7,6 +7,26 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
 )
 
+func migrationAddTraceContext() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026082500000007",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE role_bindings
+					ADD COLUMN IF NOT EXISTS traceparent TEXT,
+					ADD COLUMN IF NOT EXISTS tracestate TEXT
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE role_bindings
+					DROP COLUMN IF EXISTS traceparent,
+					DROP COLUMN IF EXISTS tracestate
+			`).Error
+		},
+	}
+}
+
 func migration() *gormigrate.Migration {
 	type RoleBinding struct {
 		db.Model

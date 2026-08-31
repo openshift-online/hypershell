@@ -69,6 +69,7 @@ func (s *sqlManagedClusterService) Get(ctx context.Context, id string) (*Managed
 }
 
 func (s *sqlManagedClusterService) Create(ctx context.Context, managedCluster *ManagedCluster) (*ManagedCluster, *errors.ServiceError) {
+	managedCluster.CaptureTraceContext(ctx)
 	managedCluster, err := s.managedClusterDao.Create(ctx, managedCluster)
 	if err != nil {
 		return nil, services.HandleCreateError("ManagedCluster", err)
@@ -93,6 +94,7 @@ func (s *sqlManagedClusterService) Replace(ctx context.Context, managedCluster *
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
+	managedCluster.CaptureTraceContext(ctx)
 	managedCluster, err = s.managedClusterDao.Replace(ctx, managedCluster)
 	if err != nil {
 		return nil, services.HandleUpdateError("ManagedCluster", err)

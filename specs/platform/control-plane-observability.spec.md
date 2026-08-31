@@ -8,7 +8,7 @@
 
 Give the HyperShell control plane distributed tracing and reconcile-level metrics through OpenTelemetry (OTel), so an operator can observe reconcile latency, gRPC watch health, Kubernetes API calls, and failures across the fleet. This specification is the control-plane counterpart to `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `web-console/tracing.spec.md` (HYPERSHELL-27): the API server already produces server spans for inbound HTTP and gRPC requests, and this specification makes the control plane produce spans for the asynchronous reconciliation work that follows.
 
-Correlating a reconcile trace back to the originating user request is intentionally deferred to a follow-up story, because reconciliation is asynchronous: the API writes desired state to PostgreSQL and returns; the control plane observes the change later via a watch stream, possibly after resync, batching, or retries. That correlation is tracked separately.
+Correlating a reconcile trace back to the originating user request is defined by `platform/reconcile-trace-correlation.spec.md`, which adds span links from the reconcile root span to the originating request trace. That specification extends this one and `platform/api-server-observability.spec.md`.
 
 This specification covers the control plane component only. API server instrumentation is defined by `platform/api-server-observability.spec.md`. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
 
@@ -263,7 +263,7 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 | Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large fleets |
 | Resource ID as a span attribute, not a span name | Enables per-trace debugging without inflating the span-name namespace |
 | OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
-| Reconcile-trace to request-trace correlation deferred | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) deserves its own story |
+| Reconcile-trace to request-trace correlation via span links | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) is defined in `platform/reconcile-trace-correlation.spec.md` |
 
 ## Primary Basis
 
