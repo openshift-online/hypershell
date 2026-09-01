@@ -511,6 +511,18 @@ print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('databa
       | python3 -m json.tool 2>/dev/null | sed 's/^/      /' || true
     exit 1
   fi
+
+  # Verify the control plane published route_address to the API after provisioning.
+  # A missing route_address means the web console cannot display connection
+  # instructions and the CLI cannot discover the gateway endpoint from the API.
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID} | .route_address"
+  GW_ROUTE_ADDRESS=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+    python3 -c "import json,sys; print(json.load(sys.stdin).get('route_address',''))" 2>/dev/null || true)
+  if [[ -n "$GW_ROUTE_ADDRESS" ]]; then
+    pass "Gateway route_address published: ${GW_ROUTE_ADDRESS}"
+  else
+    fail_test "Gateway route_address is empty after provisioning (control plane did not publish it)"
+  fi
 fi
 
 if [[ -z "$GW_NAMESPACE" ]]; then

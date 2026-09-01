@@ -149,7 +149,7 @@ func (c *ShellClient) Upgrade(ctx context.Context, namespace string, values map[
 	args := []string{
 		"upgrade", ReleaseName, c.ChartPath,
 		"--namespace", namespace,
-		"--reuse-values",
+		"--reset-values",
 		"--wait=false",
 		"--timeout", "5m",
 		"--values", valuesFile,

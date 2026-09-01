@@ -127,8 +127,9 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 
 - GIVEN a Gateway that previously had `route` configuration and associated route resources
 - WHEN the `route` field is removed or set to null
-- THEN the GatewayReconciler SHALL delete all route-owned resources: GRPCRoute, BackendTLSPolicy, `openshell-gateway-backend-ca` ConfigMap, and `openshell-gateway-allow-router` NetworkPolicy
-- AND it SHALL clear the `routeAddress` field on the Gateway resource via the API server
+- THEN the GatewayReconciler SHALL trigger removal of route-owned resources via Helm upgrade with routing disabled (or Helm uninstall if the gateway is being deleted). The chart manages: GRPCRoute, BackendTLSPolicy, `openshell-gateway-backend-ca` ConfigMap, and associated routing resources
+- AND the `openshell-gateway-allow-router` NetworkPolicy (managed outside the chart) SHALL be deleted by the reconciler directly
+- AND the reconciler SHALL clear the `routeAddress` field on the Gateway resource via the API server
 - AND the gateway SHALL revert to cluster-internal-only access
 
 ---
