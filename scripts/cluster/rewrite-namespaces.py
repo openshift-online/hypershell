@@ -7,7 +7,9 @@ and the bundled Keycloak namespace (keycloak) to ${OPENSHIFT_NAMESPACE}-keycloak
 ClusterRole and ClusterRoleBinding names (and ClusterRoleBinding roleRefs to
 those ClusterRoles) are prefixed with ${platform}-dev- so each openshift-up
 environment has its own copy and does not patch stage's hypershell-controller.
-Built-in ClusterRoles (system:*) are not renamed.
+Built-in ClusterRoles (system:*) are not renamed. --keep-role-refs leaves
+roleRef pointing at the existing cluster-wide ClusterRole (workaround for
+OPENSHIFT_USE_EXISTING_CLUSTERROLE).
 """
 from __future__ import annotations
 
@@ -84,7 +86,12 @@ def prefix_role_ref(doc: str, prefix: str) -> str:
     return head + marker + rest
 
 
-def rewrite_doc(doc: str, platform_ns: str, keycloak_ns: str) -> str:
+def rewrite_doc(
+    doc: str,
+    platform_ns: str,
+    keycloak_ns: str,
+    keep_role_refs: bool = False,
+) -> str:
     kind = kind_of(doc)
     rewritten = PLATFORM_NS_TOKEN.sub(platform_ns, doc)
     rewritten = re.sub(
@@ -103,7 +110,7 @@ def rewrite_doc(doc: str, platform_ns: str, keycloak_ns: str) -> str:
     prefix = cluster_scoped_prefix(platform_ns)
     if kind in CLUSTER_SCOPED_KINDS:
         rewritten = prefix_metadata_name(rewritten, prefix)
-    if kind == "ClusterRoleBinding":
+    if kind == "ClusterRoleBinding" and not keep_role_refs:
         rewritten = prefix_role_ref(rewritten, prefix)
     return rewritten
 
@@ -179,8 +186,12 @@ def rewrite(
     omit_kinds: set[str] | None = None,
     omit_names: set[str] | None = None,
     only_kinds: set[str] | None = None,
+    keep_role_refs: bool = False,
 ) -> str:
-    docs = [rewrite_doc(doc, platform_ns, keycloak_ns) for doc in split_docs(text)]
+    docs = [
+        rewrite_doc(doc, platform_ns, keycloak_ns, keep_role_refs=keep_role_refs)
+        for doc in split_docs(text)
+    ]
     docs = [
         doc
         for doc in docs
@@ -245,6 +256,11 @@ def main() -> int:
         help="Comma-separated metadata.names to drop (e.g. hypershell-sandbox-scc).",
     )
     parser.add_argument(
+        "--keep-role-refs",
+        action="store_true",
+        help="Prefix ClusterRoleBinding names but leave roleRef pointing at the existing ClusterRole (hypershell-controller).",
+    )
+    parser.add_argument(
         "--strip-openshift-uids",
         action="store_true",
         help="Remove runAsUser/runAsGroup/fsGroup so restricted SCC can assign identities.",
@@ -263,6 +279,7 @@ def main() -> int:
         omit_kinds=omit_kinds or None,
         omit_names=omit_names or None,
         only_kinds=only_kinds or None,
+        keep_role_refs=args.keep_role_refs,
     )
     if args.strip_openshift_uids:
         rendered = strip_openshift_fixed_uids(rendered)

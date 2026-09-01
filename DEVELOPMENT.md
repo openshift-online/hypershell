@@ -333,19 +333,23 @@ Service.
 
 This renders `kustomize build deploy/openshift/`, maps `hypershell-system` to
 that platform namespace and `keycloak` to `${platform}-keycloak`, applies the
-required cluster-scoped RBAC (ClusterRoles and ClusterRoleBindings named
-`${namespace}-dev-*`, plus the privileged SCC RoleBinding), applies the
+overlay ClusterRole and ClusterRoleBinding with names prefixed
+`${namespace}-dev-*` (so an environment does not patch stage's
+`hypershell-controller`), plus the privileged SCC RoleBinding, applies the
 manifests (with prune scoped to this environment), registers the web-console
 Route as the Keycloak `hypershell-frontend` redirect URI, seeds a
 ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway from this machine
 against the API and Keycloak Routes (the API server image has no `curl`), and
 prints the API, web-console, and Keycloak Routes. The gateway base domain is
 read from the shared Gateway's listener hostname, not from
-`GATEWAY_API_BASE_DOMAIN`. Cluster-scoped names use the `${namespace}-dev-`
-prefix so an environment does not patch stage's `hypershell-controller`. Applying
-that RBAC is required: `make openshift-up` fails if the current user cannot create
-those ClusterRoles and ClusterRoleBindings. `make openshift-down` deletes this
-environment's `${namespace}-dev-*` ClusterRoles and ClusterRoleBindings.
+`GATEWAY_API_BASE_DOMAIN`. When ClusterRole create is forbidden, the command
+warns and continues. `OPENSHIFT_USE_EXISTING_CLUSTERROLE=true` skips creating a
+per-environment ClusterRole and instead creates `${namespace}-dev-hypershell-controller`
+ClusterRoleBinding whose `roleRef` is the existing cluster-wide
+`hypershell-controller` ClusterRole. It never applies unprefixed
+`hypershell-controller`. `make openshift-down` deletes this environment's
+`${namespace}-dev-*` ClusterRoles and ClusterRoleBindings and does not delete
+stage's `hypershell-controller`.
 
 `make openshift-down` and `make openshift-teardown` are the same command.
 There is no OpenShift cluster to destroy. Both delete the platform project
@@ -392,6 +396,7 @@ active swaps.
 | `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
 | `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
 | `OPENSHIFT_NAMESPACE` | `oc project -q` | Override for the platform namespace. Unset, the current oc project is used. Max 54 chars; Keycloak lands in `${name}-keycloak`. |
+| `OPENSHIFT_USE_EXISTING_CLUSTERROLE` | (unset) | Set to `true` to bind this environment to the existing ClusterRole `hypershell-controller` instead of creating `${namespace}-dev-hypershell-controller`. |
 | `GATEWAY_API_GATEWAY_NAME` | `openshell-grpc-gateway` | Pre-existing shared Gateway name |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace of the shared Gateway |
 | `OPENSHIFT_IMAGE_REGISTRY` | `oc registry info` | Registry used to push swapped images |

@@ -17,8 +17,10 @@ subjects:
 ---
 # Sandbox pods require the privileged SCC for container-in-container
 # execution (see specs/platform/openshell-gateway.spec.md §OpenShift).
-# The controller creates additional per-tenant RoleBindings at runtime
-# (reconcileOpenShiftSCC) once a privileged actor has granted it bind.
+# This RoleBinding covers the sandbox SA in the controller namespace. Each
+# gateway namespace gets a privileged RoleBinding at runtime
+# (reconcileOpenShiftSCC). That requires bind on clusterroles, which the
+# controller ClusterRole grants (same shape as stage).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -31,35 +33,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: openshell-gateway-sandbox
-    namespace: hypershell-system
----
-# The static binding above only covers the sandbox SA in the controller's own
-# namespace. In practice each gateway lands in its own namespace, so the
-# controller creates a per-namespace RoleBinding to the privileged SCC at
-# runtime (reconcileOpenShiftSCC). Kubernetes escalation prevention only lets it
-# create that binding if it can "bind" the referenced ClusterRole -- grant the
-# controller `bind` scoped to exactly the privileged SCC ClusterRole. Using
-# `bind` (rather than binding the controller to privileged directly) lets it
-# grant the SCC without its own pods being able to use it.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: hypershell-controller-scc-bind
-rules:
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["clusterroles"]
-    resourceNames: ["system:openshift:scc:privileged"]
-    verbs: ["bind"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: hypershell-controller-scc-bind
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: hypershell-controller-scc-bind
-subjects:
-  - kind: ServiceAccount
-    name: hypershell-controller
     namespace: hypershell-system

@@ -939,16 +939,31 @@ namespace-scoped RoleBinding CANNOT grant it, and a single pre-created
 ClusterRoleBinding with a fixed service-account subject cannot cover the controller
 service account of an unknown future ephemeral namespace.
 
-For local-dev, `make openshift-up` is that privileged actor. It SHALL apply
-ClusterRoles and ClusterRoleBindings whose names are prefixed with
-`${OPENSHIFT_NAMESPACE}-dev-`, plus the privileged SCC RoleBinding
-`hypershell-sandbox-scc`. Gateways and sandboxes cannot run without those grants, so
-the command SHALL fail if the current user cannot create those objects. It SHALL NOT
-create, patch, or delete unprefixed ClusterRole `hypershell-controller` or
-ClusterRoleBinding `hypershell-controller`; those names belong to other instances
-that share the cluster, such as stage. Built-in ClusterRoles whose names start with
-`system:` SHALL NOT be renamed. `make openshift-down` SHALL delete only this
-environment's `${OPENSHIFT_NAMESPACE}-dev-*` ClusterRoles and ClusterRoleBindings.
+For local-dev on a shared cluster, `make openshift-up` SHALL apply the
+ClusterRole and ClusterRoleBinding from `deploy/openshift/` after prefixing
+their names with `${OPENSHIFT_NAMESPACE}-dev-`. The ClusterRole SHALL include
+`bind` on `clusterroles` and `clusterrolebindings`, matching the stage
+controller ClusterRole. The command SHALL NOT create, patch, or delete
+unprefixed ClusterRole `hypershell-controller` or ClusterRoleBinding
+`hypershell-controller`; those names belong to other instances that share the
+cluster, such as stage. Built-in ClusterRoles whose names start with `system:`
+SHALL NOT be renamed.
+
+When `OPENSHIFT_USE_EXISTING_CLUSTERROLE` is `true`, the command SHALL look up
+ClusterRole `hypershell-controller` and SHALL apply a ClusterRoleBinding named
+`${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` whose `roleRef` is that
+existing ClusterRole and whose subject is this environment's controller
+service account. It SHALL NOT create a ClusterRole, and it SHALL NOT look for
+`hypershell-controller-scc-bind`. If ClusterRole `hypershell-controller` is
+missing, the command SHALL fail.
+
+Kubernetes escalation prevention forbids a typical developer from granting
+those ClusterRoles, so when ClusterRole or ClusterRoleBinding apply is
+Forbidden, the command SHALL warn and continue with the rest of the stack.
+Gateways and sandboxes will not provision until this environment's controller
+is bound. `make openshift-down` SHALL delete this environment's
+`${OPENSHIFT_NAMESPACE}-dev-*` ClusterRoles and ClusterRoleBindings and SHALL
+NOT delete unprefixed `hypershell-controller`.
 
 The deployment into the ephemeral namespace SHALL NOT attempt to grant the
 cluster-scoped `bind` through a namespace-scoped RoleBinding, and SHALL NOT assume the
@@ -960,19 +975,30 @@ namespace.
 - GIVEN the developer can create ClusterRoles and ClusterRoleBindings prefixed with `${OPENSHIFT_NAMESPACE}-dev-`
 - AND the developer can apply the privileged SCC RoleBinding in that namespace
 - WHEN the developer runs `make openshift-up`
-- THEN the command applies `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` and `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller-scc-bind` ClusterRoles and ClusterRoleBindings
-- AND the command does not patch ClusterRole `hypershell-controller` or ClusterRoleBinding `hypershell-controller`
+- THEN the command applies ClusterRole and ClusterRoleBinding `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` from `deploy/openshift/`
+- AND the command does not create or patch ClusterRole `hypershell-controller` or ClusterRoleBinding `hypershell-controller`
 - AND applies RoleBinding `hypershell-sandbox-scc` for the sandbox service account
 - AND the controller can create the per-namespace privileged RoleBinding for a sandbox because it was granted `bind`
 - AND the deployment does not attempt to grant the cluster-scoped `bind` through a namespace-scoped RoleBinding
 
+#### Scenario: Shared cluster ClusterRole workaround
+
+- GIVEN ClusterRole `hypershell-controller` already exists on the cluster
+- AND `OPENSHIFT_USE_EXISTING_CLUSTERROLE=true`
+- AND the developer can create ClusterRoleBindings prefixed with `${OPENSHIFT_NAMESPACE}-dev-`
+- WHEN the developer runs `make openshift-up`
+- THEN the command looks up ClusterRole `hypershell-controller`
+- AND applies ClusterRoleBinding `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` with `roleRef` `hypershell-controller`
+- AND the command does not create a ClusterRole
+- AND the command does not create or patch ClusterRoleBinding `hypershell-controller`
+
 #### Scenario: Cluster-scoped RBAC cannot be applied
 
-- GIVEN the current user cannot create ClusterRoleBindings or grant the privileged SCC
+- GIVEN the current user cannot create ClusterRoles or ClusterRoleBindings
 - WHEN the developer runs `make openshift-up`
-- THEN the command fails
-- AND the error states that cluster-scoped RBAC is required to provision gateways and sandboxes
-- AND the command does not report the overlay as applied
+- THEN the command warns that this environment is not bound
+- AND the command continues and applies the namespaced overlay
+- AND gateways and sandboxes will not provision until this environment's controller is bound
 
 ### Requirement: OpenShift Security Context and RBAC Parity
 

@@ -79,6 +79,12 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_down does not remove the Keycloak namespace'
 fi
+if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'clusterrolebinding "${prefix}hypershell-controller"'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_down does not delete this environment'\''s prefixed ClusterRoleBinding'
+fi
 if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'clusterrole "${prefix}hypershell-controller"'; then
   PASS=$((PASS + 1))
 else
@@ -97,23 +103,25 @@ if grep -E 'delete clusterrole(binding)? "hypershell-controller' "${SCRIPT_DIR}/
 else
   PASS=$((PASS + 1))
 fi
-if grep -q 'optional cluster-scoped RBAC (best-effort)' "${SCRIPT_DIR}/drivers/openshift.sh"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift still treats cluster-scoped RBAC as best-effort'
-else
+if grep -q 'OPENSHIFT_USE_EXISTING_CLUSTERROLE' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -A50 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'get clusterrole hypershell-controller' \
+  && grep -A50 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'keep-role-refs'; then
   PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OPENSHIFT_USE_EXISTING_CLUSTERROLE does not look up ClusterRole hypershell-controller'
 fi
-if grep -q 'Skipping ClusterRole' "${SCRIPT_DIR}/drivers/openshift.sh"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift still skips ClusterRole apply'
-else
+if grep -A50 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'Applying cluster-scoped RBAC from deploy/openshift'; then
   PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: default apply_cluster_rbac does not apply overlay ClusterRole/ClusterRoleBinding'
 fi
-if grep -A80 '^apply_required_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'fail_required_cluster_rbac'; then
-  PASS=$((PASS + 1))
-else
+if grep -q 'fail_required_cluster_rbac' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: apply_required_cluster_rbac does not fail when cluster RBAC cannot be applied'
+  echo 'FAIL: OpenShift still fails the whole up when cluster RBAC cannot be applied'
+else
+  PASS=$((PASS + 1))
 fi
 assert_eq "alice-keycloak" "$(keycloak_namespace_for alice)" "keycloak namespace suffix"
 assert_ok "derived keycloak ns fits 63" validate_rfc1123_label "$(keycloak_namespace_for "$(printf 'a%.0s' {1..54})")" 63
@@ -440,6 +448,36 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: ClusterRoleBinding roleRef.name should be alice-dev-hypershell-controller'
   printf '%s\n' "${crb_out}"
+fi
+keep_ref_out="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
+  --platform-namespace alice \
+  --keycloak-namespace alice-keycloak \
+  --omit-namespaces \
+  --keep-role-refs \
+  --only-namespace __cluster__ \
+  --include-cluster-scoped \
+  --omit-kinds ClusterRole <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hypershell-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hypershell-controller
+subjects:
+- kind: ServiceAccount
+  name: hypershell-controller
+  namespace: hypershell-system
+EOF
+)"
+if printf '%s' "${keep_ref_out}" | grep -qx '  name: alice-dev-hypershell-controller' \
+  && printf '%s' "${keep_ref_out}" | grep -A3 '^roleRef:' | grep -qx '  name: hypershell-controller'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: --keep-role-refs should prefix ClusterRoleBinding name but leave roleRef hypershell-controller'
+  printf '%s\n' "${keep_ref_out}"
 fi
 
 sys_crb="$(mktemp)"
