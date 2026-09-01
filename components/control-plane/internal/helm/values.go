@@ -243,10 +243,13 @@ func (b *ValuesBuilder) buildOpenShiftValues(values map[string]interface{}) {
 }
 
 // splitImageRef splits an image reference into repository and tag.
-// Handles digest refs (image@sha256:...) and registry ports (registry:5000/image).
+// The chart template joins repo:tag with a colon, so @sha256:... digest
+// suffixes are stripped. When both tag and digest are present
+// (image:tag@sha256:...), the tag is retained. Handles registry ports
+// (registry:5000/image) by comparing colon position to last slash.
 func splitImageRef(image string) (repo, tag string) {
 	if at := strings.LastIndex(image, "@"); at != -1 {
-		return image[:at], image[at+1:]
+		image = image[:at]
 	}
 	lastSlash := strings.LastIndex(image, "/")
 	lastColon := strings.LastIndex(image, ":")

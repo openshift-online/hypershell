@@ -1894,6 +1894,7 @@ func appendDNSNameIfMissing(names []string, hostname string) []string {
 	}
 	return append(names, hostname)
 }
+
 // publishRouteAddress writes the externally reachable gRPC address back to the
 // API-server Gateway resource. Shared by both ingress modes.
 func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hostname string) {
