@@ -22,7 +22,7 @@ RUN pnpm install --frozen-lockfile
 COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript components/sdk-typescript
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui packages/gateway-management-ui
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console components/web-console
-COPY --chown=${CONTAINER_DEFAULT_USER} images/brand/logo.png images/brand/logo.png
+COPY --chown=${CONTAINER_DEFAULT_USER} images/brand images/brand
 
 RUN pnpm run build:web \
   && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \

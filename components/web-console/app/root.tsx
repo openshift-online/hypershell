@@ -11,10 +11,22 @@ import {
   Scripts,
   ScrollRestoration,
   useRouteError,
+  type LinksFunction,
 } from "react-router";
 
+import favicon16 from "../../../images/brand/favicon-16.png";
+import favicon32 from "../../../images/brand/favicon-32.png";
+import favicon48 from "../../../images/brand/favicon-48.png";
+import appleTouchIcon from "../../../images/brand/favicon-180.png";
 import { englishMessages } from "./i18n/catalog";
 import { messages } from "./i18n/messages";
+
+export const links: LinksFunction = () => [
+  { rel: "icon", type: "image/png", sizes: "16x16", href: favicon16 },
+  { rel: "icon", type: "image/png", sizes: "32x32", href: favicon32 },
+  { rel: "icon", type: "image/png", sizes: "48x48", href: favicon48 },
+  { rel: "apple-touch-icon", sizes: "180x180", href: appleTouchIcon },
+];
 
 const queryClient = new QueryClient({
   defaultOptions: {
