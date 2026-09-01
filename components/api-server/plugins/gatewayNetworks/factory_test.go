@@ -13,7 +13,6 @@ func newGatewayNetwork(id string) (*gatewayNetworks.GatewayNetwork, error) {
 
 	gatewayNetwork := &gatewayNetworks.GatewayNetwork{
 		Name:         "test-name",
-		FleetId:      "test-fleet_id",
 		Topology:     stringPtr("test-topology"),
 		TunnelMode:   stringPtr("test-tunnel_mode"),
 		HubGatewayId: stringPtr("test-hub_gateway_id"),

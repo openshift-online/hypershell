@@ -20,8 +20,8 @@ var Cmd = &cobra.Command{
 	Short: "Delete a managedDatabase",
 	Long: "Delete a managedDatabase by ID.\n\n" +
 		"Examples:\n" +
-		"  hypershell delete managedDatabase 2abc123\n" +
-		"  hypershell delete managedDatabase 2abc123 --yes",
+		"  hsctl delete managedDatabase 2abc123\n" +
+		"  hsctl delete managedDatabase 2abc123 --yes",
 	Args: cobra.ExactArgs(1),
 	RunE: run,
 }

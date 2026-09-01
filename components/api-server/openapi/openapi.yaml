@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: HyperShell API
-  description: HyperShell fleet management API
+  description: HyperShell gateway management API
   version: "1.0.0"
   license:
     name: Apache-2.0
@@ -26,10 +26,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ObjectReference'
-  /api/hypershell/v1/fleets:
-    $ref: 'openapi.fleets.yaml#/paths/~1api~1hypershell~1v1~1fleets'
-  /api/hypershell/v1/fleets/{id}:
-    $ref: 'openapi.fleets.yaml#/paths/~1api~1hypershell~1v1~1fleets~1{id}'
   /api/hypershell/v1/managed_clusters:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters'
   /api/hypershell/v1/managed_clusters/{id}:
@@ -106,12 +102,6 @@ components:
               type: string
             operation_id:
               type: string
-    Fleet:
-      $ref: 'openapi.fleets.yaml#/components/schemas/Fleet'
-    FleetList:
-      $ref: 'openapi.fleets.yaml#/components/schemas/FleetList'
-    FleetPatchRequest:
-      $ref: 'openapi.fleets.yaml#/components/schemas/FleetPatchRequest'
     ManagedCluster:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedCluster'
     ManagedClusterList:

@@ -43,3 +43,20 @@ func migrationAddNamespace() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationDropFleetId() *gormigrate.Migration {
+	type ManagedDatabase struct{ db.Model }
+
+	return &gormigrate.Migration{
+		ID: "2026082813000005",
+		Migrate: func(tx *gorm.DB) error {
+			if tx.Migrator().HasColumn(&ManagedDatabase{}, "fleet_id") {
+				return tx.Migrator().DropColumn(&ManagedDatabase{}, "fleet_id")
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
+		},
+	}
+}

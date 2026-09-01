@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM registry.access.redhat.com/hi/go:1.26.5@sha256:eb29e565caf76cf408a77a73548a3ed62e00e3516c17d02d5f36838aea69a605 AS builder
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:4c7c064cc73698c13384d1445ab93595f3b9309dd89ed45b9992e67284e3ed82 AS builder
 
 WORKDIR /workspace
 
@@ -29,5 +29,5 @@ ENTRYPOINT ["/usr/local/bin/hypershell"]
 CMD ["serve"]
 
 LABEL org.opencontainers.image.title="HyperShell API Server" \
-  org.opencontainers.image.description="REST + gRPC API server for HyperShell fleet management" \
-  org.opencontainers.image.version="0.0.1"
+      org.opencontainers.image.description="REST + gRPC API server for HyperShell fleet management" \
+      org.opencontainers.image.version="0.0.1"

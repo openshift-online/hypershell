@@ -5,7 +5,6 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional] 
-**FleetId** | Pointer to **string** |  | [optional] 
 **Image** | Pointer to **string** |  | [optional] 
 **RolloutStrategy** | Pointer to **string** |  | [optional] 
 **CanaryPercent** | Pointer to **int32** |  | [optional] 
@@ -55,31 +54,6 @@ SetName sets Name field to given value.
 `func (o *GatewayReleasePatchRequest) HasName() bool`
 
 HasName returns a boolean if a field has been set.
-
-### GetFleetId
-
-`func (o *GatewayReleasePatchRequest) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *GatewayReleasePatchRequest) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *GatewayReleasePatchRequest) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
-
-### HasFleetId
-
-`func (o *GatewayReleasePatchRequest) HasFleetId() bool`
-
-HasFleetId returns a boolean if a field has been set.
 
 ### GetImage
 

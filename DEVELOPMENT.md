@@ -132,6 +132,7 @@ production.
 |---------|-------|
 | Realm | `hypershell` |
 | Frontend client | `hypershell-frontend` (public, standard flow + direct access grants) |
+| CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
 | Control plane client | `hypershell-control-plane` (confidential, service account, client_credentials) |
 | Admin user | `admin` / `admin` (role: `hypershell-admins`) |
@@ -203,6 +204,23 @@ session management during `make kind-up`.
 4. Sign in with `admin`/`admin` or `developer`/`developer`
 5. Keycloak redirects back to the web console with a valid session
 
+### hsctl login (management API)
+
+Build the CLI with `make build-cli`, then authenticate against the Kind cluster:
+
+```bash
+./components/cli/hsctl login \
+  --url https://api.hypershell.localhost \
+  --issuer-url https://keycloak.hypershell.localhost/realms/hypershell \
+  --insecure
+```
+
+For headless environments, add `--no-browser` to use the device authorization flow.
+The CLI stores tokens in `~/.config/hypershell/config.json` (or `~/.hypershell.json`
+if that legacy path already exists) and uses the `hypershell-cli` Keycloak client.
+
+Check identity with `hsctl whoami` and log out with `hsctl logout`.
+
 ### Hot reload and OIDC
 
 Web console hot reload (`make kind-web-console-up`) runs the Vite dev server
@@ -227,7 +245,7 @@ TOKEN=$(curl -sk -X POST \
   -d "password=admin" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
 
 curl -s -H "Authorization: Bearer ${TOKEN}" \
-  https://api.hypershell.localhost/api/hypershell/v1/fleets
+  https://api.hypershell.localhost/api/hypershell/v1/gateways
 ```
 
 ## Private Registry Pull Secret
@@ -372,12 +390,11 @@ so per-tenant gateways work without port-forward workarounds.
 
 ### Creating a gateway with OIDC
 
-`make kind-up` seeds Fleet, ManagedCluster, GatewayRelease, and ManagedDatabase
+`make kind-up` seeds ManagedCluster, GatewayRelease, and ManagedDatabase
 but does not create a Gateway. Create one via the API:
 
 ```bash
 # Get the seeded resource IDs
-FLEET_ID=$(curl -s http://localhost:8000/api/hypershell/v1/fleets | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 CLUSTER_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_clusters | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 RELEASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/gateway_releases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 DATABASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_databases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
@@ -387,7 +404,6 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"dev-gateway\",
-    \"fleet_id\": \"${FLEET_ID}\",
     \"cluster_id\": \"${CLUSTER_ID}\",
     \"release_id\": \"${RELEASE_ID}\",
     \"database_id\": \"${DATABASE_ID}\",

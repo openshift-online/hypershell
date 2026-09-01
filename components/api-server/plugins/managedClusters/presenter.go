@@ -14,7 +14,6 @@ func ConvertManagedCluster(managedCluster openapi.ManagedCluster) *ManagedCluste
 		},
 	}
 	c.Name = managedCluster.Name
-	c.FleetId = managedCluster.FleetId
 	c.Provider = managedCluster.Provider
 	c.Region = managedCluster.Region
 	c.KubeconfigSecret = managedCluster.KubeconfigSecret
@@ -38,7 +37,6 @@ func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluste
 		CreatedAt:        openapi.PtrTime(managedCluster.CreatedAt),
 		UpdatedAt:        openapi.PtrTime(managedCluster.UpdatedAt),
 		Name:             managedCluster.Name,
-		FleetId:          managedCluster.FleetId,
 		Provider:         managedCluster.Provider,
 		Region:           managedCluster.Region,
 		KubeconfigSecret: managedCluster.KubeconfigSecret,

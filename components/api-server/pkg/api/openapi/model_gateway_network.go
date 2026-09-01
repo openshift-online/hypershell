@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -28,7 +28,6 @@ type GatewayNetwork struct {
 	CreatedAt    *time.Time `json:"created_at,omitempty"`
 	UpdatedAt    *time.Time `json:"updated_at,omitempty"`
 	Name         string     `json:"name"`
-	FleetId      string     `json:"fleet_id"`
 	Topology     *string    `json:"topology,omitempty"`
 	TunnelMode   *string    `json:"tunnel_mode,omitempty"`
 	HubGatewayId *string    `json:"hub_gateway_id,omitempty"`
@@ -41,10 +40,9 @@ type _GatewayNetwork GatewayNetwork
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayNetwork(name string, fleetId string) *GatewayNetwork {
+func NewGatewayNetwork(name string) *GatewayNetwork {
 	this := GatewayNetwork{}
 	this.Name = name
-	this.FleetId = fleetId
 	return &this
 }
 
@@ -240,30 +238,6 @@ func (o *GatewayNetwork) SetName(v string) {
 	o.Name = v
 }
 
-// GetFleetId returns the FleetId field value
-func (o *GatewayNetwork) GetFleetId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value
-// and a boolean to check if the value has been set.
-func (o *GatewayNetwork) GetFleetIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.FleetId, true
-}
-
-// SetFleetId sets field value
-func (o *GatewayNetwork) SetFleetId(v string) {
-	o.FleetId = v
-}
-
 // GetTopology returns the Topology field value if set, zero value otherwise.
 func (o *GatewayNetwork) GetTopology() string {
 	if o == nil || IsNil(o.Topology) {
@@ -418,7 +392,6 @@ func (o GatewayNetwork) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["fleet_id"] = o.FleetId
 	if !IsNil(o.Topology) {
 		toSerialize["topology"] = o.Topology
 	}
@@ -440,7 +413,6 @@ func (o *GatewayNetwork) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"fleet_id",
 	}
 
 	allProperties := make(map[string]interface{})

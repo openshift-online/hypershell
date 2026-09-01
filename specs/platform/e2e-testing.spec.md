@@ -48,15 +48,15 @@ Each driver exports shell functions that abstract infrastructure-specific operat
 | Function | Purpose | Kind Implementation | OpenShift Implementation |
 |----------|---------|---------------------|--------------------------|
 | `discover_api_host` | Find the HyperShell API server URL | HTTPRoute hostname `api.hypershell.localhost` or port-forward to `svc/hypershell-api-server` | `oc get route hypershell-api -o jsonpath='{.spec.host}'` |
-| `discover_gateway_endpoint` | Find the gateway gRPC endpoint | GRPCRoute hostname `<gw-name>.gw.localhost` via Gateway status address | Route with `spec.tls.termination=passthrough` targeting `svc/openshell-gateway` |
-| `get_cluster_domain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
+| `discover_gateway_endpoint` | Find the gateway gRPC endpoint | GRPCRoute hostname `<gw-name>.gw.localhost` via Gateway status address | GRPCRoute hostname via shared Gateway `Programmed=True` (Gateway API, not a per-gateway Route) |
+| `get_cluster_domain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | Configured `GATEWAY_API_BASE_DOMAIN` (not the cluster apps domain) |
 | `get_cli_binary` | Return the Kubernetes CLI binary path | `kubectl` | `oc` |
-| `wait_for_gateway_route` | Block until the gateway is externally reachable | Check Gateway API Gateway status conditions and GRPCRoute parent status | Check OpenShift Route `.status.ingress[].conditions` for `Admitted` |
-| `acquire_oidc_token` | Obtain an OIDC access token for a given user, stored in `_OIDC_ACCESS_TOKEN` for `api_curl` to use | Resource-owner password grant against Keycloak at `keycloak.hypershell.localhost`, trusting the Kind self-signed CA (`curl -k`) | Password grant (or equivalent) against the cluster identity provider derived from the cluster domain |
+| `wait_for_gateway_route` | Block until the gateway is externally reachable | Check Gateway API Gateway status conditions and GRPCRoute parent status | Check Gateway `Programmed=True` and GRPCRoute parent `Accepted=True` |
+| `acquire_oidc_token` | Obtain an OIDC access token for a given user, stored in `_OIDC_ACCESS_TOKEN` for `api_curl` to use | Resource-owner password grant against Keycloak at `keycloak.hypershell.localhost`, trusting the Kind self-signed CA (`curl -k`) | Resource-owner password grant against the HyperShell Keycloak at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace, in the `hypershell` realm, trusting the cluster CA |
 | `api_curl` | Issue an authenticated HTTP request to the HyperShell API, adding the bearer token from `acquire_oidc_token` | `curl` with the bearer header against the discovered API host, trusting the Kind CA | `curl` with the bearer header against the API Route host, trusting the cluster CA |
-| `assign_gateway_client_role` | Grant a user a role on a gateway's per-gateway OIDC client (mirrors the `gateway:viewer` RoleBinding); idempotent | Keycloak admin API assigns the client role in the `hypershell` realm | Cluster identity provider assigns the equivalent per-client role |
-| `assign_realm_role` | Grant a user a platform-wide realm role, for example `platform:admin`; idempotent | Keycloak admin API assigns the realm role | Cluster identity provider assigns the equivalent realm-wide role |
-| `acquire_gateway_token_with_role` | Acquire a per-gateway OIDC token and block until the named role lands in it (roles reconcile asynchronously after gateway create); sets `_OIDC_ACCESS_TOKEN` | Password grant against the per-gateway client, polling until the role appears | Password grant (or equivalent) against the cluster provider, polling for the role |
+| `assign_gateway_client_role` | Grant a user a role on a gateway's per-gateway OIDC client (mirrors the `gateway:viewer` RoleBinding); idempotent | Keycloak admin API assigns the client role in the `hypershell` realm | HyperShell Keycloak admin API (at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace) assigns the client role in the `hypershell` realm |
+| `assign_realm_role` | Grant a user a platform-wide realm role, for example `platform:admin`; idempotent | Keycloak admin API assigns the realm role | HyperShell Keycloak admin API (at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace) assigns the realm role in the `hypershell` realm |
+| `acquire_gateway_token_with_role` | Acquire a per-gateway OIDC token and block until the named role lands in it (roles reconcile asynchronously after gateway create); sets `_OIDC_ACCESS_TOKEN` | Password grant against the per-gateway client, polling until the role appears | Password grant against the per-gateway client on the HyperShell Keycloak at its Route, polling until the role appears |
 
 ### CI Pipeline
 
@@ -146,7 +146,7 @@ The e2e test framework SHALL isolate infrastructure-specific logic into driver s
 - GIVEN `E2E_INFRA_DRIVER=openshift`
 - WHEN the e2e test script starts
 - THEN the `tests/e2e/drivers/openshift.sh` driver SHALL be sourced
-- AND all infrastructure functions SHALL use `oc` and OpenShift-specific discovery (Routes, `ingresses.config.openshift.io`)
+- AND all infrastructure functions SHALL use `oc` and OpenShift-specific discovery as `openshift-development.spec.md` defines (Gateway API status and the configured gateway base domain)
 
 #### Scenario: New Driver Extensibility
 
@@ -207,7 +207,7 @@ Each driver script SHALL export the following shell functions. The main test scr
 - AND verify the corresponding GRPCRoute's parent status reports `Accepted=True`
 - AND return success when both conditions are met or fail after `E2E_PROVISION_TIMEOUT` seconds
 
-The OpenShift driver implements the same ten functions with OpenShift constructs (Route host for `discover_api_host`, passthrough Route for `discover_gateway_endpoint`, `ingresses.config.openshift.io` for `get_cluster_domain`, `oc` for `get_cli_binary`, Route `Admitted` + GRPCRoute `Accepted` for `wait_for_gateway_route`, cluster-derived OIDC for `acquire_oidc_token` and `api_curl`, and the cluster identity provider's admin API for the `assign_gateway_client_role`, `assign_realm_role`, and `acquire_gateway_token_with_role` role helpers), as the interface table above shows. This spec delivers the OpenShift driver as a partial implementation of `openshift-development.spec.md` (HYPERSHELL-44), which is what makes the manual OpenShift runs defined next implementable here; HYPERSHELL-44 owns the surrounding `make openshift-*` lifecycle, `deploy/openshift/` overlay, cluster bootstrap, and automated CI.
+The OpenShift driver implements the same ten functions with OpenShift constructs (Route host for `discover_api_host`, GRPCRoute hostname via the shared Gateway with `Programmed=True` for `discover_gateway_endpoint`, the configured `GATEWAY_API_BASE_DOMAIN` for `get_cluster_domain`, `oc` for `get_cli_binary`, Gateway `Programmed=True` plus GRPCRoute parent `Accepted=True` for `wait_for_gateway_route`, the HyperShell Keycloak reached at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace for `acquire_oidc_token` and `api_curl`, and that same Keycloak's admin API for the `assign_gateway_client_role`, `assign_realm_role`, and `acquire_gateway_token_with_role` role helpers), as the interface table above shows. This spec delivers the OpenShift driver as a partial implementation of `openshift-development.spec.md` (HYPERSHELL-44), which is what makes the manual OpenShift runs defined next implementable here; HYPERSHELL-44 owns the surrounding `make openshift-*` lifecycle, `deploy/openshift/` overlay, cluster bootstrap, and automated CI.
 
 ### Requirement: Custom OpenShift Runs
 
@@ -862,13 +862,13 @@ The OpenShift driver is delivered by this spec as a partial implementation of `o
 
 ### Requirement: Gateway Fleet Scale-Up
 
-The harness SHALL provision `E2E_PERF_GATEWAY_COUNT` gateways on the target cluster. It SHALL provision them in batches of `E2E_PERF_BATCH_SIZE`, running a checkpoint mini test after each batch (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)). Within a batch it SHALL create the gateways with bounded concurrency, capped at `E2E_PERF_CONCURRENCY`. Bounded concurrency prevents a thundering herd against the API server and the control plane. Each gateway SHALL use a deterministic name: `<E2E_PERF_GATEWAY_PREFIX>-<index>`. Each gateway create body SHALL reuse the seeded fleet, cluster, release, and managed database ids, the same as the e2e suite. The harness SHALL follow a reuse-or-create pattern: an existing gateway with the same name SHALL be reused, not duplicated. This makes the test safe to re-run.
+The harness SHALL provision `E2E_PERF_GATEWAY_COUNT` gateways on the target cluster. It SHALL provision them in batches of `E2E_PERF_BATCH_SIZE`, running a checkpoint mini test after each batch (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)). Within a batch it SHALL create the gateways with bounded concurrency, capped at `E2E_PERF_CONCURRENCY`. Bounded concurrency prevents a thundering herd against the API server and the control plane. Each gateway SHALL use a deterministic name: `<E2E_PERF_GATEWAY_PREFIX>-<index>`. Each gateway create body SHALL reuse the seeded cluster, release, and managed database ids, the same as the e2e suite. The harness SHALL follow a reuse-or-create pattern: an existing gateway with the same name SHALL be reused, not duplicated. This makes the test safe to re-run.
 
 The harness SHALL wait until each gateway reaches `Running` phase, or until `E2E_PERF_PROVISION_TIMEOUT` seconds pass. It SHALL record the create latency and the time-to-`Running` for each gateway. A gateway that does not reach `Running` in time SHALL count as a failed provision, but SHALL NOT stop the run: the harness reports it in the metrics.
 
 #### Scenario: Fleet Provisioned
 
-- GIVEN a running target cluster with the seeded fleet and managed database
+- GIVEN a running target cluster with the seeded managed database
 - WHEN the harness runs the scale-up phase with `E2E_PERF_GATEWAY_COUNT=N`
 - THEN it SHALL create N gateways named `<prefix>-1` through `<prefix>-N`
 - AND it SHALL wait until each gateway reports `Running` phase or the provision timeout elapses
@@ -1244,7 +1244,6 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | `E2E_INFRA_DRIVER` is required, no auto-detection | Explicit driver selection avoids ambiguity and makes CI invocations self-documenting. Each environment sets the driver it intends to test against |
 | Tests live in `tests/e2e/`, not `components/pr-test/` | A top-level `tests/` tree is the natural home for e2e tests and their drivers. `components/pr-test/` will be deprecated in a follow-up once migration is complete |
 | Shared test utilities in `tests/e2e/lib.sh` | Pass/fail tracking, color output, and retry helpers are currently inline in `e2e-openshell.sh`. Extracting them into `lib.sh` makes them reusable across future test scripts without duplicating code |
-| Kustomize base/overlay for deploy | The current deploy structure has full resource duplication between Kind and the legacy `components/api-server/deploy/openshift/` manifests. A base/overlay eliminates drift by sharing core resource definitions. The Kind overlay adds cloud-provider-kind, certificates, DNS; the OpenShift overlay adds Routes, SCC |
 | CI pulls Konflux-built images, not rebuild | Images are built by Konflux (the existing build pipeline). The e2e workflow gates on those builds and pulls images by digest, avoiding duplicate builds and ensuring CI tests the exact images that ship. This is expected to cover HYPERSHELL-16 |
 | Diagnostic artifacts only on failure | Uploading pod logs, events, and describes on every run wastes GitHub Actions storage. Conditional upload on failure provides debugging information when needed |
 | 20-minute CI timeout | Kind cluster creation takes ~2 min, image pulls ~1-2 min, e2e tests ~5-8 min. A 20-minute ceiling provides margin for slow GitHub runners while preventing runaway jobs |

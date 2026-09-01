@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -20,7 +20,6 @@ var _ MappedNullable = &ManagedDatabasePatchRequest{}
 // ManagedDatabasePatchRequest struct for ManagedDatabasePatchRequest
 type ManagedDatabasePatchRequest struct {
 	Name             *string `json:"name,omitempty"`
-	FleetId          *string `json:"fleet_id,omitempty"`
 	Provider         *string `json:"provider,omitempty"`
 	Region           *string `json:"region,omitempty"`
 	Engine           *string `json:"engine,omitempty"`
@@ -77,38 +76,6 @@ func (o *ManagedDatabasePatchRequest) HasName() bool {
 // SetName gets a reference to the given string and assigns it to the Name field.
 func (o *ManagedDatabasePatchRequest) SetName(v string) {
 	o.Name = &v
-}
-
-// GetFleetId returns the FleetId field value if set, zero value otherwise.
-func (o *ManagedDatabasePatchRequest) GetFleetId() string {
-	if o == nil || IsNil(o.FleetId) {
-		var ret string
-		return ret
-	}
-	return *o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ManagedDatabasePatchRequest) GetFleetIdOk() (*string, bool) {
-	if o == nil || IsNil(o.FleetId) {
-		return nil, false
-	}
-	return o.FleetId, true
-}
-
-// HasFleetId returns a boolean if a field has been set.
-func (o *ManagedDatabasePatchRequest) HasFleetId() bool {
-	if o != nil && !IsNil(o.FleetId) {
-		return true
-	}
-
-	return false
-}
-
-// SetFleetId gets a reference to the given string and assigns it to the FleetId field.
-func (o *ManagedDatabasePatchRequest) SetFleetId(v string) {
-	o.FleetId = &v
 }
 
 // GetProvider returns the Provider field value if set, zero value otherwise.
@@ -347,9 +314,6 @@ func (o ManagedDatabasePatchRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Name) {
 		toSerialize["name"] = o.Name
-	}
-	if !IsNil(o.FleetId) {
-		toSerialize["fleet_id"] = o.FleetId
 	}
 	if !IsNil(o.Provider) {
 		toSerialize["provider"] = o.Provider

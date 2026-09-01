@@ -53,7 +53,6 @@ func TestGRPCGatewayNetworkCRUD(t *testing.T) {
 
 	createReq := &pb.CreateGatewayNetworkRequest{
 		Name:         "TestName",
-		FleetId:      "TestFleetId",
 		Topology:     func() *string { s := "TestTopology"; return &s }(),
 		TunnelMode:   func() *string { s := "TestTunnelMode"; return &s }(),
 		HubGatewayId: func() *string { s := "TestHubGatewayId"; return &s }(),
@@ -73,7 +72,6 @@ func TestGRPCGatewayNetworkCRUD(t *testing.T) {
 	updateReq := &pb.UpdateGatewayNetworkRequest{
 		Id:           gatewayNetworkID,
 		Name:         func() *string { s := "UpdatedName"; return &s }(),
-		FleetId:      func() *string { s := "UpdatedFleetId"; return &s }(),
 		Topology:     func() *string { s := "UpdatedTopology"; return &s }(),
 		TunnelMode:   func() *string { s := "UpdatedTunnelMode"; return &s }(),
 		HubGatewayId: func() *string { s := "UpdatedHubGatewayId"; return &s }(),

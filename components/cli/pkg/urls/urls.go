@@ -2,7 +2,6 @@ package urls
 
 const (
 	APIPrefix            = "/api/hypershell/v1"
-	FleetsPath           = APIPrefix + "/fleets"
 	GatewaysPath         = APIPrefix + "/gateways"
 	GatewayNetworksPath  = APIPrefix + "/gateway_networks"
 	GatewayReleasesPath  = APIPrefix + "/gateway_releases"
@@ -11,10 +10,6 @@ const (
 	RolesPath            = APIPrefix + "/roles"
 	RoleBindingsPath     = APIPrefix + "/role_bindings"
 )
-
-func FleetPath(id string) string {
-	return FleetsPath + "/" + id
-}
 
 func GatewayPath(id string) string {
 	return GatewaysPath + "/" + id

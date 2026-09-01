@@ -30,7 +30,7 @@ CLI="${OC:-oc}"
 # The system /bin/openshell on some hosts is 0.0.55 and lacks the `workspace`
 # subcommand, so default to the user-local install that has it.
 OPENSHELL="${OPENSHELL_BIN:-$HOME/.local/bin/openshell}"
-HSCTL="${HSCTL_BIN:-/home/mturansk/projects/bin/hsctl}"
+HSCTL="${HSCTL_BIN:-hsctl}"
 HS_NAMESPACE="${HYPERSHELL_NAMESPACE:-hypershell}"
 GW_NAMESPACE=""
 GW_NAME="${GATEWAY_NAME:-e2e-oidc-gw}"
@@ -102,9 +102,8 @@ fail_test() {
 }
 
 # delete_gateway <id>
-# Deletes a gateway by id via the REST API. hsctl exposes no `delete` subcommand
-# (only create/get/list/login), so both cleanup and stale-gateway
-# re-provisioning must call DELETE /api/hypershell/v1/gateways/{id} directly.
+# Deletes a gateway by id via the REST API. Used when hsctl is unavailable or
+# unauthenticated; hsctl delete gateway <id> --yes is preferred after login.
 # The control plane then tears down the tenant namespace. Returns 0 on 2xx.
 delete_gateway() {
   local id="$1" code
@@ -309,9 +308,13 @@ LOGIN_TOKEN=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
   -d "username=${OIDC_USERNAME}" -d "password=${OIDC_PASSWORD}" 2>/dev/null \
   | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
 if [[ -n "$LOGIN_TOKEN" ]]; then
-  echo "$LOGIN_TOKEN" | "${HSCTL}" login --url "https://${API_HOST}" --token-file /dev/stdin --insecure &>/dev/null || true
+  echo "$LOGIN_TOKEN" | "${HSCTL}" login --url "https://${API_HOST}" --token-file /dev/stdin --insecure || {
+    red "ERROR: hsctl login failed"
+    exit 1
+  }
 else
-  "${HSCTL}" login --url "https://${API_HOST}" --insecure &>/dev/null || true
+  red "ERROR: could not acquire management API token from Keycloak"
+  exit 1
 fi
 
 echo ""
@@ -412,7 +415,6 @@ if [[ -z "$EXISTING_ID" ]]; then
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': 'e2e-db',

@@ -15,16 +15,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-
-	corev1 "k8s.io/api/core/v1"
 )
 
 // networkPoliciesDisabledLogOnce keeps the "network policies disabled" notice to
@@ -48,6 +50,12 @@ func ReconcileGateway(
 	nsConfig NamespaceConfig,
 	opts ReconcileOpts,
 ) error {
+	images := opts.Images
+	if images == nil {
+		images = StaticImageDefaults{}
+	}
+	ingressMode := gatewayIngressMode(opts)
+
 	if !namespaceExists(ctx, clientset, nsConfig.Name) {
 		if err := createNamespace(ctx, clientset, nsConfig.Name); err != nil {
 			return fmt.Errorf("create namespace %s: %w", nsConfig.Name, err)
@@ -66,7 +74,7 @@ func ReconcileGateway(
 	// hostname as a SAN or clients fail verification. The controller derives
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
-	if mode := gatewayIngressMode(opts); mode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
+	if ingressMode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
 		hostname, err := deriveGatewayHostname(nsConfig)
 		if err != nil {
 			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
@@ -378,14 +386,11 @@ type ConsoleClientChecker interface {
 	ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error)
 }
 
-// RouteResourcesAbsent reports whether every route- and console-owned resource
-// this control plane creates for a routed gateway is absent -- both the
-// namespaced Kubernetes objects and the external Keycloak console client. It
-// lets the health loop's route teardown converge on the gateway's actual
-// observed state rather than trusting a cached completion marker: a stale
-// provisioning pass can recreate these resources after a teardown believed
-// itself finished, and cleared address fields do not prove the resources are
-// gone. Unknown state must never be read as absence.
+// RouteResourcesAbsent reports whether the resources for the selected gateway
+// ingress mode and all console resources are absent. It checks both console
+// exposure kinds because cleanup removes an inactive exposure after a mode
+// change. It also checks the external Keycloak console client. Unknown state
+// must never be read as absence.
 //
 // It returns (true, nil) only when every probed resource is confirmed absent.
 // The first resource found present short-circuits to (false, nil). Any probe
@@ -393,24 +398,42 @@ type ConsoleClientChecker interface {
 // so the caller treats absence as unconfirmed (and re-runs teardown) rather than
 // trusting an unknown state. The Keycloak client probe is skipped when
 // consoleClient is nil or consoleClientID is empty (no Keycloak configured).
-func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
+func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace, ingressMode string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
 	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
 	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
 	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	openShiftRouteGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
 	netpolGVR := schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}
 
-	dynamicProbes := []struct {
+	type dynamicProbe struct {
 		gvr  schema.GroupVersionResource
 		name string
-	}{
-		{grpcRouteGVR, "openshell-gateway"},
-		{btlsGVR, "openshell-gateway"},
-		{netpolGVR, "openshell-gateway-allow-router"},
-		{httpRouteGVR, consoleName},
-		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
-		{netpolGVR, "openshell-console-allow-router"},
-		{netpolGVR, "openshell-gateway-allow-console"},
 	}
+	var dynamicProbes []dynamicProbe
+	switch ingressMode {
+	case IngressModeGatewayAPI:
+		dynamicProbes = append(dynamicProbes,
+			dynamicProbe{grpcRouteGVR, "openshell-gateway"},
+			dynamicProbe{btlsGVR, "openshell-gateway"},
+			dynamicProbe{netpolGVR, "openshell-gateway-allow-router"},
+		)
+	case IngressModeRoute:
+		dynamicProbes = append(dynamicProbes,
+			dynamicProbe{openShiftRouteGVR, "openshell-gateway"},
+			dynamicProbe{netpolGVR, "openshell-gateway-allow-router"},
+		)
+	case IngressModeNone:
+		// There is no selected gateway exposure to probe.
+	default:
+		return false, fmt.Errorf("unsupported ingress mode %q for resource absence probe", ingressMode)
+	}
+	dynamicProbes = append(dynamicProbes,
+		dynamicProbe{httpRouteGVR, consoleName},
+		dynamicProbe{openShiftRouteGVR, consoleName},
+		dynamicProbe{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
+		dynamicProbe{netpolGVR, "openshell-console-allow-router"},
+		dynamicProbe{netpolGVR, "openshell-gateway-allow-console"},
+	)
 	for _, p := range dynamicProbes {
 		if _, err := dynamicClient.Resource(p.gvr).Namespace(namespace).Get(ctx, p.name, metav1.GetOptions{}); err == nil {
 			return false, nil
@@ -419,10 +442,12 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 		}
 	}
 
-	if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-gateway-backend-ca", metav1.GetOptions{}); err == nil {
-		return false, nil
-	} else if !k8serrors.IsNotFound(err) {
-		return false, fmt.Errorf("probe configmap openshell-gateway-backend-ca in %s: %w", namespace, err)
+	if ingressMode == IngressModeGatewayAPI {
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-gateway-backend-ca", metav1.GetOptions{}); err == nil {
+			return false, nil
+		} else if !k8serrors.IsNotFound(err) {
+			return false, fmt.Errorf("probe configmap openshell-gateway-backend-ca in %s: %w", namespace, err)
+		}
 	}
 	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
 		return false, nil
@@ -452,6 +477,297 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 	}
 
 	return true, nil
+}
+
+// readServerTLSCA returns the PEM-encoded ca.crt from the per-namespace
+// openshell-server-tls secret (issued by the openshell-ca-issuer alongside the
+// gateway server certificate). It returns an empty string when the secret or the
+// ca.crt key is absent; callers that require the CA (Gateway API BackendTLSPolicy,
+// reencrypt Route) treat empty as "not yet available" and retry.
+func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namespace string) string {
+	tlsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	if ca, ok := tlsSecret.Data["ca.crt"]; ok {
+		return string(ca)
+	}
+	return ""
+}
+
+// reconcileRouteResources exposes a tenant gateway through an OpenShift Route
+// instead of the Gateway API. The TLS termination is selected by
+// GATEWAY_ROUTE_TERMINATION (see routeTermination):
+//
+//   - passthrough (default): the least invasive mode. The gateway pod already
+//     terminates TLS with its per-tenant self-signed CA and performs client
+//     mTLS, so HAProxy forwards the encrypted connection end-to-end (SNI-routed)
+//     with no wildcard cert, cert-manager ClusterIssuer, or external DNS
+//     integration required. This is the ingress mode used where the Gateway
+//     API/Istio cannot run (e.g. IBM Cloud ROKS).
+//   - reencrypt: the router terminates external TLS with its own publicly-trusted
+//     wildcard and re-encrypts to the pod, verifying the backend against the
+//     openshell-server-tls ca.crt. Clients see a trusted certificate. Used on
+//     ROSA/OpenShift where a *.apps wildcard is already provisioned on the
+//     router. This is safe because the gateway server requires no client mTLS
+//     (no client_ca_path in the gateway config), so the router presenting no
+//     client certificate is accepted; OIDC remains the sole client auth.
+func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
+	namespace := nsConfig.Name
+
+	hostname, err := deriveGatewayHostname(nsConfig)
+	if err != nil {
+		log.Printf("WARN %v", err)
+		return nil
+	}
+
+	termination := routeTermination()
+
+	// reencrypt requires the backend CA so the router can verify the gateway
+	// pod's self-signed server certificate. Without it the router falls back to
+	// its default trust bundle, which does not include openshell-ca, and every
+	// backend connection fails TLS verification. Fail closed: skip creating the
+	// Route until the CA is available (the reconcile is retried on the next watch
+	// event), rather than publish a broken reencrypt Route.
+	tlsConfig := map[string]interface{}{
+		// Passthrough preserves the gateway pod's own TLS + client mTLS
+		// end-to-end. No router-side certificate is involved.
+		"termination":                   "passthrough",
+		"insecureEdgeTerminationPolicy": "None",
+	}
+	if termination == RouteTerminationReencrypt {
+		caData := readServerTLSCA(ctx, clientset, namespace)
+		if caData == "" {
+			return fmt.Errorf("reencrypt Route in %s requires openshell-server-tls ca.crt, which is not yet available", namespace)
+		}
+		// No certificate/key fields: the router serves its default
+		// publicly-trusted wildcard automatically. destinationCACertificate lets
+		// the router verify the re-encrypted backend connection to the gateway.
+		tlsConfig = map[string]interface{}{
+			"termination":                   "reencrypt",
+			"insecureEdgeTerminationPolicy": "Redirect",
+			"destinationCACertificate":      caData,
+		}
+	}
+
+	// gRPC streams are long-lived; extend the router timeout well beyond the 30s
+	// default so streams are not torn down.
+	routeAnnotations := map[string]interface{}{
+		"haproxy.router.openshift.io/timeout": "3600s",
+	}
+
+	// Per-gateway public certificate for a reencrypt Route. On OpenShift the
+	// router advertises ALPN h2 on an edge/reencrypt Route only when the Route
+	// carries its own certificate; a Route riding the shared default *.apps
+	// wildcard is denied h2 (cross-route connection-coalescing protection), which
+	// breaks gRPC (grpcs://) even though reencrypt already fixes UnknownIssuer.
+	// When GATEWAY_ROUTE_TLS_ISSUER names a cert-manager ClusterIssuer, annotate
+	// the Route so the cert-manager openshift-routes controller mints a
+	// certificate from it and injects it into spec.tls.{certificate,key}.
+	if issuer := routeTLSIssuer(); termination == RouteTerminationReencrypt && issuer != "" {
+		routeAnnotations["cert-manager.io/issuer-name"] = issuer
+		routeAnnotations["cert-manager.io/issuer-kind"] = "ClusterIssuer"
+
+		// reconcileResource replaces the whole Route on every reconcile, and the
+		// spec built here intentionally omits certificate/key. openshift-routes
+		// co-owns this Route (we own termination + destinationCACertificate, it
+		// owns the edge cert), so carry forward any certificate/key it has already
+		// injected -- otherwise each reconcile strips the cert and flaps h2.
+		if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace); cert != "" {
+			tlsConfig["certificate"] = cert
+			if key != "" {
+				tlsConfig["key"] = key
+			}
+		}
+	}
+
+	publishRouteAddress(ctx, opts, namespace, hostname)
+
+	route := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "route.openshift.io/v1",
+			"kind":       "Route",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+				"annotations": routeAnnotations,
+			},
+			"spec": map[string]interface{}{
+				"host": hostname,
+				"to": map[string]interface{}{
+					"kind":   "Service",
+					"name":   "openshell-gateway",
+					"weight": int64(100),
+				},
+				"port": map[string]interface{}{
+					"targetPort": "grpc",
+				},
+				"tls":            tlsConfig,
+				"wildcardPolicy": "None",
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, route); err != nil {
+		return fmt.Errorf("reconcile Route: %w", err)
+	}
+
+	// Allow ingress from the OpenShift router namespace to the gateway ports.
+	routerNS := gatewayIngressNamespace()
+	ingressRule := map[string]interface{}{
+		"ports": []interface{}{
+			map[string]interface{}{
+				"port":     int64(8080),
+				"protocol": "TCP",
+			},
+			map[string]interface{}{
+				"port":     int64(8081),
+				"protocol": "TCP",
+			},
+		},
+		"from": []interface{}{
+			map[string]interface{}{
+				"namespaceSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"kubernetes.io/metadata.name": routerNS,
+					},
+				},
+			},
+		},
+	}
+
+	routerNetpol := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.k8s.io/v1",
+			"kind":       "NetworkPolicy",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway-allow-router",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"podSelector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"app.kubernetes.io/instance": "openshell-gateway",
+						"app.kubernetes.io/name":     "openshell",
+					},
+				},
+				"policyTypes": []interface{}{"Ingress"},
+				"ingress":     []interface{}{ingressRule},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, routerNetpol); err != nil {
+		log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
+	}
+
+	log.Printf("INFO Route resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
+	return nil
+}
+
+// DeleteRouteResources removes the OpenShift gateway Route, the router
+// NetworkPolicy, and all console resources. It also clears the stored route
+// address. It attempts all operations and returns all errors so the health loop
+// can retry incomplete cleanup.
+func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
+	var errs []error
+
+	routeGVR := schema.GroupVersionResource{
+		Group:    "route.openshift.io",
+		Version:  "v1",
+		Resource: "routes",
+	}
+	if err := dynamicClient.Resource(routeGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete gateway Route in %s: %w", namespace, err))
+	}
+
+	netpolGVR := schema.GroupVersionResource{
+		Group:    "networking.k8s.io",
+		Version:  "v1",
+		Resource: "networkpolicies",
+	}
+	if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, "openshell-gateway-allow-router", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete router NetworkPolicy in %s: %w", namespace, err))
+	}
+
+	if err := DeleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
+		errs = append(errs, err)
+	}
+
+	if opts.UpdateRouteAddress != nil {
+		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
+			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
+		} else {
+			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+		}
+	}
+
+	if len(errs) == 0 {
+		log.Printf("INFO Route resources removed from namespace %s", namespace)
+	}
+	return errors.Join(errs...)
+}
+
+func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
+	watchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	fieldSelector := fields.OneTermEqualSelector("metadata.name", name).String()
+
+	for {
+		list, err := clientset.CoreV1().Secrets(namespace).List(watchCtx, metav1.ListOptions{
+			FieldSelector: fieldSelector,
+		})
+		if err != nil {
+			if watchCtx.Err() != nil {
+				return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+			}
+			return fmt.Errorf("list secret %s/%s: %w", namespace, name, err)
+		}
+		if len(list.Items) > 0 {
+			return nil
+		}
+
+		watcher, err := clientset.CoreV1().Secrets(namespace).Watch(watchCtx, metav1.ListOptions{
+			FieldSelector:   fieldSelector,
+			ResourceVersion: list.ResourceVersion,
+		})
+		if err != nil {
+			if watchCtx.Err() != nil {
+				return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+			}
+			return fmt.Errorf("watch secret %s/%s: %w", namespace, name, err)
+		}
+
+		appeared := false
+		for event := range watcher.ResultChan() {
+			if event.Type == watch.Added || event.Type == watch.Modified {
+				appeared = true
+				break
+			}
+		}
+		watcher.Stop()
+
+		if appeared {
+			log.Printf("INFO secret %s/%s is available", namespace, name)
+			return nil
+		}
+
+		if watchCtx.Err() != nil {
+			return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
+		}
+		log.Printf("INFO watch for secret %s/%s closed early; re-establishing", namespace, name)
+	}
 }
 
 func NamespaceExists(ctx context.Context, clientset kubernetes.Interface, namespace string) bool {
@@ -1431,6 +1747,62 @@ const (
 	IngressModeNone       = ""
 )
 
+// Route TLS termination modes for the "route" ingress mode, selected via
+// GATEWAY_ROUTE_TERMINATION.
+//
+//   - passthrough (default): HAProxy forwards the gateway pod's own TLS
+//     end-to-end. No router certificate is involved, so no wildcard cert or DNS
+//     is needed, but external clients must trust the per-tenant self-signed
+//     openshell-ca. This preserves the ROKS behavior.
+//   - reencrypt: the router terminates external TLS with its own publicly-trusted
+//     wildcard (e.g. a ROSA/OpenShift *.apps Let's Encrypt cert, served
+//     automatically with no certificate on the Route) and re-encrypts to the
+//     gateway pod, verifying the backend against the openshell-server-tls ca.crt
+//     set as destinationCACertificate. Clients see a trusted certificate, so the
+//     UnknownIssuer error is gone with no new LB, DNS, or cert-manager issuer.
+const (
+	RouteTerminationPassthrough = "passthrough"
+	RouteTerminationReencrypt   = "reencrypt"
+)
+
+// routeTermination resolves the Route TLS termination for the "route" ingress
+// mode from GATEWAY_ROUTE_TERMINATION, defaulting to passthrough. Any
+// unrecognized value falls back to passthrough so a typo cannot silently expose
+// a gateway with the wrong termination.
+func routeTermination() string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TERMINATION")), RouteTerminationReencrypt) {
+		return RouteTerminationReencrypt
+	}
+	return RouteTerminationPassthrough
+}
+
+// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-gateway
+// public certificate for a reencrypt Route, from GATEWAY_ROUTE_TLS_ISSUER. Empty
+// (the default) leaves the Route on the router's shared default *.apps wildcard,
+// which does not advertise ALPN h2 and therefore cannot serve gRPC. Only
+// meaningful with reencrypt termination; reconcileRouteResources ignores it
+// otherwise.
+func routeTLSIssuer() string {
+	return strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TLS_ISSUER"))
+}
+
+// readInjectedRouteCert returns the certificate and key that the cert-manager
+// openshift-routes controller has injected into the existing openshell-gateway
+// Route's spec.tls, or empty strings when the Route or those fields are absent.
+// The route reconcile does a full replace, so reconcileRouteResources carries
+// these forward to avoid clobbering the injected edge certificate (which would
+// flap ALPN h2, and hence gRPC, on every reconcile).
+func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (string, string) {
+	gvr := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, "openshell-gateway", metav1.GetOptions{})
+	if err != nil {
+		return "", ""
+	}
+	cert, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "certificate")
+	key, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "key")
+	return cert, key
+}
+
 // IngressMode resolves how tenant-gateway ingress is provisioned from
 // GATEWAY_INGRESS_MODE, falling back to a capability-based default.
 //
@@ -1521,4 +1893,436 @@ func appendDNSNameIfMissing(names []string, hostname string) []string {
 		}
 	}
 	return append(names, hostname)
+}
+// publishRouteAddress writes the externally reachable gRPC address back to the
+// API-server Gateway resource. Shared by both ingress modes.
+func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hostname string) {
+	if opts.UpdateRouteAddress == nil {
+		return
+	}
+	routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
+	if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+		log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+	} else {
+		log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+	}
+}
+
+func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
+	namespace := nsConfig.Name
+	routeConfig := nsConfig.Gateway.Route
+
+	gwName := gatewayIngressName()
+	if gwName == "" {
+		log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
+		return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required")
+	}
+	gwNS := gatewayIngressNamespace()
+
+	// Derive the external hostname through the Gateway Exposure adapter's shared
+	// helper so the hostname baked into the GRPCRoute cannot drift from the
+	// address published through the port.
+	hostname, ok := exposure.DeriveGatewayAPIHost(namespace, routeConfig.Host)
+	if !ok {
+		log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
+		return nil
+	}
+
+	// Publish the deterministic route address through the Gateway Exposure port.
+	// The hostname is known before the shared Gateway reports Accepted/Programmed,
+	// so the connection command is available to the CLI and console while the
+	// gateway finishes provisioning. Readiness is reflected separately by the
+	// Gateway phase.
+	if opts.Exposure != nil && opts.UpdateRouteAddress != nil {
+		routeAddress, err := opts.Exposure.ResolveAddress(ctx, exposure.Request{Namespace: namespace, Host: routeConfig.Host})
+		if err != nil {
+			log.Printf("WARN failed to resolve routeAddress for gateway in %s: %v", namespace, err)
+		} else if routeAddress != "" {
+			if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
+				log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+			} else {
+				log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+			}
+		}
+	}
+
+	log.Printf("INFO using Gateway %s/%s for tenant %s", gwNS, gwName, namespace)
+
+	parentRef := map[string]interface{}{
+		"name":        gwName,
+		"namespace":   gwNS,
+		"sectionName": "grpc",
+	}
+
+	grpcRoute := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "gateway.networking.k8s.io/v1",
+			"kind":       "GRPCRoute",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"parentRefs": []interface{}{parentRef},
+				"hostnames":  []interface{}{hostname},
+				"rules": []interface{}{
+					map[string]interface{}{
+						"backendRefs": []interface{}{
+							map[string]interface{}{
+								"name": "openshell-gateway",
+								"port": int64(8080),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, grpcRoute); err != nil {
+		return fmt.Errorf("reconcile GRPCRoute: %w", err)
+	}
+
+	if err := waitForSecret(ctx, clientset, namespace, "openshell-server-tls", 60*time.Second); err != nil {
+		return fmt.Errorf("wait for server TLS secret in %s: %w", namespace, err)
+	}
+
+	// The wait above can run for up to a minute. A route removal (or gateway
+	// deletion) during it is observed only by the independent health loop -- the
+	// watcher phase gate blocks a re-provision -- which tears down this gateway's
+	// route and console. Re-check live route intent before creating the remaining
+	// route- and console-owned resources so this in-flight pass does not race that
+	// teardown. Fail closed: unknown intent must not authorize new resources, so a
+	// check error aborts the pass (the gateway parks at Failed and is retried on
+	// the next watch resync) rather than risk creating resources behind a
+	// concurrent teardown. The health loop's route teardown verifies actual
+	// resource absence (RouteResourcesAbsent), so it still removes anything a
+	// narrow check-then-act window lets slip through.
+	if opts.RouteStillDesired != nil {
+		desired, err := opts.RouteStillDesired(ctx)
+		if err != nil {
+			return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+		}
+		if !desired {
+			log.Printf("INFO gateway in %s no longer routed after TLS wait; skipping route/console resource creation (health loop owns teardown)", namespace)
+			return nil
+		}
+	}
+
+	caData := readServerTLSCA(ctx, clientset, namespace)
+
+	if caData != "" {
+		backendCA := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "openshell-backend-ca",
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			Data: map[string]string{
+				"ca.crt": caData,
+			},
+		}
+
+		existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
+					log.Printf("WARN failed to create backend CA ConfigMap: %v", err)
+				}
+			}
+		} else {
+			backendCA.ResourceVersion = existing.ResourceVersion
+			if _, err := clientset.CoreV1().ConfigMaps(namespace).Update(ctx, backendCA, metav1.UpdateOptions{}); err != nil {
+				log.Printf("WARN failed to update backend CA ConfigMap: %v", err)
+			}
+		}
+
+		btlsPolicy := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "gateway.networking.k8s.io/v1",
+				"kind":       "BackendTLSPolicy",
+				"metadata": map[string]interface{}{
+					"name":      "openshell-gateway",
+					"namespace": namespace,
+					"labels": map[string]interface{}{
+						"app.kubernetes.io/name":       "openshell",
+						"app.kubernetes.io/component":  "gateway",
+						"app.kubernetes.io/managed-by": "hypershell-control-plane",
+						"hypershell.redhat.io/managed": "true",
+					},
+				},
+				"spec": map[string]interface{}{
+					"targetRefs": []interface{}{
+						map[string]interface{}{
+							"group": "",
+							"kind":  "Service",
+							"name":  "openshell-gateway",
+						},
+					},
+					"validation": map[string]interface{}{
+						"caCertificateRefs": []interface{}{
+							map[string]interface{}{
+								"group": "",
+								"kind":  "ConfigMap",
+								"name":  "openshell-backend-ca",
+							},
+						},
+						"hostname": fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
+					},
+				},
+			},
+		}
+		if err := reconcileResource(ctx, dynamicClient, btlsPolicy); err != nil {
+			log.Printf("WARN failed to reconcile BackendTLSPolicy (may require OpenShift 4.22+): %v", err)
+		}
+	}
+
+	// Build the router → gateway NetworkPolicy unless dev has opted out (Kind's
+	// out-of-cluster proxy has a source IP no selector can match, so the policy
+	// would blackhole gateway ingress). Restrict source to the namespace hosting
+	// the shared Gateway so only the admin-provisioned proxy can reach the ports.
+	if opts.SkipNetworkPolicies {
+		logNetworkPoliciesDisabled()
+	} else {
+		ingressRule := map[string]interface{}{
+			"ports": []interface{}{
+				map[string]interface{}{
+					"port":     int64(8080),
+					"protocol": "TCP",
+				},
+				map[string]interface{}{
+					"port":     int64(8081),
+					"protocol": "TCP",
+				},
+			},
+			"from": []interface{}{
+				map[string]interface{}{
+					"namespaceSelector": map[string]interface{}{
+						"matchLabels": map[string]interface{}{
+							"kubernetes.io/metadata.name": gwNS,
+						},
+					},
+				},
+			},
+		}
+
+		routerNetpol := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "networking.k8s.io/v1",
+				"kind":       "NetworkPolicy",
+				"metadata": map[string]interface{}{
+					"name":      "openshell-gateway-allow-router",
+					"namespace": namespace,
+					"labels": map[string]interface{}{
+						"app.kubernetes.io/name":       "openshell",
+						"app.kubernetes.io/component":  "gateway",
+						"app.kubernetes.io/managed-by": "hypershell-control-plane",
+						"hypershell.redhat.io/managed": "true",
+					},
+				},
+				"spec": map[string]interface{}{
+					"podSelector": map[string]interface{}{
+						"matchLabels": map[string]interface{}{
+							"app.kubernetes.io/instance": "openshell-gateway",
+							"app.kubernetes.io/name":     "openshell",
+						},
+					},
+					"policyTypes": []interface{}{"Ingress"},
+					"ingress":     []interface{}{ingressRule},
+				},
+			},
+		}
+		if err := reconcileResource(ctx, dynamicClient, routerNetpol); err != nil {
+			log.Printf("WARN failed to reconcile router NetworkPolicy: %v", err)
+		}
+	}
+
+	// The route address is published deterministically at the top of this
+	// function, so no readiness-gated discovery is required here.
+
+	// The console follows the route: it is deployed in the same pass that creates
+	// the route resources. A console failure must not fail the gateway route
+	// reconciliation, so it is logged and the reconcile continues.
+	images := opts.Images
+	if images == nil {
+		images = StaticImageDefaults{}
+	}
+	if err := reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images); err != nil {
+		log.Printf("WARN failed to reconcile console in %s: %v", namespace, err)
+	}
+
+	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
+	return nil
+}
+
+func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) error {
+	namespace := nsConfig.Name
+	dnsNames := nsConfig.Gateway.ServerDnsNames
+
+	selfSignedIssuer := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "Issuer",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-selfsigned",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"selfSigned": map[string]interface{}{},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, selfSignedIssuer); err != nil {
+		return fmt.Errorf("reconcile self-signed issuer: %w", err)
+	}
+
+	caCert := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "Certificate",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-ca",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"isCA":           true,
+				"commonName":     "openshell-ca",
+				"secretName":     "openshell-ca-tls",
+				"rotationPolicy": "Always",
+				"privateKey": map[string]interface{}{
+					"algorithm": "ECDSA",
+					"size":      int64(256),
+				},
+				"issuerRef": map[string]interface{}{
+					"name":  "openshell-selfsigned",
+					"kind":  "Issuer",
+					"group": "cert-manager.io",
+				},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, caCert); err != nil {
+		return fmt.Errorf("reconcile CA certificate: %w", err)
+	}
+
+	caIssuer := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "Issuer",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-ca-issuer",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"ca": map[string]interface{}{
+					"secretName": "openshell-ca-tls",
+				},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, caIssuer); err != nil {
+		return fmt.Errorf("reconcile CA issuer: %w", err)
+	}
+
+	dnsNamesInterface := make([]interface{}, len(dnsNames))
+	for i, d := range dnsNames {
+		dnsNamesInterface[i] = d
+	}
+
+	serverCert := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "Certificate",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-server",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"secretName": "openshell-server-tls",
+				"dnsNames":   dnsNamesInterface,
+				"issuerRef": map[string]interface{}{
+					"name":  "openshell-ca-issuer",
+					"kind":  "Issuer",
+					"group": "cert-manager.io",
+				},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, serverCert); err != nil {
+		return fmt.Errorf("reconcile server certificate: %w", err)
+	}
+
+	// The client certificate is NOT for external-client mTLS (external clients
+	// authenticate via OIDC over the Route). It exists so sandbox runners can
+	// verify the gateway's TLS server cert: openshell 0.0.109's Kubernetes driver
+	// mounts this secret into every sandbox and sets OPENSHELL_TLS_CA from its
+	// ca.crt whenever gateway.toml sets client_tls_secret_name. Because it is
+	// issued by the same openshell-ca-issuer as the server cert, its ca.crt
+	// chains to the gateway's server certificate. Without it the sandbox agent
+	// crashloops ("OPENSHELL_TLS_CA is required") and never reaches Ready.
+	clientCert := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "Certificate",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-client",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"secretName": "openshell-client-tls",
+				"commonName": "openshell-client",
+				"issuerRef": map[string]interface{}{
+					"name":  "openshell-ca-issuer",
+					"kind":  "Issuer",
+					"group": "cert-manager.io",
+				},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, clientCert); err != nil {
+		return fmt.Errorf("reconcile client certificate: %w", err)
+	}
+
+	log.Printf("INFO cert-manager resources reconciled in namespace %s", namespace)
+	return nil
 }

@@ -5,7 +5,7 @@
 
 ## Overview
 
-The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Fleet resources in the database) into actual Kubernetes resources across managed clusters. It follows the informer-reconciler pattern without depending on controller-runtime.
+The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into actual Kubernetes resources across managed clusters. It follows the informer-reconciler pattern without depending on controller-runtime.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Managed Clusters (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Fleets, Gateways, GatewayReleases, ManagedClusters, ManagedDatabases, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler.
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, ManagedDatabases, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler.
 
 ### Reconciler
 

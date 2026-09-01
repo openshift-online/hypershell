@@ -3,7 +3,6 @@ package get
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/fleet"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/gateway"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/gatewayNetwork"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get/gatewayRelease"
@@ -21,7 +20,6 @@ var Cmd = &cobra.Command{
 }
 
 func init() {
-	Cmd.AddCommand(fleet.Cmd)
 	Cmd.AddCommand(gateway.Cmd)
 	Cmd.AddCommand(gatewayNetwork.Cmd)
 	Cmd.AddCommand(gatewayRelease.Cmd)

@@ -10,7 +10,6 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**FleetId** | **string** |  | 
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
 **DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored | 
@@ -35,7 +34,7 @@ Name | Type | Description | Notes
 
 ### NewGateway
 
-`func NewGateway(name string, fleetId string, clusterId string, releaseId string, databaseId string, namespace string, ) *Gateway`
+`func NewGateway(name string, clusterId string, releaseId string, databaseId string, namespace string, ) *Gateway`
 
 NewGateway instantiates a new Gateway object
 This constructor will assign default values to properties that have it defined,
@@ -193,26 +192,6 @@ and a boolean to check if the value has been set.
 `func (o *Gateway) SetName(v string)`
 
 SetName sets Name field to given value.
-
-
-### GetFleetId
-
-`func (o *Gateway) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *Gateway) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *Gateway) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
 
 
 ### GetClusterId

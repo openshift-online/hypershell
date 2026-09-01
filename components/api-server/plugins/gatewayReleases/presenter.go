@@ -14,7 +14,6 @@ func ConvertGatewayRelease(gatewayRelease openapi.GatewayRelease) *GatewayReleas
 		},
 	}
 	c.Name = gatewayRelease.Name
-	c.FleetId = gatewayRelease.FleetId
 	c.Image = gatewayRelease.Image
 	c.RolloutStrategy = gatewayRelease.RolloutStrategy
 	if gatewayRelease.CanaryPercent != nil {
@@ -40,7 +39,6 @@ func PresentGatewayRelease(gatewayRelease *GatewayRelease) openapi.GatewayReleas
 		CreatedAt:       openapi.PtrTime(gatewayRelease.CreatedAt),
 		UpdatedAt:       openapi.PtrTime(gatewayRelease.UpdatedAt),
 		Name:            gatewayRelease.Name,
-		FleetId:         gatewayRelease.FleetId,
 		Image:           gatewayRelease.Image,
 		RolloutStrategy: gatewayRelease.RolloutStrategy,
 		CanaryPercent: func() *int32 {

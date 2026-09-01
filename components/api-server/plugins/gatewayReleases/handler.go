@@ -65,9 +65,6 @@ func (h gatewayReleaseHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Name != nil {
 				found.Name = *patch.Name
 			}
-			if patch.FleetId != nil {
-				found.FleetId = *patch.FleetId
-			}
 			if patch.Image != nil {
 				found.Image = *patch.Image
 			}

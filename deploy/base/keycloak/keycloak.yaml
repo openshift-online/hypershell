@@ -192,6 +192,74 @@ data:
           ]
         },
         {
+          "clientId": "hypershell-cli",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "fullScopeAllowed": true,
+          "attributes": {
+            "oauth2.device.authorization.grant.enabled": "true",
+            "pkce.code.challenge.method": "S256"
+          },
+          "redirectUris": ["http://127.0.0.1:*"],
+          "webOrigins": [],
+          "defaultClientScopes": ["openid", "email", "profile"],
+          "protocolMappers": [
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "hypershell-frontend",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            },
+            {
+              "name": "sub",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-sub-mapper",
+              "consentRequired": false,
+              "config": {
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            },
+            {
+              "name": "realm-roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "multivalued": "true",
+                "claim.name": "groups",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            },
+            {
+              "name": "realm-access-roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "multivalued": "true",
+                "claim.name": "realm_access.roles",
+                "jsonType.label": "String",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "false",
+                "introspection.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
           "clientId": "hypershell-provisioner",
           "enabled": true,
           "publicClient": false,

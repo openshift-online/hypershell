@@ -25,11 +25,21 @@ patches:
   - target:
       kind: Deployment
       name: hypershell-api-server
-      namespace: hypershell-system
     patch: |
-      - op: replace
-        path: /spec/template/spec/initContainers/0/command/7
-        value: "--db-sslmode=disable"
-      - op: replace
-        path: /spec/template/spec/containers/0/command/12
-        value: "--db-sslmode=disable"
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: not-used
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: migrate
+                env:
+                  - name: DB_SSLMODE
+                    value: disable
+            containers:
+              - name: api-server
+                env:
+                  - name: DB_SSLMODE
+                    value: disable

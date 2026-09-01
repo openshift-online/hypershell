@@ -10,7 +10,6 @@ import (
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c := &Gateway{}
 	c.Name = gateway.Name
-	c.FleetId = gateway.FleetId
 	c.ClusterId = gateway.ClusterId
 	c.ReleaseId = gateway.ReleaseId
 	// database_id is assigned by the configured server-side placement strategy.
@@ -44,7 +43,6 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 		CreatedAt:        openapi.PtrTime(gateway.CreatedAt),
 		UpdatedAt:        openapi.PtrTime(gateway.UpdatedAt),
 		Name:             gateway.Name,
-		FleetId:          gateway.FleetId,
 		ClusterId:        gateway.ClusterId,
 		ReleaseId:        gateway.ReleaseId,
 		DatabaseId:       gateway.DatabaseId,

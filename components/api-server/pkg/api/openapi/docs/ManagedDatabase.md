@@ -10,7 +10,6 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**FleetId** | **string** |  | 
 **Provider** | **string** |  | 
 **Namespace** | Pointer to **string** |  | [optional] [readonly] 
 **Region** | Pointer to **string** |  | [optional] 
@@ -24,7 +23,7 @@ Name | Type | Description | Notes
 
 ### NewManagedDatabase
 
-`func NewManagedDatabase(name string, fleetId string, provider string, ) *ManagedDatabase`
+`func NewManagedDatabase(name string, provider string, ) *ManagedDatabase`
 
 NewManagedDatabase instantiates a new ManagedDatabase object
 This constructor will assign default values to properties that have it defined,
@@ -182,26 +181,6 @@ and a boolean to check if the value has been set.
 `func (o *ManagedDatabase) SetName(v string)`
 
 SetName sets Name field to given value.
-
-
-### GetFleetId
-
-`func (o *ManagedDatabase) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *ManagedDatabase) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *ManagedDatabase) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
 
 
 ### GetProvider

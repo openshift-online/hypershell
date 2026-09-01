@@ -9,7 +9,8 @@ import "hypershell/v1/common.proto";
 message GatewayRelease {
   ObjectReference metadata = 1;
   string name = 2;
-  string fleet_id = 3;
+  reserved 3;
+  reserved "fleet_id";
   string image = 4;
   optional string rollout_strategy = 5;
   optional int32 canary_percent = 6;
@@ -19,7 +20,8 @@ message GatewayRelease {
 
 message CreateGatewayReleaseRequest {
   string name = 1;
-  string fleet_id = 2;
+  reserved 2;
+  reserved "fleet_id";
   string image = 3;
   optional string rollout_strategy = 4;
   optional int32 canary_percent = 5;
@@ -42,7 +44,8 @@ message GetGatewayReleaseResponse {
 message UpdateGatewayReleaseRequest {
   string id = 1;
   optional string name = 2;
-  optional string fleet_id = 3;
+  reserved 3;
+  reserved "fleet_id";
   optional string image = 4;
   optional string rollout_strategy = 5;
   optional int32 canary_percent = 6;

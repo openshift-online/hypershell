@@ -2,9 +2,9 @@ module github.com/openshift-online/hypershell
 
 go 1.26.4
 
-tool github.com/evilmartians/lefthook/v2
+toolchain go1.26.7
 
-require github.com/gorilla/mux v1.8.1
+tool github.com/evilmartians/lefthook/v2
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect

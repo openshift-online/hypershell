@@ -16,22 +16,22 @@
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 35,
+    "line": 42,
     "rationale": "Mermaid diagram node id 'ACP' abbreviates 'Control Plane' in the topology graph; it is a diagram identifier, not the discouraged term."
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 84,
+    "line": 103,
     "rationale": "Mermaid diagram node id 'ACP' abbreviates 'Control Plane' in the reconciliation flow; it is a diagram identifier, not the discouraged term."
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 85,
+    "line": 104,
     "rationale": "Mermaid diagram node id 'ACP' abbreviates 'Control Plane' in the reconciliation flow; it is a diagram identifier, not the discouraged term."
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 981,
-    "rationale": "Example filename 'rosa-vteam.yaml' in a directory-tree illustration references a real external GitOps path; it is an example path, not the discouraged term."
+    "line": 1164,
+    "rationale": "Example directory names 'vteam-stage'/'vteam-uat' in a GitOps directory-tree illustration reference real external cluster environments; they are example paths, not the discouraged term."
   }
 ]

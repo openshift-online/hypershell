@@ -300,7 +300,7 @@ The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, a
 
 In the initial implementation, the `platform:admin` role is **limited to gateway view and delete operations**. It does NOT grant permissions to:
 
-- View or modify Fleets, GatewayNetworks, GatewayReleases, ManagedClusters, or ManagedDatabases
+- View or modify GatewayNetworks, GatewayReleases, ManagedClusters, or ManagedDatabases
 - View or modify Users or RoleBindings
 - Access platform-level configuration or system administration functions
 
@@ -513,7 +513,7 @@ Integration tests SHALL exercise RBAC enforcement with the new four-role model.
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
 | `gateway:creator` from Keycloak only | Cannot be self-assigned via the API. A Keycloak admin decides who can create gateways. |
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
-| Fleet is not a security boundary | Fleet is an organizational grouping. RBAC operates at platform level (creator) and gateway level (owner/viewer). |
+| No resource grouping as a security boundary | The Sector/Fleet grouping was removed. RBAC operates at platform level (creator) and gateway level (owner/viewer); there is no fleet-scoped isolation. |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
 | OpenShellGatewayServiceAccount role limit | A gateway binding limits the selected OpenShell role. Owners can select `openshell-user` or `openshell-admin`. Viewers can select only `openshell-user`. Each OpenShellGatewayServiceAccount remains bound to its creator. A binding change can downgrade or revoke it. |

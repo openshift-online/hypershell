@@ -89,21 +89,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
-API_HOST=$($CLI get route hypershell-api-server -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+API_HOST=$($CLI get route hypershell-api -n "$HS_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -z "$API_HOST" ]]; then
   red "ERROR: HyperShell API route not found in namespace ${HS_NAMESPACE}"
   exit 1
 fi
 
-# Login to hypershell CLI (no auth mode for stage/dev)
-dim "Logging in to hypershell CLI..."
-"${HSCTL}" login "https://${API_HOST}" --insecure-skip-tls-verify &>/dev/null || true
+# Log hsctl in via a management-plane token (password grant on hypershell-frontend).
+# Interactive OIDC (hypershell-cli) needs a browser/device flow and is not suitable here.
 KC_HOST=$($CLI get route keycloak -n "$KC_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -z "$KC_HOST" ]]; then
   red "ERROR: Keycloak route not found in namespace ${KC_NAMESPACE}"
   exit 1
 fi
 OIDC_ISSUER="https://${KC_HOST}/realms/hypershell"
+TOKEN_ENDPOINT="${OIDC_ISSUER}/protocol/openid-connect/token"
+
+dim "Logging in to hypershell CLI..."
+LOGIN_TOKEN=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
+  -d "grant_type=password" -d "client_id=${OIDC_CLIENT_ID}" \
+  -d "username=${OIDC_USERNAME}" -d "password=${OIDC_PASSWORD}" 2>/dev/null \
+  | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+if [[ -z "$LOGIN_TOKEN" ]]; then
+  red "ERROR: could not acquire management API token from Keycloak"
+  exit 1
+fi
+echo "$LOGIN_TOKEN" | "${HSCTL}" login --url "https://${API_HOST}" --token-file /dev/stdin --insecure || {
+  red "ERROR: hsctl login failed"
+  exit 1
+}
 
 echo ""
 bold "HyperShell OpenShell Gateway End-to-End Test"
@@ -170,10 +184,9 @@ else
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
-    'database_id': 'e2e-db',
+    'cluster_id': '$CLUSTER_ID',
+    'release_id': '$REL_ID',
+    'database_id': '$DB_ID',
     'oidc': json.dumps({
         'issuer': os.environ['OIDC_ISSUER'],
         'audience': os.environ['OIDC_CLIENT_ID'],
@@ -205,8 +218,12 @@ print(json.dumps(body))
   dim "  Waiting for controller to provision (timeout: ${PROVISION_TIMEOUT}s)..."
   DEADLINE=$(($(date +%s) + PROVISION_TIMEOUT))
   while [[ $(date +%s) -lt $DEADLINE ]]; do
-    GW_PHASE=$("${HSCTL}" get gateway "${GW_ID}" 2>/dev/null | \
-      python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
+    GW_JSON=$(curl -sk -H "Authorization: Bearer $HS_TOKEN" "https://${API_HOST}/api/hypershell/v1/gateways/${GW_ID}")
+    if echo "$GW_JSON" | grep -q '"phase":"Running"'; then
+      GW_PHASE="Running"
+    else
+      GW_PHASE="unknown"
+    fi
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
     fi

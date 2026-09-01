@@ -19,7 +19,6 @@ var args struct {
 	connectionSecret string
 	engine           string
 	engineVersion    string
-	fleetId          string
 	instanceClass    string
 	name             string
 	provider         string
@@ -33,8 +32,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedDatabase",
 	Long: "Create a new managedDatabase.\n\n" +
 		"Examples:\n" +
-		"  hypershell create managedDatabase --connection-secret <value> --engine <value> --engine-version <value> --fleet-id <value> --instance-class <value> --name <value> --provider <value> --region <value> --status <value> \n" +
-		"  hypershell create managedDatabase --body request.json",
+		"  hsctl create managedDatabase --connection-secret <value> --engine <value> --engine-version <value> --instance-class <value> --name <value> --provider <value> --region <value> --status <value> \n" +
+		"  hsctl create managedDatabase --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }
@@ -44,7 +43,6 @@ func init() {
 	fs.StringVar(&args.connectionSecret, "connection-secret", "", "connection_secret value.")
 	fs.StringVar(&args.engine, "engine", "", "engine value.")
 	fs.StringVar(&args.engineVersion, "engine-version", "", "engine_version value.")
-	fs.StringVar(&args.fleetId, "fleet-id", "", "fleet_id value.")
 	fs.StringVar(&args.instanceClass, "instance-class", "", "instance_class value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.provider, "provider", "", "provider value.")
@@ -82,9 +80,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 		if args.engineVersion != "" {
 			request["engine_version"] = args.engineVersion
-		}
-		if args.fleetId != "" {
-			request["fleet_id"] = args.fleetId
 		}
 		if args.instanceClass != "" {
 			request["instance_class"] = args.instanceClass

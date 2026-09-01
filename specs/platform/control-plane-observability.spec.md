@@ -131,7 +131,7 @@ When the control plane issues a gRPC call during a reconcile (for example `Updat
 
 ### Requirement: CP-OBS-04 -- Watch Stream Lifecycle Spans
 
-The control plane SHALL create a span for each watch stream connection attempt, wrapping the `connectAndRecv` cycle in `watchLoop`. The span SHALL be named by the resource kind (for example `watch Gateway`, `watch Fleet`) and SHALL cover the lifetime of the stream from connection to disconnection. The span status SHALL reflect the stream outcome: OK on graceful EOF, Error on unexpected disconnection.
+The control plane SHALL create a span for each watch stream connection attempt, wrapping the `connectAndRecv` cycle in `watchLoop`. The span SHALL be named by the resource kind (for example `watch Gateway`, `watch ManagedCluster`) and SHALL cover the lifetime of the stream from connection to disconnection. The span status SHALL reflect the stream outcome: OK on graceful EOF, Error on unexpected disconnection.
 
 When a watch stream disconnects and reconnects, each connection attempt SHALL produce a new span. The reconnection backoff period SHALL NOT be included in the span duration; only the active stream lifetime SHALL be spanned.
 
@@ -260,7 +260,7 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 | One span per reconcile Handle() | The reconciler is the unit of work; sub-spans for gRPC and K8s calls nest naturally as children |
 | gRPC client interceptors on the shared connection | Every service client created from the connection inherits instrumentation without per-call changes |
 | otelhttp transport wrapper for client-go | Instruments all Kubernetes API calls transparently without modifying reconciler code |
-| Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large fleets |
+| Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large deployments |
 | Resource ID as a span attribute, not a span name | Enables per-trace debugging without inflating the span-name namespace |
 | OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
 | Reconcile-trace to request-trace correlation deferred | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) deserves its own story |

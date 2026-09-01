@@ -40,16 +40,22 @@ $ARGUMENTS
 
 ## Source of truth
 
-The **authoritative** current version is the pair of consts in
-`components/control-plane/internal/gateway/config.go`:
+The **authoritative** current version pins live in the control-plane deployment
+manifest `deploy/base/controller.yaml` as environment
+variables:
 
-```go
-const defaultGatewayImage    = "ghcr.io/nvidia/openshell/gateway:<VERSION>"
-const defaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:<VERSION>"
+```yaml
+- name: GATEWAY_IMAGE
+  value: quay.io/opendatahub/odh-openshell-gateway:<VERSION>@sha256:<DIGEST>
+- name: GATEWAY_SUPERVISOR_IMAGE
+  value: quay.io/opendatahub/odh-openshell-supervisor:<VERSION>@sha256:<DIGEST>
 ```
 
-Every other occurrence of the version in the repo is a copy of these and MUST
-agree with them after a run.
+`config.go` reads these at runtime via `os.Getenv("GATEWAY_IMAGE")` /
+`os.Getenv("GATEWAY_SUPERVISOR_IMAGE")` - there are no hardcoded fallback
+constants. A control-plane deployed without these env vars will fail to
+provision gateways. Every other occurrence of the version in the repo is a copy
+of these and MUST agree with them after a run.
 
 ## Version footprint
 
@@ -57,13 +63,14 @@ Update the version in every file below. Discover the live list before editing -
 do not trust this table blindly; it is a checklist, not a source of truth:
 
 ```bash
-grep -rln "openshell/\(gateway\|supervisor\):" . | grep -v '\.git/'
+grep -rln "odh-openshell-\(gateway\|supervisor\):" . | grep -v '\.git/'
+grep -rln "openshell/\(gateway\|supervisor\):" . | grep -v '\.git/'     # older image names (ghcr.io/nvidia)
 grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intentional fixtures afterwards
 ```
 
 | File | What to change | Notes |
 |------|----------------|-------|
-| `components/control-plane/internal/gateway/config.go` | `defaultGatewayImage`, `defaultSupervisorImage` | **Source of truth** - change here first |
+| `deploy/base/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE` env vars | **Source of truth** - change here first |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
 | `specs/platform/openshell-gateway-credentials.spec.md` | example manifests | Spec citation |
@@ -128,12 +135,13 @@ to the footprint table.
    feature that overlaps something HyperShell hand-rolls). Surface every
    `needs-decision` item to the user before finalizing - do not silently absorb it.
 
-3. **Bump the pins.** Edit `config.go` first, then sweep the rest of the
+3. **Bump the pins.** Edit `deploy/base/controller.yaml` first, then sweep the rest of the
    [Version footprint](#version-footprint). Per the repo convention *"Image
    references must match across the stack"*, grep all overlays and manifests too:
 
    ```bash
-   grep -rn "openshell/\(gateway\|supervisor\)" components/*/deploy components/control-plane/manifests
+   grep -rn "odh-openshell-\(gateway\|supervisor\)" deploy/
+   grep -rn "openshell/\(gateway\|supervisor\)" deploy/                # older ghcr.io image names
    ```
 
 4. **Verify contracts.** For each `needs-decision` item from step 2, check the
@@ -146,7 +154,7 @@ to the footprint table.
    - **Sandbox API version**: confirm the `agents.x-k8s.io` API version the new
      gateway requires still matches the RBAC and manifests
      (`components/control-plane/manifests/gateway/rbac.yaml`,
-     `.../networkpolicy.yaml`, `components/api-server/deploy/ibm/controller-clusterrbac.yaml`).
+     `.../networkpolicy.yaml`, `deploy/base/controller-rbac.yaml`).
    - **Credential drivers**: if upstream changed the pluggable credential storage
      surface, re-check `ValidateCredentialDriverConfig` and the credentials spec.
    - **PKI / TLS / Route**: if upstream shipped ingress/PKI features, evaluate
@@ -182,7 +190,7 @@ does, the item is `needs-decision`:
 | Surface | Why it matters | Where HyperShell depends on it |
 |---------|----------------|--------------------------------|
 | Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` | `manifests/gateway/configmap.yaml`, `internal/gateway/config.go` |
-| Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `manifests/gateway/rbac.yaml`, `networkpolicy.yaml`, `deploy/ibm/controller-clusterrbac.yaml` |
+| Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `manifests/gateway/rbac.yaml`, `networkpolicy.yaml`, `deploy/base/controller-rbac.yaml` |
 | Credential storage drivers | HyperShell selects/validates drivers | `ValidateCredentialDriverConfig`, `openshell-gateway-credentials.spec.md` |
 | gRPC/proto surface | API server + control plane speak gRPC | `components/api-server/proto/` |
 | Gateway/supervisor CLI flags & env | Control plane sets them | `configmap.yaml`, deployment manifests |

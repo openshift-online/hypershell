@@ -3,7 +3,6 @@ package delete
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/fleet"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/gateway"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/gatewayNetwork"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/gatewayRelease"
@@ -20,7 +19,6 @@ var Cmd = &cobra.Command{
 }
 
 func init() {
-	Cmd.AddCommand(fleet.Cmd)
 	Cmd.AddCommand(gateway.Cmd)
 	Cmd.AddCommand(gatewayNetwork.Cmd)
 	Cmd.AddCommand(gatewayRelease.Cmd)

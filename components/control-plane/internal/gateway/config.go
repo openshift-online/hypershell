@@ -37,28 +37,18 @@ const defaultOAuth2ProxyImage = "quay.io/oauth2-proxy/oauth2-proxy:v7.7.1"
 
 type StaticImageDefaults struct{}
 
-const defaultGatewayImage = "quay.io/bsquizza/openshell-gateway:16112bc"
-const defaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:16112bc"
-
 // DefaultGatewayImage resolves the gateway server (and certgen) image used when
-// a Gateway resource does not specify one. Overridable via GATEWAY_IMAGE so
-// clusters whose nodes cannot reach ghcr.io (e.g. IBM ROKS) can point it at an
-// in-cluster registry mirror, mirroring the GATEWAY_SANDBOX_IMAGE override.
+// a Gateway resource does not specify one. Must be set via GATEWAY_IMAGE environment
+// variable; reconciliation will fail if not provided.
 func (StaticImageDefaults) DefaultGatewayImage() string {
-	if v := os.Getenv("GATEWAY_IMAGE"); v != "" {
-		return v
-	}
-	return defaultGatewayImage
+	return os.Getenv("GATEWAY_IMAGE")
 }
 
 // DefaultSupervisorImage resolves the supervisor sidecar image used when a
-// Gateway resource does not specify one. Overridable via GATEWAY_SUPERVISOR_IMAGE
-// for the same ghcr.io-unreachable clusters as DefaultGatewayImage.
+// Gateway resource does not specify one. Must be set via GATEWAY_SUPERVISOR_IMAGE environment
+// variable; reconciliation will fail if not provided.
 func (StaticImageDefaults) DefaultSupervisorImage() string {
-	if v := os.Getenv("GATEWAY_SUPERVISOR_IMAGE"); v != "" {
-		return v
-	}
-	return defaultSupervisorImage
+	return os.Getenv("GATEWAY_SUPERVISOR_IMAGE")
 }
 
 func (StaticImageDefaults) DefaultDatabaseImage() string {

@@ -29,3 +29,20 @@ func migration() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationDropFleetId() *gormigrate.Migration {
+	type GatewayRelease struct{ db.Model }
+
+	return &gormigrate.Migration{
+		ID: "2026082813000003",
+		Migrate: func(tx *gorm.DB) error {
+			if tx.Migrator().HasColumn(&GatewayRelease{}, "fleet_id") {
+				return tx.Migrator().DropColumn(&GatewayRelease{}, "fleet_id")
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
+		},
+	}
+}

@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -28,7 +28,6 @@ type ManagedDatabase struct {
 	CreatedAt        *time.Time `json:"created_at,omitempty"`
 	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
 	Name             string     `json:"name"`
-	FleetId          string     `json:"fleet_id"`
 	Provider         string     `json:"provider"`
 	Namespace        *string    `json:"namespace,omitempty"`
 	Region           *string    `json:"region,omitempty"`
@@ -45,10 +44,9 @@ type _ManagedDatabase ManagedDatabase
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedDatabase(name string, fleetId string, provider string) *ManagedDatabase {
+func NewManagedDatabase(name string, provider string) *ManagedDatabase {
 	this := ManagedDatabase{}
 	this.Name = name
-	this.FleetId = fleetId
 	this.Provider = provider
 	return &this
 }
@@ -243,30 +241,6 @@ func (o *ManagedDatabase) GetNameOk() (*string, bool) {
 // SetName sets field value
 func (o *ManagedDatabase) SetName(v string) {
 	o.Name = v
-}
-
-// GetFleetId returns the FleetId field value
-func (o *ManagedDatabase) GetFleetId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value
-// and a boolean to check if the value has been set.
-func (o *ManagedDatabase) GetFleetIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.FleetId, true
-}
-
-// SetFleetId sets field value
-func (o *ManagedDatabase) SetFleetId(v string) {
-	o.FleetId = v
 }
 
 // GetProvider returns the Provider field value
@@ -543,7 +517,6 @@ func (o ManagedDatabase) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["provider"] = o.Provider
 	if !IsNil(o.Namespace) {
 		toSerialize["namespace"] = o.Namespace
@@ -575,7 +548,6 @@ func (o *ManagedDatabase) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"fleet_id",
 		"provider",
 	}
 

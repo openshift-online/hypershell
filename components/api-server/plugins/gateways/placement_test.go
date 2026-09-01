@@ -48,7 +48,7 @@ func TestDeploymentPlacementIgnoresExplicitDatabaseID(t *testing.T) {
 	creator := &fakeDatabaseCreator{created: "server-created-db-id"}
 	placement := NewDeploymentPlacement(creator)
 
-	gw := &Gateway{Name: "gw1", FleetId: "fleet-1", DatabaseId: "client-supplied-db-id"}
+	gw := &Gateway{Name: "gw1", DatabaseId: "client-supplied-db-id"}
 	if err := placement.Resolve(context.Background(), gw); err != nil {
 		t.Fatalf("Resolve() unexpected error: %v", err)
 	}
@@ -57,9 +57,6 @@ func TestDeploymentPlacementIgnoresExplicitDatabaseID(t *testing.T) {
 	}
 	if creator.calls != 1 {
 		t.Fatalf("CreateForGateway called %d times, want 1", creator.calls)
-	}
-	if gw.FleetId != "fleet-1" {
-		t.Fatalf("FleetId = %q, want API value left unchanged", gw.FleetId)
 	}
 }
 
@@ -87,20 +84,17 @@ func TestDeploymentPlacementAutoCreatesPerGatewayDatabase(t *testing.T) {
 }
 
 // CNPG placement also owns database_id. It resolves the sole database globally
-// and never trusts a caller-supplied relationship ID or uses fleet_id.
+// and never trusts a caller-supplied relationship ID.
 func TestCNPGPlacementIgnoresExplicitDatabaseID(t *testing.T) {
 	dbs := &fakeDatabaseLookup{sole: "resolved-db-id"}
 	placement := NewCNPGPlacement(dbs)
 
-	gw := &Gateway{Name: "gw1", FleetId: "fleet-1", DatabaseId: "client-supplied-db-id"}
+	gw := &Gateway{Name: "gw1", DatabaseId: "client-supplied-db-id"}
 	if err := placement.Resolve(context.Background(), gw); err != nil {
 		t.Fatalf("Resolve() unexpected error: %v", err)
 	}
 	if gw.DatabaseId != "resolved-db-id" {
 		t.Fatalf("DatabaseId = %q, want resolved database", gw.DatabaseId)
-	}
-	if gw.FleetId != "fleet-1" {
-		t.Fatalf("FleetId = %q, want API value left unchanged", gw.FleetId)
 	}
 }
 
@@ -115,18 +109,14 @@ func TestCNPGPlacementResolvesSoleDatabase(t *testing.T) {
 	if gw.DatabaseId != "db-1" {
 		t.Fatalf("DatabaseId = %q, want %q", gw.DatabaseId, "db-1")
 	}
-	if gw.FleetId != "" {
-		t.Fatalf("FleetId = %q, want no Fleet resolution from cluster_id", gw.FleetId)
-	}
 }
 
-// CNPG placement rejects zero or multiple global ManagedDatabases rather than
-// using fleet_id to choose one.
+// CNPG placement rejects zero or multiple global ManagedDatabases.
 func TestCNPGPlacementRejectsAmbiguousDatabases(t *testing.T) {
 	dbs := &fakeDatabaseLookup{}
 	placement := NewCNPGPlacement(dbs)
 
-	gw := &Gateway{Name: "gw1", FleetId: "fleet-1"}
+	gw := &Gateway{Name: "gw1"}
 	err := placement.Resolve(context.Background(), gw)
 	if err == nil {
 		t.Fatal("Resolve() = nil error, want an error when zero or multiple ManagedDatabases exist")
@@ -146,7 +136,7 @@ func TestPlacementValidationErrorClassification(t *testing.T) {
 
 func TestPlacementDatabaseCreationErrorClassification(t *testing.T) {
 	placement := NewDeploymentPlacement(&fakeDatabaseCreator{err: errors.New("database unavailable")})
-	err := placement.Resolve(context.Background(), &Gateway{Name: "gw1", FleetId: "fleet-1"})
+	err := placement.Resolve(context.Background(), &Gateway{Name: "gw1"})
 	if err == nil {
 		t.Fatal("Resolve() = nil, want creation error")
 	}

@@ -39,14 +39,16 @@ main.go → imports plugins (init side-effects) → registers routes, controller
 
 ## Domain Model
 
+All resources are top-level; there is no Fleet/Sector grouping and no `fleet_id`
+field. Tenancy is enforced by RBAC (platform-level and per-gateway).
+
 | Kind | Key Fields | Purpose |
 |------|-----------|---------|
-| **Fleet** | name, description, status | Top-level organizational unit |
-| **Gateway** | name, fleet_id, cluster_id, release_id, database_id, namespace, tls_mode | API gateway instance |
-| **GatewayNetwork** | name, fleet_id, topology, tunnel_mode, hub_gateway_id | Network connectivity mesh |
-| **GatewayRelease** | name, fleet_id, image, rollout_strategy, canary_percent | Versioned gateway images |
-| **ManagedCluster** | name, fleet_id, provider, region, kubeconfig_secret | Registered K8s cluster |
-| **ManagedDatabase** | name, fleet_id, provider, region, engine, connection_secret | Provisioned database |
+| **Gateway** | name, cluster_id, release_id, database_id, namespace, tls_mode | API gateway instance |
+| **GatewayNetwork** | name, topology, tunnel_mode, hub_gateway_id | Network connectivity mesh |
+| **GatewayRelease** | name, image, rollout_strategy, canary_percent | Versioned gateway images |
+| **ManagedCluster** | name, provider, region, kubeconfig_secret | Registered K8s cluster |
+| **ManagedDatabase** | name, provider, region, engine, connection_secret | Provisioned database |
 
 ## Plugin System
 
@@ -99,7 +101,7 @@ All routes under `/api/hypershell/v1/`:
 | PATCH | `/{kinds}/{id}` | Patch |
 | DELETE | `/{kinds}/{id}` | Delete |
 
-Kinds: `fleets`, `gateways`, `gateway_networks`, `gateway_releases`, `managed_clusters`, `managed_databases`
+Kinds: `gateways`, `gateway_networks`, `gateway_releases`, `managed_clusters`, `managed_databases`
 
 ## Conventions
 

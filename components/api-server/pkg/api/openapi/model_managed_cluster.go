@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -28,7 +28,6 @@ type ManagedCluster struct {
 	CreatedAt        *time.Time `json:"created_at,omitempty"`
 	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
 	Name             string     `json:"name"`
-	FleetId          string     `json:"fleet_id"`
 	Provider         string     `json:"provider"`
 	Region           *string    `json:"region,omitempty"`
 	KubeconfigSecret string     `json:"kubeconfig_secret"`
@@ -42,10 +41,9 @@ type _ManagedCluster ManagedCluster
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedCluster(name string, fleetId string, provider string, kubeconfigSecret string) *ManagedCluster {
+func NewManagedCluster(name string, provider string, kubeconfigSecret string) *ManagedCluster {
 	this := ManagedCluster{}
 	this.Name = name
-	this.FleetId = fleetId
 	this.Provider = provider
 	this.KubeconfigSecret = kubeconfigSecret
 	return &this
@@ -243,30 +241,6 @@ func (o *ManagedCluster) SetName(v string) {
 	o.Name = v
 }
 
-// GetFleetId returns the FleetId field value
-func (o *ManagedCluster) GetFleetId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value
-// and a boolean to check if the value has been set.
-func (o *ManagedCluster) GetFleetIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.FleetId, true
-}
-
-// SetFleetId sets field value
-func (o *ManagedCluster) SetFleetId(v string) {
-	o.FleetId = v
-}
-
 // GetProvider returns the Provider field value
 func (o *ManagedCluster) GetProvider() string {
 	if o == nil {
@@ -437,7 +411,6 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["provider"] = o.Provider
 	if !IsNil(o.Region) {
 		toSerialize["region"] = o.Region
@@ -458,7 +431,6 @@ func (o *ManagedCluster) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"fleet_id",
 		"provider",
 		"kubeconfig_secret",
 	}

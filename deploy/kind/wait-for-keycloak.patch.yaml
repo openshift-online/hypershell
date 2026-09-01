@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: not-used
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-keycloak
+          image: registry.access.redhat.com/hi/curl:8.21.0-builder@sha256:d706d4ef0a3d7701f25a76eca6c0c33bd402b90d10e54a3b815a17ba59404a71
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          command:
+             - /bin/bash
+             - -c
+             - |
+               set -e
+               echo "Waiting for ${KEYCLOAK_ENDPOINT} to be reachable..."
+               RETRY_COUNT=0
+               until curl -sf -o /dev/null "${KEYCLOAK_ENDPOINT}"; do
+                 RETRY_COUNT=$((RETRY_COUNT + 1))
+                 if [ "${RETRY_COUNT}" -ge "${MAX_RETRIES}" ]; then
+                   echo "ERROR: ${KEYCLOAK_ENDPOINT} not reachable after $((MAX_RETRIES * WAIT_TIME_IN_SECONDS)) seconds, giving up"
+                   exit 1
+                 fi
+                 echo "${KEYCLOAK_ENDPOINT} not reachable, waiting... (attempt ${RETRY_COUNT}/${MAX_RETRIES})"
+                 sleep "${WAIT_TIME_IN_SECONDS}"
+               done
+               echo "${KEYCLOAK_ENDPOINT} is reachable"
+          env:
+            - name: KEYCLOAK_ENDPOINT
+              value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"
+            - name: MAX_RETRIES
+              value: "60"
+            - name: WAIT_TIME_IN_SECONDS
+              value: "5"
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            runAsUser: 1000

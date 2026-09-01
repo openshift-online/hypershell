@@ -10,6 +10,13 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"google.golang.org/grpc"
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
 // fakeExposure is a stub Gateway Exposure port for driving the health
@@ -57,19 +64,149 @@ func TestSelfHealConsole_NoOpWhenUnconfigured(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no keycloak config", func(t *testing.T) {
-		h := &GatewayHealthReconciler{exposure: fakeExposure{}} // keycloakConfig nil
+		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute} // keycloakConfig nil
 		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
 	})
 
-	t.Run("no exposure port", func(t *testing.T) {
-		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}} // exposure nil
+	t.Run("no selected ingress", func(t *testing.T) {
+		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
 		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
 	})
 
 	t.Run("not a routed gateway", func(t *testing.T) {
-		h := &GatewayHealthReconciler{exposure: fakeExposure{}, keycloakConfig: &gateway.KeycloakConfig{}}
+		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute, keycloakConfig: &gateway.KeycloakConfig{}}
 		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc"})
 	})
+
+	t.Run("route explicitly disabled", func(t *testing.T) {
+		route := `{"enabled":false}`
+		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute, keycloakConfig: &gateway.KeycloakConfig{}}
+		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{
+			Metadata:  &pb.ObjectReference{Id: "gw-1"},
+			Namespace: "openshell-abc",
+			Route:     &route,
+		})
+	})
+}
+
+func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
+	t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+	const namespace = "openshell-abc"
+
+	for _, tc := range []struct {
+		name        string
+		admitted    bool
+		current     string
+		wantReady   bool
+		wantAddress string
+	}{
+		{
+			name:        "admitted Route publishes the address",
+			admitted:    true,
+			wantReady:   true,
+			wantAddress: "https://console-openshell-abc.apps.example.com",
+		},
+		{
+			name:        "rejected Route clears the address",
+			current:     "https://console-openshell-abc.apps.example.com",
+			wantAddress: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			replicas := int32(1)
+			clientset := k8sfake.NewSimpleClientset(&appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: gateway.ConsoleDeploymentName, Namespace: namespace},
+				Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+				Status:     appsv1.DeploymentStatus{ReadyReplicas: replicas},
+			})
+
+			status := "False"
+			reason := "HostAlreadyClaimed"
+			if tc.admitted {
+				status = "True"
+				reason = ""
+			}
+			route := &unstructured.Unstructured{Object: map[string]interface{}{
+				"apiVersion": "route.openshift.io/v1",
+				"kind":       "Route",
+				"metadata": map[string]interface{}{
+					"name":      gateway.ConsoleDeploymentName,
+					"namespace": namespace,
+				},
+				"status": map[string]interface{}{
+					"ingress": []interface{}{
+						map[string]interface{}{
+							"conditions": []interface{}{
+								map[string]interface{}{"type": "Admitted", "status": status, "reason": reason},
+							},
+						},
+					},
+				},
+			}}
+			routeGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+			dynamicClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+				runtime.NewScheme(),
+				map[schema.GroupVersionResource]string{routeGVR: "RouteList"},
+				route,
+			)
+
+			var gotAddress string
+			updates := 0
+			client := &fakeGatewayClient{updateFn: func(_ context.Context, request *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+				updates++
+				if request.ConsoleAddress == nil {
+					t.Fatal("console address update is nil")
+				}
+				gotAddress = *request.ConsoleAddress
+				return &pb.UpdateGatewayResponse{}, nil
+			}}
+			gw := routedGateway("gw-1", namespace)
+			gw.ConsoleAddress = &tc.current
+
+			ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeRoute)
+			if ready != tc.wantReady {
+				t.Fatalf("ready = %v, want %v", ready, tc.wantReady)
+			}
+			if gotAddress != tc.wantAddress {
+				t.Fatalf("console address = %q, want %q", gotAddress, tc.wantAddress)
+			}
+			if updates != 1 {
+				t.Fatalf("address updates = %d, want 1", updates)
+			}
+		})
+	}
+}
+
+func TestSyncConsoleAddressClearsAddressWithoutBaseDomain(t *testing.T) {
+	t.Setenv("GATEWAY_API_BASE_DOMAIN", "")
+	current := "https://console-openshell-abc.apps.example.com"
+	gw := routedGateway("gw-1", "openshell-abc")
+	gw.ConsoleAddress = &current
+
+	var gotAddress string
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, request *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if request.ConsoleAddress == nil {
+			t.Fatal("console address update is nil")
+		}
+		gotAddress = *request.ConsoleAddress
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	ready := syncConsoleAddress(
+		context.Background(),
+		k8sfake.NewSimpleClientset(),
+		nil,
+		client,
+		"gw-1",
+		gw,
+		gateway.IngressModeRoute,
+	)
+	if ready {
+		t.Fatal("ready = true, want false without a base domain")
+	}
+	if gotAddress != "" {
+		t.Fatalf("console address = %q, want empty", gotAddress)
+	}
 }
 
 // teardownRoute reconciles the desired absence of the route and console for a
@@ -298,6 +435,8 @@ func TestIsRoutedGateway(t *testing.T) {
 		{"null route", str("null"), false},
 		{"empty object", str("{}"), true},
 		{"enabled route", str(`{"enabled":true}`), true},
+		{"disabled route", str(`{"enabled":false}`), false},
+		{"host-only route", str(`{"host":"gateway.example.com"}`), true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -310,7 +449,8 @@ func TestIsRoutedGateway(t *testing.T) {
 
 type fakeGatewayClient struct {
 	pb.GatewayServiceClient
-	listFn func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error)
+	listFn   func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error)
+	updateFn func(ctx context.Context, in *pb.UpdateGatewayRequest, opts ...grpc.CallOption) (*pb.UpdateGatewayResponse, error)
 }
 
 func (f *fakeGatewayClient) ListGateways(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
@@ -318,6 +458,13 @@ func (f *fakeGatewayClient) ListGateways(ctx context.Context, in *pb.ListGateway
 		return f.listFn(ctx, in, opts...)
 	}
 	return &pb.ListGatewaysResponse{}, nil
+}
+
+func (f *fakeGatewayClient) UpdateGateway(ctx context.Context, in *pb.UpdateGatewayRequest, opts ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+	if f.updateFn != nil {
+		return f.updateFn(ctx, in, opts...)
+	}
+	return &pb.UpdateGatewayResponse{}, nil
 }
 
 func TestListAllGateways_Pagination(t *testing.T) {

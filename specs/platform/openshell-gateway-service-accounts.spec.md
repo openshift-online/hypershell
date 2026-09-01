@@ -1,6 +1,6 @@
 # OpenShellGatewayServiceAccount (Client Secret) Specification
 
-**Date:** 2026-08-21
+**Date:** 2026-08-31
 **Status:** Draft
 **Tracks:** [HYPERSHELL-49](https://redhat.atlassian.net/browse/HYPERSHELL-49) - Service account provisioning via federated Keycloak
 **Parent:** `openshell-gateway-keycloak.spec.md` - per-gateway Keycloak clients and role mapping
@@ -399,6 +399,8 @@ Client attributes SHALL contain the OpenShellGatewayServiceAccount ID, gateway I
 | Device Authorization Grant     | disabled                                                                                                       |
 | `fullScopeAllowed`             | `false`                                                                                                        |
 | redirect URIs / web origins    | empty                                                                                                          |
+| default client scopes          | empty, or only Keycloak's built-in `service_account` scope                                                     |
+| optional client scopes         | empty                                                                                                          |
 | access-token lifetime override | `300` seconds by default. Never greater than `900` seconds.                                                    |
 
 The service-account client SHALL NOT receive these permissions:
@@ -425,6 +427,8 @@ Keycloak includes a role only when both the service-account assignment and the s
 8. Use Keycloak's standard service-account subject as `sub`. Do not override it with user input.
 
 The service-account client SHALL have no scope mapping for another gateway. Realm defaults and client scopes SHALL NOT add another gateway audience or role.
+
+Keycloak 26.1 and later automatically assigns the built-in `service_account` default client scope when `serviceAccountsEnabled` is true. HyperShell SHALL accept an empty default-scope list for older Keycloak versions. It SHALL also accept a list that contains only `service_account`. It SHALL treat any other default scope or any optional scope as drift. The built-in scope SHALL NOT cause a repair because Keycloak adds it again while service accounts are enabled.
 
 ### Expected Access Token
 
@@ -981,6 +985,22 @@ The PostgreSQL OpenShellGatewayServiceAccount record SHALL define the required K
 If Keycloak grants broader access, reconciliation SHALL remove the unexpected roles or audiences. It SHALL complete this removal before it re-enables the service-account client.
 
 Reconciliation SHALL never regenerate or fetch a client secret. Such a change would invalidate the consumer's stored client credentials without delivering a replacement.
+
+#### Scenario: Built-in service-account scope is converged
+
+- GIVEN a ready service-account client matches the required Keycloak state
+- AND its only default client scope is Keycloak's built-in `service_account` scope
+- WHEN HyperShell reconciles the OpenShellGatewayServiceAccount
+- THEN it SHALL perform no Keycloak write
+- AND it SHALL leave the client enabled
+
+#### Scenario: An additional client scope is drift
+
+- GIVEN a ready service-account client has the built-in `service_account` scope and another default client scope
+- WHEN HyperShell reconciles the OpenShellGatewayServiceAccount
+- THEN it SHALL disable the client before repair
+- AND it SHALL remove the additional default client scope
+- AND it SHALL preserve the built-in `service_account` scope that Keycloak manages
 
 #### Scenario: Service-account client drifts to full scope
 

@@ -25,7 +25,6 @@ type Gateway struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Metadata           *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Name               string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId            string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
 	ClusterId          string                 `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	ReleaseId          string                 `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
 	DatabaseId         string                 `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
@@ -88,13 +87,6 @@ func (x *Gateway) GetMetadata() *ObjectReference {
 func (x *Gateway) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *Gateway) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
 	}
 	return ""
 }
@@ -228,7 +220,6 @@ func (x *Gateway) GetConsoleAddress() string {
 type CreateGatewayRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId          string                 `protobuf:"bytes,2,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
 	ClusterId        string                 `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	ReleaseId        string                 `protobuf:"bytes,4,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
 	DatabaseId       string                 `protobuf:"bytes,5,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
@@ -280,13 +271,6 @@ func (*CreateGatewayRequest) Descriptor() ([]byte, []int) {
 func (x *CreateGatewayRequest) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *CreateGatewayRequest) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
 	}
 	return ""
 }
@@ -525,7 +509,6 @@ type UpdateGatewayRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name             *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	FleetId          *string                `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3,oneof" json:"fleet_id,omitempty"`
 	ClusterId        *string                `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
 	ReleaseId        *string                `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3,oneof" json:"release_id,omitempty"`
 	DatabaseId       *string                `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3,oneof" json:"database_id,omitempty"`
@@ -590,13 +573,6 @@ func (x *UpdateGatewayRequest) GetId() string {
 func (x *UpdateGatewayRequest) GetName() string {
 	if x != nil && x.Name != nil {
 		return *x.Name
-	}
-	return ""
-}
-
-func (x *UpdateGatewayRequest) GetFleetId() string {
-	if x != nil && x.FleetId != nil {
-		return *x.FleetId
 	}
 	return ""
 }
@@ -1241,11 +1217,10 @@ var File_hypershell_v1_gateways_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
-	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xce\a\n" +
+	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xc3\a\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x03 \x01(\tR\afleetId\x12\x1d\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x04 \x01(\tR\tclusterId\x12\x1d\n" +
 	"\n" +
@@ -1281,10 +1256,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x17\n" +
 	"\x15_active_sandbox_countB\x12\n" +
-	"\x10_console_address\"\xb3\x05\n" +
+	"\x10_console_addressJ\x04\b\x03\x10\x04R\bfleet_id\"\xa8\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x1d\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x03 \x01(\tR\tclusterId\x12\x1d\n" +
 	"\n" +
@@ -1312,40 +1286,38 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\a\n" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
-	"\x12_credential_driver\"I\n" +
+	"\x12_credential_driverJ\x04\b\x02\x10\x03R\bfleet_id\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x9e\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x81\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
-	"\bfleet_id\x18\x03 \x01(\tH\x01R\afleetId\x88\x01\x01\x12\"\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"cluster_id\x18\x04 \x01(\tH\x02R\tclusterId\x88\x01\x01\x12\"\n" +
+	"cluster_id\x18\x04 \x01(\tH\x01R\tclusterId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"release_id\x18\x05 \x01(\tH\x03R\treleaseId\x88\x01\x01\x12$\n" +
-	"\vdatabase_id\x18\x06 \x01(\tH\x04R\n" +
+	"release_id\x18\x05 \x01(\tH\x02R\treleaseId\x88\x01\x01\x12$\n" +
+	"\vdatabase_id\x18\x06 \x01(\tH\x03R\n" +
 	"databaseId\x88\x01\x01\x12&\n" +
-	"\fexternal_dns\x18\a \x01(\tH\x05R\vexternalDns\x88\x01\x01\x12\x1e\n" +
-	"\btls_mode\x18\b \x01(\tH\x06R\atlsMode\x88\x01\x01\x12&\n" +
-	"\fservice_type\x18\t \x01(\tH\aR\vserviceType\x88\x01\x01\x12\x1b\n" +
+	"\fexternal_dns\x18\a \x01(\tH\x04R\vexternalDns\x88\x01\x01\x12\x1e\n" +
+	"\btls_mode\x18\b \x01(\tH\x05R\atlsMode\x88\x01\x01\x12&\n" +
+	"\fservice_type\x18\t \x01(\tH\x06R\vserviceType\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\n" +
-	" \x01(\tH\bR\x06status\x88\x01\x01\x12\x19\n" +
-	"\x05phase\x18\v \x01(\tH\tR\x05phase\x88\x01\x01\x12\x19\n" +
-	"\x05image\x18\f \x01(\tH\n" +
-	"R\x05image\x88\x01\x01\x12.\n" +
-	"\x10supervisor_image\x18\r \x01(\tH\vR\x0fsupervisorImage\x88\x01\x01\x12(\n" +
+	" \x01(\tH\aR\x06status\x88\x01\x01\x12\x19\n" +
+	"\x05phase\x18\v \x01(\tH\bR\x05phase\x88\x01\x01\x12\x19\n" +
+	"\x05image\x18\f \x01(\tH\tR\x05image\x88\x01\x01\x12.\n" +
+	"\x10supervisor_image\x18\r \x01(\tH\n" +
+	"R\x0fsupervisorImage\x88\x01\x01\x12(\n" +
 	"\x10server_dns_names\x18\x0e \x03(\tR\x0eserverDnsNames\x12(\n" +
-	"\rroute_address\x18\x0f \x01(\tH\fR\frouteAddress\x88\x01\x01\x12\x17\n" +
-	"\x04oidc\x18\x10 \x01(\tH\rR\x04oidc\x88\x01\x01\x12\x19\n" +
-	"\x05route\x18\x11 \x01(\tH\x0eR\x05route\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x13 \x01(\tH\x0fR\x10credentialDriver\x88\x01\x01\x12,\n" +
-	"\x0fconsole_address\x18\x14 \x01(\tH\x10R\x0econsoleAddress\x88\x01\x01B\a\n" +
-	"\x05_nameB\v\n" +
-	"\t_fleet_idB\r\n" +
+	"\rroute_address\x18\x0f \x01(\tH\vR\frouteAddress\x88\x01\x01\x12\x17\n" +
+	"\x04oidc\x18\x10 \x01(\tH\fR\x04oidc\x88\x01\x01\x12\x19\n" +
+	"\x05route\x18\x11 \x01(\tH\rR\x05route\x88\x01\x01\x120\n" +
+	"\x11credential_driver\x18\x13 \x01(\tH\x0eR\x10credentialDriver\x88\x01\x01\x12,\n" +
+	"\x0fconsole_address\x18\x14 \x01(\tH\x0fR\x0econsoleAddress\x88\x01\x01B\a\n" +
+	"\x05_nameB\r\n" +
 	"\v_cluster_idB\r\n" +
 	"\v_release_idB\x0e\n" +
 	"\f_database_idB\x0f\n" +
@@ -1360,7 +1332,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x12\n" +
-	"\x10_console_address\"I\n" +
+	"\x10_console_addressJ\x04\b\x03\x10\x04R\bfleet_id\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

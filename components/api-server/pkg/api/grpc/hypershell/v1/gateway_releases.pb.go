@@ -25,7 +25,6 @@ type GatewayRelease struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Metadata        *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId         string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
 	Image           string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
 	RolloutStrategy *string                `protobuf:"bytes,5,opt,name=rollout_strategy,json=rolloutStrategy,proto3,oneof" json:"rollout_strategy,omitempty"`
 	CanaryPercent   *int32                 `protobuf:"varint,6,opt,name=canary_percent,json=canaryPercent,proto3,oneof" json:"canary_percent,omitempty"`
@@ -79,13 +78,6 @@ func (x *GatewayRelease) GetName() string {
 	return ""
 }
 
-func (x *GatewayRelease) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
-	}
-	return ""
-}
-
 func (x *GatewayRelease) GetImage() string {
 	if x != nil {
 		return x.Image
@@ -124,7 +116,6 @@ func (x *GatewayRelease) GetStatus() string {
 type CreateGatewayReleaseRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId         string                 `protobuf:"bytes,2,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
 	Image           string                 `protobuf:"bytes,3,opt,name=image,proto3" json:"image,omitempty"`
 	RolloutStrategy *string                `protobuf:"bytes,4,opt,name=rollout_strategy,json=rolloutStrategy,proto3,oneof" json:"rollout_strategy,omitempty"`
 	CanaryPercent   *int32                 `protobuf:"varint,5,opt,name=canary_percent,json=canaryPercent,proto3,oneof" json:"canary_percent,omitempty"`
@@ -167,13 +158,6 @@ func (*CreateGatewayReleaseRequest) Descriptor() ([]byte, []int) {
 func (x *CreateGatewayReleaseRequest) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *CreateGatewayReleaseRequest) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
 	}
 	return ""
 }
@@ -349,7 +333,6 @@ type UpdateGatewayReleaseRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name            *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	FleetId         *string                `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3,oneof" json:"fleet_id,omitempty"`
 	Image           *string                `protobuf:"bytes,4,opt,name=image,proto3,oneof" json:"image,omitempty"`
 	RolloutStrategy *string                `protobuf:"bytes,5,opt,name=rollout_strategy,json=rolloutStrategy,proto3,oneof" json:"rollout_strategy,omitempty"`
 	CanaryPercent   *int32                 `protobuf:"varint,6,opt,name=canary_percent,json=canaryPercent,proto3,oneof" json:"canary_percent,omitempty"`
@@ -399,13 +382,6 @@ func (x *UpdateGatewayReleaseRequest) GetId() string {
 func (x *UpdateGatewayReleaseRequest) GetName() string {
 	if x != nil && x.Name != nil {
 		return *x.Name
-	}
-	return ""
-}
-
-func (x *UpdateGatewayReleaseRequest) GetFleetId() string {
-	if x != nil && x.FleetId != nil {
-		return *x.FleetId
 	}
 	return ""
 }
@@ -773,11 +749,10 @@ var File_hypershell_v1_gateway_releases_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_gateway_releases_proto_rawDesc = "" +
 	"\n" +
-	"$hypershell/v1/gateway_releases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xff\x02\n" +
+	"$hypershell/v1/gateway_releases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xf4\x02\n" +
 	"\x0eGatewayRelease\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x03 \x01(\tR\afleetId\x12\x14\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x04 \x01(\tR\x05image\x12.\n" +
 	"\x10rollout_strategy\x18\x05 \x01(\tH\x00R\x0frolloutStrategy\x88\x01\x01\x12*\n" +
 	"\x0ecanary_percent\x18\x06 \x01(\x05H\x01R\rcanaryPercent\x88\x01\x01\x12,\n" +
@@ -786,10 +761,9 @@ const file_hypershell_v1_gateway_releases_proto_rawDesc = "" +
 	"\x11_rollout_strategyB\x11\n" +
 	"\x0f_canary_percentB\x12\n" +
 	"\x10_canary_durationB\t\n" +
-	"\a_status\"\xd0\x02\n" +
+	"\a_statusJ\x04\b\x03\x10\x04R\bfleet_id\"\xc5\x02\n" +
 	"\x1bCreateGatewayReleaseRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x14\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x03 \x01(\tR\x05image\x12.\n" +
 	"\x10rollout_strategy\x18\x04 \x01(\tH\x00R\x0frolloutStrategy\x88\x01\x01\x12*\n" +
 	"\x0ecanary_percent\x18\x05 \x01(\x05H\x01R\rcanaryPercent\x88\x01\x01\x12,\n" +
@@ -798,29 +772,27 @@ const file_hypershell_v1_gateway_releases_proto_rawDesc = "" +
 	"\x11_rollout_strategyB\x11\n" +
 	"\x0f_canary_percentB\x12\n" +
 	"\x10_canary_durationB\t\n" +
-	"\a_status\"f\n" +
+	"\a_statusJ\x04\b\x02\x10\x03R\bfleet_id\"f\n" +
 	"\x1cCreateGatewayReleaseResponse\x12F\n" +
 	"\x0fgateway_release\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\"*\n" +
 	"\x18GetGatewayReleaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +
 	"\x19GetGatewayReleaseResponse\x12F\n" +
-	"\x0fgateway_release\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\"\x8f\x03\n" +
+	"\x0fgateway_release\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\"\xf2\x02\n" +
 	"\x1bUpdateGatewayReleaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
-	"\bfleet_id\x18\x03 \x01(\tH\x01R\afleetId\x88\x01\x01\x12\x19\n" +
-	"\x05image\x18\x04 \x01(\tH\x02R\x05image\x88\x01\x01\x12.\n" +
-	"\x10rollout_strategy\x18\x05 \x01(\tH\x03R\x0frolloutStrategy\x88\x01\x01\x12*\n" +
-	"\x0ecanary_percent\x18\x06 \x01(\x05H\x04R\rcanaryPercent\x88\x01\x01\x12,\n" +
-	"\x0fcanary_duration\x18\a \x01(\tH\x05R\x0ecanaryDuration\x88\x01\x01\x12\x1b\n" +
-	"\x06status\x18\b \x01(\tH\x06R\x06status\x88\x01\x01B\a\n" +
-	"\x05_nameB\v\n" +
-	"\t_fleet_idB\b\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x19\n" +
+	"\x05image\x18\x04 \x01(\tH\x01R\x05image\x88\x01\x01\x12.\n" +
+	"\x10rollout_strategy\x18\x05 \x01(\tH\x02R\x0frolloutStrategy\x88\x01\x01\x12*\n" +
+	"\x0ecanary_percent\x18\x06 \x01(\x05H\x03R\rcanaryPercent\x88\x01\x01\x12,\n" +
+	"\x0fcanary_duration\x18\a \x01(\tH\x04R\x0ecanaryDuration\x88\x01\x01\x12\x1b\n" +
+	"\x06status\x18\b \x01(\tH\x05R\x06status\x88\x01\x01B\a\n" +
+	"\x05_nameB\b\n" +
 	"\x06_imageB\x13\n" +
 	"\x11_rollout_strategyB\x11\n" +
 	"\x0f_canary_percentB\x12\n" +
 	"\x10_canary_durationB\t\n" +
-	"\a_status\"f\n" +
+	"\a_statusJ\x04\b\x03\x10\x04R\bfleet_id\"f\n" +
 	"\x1cUpdateGatewayReleaseResponse\x12F\n" +
 	"\x0fgateway_release\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayReleaseR\x0egatewayRelease\"-\n" +
 	"\x1bDeleteGatewayReleaseRequest\x12\x0e\n" +

@@ -16,7 +16,6 @@ import (
 )
 
 var args struct {
-	fleetId      string
 	hubGatewayId string
 	name         string
 	status       string
@@ -30,15 +29,14 @@ var Cmd = &cobra.Command{
 	Short: "Create a gatewayNetwork",
 	Long: "Create a new gatewayNetwork.\n\n" +
 		"Examples:\n" +
-		"  hypershell create gatewayNetwork --fleet-id <value> --hub-gateway-id <value> --name <value> --status <value> --topology <value> --tunnel-mode <value> \n" +
-		"  hypershell create gatewayNetwork --body request.json",
+		"  hsctl create gatewayNetwork --hub-gateway-id <value> --name <value> --status <value> --topology <value> --tunnel-mode <value> \n" +
+		"  hsctl create gatewayNetwork --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }
 
 func init() {
 	fs := Cmd.Flags()
-	fs.StringVar(&args.fleetId, "fleet-id", "", "fleet_id value.")
 	fs.StringVar(&args.hubGatewayId, "hub-gateway-id", "", "hub_gateway_id value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.status, "status", "", "status value.")
@@ -68,9 +66,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 	} else {
 		request := map[string]interface{}{}
-		if args.fleetId != "" {
-			request["fleet_id"] = args.fleetId
-		}
 		if args.hubGatewayId != "" {
 			request["hub_gateway_id"] = args.hubGatewayId
 		}

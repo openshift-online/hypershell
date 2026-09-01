@@ -225,13 +225,10 @@ components:
         - type: object
           required:
             - name
-            - fleet_id
             - provider
             - kubeconfig_secret
           properties:
             name:
-              type: string
-            fleet_id:
               type: string
             provider:
               type: string
@@ -260,8 +257,6 @@ components:
       type: object
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         provider:
           type: string

@@ -367,7 +367,7 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
   # database_id is a required request property but its value is server-owned.
-  # CNPG placement resolves the fleet's sole ManagedDatabase; deployment
+  # CNPG placement resolves the sole ManagedDatabase; deployment
   # placement ignores the empty placeholder and creates a new dedicated one.
   show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_databases"
   E2E_MD_RESP=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
@@ -383,43 +383,28 @@ for item in data.get('items', []):
 " 2>/dev/null || true)
 
   if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-    IFS=$'\t' read -r E2E_FLEET_ID E2E_DATABASE_ID <<< "$(echo "$E2E_MD_RESP" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-items = data.get('items', [])
-if items:
-    print('%s\t%s' % (items[0].get('fleet_id',''), items[0].get('id','')))
-else:
-    print('\t')
-" 2>/dev/null)" || true
-    if [[ -z "$E2E_FLEET_ID" || -z "$E2E_DATABASE_ID" ]]; then
-      fail_test "Could not discover CNPG fleet_id or database_id from ManagedDatabase API"
-      exit 1
-    fi
-  else
-    show_cmd "api_curl ${API_HOST}/api/hypershell/v1/fleets"
-    E2E_FLEET_ID=$(api_curl "${API_HOST}/api/hypershell/v1/fleets" 2>/dev/null | python3 -c "
+    E2E_DATABASE_ID=$(echo "$E2E_MD_RESP" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 items = data.get('items', [])
 print(items[0].get('id', '') if items else '')
 " 2>/dev/null || true)
-    E2E_DATABASE_ID=""
-    if [[ -z "$E2E_FLEET_ID" ]]; then
-      fail_test "Could not discover fleet_id for deployment database placement"
+    if [[ -z "$E2E_DATABASE_ID" ]]; then
+      fail_test "Could not discover CNPG database_id from ManagedDatabase API"
       exit 1
     fi
+  else
+    E2E_DATABASE_ID=""
   fi
-  dim "  Using fleet_id=${E2E_FLEET_ID}; database_id is assigned by ${DB_PROVIDER} placement"
+  dim "  database_id is assigned by ${DB_PROVIDER} placement"
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, database_id: <placement placeholder>, oidc: ...}'"
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
-    E2E_FLEET_ID="$E2E_FLEET_ID" E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
+    E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': os.environ['E2E_FLEET_ID'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': os.environ['E2E_DATABASE_ID'],
@@ -1389,7 +1374,6 @@ except Exception:
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': 'e2e-database',
@@ -1540,7 +1524,6 @@ print('true' if has_owner else 'false')
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': 'e2e-database',
