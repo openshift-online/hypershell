@@ -384,20 +384,20 @@ secrets are unnecessary):
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://ghcr.io/nvidia/openshell/gateway:0.0.109    docker://$REG/openshift/openshell-gateway:0.0.109
+  docker://quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd    docker://$REG/openshift/openshell-gateway:v0.0.109-rhaiv.0
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://ghcr.io/nvidia/openshell/supervisor:0.0.109 docker://$REG/openshift/openshell-supervisor:0.0.109
+  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.0.109-rhaiv.0@sha256:96e21135c18bc9f6f4d1dfd0cccae3c91769ef4d87da2e470eca4b56a24b2152 docker://$REG/openshift/openshell-supervisor:v0.0.109-rhaiv.0
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, postgres
 ```
 
 ### 5.3: Deploy with the `deploy/ibm` overlay
 
 ```bash
-cd components/api-server && oc kustomize deploy/ibm | oc apply -f -
-oc -n hypershell rollout status deploy/hypershell-controller
+oc kustomize deploy/ibm | oc apply -f -
+oc -n hypershell-system rollout status deploy/hypershell-controller
 ```
 
-The overlay (on top of `deploy/openshift`, namespace `hypershell`) sets, and you
+The overlay (on top of `deploy/openshift`, namespace `hypershell-system`) sets, and you
 must keep aligned with this cluster:
 
 - `GATEWAY_INGRESS_MODE=route` and `GATEWAY_API_BASE_DOMAIN=<ingress subdomain>`
@@ -425,7 +425,7 @@ must keep aligned with this cluster:
 - `HYPERSHELL_DATABASE_IMAGE=...svc:5000/openshift/postgres:18` - the per-tenant
   gateway database image (nodes can't pull Docker Hub `postgres:18`).
 - Image transformers repointing api-server/controller/postgresql at `.svc:5000/hypershell/*`.
-- **`controller-clusterrbac.yaml`** - a cluster-wide `ClusterRole` for the
+- **`deploy/base/controller-rbac.yaml`** - a cluster-wide `ClusterRole` for the
   controller. The self-contained `deploy/openshift` tree ships only a narrow Role;
   reconciling whole tenants needs cluster-wide namespaces/secrets/services/
   deployments/networkpolicies plus, specifically for route mode + sandboxes:
@@ -439,9 +439,10 @@ must keep aligned with this cluster:
 ### 5.4: Provision a tenant gateway (images must point at the mirror)
 
 The control plane reads the gateway's own `image` and `supervisor_image` fields
-(not the GatewayRelease image) and defaults them to `ghcr.io/...`, which nodes
-cannot pull. Set both to the mirrored internal refs, and pass `namespace`
-explicitly (the deployed API image still validates it as required despite the
+and requires them to be set explicitly. Required environment variables `GATEWAY_IMAGE` and
+`GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/controller.yaml`) define the authoritative
+image sources and have no fallback defaults; set both to the mirrored internal refs, and pass
+`namespace` explicitly (the deployed API image still validates it as required despite the
 OpenAPI `readOnly` marking):
 
 ```bash

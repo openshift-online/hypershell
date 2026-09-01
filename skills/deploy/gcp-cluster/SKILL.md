@@ -203,15 +203,14 @@ curl -sk -X POST -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: appli
 ### 6.1: Apply the base overlay then upgrade to `:latest` images
 
 ```bash
-cd components/api-server
-oc kustomize deploy/gcp | oc apply -f -
+oc kustomize deploy/openshift | oc apply -f -
 ```
 
-The `deploy/gcp` overlay extends `deploy/openshift` and sets:
+The `deploy/openshift` overlay (base for all cloud deployments) sets:
 
 - `GATEWAY_INGRESS_MODE=route` - use OpenShift Routes, not Gateway API
 - `GATEWAY_API_BASE_DOMAIN=apps.<cluster>.<id>.openshiftapps.com`
-- `controller-clusterrbac.yaml` - cluster-wide RBAC for tenant reconciliation
+- `deploy/base/controller-rbac.yaml` - cluster-wide RBAC for tenant reconciliation
 
 **Upgrade to `:latest` images** (the pinned digest images lack OIDC and CNPG
 support):
@@ -243,7 +242,7 @@ oc -n hypershell patch deploy hypershell-api-server --type=json -p "[
     \"--db-password-file=/secrets/db.password\", \"--db-sslmode=disable\",
     \"--jwk-cert-url=https://keycloak-keycloak.$BASE_DOMAIN/realms/hypershell/protocol/openid-connect/certs\",
     \"--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi\",
-    \"--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks\"
+    \"--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks\"
   ]}
 ]"
 
@@ -340,7 +339,7 @@ oc -n hypershell logs deploy/hypershell-controller | grep 'gateway reconciler in
 
 # Verify JWT auth
 API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
-curl -sk -w '%{http_code}' "$API/fleets"   # 401
+curl -sk -w '%{http_code}' "$API/gateways"   # 401
 
 # Verify console OIDC redirect
 curl -sk -o /dev/null -w '%{http_code}' \
@@ -415,31 +414,25 @@ AUTH="-H 'Authorization: Bearer $TOKEN'"
 ### 8.1: Create API resources
 
 ```bash
-# Fleet
-FLEET=$(curl -sk -X POST "$API/fleets" -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name": "gcp-fleet"}')
-FLEET_ID=$(echo "$FLEET" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
-
 # ManagedCluster
 CLUSTER=$(curl -sk -X POST "$API/managed_clusters" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"gcp-local\",\"fleet_id\":\"$FLEET_ID\",\"provider\":\"gcp\",\"region\":\"us-central1\",\"kubeconfig_secret\":\"gcp-local-kubeconfig\"}")
+  -d "{\"name\":\"gcp-local\",\"provider\":\"gcp\",\"region\":\"us-central1\",\"kubeconfig_secret\":\"gcp-local-kubeconfig\"}")
 CLUSTER_ID=$(echo "$CLUSTER" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
 # GatewayRelease
 RELEASE=$(curl -sk -X POST "$API/gateway_releases" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"openshell-0.0.109\",\"fleet_id\":\"$FLEET_ID\",\"image\":\"quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0\"}")
+  -d "{\"name\":\"openshell-0.0.109\",\"image\":\"quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0\"}")
 RELEASE_ID=$(echo "$RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
 # ManagedDatabase (provider=cnpg for CNPG-managed provisioning)
 DB=$(curl -sk -X POST "$API/managed_databases" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"gcp-db\",\"fleet_id\":\"$FLEET_ID\",\"provider\":\"cnpg\",\"region\":\"us-central1\",\"engine\":\"postgresql\"}")
+  -d "{\"name\":\"gcp-db\",\"provider\":\"cnpg\",\"region\":\"us-central1\",\"engine\":\"postgresql\"}")
 DB_ID=$(echo "$DB" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-echo "Fleet=$FLEET_ID Cluster=$CLUSTER_ID Release=$RELEASE_ID DB=$DB_ID"
+echo "Cluster=$CLUSTER_ID Release=$RELEASE_ID DB=$DB_ID"
 ```
 
 ### 8.2: Create the Gateway
@@ -448,7 +441,6 @@ echo "Fleet=$FLEET_ID Cluster=$CLUSTER_ID Release=$RELEASE_ID DB=$DB_ID"
 GATEWAY=$(curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" -d "{
   \"name\": \"gcp-test-gw\",
-  \"fleet_id\": \"$FLEET_ID\",
   \"cluster_id\": \"$CLUSTER_ID\",
   \"release_id\": \"$RELEASE_ID\",
   \"database_id\": \"$DB_ID\",
@@ -530,7 +522,6 @@ HyperShell OpenShell Gateway End-to-End Test (GCP OSD)
   Keycloak:          https://keycloak-keycloak.apps.hypershell-gcp.u0zc.p2.openshiftapps.com
   OIDC issuer:       https://keycloak-keycloak.apps.hypershell-gcp.u0zc.p2.openshiftapps.com/realms/hypershell
   Gateway name:      angel
-  Fleet:             3IEMARFlHuF6MMkh5jAC7jRiDhR
   Cluster:           3IEMEyUoM01Vq5dccnD01TsxzNf
   Release:           3IEMG6W8UhcfH3sruR2Zosc9LJL
   Database:          3IEMG7C1TcAnrbzZHjiJii0UPZ8
@@ -623,6 +614,7 @@ controller's `client_credentials` token doesn't carry gateway roles.
 ### gRPC auth chain
 
 The rh-trex-ai framework runs two interceptors in series:
+
 1. **Bearer token interceptor** - checks `Authorization: Bearer <token>`,
    configurable `--auth-bypass-methods` (prefix match)
 2. **JWT interceptor** - validates JWK signature, **hardcoded bypass** only for

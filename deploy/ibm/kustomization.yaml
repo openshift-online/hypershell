@@ -82,3 +82,7 @@ patches:
                     # but pods ImagePullBackOff. See skills/deploy/ibm-cluster
                     # §5.2 for the mirror command.
                     value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-base:latest
+                  - name: GATEWAY_IMAGE
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:v0.0.109-rhaiv.0
+                  - name: GATEWAY_SUPERVISOR_IMAGE
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:v0.0.109-rhaiv.0

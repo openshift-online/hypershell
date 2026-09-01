@@ -24,8 +24,10 @@ skills/
 │   ├── full-stack-pipeline/  # Single-spec wave-based implementation pipeline
 │   └── dev-cluster/          # Kind cluster lifecycle for local testing
 ├── deploy/
-│   ├── deploy-cluster/       # OpenShift deployment (internal registry, kustomize)
-│   └── kind/                 # Kind local development (image loading, NodePort)
+│   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
+│   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, CNPG, kustomize)
+│   ├── gcp-cluster/          # GCP OSD cluster deployment (Route mode)
+│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment (Route mode)
 ├── plan/
 │   └── spec/                 # Spec authoring (desired state)
 ├── review/
@@ -36,7 +38,8 @@ skills/
     ├── align/                # Convention compliance scoring
     ├── jira-log/             # Jira work logging
     ├── maintain-ci/          # CI and component registration maintenance
-    └── memory/               # Project memory management
+    ├── memory/               # Project memory management
+    └── update-openshell/     # Update to upstream OpenShell releases
 ```
 
 **SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/dev-cluster`
@@ -716,3 +719,4 @@ label-selected pod informer.
 | 2026-08-21 | 361305e | HYPERSHELL-49 scoped gap analysis | 69% | Added 15 OpenShellGatewayServiceAccount requirements, all initially missing. Planned strict API -> SDK -> service/Keycloak -> CLI -> UI -> integration waves. Recorded the post-delivery token-verification contradiction without changing specs. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W1..W3 | pending final recount | Added nested REST/OpenAPI, generated SDKs, durable persistence/audit, exact gateway-scoped Keycloak clients, one-time verified secret delivery, role-capped authorization, expiration/revoke/delete reconciliation, and gateway cleanup barriers. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W4 | pending final recount | Extended the CLI generator for the nested gateway collection; added create/list/get/revoke/delete commands, explicit mode-0600 one-time credential output, expiration handling, workspace guidance, and secret-redaction tests. |
+| 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 82% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |

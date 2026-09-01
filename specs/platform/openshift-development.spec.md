@@ -703,6 +703,51 @@ cannot silently diverge on any resource that neither allowlist covers.
 - THEN the drift check fails in CI
 - AND the pull request cannot merge until the drift is resolved
 
+## Deploy Directory Structure
+
+The repo root `deploy/` directory contains all kustomize overlays for the platform. It is the **single source of truth** for desired state across all deployment modes (development, testing, and production). The directory structure reflects the layering relationship:
+
+```
+deploy/
+├── base/                           # Foundation: all platform resources (namespace, API, controller, DB, web console, Keycloak)
+│   ├── kustomization.yaml
+│   ├── namespace.yaml              # hypershell-system
+│   ├── api-server.yaml             # Deployment + Service
+│   ├── controller.yaml             # Deployment + Service (includes GATEWAY_IMAGE/GATEWAY_SUPERVISOR_IMAGE env vars)
+│   ├── controller-rbac.yaml        # ClusterRole + ClusterRoleBinding for tenant reconciliation
+│   ├── web-console.yaml            # Deployment + Service
+│   ├── hypershell-db-cluster.yaml  # CNPG Cluster resource
+│   ├── keycloak/                   # Shared Keycloak (base config, realm import)
+│   │   └── ...
+│   └── ...
+├── kind/                           # Kind-specific: bundles Keycloak + shared Gateway; disables OIDC by default
+├── openshift/                      # OpenShift development: bundles Keycloak; adds Routes, TLS, RBAC, NetworkPolicies
+├── ibm/                            # IBM ROKS: Route mode; image mirroring and cluster-wide RBAC
+├── hub/                            # Production (multi-cluster); shared Keycloak per cluster; managed external DB
+├── cloud-hub-ingress-bootstrap/    # Cloud Hub bootstrap: shared Gateway API + wildcard DNS/TLS (AWS/functional clusters)
+├── keycloak/                       # OpenShift Keycloak overlay: adds Route + domain patching
+└── components/                     # (Future) per-component overlays for flexibility
+```
+
+Each overlay builds on `base/` and adds only its specific differences:
+
+- **`kind/`**: Keycloak with kind-local domain; disables OIDC by default
+- **`openshift/`**: Keycloak with Route; adds cert-manager Issuers/Certificates, per-tenant PKI, SecurityContextConstraints, NetworkPolicies
+- **`ibm/`**: Extends `openshift/` with image refs for internal registry, cluster-wide RBAC, namespace mapping
+- **`hub/`** (production): Removes bundled Keycloak (shares cluster-level instance); removes CNPG `Cluster` (uses external managed DB)
+
+The `keycloak/` overlay (separate from `base/keycloak/`) is used in production to customize the shared Keycloak instance (Route, domain patching).
+
+### Known Limitations in `deploy/openshift/`
+
+The current `deploy/openshift/` overlay has **unresolved runtime dependencies** documented below. These are not integration gaps but known limitations that the bootstrap workflow (e.g. `skills/deploy/deploy-cluster/SKILL.md`) addresses manually:
+
+1. **Missing `hypershell-api-config` Secret**: The API server and controller Deployments reference a Secret (`hypershell-api-config`) with keys `api-service.{issuerUrl,clientId,clientSecret,jwkCertUrl}`. This Secret is **not defined in the repo**; it must be created manually from the Keycloak realm's client credentials and the Keycloak Route host. Without it, pods fail with `CreateContainerConfigError`. The bootstrap workflow creates this Secret in Step 3 after Keycloak is deployed.
+
+2. **Keycloak bundled but without external Route**: The overlay bundles Keycloak with `KC_HOSTNAME=https://keycloak.hypershell.localhost` (a Kind-only hostname). On real OpenShift clusters, this hostname is unreachable, so tokens minted by the bundled Keycloak carry a bogus, externally-unreachable issuer. The bootstrap workflow deploys Keycloak via the `deploy/keycloak/` overlay (which adds a Route and patches `KC_HOSTNAME`) and creates the `hypershell-api-config` Secret from the actual Route host.
+
+3. **Hardcoded `GATEWAY_API_BASE_DOMAIN` placeholder**: The overlay hardcodes `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com`, which is a placeholder. This value is only used if Gateway API ingress mode is enabled (via setting `GATEWAY_INGRESS_MODE=gateway-api`); Route mode (the default) does not require it. The bootstrap workflow or operator automation must parameterize this value when switching to Gateway API mode.
+
 ### Requirement: OpenShift CI Workflow Shape
 
 The OpenShift e2e CI job SHALL extend the existing e2e workflow structure that

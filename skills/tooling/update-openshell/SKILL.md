@@ -63,7 +63,8 @@ Update the version in every file below. Discover the live list before editing -
 do not trust this table blindly; it is a checklist, not a source of truth:
 
 ```bash
-grep -rln "openshell/\(gateway\|supervisor\):" . | grep -v '\.git/'
+grep -rln "odh-openshell-\(gateway\|supervisor\):" . | grep -v '\.git/'
+grep -rln "openshell/\(gateway\|supervisor\):" . | grep -v '\.git/'     # older image names (ghcr.io/nvidia)
 grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intentional fixtures afterwards
 ```
 
@@ -134,12 +135,13 @@ to the footprint table.
    feature that overlaps something HyperShell hand-rolls). Surface every
    `needs-decision` item to the user before finalizing - do not silently absorb it.
 
-3. **Bump the pins.** Edit `config.go` first, then sweep the rest of the
+3. **Bump the pins.** Edit `deploy/base/controller.yaml` first, then sweep the rest of the
    [Version footprint](#version-footprint). Per the repo convention *"Image
    references must match across the stack"*, grep all overlays and manifests too:
 
    ```bash
-   grep -rn "openshell/\(gateway\|supervisor\)" components/*/deploy components/control-plane/manifests
+   grep -rn "odh-openshell-\(gateway\|supervisor\)" deploy/
+   grep -rn "openshell/\(gateway\|supervisor\)" deploy/                # older ghcr.io image names
    ```
 
 4. **Verify contracts.** For each `needs-decision` item from step 2, check the
@@ -188,7 +190,7 @@ does, the item is `needs-decision`:
 | Surface | Why it matters | Where HyperShell depends on it |
 |---------|----------------|--------------------------------|
 | Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` | `manifests/gateway/configmap.yaml`, `internal/gateway/config.go` |
-| Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `manifests/gateway/rbac.yaml`, `networkpolicy.yaml`, `deploy/ibm/controller-clusterrbac.yaml` |
+| Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `manifests/gateway/rbac.yaml`, `networkpolicy.yaml`, `deploy/base/controller-rbac.yaml` |
 | Credential storage drivers | HyperShell selects/validates drivers | `ValidateCredentialDriverConfig`, `openshell-gateway-credentials.spec.md` |
 | gRPC/proto surface | API server + control plane speak gRPC | `components/api-server/proto/` |
 | Gateway/supervisor CLI flags & env | Control plane sets them | `configmap.yaml`, deployment manifests |
