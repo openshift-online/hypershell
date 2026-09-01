@@ -103,11 +103,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		if args.releaseId != "" {
 			request["release_id"] = args.releaseId
 		}
-		route := args.route
-		if route == "" {
-			route = `{"enabled":true}`
+		if args.route != "" {
+			request["route"] = args.route
 		}
-		request["route"] = route
 		if args.serverDnsNames != "" {
 			request["server_dns_names"] = args.serverDnsNames
 		}

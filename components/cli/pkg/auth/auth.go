@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type TokenResponse struct {
@@ -24,9 +25,10 @@ func tokenEndpoint(issuerURL string) string {
 
 func newHTTPClient(insecure bool) *http.Client {
 	if !insecure {
-		return http.DefaultClient
+		return &http.Client{Timeout: 30 * time.Second}
 	}
 	return &http.Client{
+		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				MinVersion:         tls.VersionTLS12,

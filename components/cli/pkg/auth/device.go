@@ -73,7 +73,11 @@ func DeviceFlow(issuerURL, clientID string, insecure bool) (TokenResponse, error
 	if interval < time.Second {
 		interval = 5 * time.Second
 	}
-	deadline := time.Now().Add(time.Duration(dar.ExpiresIn) * time.Second)
+	expiresIn := dar.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 300
+	}
+	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
 
 	for time.Now().Before(deadline) {
 		time.Sleep(interval)
