@@ -50,6 +50,10 @@ func (b *ConnectionBuilder) Build() (result *Connection, err error) {
 		return
 	}
 
+	if err = config.EnsureFreshToken(b.cfg); err != nil {
+		return
+	}
+
 	transport := &http.Transport{}
 	if b.cfg.Insecure {
 		transport.TLSClientConfig = &tls.Config{

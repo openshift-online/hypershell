@@ -28,8 +28,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a roleBinding",
 	Long: "Create a new roleBinding.\n\n" +
 		"Examples:\n" +
-		"  hypershell create roleBinding --gateway-id <value> --role-id <value> --scope <value> --user-id <value> \n" +
-		"  hypershell create roleBinding --body request.json",
+		"  hsctl create roleBinding --gateway-id <value> --role-id <value> --scope <value> --user-id <value> \n" +
+		"  hsctl create roleBinding --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }

@@ -154,13 +154,15 @@ The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a g
 ## CLI Authentication Flow
 
 ```bash
-# Interactive users authenticate the public per-gateway client through
-# Authorization Code + PKCE or Device Authorization. Automation uses a
-# gateway-scoped OpenShellGatewayServiceAccount and performs Client Credentials on demand.
-# It does not use or store a human username and password.
+# Interactive users authenticate via Authorization Code + PKCE (browser) or
+# Device Authorization (headless). Automation uses a gateway-scoped
+# OpenShellGatewayServiceAccount with Client Credentials. No passwords are stored.
 
-# 1. Login to hsctl with the user's management-plane token
-hsctl login --token "$TOKEN" --url "$API_URL" --insecure-skip-tls-verify
+# 1a. Login to hsctl -- browser PKCE (opens browser, exchanges code, stores tokens)
+hsctl login --url "$API_URL" --issuer-url "$OIDC_ISSUER" --insecure
+
+# 1b. Login to hsctl -- device flow (headless / SSH; prints URL + user code, polls until done)
+hsctl login --no-browser --url "$API_URL" --issuer-url "$OIDC_ISSUER" --insecure
 
 # 2. Register the OpenShell CLI with the gateway
 hsctl gateway setup-cli --gateway-url "$GATEWAY_URL"

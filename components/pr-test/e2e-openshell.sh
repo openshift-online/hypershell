@@ -95,15 +95,29 @@ if [[ -z "$API_HOST" ]]; then
   exit 1
 fi
 
-# Login to hypershell CLI (no auth mode for stage/dev)
-dim "Logging in to hypershell CLI..."
-"${HSCTL}" login "https://${API_HOST}" --insecure-skip-tls-verify &>/dev/null || true
+# Log hsctl in via a management-plane token (password grant on hypershell-frontend).
+# Interactive OIDC (hypershell-cli) needs a browser/device flow and is not suitable here.
 KC_HOST=$($CLI get route keycloak -n "$KC_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -z "$KC_HOST" ]]; then
   red "ERROR: Keycloak route not found in namespace ${KC_NAMESPACE}"
   exit 1
 fi
 OIDC_ISSUER="https://${KC_HOST}/realms/hypershell"
+TOKEN_ENDPOINT="${OIDC_ISSUER}/protocol/openid-connect/token"
+
+dim "Logging in to hypershell CLI..."
+LOGIN_TOKEN=$(curl -sk -X POST "${TOKEN_ENDPOINT}" \
+  -d "grant_type=password" -d "client_id=${OIDC_CLIENT_ID}" \
+  -d "username=${OIDC_USERNAME}" -d "password=${OIDC_PASSWORD}" 2>/dev/null \
+  | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+if [[ -z "$LOGIN_TOKEN" ]]; then
+  red "ERROR: could not acquire management API token from Keycloak"
+  exit 1
+fi
+echo "$LOGIN_TOKEN" | "${HSCTL}" login --url "https://${API_HOST}" --token-file /dev/stdin --insecure || {
+  red "ERROR: hsctl login failed"
+  exit 1
+}
 
 echo ""
 bold "HyperShell OpenShell Gateway End-to-End Test"

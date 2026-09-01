@@ -20,8 +20,8 @@ var Cmd = &cobra.Command{
 	Short: "Delete a roleBinding",
 	Long: "Delete a roleBinding by ID.\n\n" +
 		"Examples:\n" +
-		"  hypershell delete roleBinding 2abc123\n" +
-		"  hypershell delete roleBinding 2abc123 --yes",
+		"  hsctl delete roleBinding 2abc123\n" +
+		"  hsctl delete roleBinding 2abc123 --yes",
 	Args: cobra.ExactArgs(1),
 	RunE: run,
 }
