@@ -6,6 +6,8 @@
 images/**
 !images/brand/
 !images/brand/logo.png
+!charts/
+!charts/**
 !components/
 components/**
 !components/api-server/

@@ -132,7 +132,7 @@ For each gateway with `route` configuration, the control plane creates Gateway A
        caCertificateRefs:
        - group: ""
          kind: ConfigMap
-         name: openshell-backend-ca
+         name: openshell-gateway-backend-ca
        hostname: openshell-gateway.<namespace>.svc.cluster.local
    ```
 
@@ -141,7 +141,7 @@ For each gateway with `route` configuration, the control plane creates Gateway A
    apiVersion: v1
    kind: ConfigMap
    metadata:
-     name: openshell-backend-ca
+     name: openshell-gateway-backend-ca
      namespace: <tenant-namespace>
    data:
      ca.crt: |
@@ -164,7 +164,7 @@ This avoids per-tenant certificate issuance for the ingress listener -- the `gw-
 The Gateway API approach uses HTTPS on the listener and BackendTLSPolicy for re-encryption:
 
 1. **Client to Gateway.** The shared Gateway listener uses HTTPS (port 443) with a wildcard TLS certificate for `*.<base-domain>`. Clients connect via `https://` and HTTP/2 is negotiated through ALPN during the TLS handshake.
-2. **Gateway to Pod.** BackendTLSPolicy instructs the Gateway to establish a TLS connection to the backend pod, verifying the pod's certificate against the CA in the `openshell-backend-ca` ConfigMap. The pod's TLS remains enabled (no `disableTls` needed). BackendTLSPolicy requires OpenShift 4.22+.
+2. **Gateway to Pod.** BackendTLSPolicy instructs the Gateway to establish a TLS connection to the backend pod, verifying the pod's certificate against the CA in the `openshell-gateway-backend-ca` ConfigMap. The pod's TLS remains enabled (no `disableTls` needed). BackendTLSPolicy requires OpenShift 4.22+.
 3. **Fallback.** If BackendTLSPolicy is not supported by the cluster's gateway controller, the control plane SHALL skip BackendTLSPolicy creation and log a warning. The gateway pod's TLS configuration would need to be disabled manually in this case.
 
 ### Route Hostname Convention
