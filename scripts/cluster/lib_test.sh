@@ -79,17 +79,17 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_down does not remove the Keycloak namespace'
 fi
-if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete clusterrole '; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_down deletes a ClusterRole (must not remove shared hypershell-e2e or stage)'
-else
+if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'clusterrole "${prefix}hypershell-controller"'; then
   PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_down does not delete this environment'\''s prefixed ClusterRole'
 fi
-if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'clusterrolebinding "${OPENSHIFT_NAMESPACE}-hypershell-controller"'; then
+if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'OPENSHIFT_NAMESPACE}-dev-'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_down does not delete this environment'\''s prefixed ClusterRoleBinding'
+  echo 'FAIL: OpenShift cluster_down does not use the -dev- cluster-scoped prefix'
 fi
 if grep -E 'delete clusterrole(binding)? "hypershell-controller' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
@@ -264,11 +264,11 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: keycloak-service name was rewritten'
 fi
-if printf '%s' "${rewritten}" | grep -q 'name: alice-hypershell-controller$'; then
+if printf '%s' "${rewritten}" | grep -q 'name: alice-dev-hypershell-controller$'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: ClusterRoleBinding name not prefixed'
+  echo 'FAIL: ClusterRoleBinding name not prefixed with alice-dev-'
 fi
 if printf '%s' "${rewritten}" | grep -q 'controllerroleRef'; then
   FAIL=$((FAIL + 1))
@@ -276,19 +276,19 @@ if printf '%s' "${rewritten}" | grep -q 'controllerroleRef'; then
 else
   PASS=$((PASS + 1))
 fi
-# Shared ClusterRole hypershell-e2e; ClusterRoleBinding roleRef points at it
+# Per-environment ClusterRole/ClusterRoleBinding: ${ns}-dev-${name}
 if printf '%s' "${rewritten}" | grep -q 'kind: ClusterRole' \
-  && printf '%s' "${rewritten}" | awk '/kind: ClusterRole$/{p=1} p&&/^  name:/{print; exit}' | grep -q 'name: hypershell-e2e'; then
+  && printf '%s' "${rewritten}" | awk '/kind: ClusterRole$/{p=1} p&&/^  name:/{print; exit}' | grep -q 'name: alice-dev-hypershell-controller'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: ClusterRole name should be hypershell-e2e'
+  echo 'FAIL: ClusterRole name should be alice-dev-hypershell-controller'
 fi
-if printf '%s' "${rewritten}" | grep -A4 'roleRef:' | grep -q 'name: hypershell-e2e'; then
+if printf '%s' "${rewritten}" | grep -A4 'roleRef:' | grep -q 'name: alice-dev-hypershell-controller'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: ClusterRoleBinding roleRef.name should be hypershell-e2e'
+  echo 'FAIL: ClusterRoleBinding roleRef.name should be alice-dev-hypershell-controller'
 fi
 if printf '%s' "${rewritten}" | awk '/kind: ClusterRole$/{p=1} p&&/^  name:/{print; exit}' | grep -qx '  name: hypershell-controller'; then
   FAIL=$((FAIL + 1))
@@ -395,7 +395,7 @@ crb_out="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
   --only-namespace __cluster__ \
   --include-cluster-scoped < "${crb_fixture}")"
 rm -f "${crb_fixture}"
-if printf '%s' "${crb_out}" | grep -qx '  name: alice-hypershell-controller'; then
+if printf '%s' "${crb_out}" | grep -qx '  name: alice-dev-hypershell-controller'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
@@ -408,11 +408,11 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: roleRef was not kept as its own line'
 fi
-if printf '%s' "${crb_out}" | grep -A3 '^roleRef:' | grep -qx '  name: hypershell-e2e'; then
+if printf '%s' "${crb_out}" | grep -A3 '^roleRef:' | grep -qx '  name: alice-dev-hypershell-controller'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: ClusterRoleBinding roleRef.name should be hypershell-e2e'
+  echo 'FAIL: ClusterRoleBinding roleRef.name should be alice-dev-hypershell-controller'
   printf '%s\n' "${crb_out}"
 fi
 
@@ -438,7 +438,7 @@ sys_out="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
   --only-namespace __cluster__ \
   --include-cluster-scoped < "${sys_crb}")"
 rm -f "${sys_crb}"
-if printf '%s' "${sys_out}" | grep -qx '  name: alice-hypershell-sandbox-scc'; then
+if printf '%s' "${sys_out}" | grep -qx '  name: alice-dev-hypershell-sandbox-scc'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
@@ -555,7 +555,7 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 import sys
 rw = SourceFileLoader("rewrite", sys.argv[1]).load_module()
-bad = rw.unprefixed_cluster_scoped(Path(sys.argv[2]).read_text(), "alice-")
+bad = rw.unprefixed_cluster_scoped(Path(sys.argv[2]).read_text(), "alice-dev-")
 if bad:
     print("\n".join(bad))
     raise SystemExit(1)

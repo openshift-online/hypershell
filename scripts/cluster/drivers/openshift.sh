@@ -270,13 +270,14 @@ fail_required_cluster_rbac() {
   local err="$1"
   error "Cluster-scoped RBAC is required to provision gateways and sandboxes."
   error "${err}"
-  error "An administrator must apply ClusterRole hypershell-e2e once on this cluster, plus this namespace's ClusterRoleBindings and RoleBinding hypershell-sandbox-scc."
-  error "Do not change ClusterRole hypershell-controller; that belongs to stage."
+  error "The current user must be able to create ClusterRole and ClusterRoleBinding (${OPENSHIFT_NAMESPACE}-dev-*)."
+  error "Do not apply unprefixed hypershell-controller; that belongs to stage."
   exit 1
 }
 
 assert_expected_cluster_scoped() {
   local rendered="$1"
+  local prefix="${OPENSHIFT_NAMESPACE}-dev-"
   local bad
   if ! bad="$(python3 -c '
 from importlib.machinery import SourceFileLoader
@@ -287,32 +288,11 @@ bad = rw.unprefixed_cluster_scoped(Path(sys.argv[2]).read_text(), sys.argv[3])
 if bad:
     print("\n".join(bad))
     raise SystemExit(1)
-' "${CLUSTER_SCRIPT_DIR}/rewrite-namespaces.py" "${rendered}" "${OPENSHIFT_NAMESPACE}-")"; then
+' "${CLUSTER_SCRIPT_DIR}/rewrite-namespaces.py" "${rendered}" "${prefix}")"; then
     error "Refusing cluster-scoped names that would collide with stage:"
     error "${bad}"
     exit 1
   fi
-}
-
-ensure_e2e_cluster_role() {
-  # One shared ClusterRole for every e2e environment. oc apply creates or
-  # patches when the rules differ. If this user cannot apply it, reuse it
-  # when it already exists; fail if it is missing.
-  local rendered="$1"
-  local err
-  assert_expected_cluster_scoped "${rendered}"
-  if err="$(oc_cli apply -f "${rendered}" 2>&1)"; then
-    info "ClusterRole hypershell-e2e applied"
-    printf '%s\n' "${err}"
-    rm -f "${rendered}"
-    return 0
-  fi
-  rm -f "${rendered}"
-  if grep -qi 'forbidden' <<<"${err}" && oc_cli get clusterrole hypershell-e2e >/dev/null 2>&1; then
-    warn "Cannot update ClusterRole hypershell-e2e (forbidden); using the existing role."
-    return 0
-  fi
-  fail_required_cluster_rbac "${err}"
 }
 
 apply_sandbox_scc() {
@@ -346,29 +326,19 @@ EOF
 
 apply_required_cluster_rbac() {
   info "Applying required cluster-scoped RBAC..."
-  local roles bindings err
-  if ! roles="$(render_openshift_manifests \
+  local rendered err
+  if ! rendered="$(render_openshift_manifests \
     --only-namespace __cluster__ \
-    --include-cluster-scoped \
-    --only-kinds ClusterRole)"; then
+    --include-cluster-scoped)"; then
     exit 1
   fi
-  ensure_e2e_cluster_role "${roles}"
-
-  if ! bindings="$(render_openshift_manifests \
-    --only-namespace __cluster__ \
-    --include-cluster-scoped \
-    --only-kinds ClusterRoleBinding)"; then
-    exit 1
-  fi
-  assert_expected_cluster_scoped "${bindings}"
-  if ! err="$(oc_cli apply -f "${bindings}" 2>&1)"; then
-    rm -f "${bindings}"
+  assert_expected_cluster_scoped "${rendered}"
+  if ! err="$(oc_cli apply -f "${rendered}" 2>&1)"; then
+    rm -f "${rendered}"
     fail_required_cluster_rbac "${err}"
   fi
   printf '%s\n' "${err}"
-  rm -f "${bindings}"
-
+  rm -f "${rendered}"
   apply_sandbox_scc
 }
 
@@ -1098,9 +1068,12 @@ cluster_down() {
     return 0
   fi
 
-  info "Deleting this environment's ClusterRoleBindings..."
-  oc_cli delete clusterrolebinding "${OPENSHIFT_NAMESPACE}-hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
-  oc_cli delete clusterrolebinding "${OPENSHIFT_NAMESPACE}-hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
+  info "Deleting this environment's cluster-scoped RBAC..."
+  local prefix="${OPENSHIFT_NAMESPACE}-dev-"
+  oc_cli delete clusterrolebinding "${prefix}hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
+  oc_cli delete clusterrolebinding "${prefix}hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
+  oc_cli delete clusterrole "${prefix}hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
+  oc_cli delete clusterrole "${prefix}hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
 
   info "Removing namespace group ${OPENSHIFT_NAMESPACE} and ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
   remove_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}"

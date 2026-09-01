@@ -136,7 +136,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
 | OS-11 | OpenShift CI Workflow Shape | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
 | OS-12 | Cluster Infrastructure Prerequisites | Present | `make openshift-up` fails fast when the shared Gateway is missing or not Programmed. GatewayClass is cluster-scoped and not GET-checked (developers typically cannot read it). | `drivers/openshift.sh` `check_infrastructure` | OS-W2 |
-| OS-13 | Cluster-Scoped Permissions + SCC/RBAC posture | Present | Shared ClusterRole `hypershell-e2e` (`oc apply` create-or-patch); per-namespace prefixed ClusterRoleBindings; fail if the role is missing and cannot be created. Overlay keeps `RBAC_ENFORCE=true`. | `rewrite-namespaces.py`, `drivers/openshift.sh` `ensure_e2e_cluster_role` | OS-W2 |
+| OS-13 | Cluster-Scoped Permissions + SCC/RBAC posture | Present | Per-environment ClusterRole/ClusterRoleBinding prefixed `${ns}-dev-`; apply is required (fail if forbidden). Overlay keeps `RBAC_ENFORCE=true`. | `rewrite-namespaces.py`, `drivers/openshift.sh` `apply_required_cluster_rbac` | OS-W2 |
 
 Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemented. E2E driver completion beyond the OS-W1 manual slice, legacy `pr-test` consolidation, ephemeral CI, access handoff, overlay drift CI, and the OpenShift e2e workflow remain out of scope for this wave.
 

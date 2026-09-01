@@ -334,7 +334,7 @@ the projects. The command SHALL NOT require namespace labels in order to delete.
 - THEN each deployment runs in its own namespace group
 - AND each deployment has distinct gateway hostnames
 - AND neither deployment changes, conflicts with, or interacts with the other
-- AND each environment's ClusterRoleBindings are prefixed with that environment's platform namespace and refer to ClusterRole `hypershell-e2e`
+- AND each environment's ClusterRole and ClusterRoleBinding names are prefixed with `${OPENSHIFT_NAMESPACE}-dev-`
 - AND neither environment patches unprefixed names such as `hypershell-controller` that another instance (for example stage) already owns
 
 #### Scenario: Namespace cleanup removes only one deployment
@@ -939,19 +939,16 @@ namespace-scoped RoleBinding CANNOT grant it, and a single pre-created
 ClusterRoleBinding with a fixed service-account subject cannot cover the controller
 service account of an unknown future ephemeral namespace.
 
-For local-dev, `make openshift-up` is that privileged actor. It SHALL apply one
-shared ClusterRole named `hypershell-e2e` (create or patch when the rules differ),
-per-environment ClusterRoleBindings whose names are prefixed with the platform
-namespace and whose `roleRef` is `hypershell-e2e`, and the privileged SCC RoleBinding
+For local-dev, `make openshift-up` is that privileged actor. It SHALL apply
+ClusterRoles and ClusterRoleBindings whose names are prefixed with
+`${OPENSHIFT_NAMESPACE}-dev-`, plus the privileged SCC RoleBinding
 `hypershell-sandbox-scc`. Gateways and sandboxes cannot run without those grants, so
-the command SHALL fail if the ClusterRole is missing and cannot be created, or if the
-per-environment bindings cannot be applied. If `hypershell-e2e` already exists and
-the current user cannot patch it, the command SHALL reuse the existing ClusterRole.
-It SHALL NOT create, patch, or delete ClusterRole `hypershell-controller` or
+the command SHALL fail if the current user cannot create those objects. It SHALL NOT
+create, patch, or delete unprefixed ClusterRole `hypershell-controller` or
 ClusterRoleBinding `hypershell-controller`; those names belong to other instances
 that share the cluster, such as stage. Built-in ClusterRoles whose names start with
 `system:` SHALL NOT be renamed. `make openshift-down` SHALL delete only this
-environment's prefixed ClusterRoleBindings, not ClusterRole `hypershell-e2e`.
+environment's `${OPENSHIFT_NAMESPACE}-dev-*` ClusterRoles and ClusterRoleBindings.
 
 The deployment into the ephemeral namespace SHALL NOT attempt to grant the
 cluster-scoped `bind` through a namespace-scoped RoleBinding, and SHALL NOT assume the
@@ -960,11 +957,10 @@ namespace.
 
 #### Scenario: Ephemeral namespace has the permissions the overlay needs
 
-- GIVEN ClusterRole `hypershell-e2e` can be applied, or already exists
-- AND the developer can apply per-namespace ClusterRoleBindings and the privileged SCC RoleBinding
+- GIVEN the developer can create ClusterRoles and ClusterRoleBindings prefixed with `${OPENSHIFT_NAMESPACE}-dev-`
+- AND the developer can apply the privileged SCC RoleBinding in that namespace
 - WHEN the developer runs `make openshift-up`
-- THEN the command applies ClusterRole `hypershell-e2e` (creating it or patching it when it differs)
-- AND applies ClusterRoleBindings prefixed with the platform namespace whose `roleRef` is `hypershell-e2e`
+- THEN the command applies `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` and `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller-scc-bind` ClusterRoles and ClusterRoleBindings
 - AND the command does not patch ClusterRole `hypershell-controller` or ClusterRoleBinding `hypershell-controller`
 - AND applies RoleBinding `hypershell-sandbox-scc` for the sandbox service account
 - AND the controller can create the per-namespace privileged RoleBinding for a sandbox because it was granted `bind`
