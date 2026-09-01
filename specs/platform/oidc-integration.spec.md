@@ -233,8 +233,9 @@ The `hypershell-cli` client is used by the `hsctl` CLI for interactive user auth
 | `standardFlowEnabled` | `true` | Authorization Code + PKCE for browser login |
 | `directAccessGrantsEnabled` | `false` | CLI does not use password grant |
 | `oauth2.device.authorization.grant.enabled` | `true` | Device flow for headless environments |
+| `pkce.code.challenge.method` | `S256` | Reject non-PKCE authorization code exchanges |
 | `redirectUris` | `http://127.0.0.1:*` | Ephemeral localhost callback port for PKCE |
-| `webOrigins` | `+` | Inherit from redirect URIs |
+| `webOrigins` | `[]` | Loopback-only redirect; no browser-origin CORS calls to Keycloak |
 | `defaultClientScopes` | `openid`, `email`, `profile` | Standard OIDC scopes |
 
 Protocol mappers (same as `hypershell-frontend`):

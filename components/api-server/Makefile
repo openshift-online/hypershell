@@ -82,7 +82,7 @@ generate-cli:
 	cd "$(CLI_GENERATOR_DIR)" && GOWORK=off go run . \
 		--spec "$(OPENAPI_SPEC)" \
 		--out "$(CLI_DIR)" \
-		--binary hypershell \
+		--binary hsctl \
 		--project hypershell \
 		--api-prefix "$(SDK_API_PREFIX)" \
 		--module "$(CLI_MODULE)"

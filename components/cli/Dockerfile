@@ -9,13 +9,13 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o hypershell ./cmd/hypershell
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hypershell
 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
-COPY --from=builder /workspace/hypershell /usr/local/bin/
+COPY --from=builder /workspace/hsctl /usr/local/bin/
 
-ENTRYPOINT ["/usr/local/bin/hypershell"]
+ENTRYPOINT ["/usr/local/bin/hsctl"]
 
 LABEL org.opencontainers.image.title="HyperShell CLI" \
       org.opencontainers.image.description="Command line tool for the HyperShell API server" \

@@ -29,12 +29,13 @@ var Cmd = &cobra.Command{
 	Short: "Log in to the API server",
 	Long: "Log in using OIDC (browser or device flow), saving credentials to the config file.\n\n" +
 		"Examples:\n" +
-		"  # Interactive browser login (opens browser, uses PKCE)\n" +
-		"  hsctl login --url https://api.hypershell.localhost\n\n" +
+		"  hsctl login --url https://api.hypershell.localhost \\\n" +
+		"    --issuer-url https://keycloak.hypershell.localhost/realms/hypershell --insecure\n\n" +
 		"  # Device flow for headless/SSH environments\n" +
-		"  hsctl login --no-browser --url https://api.hypershell.localhost\n\n" +
-		"  # Static token (service accounts)\n" +
-		"  hsctl login --token-file ~/.config/token --url https://api.hypershell.localhost",
+		"  hsctl login --no-browser --url https://api.hypershell.localhost \\\n" +
+		"    --issuer-url https://keycloak.hypershell.localhost/realms/hypershell --insecure\n\n" +
+		"  # Static token (service accounts / automation)\n" +
+		"  hsctl login --token-file ~/.config/token --url https://api.hypershell.localhost --insecure",
 	Args: cobra.NoArgs,
 	RunE: run,
 }

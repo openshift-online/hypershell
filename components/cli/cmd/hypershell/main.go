@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/apply"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/completion"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/config"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create"
@@ -28,6 +29,7 @@ var root = &cobra.Command{
 }
 
 func init() {
+	root.AddCommand(apply.Cmd)
 	root.AddCommand(completion.Cmd)
 	root.AddCommand(config.Cmd)
 	root.AddCommand(create.Cmd)

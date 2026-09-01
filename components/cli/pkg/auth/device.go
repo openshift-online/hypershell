@@ -86,9 +86,14 @@ func DeviceFlow(issuerURL, clientID string, insecure bool) (TokenResponse, error
 		}
 
 		var tokenErr *deviceTokenError
-		if errors.As(err, &tokenErr) &&
-			(tokenErr.Code == "authorization_pending" || tokenErr.Code == "slow_down") {
-			continue
+		if errors.As(err, &tokenErr) {
+			if tokenErr.Code == "authorization_pending" {
+				continue
+			}
+			if tokenErr.Code == "slow_down" {
+				interval += 5 * time.Second
+				continue
+			}
 		}
 
 		fmt.Fprintf(os.Stderr, "\n")

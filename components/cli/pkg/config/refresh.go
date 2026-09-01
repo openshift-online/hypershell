@@ -15,7 +15,7 @@ func EnsureFreshToken(cfg *Config) error {
 		return nil
 	}
 	expired, checkErr := TokenExpired(cfg.AccessToken)
-	if checkErr != nil || !expired {
+	if checkErr == nil && !expired {
 		return nil
 	}
 	tr, refreshErr := auth.Refresh(cfg.IssuerURL, cfg.ClientID, cfg.RefreshToken, cfg.Insecure)

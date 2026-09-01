@@ -67,7 +67,10 @@ func BrowserPKCE(issuerURL, clientID string, insecure bool) (TokenResponse, erro
 		codeCh <- code
 	})
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go srv.Serve(ln) //nolint:errcheck
 
 	authURL := buildAuthURL(issuerURL, clientID, callbackURL, state, challenge)

@@ -47,13 +47,13 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Get(urls.GatewayPath(id), nil)
 	if err != nil {
-		return fmt.Errorf("can't retrieve gateway: %v", err)
+		return fmt.Errorf("can't retrieve gateway: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("can't read response: %v", err)
+		return fmt.Errorf("can't read response: %w", err)
 	}
 
 	if resp.StatusCode != 200 {
@@ -86,7 +86,7 @@ const pending = "<PENDING>"
 func printConnectionInstructions(w io.Writer, body []byte) error {
 	var gw gatewayResponse
 	if err := json.Unmarshal(body, &gw); err != nil {
-		return fmt.Errorf("can't parse gateway response: %v", err)
+		return fmt.Errorf("can't parse gateway response: %w", err)
 	}
 
 	var oidc oidcConfig

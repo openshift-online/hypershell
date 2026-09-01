@@ -132,6 +132,7 @@ production.
 |---------|-------|
 | Realm | `hypershell` |
 | Frontend client | `hypershell-frontend` (public, standard flow + direct access grants) |
+| CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
 | Control plane client | `hypershell-control-plane` (confidential, service account, client_credentials) |
 | Admin user | `admin` / `admin` (role: `hypershell-admins`) |
@@ -202,6 +203,23 @@ session management during `make kind-up`.
 3. The login page redirects to Keycloak for authentication
 4. Sign in with `admin`/`admin` or `developer`/`developer`
 5. Keycloak redirects back to the web console with a valid session
+
+### hsctl login (management API)
+
+Build the CLI with `make build-cli`, then authenticate against the Kind cluster:
+
+```bash
+./components/cli/hsctl login \
+  --url https://api.hypershell.localhost \
+  --issuer-url https://keycloak.hypershell.localhost/realms/hypershell \
+  --insecure
+```
+
+For headless environments, add `--no-browser` to use the device authorization flow.
+The CLI stores tokens in `~/.config/hypershell/config.json` (or `~/.hypershell.json`
+if that legacy path already exists) and uses the `hypershell-cli` Keycloak client.
+
+Check identity with `hsctl whoami` and log out with `hsctl logout`.
 
 ### Hot reload and OIDC
 

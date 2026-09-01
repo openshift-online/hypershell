@@ -82,7 +82,7 @@ func TestTokenEndpoint(t *testing.T) {
 
 func TestBuildAuthURL(t *testing.T) {
 	issuer := "https://auth.example.com/realms/myrealm"
-	clientID := "hsctl"
+	clientID := "hypershell-cli"
 	redirectURI := "http://127.0.0.1:9999/callback"
 	state := "somestate"
 	challenge := "somechallenge"
@@ -211,7 +211,7 @@ func TestPollDeviceToken_AuthorizationPending(t *testing.T) {
 	defer srv.Close()
 
 	client := srv.Client()
-	_, err := pollDeviceToken(client, srv.URL, "hsctl", "device-code")
+	_, err := pollDeviceToken(client, srv.URL, "hypershell-cli", "device-code")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -233,7 +233,7 @@ func TestPollDeviceToken_SlowDown(t *testing.T) {
 	defer srv.Close()
 
 	client := srv.Client()
-	_, err := pollDeviceToken(client, srv.URL, "hsctl", "device-code")
+	_, err := pollDeviceToken(client, srv.URL, "hypershell-cli", "device-code")
 
 	var tokenErr *deviceTokenError
 	if !errors.As(err, &tokenErr) {
@@ -258,7 +258,7 @@ func TestPollDeviceToken_Success(t *testing.T) {
 	defer srv.Close()
 
 	client := srv.Client()
-	tr, err := pollDeviceToken(client, srv.URL, "hsctl", "device-code")
+	tr, err := pollDeviceToken(client, srv.URL, "hypershell-cli", "device-code")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestPollDeviceToken_NonJSONError(t *testing.T) {
 	defer srv.Close()
 
 	client := srv.Client()
-	_, err := pollDeviceToken(client, srv.URL, "hsctl", "device-code")
+	_, err := pollDeviceToken(client, srv.URL, "hypershell-cli", "device-code")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

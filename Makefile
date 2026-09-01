@@ -436,7 +436,7 @@ generate-cli:
 	cd scripts/cli-generator && go run . \
 		--spec ../../components/api-server/openapi/openapi.yaml \
 		--out ../../components/cli \
-		--binary hypershell \
+		--binary hsctl \
 		--project hypershell \
 		--api-prefix /api/hypershell/v1 \
 		--module github.com/openshift-online/hypershell/components/cli
