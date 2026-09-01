@@ -313,3 +313,15 @@ func (h gatewayHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	handlers.HandleDelete(w, r, cfg, http.StatusNoContent)
 }
+
+func (h gatewayHandler) MetricsGateways(w http.ResponseWriter, r *http.Request) {
+	counts, svcErr := h.gateway.CountByPhase(r.Context())
+	if svcErr != nil {
+		http.Error(w, svcErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"counts": counts}); err != nil {
+		glog.Errorf("Failed to encode gateway metrics response: %v", err)
+	}
+}

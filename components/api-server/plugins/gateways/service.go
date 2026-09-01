@@ -33,6 +33,9 @@ type GatewayService interface {
 
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
+	// CountByPhase returns the number of gateways in each phase.
+	CountByPhase(ctx context.Context) (map[string]int64, *errors.ServiceError)
+
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
 }
@@ -220,4 +223,12 @@ func (s *sqlGatewayService) All(ctx context.Context) (GatewayList, *errors.Servi
 		return nil, errors.GeneralError("Unable to get all gateways: %s", err)
 	}
 	return gateways, nil
+}
+
+func (s *sqlGatewayService) CountByPhase(ctx context.Context) (map[string]int64, *errors.ServiceError) {
+	counts, err := s.gatewayDao.CountByPhase(ctx)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to count gateways by phase: %s", err)
+	}
+	return counts, nil
 }

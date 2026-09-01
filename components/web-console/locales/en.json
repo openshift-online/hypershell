@@ -687,6 +687,10 @@
     "defaultMessage": "OpenShell Gateways",
     "description": "Page and resource collection label for OpenShell gateways."
   },
+  "app.nav.metrics": {
+    "defaultMessage": "Metrics",
+    "description": "Navigation label for the gateway metrics dashboard page."
+  },
   "app.notFound.body": {
     "defaultMessage": "Check the address and try again.",
     "description": "Recovery guidance shown when an application route does not exist."
@@ -750,6 +754,10 @@
   "app.page.gateways.noResults.title": {
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
+  },
+  "app.page.metrics.description": {
+    "defaultMessage": "Gateway phase metrics dashboard showing running, provisioning, degraded, and failed gateway counts.",
+    "description": "Browser metadata description for the gateway metrics page."
   },
   "app.productName": {
     "defaultMessage": "HyperShell",

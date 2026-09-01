@@ -152,6 +152,11 @@ func init() {
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Delete).Methods(http.MethodDelete)
 		gatewaysRouter.Use(authMiddleware.AuthenticateAccountJWT)
 		gatewaysRouter.Use(authzMiddleware.AuthorizeApi)
+
+		metricsRouter := apiV1Router.PathPrefix("/metrics").Subrouter()
+		metricsRouter.HandleFunc("/gateways", gatewayHandler.MetricsGateways).Methods(http.MethodGet)
+		metricsRouter.Use(authMiddleware.AuthenticateAccountJWT)
+		metricsRouter.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	pkgserver.RegisterController("Gateways", func(manager *controllers.KindControllerManager, services pkgserver.ServicesInterface) {

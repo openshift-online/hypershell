@@ -70,4 +70,15 @@ export const messages = defineMessages({
     description:
       "Accessible label for the color scheme toggle when dark mode is active.",
   },
+  metricsNavLabel: {
+    id: "app.nav.metrics",
+    defaultMessage: "Metrics",
+    description: "Navigation label for the gateway metrics dashboard page.",
+  },
+  metricsPageDescription: {
+    id: "app.page.metrics.description",
+    defaultMessage:
+      "Gateway phase metrics dashboard showing running, provisioning, degraded, and failed gateway counts.",
+    description: "Browser metadata description for the gateway metrics page.",
+  },
 });

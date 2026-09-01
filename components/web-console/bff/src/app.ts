@@ -49,6 +49,7 @@ function isApplicationRoute(pathname: string): boolean {
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
+    pathname === "/metrics" ||
     /^\/gateways\/[^/]+\/?$/u.test(pathname)
   );
 }

@@ -17,7 +17,7 @@ export const gatewayMetricsQueryKey = ["gateways", "metrics"] as const;
 export async function fetchGatewayMetrics(
   signal?: AbortSignal,
 ): Promise<GatewayPhaseCounts> {
-  const response = await fetch("/api/metrics/gateways", {
+  const response = await fetch("/api/hypershell/v1/metrics/gateways", {
     credentials: "same-origin",
     signal,
   });

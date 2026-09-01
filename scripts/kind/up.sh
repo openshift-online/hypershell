@@ -227,6 +227,8 @@ if [[ "${DB_PROVIDER}" != "deployment" ]]; then
   info "Waiting for CNPG operator..."
   kube wait --for=condition=available deployment/cnpg-controller-manager -n cnpg-system --timeout=120s
 fi
+info "Waiting for Prometheus operator..."
+kube wait --for=condition=available deployment/prometheus-operator -n default --timeout=120s
 success "Infrastructure ready"
 echo ""
 
@@ -351,6 +353,16 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
   success "Keycloak ready"
 fi
+
+# --- Prometheus monitoring stack ---
+# Applied after the main components so the hypershell-system namespace and
+# ServiceAccount already exist when the Prometheus CR and RBAC are created.
+# The Prometheus Operator CRDs were installed in the infrastructure step above.
+info "Applying Prometheus monitoring stack..."
+kustomize build --load-restrictor=LoadRestrictionsNone deploy/base/prometheus | \
+  kube apply -f -
+success "Prometheus monitoring stack applied"
+echo ""
 
 # --- Jaeger (optional, for OTel trace inspection) ---
 # Deploys an all-in-one Jaeger v2 for local trace inspection alongside the API
