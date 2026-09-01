@@ -430,7 +430,7 @@ CLUSTER_ID=$(echo "$CLUSTER" | python3 -c "import json,sys; print(json.load(sys.
 # GatewayRelease
 RELEASE=$(curl -sk -X POST "$API/gateway_releases" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"openshell-0.0.109\",\"fleet_id\":\"$FLEET_ID\",\"image\":\"ghcr.io/nvidia/openshell/gateway:0.0.109\"}")
+  -d "{\"name\":\"openshell-0.0.109\",\"fleet_id\":\"$FLEET_ID\",\"image\":\"quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0\"}")
 RELEASE_ID=$(echo "$RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
 # ManagedDatabase (provider=cnpg for CNPG-managed provisioning)
@@ -453,7 +453,7 @@ GATEWAY=$(curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' \
   \"release_id\": \"$RELEASE_ID\",
   \"database_id\": \"$DB_ID\",
   \"namespace\": \"openshell-gcptest\",
-  \"image\": \"ghcr.io/nvidia/openshell/gateway:0.0.109\",
+  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0\",
   \"route\": \"{\\\"enabled\\\": true}\"
 }")
 echo "$GATEWAY" | python3 -m json.tool
@@ -544,7 +544,7 @@ Results: 23 passed, 0 failed
   ✓ Keycloak admin service account ready (realm: hypershell)
   ✓ Assigned openshell-admin to admin on angel-3IEWSLgFpF3DHsaGxl5IexOrrME
   ✓ Assigned openshell-user to developer on angel-3IEWSLgFpF3DHsaGxl5IexOrrME
-  ✓ Gateway pod ready (ghcr.io/nvidia/openshell/gateway:0.0.109)
+  ✓ Gateway pod ready (quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0)
   ✓ Gateway service: 172.30.26.165:8080
   ✓ TLS certificates provisioned
   ✓ CNPG database cluster healthy in openshell-db-913eb1e752d32f24 (phase: Cluster in healthy state)

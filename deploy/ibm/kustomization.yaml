@@ -23,11 +23,31 @@ kind: Kustomization
 resources:
   - ../openshift
 
+# --- remap external images to the cluster-internal registry ---
+# ROKS worker nodes cannot reach quay.io, registry.access.redhat.com, ghcr.io,
+# or docker.io; all images must be pulled from the internal registry. Mirror the
+# platform images into the internal registry (see skills/deploy/ibm-cluster
+# SKILL.md §5.2), then enable this block and set newName/newTag to match your
+# mirrored image pullspecs in image-registry.openshift-image-registry.svc:5000.
+#
+# images:
+#   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
+#     newName: image-registry.openshift-image-registry.svc:5000/hypershell/hypershell-api-server
+#     newTag: "<mirrored-tag>"
+#   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main
+#     newName: image-registry.openshift-image-registry.svc:5000/hypershell/hypershell-controller
+#     newTag: "<mirrored-tag>"
+#   - name: registry.access.redhat.com/hi/postgresql
+#     newName: image-registry.openshift-image-registry.svc:5000/hypershell/postgresql
+#     newTag: "18"
+
 patches:
   # --- select Route ingress mode for the control-plane reconciler ---
-  # Strategic-merge on the env list (merged by name): adds GATEWAY_INGRESS_MODE
-  # and overrides GATEWAY_API_BASE_DOMAIN. GATEWAY_API_GATEWAY_NAME is unused in
-  # route mode (the reconciler never looks up a shared Gateway) and is left as-is.
+  # Strategic-merge on the env list (merged by name): adds GATEWAY_INGRESS_MODE,
+  # overrides GATEWAY_API_BASE_DOMAIN, and sets per-tenant gateway database +
+  # sandbox-base images to point at the cluster-internal registry (which ROKS
+  # nodes can reach, unlike quay.io/ghcr.io/docker.io). GATEWAY_API_GATEWAY_NAME
+  # is unused in route mode and is left as-is.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -46,3 +66,19 @@ patches:
                     # OVERRIDE: set to this cluster's ingress subdomain, e.g.
                     # hysh-ibm-01-<hash>-0000.us-east.containers.appdomain.cloud
                     value: openshell.ibm.example.com
+                  - name: HYPERSHELL_DATABASE_IMAGE
+                    # OVERRIDE: set to the internal-registry pullspec for
+                    # postgres:18 (mirror of docker.io/library/postgres:18).
+                    # Nodes cannot pull docker.io; this image is served from the
+                    # cluster-internal registry. See skills/deploy/ibm-cluster
+                    # §5.2 for the mirror command.
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/postgres:18
+                  - name: GATEWAY_SANDBOX_IMAGE
+                    # OVERRIDE: set to the internal-registry pullspec for the
+                    # openshell-sandbox base image (mirror of
+                    # ghcr.io/nvidia/openshell-community/sandboxes/base:latest).
+                    # Nodes cannot pull ghcr.io; this is a prerequisite for
+                    # sandbox pod creation. Without it, Sandbox CRs are admitted
+                    # but pods ImagePullBackOff. See skills/deploy/ibm-cluster
+                    # §5.2 for the mirror command.
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-base:latest

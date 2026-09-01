@@ -14,6 +14,7 @@ func TestValidateImageReference(t *testing.T) {
 		{name: "bare name with tag", ref: "postgres:18", wantErr: false},
 		{name: "docker hub library path", ref: "docker.io/library/postgres:18", wantErr: false},
 		{name: "ghcr multi-segment path with tag", ref: "ghcr.io/nvidia/openshell/gateway:0.0.101", wantErr: false},
+		{name: "multi-segment path with tag and reference", ref: "quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd", wantErr: false},
 		{name: "quay long path with tag", ref: "quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-api-server-main:dev", wantErr: false},
 		{name: "digest reference", ref: "registry.redhat.io/rhel9/postgresql-16@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", wantErr: false},
 		// In-cluster registry service address carries an explicit port; this is

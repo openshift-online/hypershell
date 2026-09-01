@@ -191,7 +191,7 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
+  image: quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server
@@ -378,7 +378,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 - THEN validation SHALL fail with a descriptive error
 - AND the Gateway SHALL not be reconciled until the configuration is corrected
 
-> **GHCR image tag convention:** OpenShell gateway images on GHCR use commit-SHA tags only (no semver tags). For example, `ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873` corresponds to v0.0.91. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
+> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.0.109-rhaiv.0`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
 #### Scenario: Invalid DNS name
 
@@ -421,7 +421,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
+  image: quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
   serverDnsNames: []
   ```
 - AND a tenant overlay patches the DNS names:
@@ -671,7 +671,7 @@ topology                   = "single-cluster"
 image = "<supervisor-image>"
 ```
 
-The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to `ghcr.io/nvidia/openshell/supervisor:0.0.109`. The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
+The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment variable on the control-plane deployment (see `deploy/base/controller.yaml`). The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
 
 #### OIDC Section (conditional)
 
@@ -795,8 +795,8 @@ Control Plane
 |---|---|---|---|
 | `name` | Yes | - | Resource name (typically `openshell-gateway`) |
 | `namespace` | No | API assigned | Read-only Kubernetes namespace derived from the Gateway identifier |
-| `image` | No | `ghcr.io/nvidia/openshell/gateway:0.0.109` | Gateway container image reference |
-| `supervisor_image` | No | `ghcr.io/nvidia/openshell/supervisor:0.0.109` | Supervisor sidecar container image |
+| `image` | No | Supplied by `GATEWAY_IMAGE` env var on the control-plane deployment | Gateway container image reference |
+| `supervisor_image` | No | Supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
 | `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
 | `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
@@ -816,6 +816,8 @@ Control Plane
 
 | Variable | Default | Description |
 |---|---|---|
+| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
+| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.0.109-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
@@ -828,7 +830,7 @@ Control Plane
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873
+image: quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 oidc:

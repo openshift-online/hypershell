@@ -46,6 +46,10 @@ spec:
             # sibling control-plane -> api-server watch channel (no mTLS).
             - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS
               value: "0.0.0.0:9443"
+            - name: GATEWAY_IMAGE
+              value: quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
+            - name: GATEWAY_SUPERVISOR_IMAGE
+              value: quay.io/opendatahub/odh-openshell-supervisor:v0.0.109-rhaiv.0@sha256:96e21135c18bc9f6f4d1dfd0cccae3c91769ef4d87da2e470eca4b56a24b2152
           ports:
             - containerPort: 9443
               name: provisioner
