@@ -19,9 +19,10 @@ description: >
 ## Cluster Lifecycle
 
 ```bash
-make kind-up                          # Create cluster with images
-make kind-down                        # Destroy cluster
-make kind-rebuild                     # Rebuild all + reload + restart
+LOCAL_IMAGES=true make kind-up        # Create cluster with local images
+make kind-teardown                    # Destroy cluster
+make kind-api-server-up               # Build + swap API server from working tree
+make kind-control-plane-up            # Build + swap control plane from working tree
 make kind-status                      # Show cluster status
 ```
 
@@ -39,7 +40,7 @@ Map changed files to components:
 ### Step 2: Build and Deploy
 
 **If cluster doesn't exist:** `make kind-up`
-**If cluster exists:** `make kind-rebuild`
+**If cluster exists:** `make kind-api-server-up` (for API server) and/or `make kind-control-plane-up` (for controller)
 
 ### Step 3: Verify Deployment
 ```bash
@@ -69,7 +70,8 @@ To teardown: make kind-down
 ### Pods in ImagePullBackOff
 Kind has no registry. Ensure `imagePullPolicy: IfNotPresent`:
 ```bash
-make kind-rebuild
+make kind-api-server-up
+make kind-control-plane-up
 ```
 
 ### Pods in CrashLoopBackOff
@@ -80,16 +82,18 @@ kubectl describe pod -l app=<label> -n hypershell
 
 ### Changes not reflected
 ```bash
-make kind-rebuild
+make kind-api-server-up
+make kind-control-plane-up
 ```
 
 ## Quick Reference
 
 | Task | Command |
 |------|---------|
-| Create cluster | `make kind-up` |
-| Rebuild all | `make kind-rebuild` |
+| Create cluster | `LOCAL_IMAGES=true make kind-up` |
+| Rebuild API server | `make kind-api-server-up` |
+| Rebuild controller | `make kind-control-plane-up` |
 | Check status | `make kind-status` |
 | View API logs | `kubectl logs -f -l app=hypershell-api-server -n hypershell` |
 | View CP logs | `kubectl logs -f -l app=hypershell-controller -n hypershell` |
-| Tear down | `make kind-down` |
+| Tear down | `make kind-teardown` |

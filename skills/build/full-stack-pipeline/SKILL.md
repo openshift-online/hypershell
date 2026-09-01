@@ -117,7 +117,7 @@ Gateway         CLI         partial     get/list implemented, delete missing
 - Acceptance: `go build ./...`, `go vet ./...` clean
 
 **Wave 7 -- Integration**
-- End-to-end smoke test in Kind cluster (`make kind-rebuild`) or OpenShift (`/deploy-cluster`)
+- End-to-end smoke test in Kind cluster (`make kind-api-server-up` / `make kind-control-plane-up`) or OpenShift (`/deploy-cluster`)
 - Test CLI commands against deployed API
 - Verify CRUD on all affected Kinds via both API and CLI
 - Run e2e test suite: `bash components/pr-test/e2e-openshell.sh`
@@ -152,10 +152,10 @@ go run ./scripts/generator.go \
 `rh-trex-ai` is a Go module dependency (not a local sibling). Dockerfiles use
 `GOPRIVATE=github.com/openshift-online/rh-trex-ai` during `go mod download`.
 
+Build all container images from the repository root:
+
 ```bash
-cd components/api-server
-make image            # API server (build context: .)
-make image-controller # Controller (build context: components/)
+make build-all  # Build all container images (API server + controller)
 ```
 
 ### Proto Regeneration
@@ -171,7 +171,7 @@ cd proto && buf generate
 
 ### Deploy Targets
 
-- **Kind**: `make kind-up` / `make kind-rebuild` (see `/kind` skill)
+- **Kind**: `make kind-up` / `make kind-api-server-up` / `make kind-control-plane-up` (see `/dev-cluster` skill)
 - **OpenShift**: Build, push to internal registry, `oc kustomize deploy/openshift/` (see `/deploy-cluster` skill)
 
 ## SDK Generator

@@ -147,14 +147,15 @@ On OpenShift, look up the cluster's default base domain:
 oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'
 ```
 
-This typically returns a value like `apps.<cluster-name>.<base-domain>`. Set this value as `GATEWAY_API_BASE_DOMAIN` on the controller deployment:
+This typically returns a value like `apps.<cluster-name>.<base-domain>`. Set this value as `GATEWAY_API_BASE_DOMAIN` on the controller deployment using one of:
 
 ```shell
-oc set env deployment/hypershell-controller -n hypershell \
+# Option 1: Patch the deployment directly
+oc set env deployment/hypershell-controller -n hypershell-system \
   GATEWAY_API_BASE_DOMAIN="$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
 ```
 
-Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the placeholder value before applying.
+Or apply a kustomize patch via `deploy/openshift/kustomization.yaml` with your specific base domain value (see that file for the patch structure).
 
 ### Control plane environment variables
 
@@ -162,7 +163,7 @@ Or edit `components/api-server/deploy/openshift/controller.yaml` and replace the
 |---|---|---|
 | `HYPERSHELL_GRPC_SERVER_ADDR` | `localhost:9000` | gRPC address of the API server |
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | HTTP address of the API server |
-| `HYPERSHELL_NAMESPACE` | `hypershell` | Namespace the control plane runs in (used for trusted CA bundle source) |
+| `HYPERSHELL_NAMESPACE` | `hypershell-system` | Namespace the control plane runs in (used for trusted CA bundle source) |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | *(none)* | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |

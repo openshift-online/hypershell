@@ -39,7 +39,7 @@ skills/
     └── memory/               # Project memory management
 ```
 
-**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/kind`
+**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/dev-cluster`
 
 ---
 
