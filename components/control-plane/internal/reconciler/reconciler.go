@@ -1729,7 +1729,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var resolveErr error
 		dbConfig, resolveErr = r.resolveDatabaseConfig(ctx, gw)
 		if resolveErr != nil {
-			log.Printf("WARN gateway %s: skipping database reconciliation: %v", event.ResourceID, resolveErr)
+			r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
+			reconcileErr = fmt.Errorf("resolve database config for gateway %s: %w", event.ResourceID, resolveErr)
+			return reconcileErr
 		}
 	} else {
 		log.Printf("INFO gateway %s has no database_id; skipping database reconciliation (existing database resources left untouched)", event.ResourceID)
@@ -1869,6 +1871,28 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Step 5: GatewayHealthy
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
+	if r.exposure != nil && isRoutedGateway(gw) {
+		routeHost := ""
+		if gw.Route != nil {
+			var rc struct{ Host string }
+			_ = json.Unmarshal([]byte(*gw.Route), &rc)
+			routeHost = rc.Host
+		}
+		addr, err := r.exposure.ResolveAddress(ctx, exposure.Request{
+			Namespace: namespace,
+			Host:      routeHost,
+		})
+		if err != nil {
+			log.Printf("WARN gateway %s: failed to resolve route address: %v", gw.Name, err)
+		} else if addr != "" {
+			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
+				log.Printf("WARN gateway %s: failed to publish route address: %v", gw.Name, err)
+			} else {
+				log.Printf("INFO gateway %s: published route address %s", gw.Name, addr)
+			}
+		}
+	}
 
 	// Manifests are applied, but the gateway is not Running until its workload is
 	// observed Ready. Wait within the provisioning readiness window; if the

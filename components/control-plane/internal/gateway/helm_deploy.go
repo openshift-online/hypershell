@@ -109,13 +109,8 @@ func getGatewayAPIGatewayNamespace() string {
 
 // getEnv retrieves an environment variable with a fallback default.
 func getEnv(key, fallback string) string {
-	if value := getEnvHelper(key); value != "" {
+	if value := os.Getenv(key); value != "" {
 		return value
 	}
 	return fallback
-}
-
-// getEnvHelper retrieves environment variables (uses os package).
-func getEnvHelper(key string) string {
-	return os.Getenv(key)
 }

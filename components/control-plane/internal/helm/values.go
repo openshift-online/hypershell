@@ -243,8 +243,11 @@ func (b *ValuesBuilder) buildOpenShiftValues(values map[string]interface{}) {
 }
 
 // splitImageRef splits an image reference into repository and tag.
-// If no tag is present, it defaults to "latest".
+// Handles digest refs (image@sha256:...) and registry ports (registry:5000/image).
 func splitImageRef(image string) (repo, tag string) {
+	if at := strings.LastIndex(image, "@"); at != -1 {
+		return image[:at], image[at+1:]
+	}
 	lastSlash := strings.LastIndex(image, "/")
 	lastColon := strings.LastIndex(image, ":")
 	if lastColon <= lastSlash {
