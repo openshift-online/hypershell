@@ -15,6 +15,9 @@ docs/GatewayNetwork.md
 docs/GatewayNetworkList.md
 docs/GatewayNetworkPatchRequest.md
 docs/GatewayPatchRequest.md
+docs/GatewayProfile.md
+docs/GatewayProfileList.md
+docs/GatewayProfilePatchRequest.md
 docs/GatewayRelease.md
 docs/GatewayReleaseList.md
 docs/GatewayReleasePatchRequest.md
@@ -52,6 +55,9 @@ model_gateway_network.go
 model_gateway_network_list.go
 model_gateway_network_patch_request.go
 model_gateway_patch_request.go
+model_gateway_profile.go
+model_gateway_profile_list.go
+model_gateway_profile_patch_request.go
 model_gateway_release.go
 model_gateway_release_list.go
 model_gateway_release_patch_request.go

@@ -137,6 +137,17 @@ func isGRPCAuthorized(fullMethod string, bindings []BindingSummary) bool {
 		return false
 	}
 
+	// GatewayProfile mutations define the enforcement ceiling and must be
+	// restricted to platform admins, mirroring the REST rule in isAuthorized.
+	// Reads stay open to any caller holding a binding so creators/owners can
+	// view profiles to assign them.
+	if strings.Contains(fullMethod, "GatewayProfileService/") {
+		if isGRPCReadMethod(fullMethod) {
+			return true
+		}
+		return hasPlatformAdmin(bindings)
+	}
+
 	for _, b := range bindings {
 		if b.RoleName == "platform:admin" {
 			if isGRPCReadMethod(fullMethod) || isGRPCDeleteMethod(fullMethod) {

@@ -1,7 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useGatewayUi } from "@openshift-online/hypershell-gateway-management-ui";
+import {
+  useGatewayProfileUi,
+  useGatewayUi,
+} from "@openshift-online/hypershell-gateway-management-ui";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, vi } from "vitest";
@@ -9,10 +12,12 @@ import { beforeEach, vi } from "vitest";
 import { englishMessages } from "../../i18n/catalog";
 import { ApplicationShell } from "./application-shell";
 
-const { getGatewayMock } = vi.hoisted(() => ({
+const { getGatewayMock, getGatewayProfileMock } = vi.hoisted(() => ({
   getGatewayMock: vi.fn(),
+  getGatewayProfileMock: vi.fn(),
 }));
 const navigateToGatewayLabel = "Navigate to gateway";
+const navigateToGatewayProfileLabel = "Navigate to gateway profile";
 
 vi.mock("../../composition/gateway-composition", () => ({
   gatewayOperations: {
@@ -27,6 +32,15 @@ vi.mock("../../composition/gateway-composition", () => ({
   },
 }));
 
+vi.mock("../../composition/gateway-profile-composition", () => ({
+  gatewayProfileOperations: {
+    createGatewayProfile: vi.fn(),
+    getGatewayProfile: getGatewayProfileMock,
+    listGatewayProfiles: vi.fn(),
+    removeGatewayProfile: vi.fn(),
+  },
+}));
+
 // The masthead identity menu reads the session; keep it unauthenticated here so
 // shell assertions are unaffected. Menu behavior is covered in user-menu.test.
 vi.mock("../../composition/session-composition", () => ({
@@ -38,6 +52,7 @@ vi.mock("../../composition/session-composition", () => ({
 function RouteContent() {
   const { pathname } = useLocation();
   const { navigation } = useGatewayUi();
+  const { navigation: profileNavigation } = useGatewayProfileUi();
 
   return (
     <>
@@ -49,6 +64,16 @@ function RouteContent() {
         type="button"
       >
         {navigateToGatewayLabel}
+      </button>
+      <button
+        onClick={() => {
+          void profileNavigation.navigate(
+            profileNavigation.detailHref("profile-b"),
+          );
+        }}
+        type="button"
+      >
+        {navigateToGatewayProfileLabel}
       </button>
     </>
   );
@@ -80,6 +105,10 @@ describe("ApplicationShell", () => {
     getGatewayMock.mockResolvedValue({
       id: "gateway-b",
       name: "Friendly gateway",
+    });
+    getGatewayProfileMock.mockResolvedValue({
+      id: "profile-b",
+      name: "Small profile",
     });
   });
 
@@ -149,5 +178,41 @@ describe("ApplicationShell", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { level: 1, name: "/" }),
     );
+  });
+
+  it("uses the profile name for a gateway profile deep link", async () => {
+    renderShell("/gateway-profiles/profile-b");
+
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(
+      within(breadcrumb)
+        .getByRole("link", { name: "Gateway profiles" })
+        .getAttribute("href"),
+    ).toBe("/gateway-profiles");
+    expect(await within(breadcrumb).findByText("Small profile")).toBeTruthy();
+  });
+
+  it("identifies the gateway profile creation route", () => {
+    renderShell("/gateway-profiles/new");
+
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(breadcrumb).getByText("Gateway profiles")).toBeTruthy();
+    expect(within(breadcrumb).getByText("Create gateway profile")).toBeTruthy();
+  });
+
+  it("provides host navigation to the gateway profile package", async () => {
+    const user = userEvent.setup();
+    renderShell();
+
+    await user.click(
+      screen.getByRole("button", { name: navigateToGatewayProfileLabel }),
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "/gateway-profiles/profile-b",
+      }),
+    ).toBeTruthy();
   });
 });

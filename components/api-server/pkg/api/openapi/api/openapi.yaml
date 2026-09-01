@@ -1973,6 +1973,284 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Unexpected error occurred
       summary: Get a role binding by ID
+  /api/hypershell/v1/gateway_profiles:
+    get:
+      operationId: listGatewayProfiles
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayProfileList"
+          description: A JSON array of gatewayProfile objects
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of gatewayProfiles
+    post:
+      operationId: createGatewayProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayProfile"
+        description: GatewayProfile data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayProfile"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation errors occurred
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: GatewayProfile already exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: An unexpected error occurred creating the gatewayProfile
+      security:
+      - Bearer: []
+      summary: Create a new gatewayProfile
+  /api/hypershell/v1/gateway_profiles/{id}:
+    delete:
+      operationId: deleteGatewayProfile
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Gateway profile deleted successfully
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No gateway profile with specified id exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: GatewayProfile is referenced by a cluster or gateway and cannot
+            be deleted
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error deleting gateway profile
+      security:
+      - Bearer: []
+      summary: Delete a gateway profile
+    get:
+      operationId: getGatewayProfile
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayProfile"
+          description: GatewayProfile found by id
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No gatewayProfile with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a gatewayProfile by id
+    patch:
+      operationId: updateGatewayProfile
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayProfilePatchRequest"
+        description: Updated gatewayProfile data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayProfile"
+          description: GatewayProfile updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation errors occurred
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unauthorized to perform operation
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No gatewayProfile with specified id exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error updating gatewayProfile
+      security:
+      - Bearer: []
+      summary: Update a gatewayProfile
 components:
   parameters:
     id:
@@ -2189,17 +2467,27 @@ components:
             type: string
           api_server_url:
             type: string
+          profile_id:
+            description: Default GatewayProfile identifier inherited by gateways created
+              on this cluster when they do not supply their own profile_id
+            type: string
+          database_id:
+            description: Default ManagedDatabase identifier for gateways placed on
+              this cluster
+            type: string
         required:
         - kubeconfig_secret
         - name
         - provider
         type: object
       example:
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
         updated_at: 2000-01-23T04:56:07.000+00:00
         provider: provider
-        kind: kind
+        database_id: database_id
+        profile_id: profile_id
         name: name
-        created_at: 2000-01-23T04:56:07.000+00:00
         kubeconfig_secret: kubeconfig_secret
         id: id
         href: href
@@ -2225,22 +2513,26 @@ components:
         id: id
         href: href
         items:
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
-          kind: kind
-          name: name
+        - kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          database_id: database_id
+          profile_id: profile_id
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
           region: region
           status: status
           api_server_url: api_server_url
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
-          kind: kind
-          name: name
+        - kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          database_id: database_id
+          profile_id: profile_id
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
@@ -2250,6 +2542,8 @@ components:
     ManagedClusterPatchRequest:
       example:
         provider: provider
+        database_id: database_id
+        profile_id: profile_id
         name: name
         kubeconfig_secret: kubeconfig_secret
         region: region
@@ -2267,6 +2561,12 @@ components:
         status:
           type: string
         api_server_url:
+          type: string
+        profile_id:
+          description: Default GatewayProfile for gateways on this cluster; set to
+            empty string to clear
+          type: string
+        database_id:
           type: string
       type: object
     ManagedDatabase:
@@ -2493,6 +2793,11 @@ components:
             type: string
           release_id:
             type: string
+          profile_id:
+            description: GatewayProfile identifier used for namespace quota enforcement;
+              required at creation (client-supplied or inherited from the cluster
+              default) and reassignable but not clearable afterward
+            type: string
           database_id:
             description: Server-assigned ManagedDatabase identifier; client-supplied
               values are ignored
@@ -2585,6 +2890,7 @@ components:
         tls_mode: tls_mode
         route: route
         database_id: database_id
+        profile_id: profile_id
         name: name
         namespace: namespace
         status: status
@@ -2631,6 +2937,7 @@ components:
           tls_mode: tls_mode
           route: route
           database_id: database_id
+          profile_id: profile_id
           name: name
           namespace: namespace
           status: status
@@ -2658,6 +2965,7 @@ components:
           tls_mode: tls_mode
           route: route
           database_id: database_id
+          profile_id: profile_id
           name: name
           namespace: namespace
           status: status
@@ -2678,6 +2986,7 @@ components:
         tls_mode: tls_mode
         route: route
         database_id: database_id
+        profile_id: profile_id
         name: name
         external_dns: external_dns
         status: status
@@ -2687,6 +2996,10 @@ components:
         cluster_id:
           type: string
         release_id:
+          type: string
+        profile_id:
+          description: Reassign the gateway to a different GatewayProfile; cannot
+            be set to null or empty (HTTP 400) and the target profile must exist
           type: string
         database_id:
           description: Server-owned placement field; values supplied through PATCH
@@ -3332,6 +3645,173 @@ components:
           id: id
           href: href
           gateway_id: gateway_id
+    GatewayProfile:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            type: string
+          description:
+            description: Profile purpose/intent
+            type: string
+          cpu_request_total:
+            description: "Total CPU requests allowed (e.g., \"4\", \"500m\")"
+            type: string
+          cpu_limit_total:
+            description: Total CPU limits allowed
+            type: string
+          memory_request_total:
+            description: "Total memory requests allowed (e.g., \"8Gi\", \"512Mi\")"
+            type: string
+          memory_limit_total:
+            description: Total memory limits allowed
+            type: string
+          ephemeral_storage_total:
+            description: "Total ephemeral storage allowed (e.g., \"10Gi\")"
+            type: string
+          pod_count:
+            description: Maximum number of pods (0 means not set)
+            format: int32
+            type: integer
+          pvc_count:
+            description: Maximum number of PersistentVolumeClaims (0 means not set)
+            format: int32
+            type: integer
+          container_cpu_request_default:
+            description: Default CPU request injected into containers without explicit
+              request
+            type: string
+          container_cpu_limit_max:
+            description: Maximum CPU limit a container can request
+            type: string
+          container_memory_request_default:
+            description: Default memory request injected into containers
+            type: string
+          container_memory_limit_max:
+            description: Maximum memory limit a container can request
+            type: string
+        required:
+        - name
+        type: object
+      example:
+        ephemeral_storage_total: ephemeral_storage_total
+        kind: kind
+        container_cpu_request_default: container_cpu_request_default
+        created_at: 2000-01-23T04:56:07.000+00:00
+        description: description
+        cpu_request_total: cpu_request_total
+        pvc_count: 5
+        container_memory_limit_max: container_memory_limit_max
+        memory_request_total: memory_request_total
+        pod_count: 5
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        cpu_limit_total: cpu_limit_total
+        container_cpu_limit_max: container_cpu_limit_max
+        container_memory_request_default: container_memory_request_default
+        id: id
+        href: href
+        memory_limit_total: memory_limit_total
+    GatewayProfileList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/GatewayProfile"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - ephemeral_storage_total: ephemeral_storage_total
+          kind: kind
+          container_cpu_request_default: container_cpu_request_default
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          cpu_request_total: cpu_request_total
+          pvc_count: 5
+          container_memory_limit_max: container_memory_limit_max
+          memory_request_total: memory_request_total
+          pod_count: 5
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          cpu_limit_total: cpu_limit_total
+          container_cpu_limit_max: container_cpu_limit_max
+          container_memory_request_default: container_memory_request_default
+          id: id
+          href: href
+          memory_limit_total: memory_limit_total
+        - ephemeral_storage_total: ephemeral_storage_total
+          kind: kind
+          container_cpu_request_default: container_cpu_request_default
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          cpu_request_total: cpu_request_total
+          pvc_count: 5
+          container_memory_limit_max: container_memory_limit_max
+          memory_request_total: memory_request_total
+          pod_count: 5
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          cpu_limit_total: cpu_limit_total
+          container_cpu_limit_max: container_cpu_limit_max
+          container_memory_request_default: container_memory_request_default
+          id: id
+          href: href
+          memory_limit_total: memory_limit_total
+    GatewayProfilePatchRequest:
+      example:
+        ephemeral_storage_total: ephemeral_storage_total
+        container_cpu_request_default: container_cpu_request_default
+        description: description
+        cpu_request_total: cpu_request_total
+        pvc_count: 6
+        container_memory_limit_max: container_memory_limit_max
+        memory_request_total: memory_request_total
+        pod_count: 0
+        name: name
+        cpu_limit_total: cpu_limit_total
+        container_cpu_limit_max: container_cpu_limit_max
+        container_memory_request_default: container_memory_request_default
+        memory_limit_total: memory_limit_total
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        cpu_request_total:
+          type: string
+        cpu_limit_total:
+          type: string
+        memory_request_total:
+          type: string
+        memory_limit_total:
+          type: string
+        ephemeral_storage_total:
+          type: string
+        pod_count:
+          format: int32
+          type: integer
+        pvc_count:
+          format: int32
+          type: integer
+        container_cpu_request_default:
+          type: string
+        container_cpu_limit_max:
+          type: string
+        container_memory_request_default:
+          type: string
+        container_memory_limit_max:
+          type: string
+      type: object
     GatewayCreateRequest:
       example:
         phase: phase
@@ -3348,6 +3828,7 @@ components:
         tls_mode: tls_mode
         route: route
         database_id: database_id
+        profile_id: profile_id
         name: name
         external_dns: external_dns
         status: status
@@ -3357,6 +3838,11 @@ components:
         cluster_id:
           type: string
         release_id:
+          type: string
+        profile_id:
+          description: "Optional GatewayProfile identifier for quota enforcement;\
+            \ if omitted the API server falls back to the cluster's default profile,\
+            \ and rejects the request with HTTP 400 if neither is provided"
           type: string
         database_id:
           description: Required placement placeholder; the API server ignores its

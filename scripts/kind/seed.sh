@@ -110,6 +110,27 @@ else
   warn "Could not obtain API token: ${TOKEN_RESP:0:200}"
 fi
 
+# platform-admin token for GatewayProfile operations (requires platform:admin realm role).
+PLATFORM_ADMIN_AUTH_HEADER=""
+info "Obtaining platform-admin token..."
+for _ in $(seq 1 5); do
+  PLATFORM_ADMIN_TOKEN_RESP=$(curl -sSk -m 5 -X POST "${KC_TOKEN_URL}" \
+    -d "grant_type=password" \
+    -d "client_id=hypershell-frontend" \
+    -d "username=platform-admin" \
+    -d "password=platform-admin" 2>&1 || true)
+  PLATFORM_ADMIN_TOKEN=$(echo "${PLATFORM_ADMIN_TOKEN_RESP}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
+  if [[ -n "${PLATFORM_ADMIN_TOKEN}" ]]; then
+    PLATFORM_ADMIN_AUTH_HEADER="Authorization: Bearer ${PLATFORM_ADMIN_TOKEN}"
+    success "Platform-admin token obtained"
+    break
+  fi
+  sleep 2
+done
+if [[ -z "${PLATFORM_ADMIN_AUTH_HEADER}" ]]; then
+  warn "Could not obtain platform-admin token; GatewayProfile seeding will be skipped"
+fi
+
 # Helper: POST a JSON resource; prints the response body on success or failure.
 api_post() {
   local url="$1" data="$2"
@@ -133,6 +154,18 @@ api_get() {
     ${auth_args[@]+"${auth_args[@]}"} 2>&1 || true
 }
 
+api_patch() {
+  local url="$1" data="$2"
+  local auth_args=()
+  if [[ -n "${API_AUTH_HEADER}" ]]; then
+    auth_args=(-H "${API_AUTH_HEADER}")
+  fi
+  curl -sS -w "\n%{http_code}" -X PATCH "${url}" \
+    -H "Content-Type: application/json" \
+    ${auth_args[@]+"${auth_args[@]}"} \
+    -d "${data}" 2>&1 || true
+}
+
 extract_id() {
   local resp="$1"
   if echo "$resp" | grep -q '"kind":"Error"'; then
@@ -148,6 +181,7 @@ seed_failed=""
 CLUSTER_ID=""
 RELEASE_ID=""
 DATABASE_ID=""
+SMALL_PROFILE_ID=""
 
 if [[ -z "${seed_failed}" ]]; then
   # Check for existing ManagedCluster
@@ -157,7 +191,7 @@ if [[ -z "${seed_failed}" ]]; then
   EXISTING_MC_RESP=$(echo "${EXISTING_MC_RAW}" | sed '$d')
 
   if [[ "${EXISTING_MC_HTTP}" == "200" ]]; then
-    CLUSTER_ID=$(echo "${EXISTING_MC_RESP}" | grep -o '"name":"local-kind"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    CLUSTER_ID=$(echo "${EXISTING_MC_RESP}" | grep -o '"id":"[^"]*"[^}]*"name":"local-kind"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
     if [[ -n "${CLUSTER_ID}" ]]; then
       success "local-kind ManagedCluster already exists: ${CLUSTER_ID}"
     fi
@@ -180,6 +214,66 @@ if [[ -z "${seed_failed}" ]]; then
   fi
 fi
 
+if [[ -z "${seed_failed}" && -n "${PLATFORM_ADMIN_AUTH_HEADER}" ]]; then
+  header "GatewayProfile Seeding"
+
+  seed_profile() {
+    local prof_name="$1" prof_body="$2"
+    info "Creating ${prof_name} GatewayProfile..." >&2
+    local raw http resp id
+    raw=$(curl -sS -w "\n%{http_code}" -X POST "${API_URL}/api/hypershell/v1/gateway_profiles" \
+      -H "Content-Type: application/json" \
+      -H "${PLATFORM_ADMIN_AUTH_HEADER}" \
+      -d "${prof_body}" 2>&1 || true)
+    http=$(echo "${raw}" | tail -1)
+    resp=$(echo "${raw}" | sed '$d')
+    id=$(extract_id "${resp}")
+    if [[ -n "${id}" ]]; then
+      success "${prof_name} GatewayProfile created: ${id}" >&2
+      printf '%s' "${id}"
+      return
+    fi
+    warn "${prof_name} GatewayProfile creation returned HTTP ${http}; looking up existing..." >&2
+    local list_raw list_resp list_http
+    list_raw=$(curl -sS -w "\n%{http_code}" -X GET "${API_URL}/api/hypershell/v1/gateway_profiles" \
+      -H "${PLATFORM_ADMIN_AUTH_HEADER}" 2>&1 || true)
+    list_http=$(echo "${list_raw}" | tail -1)
+    list_resp=$(echo "${list_raw}" | sed '$d')
+    if [[ "${list_http}" == "200" ]]; then
+      id=$(echo "${list_resp}" | grep -o "\"name\":\"${prof_name}\"[^}]*\"id\":\"[^\"]*\"" | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+      if [[ -z "${id}" ]]; then
+        id=$(echo "${list_resp}" | grep -o "\"id\":\"[^\"]*\"[^}]*\"name\":\"${prof_name}\"" | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+      fi
+    fi
+    if [[ -n "${id}" ]]; then
+      success "${prof_name} GatewayProfile found: ${id}" >&2
+      printf '%s' "${id}"
+    else
+      warn "${prof_name} GatewayProfile not found" >&2
+    fi
+  }
+
+  SMALL_PROFILE_ID=$(seed_profile "small" \
+    '{"name":"small","description":"Small: 2 CPU / 4Gi RAM namespace quota","cpu_request_total":"2","cpu_limit_total":"4","memory_request_total":"2Gi","memory_limit_total":"4Gi","ephemeral_storage_total":"10Gi","pod_count":20,"pvc_count":5,"container_cpu_request_default":"100m","container_cpu_limit_max":"1","container_memory_request_default":"128Mi","container_memory_limit_max":"1Gi"}')
+  seed_profile "medium" \
+    '{"name":"medium","description":"Medium: 4 CPU / 8Gi RAM namespace quota","cpu_request_total":"4","cpu_limit_total":"8","memory_request_total":"4Gi","memory_limit_total":"8Gi","ephemeral_storage_total":"20Gi","pod_count":40,"pvc_count":10,"container_cpu_request_default":"200m","container_cpu_limit_max":"2","container_memory_request_default":"256Mi","container_memory_limit_max":"2Gi"}' >/dev/null
+  seed_profile "big" \
+    '{"name":"big","description":"Big: 8 CPU / 16Gi RAM namespace quota","cpu_request_total":"8","cpu_limit_total":"16","memory_request_total":"8Gi","memory_limit_total":"16Gi","ephemeral_storage_total":"40Gi","pod_count":80,"pvc_count":20,"container_cpu_request_default":"400m","container_cpu_limit_max":"4","container_memory_request_default":"512Mi","container_memory_limit_max":"4Gi"}' >/dev/null
+
+  if [[ -n "${SMALL_PROFILE_ID}" && -n "${CLUSTER_ID}" ]]; then
+    info "Setting small GatewayProfile as default on ManagedCluster ${CLUSTER_ID}..."
+    MC_PATCH_RAW=$(api_patch "${API_URL}/api/hypershell/v1/managed_clusters/${CLUSTER_ID}" \
+      "{\"profile_id\":\"${SMALL_PROFILE_ID}\"}")
+    MC_PATCH_HTTP=$(echo "${MC_PATCH_RAW}" | tail -1)
+    if [[ "${MC_PATCH_HTTP}" == "200" ]]; then
+      success "ManagedCluster profile_id set to ${SMALL_PROFILE_ID}"
+    else
+      MC_PATCH_RESP=$(echo "${MC_PATCH_RAW}" | sed '$d')
+      warn "Failed to set profile_id on ManagedCluster (HTTP ${MC_PATCH_HTTP}): ${MC_PATCH_RESP:-no response}"
+    fi
+  fi
+fi
+
 if [[ -z "${seed_failed}" ]]; then
   # Check for existing GatewayRelease
   info "Checking for existing dev-release GatewayRelease..."
@@ -188,7 +282,7 @@ if [[ -z "${seed_failed}" ]]; then
   EXISTING_GR_RESP=$(echo "${EXISTING_GR_RAW}" | sed '$d')
 
   if [[ "${EXISTING_GR_HTTP}" == "200" ]]; then
-    RELEASE_ID=$(echo "${EXISTING_GR_RESP}" | grep -o '"name":"dev-release"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    RELEASE_ID=$(echo "${EXISTING_GR_RESP}" | grep -o '"id":"[^"]*"[^}]*"name":"dev-release"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
     if [[ -n "${RELEASE_ID}" ]]; then
       success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
     fi
@@ -223,7 +317,7 @@ if [[ -z "${seed_failed}" ]]; then
     EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
 
     if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
-      DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"openshell-db"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+      DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"id":"[^"]*"[^}]*"name":"openshell-db"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
       if [[ -n "${DATABASE_ID}" ]]; then
         success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
       fi
@@ -261,7 +355,7 @@ if [[ -z "${seed_failed}" ]]; then
   EXISTING_GW_RESP=$(echo "${EXISTING_GW_RAW}" | sed '$d')
 
   if [[ "${EXISTING_GW_HTTP}" == "200" ]]; then
-    EXISTING_GW_ID=$(echo "${EXISTING_GW_RESP}" | grep -o '"name":"dev-gateway"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    EXISTING_GW_ID=$(echo "${EXISTING_GW_RESP}" | grep -o '"id":"[^"]*"[^}]*"name":"dev-gateway"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
     if [[ -n "${EXISTING_GW_ID}" ]]; then
       success "dev-gateway already exists: ${EXISTING_GW_ID}"
       GATEWAY_ID="${EXISTING_GW_ID}"
@@ -276,6 +370,9 @@ if [[ -z "${seed_failed}" ]]; then
     # Always send database_id; deployment mode uses the empty placeholder.
     GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
     GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
+    if [[ -n "${SMALL_PROFILE_ID}" ]]; then
+      GW_BODY="${GW_BODY},\"profile_id\":\"${SMALL_PROFILE_ID}\""
+    fi
     GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")

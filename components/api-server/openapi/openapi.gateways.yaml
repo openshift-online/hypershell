@@ -236,6 +236,9 @@ components:
               type: string
             release_id:
               type: string
+            profile_id:
+              type: string
+              description: GatewayProfile identifier used for namespace quota enforcement; required at creation (client-supplied or inherited from the cluster default) and reassignable but not clearable afterward
             database_id:
               type: string
               description: Server-assigned ManagedDatabase identifier; client-supplied values are ignored
@@ -305,6 +308,9 @@ components:
           type: string
         release_id:
           type: string
+        profile_id:
+          type: string
+          description: Optional GatewayProfile identifier for quota enforcement; if omitted the API server falls back to the cluster's default profile, and rejects the request with HTTP 400 if neither is provided
         database_id:
           type: string
           description: Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
@@ -360,6 +366,9 @@ components:
           type: string
         release_id:
           type: string
+        profile_id:
+          type: string
+          description: Reassign the gateway to a different GatewayProfile; cannot be set to null or empty (HTTP 400) and the target profile must exist
         database_id:
           type: string
           description: Server-owned placement field; values supplied through PATCH are ignored

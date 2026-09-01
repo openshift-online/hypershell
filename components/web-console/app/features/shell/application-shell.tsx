@@ -16,8 +16,12 @@ import {
 import { MoonIcon, SunIcon } from "@patternfly/react-icons";
 import {
   gatewayMessages,
+  gatewayProfileMessages,
+  gatewayProfileQueryKey,
+  GatewayProfileUiProvider,
   gatewayQueryKey,
   GatewayUiProvider,
+  type GatewayProfileUiNavigation,
   type GatewayUiNavigation,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import { useQuery } from "@tanstack/react-query";
@@ -26,6 +30,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
 import { gatewayOperations } from "../../composition/gateway-composition";
+import { gatewayProfileOperations } from "../../composition/gateway-profile-composition";
 import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
 import { useColorScheme } from "./use-color-scheme";
@@ -46,6 +51,16 @@ export function ApplicationShell() {
     }),
     [navigate],
   );
+  const gatewayProfileNavigation = useMemo<GatewayProfileUiNavigation>(
+    () => ({
+      collectionHref: "/gateway-profiles",
+      createHref: "/gateway-profiles/new",
+      detailHref: (gatewayProfileId) =>
+        `/gateway-profiles/${encodeURIComponent(gatewayProfileId)}`,
+      navigate: (href, options) => navigate(href, options),
+    }),
+    [navigate],
+  );
   const { scheme, toggle: toggleColorScheme } = useColorScheme();
   useRouteHeadingFocus(pathname);
   const segments = pathname.split("/").filter(Boolean);
@@ -57,6 +72,21 @@ export function ApplicationShell() {
     queryFn: ({ signal }) =>
       gatewayOperations.getGateway(gatewayId ?? "", signal),
     queryKey: gatewayQueryKey(gatewayId ?? ""),
+  });
+  const gatewayProfileSegment =
+    segments[0] === "gateway-profiles" ? segments[1] : undefined;
+  const isNewGatewayProfile = gatewayProfileSegment === "new";
+  const gatewayProfileId = isNewGatewayProfile
+    ? undefined
+    : gatewayProfileSegment;
+  const gatewayProfileQuery = useQuery({
+    enabled: gatewayProfileId !== undefined,
+    queryFn: ({ signal }) =>
+      gatewayProfileOperations.getGatewayProfile(
+        gatewayProfileId ?? "",
+        signal,
+      ),
+    queryKey: gatewayProfileQueryKey(gatewayProfileId ?? ""),
   });
 
   const skipToContent = (
@@ -128,6 +158,27 @@ export function ApplicationShell() {
         ) : null}
       </Breadcrumb>
     );
+  } else if (gatewayProfileId || isNewGatewayProfile) {
+    breadcrumb = (
+      <Breadcrumb aria-label={intl.formatMessage(messages.breadcrumbLabel)}>
+        <BreadcrumbItem to="/gateway-profiles">
+          <FormattedMessage {...gatewayProfileMessages.gatewayProfiles} />
+        </BreadcrumbItem>
+        {gatewayProfileId ? (
+          <BreadcrumbItem isActive>
+            {gatewayProfileQuery.data?.name ??
+              intl.formatMessage(gatewayProfileMessages.gatewayProfile)}
+          </BreadcrumbItem>
+        ) : null}
+        {isNewGatewayProfile ? (
+          <BreadcrumbItem isActive>
+            <FormattedMessage
+              {...gatewayProfileMessages.createGatewayProfile}
+            />
+          </BreadcrumbItem>
+        ) : null}
+      </Breadcrumb>
+    );
   }
 
   return (
@@ -135,15 +186,20 @@ export function ApplicationShell() {
       gateways={gatewayOperations}
       navigation={gatewayNavigation}
     >
-      <Page
-        breadcrumb={breadcrumb}
-        isContentFilled
-        mainContainerId="main-content"
-        masthead={masthead}
-        skipToContent={skipToContent}
+      <GatewayProfileUiProvider
+        gatewayProfiles={gatewayProfileOperations}
+        navigation={gatewayProfileNavigation}
       >
-        <Outlet />
-      </Page>
+        <Page
+          breadcrumb={breadcrumb}
+          isContentFilled
+          mainContainerId="main-content"
+          masthead={masthead}
+          skipToContent={skipToContent}
+        >
+          <Outlet />
+        </Page>
+      </GatewayProfileUiProvider>
     </GatewayUiProvider>
   );
 }

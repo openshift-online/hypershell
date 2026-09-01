@@ -22,6 +22,8 @@ type GatewayPatchRequest struct {
 	Name      *string `json:"name,omitempty"`
 	ClusterId *string `json:"cluster_id,omitempty"`
 	ReleaseId *string `json:"release_id,omitempty"`
+	// Reassign the gateway to a different GatewayProfile; cannot be set to null or empty (HTTP 400) and the target profile must exist
+	ProfileId *string `json:"profile_id,omitempty"`
 	// Server-owned placement field; values supplied through PATCH are ignored
 	DatabaseId       *string  `json:"database_id,omitempty"`
 	ExternalDns      *string  `json:"external_dns,omitempty"`
@@ -149,6 +151,38 @@ func (o *GatewayPatchRequest) HasReleaseId() bool {
 // SetReleaseId gets a reference to the given string and assigns it to the ReleaseId field.
 func (o *GatewayPatchRequest) SetReleaseId(v string) {
 	o.ReleaseId = &v
+}
+
+// GetProfileId returns the ProfileId field value if set, zero value otherwise.
+func (o *GatewayPatchRequest) GetProfileId() string {
+	if o == nil || IsNil(o.ProfileId) {
+		var ret string
+		return ret
+	}
+	return *o.ProfileId
+}
+
+// GetProfileIdOk returns a tuple with the ProfileId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayPatchRequest) GetProfileIdOk() (*string, bool) {
+	if o == nil || IsNil(o.ProfileId) {
+		return nil, false
+	}
+	return o.ProfileId, true
+}
+
+// HasProfileId returns a boolean if a field has been set.
+func (o *GatewayPatchRequest) HasProfileId() bool {
+	if o != nil && !IsNil(o.ProfileId) {
+		return true
+	}
+
+	return false
+}
+
+// SetProfileId gets a reference to the given string and assigns it to the ProfileId field.
+func (o *GatewayPatchRequest) SetProfileId(v string) {
+	o.ProfileId = &v
 }
 
 // GetDatabaseId returns the DatabaseId field value if set, zero value otherwise.
@@ -585,6 +619,9 @@ func (o GatewayPatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ReleaseId) {
 		toSerialize["release_id"] = o.ReleaseId
+	}
+	if !IsNil(o.ProfileId) {
+		toSerialize["profile_id"] = o.ProfileId
 	}
 	if !IsNil(o.DatabaseId) {
 		toSerialize["database_id"] = o.DatabaseId

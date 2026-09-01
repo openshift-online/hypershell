@@ -1,11 +1,17 @@
 {
   "gatewayDetail": "gateways/:gatewayId",
   "gatewayNew": "gateways/new",
+  "gatewayProfileDetail": "gateway-profiles/:gatewayProfileId",
+  "gatewayProfileNew": "gateway-profiles/new",
+  "gatewayProfiles": "gateway-profiles",
   "login": "login",
   "directNavigationExamples": [
     "/",
     "/login",
     "/gateways/new",
-    "/gateways/gateway-1"
+    "/gateways/gateway-1",
+    "/gateway-profiles",
+    "/gateway-profiles/new",
+    "/gateway-profiles/profile-1"
   ]
 }

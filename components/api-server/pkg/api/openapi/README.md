@@ -80,6 +80,7 @@ Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *DefaultAPI* | [**CreateGateway**](docs/DefaultAPI.md#creategateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 *DefaultAPI* | [**CreateGatewayNetwork**](docs/DefaultAPI.md#creategatewaynetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
+*DefaultAPI* | [**CreateGatewayProfile**](docs/DefaultAPI.md#creategatewayprofile) | **Post** /api/hypershell/v1/gateway_profiles | Create a new gatewayProfile
 *DefaultAPI* | [**CreateGatewayRelease**](docs/DefaultAPI.md#creategatewayrelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
 *DefaultAPI* | [**CreateGatewayServiceAccount**](docs/DefaultAPI.md#creategatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 *DefaultAPI* | [**CreateManagedCluster**](docs/DefaultAPI.md#createmanagedcluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
@@ -87,6 +88,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**CreateRoleBinding**](docs/DefaultAPI.md#createrolebinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 *DefaultAPI* | [**DeleteGateway**](docs/DefaultAPI.md#deletegateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 *DefaultAPI* | [**DeleteGatewayNetwork**](docs/DefaultAPI.md#deletegatewaynetwork) | **Delete** /api/hypershell/v1/gateway_networks/{id} | Delete a gateway network
+*DefaultAPI* | [**DeleteGatewayProfile**](docs/DefaultAPI.md#deletegatewayprofile) | **Delete** /api/hypershell/v1/gateway_profiles/{id} | Delete a gateway profile
 *DefaultAPI* | [**DeleteGatewayRelease**](docs/DefaultAPI.md#deletegatewayrelease) | **Delete** /api/hypershell/v1/gateway_releases/{id} | Delete a gateway release
 *DefaultAPI* | [**DeleteGatewayServiceAccount**](docs/DefaultAPI.md#deletegatewayserviceaccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 *DefaultAPI* | [**DeleteManagedCluster**](docs/DefaultAPI.md#deletemanagedcluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
@@ -94,6 +96,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteRoleBinding**](docs/DefaultAPI.md#deleterolebinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 *DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 *DefaultAPI* | [**GetGatewayNetwork**](docs/DefaultAPI.md#getgatewaynetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
+*DefaultAPI* | [**GetGatewayProfile**](docs/DefaultAPI.md#getgatewayprofile) | **Get** /api/hypershell/v1/gateway_profiles/{id} | Get a gatewayProfile by id
 *DefaultAPI* | [**GetGatewayRelease**](docs/DefaultAPI.md#getgatewayrelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
 *DefaultAPI* | [**GetGatewayServiceAccount**](docs/DefaultAPI.md#getgatewayserviceaccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 *DefaultAPI* | [**GetManagedCluster**](docs/DefaultAPI.md#getmanagedcluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
@@ -102,6 +105,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GetRole**](docs/DefaultAPI.md#getrole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 *DefaultAPI* | [**GetRoleBinding**](docs/DefaultAPI.md#getrolebinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 *DefaultAPI* | [**ListGatewayNetworks**](docs/DefaultAPI.md#listgatewaynetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
+*DefaultAPI* | [**ListGatewayProfiles**](docs/DefaultAPI.md#listgatewayprofiles) | **Get** /api/hypershell/v1/gateway_profiles | Returns a list of gatewayProfiles
 *DefaultAPI* | [**ListGatewayReleases**](docs/DefaultAPI.md#listgatewayreleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 *DefaultAPI* | [**ListGatewayServiceAccounts**](docs/DefaultAPI.md#listgatewayserviceaccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 *DefaultAPI* | [**ListGateways**](docs/DefaultAPI.md#listgateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
@@ -112,6 +116,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**RevokeGatewayServiceAccount**](docs/DefaultAPI.md#revokegatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 *DefaultAPI* | [**UpdateGatewayNetwork**](docs/DefaultAPI.md#updategatewaynetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
+*DefaultAPI* | [**UpdateGatewayProfile**](docs/DefaultAPI.md#updategatewayprofile) | **Patch** /api/hypershell/v1/gateway_profiles/{id} | Update a gatewayProfile
 *DefaultAPI* | [**UpdateGatewayRelease**](docs/DefaultAPI.md#updategatewayrelease) | **Patch** /api/hypershell/v1/gateway_releases/{id} | Update an gatewayRelease
 *DefaultAPI* | [**UpdateManagedCluster**](docs/DefaultAPI.md#updatemanagedcluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 *DefaultAPI* | [**UpdateManagedDatabase**](docs/DefaultAPI.md#updatemanageddatabase) | **Patch** /api/hypershell/v1/managed_databases/{id} | Update an managedDatabase
@@ -127,6 +132,9 @@ Class | Method | HTTP request | Description
  - [GatewayNetworkList](docs/GatewayNetworkList.md)
  - [GatewayNetworkPatchRequest](docs/GatewayNetworkPatchRequest.md)
  - [GatewayPatchRequest](docs/GatewayPatchRequest.md)
+ - [GatewayProfile](docs/GatewayProfile.md)
+ - [GatewayProfileList](docs/GatewayProfileList.md)
+ - [GatewayProfilePatchRequest](docs/GatewayProfilePatchRequest.md)
  - [GatewayRelease](docs/GatewayRelease.md)
  - [GatewayReleaseList](docs/GatewayReleaseList.md)
  - [GatewayReleasePatchRequest](docs/GatewayReleasePatchRequest.md)

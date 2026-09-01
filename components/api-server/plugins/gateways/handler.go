@@ -96,6 +96,16 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				found.Name = *patch.Name
 			}
 			if patch.ClusterId != nil {
+				if *patch.ClusterId == "" {
+					return nil, errors.Validation("cluster_id cannot be removed from a gateway")
+				}
+				clusterExists, clusterExistsErr := h.gateway.ClusterExists(ctx, *patch.ClusterId)
+				if clusterExistsErr != nil {
+					return nil, clusterExistsErr
+				}
+				if !clusterExists {
+					return nil, errors.Validation("cluster %s does not exist", *patch.ClusterId)
+				}
 				found.ClusterId = *patch.ClusterId
 			}
 			if patch.ReleaseId != nil {
@@ -103,6 +113,21 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			}
 			// database_id is server-owned placement state. Ignore any value supplied
 			// through the public API; only gateway creation business logic assigns it.
+			if patch.ProfileId != nil {
+				// A gateway must always have a profile: reject clearing it. Reassignment
+				// to a different existing profile is allowed and re-triggers reconcile.
+				if *patch.ProfileId == "" {
+					return nil, errors.Validation("profile_id cannot be removed from a gateway; reassign it to a different profile instead")
+				}
+				exists, existsErr := h.gateway.ProfileExists(ctx, *patch.ProfileId)
+				if existsErr != nil {
+					return nil, existsErr
+				}
+				if !exists {
+					return nil, errors.Validation("gateway profile %s does not exist", *patch.ProfileId)
+				}
+				found.ProfileId = *patch.ProfileId
+			}
 			if patch.ExternalDns != nil {
 				found.ExternalDns = patch.ExternalDns
 			}

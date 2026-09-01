@@ -102,12 +102,12 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 ### Permission Matrix
 
-| Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts |
-|------|----------|-------------|-------------|-------------------|-----------------|
-| `platform:admin` | view all, delete any | view all + delete any | -- | -- | None without a gateway binding |
-| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways | Through the resulting owner binding |
-| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. |
-| `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. |
+| Role | Gateways | Gateway CRUD | GatewayProfiles | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts |
+|------|----------|-------------|-----------------|-------------|-------------------|-----------------|
+| `platform:admin` | view all, delete any | view all + delete any | full (create/update/delete + read) | -- | -- | None without a gateway binding |
+| `gateway:creator` | create + own gateways | full (as owner) | read only | grant owner/viewer on own gateways | `openshell-admin` on own gateways | Through the resulting owner binding |
+| `gateway:owner` | full (one gateway) | full | read only | grant owner/viewer on that gateway | `openshell-admin` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. |
+| `gateway:viewer` | read (one gateway) | read only | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. |
 
 ### OpenShell Role Bridge
 
@@ -298,7 +298,7 @@ Platform administrators SHALL NOT be able to:
 The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and
 `gateway:viewer`. A user may hold multiple roles (e.g., `platform:admin` + `gateway:creator`).
 
-In the initial implementation, the `platform:admin` role is **limited to gateway view and delete operations**. It does NOT grant permissions to:
+In the initial implementation, the `platform:admin` role is **limited to gateway view and delete operations, plus full management of GatewayProfiles** (see the GatewayProfile Authorization requirement below). It does NOT grant permissions to:
 
 - View or modify GatewayNetworks, GatewayReleases, ManagedClusters, or ManagedDatabases
 - View or modify Users or RoleBindings
@@ -359,6 +359,57 @@ Future iterations may expand platform:admin permissions to include these resourc
 - THEN the gateway is created
 - AND user A becomes `gateway:owner` of the new gateway
 - AND user A can still view all other gateways via `platform:admin`
+
+### Requirement: GatewayProfile Authorization
+
+A GatewayProfile defines the resource ceiling (quota) that the control plane enforces
+against gateways assigned to it. Because a profile governs enforcement, the authority to
+create, modify, or delete profiles SHALL be restricted to platform administrators;
+otherwise any caller able to create gateways could mint a profile with an arbitrarily
+large quota and defeat enforcement.
+
+Authorization for `/api/hypershell/v1/gateway_profiles`:
+
+- **Create** (POST), **Update** (PATCH), **Delete** (DELETE) SHALL require the
+  `platform:admin` role.
+- **Read** (GET list and GET by id) SHALL be permitted for any authenticated caller that
+  holds at least one role binding, so that `gateway:creator` and `gateway:owner` users can
+  view profiles in order to assign one to a gateway.
+
+This is the first resource for which `platform:admin` carries mutation authority; the role
+remains view-and-delete-only for gateways (see Platform Admin Global Access).
+
+The same rule SHALL be enforced on the gRPC `GatewayProfileService`: `CreateGatewayProfile`,
+`UpdateGatewayProfile`, and `DeleteGatewayProfile` require `platform:admin`, while
+`GetGatewayProfile` and `ListGatewayProfiles` are open to any caller holding a binding. The
+enforcement must not be bypassable by switching transport.
+
+#### Scenario: Platform admin creates a GatewayProfile
+
+- GIVEN user A has `platform:admin`
+- WHEN user A calls `POST /api/hypershell/v1/gateway_profiles` with a valid quota
+- THEN the profile is created
+- AND the response is 201 Created
+
+#### Scenario: Gateway creator cannot create a GatewayProfile
+
+- GIVEN user A has `gateway:creator` but not `platform:admin`
+- WHEN user A calls `POST /api/hypershell/v1/gateway_profiles`
+- THEN the response is 403 Forbidden
+
+#### Scenario: Gateway creator can read GatewayProfiles
+
+- GIVEN user A has `gateway:creator` but not `platform:admin`
+- WHEN user A calls `GET /api/hypershell/v1/gateway_profiles`
+- THEN the response is 200 OK with the list of profiles
+
+#### Scenario: Non-admin cannot modify or delete a GatewayProfile
+
+- GIVEN user A has `gateway:owner` on gw-1 but not `platform:admin`
+- WHEN user A calls `PATCH /api/hypershell/v1/gateway_profiles/gp-1`
+- THEN the response is 403 Forbidden
+- AND WHEN user A calls `DELETE /api/hypershell/v1/gateway_profiles/gp-1`
+- THEN the response is 403 Forbidden
 
 ### Requirement: Platform Admin UI Experience
 
@@ -505,7 +556,8 @@ Integration tests SHALL exercise RBAC enforcement with the new four-role model.
 |----------|-----------|
 | Keycloak as authority for platform roles | Centralizes role management. Eliminates need for admin-seeding CLI or DB migration. Role changes take effect on next JWT. |
 | Four roles model | Minimal model that covers the use cases: platform administration (view/delete all), create gateways, own gateways, view gateways. No fleet-scoped RBAC needed. |
-| `platform:admin` is view + delete only | Platform admins handle operational tasks (viewing all gateways, cleaning up orphaned resources). Full modification requires ownership to prevent accidental changes. Separation of concerns: visibility ≠ modification authority. |
+| `platform:admin` is view + delete only for gateways | Platform admins handle operational tasks (viewing all gateways, cleaning up orphaned resources). Full modification requires ownership to prevent accidental changes. Separation of concerns: visibility ≠ modification authority. |
+| `platform:admin` has full CRUD on GatewayProfiles | A profile is the enforcement ceiling the control plane applies. If a `gateway:creator` could create or edit profiles, they could raise their own quota and defeat enforcement. Restricting profile mutation to platform admins keeps the enforcement authority separate from the enforced. Reads stay open to any bound user so creators/owners can assign a profile. |
 | `platform:admin` orthogonal to `gateway:creator` | A platform admin may or may not create gateways. Roles compose: `platform:admin` + `gateway:creator` allows both operational oversight and resource creation. |
 | JWT roles synced to DB on every request | DB is the projection, Keycloak is the authority. Revocations in Keycloak take effect immediately. Existing per-gateway bindings are unaffected by platform role changes. |
 | Service accounts treated identically to users | Control plane gets `gateway:creator` in Keycloak, provisions like any user. No special bypass logic needed. |

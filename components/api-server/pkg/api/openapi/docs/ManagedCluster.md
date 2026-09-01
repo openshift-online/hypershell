@@ -15,6 +15,8 @@ Name | Type | Description | Notes
 **KubeconfigSecret** | **string** |  | 
 **Status** | Pointer to **string** |  | [optional] 
 **ApiServerUrl** | Pointer to **string** |  | [optional] 
+**ProfileId** | Pointer to **string** | Default GatewayProfile identifier inherited by gateways created on this cluster when they do not supply their own profile_id | [optional] 
+**DatabaseId** | Pointer to **string** | Default ManagedDatabase identifier for gateways placed on this cluster | [optional] 
 
 ## Methods
 
@@ -294,6 +296,56 @@ SetApiServerUrl sets ApiServerUrl field to given value.
 `func (o *ManagedCluster) HasApiServerUrl() bool`
 
 HasApiServerUrl returns a boolean if a field has been set.
+
+### GetProfileId
+
+`func (o *ManagedCluster) GetProfileId() string`
+
+GetProfileId returns the ProfileId field if non-nil, zero value otherwise.
+
+### GetProfileIdOk
+
+`func (o *ManagedCluster) GetProfileIdOk() (*string, bool)`
+
+GetProfileIdOk returns a tuple with the ProfileId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetProfileId
+
+`func (o *ManagedCluster) SetProfileId(v string)`
+
+SetProfileId sets ProfileId field to given value.
+
+### HasProfileId
+
+`func (o *ManagedCluster) HasProfileId() bool`
+
+HasProfileId returns a boolean if a field has been set.
+
+### GetDatabaseId
+
+`func (o *ManagedCluster) GetDatabaseId() string`
+
+GetDatabaseId returns the DatabaseId field if non-nil, zero value otherwise.
+
+### GetDatabaseIdOk
+
+`func (o *ManagedCluster) GetDatabaseIdOk() (*string, bool)`
+
+GetDatabaseIdOk returns a tuple with the DatabaseId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDatabaseId
+
+`func (o *ManagedCluster) SetDatabaseId(v string)`
+
+SetDatabaseId sets DatabaseId field to given value.
+
+### HasDatabaseId
+
+`func (o *ManagedCluster) HasDatabaseId() bool`
+
+HasDatabaseId returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

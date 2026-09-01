@@ -4,6 +4,7 @@ const (
 	APIPrefix            = "/api/hypershell/v1"
 	GatewaysPath         = APIPrefix + "/gateways"
 	GatewayNetworksPath  = APIPrefix + "/gateway_networks"
+	GatewayProfilesPath  = APIPrefix + "/gateway_profiles"
 	GatewayReleasesPath  = APIPrefix + "/gateway_releases"
 	ManagedClustersPath  = APIPrefix + "/managed_clusters"
 	ManagedDatabasesPath = APIPrefix + "/managed_databases"
@@ -17,6 +18,10 @@ func GatewayPath(id string) string {
 
 func GatewayNetworkPath(id string) string {
 	return GatewayNetworksPath + "/" + id
+}
+
+func GatewayProfilePath(id string) string {
+	return GatewayProfilesPath + "/" + id
 }
 
 func GatewayReleasePath(id string) string {

@@ -217,6 +217,11 @@ type ReconcileOpts struct {
 	// resources, so an in-flight pass does not recreate them behind a concurrent
 	// health-loop teardown. Nil disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
+	// Quota is the resource quota derived from the gateway's GatewayProfile.
+	// Non-nil drives creation/update of the namespace ResourceQuota and
+	// LimitRange; nil (legacy gateway with no profile) reconciles toward
+	// absence of both managed objects.
+	Quota *QuotaConfig
 }
 
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.

@@ -11,6 +11,8 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gatewayProfiles"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -62,6 +64,56 @@ func (a *dbCreatorAdapter) CreateForGateway(ctx context.Context, gatewayName str
 	return d.ID, nil
 }
 
+// profileResolverAdapter satisfies ProfileResolver by delegating to the
+// managedClusters and gatewayProfiles services, keeping the gateway service
+// decoupled from those packages' concrete types.
+type profileResolverAdapter struct {
+	clusters managedClusters.ManagedClusterService
+	profiles gatewayProfiles.GatewayProfileService
+}
+
+func (a *profileResolverAdapter) ClusterDefaultProfileID(ctx context.Context, clusterID string) (string, error) {
+	if a.clusters == nil || clusterID == "" {
+		return "", nil
+	}
+	c, svcErr := a.clusters.Get(ctx, clusterID)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	if c.ProfileId != nil {
+		return *c.ProfileId, nil
+	}
+	return "", nil
+}
+
+func (a *profileResolverAdapter) ProfileExists(ctx context.Context, profileID string) (bool, error) {
+	if a.profiles == nil || profileID == "" {
+		return false, nil
+	}
+	_, svcErr := a.profiles.Get(ctx, profileID)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return false, nil
+		}
+		return false, svcErr
+	}
+	return true, nil
+}
+
+func (a *profileResolverAdapter) ClusterExists(ctx context.Context, clusterID string) (bool, error) {
+	if a.clusters == nil || clusterID == "" {
+		return false, nil
+	}
+	_, svcErr := a.clusters.Get(ctx, clusterID)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return false, nil
+		}
+		return false, svcErr
+	}
+	return true, nil
+}
+
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewGatewayDao(&env.Database.SessionFactory)
 	RegisterGatewayMetrics(dao)
@@ -87,11 +139,17 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				}
 			}
 
+			profiles := &profileResolverAdapter{
+				clusters: managedClusters.Service(&env.Services),
+				profiles: gatewayProfiles.Service(&env.Services),
+			}
+
 			return NewGatewayService(
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 				dao,
 				events.Service(&env.Services),
 				placement,
+				profiles,
 			)
 		},
 		list: newGatewayListService(&env.Database.SessionFactory),
@@ -191,6 +249,7 @@ func init() {
 	db.RegisterMigration(migrationAddCredentialDriver())
 	db.RegisterMigration(migrationAddConsoleAddress())
 	db.RegisterMigration(migrationAddActiveSandboxCount())
+	db.RegisterMigration(migrationAddProfileID())
 	db.RegisterMigration(migrationDropDatabaseConfig())
 	db.RegisterMigration(migrationDropFleetId())
 	db.RegisterMigration(migrationDropFleetsTable())

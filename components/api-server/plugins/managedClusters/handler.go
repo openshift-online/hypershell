@@ -1,6 +1,7 @@
 package managedClusters
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -12,17 +13,26 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/services"
 )
 
+// ProfileChecker validates that a referenced GatewayProfile exists so bad
+// profile_id values are rejected at the API boundary rather than discovered
+// later as a confusing reconciliation failure.
+type ProfileChecker interface {
+	ProfileExists(ctx context.Context, profileID string) (bool, *errors.ServiceError)
+}
+
 var _ handlers.RestHandler = managedClusterHandler{}
 
 type managedClusterHandler struct {
 	managedCluster ManagedClusterService
 	generic        services.GenericService
+	profiles       ProfileChecker
 }
 
-func NewManagedClusterHandler(managedCluster ManagedClusterService, generic services.GenericService) *managedClusterHandler {
+func NewManagedClusterHandler(managedCluster ManagedClusterService, generic services.GenericService, profiles ProfileChecker) *managedClusterHandler {
 	return &managedClusterHandler{
 		managedCluster: managedCluster,
 		generic:        generic,
+		profiles:       profiles,
 	}
 }
 
@@ -36,6 +46,15 @@ func (h managedClusterHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			managedClusterModel := ConvertManagedCluster(managedCluster)
+			if managedClusterModel.ProfileId != nil && *managedClusterModel.ProfileId != "" {
+				exists, existsErr := h.profiles.ProfileExists(ctx, *managedClusterModel.ProfileId)
+				if existsErr != nil {
+					return nil, existsErr
+				}
+				if !exists {
+					return nil, errors.Validation("gateway profile %s does not exist", *managedClusterModel.ProfileId)
+				}
+			}
 			managedClusterModel, err := h.managedCluster.Create(ctx, managedClusterModel)
 			if err != nil {
 				return nil, err
@@ -79,6 +98,21 @@ func (h managedClusterHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			}
 			if patch.ApiServerUrl != nil {
 				found.ApiServerUrl = patch.ApiServerUrl
+			}
+			if patch.ProfileId != nil {
+				if *patch.ProfileId != "" {
+					exists, existsErr := h.profiles.ProfileExists(ctx, *patch.ProfileId)
+					if existsErr != nil {
+						return nil, existsErr
+					}
+					if !exists {
+						return nil, errors.Validation("gateway profile %s does not exist", *patch.ProfileId)
+					}
+				}
+				found.ProfileId = patch.ProfileId
+			}
+			if patch.DatabaseId != nil {
+				found.DatabaseId = patch.DatabaseId
 			}
 
 			managedClusterModel, err := h.managedCluster.Replace(ctx, found)

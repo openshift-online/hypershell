@@ -60,8 +60,7 @@ export const messages = defineMessages({
   },
   clusterLoadErrorBody: {
     id: "app.gateway.cluster.loadError.body",
-    defaultMessage:
-      "You can provision on Hub cluster (default), or try loading managed clusters again.",
+    defaultMessage: "Try loading managed clusters again.",
     description:
       "Recovery guidance when remote gateway placements cannot be loaded.",
   },
@@ -359,11 +358,6 @@ export const messages = defineMessages({
     id: "app.gateway.cluster.hub",
     defaultMessage: "Hub cluster",
     description: "Placement label for the cluster hosting HyperShell.",
-  },
-  hubClusterDefault: {
-    id: "app.gateway.cluster.hubDefault",
-    defaultMessage: "Hub cluster (default)",
-    description: "Default placement option for a gateway provisioning form.",
   },
   loadingClusterName: {
     id: "app.gateway.cluster.loadingName",

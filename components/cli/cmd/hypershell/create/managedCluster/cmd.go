@@ -17,8 +17,10 @@ import (
 
 var args struct {
 	apiServerUrl     string
+	databaseId       string
 	kubeconfigSecret string
 	name             string
+	profileId        string
 	provider         string
 	region           string
 	status           string
@@ -30,7 +32,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedCluster",
 	Long: "Create a new managedCluster.\n\n" +
 		"Examples:\n" +
-		"  hsctl create managedCluster --api-server-url <value> --kubeconfig-secret <value> --name <value> --provider <value> --region <value> --status <value> \n" +
+		"  hsctl create managedCluster --api-server-url <value> --database-id <value> --kubeconfig-secret <value> --name <value> --profile-id <value> --provider <value> --region <value> --status <value> \n" +
 		"  hsctl create managedCluster --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -39,8 +41,10 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.apiServerUrl, "api-server-url", "", "api_server_url value.")
+	fs.StringVar(&args.databaseId, "database-id", "", "database_id value.")
 	fs.StringVar(&args.kubeconfigSecret, "kubeconfig-secret", "", "kubeconfig_secret value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
+	fs.StringVar(&args.profileId, "profile-id", "", "profile_id value.")
 	fs.StringVar(&args.provider, "provider", "", "provider value.")
 	fs.StringVar(&args.region, "region", "", "region value.")
 	fs.StringVar(&args.status, "status", "", "status value.")
@@ -71,11 +75,17 @@ func run(cmd *cobra.Command, argv []string) error {
 		if args.apiServerUrl != "" {
 			request["api_server_url"] = args.apiServerUrl
 		}
+		if args.databaseId != "" {
+			request["database_id"] = args.databaseId
+		}
 		if args.kubeconfigSecret != "" {
 			request["kubeconfig_secret"] = args.kubeconfigSecret
 		}
 		if args.name != "" {
 			request["name"] = args.name
+		}
+		if args.profileId != "" {
+			request["profile_id"] = args.profileId
 		}
 		if args.provider != "" {
 			request["provider"] = args.provider

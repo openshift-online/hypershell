@@ -6,6 +6,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 [**CreateGatewayNetwork**](DefaultAPI.md#CreateGatewayNetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
+[**CreateGatewayProfile**](DefaultAPI.md#CreateGatewayProfile) | **Post** /api/hypershell/v1/gateway_profiles | Create a new gatewayProfile
 [**CreateGatewayRelease**](DefaultAPI.md#CreateGatewayRelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
@@ -13,6 +14,7 @@ Method | HTTP request | Description
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 [**DeleteGateway**](DefaultAPI.md#DeleteGateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 [**DeleteGatewayNetwork**](DefaultAPI.md#DeleteGatewayNetwork) | **Delete** /api/hypershell/v1/gateway_networks/{id} | Delete a gateway network
+[**DeleteGatewayProfile**](DefaultAPI.md#DeleteGatewayProfile) | **Delete** /api/hypershell/v1/gateway_profiles/{id} | Delete a gateway profile
 [**DeleteGatewayRelease**](DefaultAPI.md#DeleteGatewayRelease) | **Delete** /api/hypershell/v1/gateway_releases/{id} | Delete a gateway release
 [**DeleteGatewayServiceAccount**](DefaultAPI.md#DeleteGatewayServiceAccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
@@ -20,6 +22,7 @@ Method | HTTP request | Description
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 [**GetGatewayNetwork**](DefaultAPI.md#GetGatewayNetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
+[**GetGatewayProfile**](DefaultAPI.md#GetGatewayProfile) | **Get** /api/hypershell/v1/gateway_profiles/{id} | Get a gatewayProfile by id
 [**GetGatewayRelease**](DefaultAPI.md#GetGatewayRelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
 [**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 [**GetManagedCluster**](DefaultAPI.md#GetManagedCluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
@@ -28,6 +31,7 @@ Method | HTTP request | Description
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 [**ListGatewayNetworks**](DefaultAPI.md#ListGatewayNetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
+[**ListGatewayProfiles**](DefaultAPI.md#ListGatewayProfiles) | **Get** /api/hypershell/v1/gateway_profiles | Returns a list of gatewayProfiles
 [**ListGatewayReleases**](DefaultAPI.md#ListGatewayReleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
@@ -38,6 +42,7 @@ Method | HTTP request | Description
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateGatewayNetwork**](DefaultAPI.md#UpdateGatewayNetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
+[**UpdateGatewayProfile**](DefaultAPI.md#UpdateGatewayProfile) | **Patch** /api/hypershell/v1/gateway_profiles/{id} | Update a gatewayProfile
 [**UpdateGatewayRelease**](DefaultAPI.md#UpdateGatewayRelease) | **Patch** /api/hypershell/v1/gateway_releases/{id} | Update an gatewayRelease
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 [**UpdateManagedDatabase**](DefaultAPI.md#UpdateManagedDatabase) | **Patch** /api/hypershell/v1/managed_databases/{id} | Update an managedDatabase
@@ -157,6 +162,70 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**GatewayNetwork**](GatewayNetwork.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## CreateGatewayProfile
+
+> GatewayProfile CreateGatewayProfile(ctx).GatewayProfile(gatewayProfile).Execute()
+
+Create a new gatewayProfile
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayProfile := *openapiclient.NewGatewayProfile("Name_example") // GatewayProfile | GatewayProfile data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.CreateGatewayProfile(context.Background()).GatewayProfile(gatewayProfile).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateGatewayProfile``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `CreateGatewayProfile`: GatewayProfile
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateGatewayProfile`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreateGatewayProfileRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **gatewayProfile** | [**GatewayProfile**](GatewayProfile.md) | GatewayProfile data | 
+
+### Return type
+
+[**GatewayProfile**](GatewayProfile.md)
 
 ### Authorization
 
@@ -606,6 +675,72 @@ Name | Type | Description  | Notes
 ### Other Parameters
 
 Other parameters are passed through a pointer to a apiDeleteGatewayNetworkRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## DeleteGatewayProfile
+
+> DeleteGatewayProfile(ctx, id).Execute()
+
+Delete a gateway profile
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.DeleteGatewayProfile(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteGatewayProfile``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiDeleteGatewayProfileRequest struct via the builder pattern
 
 
 Name | Type | Description  | Notes
@@ -1086,6 +1221,74 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**GatewayNetwork**](GatewayNetwork.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetGatewayProfile
+
+> GatewayProfile GetGatewayProfile(ctx, id).Execute()
+
+Get a gatewayProfile by id
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetGatewayProfile(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetGatewayProfile``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetGatewayProfile`: GatewayProfile
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetGatewayProfile`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetGatewayProfileRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**GatewayProfile**](GatewayProfile.md)
 
 ### Authorization
 
@@ -1628,6 +1831,78 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**GatewayNetworkList**](GatewayNetworkList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## ListGatewayProfiles
+
+> GatewayProfileList ListGatewayProfiles(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+Returns a list of gatewayProfiles
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListGatewayProfiles(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListGatewayProfiles``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListGatewayProfiles`: GatewayProfileList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListGatewayProfiles`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListGatewayProfilesRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
+### Return type
+
+[**GatewayProfileList**](GatewayProfileList.md)
 
 ### Authorization
 
@@ -2351,6 +2626,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**GatewayNetwork**](GatewayNetwork.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdateGatewayProfile
+
+> GatewayProfile UpdateGatewayProfile(ctx, id).GatewayProfilePatchRequest(gatewayProfilePatchRequest).Execute()
+
+Update a gatewayProfile
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	gatewayProfilePatchRequest := *openapiclient.NewGatewayProfilePatchRequest() // GatewayProfilePatchRequest | Updated gatewayProfile data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdateGatewayProfile(context.Background(), id).GatewayProfilePatchRequest(gatewayProfilePatchRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateGatewayProfile``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdateGatewayProfile`: GatewayProfile
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateGatewayProfile`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdateGatewayProfileRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **gatewayProfilePatchRequest** | [**GatewayProfilePatchRequest**](GatewayProfilePatchRequest.md) | Updated gatewayProfile data | 
+
+### Return type
+
+[**GatewayProfile**](GatewayProfile.md)
 
 ### Authorization
 

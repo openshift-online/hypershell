@@ -59,6 +59,7 @@ const operations: GatewayOperations = {
   createOpenShellGatewayServiceAccount: mocks.create,
   deleteOpenShellGatewayServiceAccount: mocks.delete,
   findGatewayPlacements: vi.fn(),
+  findGatewayProfiles: vi.fn(),
   getGateway: vi.fn(),
   getGatewayPlacement: vi.fn(),
   getGatewayPlacements: vi.fn(),

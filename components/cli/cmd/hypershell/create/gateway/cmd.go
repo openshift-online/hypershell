@@ -16,20 +16,22 @@ import (
 )
 
 var args struct {
-	clusterId       string
-	databaseId      string
-	externalDns     string
-	image           string
-	name            string
-	phase           string
-	releaseId       string
-	route           string
-	serverDnsNames  string
-	serviceType     string
-	status          string
-	supervisorImage string
-	tlsMode         string
-	bodyFile        string
+	clusterId        string
+	credentialDriver string
+	databaseId       string
+	externalDns      string
+	image            string
+	name             string
+	phase            string
+	profileId        string
+	releaseId        string
+	route            string
+	serverDnsNames   string
+	serviceType      string
+	status           string
+	supervisorImage  string
+	tlsMode          string
+	bodyFile         string
 }
 
 var Cmd = &cobra.Command{
@@ -37,7 +39,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a gateway",
 	Long: "Create a new gateway.\n\n" +
 		"Examples:\n" +
-		"  hsctl create gateway --cluster-id <value> --database-id <value> --external-dns <value> --image <value> --name <value> --phase <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
+		"  hsctl create gateway --cluster-id <value> --credential-driver <value> --database-id <value> --external-dns <value> --image <value> --name <value> --phase <value> --profile-id <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
 		"  hsctl create gateway --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -46,11 +48,13 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.clusterId, "cluster-id", "", "cluster_id value.")
+	fs.StringVar(&args.credentialDriver, "credential-driver", "", "credential_driver value.")
 	fs.StringVar(&args.databaseId, "database-id", "", "database_id value.")
 	fs.StringVar(&args.externalDns, "external-dns", "", "external_dns value.")
 	fs.StringVar(&args.image, "image", "", "image value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.phase, "phase", "", "phase value.")
+	fs.StringVar(&args.profileId, "profile-id", "", "profile_id value.")
 	fs.StringVar(&args.releaseId, "release-id", "", "release_id value.")
 	fs.StringVar(&args.route, "route", "", "route value.")
 	fs.StringVar(&args.serverDnsNames, "server-dns-names", "", "server_dns_names value.")
@@ -85,6 +89,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		if args.clusterId != "" {
 			request["cluster_id"] = args.clusterId
 		}
+		if args.credentialDriver != "" {
+			request["credential_driver"] = args.credentialDriver
+		}
 		if args.databaseId != "" {
 			request["database_id"] = args.databaseId
 		}
@@ -99,6 +106,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 		if args.phase != "" {
 			request["phase"] = args.phase
+		}
+		if args.profileId != "" {
+			request["profile_id"] = args.profileId
 		}
 		if args.releaseId != "" {
 			request["release_id"] = args.releaseId

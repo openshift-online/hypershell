@@ -42,6 +42,11 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		}(),
 	}
 
+	if d.ProfileId != "" {
+		pid := d.ProfileId
+		gw.ProfileId = &pid
+	}
+
 	if d.ServerDnsNames != nil {
 		var names []string
 		if err := json.Unmarshal([]byte(*d.ServerDnsNames), &names); err == nil {

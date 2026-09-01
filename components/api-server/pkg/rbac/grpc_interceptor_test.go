@@ -119,6 +119,59 @@ func TestIsGRPCAuthorized_NoBindingsDenied(t *testing.T) {
 	}
 }
 
+func TestIsGRPCAuthorized_PlatformAdminCanMutateGatewayProfiles(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	for _, method := range []string{
+		"/hypershell.v1.GatewayProfileService/CreateGatewayProfile",
+		"/hypershell.v1.GatewayProfileService/UpdateGatewayProfile",
+		"/hypershell.v1.GatewayProfileService/DeleteGatewayProfile",
+	} {
+		if !isGRPCAuthorized(method, bindings) {
+			t.Errorf("platform:admin should be authorized for %s", method)
+		}
+	}
+}
+
+func TestIsGRPCAuthorized_CreatorCannotMutateGatewayProfiles(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "gateway:creator", Scope: "global"},
+	}
+
+	for _, method := range []string{
+		"/hypershell.v1.GatewayProfileService/CreateGatewayProfile",
+		"/hypershell.v1.GatewayProfileService/UpdateGatewayProfile",
+		"/hypershell.v1.GatewayProfileService/DeleteGatewayProfile",
+	} {
+		if isGRPCAuthorized(method, bindings) {
+			t.Errorf("gateway:creator must not be authorized for %s", method)
+		}
+	}
+
+	// but reads stay open
+	if !isGRPCAuthorized("/hypershell.v1.GatewayProfileService/ListGatewayProfiles", bindings) {
+		t.Error("gateway:creator should be able to list gateway profiles")
+	}
+	if !isGRPCAuthorized("/hypershell.v1.GatewayProfileService/GetGatewayProfile", bindings) {
+		t.Error("gateway:creator should be able to get a gateway profile")
+	}
+}
+
+func TestIsGRPCAuthorized_ViewerCanReadGatewayProfiles(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")},
+	}
+
+	if !isGRPCAuthorized("/hypershell.v1.GatewayProfileService/ListGatewayProfiles", bindings) {
+		t.Error("gateway:viewer should be able to list gateway profiles")
+	}
+	if isGRPCAuthorized("/hypershell.v1.GatewayProfileService/CreateGatewayProfile", bindings) {
+		t.Error("gateway:viewer must not create gateway profiles")
+	}
+}
+
 func TestIsServiceAccount_MatchesConfiguredAccount(t *testing.T) {
 	accounts := []string{"service-account-hypershell-control-plane"}
 	if !isServiceAccount("service-account-hypershell-control-plane", accounts) {

@@ -7,6 +7,7 @@ Name | Type | Description | Notes
 **Name** | Pointer to **string** |  | [optional] 
 **ClusterId** | Pointer to **string** |  | [optional] 
 **ReleaseId** | Pointer to **string** |  | [optional] 
+**ProfileId** | Pointer to **string** | Reassign the gateway to a different GatewayProfile; cannot be set to null or empty (HTTP 400) and the target profile must exist | [optional] 
 **DatabaseId** | Pointer to **string** | Server-owned placement field; values supplied through PATCH are ignored | [optional] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
@@ -114,6 +115,31 @@ SetReleaseId sets ReleaseId field to given value.
 `func (o *GatewayPatchRequest) HasReleaseId() bool`
 
 HasReleaseId returns a boolean if a field has been set.
+
+### GetProfileId
+
+`func (o *GatewayPatchRequest) GetProfileId() string`
+
+GetProfileId returns the ProfileId field if non-nil, zero value otherwise.
+
+### GetProfileIdOk
+
+`func (o *GatewayPatchRequest) GetProfileIdOk() (*string, bool)`
+
+GetProfileIdOk returns a tuple with the ProfileId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetProfileId
+
+`func (o *GatewayPatchRequest) SetProfileId(v string)`
+
+SetProfileId sets ProfileId field to given value.
+
+### HasProfileId
+
+`func (o *GatewayPatchRequest) HasProfileId() bool`
+
+HasProfileId returns a boolean if a field has been set.
 
 ### GetDatabaseId
 

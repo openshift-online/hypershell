@@ -24,6 +24,8 @@ type GatewayCreateRequest struct {
 	Name      string `json:"name"`
 	ClusterId string `json:"cluster_id"`
 	ReleaseId string `json:"release_id"`
+	// Optional GatewayProfile identifier for quota enforcement; if omitted the API server falls back to the cluster's default profile, and rejects the request with HTTP 400 if neither is provided
+	ProfileId *string `json:"profile_id,omitempty"`
 	// Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
 	DatabaseId  string  `json:"database_id"`
 	ExternalDns *string `json:"external_dns,omitempty"`
@@ -138,6 +140,38 @@ func (o *GatewayCreateRequest) GetReleaseIdOk() (*string, bool) {
 // SetReleaseId sets field value
 func (o *GatewayCreateRequest) SetReleaseId(v string) {
 	o.ReleaseId = v
+}
+
+// GetProfileId returns the ProfileId field value if set, zero value otherwise.
+func (o *GatewayCreateRequest) GetProfileId() string {
+	if o == nil || IsNil(o.ProfileId) {
+		var ret string
+		return ret
+	}
+	return *o.ProfileId
+}
+
+// GetProfileIdOk returns a tuple with the ProfileId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayCreateRequest) GetProfileIdOk() (*string, bool) {
+	if o == nil || IsNil(o.ProfileId) {
+		return nil, false
+	}
+	return o.ProfileId, true
+}
+
+// HasProfileId returns a boolean if a field has been set.
+func (o *GatewayCreateRequest) HasProfileId() bool {
+	if o != nil && !IsNil(o.ProfileId) {
+		return true
+	}
+
+	return false
+}
+
+// SetProfileId gets a reference to the given string and assigns it to the ProfileId field.
+func (o *GatewayCreateRequest) SetProfileId(v string) {
+	o.ProfileId = &v
 }
 
 // GetDatabaseId returns the DatabaseId field value
@@ -529,6 +563,9 @@ func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
+	if !IsNil(o.ProfileId) {
+		toSerialize["profile_id"] = o.ProfileId
+	}
 	toSerialize["database_id"] = o.DatabaseId
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns

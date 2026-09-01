@@ -13,13 +13,26 @@ export interface GatewayRecord {
   oidcClientId?: string;
   oidcIssuer?: string;
   phase?: string;
+  profileId?: string;
   releaseId: string;
   status?: string;
+}
+
+export interface GatewayProfileSummary {
+  description?: string;
+  id: string;
+  name: string;
+}
+
+export interface GatewayProfileSummaryOptions {
+  hasMore: boolean;
+  items: readonly GatewayProfileSummary[];
 }
 
 export interface GatewayPlacement {
   id: string;
   name: string;
+  profileId?: string;
   provider: string;
   region?: string;
   status?: string;
@@ -68,6 +81,7 @@ export interface GatewayInvocationContext {
 export interface GatewayProvisionInput {
   clusterId: string;
   name: string;
+  profileId?: string;
 }
 
 export type OpenShellGatewayServiceAccountRole =
@@ -218,6 +232,10 @@ export interface GatewayControlPlane {
     search: string,
     context: GatewayInvocationContext,
   ): Promise<GatewayPlacementOptions>;
+  findGatewayProfiles(
+    search: string,
+    context: GatewayInvocationContext,
+  ): Promise<GatewayProfileSummaryOptions>;
   getGatewayPlacement(
     clusterId: string,
     context: GatewayInvocationContext,
@@ -280,6 +298,10 @@ export interface GatewayOperations {
     search: string,
     signal?: AbortSignal,
   ): Promise<GatewayPlacementOptions>;
+  findGatewayProfiles(
+    search: string,
+    signal?: AbortSignal,
+  ): Promise<GatewayProfileSummaryOptions>;
   getGatewayPlacement(
     clusterId: string,
     signal?: AbortSignal,

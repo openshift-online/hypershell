@@ -9,6 +9,11 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces", "secrets", "configmaps", "services", "serviceaccounts", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Per-namespace gateway quota enforcement (ResourceQuota + LimitRange) derived
+  # from the gateway's GatewayProfile. See openshell-gateway-quota.spec.md.
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

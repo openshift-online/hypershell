@@ -1394,6 +1394,24 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return reconcileErr
 	}
 
+	// Resolve the gateway's quota profile before provisioning. A fetch failure
+	// blocks provisioning (a profiled gateway must not run unconstrained); an
+	// empty profile_id yields nil, reconciling toward no quota (legacy).
+	quotaConfig, profileErr := r.resolveGatewayProfile(ctx, gw)
+	if profileErr != nil {
+		// A terminal failure (the profile is genuinely missing or unusable) means
+		// the gateway can never provision as declared, so mark it Failed rather
+		// than letting its quota go silently unenforced. A transient failure (the
+		// API server was momentarily unreachable) leaves the phase untouched to
+		// avoid flapping Failed->Provisioning on blips; returning reconcileErr
+		// still triggers a retry, which records the failure in the trace span.
+		if stderrors.Is(profileErr, errTerminalProfile) {
+			r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
+		}
+		reconcileErr = fmt.Errorf("resolve gateway profile for gateway %s: %w", gw.Name, profileErr)
+		return reconcileErr
+	}
+
 	dnsNames := gw.ServerDnsNames
 	if len(dnsNames) == 0 {
 		dnsNames = []string{
@@ -1475,6 +1493,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
+		Quota:                 quotaConfig,
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
@@ -1931,6 +1950,86 @@ func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Ga
 	default:
 		return databaseConfig{}, fmt.Errorf("ManagedDatabase %s has unsupported provider %q", gw.DatabaseId, db.Provider)
 	}
+}
+
+// errTerminalProfile marks a profile-resolution failure as terminal: the API
+// server answered and the profile is genuinely missing or unusable, so a retry
+// cannot succeed. Transient failures (a momentary API-server unavailability) are
+// deliberately NOT wrapped with it, so the caller retries without flapping the
+// gateway phase to Failed. Callers test membership with errors.Is.
+var errTerminalProfile = stderrors.New("gateway profile terminally unresolvable")
+
+// resolveGatewayProfile fetches the gateway's GatewayProfile over gRPC and
+// translates it into a QuotaConfig. An empty profile_id (legacy gateway) yields
+// a nil config, which reconciles toward absence of quota. A fetch failure is
+// returned as an error so the caller BLOCKS provisioning: a gateway that
+// declares a profile must not run unconstrained. Terminal failures wrap
+// errTerminalProfile (see its doc); transient failures do not. See
+// openshell-gateway-quota.spec.md § Control Plane Quota Fetching.
+func (r *GatewayReconciler) resolveGatewayProfile(ctx context.Context, gw *pb.Gateway) (*gateway.QuotaConfig, error) {
+	profileID := ""
+	if gw.ProfileId != nil {
+		profileID = *gw.ProfileId
+	}
+	return resolveGatewayProfileFromClient(ctx, profileID, pb.NewGatewayProfileServiceClient(r.grpcConn))
+}
+
+// resolveGatewayProfileFromClient is the testable core of resolveGatewayProfile:
+// it takes the GatewayProfileServiceClient interface directly (rather than the
+// concrete *grpc.ClientConn), so unit tests can inject a fake client. An empty
+// profileID (legacy gateway) yields (nil, nil), reconciling toward absence of
+// quota. A fetch failure or nil payload is returned as an error so the caller
+// BLOCKS provisioning: a gateway that declares a profile must not run
+// unconstrained.
+func resolveGatewayProfileFromClient(ctx context.Context, profileID string, client pb.GatewayProfileServiceClient) (*gateway.QuotaConfig, error) {
+	if profileID == "" {
+		return nil, nil
+	}
+
+	resp, err := client.GetGatewayProfile(ctx, &pb.GetGatewayProfileRequest{Id: profileID})
+	if err != nil {
+		// NotFound is terminal: the API server answered and the profile does not
+		// exist, so retrying cannot succeed. Every other code (Unavailable,
+		// DeadlineExceeded, ...) is transient and left unwrapped so the caller
+		// retries without flapping the gateway phase to Failed.
+		if status.Code(err) == codes.NotFound {
+			return nil, fmt.Errorf("failed to fetch GatewayProfile %s: %w: %w", profileID, errTerminalProfile, err)
+		}
+		return nil, fmt.Errorf("failed to fetch GatewayProfile %s: %w", profileID, err)
+	}
+	p := resp.GatewayProfile
+	if p == nil {
+		// The API server responded but the profile is unusable: terminal.
+		return nil, fmt.Errorf("failed to fetch GatewayProfile %s: empty payload: %w", profileID, errTerminalProfile)
+	}
+
+	return &gateway.QuotaConfig{
+		CPURequestTotal:               profileStr(p.CpuRequestTotal),
+		CPULimitTotal:                 profileStr(p.CpuLimitTotal),
+		MemoryRequestTotal:            profileStr(p.MemoryRequestTotal),
+		MemoryLimitTotal:              profileStr(p.MemoryLimitTotal),
+		EphemeralStorageTotal:         profileStr(p.EphemeralStorageTotal),
+		PodCount:                      profileInt32(p.PodCount),
+		PVCCount:                      profileInt32(p.PvcCount),
+		ContainerCPURequestDefault:    profileStr(p.ContainerCpuRequestDefault),
+		ContainerCPULimitMax:          profileStr(p.ContainerCpuLimitMax),
+		ContainerMemoryRequestDefault: profileStr(p.ContainerMemoryRequestDefault),
+		ContainerMemoryLimitMax:       profileStr(p.ContainerMemoryLimitMax),
+	}, nil
+}
+
+func profileStr(s *string) string {
+	if s != nil {
+		return *s
+	}
+	return ""
+}
+
+func profileInt32(i *int32) int32 {
+	if i != nil {
+		return *i
+	}
+	return 0
 }
 
 func (r *GatewayReconciler) makeOIDCUpdater(gatewayID string) func(ctx context.Context, oidcJSON string) error {

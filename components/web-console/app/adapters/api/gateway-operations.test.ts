@@ -3,6 +3,8 @@ import {
   SDKAPIError,
   type Gateway,
   type GatewayList,
+  type GatewayProfile,
+  type GatewayProfileList,
   type ManagedCluster,
   type ManagedClusterList,
   type OpenShellGatewayServiceAccountCreateResponse,
@@ -20,6 +22,9 @@ const gatewayApi = {
   list: vi.fn(),
   update: vi.fn(),
 };
+const gatewayProfileApi = {
+  list: vi.fn(),
+};
 const managedClusterApi = {
   get: vi.fn(),
   list: vi.fn(),
@@ -32,6 +37,7 @@ const serviceAccountApi = {
   revoke: vi.fn(),
 };
 const gatewayApiFactory = vi.fn(() => ({
+  gatewayProfiles: gatewayProfileApi,
   gateways: gatewayApi,
   managedClusters: managedClusterApi,
   openShellGatewayServiceAccounts: serviceAccountApi,
@@ -66,6 +72,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     namespace: "openshell",
     oidc: "",
     phase: "",
+    profile_id: "",
     release_id: "release-1",
     route: "",
     route_address: "",
@@ -93,17 +100,58 @@ function gatewayList(
   };
 }
 
+function gatewayProfile(
+  overrides: Partial<GatewayProfile> = {},
+): GatewayProfile {
+  return {
+    container_cpu_limit_max: "500m",
+    container_cpu_request_default: "100m",
+    container_memory_limit_max: "512Mi",
+    container_memory_request_default: "128Mi",
+    cpu_limit_total: "8",
+    cpu_request_total: "4",
+    created_at: "2026-08-10T14:30:00Z",
+    description: "Small resource quota",
+    ephemeral_storage_total: "10Gi",
+    href: "/api/hypershell/v1/gateway_profiles/profile-small",
+    id: "profile-small",
+    kind: "GatewayProfile",
+    memory_limit_total: "16Gi",
+    memory_request_total: "8Gi",
+    name: "Small profile",
+    pod_count: 10,
+    pvc_count: 5,
+    updated_at: null,
+    ...overrides,
+  };
+}
+
+function gatewayProfileList(
+  items: GatewayProfile[],
+  total = items.length,
+): GatewayProfileList {
+  return {
+    items,
+    kind: "GatewayProfileList",
+    page: 1,
+    size: items.length,
+    total,
+  };
+}
+
 function managedCluster(
   overrides: Partial<ManagedCluster> = {},
 ): ManagedCluster {
   return {
     api_server_url: "https://api.east.example.com",
     created_at: null,
+    database_id: "",
     href: "/api/hypershell/v1/managed_clusters/cluster-east",
     id: "cluster-east",
     kind: "ManagedCluster",
     kubeconfig_secret: "cluster-east-kubeconfig",
     name: "Cluster East",
+    profile_id: "profile-small",
     provider: "AWS",
     region: "us-east-1",
     status: "Ready",
@@ -191,6 +239,7 @@ describe("gateway API operations adapter", () => {
         {
           id: "cluster-east",
           name: "Cluster East",
+          profileId: "profile-small",
           provider: "AWS",
           region: "us-east-1",
           status: "Ready",
@@ -206,6 +255,61 @@ describe("gateway API operations adapter", () => {
         size: 20,
       },
       { signal: abortController.signal },
+    );
+  });
+
+  it("maps one authoritative gateway-profile search page into summaries", async () => {
+    const abortController = new AbortController();
+    gatewayProfileApi.list.mockResolvedValue(
+      gatewayProfileList([gatewayProfile()]),
+    );
+
+    await expect(
+      controlPlane.findGatewayProfiles(" small ", {
+        ...context,
+        signal: abortController.signal,
+      }),
+    ).resolves.toEqual({
+      hasMore: false,
+      items: [
+        {
+          description: "Small resource quota",
+          id: "profile-small",
+          name: "Small profile",
+        },
+      ],
+    });
+    expect(gatewayProfileApi.list).toHaveBeenCalledOnce();
+    expect(gatewayProfileApi.list).toHaveBeenCalledWith(
+      {
+        orderBy: "name asc",
+        page: 1,
+        search: "name ilike '%small%'",
+        size: 20,
+      },
+      { signal: abortController.signal },
+    );
+  });
+
+  it("reports when a bounded gateway-profile search has more results", async () => {
+    gatewayProfileApi.list.mockResolvedValue(
+      gatewayProfileList(
+        Array.from({ length: 20 }, (_, index) =>
+          gatewayProfile({
+            id: `profile-${String(index)}`,
+            name: `Profile ${String(index)}`,
+          }),
+        ),
+        21,
+      ),
+    );
+
+    await expect(
+      controlPlane.findGatewayProfiles("", context),
+    ).resolves.toMatchObject({ hasMore: true });
+    expect(gatewayProfileApi.list).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 20 },
+      { signal: undefined },
     );
   });
 
@@ -650,6 +754,43 @@ describe("gateway API operations adapter", () => {
       },
       { signal: undefined },
     );
+  });
+
+  it("provisions with the selected gateway profile when one is chosen", async () => {
+    gatewayApi.create.mockResolvedValue(
+      gateway({ database_id: "", profile_id: "profile-small", release_id: "" }),
+    );
+
+    await expect(
+      controlPlane.provisionGateway(
+        {
+          clusterId: "cluster-east",
+          name: "team-gateway",
+          profileId: "profile-small",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ profileId: "profile-small" });
+
+    expect(gatewayApi.create).toHaveBeenCalledWith(
+      {
+        cluster_id: "cluster-east",
+        database_id: "",
+        name: "team-gateway",
+        profile_id: "profile-small",
+        release_id: "",
+        route: '{"enabled":true}',
+      },
+      { signal: undefined },
+    );
+  });
+
+  it("leaves the gateway profile unavailable when none is assigned", async () => {
+    gatewayApi.get.mockResolvedValue(gateway({ profile_id: "" }));
+
+    const result = await controlPlane.getGateway("gateway-1", context);
+
+    expect(result.profileId).toBeUndefined();
   });
 
   it("maps detail, rename, and deletion operations", async () => {

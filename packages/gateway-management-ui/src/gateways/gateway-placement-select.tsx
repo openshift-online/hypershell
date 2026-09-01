@@ -77,14 +77,16 @@ export function GatewayPlacementSelect({
 }: GatewayPlacementSelectProps) {
   const intl = useIntl();
   const { gateways } = useGatewayUi();
-  const hubLabel = intl.formatMessage(messages.hubClusterDefault);
   const [isOpen, setIsOpen] = useState(false);
-  const [inputValue, setInputValue] = useState(hubLabel);
+  const [inputValue, setInputValue] = useState("");
   const [searchValue, setSearchValue] = useState("");
   const [focusedItemIndex, setFocusedItemIndex] = useState<number | null>(null);
   const [activeItemId, setActiveItemId] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(null);
-  const lastAcceptedSelectionRef = useRef({ label: hubLabel, value: "" });
+  const lastAcceptedSelectionRef = useRef<{
+    label: string;
+    value: string | null;
+  }>({ label: "", value: null });
   const normalizedSearch = searchValue.trim();
   const debouncedSearch = useDebouncedValue(
     normalizedSearch,
@@ -97,13 +99,7 @@ export function GatewayPlacementSelect({
     queryKey: gatewayPlacementQueryKey(debouncedSearch),
     staleTime: gatewayPlacementStaleMilliseconds,
   });
-  const hubMatches = hubLabel
-    .toLocaleLowerCase(intl.locale)
-    .includes(normalizedSearch.toLocaleLowerCase(intl.locale));
   const options: PlacementOption[] = [
-    ...(hubMatches
-      ? [{ key: "hub", label: hubLabel, value: "" } satisfies PlacementOption]
-      : []),
     ...(!isSearchPending
       ? (placementQuery.data?.items.map((placement) => ({
           description: placementDescription(placement, intl.formatMessage),
@@ -249,6 +245,7 @@ export function GatewayPlacementSelect({
             onClick={() => {
               setInputValue("");
               setSearchValue("");
+              lastAcceptedSelectionRef.current = { label: "", value: null };
               onChange(null);
               resetFocus();
               inputRef.current?.focus();

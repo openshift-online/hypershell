@@ -5,6 +5,7 @@ import type {
   GatewayInvocationContext,
   GatewayListRequest,
   GatewayPlacement,
+  GatewayProfileSummary,
   GatewayRecord,
   OpenShellGatewayServiceAccountCapabilities,
   OpenShellGatewayServiceAccountConnection,
@@ -19,6 +20,7 @@ import {
 import {
   SDKAPIError,
   type Gateway,
+  type GatewayProfile,
   type ManagedCluster,
   type OpenShellGatewayServiceAccountCapabilities as ApiServiceAccountCapabilities,
   type OpenShellGatewayServiceAccountConnection as ApiServiceAccountConnection,
@@ -33,12 +35,14 @@ type GatewayApi = Pick<
   SDKClient["gateways"],
   "create" | "delete" | "get" | "list" | "update"
 >;
+type GatewayProfileApi = Pick<SDKClient["gatewayProfiles"], "list">;
 type ManagedClusterApi = Pick<SDKClient["managedClusters"], "get" | "list">;
 type ServiceAccountApi = Pick<
   SDKClient["openShellGatewayServiceAccounts"],
   "create" | "delete" | "get" | "list" | "revoke"
 >;
 interface GatewayApiClient {
+  gatewayProfiles: GatewayProfileApi;
   gateways: GatewayApi;
   managedClusters: ManagedClusterApi;
   openShellGatewayServiceAccounts: ServiceAccountApi;
@@ -132,8 +136,20 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(oidcClientId ? { oidcClientId } : {}),
     ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
+    ...(gateway.profile_id ? { profileId: gateway.profile_id } : {}),
     releaseId: gateway.release_id,
     status: gateway.status,
+  };
+}
+
+function toGatewayProfileSummary(
+  profile: GatewayProfile,
+): GatewayProfileSummary {
+  const description = optionalString(profile.description);
+  return {
+    ...(description ? { description } : {}),
+    id: profile.id,
+    name: profile.name,
   };
 }
 
@@ -217,10 +233,12 @@ function optionalNumber(value: unknown): number | undefined {
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
   const region = optionalString(cluster.region);
   const status = optionalString(cluster.status);
+  const profileId = optionalString(cluster.profile_id);
   return {
     id: cluster.id,
     name: cluster.name,
     provider: cluster.provider,
+    ...(profileId ? { profileId } : {}),
     ...(region ? { region } : {}),
     ...(status ? { status } : {}),
   };
@@ -333,6 +351,36 @@ export function createGatewayControlPlaneAdapter(
         return {
           hasMore: result.total > result.items.length,
           items: result.items.map(toGatewayPlacement),
+        };
+      });
+    },
+    async findGatewayProfiles(search, context) {
+      return mapFailure(async () => {
+        const normalizedSearch = search.trim();
+        const literal = escapeIlikeLiteral(normalizedSearch);
+        const result = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayProfiles.list(
+          {
+            orderBy: "name asc",
+            page: 1,
+            ...(literal ? { search: `name ilike '%${literal}%'` } : {}),
+            size: placementPageSize,
+          },
+          { signal: context.signal },
+        );
+        const expectedItemCount = Math.min(placementPageSize, result.total);
+        if (
+          result.page !== 1 ||
+          result.total < 0 ||
+          result.items.length !== expectedItemCount
+        ) {
+          throw new GatewayOperationError("unavailable");
+        }
+        return {
+          hasMore: result.total > result.items.length,
+          items: result.items.map(toGatewayProfileSummary),
         };
       });
     },
@@ -489,6 +537,9 @@ export function createGatewayControlPlaneAdapter(
               cluster_id: input.clusterId,
               database_id: "",
               name: input.name,
+              ...(input.profileId === undefined
+                ? {}
+                : { profile_id: input.profileId }),
               release_id: "",
               route: JSON.stringify({ enabled: true }),
             },

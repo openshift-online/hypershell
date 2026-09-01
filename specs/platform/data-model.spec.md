@@ -11,10 +11,11 @@ Gateways, clusters, databases, releases, and networks are **top-level resources*
 
 Current model:
 
-- **ManagedCluster** - a Kubernetes cluster registered into the platform. Tracks provider, region, API server URL, and a kubeconfig secret reference.
+- **ManagedCluster** - a Kubernetes cluster registered into the platform. Tracks provider, region, API server URL, kubeconfig secret reference, and default profile/database assignments for gateways.
 - **ManagedDatabase** - a database instance provisioned for gateway use. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
 - **GatewayRelease** - a versioned container image for gateway deployments. Supports rollout strategies with canary percent/duration controls.
-- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **GatewayProfile** - defines resource quota limits (CPU, memory, storage, pod count) for gateway namespaces. Assigned to gateways via cluster defaults.
+- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, lifecycle phase, and assigned quota profile.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **GatewayNetwork** - defines network connectivity topology between gateways. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
 
@@ -31,6 +32,8 @@ erDiagram
         string kubeconfig_secret
         string status
         string api_server_url
+        string profile_id FK
+        string database_id FK
         time created_at
         time updated_at
         time deleted_at
@@ -65,12 +68,33 @@ erDiagram
         time deleted_at
     }
 
+    GatewayProfile {
+        string ID PK
+        string name
+        string description
+        string cpu_request_total
+        string cpu_limit_total
+        string memory_request_total
+        string memory_limit_total
+        string ephemeral_storage_total
+        int32 pod_count
+        int32 pvc_count
+        string container_cpu_request_default
+        string container_cpu_limit_max
+        string container_memory_request_default
+        string container_memory_limit_max
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
     Gateway {
         string ID PK
         string name
         string cluster_id FK
         string release_id FK
         string database_id FK
+        string profile_id FK
         string namespace
         string image
         string[] server_dns_names
@@ -122,8 +146,11 @@ erDiagram
     }
 
     ManagedCluster ||--o{ Gateway : "hosts"
+    ManagedCluster }o--o| GatewayProfile : "default_profile"
+    ManagedCluster }o--o| ManagedDatabase : "default_database"
     GatewayRelease ||--o{ Gateway : "deployed_as"
     ManagedDatabase ||--o{ Gateway : "backed_by"
+    GatewayProfile ||--o{ Gateway : "enforces_quota_on"
     Gateway ||--o{ OpenShellGatewayServiceAccount : "authorizes"
     Gateway ||--o| GatewayNetwork : "hub_gateway"
 ```
@@ -178,6 +205,95 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 
 See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and its sub-specs for full provisioning details.
+
+### Requirement: GatewayProfile Lifecycle
+
+The system SHALL support creating, reading, updating, and deleting GatewayProfiles. A GatewayProfile defines resource quota limits applied to gateway namespaces.
+
+Create, update, and delete SHALL require the `platform:admin` role; read is open to any authenticated caller holding a role binding. See the GatewayProfile Authorization requirement in [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Human-readable profile name |
+| `description` | string | No | Profile purpose/intent |
+| `cpu_request_total` | string | No | Total CPU requests (e.g., "4", "500m") |
+| `cpu_limit_total` | string | No | Total CPU limits |
+| `memory_request_total` | string | No | Total memory requests (e.g., "8Gi") |
+| `memory_limit_total` | string | No | Total memory limits |
+| `ephemeral_storage_total` | string | No | Total ephemeral storage (e.g., "10Gi") |
+| `pod_count` | int32 | No | Maximum number of pods |
+| `pvc_count` | int32 | No | Maximum number of PVCs |
+| `container_cpu_request_default` | string | No | Default CPU request for containers |
+| `container_cpu_limit_max` | string | No | Maximum CPU limit for containers |
+| `container_memory_request_default` | string | No | Default memory request for containers |
+| `container_memory_limit_max` | string | No | Maximum memory limit for containers |
+
+All quantity fields follow Kubernetes resource quantity format. Zero/empty values are treated as "not set."
+
+See [`openshell-gateway-quota.spec.md`](./openshell-gateway-quota.spec.md) for full quota enforcement details.
+
+Profile quantity and count fields SHALL be validated at create and update time (valid Kubernetes resource quantities; non-negative counts); invalid values SHALL be rejected with HTTP 400. A GatewayProfile SHALL NOT be deleted while referenced by a ManagedCluster (`profile_id` default) or a Gateway (`profile_id`); such a delete SHALL be rejected with HTTP 409. See [`openshell-gateway-quota.spec.md`](./openshell-gateway-quota.spec.md) for the validation and deletion-protection requirements.
+
+#### Scenario: Create GatewayProfile
+- GIVEN a valid profile name and quota limits
+- WHEN a POST request is made to `/api/hypershell/v1/gateway_profiles`
+- THEN a new GatewayProfile is created with a KSUID
+- AND the response includes the created GatewayProfile
+
+#### Scenario: Deletion blocked while referenced
+- GIVEN a GatewayProfile referenced by a ManagedCluster default or a Gateway
+- WHEN a DELETE request is made for that profile
+- THEN the API server SHALL reject it with HTTP 409
+
+### Requirement: ManagedCluster Default Assignments
+
+ManagedCluster SHALL have optional `profile_id` and `database_id` fields that define default assignments for gateways deployed on that cluster.
+
+| Field | Type | Description |
+|---|---|---|
+| `profile_id` | string (optional) | Default GatewayProfile for gateways on this cluster. When set, gateways inherit this profile. When empty, gateways have no quota enforcement. |
+| `database_id` | string (optional) | Default ManagedDatabase for gateways on this cluster. When set, gateways use this database unless client specifies otherwise. |
+
+Both fields are mutable via PATCH requests.
+
+#### Scenario: Assign default profile to cluster
+- GIVEN a ManagedCluster and a GatewayProfile
+- WHEN a PATCH request sets `profile_id` on the cluster
+- THEN new gateways created on that cluster SHALL inherit the profile
+- AND existing gateways SHALL retain their current `profile_id`
+
+#### Scenario: Assign default database to cluster
+- GIVEN a ManagedCluster and a ManagedDatabase
+- WHEN a PATCH request sets `database_id` on the cluster
+- THEN new gateways created on that cluster SHALL use this database by default
+- AND clients MAY override by specifying a different `database_id` (subject to validation)
+
+See [`openshell-gateway-quota.spec.md`](./openshell-gateway-quota.spec.md) for profile assignment behavior and [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for database placement strategies.
+
+### Requirement: Gateway Profile Assignment
+
+Gateway SHALL have a `profile_id` field that is server-assigned from the cluster's default profile during creation, and **reassignable** afterward via PATCH to change the gateway's quota.
+
+| Field | Type | Description |
+|---|---|---|
+| `profile_id` | string | GatewayProfile ID enforced on this gateway's namespace. Server-assigned from `ManagedCluster.profile_id` at creation (client-supplied values on create are ignored). Reassignable via PATCH; a reassigned value is validated to reference an existing GatewayProfile. |
+
+When `profile_id` is set, the control plane applies ResourceQuota and LimitRange to the gateway namespace. When empty, no quota enforcement occurs. Changing a gateway's quota is done by reassigning `profile_id`, not by editing the profile in place; the control plane does not reconcile GatewayProfile edits.
+
+#### Scenario: Gateway inherits cluster profile
+- GIVEN a ManagedCluster with `profile_id = "<small-profile-id>"`
+- WHEN a client creates a Gateway on that cluster
+- THEN the API server SHALL assign `Gateway.profile_id = "<small-profile-id>"`
+- AND the control plane SHALL enforce quota on the gateway namespace
+
+#### Scenario: Reassign gateway profile
+- GIVEN a Gateway with a `profile_id`
+- WHEN a PATCH request sets `profile_id` to a different existing GatewayProfile
+- THEN the API server SHALL store the new `profile_id`
+- AND the control plane SHALL reconcile the gateway toward the new profile's quota
+- AND a PATCH referencing a nonexistent profile SHALL be rejected with HTTP 400
+
+See [`openshell-gateway-quota.spec.md`](./openshell-gateway-quota.spec.md) for quota enforcement details.
 
 ### Requirement: Gateway Deployment Lifecycle
 

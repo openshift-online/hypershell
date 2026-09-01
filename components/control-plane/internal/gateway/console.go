@@ -506,7 +506,7 @@ func consoleSecurityContext() map[string]interface{} {
 func consoleResources() map[string]interface{} {
 	return map[string]interface{}{
 		"requests": map[string]interface{}{"cpu": "10m", "memory": "64Mi"},
-		"limits":   map[string]interface{}{"memory": "128Mi"},
+		"limits":   map[string]interface{}{"cpu": "500m", "memory": "128Mi"},
 	}
 }
 

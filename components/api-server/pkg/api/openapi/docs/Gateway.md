@@ -12,6 +12,7 @@ Name | Type | Description | Notes
 **Name** | **string** |  | 
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
+**ProfileId** | Pointer to **string** | GatewayProfile identifier used for namespace quota enforcement; required at creation (client-supplied or inherited from the cluster default) and reassignable but not clearable afterward | [optional] 
 **DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored | 
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
@@ -233,6 +234,31 @@ and a boolean to check if the value has been set.
 
 SetReleaseId sets ReleaseId field to given value.
 
+
+### GetProfileId
+
+`func (o *Gateway) GetProfileId() string`
+
+GetProfileId returns the ProfileId field if non-nil, zero value otherwise.
+
+### GetProfileIdOk
+
+`func (o *Gateway) GetProfileIdOk() (*string, bool)`
+
+GetProfileIdOk returns a tuple with the ProfileId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetProfileId
+
+`func (o *Gateway) SetProfileId(v string)`
+
+SetProfileId sets ProfileId field to given value.
+
+### HasProfileId
+
+`func (o *Gateway) HasProfileId() bool`
+
+HasProfileId returns a boolean if a field has been set.
 
 ### GetDatabaseId
 

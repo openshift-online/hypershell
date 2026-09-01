@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+message GatewayProfile {
+  ObjectReference metadata = 1;
+  string name = 2;
+  optional string description = 3;
+  optional string cpu_request_total = 4;
+  optional string cpu_limit_total = 5;
+  optional string memory_request_total = 6;
+  optional string memory_limit_total = 7;
+  optional string ephemeral_storage_total = 8;
+  optional int32 pod_count = 9;
+  optional int32 pvc_count = 10;
+  optional string container_cpu_request_default = 11;
+  optional string container_cpu_limit_max = 12;
+  optional string container_memory_request_default = 13;
+  optional string container_memory_limit_max = 14;
+}
+
+message CreateGatewayProfileRequest {
+  string name = 1;
+  optional string description = 2;
+  optional string cpu_request_total = 3;
+  optional string cpu_limit_total = 4;
+  optional string memory_request_total = 5;
+  optional string memory_limit_total = 6;
+  optional string ephemeral_storage_total = 7;
+  optional int32 pod_count = 8;
+  optional int32 pvc_count = 9;
+  optional string container_cpu_request_default = 10;
+  optional string container_cpu_limit_max = 11;
+  optional string container_memory_request_default = 12;
+  optional string container_memory_limit_max = 13;
+}
+
+message CreateGatewayProfileResponse {
+  GatewayProfile gateway_profile = 1;
+}
+
+message GetGatewayProfileRequest {
+  string id = 1;
+}
+
+message GetGatewayProfileResponse {
+  GatewayProfile gateway_profile = 1;
+}
+
+message UpdateGatewayProfileRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string cpu_request_total = 4;
+  optional string cpu_limit_total = 5;
+  optional string memory_request_total = 6;
+  optional string memory_limit_total = 7;
+  optional string ephemeral_storage_total = 8;
+  optional int32 pod_count = 9;
+  optional int32 pvc_count = 10;
+  optional string container_cpu_request_default = 11;
+  optional string container_cpu_limit_max = 12;
+  optional string container_memory_request_default = 13;
+  optional string container_memory_limit_max = 14;
+}
+
+message UpdateGatewayProfileResponse {
+  GatewayProfile gateway_profile = 1;
+}
+
+message DeleteGatewayProfileRequest {
+  string id = 1;
+}
+
+message ListGatewayProfilesRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListGatewayProfilesResponse {
+  repeated GatewayProfile items = 1;
+  ListMeta metadata = 2;
+}
+
+message DeleteGatewayProfileResponse {}
+
+// GatewayProfileService intentionally exposes no Watch RPC: the control plane
+// does not reconcile GatewayProfile changes. A gateway's quota changes only when
+// its profile_id is reassigned (a gateway update, delivered through the existing
+// gateway watch stream). The control plane fetches profiles on demand via the
+// unary GetGatewayProfile RPC while reconciling a gateway.
+service GatewayProfileService {
+  rpc GetGatewayProfile(GetGatewayProfileRequest) returns (GetGatewayProfileResponse);
+  rpc CreateGatewayProfile(CreateGatewayProfileRequest) returns (CreateGatewayProfileResponse);
+  rpc UpdateGatewayProfile(UpdateGatewayProfileRequest) returns (UpdateGatewayProfileResponse);
+  rpc DeleteGatewayProfile(DeleteGatewayProfileRequest) returns (DeleteGatewayProfileResponse);
+  rpc ListGatewayProfiles(ListGatewayProfilesRequest) returns (ListGatewayProfilesResponse);
+}

@@ -30,6 +30,8 @@ type Gateway struct {
 	Name      string     `json:"name"`
 	ClusterId string     `json:"cluster_id"`
 	ReleaseId string     `json:"release_id"`
+	// GatewayProfile identifier used for namespace quota enforcement; required at creation (client-supplied or inherited from the cluster default) and reassignable but not clearable afterward
+	ProfileId *string `json:"profile_id,omitempty"`
 	// Server-assigned ManagedDatabase identifier; client-supplied values are ignored
 	DatabaseId string `json:"database_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
@@ -315,6 +317,38 @@ func (o *Gateway) GetReleaseIdOk() (*string, bool) {
 // SetReleaseId sets field value
 func (o *Gateway) SetReleaseId(v string) {
 	o.ReleaseId = v
+}
+
+// GetProfileId returns the ProfileId field value if set, zero value otherwise.
+func (o *Gateway) GetProfileId() string {
+	if o == nil || IsNil(o.ProfileId) {
+		var ret string
+		return ret
+	}
+	return *o.ProfileId
+}
+
+// GetProfileIdOk returns a tuple with the ProfileId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetProfileIdOk() (*string, bool) {
+	if o == nil || IsNil(o.ProfileId) {
+		return nil, false
+	}
+	return o.ProfileId, true
+}
+
+// HasProfileId returns a boolean if a field has been set.
+func (o *Gateway) HasProfileId() bool {
+	if o != nil && !IsNil(o.ProfileId) {
+		return true
+	}
+
+	return false
+}
+
+// SetProfileId gets a reference to the given string and assigns it to the ProfileId field.
+func (o *Gateway) SetProfileId(v string) {
+	o.ProfileId = &v
 }
 
 // GetDatabaseId returns the DatabaseId field value
@@ -873,6 +907,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
+	if !IsNil(o.ProfileId) {
+		toSerialize["profile_id"] = o.ProfileId
+	}
 	toSerialize["database_id"] = o.DatabaseId
 	toSerialize["namespace"] = o.Namespace
 	if !IsNil(o.ExternalDns) {

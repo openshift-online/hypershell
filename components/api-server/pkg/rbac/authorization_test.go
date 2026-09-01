@@ -178,6 +178,67 @@ func TestIsAuthorized_GatewayCreatorCanAccessGatewayReleases(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_PlatformAdminCanMutateGatewayProfiles(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		if !isAuthorized(method, "gateway_profiles", "", "", bindings) {
+			t.Errorf("platform:admin should be authorized for %s /gateway_profiles", method)
+		}
+	}
+}
+
+func TestIsAuthorized_GatewayCreatorCannotMutateGatewayProfiles(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "gateway:creator", Scope: "global"},
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		if isAuthorized(method, "gateway_profiles", "", "", bindings) {
+			t.Errorf("gateway:creator must not be authorized for %s /gateway_profiles", method)
+		}
+	}
+}
+
+func TestIsAuthorized_GatewayOwnerCannotMutateGatewayProfiles(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
+	}
+
+	if isAuthorized(http.MethodPatch, "gateway_profiles", "gp-1", "", bindings) {
+		t.Error("gateway:owner must not PATCH gateway_profiles")
+	}
+	if isAuthorized(http.MethodDelete, "gateway_profiles", "gp-1", "", bindings) {
+		t.Error("gateway:owner must not DELETE gateway_profiles")
+	}
+}
+
+func TestIsAuthorized_AnyBindingCanReadGatewayProfiles(t *testing.T) {
+	cases := [][]BindingSummary{
+		{{RoleName: "gateway:creator", Scope: "global"}},
+		{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")}},
+		{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")}},
+		{{RoleName: "platform:admin", Scope: "global"}},
+	}
+
+	for _, bindings := range cases {
+		if !isAuthorized(http.MethodGet, "gateway_profiles", "", "", bindings) {
+			t.Errorf("%s should be authorized to list gateway_profiles", bindings[0].RoleName)
+		}
+		if !isAuthorized(http.MethodGet, "gateway_profiles", "gp-1", "", bindings) {
+			t.Errorf("%s should be authorized to get a gateway_profile", bindings[0].RoleName)
+		}
+	}
+}
+
+func TestIsAuthorized_NoBindingsCannotReadGatewayProfiles(t *testing.T) {
+	if isAuthorized(http.MethodGet, "gateway_profiles", "", "", []BindingSummary{}) {
+		t.Error("empty bindings must not read gateway_profiles")
+	}
+}
+
 func strPtr(s string) *string {
 	return &s
 }

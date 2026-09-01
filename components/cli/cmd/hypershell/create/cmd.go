@@ -5,6 +5,7 @@ import (
 
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create/gateway"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create/gatewayNetwork"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create/gatewayProfile"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create/gatewayRelease"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create/managedCluster"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create/managedDatabase"
@@ -22,6 +23,7 @@ var Cmd = &cobra.Command{
 func init() {
 	Cmd.AddCommand(gateway.Cmd)
 	Cmd.AddCommand(gatewayNetwork.Cmd)
+	Cmd.AddCommand(gatewayProfile.Cmd)
 	Cmd.AddCommand(gatewayRelease.Cmd)
 	Cmd.AddCommand(managedCluster.Cmd)
 	Cmd.AddCommand(managedDatabase.Cmd)

@@ -1,23 +1,44 @@
 package managedClusters
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gatewayProfiles"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/pkg/controllers"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/plugins/events"
 	"github.com/openshift-online/rh-trex-ai/plugins/generic"
 )
+
+type profileCheckerAdapter struct {
+	profiles gatewayProfiles.GatewayProfileService
+}
+
+func (a *profileCheckerAdapter) ProfileExists(ctx context.Context, profileID string) (bool, *errors.ServiceError) {
+	if a.profiles == nil || profileID == "" {
+		return false, nil
+	}
+	_, svcErr := a.profiles.Get(ctx, profileID)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return false, nil
+		}
+		return false, svcErr
+	}
+	return true, nil
+}
 
 type ServiceLocator func() ManagedClusterService
 
@@ -49,7 +70,8 @@ func init() {
 
 	pkgserver.RegisterRoutes("managedClusters", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		managedClusterHandler := NewManagedClusterHandler(Service(envServices), generic.Service(envServices))
+		profileChecker := &profileCheckerAdapter{profiles: gatewayProfiles.Service(envServices)}
+		managedClusterHandler := NewManagedClusterHandler(Service(envServices), generic.Service(envServices), profileChecker)
 
 		managedClustersRouter := apiV1Router.PathPrefix("/managed_clusters").Subrouter()
 		managedClustersRouter.HandleFunc("", managedClusterHandler.List).Methods(http.MethodGet)
@@ -84,7 +106,8 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterManagedClusterServiceServer(grpcServer, NewManagedClusterGRPCHandler(managedClusterService, genericService, brokerFunc))
+		profileChecker := &profileCheckerAdapter{profiles: gatewayProfiles.Service(envServices)}
+		pb.RegisterManagedClusterServiceServer(grpcServer, NewManagedClusterGRPCHandler(managedClusterService, genericService, brokerFunc, profileChecker))
 	})
 
 	presenters.RegisterPath(ManagedCluster{}, "managed_clusters")
@@ -93,5 +116,6 @@ func init() {
 	presenters.RegisterKind(&ManagedCluster{}, "ManagedCluster")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddProfileAndDatabaseID())
 	db.RegisterMigration(migrationDropFleetId())
 }

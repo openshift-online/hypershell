@@ -81,9 +81,15 @@ done
 # --- Configuration ---
 
 CLI=$(get_cli_binary)
-GW_NAME="${E2E_GATEWAY_NAME}"
+# Per-run suffix so every resource this execution creates is unique and never
+# reuses or collides with objects left by a prior run. DNS-label safe (lowercase
+# alphanumeric) because the gateway name flows into a namespace and hostname.
+E2E_RUN_SUFFIX="$(date +%s | tail -c6)$(printf '%03x' "$((RANDOM % 4096))")"
+GW_NAME="${E2E_GATEWAY_NAME}-${E2E_RUN_SUFFIX}"
 GW_NAMESPACE=""
 GW_ID=""
+E2E_CREATED_CLUSTER_ID=""
+E2E_CREATED_PROFILE_ID=""
 ORPHAN_NS=""
 ORPHAN_GC_DEADLINE=0
 SANDBOX_NAME=""
@@ -121,6 +127,28 @@ cleanup() {
     # deleting; cleanup is non-fatal, so ignore failures.
     acquire_oidc_token 2>/dev/null || true
     api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
+  fi
+  if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$E2E_CREATED_CLUSTER_ID" ]]; then
+    dim "  Cleaning up managed cluster ${E2E_CREATED_CLUSTER_ID}..."
+    acquire_oidc_token 2>/dev/null || true
+    api_curl -X DELETE "${API_HOST}/api/hypershell/v1/managed_clusters/${E2E_CREATED_CLUSTER_ID}" &>/dev/null || true
+  fi
+  # Delete the profile last: it is referenced by the gateway, which is removed above.
+  # Profile deletion requires platform:admin; acquire that token specifically.
+  if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$E2E_CREATED_PROFILE_ID" ]]; then
+    dim "  Cleaning up gateway profile ${E2E_CREATED_PROFILE_ID}..."
+    _CLEANUP_PADMIN_TOKEN=""
+    _CLEANUP_PADMIN_RESP=$(curl -sk -X POST \
+      "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
+      --data-urlencode "grant_type=password" \
+      --data-urlencode "client_id=${E2E_OIDC_CLIENT_ID}" \
+      --data-urlencode "username=${E2E_PLATFORM_ADMIN_USERNAME}" \
+      --data-urlencode "password=${E2E_PLATFORM_ADMIN_PASSWORD}" 2>/dev/null || true)
+    _CLEANUP_PADMIN_TOKEN=$(echo "$_CLEANUP_PADMIN_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+    if [[ -n "$_CLEANUP_PADMIN_TOKEN" ]]; then
+      curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateway_profiles/${E2E_CREATED_PROFILE_ID}" \
+        -H "Authorization: Bearer ${_CLEANUP_PADMIN_TOKEN}" &>/dev/null || true
+    fi
   fi
 }
 trap cleanup EXIT
@@ -367,8 +395,9 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
 else
   # database_id is a required request property but its value is server-owned.
-  # CNPG placement resolves the sole ManagedDatabase; deployment
-  # placement ignores the empty placeholder and creates a new dedicated one.
+  # CNPG placement resolves the gateway's database from its cluster's default
+  # database_id (ManagedCluster.database_id); deployment placement ignores the
+  # empty placeholder and creates a new dedicated one.
   show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_databases"
   E2E_MD_RESP=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
   PREEXISTING_DATABASE_IDS=$(echo "$E2E_MD_RESP" | python3 -c "
@@ -398,16 +427,206 @@ print(items[0].get('id', '') if items else '')
   fi
   dim "  database_id is assigned by ${DB_PROVIDER} placement"
 
+  # CNPG placement resolves the gateway's database from its cluster's default
+  # database_id and rejects a cluster that has none. Deployment placement creates
+  # a dedicated database on demand and tolerates an unregistered cluster, so it
+  # keeps the literal below. For CNPG, register a fresh per-run ManagedCluster
+  # whose database_id points at the fleet's ManagedDatabase, then reference it by
+  # its server-assigned id (cluster ids are server-generated, so the name is only
+  # a label). The cleanup trap removes this cluster when cleanup is not skipped.
+  # Discover the cluster_id. For deployment mode, use the registered cluster
+  # (kind-up seeds "local-kind"). For CNPG mode a per-run cluster is created
+  # below and its ID overwrites this value.
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_clusters"
+  E2E_CLUSTER_ID=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = {}
+items = data.get('items', [])
+# Prefer a cluster named 'local-kind'; otherwise take the first available.
+for c in items:
+    if c.get('name') == 'local-kind':
+        print(c.get('id', '')); break
+else:
+    print(items[0].get('id', '') if items else '')
+" 2>/dev/null || true)
+
+  if [[ -z "$E2E_CLUSTER_ID" ]]; then
+    fail_test "No ManagedCluster found; cannot create gateway without a valid cluster_id"
+    exit 1
+  fi
+  dim "  Using cluster_id=${E2E_CLUSTER_ID}"
+
+  if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
+    E2E_CLUSTER_NAME="e2e-cluster-${E2E_RUN_SUFFIX}"
+    show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/managed_clusters -d '{name: ${E2E_CLUSTER_NAME}}'"
+    MC_CREATE_BODY=$(E2E_CLUSTER_NAME="$E2E_CLUSTER_NAME" python3 -c "
+import json, os
+print(json.dumps({
+    'name': os.environ['E2E_CLUSTER_NAME'],
+    'provider': 'kind',
+    # kubeconfig_secret is a required property. This synthetic cluster only exists
+    # to carry a default database_id for placement; no real kubeconfig is used.
+    'kubeconfig_secret': 'e2e-placeholder',
+}))
+")
+    MC_CREATE_RESP=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/managed_clusters" \
+      -H "Content-Type: application/json" -d "$MC_CREATE_BODY" 2>/dev/null || true)
+    E2E_CLUSTER_ID=$(echo "$MC_CREATE_RESP" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(d.get('id', '') if d.get('kind') == 'ManagedCluster' else '')
+" 2>/dev/null || true)
+    if [[ -z "$E2E_CLUSTER_ID" ]]; then
+      fail_test "Could not create ManagedCluster for CNPG gateway placement"
+      dim "    ${MC_CREATE_RESP:0:300}"
+      exit 1
+    fi
+    # Register for cleanup as soon as it exists so a later failure still removes it.
+    E2E_CREATED_CLUSTER_ID="$E2E_CLUSTER_ID"
+
+    # Point the cluster's default database at the fleet's CNPG ManagedDatabase so
+    # placement can resolve it.
+    show_cmd "api_curl -X PATCH ${API_HOST}/api/hypershell/v1/managed_clusters/${E2E_CLUSTER_ID} -d '{database_id: ${E2E_DATABASE_ID}}'"
+    MC_PATCH_BODY=$(E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
+import json, os
+print(json.dumps({'database_id': os.environ['E2E_DATABASE_ID']}))
+")
+    E2E_CLUSTER_DB=$(api_curl -X PATCH "${API_HOST}/api/hypershell/v1/managed_clusters/${E2E_CLUSTER_ID}" \
+      -H "Content-Type: application/json" -d "$MC_PATCH_BODY" 2>/dev/null | \
+      python3 -c "import json,sys; print(json.load(sys.stdin).get('database_id',''))" 2>/dev/null || true)
+    if [[ "$E2E_CLUSTER_DB" != "$E2E_DATABASE_ID" ]]; then
+      fail_test "Could not set default database_id on ManagedCluster ${E2E_CLUSTER_ID}"
+      dim "    expected ${E2E_DATABASE_ID}, got ${E2E_CLUSTER_DB:-<empty>}"
+      exit 1
+    fi
+    dim "  Using cluster_id=${E2E_CLUSTER_ID} (${E2E_CLUSTER_NAME}, default database_id=${E2E_CLUSTER_DB})"
+  fi
+
+  # Discover the release_id from the API. kind-up seeds a "dev-release"
+  # GatewayRelease; prefer it, otherwise take the first available. The ID is a
+  # server-assigned KSUID, so it must be discovered -- never hardcoded.
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateway_releases"
+  E2E_RELEASE_ID=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_releases" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = {}
+items = data.get('items', [])
+for r in items:
+    if r.get('name') == 'dev-release':
+        print(r.get('id', '')); break
+else:
+    print(items[0].get('id', '') if items else '')
+" 2>/dev/null || true)
+
+  if [[ -z "$E2E_RELEASE_ID" ]]; then
+    fail_test "No GatewayRelease found; cannot create gateway without a valid release_id"
+    exit 1
+  fi
+  dim "  Using release_id=${E2E_RELEASE_ID}"
+
+  # Every gateway must resolve a GatewayProfile: the create request carries a
+  # profile_id, or the target cluster must have a default profile_id. The per-run
+  # CNPG cluster above has none, and the deployment-mode literal cluster is not a
+  # registered cluster, so supply profile_id explicitly. kind-up seeds "small",
+  # "medium", and "big" profiles; reuse one if present, otherwise create a
+  # per-run profile that the cleanup trap removes.
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateway_profiles"
+  E2E_PROFILE_ID=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_profiles" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = {}
+items = data.get('items', [])
+# Prefer a profile named 'small'; otherwise take the first available.
+for p in items:
+    if p.get('name') == 'small':
+        print(p.get('id', '')); break
+else:
+    print(items[0].get('id', '') if items else '')
+" 2>/dev/null || true)
+
+  if [[ -z "$E2E_PROFILE_ID" ]]; then
+    E2E_PROFILE_NAME="e2e-profile-${E2E_RUN_SUFFIX}"
+    show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateway_profiles -d '{name: ${E2E_PROFILE_NAME}, ...}'"
+    E2E_PROFILE_BODY=$(E2E_PROFILE_NAME="$E2E_PROFILE_NAME" python3 -c "
+import json, os
+print(json.dumps({
+    'name': os.environ['E2E_PROFILE_NAME'],
+    'description': 'e2e namespace quota',
+    'cpu_request_total': '2',
+    'cpu_limit_total': '4',
+    'memory_request_total': '2Gi',
+    'memory_limit_total': '4Gi',
+    'ephemeral_storage_total': '10Gi',
+    'pod_count': 20,
+    'pvc_count': 5,
+    'container_cpu_request_default': '100m',
+    'container_cpu_limit_max': '1',
+    'container_memory_request_default': '128Mi',
+    'container_memory_limit_max': '1Gi',
+}))
+")
+    # GatewayProfile creation requires platform:admin. The default admin token
+    # carries gateway:creator but not platform:admin, so acquire a dedicated
+    # platform-admin token for this call. The test's E2E_PLATFORM_ADMIN_USERNAME
+    # user holds the platform:admin realm role in Keycloak.
+    _PLATFORM_ADMIN_TOKEN=""
+    _PLATFORM_ADMIN_TOKEN_RESP=$(curl -sk -X POST \
+      "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
+      --data-urlencode "grant_type=password" \
+      --data-urlencode "client_id=${E2E_OIDC_CLIENT_ID}" \
+      --data-urlencode "username=${E2E_PLATFORM_ADMIN_USERNAME}" \
+      --data-urlencode "password=${E2E_PLATFORM_ADMIN_PASSWORD}" 2>/dev/null || true)
+    _PLATFORM_ADMIN_TOKEN=$(echo "$_PLATFORM_ADMIN_TOKEN_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+    if [[ -z "$_PLATFORM_ADMIN_TOKEN" ]]; then
+      fail_test "Could not acquire platform-admin token for GatewayProfile creation"
+      exit 1
+    fi
+    E2E_PROFILE_RESP=$(curl -sk -X POST "${API_HOST}/api/hypershell/v1/gateway_profiles" \
+      -H "Authorization: Bearer ${_PLATFORM_ADMIN_TOKEN}" \
+      -H "Content-Type: application/json" -d "$E2E_PROFILE_BODY" 2>/dev/null || true)
+    E2E_PROFILE_ID=$(echo "$E2E_PROFILE_RESP" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(d.get('id', '') if d.get('kind') == 'GatewayProfile' else '')
+" 2>/dev/null || true)
+    if [[ -z "$E2E_PROFILE_ID" ]]; then
+      fail_test "Could not create GatewayProfile for gateway namespace quota"
+      dim "    ${E2E_PROFILE_RESP:0:300}"
+      exit 1
+    fi
+    # Register for cleanup as soon as it exists so a later failure still removes it.
+    E2E_CREATED_PROFILE_ID="$E2E_PROFILE_ID"
+    dim "  Created GatewayProfile ${E2E_PROFILE_ID} (${E2E_PROFILE_NAME})"
+  else
+    dim "  Using existing GatewayProfile ${E2E_PROFILE_ID}"
+  fi
+
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, database_id: <placement placeholder>, oidc: ...}'"
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
-    E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
+    E2E_DATABASE_ID="$E2E_DATABASE_ID" \
+    E2E_PROFILE_ID="$E2E_PROFILE_ID" E2E_RELEASE_ID="$E2E_RELEASE_ID" \
+    E2E_CLUSTER_ID="$E2E_CLUSTER_ID" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
+    'cluster_id': os.environ['E2E_CLUSTER_ID'],
+    'release_id': os.environ['E2E_RELEASE_ID'],
     'database_id': os.environ['E2E_DATABASE_ID'],
+    'profile_id': os.environ['E2E_PROFILE_ID'],
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],

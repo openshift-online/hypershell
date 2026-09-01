@@ -240,6 +240,12 @@ components:
               type: string
             api_server_url:
               type: string
+            profile_id:
+              type: string
+              description: Default GatewayProfile identifier inherited by gateways created on this cluster when they do not supply their own profile_id
+            database_id:
+              type: string
+              description: Default ManagedDatabase identifier for gateways placed on this cluster
     # NEW SCHEMA START
     ManagedClusterList:
     # NEW SCHEMA END
@@ -267,6 +273,11 @@ components:
         status:
           type: string
         api_server_url:
+          type: string
+        profile_id:
+          type: string
+          description: Default GatewayProfile for gateways on this cluster; set to empty string to clear
+        database_id:
           type: string
   parameters:
       id:

@@ -14,6 +14,9 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c.ReleaseId = gateway.ReleaseId
 	// database_id is assigned by the configured server-side placement strategy.
 	// Deliberately ignore any value supplied by the API client.
+	if gateway.ProfileId != nil {
+		c.ProfileId = *gateway.ProfileId
+	}
 	c.ExternalDns = gateway.ExternalDns
 	c.TlsMode = gateway.TlsMode
 	c.ServiceType = gateway.ServiceType
@@ -46,6 +49,7 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 		ClusterId:        gateway.ClusterId,
 		ReleaseId:        gateway.ReleaseId,
 		DatabaseId:       gateway.DatabaseId,
+		ProfileId:        openapi.PtrString(gateway.ProfileId),
 		Namespace:        gateway.Namespace,
 		ExternalDns:      gateway.ExternalDns,
 		TlsMode:          gateway.TlsMode,

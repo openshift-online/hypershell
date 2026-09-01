@@ -13,6 +13,9 @@ export default [
     index("./routes/home.tsx"),
     route(routeContract.gatewayNew, "./routes/gateway-new.tsx"),
     route(routeContract.gatewayDetail, "./routes/gateway.tsx"),
+    route(routeContract.gatewayProfiles, "./routes/gateway-profiles.tsx"),
+    route(routeContract.gatewayProfileNew, "./routes/gateway-profile-new.tsx"),
+    route(routeContract.gatewayProfileDetail, "./routes/gateway-profile.tsx"),
   ]),
   route("*", "./routes/not-found.tsx"),
 ] satisfies RouteConfig;

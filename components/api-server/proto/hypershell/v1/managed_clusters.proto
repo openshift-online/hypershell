@@ -16,6 +16,8 @@ message ManagedCluster {
   string kubeconfig_secret = 6;
   optional string status = 7;
   optional string api_server_url = 8;
+  optional string profile_id = 9;
+  optional string database_id = 10;
 }
 
 message CreateManagedClusterRequest {
@@ -27,6 +29,8 @@ message CreateManagedClusterRequest {
   string kubeconfig_secret = 5;
   optional string status = 6;
   optional string api_server_url = 7;
+  optional string profile_id = 8;
+  optional string database_id = 9;
 }
 
 message CreateManagedClusterResponse {
@@ -51,6 +55,8 @@ message UpdateManagedClusterRequest {
   optional string kubeconfig_secret = 6;
   optional string status = 7;
   optional string api_server_url = 8;
+  optional string profile_id = 9;
+  optional string database_id = 10;
 }
 
 message UpdateManagedClusterResponse {

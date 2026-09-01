@@ -29,6 +29,7 @@ message Gateway {
   optional string credential_driver = 20;
   optional int32 active_sandbox_count = 21;
   optional string console_address = 22;
+  optional string profile_id = 23;
 }
 
 message CreateGatewayRequest {
@@ -49,6 +50,7 @@ message CreateGatewayRequest {
   optional string oidc = 14;
   optional string route = 15;
   optional string credential_driver = 17;
+  optional string profile_id = 18;
 }
 
 message CreateGatewayResponse {
@@ -88,6 +90,7 @@ message UpdateGatewayRequest {
   // so the whole-row UpdateGateway path can never clobber it. See
   // openshell-gateway-sandbox-count.spec.md.
   optional string console_address = 20;
+  optional string profile_id = 21;
 }
 
 message UpdateGatewayResponse {

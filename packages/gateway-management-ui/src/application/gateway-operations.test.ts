@@ -42,6 +42,10 @@ function setup() {
       hasMore: false,
       items: [],
     }),
+    findGatewayProfiles: vi.fn().mockResolvedValue({
+      hasMore: false,
+      items: [],
+    }),
     getGateway: vi.fn().mockResolvedValue(gateway),
     getGatewayPlacement: vi.fn().mockResolvedValue({
       id: "cluster-east",
@@ -110,6 +114,11 @@ describe("gateway application operations", () => {
       "find-placements",
       (operations: ReturnType<typeof setup>["operations"]) =>
         operations.findGatewayPlacements(" east "),
+    ],
+    [
+      "find-profiles",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.findGatewayProfiles(" small "),
     ],
     [
       "get",

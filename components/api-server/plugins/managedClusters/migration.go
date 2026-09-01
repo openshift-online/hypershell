@@ -30,6 +30,29 @@ func migration() *gormigrate.Migration {
 	}
 }
 
+func migrationAddProfileAndDatabaseID() *gormigrate.Migration {
+	type ManagedCluster struct {
+		db.Model
+		ProfileId  *string
+		DatabaseId *string
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026082800000003",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&ManagedCluster{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			for _, col := range []string{"profile_id", "database_id"} {
+				if err := tx.Migrator().DropColumn(&ManagedCluster{}, col); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+}
+
 func migrationDropFleetId() *gormigrate.Migration {
 	type ManagedCluster struct{ db.Model }
 

@@ -7,6 +7,7 @@ Name | Type | Description | Notes
 **Name** | **string** |  | 
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
+**ProfileId** | Pointer to **string** | Optional GatewayProfile identifier for quota enforcement; if omitted the API server falls back to the cluster&#39;s default profile, and rejects the request with HTTP 400 if neither is provided | [optional] 
 **DatabaseId** | **string** | Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase | 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
@@ -98,6 +99,31 @@ and a boolean to check if the value has been set.
 
 SetReleaseId sets ReleaseId field to given value.
 
+
+### GetProfileId
+
+`func (o *GatewayCreateRequest) GetProfileId() string`
+
+GetProfileId returns the ProfileId field if non-nil, zero value otherwise.
+
+### GetProfileIdOk
+
+`func (o *GatewayCreateRequest) GetProfileIdOk() (*string, bool)`
+
+GetProfileIdOk returns a tuple with the ProfileId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetProfileId
+
+`func (o *GatewayCreateRequest) SetProfileId(v string)`
+
+SetProfileId sets ProfileId field to given value.
+
+### HasProfileId
+
+`func (o *GatewayCreateRequest) HasProfileId() bool`
+
+HasProfileId returns a boolean if a field has been set.
 
 ### GetDatabaseId
 

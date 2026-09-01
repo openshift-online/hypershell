@@ -7,17 +7,23 @@ import { vi } from "vitest";
 import { GatewayUiProvider } from "../gateway-ui-provider";
 import { GatewayCreatePage } from "./gateway-create";
 
-const { createGatewayMock, findGatewayPlacementsMock, navigateMock } =
-  vi.hoisted(() => ({
-    createGatewayMock: vi.fn(),
-    findGatewayPlacementsMock: vi.fn(),
-    navigateMock: vi.fn(),
-  }));
+const {
+  createGatewayMock,
+  findGatewayPlacementsMock,
+  findGatewayProfilesMock,
+  navigateMock,
+} = vi.hoisted(() => ({
+  createGatewayMock: vi.fn(),
+  findGatewayPlacementsMock: vi.fn(),
+  findGatewayProfilesMock: vi.fn(),
+  navigateMock: vi.fn(),
+}));
 
 const gatewayOperations = {
   createOpenShellGatewayServiceAccount: vi.fn(),
   deleteOpenShellGatewayServiceAccount: vi.fn(),
   findGatewayPlacements: findGatewayPlacementsMock,
+  findGatewayProfiles: findGatewayProfilesMock,
   getGateway: vi.fn(),
   getGatewayPlacement: vi.fn(),
   getGatewayPlacements: vi.fn(),
@@ -38,7 +44,7 @@ const navigation = {
 };
 
 const createdGateway = {
-  clusterId: "",
+  clusterId: "cluster-east",
   databaseId: "",
   externalDns: "",
   id: "gateway-1",
@@ -82,49 +88,24 @@ describe("GatewayCreatePage", () => {
         },
       ],
     });
+    findGatewayProfilesMock.mockResolvedValue({
+      hasMore: false,
+      items: [
+        {
+          description: "Small resource quota",
+          id: "profile-small",
+          name: "Small profile",
+        },
+      ],
+    });
     navigateMock.mockResolvedValue(undefined);
-  });
-
-  it("provisions on the hub by default without exposing a namespace", async () => {
-    const user = userEvent.setup();
-    createGatewayMock.mockResolvedValue(createdGateway);
-    renderPage();
-
-    expect(
-      screen.getByRole<HTMLInputElement>("combobox", { name: "Cluster" }).value,
-    ).toBe("Hub cluster (default)");
-    expect(screen.queryByLabelText("Namespace")).toBeNull();
-    expect(screen.queryByLabelText("Gateway release")).toBeNull();
-    expect(screen.queryByLabelText("Managed database")).toBeNull();
-
-    await user.type(
-      screen.getByRole("textbox", { name: "Gateway name" }),
-      "  team-gateway  ",
-    );
-    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
-
-    await waitFor(() => {
-      expect(createGatewayMock).toHaveBeenCalledWith({
-        clusterId: "",
-        name: "team-gateway",
-      });
-    });
-    await waitFor(() => {
-      expect(navigateMock).toHaveBeenCalledWith("/gateways/gateway-1");
-    });
   });
 
   it("searches managed clusters and provisions on the selected result", async () => {
     const user = userEvent.setup();
-    createGatewayMock.mockResolvedValue({
-      ...createdGateway,
-      clusterId: "cluster-east",
-    });
+    createGatewayMock.mockResolvedValue(createdGateway);
     renderPage();
 
-    await user.click(
-      screen.getByRole("button", { name: "Clear cluster search" }),
-    );
     const clusterInput = screen.getByRole("combobox", { name: "Cluster" });
     await user.type(clusterInput, "East");
     const clusterOption = await screen.findByText("Cluster East");
@@ -142,6 +123,7 @@ describe("GatewayCreatePage", () => {
       expect(createGatewayMock).toHaveBeenCalledWith({
         clusterId: "cluster-east",
         name: "team-gateway",
+        profileId: "profile-small",
       });
     });
     expect(findGatewayPlacementsMock).toHaveBeenCalledWith(
@@ -161,9 +143,6 @@ describe("GatewayCreatePage", () => {
     });
     findGatewayPlacementsMock.mockClear();
 
-    await user.click(
-      screen.getByRole("button", { name: "Clear cluster search" }),
-    );
     await user.type(screen.getByRole("combobox", { name: "Cluster" }), "East");
 
     expect(findGatewayPlacementsMock).not.toHaveBeenCalled();
@@ -206,35 +185,6 @@ describe("GatewayCreatePage", () => {
     expect(findGatewayPlacementsMock).toHaveBeenCalledOnce();
   });
 
-  it("keeps hub provisioning available when managed clusters fail to load", async () => {
-    const user = userEvent.setup();
-    findGatewayPlacementsMock.mockRejectedValue(
-      new Error("managed cluster API unavailable"),
-    );
-    createGatewayMock.mockResolvedValue(createdGateway);
-    renderPage();
-
-    expect(
-      await screen.findByText("Managed clusters could not be loaded"),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole<HTMLInputElement>("combobox", { name: "Cluster" }).value,
-    ).toBe("Hub cluster (default)");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-
-    await user.type(
-      screen.getByRole("textbox", { name: "Gateway name" }),
-      "team-gateway",
-    );
-    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
-    await waitFor(() => {
-      expect(createGatewayMock).toHaveBeenCalledWith({
-        clusterId: "",
-        name: "team-gateway",
-      });
-    });
-  });
-
   it("requires an explicit option after a free-form cluster search", async () => {
     const user = userEvent.setup();
     findGatewayPlacementsMock.mockResolvedValue({
@@ -243,9 +193,6 @@ describe("GatewayCreatePage", () => {
     });
     renderPage();
 
-    await user.click(
-      screen.getByRole("button", { name: "Clear cluster search" }),
-    );
     await user.type(
       screen.getByRole("combobox", { name: "Cluster" }),
       "Unknown placement",
@@ -282,9 +229,6 @@ describe("GatewayCreatePage", () => {
         "More clusters are available. Refine your search to find a specific cluster.",
       ),
     ).toBeTruthy();
-    await user.click(
-      screen.getByRole("button", { name: "Clear cluster search" }),
-    );
     const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
       name: "Cluster",
     });
@@ -297,15 +241,9 @@ describe("GatewayCreatePage", () => {
 
   it("restores the last accepted placement when Escape cancels a search", async () => {
     const user = userEvent.setup();
-    createGatewayMock.mockResolvedValue({
-      ...createdGateway,
-      clusterId: "cluster-east",
-    });
+    createGatewayMock.mockResolvedValue(createdGateway);
     renderPage();
 
-    await user.click(
-      screen.getByRole("button", { name: "Clear cluster search" }),
-    );
     const clusterInput = screen.getByRole<HTMLInputElement>("combobox", {
       name: "Cluster",
     });
@@ -328,6 +266,7 @@ describe("GatewayCreatePage", () => {
       expect(createGatewayMock).toHaveBeenCalledWith({
         clusterId: "cluster-east",
         name: "team-gateway",
+        profileId: "profile-small",
       });
     });
   });
@@ -397,9 +336,65 @@ describe("GatewayCreatePage", () => {
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 
     expect(await screen.findAllByText("This field is required.")).toHaveLength(
-      1,
+      2,
     );
     expect(createGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("provisions with a selected gateway profile", async () => {
+    const user = userEvent.setup();
+    createGatewayMock.mockResolvedValue({
+      ...createdGateway,
+      profileId: "profile-small",
+    });
+    renderPage();
+
+    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
+    await user.click(await screen.findByText("Cluster East"));
+
+    const profileInput = screen.getByRole<HTMLInputElement>("combobox", {
+      name: "Profile name",
+    });
+    await user.click(profileInput);
+    await user.click(await screen.findByText("Small profile"));
+    expect(profileInput.value).toBe("Small profile");
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(createGatewayMock).toHaveBeenCalledWith({
+        clusterId: "cluster-east",
+        name: "team-gateway",
+        profileId: "profile-small",
+      });
+    });
+  });
+
+  it("includes the auto-selected profile by default", async () => {
+    const user = userEvent.setup();
+    createGatewayMock.mockResolvedValue(createdGateway);
+    renderPage();
+
+    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
+    await user.click(await screen.findByText("Cluster East"));
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(createGatewayMock).toHaveBeenCalledWith({
+        clusterId: "cluster-east",
+        name: "team-gateway",
+        profileId: "profile-small",
+      });
+    });
   });
 
   it("shows progress only while the create request is pending", async () => {
@@ -412,6 +407,9 @@ describe("GatewayCreatePage", () => {
         }),
     );
     renderPage();
+
+    await user.click(screen.getByRole("combobox", { name: "Cluster" }));
+    await user.click(await screen.findByText("Cluster East"));
 
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),

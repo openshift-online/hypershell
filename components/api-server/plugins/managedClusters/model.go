@@ -13,6 +13,8 @@ type ManagedCluster struct {
 	KubeconfigSecret string  `json:"kubeconfig_secret"`
 	Status           *string `json:"status"`
 	ApiServerUrl     *string `json:"api_server_url"`
+	ProfileId        *string `json:"profile_id"`
+	DatabaseId       *string `json:"database_id"`
 }
 
 type ManagedClusterList []*ManagedCluster
@@ -38,4 +40,6 @@ type ManagedClusterPatchRequest struct {
 	KubeconfigSecret *string `json:"kubeconfig_secret,omitempty"`
 	Status           *string `json:"status,omitempty"`
 	ApiServerUrl     *string `json:"api_server_url,omitempty"`
+	ProfileId        *string `json:"profile_id,omitempty"`
+	DatabaseId       *string `json:"database_id,omitempty"`
 }

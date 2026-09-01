@@ -19,6 +19,8 @@ func ConvertManagedCluster(managedCluster openapi.ManagedCluster) *ManagedCluste
 	c.KubeconfigSecret = managedCluster.KubeconfigSecret
 	c.Status = managedCluster.Status
 	c.ApiServerUrl = managedCluster.ApiServerUrl
+	c.ProfileId = managedCluster.ProfileId
+	c.DatabaseId = managedCluster.DatabaseId
 
 	if managedCluster.CreatedAt != nil {
 		c.CreatedAt = *managedCluster.CreatedAt
@@ -42,5 +44,7 @@ func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluste
 		KubeconfigSecret: managedCluster.KubeconfigSecret,
 		Status:           managedCluster.Status,
 		ApiServerUrl:     managedCluster.ApiServerUrl,
+		ProfileId:        managedCluster.ProfileId,
+		DatabaseId:       managedCluster.DatabaseId,
 	}
 }

@@ -49,7 +49,10 @@ function isApplicationRoute(pathname: string): boolean {
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
-    /^\/gateways\/[^/]+\/?$/u.test(pathname)
+    /^\/gateways\/[^/]+\/?$/u.test(pathname) ||
+    pathname === "/gateway-profiles" ||
+    pathname === "/gateway-profiles/new" ||
+    /^\/gateway-profiles\/[^/]+\/?$/u.test(pathname)
   );
 }
 

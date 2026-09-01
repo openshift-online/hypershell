@@ -115,6 +115,23 @@ func migrationAddActiveSandboxCount() *gormigrate.Migration {
 	}
 }
 
+func migrationAddProfileID() *gormigrate.Migration {
+	type Gateway struct {
+		db.Model
+		ProfileId string
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026082800000002",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&Gateway{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Migrator().DropColumn(&Gateway{}, "profile_id")
+		},
+	}
+}
+
 func migrationDropDatabaseConfig() *gormigrate.Migration {
 	type Gateway struct{ db.Model }
 

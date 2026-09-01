@@ -206,6 +206,17 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		return len(bindings) > 0
 	}
 
+	if resource == "gateway_profiles" {
+		// A GatewayProfile defines the resource ceiling the control plane
+		// enforces, so mutating one must be restricted to platform admins.
+		// Reads are open to any authenticated caller holding a binding so that
+		// gateway creators/owners can view profiles to assign them.
+		if method == http.MethodGet {
+			return len(bindings) > 0
+		}
+		return hasPlatformAdmin(bindings)
+	}
+
 	return hasGatewayCreator(bindings)
 }
 

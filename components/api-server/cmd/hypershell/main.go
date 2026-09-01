@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayProfiles"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"

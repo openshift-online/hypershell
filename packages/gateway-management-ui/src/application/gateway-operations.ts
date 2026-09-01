@@ -200,6 +200,10 @@ export function createGatewayOperations({
       execute("find-placements", signal, (context) =>
         controlPlane.findGatewayPlacements(search.trim(), context),
       ),
+    findGatewayProfiles: (search, signal) =>
+      execute("find-profiles", signal, (context) =>
+        controlPlane.findGatewayProfiles(search.trim(), context),
+      ),
     getGatewayPlacement: (clusterId, signal) =>
       execute("get-placement", signal, (context) =>
         controlPlane.getGatewayPlacement(clusterId, context),

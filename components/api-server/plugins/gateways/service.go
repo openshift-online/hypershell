@@ -2,6 +2,7 @@ package gateways
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -12,6 +13,20 @@ import (
 )
 
 const gatewaysLockType db.LockType = "gateways"
+
+// ProfileResolver supplies the gateway service with the two GatewayProfile
+// facts it needs without depending on the gatewayProfiles package directly:
+// the cluster-level default profile used as a create-time fallback, and an
+// existence check used to reject assignments the control plane could not fetch.
+type ProfileResolver interface {
+	// ClusterDefaultProfileID returns the profile_id configured as the default
+	// for the given cluster, or "" if the cluster has no default profile.
+	ClusterDefaultProfileID(ctx context.Context, clusterID string) (string, error)
+	// ProfileExists reports whether a GatewayProfile with the given id exists.
+	ProfileExists(ctx context.Context, profileID string) (bool, error)
+	// ClusterExists reports whether a ManagedCluster with the given id exists.
+	ClusterExists(ctx context.Context, clusterID string) (bool, error)
+}
 
 type GatewayService interface {
 	Get(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
@@ -33,6 +48,16 @@ type GatewayService interface {
 
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
+	// ProfileExists reports whether the referenced GatewayProfile exists. It is
+	// used by the PATCH path to reject reassigning a gateway to a profile_id the
+	// control plane could not fetch. Returns true when no resolver is wired.
+	ProfileExists(ctx context.Context, profileID string) (bool, *errors.ServiceError)
+
+	// ClusterExists reports whether the referenced ManagedCluster exists. It is
+	// used by the PATCH path to reject assigning a gateway to a cluster_id that
+	// does not exist. Returns true when no resolver is wired.
+	ClusterExists(ctx context.Context, clusterID string) (bool, *errors.ServiceError)
+
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
 }
@@ -42,12 +67,14 @@ func NewGatewayService(
 	gatewayDao GatewayDao,
 	events services.EventService,
 	placement PlacementResolver,
+	profiles ProfileResolver,
 ) GatewayService {
 	return &sqlGatewayService{
 		lockFactory: lockFactory,
 		gatewayDao:  gatewayDao,
 		events:      events,
 		placement:   placement,
+		profiles:    profiles,
 	}
 }
 
@@ -58,6 +85,7 @@ type sqlGatewayService struct {
 	gatewayDao  GatewayDao
 	events      services.EventService
 	placement   PlacementResolver
+	profiles    ProfileResolver
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
@@ -68,7 +96,7 @@ func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
 		return err
 	}
 
-	logger.Infof("Do idempotent somethings with this gateway: %s", gateway.ID)
+	logger.Infof("Gateway upserted: %s (name=%s namespace=%s)", gateway.ID, gateway.Name, gateway.Namespace)
 
 	return nil
 }
@@ -96,6 +124,53 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
+	// A nil resolver disables cluster/profile validation and quota enforcement.
+	// Production wiring always injects one (see NewServiceLocator), so this path
+	// is reachable only from tests or a wiring regression; make the latter loud.
+	if s.profiles == nil {
+		logger.NewLogger(ctx).Warning("Gateway create proceeding with no ProfileResolver wired; skipping cluster and profile validation (production wiring always injects a resolver)")
+	}
+
+	// Validate cluster_id and profile_id before calling placement.Resolve, which
+	// may provision a real ManagedDatabase. Bad requests must be rejected before
+	// any server-side resources are created.
+
+	// Validate that cluster_id references a real ManagedCluster.
+	if s.profiles != nil && gateway.ClusterId != "" {
+		clusterExists, clusterErr := s.profiles.ClusterExists(ctx, gateway.ClusterId)
+		if clusterErr != nil {
+			return nil, errors.GeneralError("failed to validate cluster_id: %s", clusterErr)
+		}
+		if !clusterExists {
+			return nil, errors.Validation("cluster %s does not exist", gateway.ClusterId)
+		}
+	}
+
+	// Resolve the gateway quota profile. A client-supplied profile_id wins; if
+	// none was supplied, fall back to the cluster's default profile. A profile
+	// is required, so if neither source yields one the create is rejected.
+	if gateway.ProfileId == "" && s.profiles != nil {
+		clusterDefault, err := s.profiles.ClusterDefaultProfileID(ctx, gateway.ClusterId)
+		if err != nil {
+			return nil, errors.GeneralError("failed to resolve cluster default gateway profile: %s", err)
+		}
+		gateway.ProfileId = clusterDefault
+	}
+	if gateway.ProfileId == "" {
+		return nil, errors.Validation("profile_id is required: none supplied and cluster %s has no default profile", gateway.ClusterId)
+	}
+	// The referenced profile must exist so the control plane can fetch it when
+	// building the namespace ResourceQuota; otherwise provisioning would block.
+	if s.profiles != nil {
+		exists, err := s.profiles.ProfileExists(ctx, gateway.ProfileId)
+		if err != nil {
+			return nil, errors.GeneralError("failed to validate gateway profile: %s", err)
+		}
+		if !exists {
+			return nil, errors.Validation("gateway profile %s does not exist", gateway.ProfileId)
+		}
+	}
+
 	// database_id is server-owned. Clear any value that reached the business
 	// layer from an API client before selecting the configured placement strategy.
 	gateway.DatabaseId = ""
@@ -204,6 +279,33 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 	}
 
 	return nil
+}
+
+func (s *sqlGatewayService) ProfileExists(ctx context.Context, profileID string) (bool, *errors.ServiceError) {
+	if s.profiles == nil {
+		logger.NewLogger(ctx).Warning(fmt.Sprintf("ProfileExists called with no ProfileResolver wired; skipping profile validation for %s (production wiring always injects a resolver)", profileID))
+		return true, nil
+	}
+	exists, err := s.profiles.ProfileExists(ctx, profileID)
+	if err != nil {
+		return false, errors.GeneralError("failed to validate gateway profile: %s", err)
+	}
+	return exists, nil
+}
+
+func (s *sqlGatewayService) ClusterExists(ctx context.Context, clusterID string) (bool, *errors.ServiceError) {
+	if s.profiles == nil {
+		logger.NewLogger(ctx).Warning(fmt.Sprintf("ClusterExists called with no ProfileResolver wired; skipping cluster validation for %s (production wiring always injects a resolver)", clusterID))
+		return true, nil
+	}
+	if clusterID == "" {
+		return true, nil
+	}
+	exists, err := s.profiles.ClusterExists(ctx, clusterID)
+	if err != nil {
+		return false, errors.GeneralError("failed to check cluster existence: %s", err)
+	}
+	return exists, nil
 }
 
 func (s *sqlGatewayService) FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError) {

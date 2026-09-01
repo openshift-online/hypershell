@@ -74,6 +74,9 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		Oidc:           req.Oidc,
 		Route:          req.Route,
 	}
+	if req.ProfileId != nil {
+		gateway.ProfileId = *req.ProfileId
+	}
 	result, svcErr := h.service.Create(ctx, gateway)
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
@@ -141,6 +144,16 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	// database_id is server-owned placement state. Ignore values supplied by
 	// callers; gateway creation business logic is the only assignment path.
+	if req.ProfileId != nil && *req.ProfileId != "" {
+		exists, existsErr := h.service.ProfileExists(ctx, *req.ProfileId)
+		if existsErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(existsErr)
+		}
+		if !exists {
+			return nil, status.Errorf(codes.NotFound, "gateway profile %s does not exist", *req.ProfileId)
+		}
+		gateway.ProfileId = *req.ProfileId
+	}
 	if req.ExternalDns != nil {
 		gateway.ExternalDns = req.ExternalDns
 	}

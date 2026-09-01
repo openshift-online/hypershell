@@ -20,10 +20,11 @@ type managedClusterGRPCHandler struct {
 	service    ManagedClusterService
 	generic    services.GenericService
 	brokerFunc func() *pkgserver.EventBroker
+	profiles   ProfileChecker
 }
 
-func NewManagedClusterGRPCHandler(svc ManagedClusterService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker) pb.ManagedClusterServiceServer {
-	return &managedClusterGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
+func NewManagedClusterGRPCHandler(svc ManagedClusterService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, profiles ProfileChecker) pb.ManagedClusterServiceServer {
+	return &managedClusterGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, profiles: profiles}
 }
 
 func (h *managedClusterGRPCHandler) GetManagedCluster(ctx context.Context, req *pb.GetManagedClusterRequest) (*pb.GetManagedClusterResponse, error) {
@@ -49,6 +50,16 @@ func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, re
 		return nil, err
 	}
 
+	if req.ProfileId != nil && *req.ProfileId != "" {
+		exists, existsErr := h.profiles.ProfileExists(ctx, *req.ProfileId)
+		if existsErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(existsErr)
+		}
+		if !exists {
+			return nil, status.Errorf(codes.NotFound, "gateway profile %s does not exist", *req.ProfileId)
+		}
+	}
+
 	managedCluster := &ManagedCluster{
 		Name:             req.Name,
 		Provider:         req.Provider,
@@ -56,6 +67,8 @@ func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, re
 		KubeconfigSecret: req.KubeconfigSecret,
 		Status:           req.Status,
 		ApiServerUrl:     req.ApiServerUrl,
+		ProfileId:        req.ProfileId,
+		DatabaseId:       req.DatabaseId,
 	}
 	result, svcErr := h.service.Create(ctx, managedCluster)
 	if svcErr != nil {
@@ -120,6 +133,21 @@ func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, re
 	}
 	if req.ApiServerUrl != nil {
 		managedCluster.ApiServerUrl = req.ApiServerUrl
+	}
+	if req.ProfileId != nil {
+		if *req.ProfileId != "" {
+			exists, existsErr := h.profiles.ProfileExists(ctx, *req.ProfileId)
+			if existsErr != nil {
+				return nil, grpcutil.ServiceErrorToGRPC(existsErr)
+			}
+			if !exists {
+				return nil, status.Errorf(codes.NotFound, "gateway profile %s does not exist", *req.ProfileId)
+			}
+		}
+		managedCluster.ProfileId = req.ProfileId
+	}
+	if req.DatabaseId != nil {
+		managedCluster.DatabaseId = req.DatabaseId
 	}
 	result, svcErr := h.service.Replace(ctx, managedCluster)
 	if svcErr != nil {

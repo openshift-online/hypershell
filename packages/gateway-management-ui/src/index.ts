@@ -4,6 +4,13 @@ export {
   type GatewayNavigationOptions,
   type GatewayUiNavigation,
 } from "./gateway-ui-provider";
+export {
+  GatewayProfileUiProvider,
+  useGatewayProfileUi,
+  type GatewayProfileNavigationOptions,
+  type GatewayProfileUiNavigation,
+  type GatewayProfileUiServices,
+} from "./gateway-profile-ui-provider";
 export type {
   GatewayControlPlane,
   GatewayFailureCode,
@@ -14,6 +21,8 @@ export type {
   GatewayPage as GatewayPageResult,
   GatewayPlacement,
   GatewayPlacementOptions,
+  GatewayProfileSummary,
+  GatewayProfileSummaryOptions,
   GatewayProvisionInput,
   GatewayRecord,
   GatewaySortDirection,
@@ -76,6 +85,53 @@ export {
   type GatewaysPageProps,
 } from "./pages/gateway-pages";
 export { messages as gatewayMessages } from "./messages";
+export { GatewayProfileSelect } from "./gateways/gateway-profile-select";
+export type { GatewayProfileSelectProps } from "./gateways/gateway-profile-select";
+export type {
+  GatewayProfileControlPlane,
+  GatewayProfileCreateInput,
+  GatewayProfileFailureKind,
+  GatewayProfileInvocationContext,
+  GatewayProfileListRequest,
+  GatewayProfileOperations,
+  GatewayProfilePage as GatewayProfilePageResult,
+  GatewayProfileRecord,
+  GatewayProfileSortDirection,
+  GatewayProfileSortField,
+} from "./application/gateway-profile-types";
+export {
+  defaultGatewayProfileListRequest,
+  gatewayProfileListPageSizes,
+  GatewayProfileOperationError,
+} from "./application/gateway-profile-types";
+export {
+  gatewayProfileProbeCatalog,
+  type GatewayProfileAction,
+  type GatewayProfileProbe,
+  type GatewayProfileProbeName,
+  type GatewayProfileProbeOutcome,
+  type GatewayProfileProbePublisher,
+} from "./application/gateway-profile-probes";
+export {
+  createGatewayProfileOperations,
+  type GatewayProfileOperationDependencies,
+} from "./application/gateway-profile-operations";
+export {
+  gatewayProfileListQueryKey,
+  gatewayProfileListQueryRoot,
+  gatewayProfileQueryKey,
+} from "./gateway-profiles/gateway-profile-data";
+export {
+  GatewayProfileCreatePage,
+  type GatewayProfileCreatePageProps,
+} from "./gateway-profiles/gateway-profile-create";
+export {
+  GatewayProfilePage,
+  GatewayProfilesPage,
+  type GatewayProfilePageProps,
+  type GatewayProfilesPageProps,
+} from "./pages/gateway-profile-pages";
+export { gatewayProfileMessages } from "./gateway-profile-messages";
 export {
   buildClientCredentialsScript,
   buildOpenShellServiceAccountScript,

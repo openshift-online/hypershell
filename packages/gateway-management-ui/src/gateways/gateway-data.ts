@@ -7,6 +7,7 @@ import type { GatewayConnection } from "./gateway-connections";
 
 export const gatewayListQueryRoot = ["gateways", "list"] as const;
 export const gatewayPlacementQueryRoot = ["gateways", "placements"] as const;
+export const gatewayProfileOptionsQueryRoot = ["gateways", "profiles"] as const;
 export const gatewayPlacementStaleMilliseconds = 60_000;
 export const gatewaySearchDebounceMilliseconds = 250;
 export const gatewayStatusPollMilliseconds = 5_000;
@@ -175,6 +176,10 @@ export function gatewayQueryKey(gatewayId: string) {
 
 export function gatewayPlacementQueryKey(search: string) {
   return [...gatewayPlacementQueryRoot, "search", search.trim()] as const;
+}
+
+export function gatewayProfileOptionsQueryKey(search: string) {
+  return [...gatewayProfileOptionsQueryRoot, "search", search.trim()] as const;
 }
 
 export function gatewayPlacementDetailQueryKey(clusterId: string) {

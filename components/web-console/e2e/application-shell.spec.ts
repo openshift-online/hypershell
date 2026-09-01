@@ -26,7 +26,7 @@ const managedCluster = {
   id: "cluster-east",
   kind: "ManagedCluster",
   kubeconfig_secret: "cluster-east-kubeconfig",
-  name: "Cluster East",
+  name: "Hub cluster",
   provider: "AWS",
   region: "us-east-1",
   status: "Ready",
@@ -137,7 +137,7 @@ test("makes gateway management the primary HyperShell experience", async ({
   await expect(
     page
       .getByRole("grid", { name: "OpenShell Gateways" })
-      .getByText("Cluster East"),
+      .getByText("Hub cluster"),
   ).toBeVisible();
   const gatewayGrid = page.getByRole("grid", { name: "OpenShell Gateways" });
   await expect(
@@ -240,11 +240,11 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
     .getByRole("textbox", {
       name: "Filter by name, cluster, status, or endpoint",
     })
-    .fill("Cluster East");
+    .fill("Hub cluster");
   await expect(
     page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\?q=Cluster\+East&sort=cluster$/u);
+  await expect(page).toHaveURL(/\?q=Hub\+cluster&sort=cluster$/u);
   await page.goBack();
   await expect(page).toHaveURL(/\/$/u);
   await expect(
@@ -253,9 +253,7 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);
-  await expect(page.getByRole("combobox", { name: "Cluster" })).toHaveValue(
-    "Hub cluster (default)",
-  );
+  await expect(page.getByRole("combobox", { name: "Cluster" })).toHaveValue("");
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
 });
 
@@ -316,7 +314,7 @@ test("keeps connection methods on gateway details", async ({
 
   // Operational configuration and copyable values live under the Details tab.
   await page.getByRole("tab", { name: "Details" }).click();
-  await expect(page.getByText("Cluster East", { exact: true })).toBeVisible();
+  await expect(page.getByText("Hub cluster", { exact: true })).toBeVisible();
   await expect(page.getByText("cluster-east", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Not available")).toHaveCount(0);
   await page
@@ -494,11 +492,10 @@ test("provisions a gateway on an existing managed cluster", async ({
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
   const clusterInput = page.getByRole("combobox", { name: "Cluster" });
-  await expect(clusterInput).toHaveValue("Hub cluster (default)");
-  await page.getByRole("button", { name: "Clear cluster search" }).click();
-  await clusterInput.fill("East");
-  await page.getByText("Cluster East", { exact: true }).click();
-  await expect(clusterInput).toHaveValue("Cluster East");
+  await expect(clusterInput).toHaveValue("");
+  await clusterInput.fill("Hub");
+  await page.getByText("Hub cluster", { exact: true }).click();
+  await expect(clusterInput).toHaveValue("Hub cluster");
   await expect(page.getByText("Provider: AWS; region: us-east-1")).toHaveCount(
     0,
   );

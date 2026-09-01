@@ -723,6 +723,89 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
 fi
 sep
 
+# ── 9. namespace quota verification ──────────────────────────────────────
+
+echo ""
+bold "9. Namespace Quota Verification"
+echo ""
+
+if [[ -n "$GW_NAMESPACE" ]]; then
+  show_cmd "$CLI get resourcequota hypershell-gateway-quota -n $GW_NAMESPACE"
+  RQ_JSON=$($CLI get resourcequota hypershell-gateway-quota -n "$GW_NAMESPACE" -o json 2>/dev/null || true)
+  if [[ -n "$RQ_JSON" ]]; then
+    pass "ResourceQuota hypershell-gateway-quota present in ${GW_NAMESPACE}"
+
+    CPU_LIMIT=$(echo "$RQ_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('spec',{}).get('hard',{}).get('limits.cpu',''))" 2>/dev/null || true)
+    MEM_LIMIT=$(echo "$RQ_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('spec',{}).get('hard',{}).get('limits.memory',''))" 2>/dev/null || true)
+    POD_COUNT=$(echo "$RQ_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('spec',{}).get('hard',{}).get('pods',''))" 2>/dev/null || true)
+    if [[ -n "$CPU_LIMIT" ]]; then
+      pass "ResourceQuota cpu limit: ${CPU_LIMIT}"
+    else
+      dim "  - ResourceQuota cpu limit not set"
+    fi
+    if [[ -n "$MEM_LIMIT" ]]; then
+      pass "ResourceQuota memory limit: ${MEM_LIMIT}"
+    else
+      dim "  - ResourceQuota memory limit not set"
+    fi
+    if [[ -n "$POD_COUNT" ]]; then
+      pass "ResourceQuota pod count: ${POD_COUNT}"
+    else
+      dim "  - ResourceQuota pod count not set"
+    fi
+  else
+    fail_test "ResourceQuota hypershell-gateway-quota not found in ${GW_NAMESPACE}"
+  fi
+
+  show_cmd "$CLI get limitrange hypershell-gateway-limits -n $GW_NAMESPACE"
+  LR_JSON=$($CLI get limitrange hypershell-gateway-limits -n "$GW_NAMESPACE" -o json 2>/dev/null || true)
+  if [[ -n "$LR_JSON" ]]; then
+    pass "LimitRange hypershell-gateway-limits present in ${GW_NAMESPACE}"
+
+    CONTAINER_MAX_CPU=$(echo "$LR_JSON" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for item in d.get('spec',{}).get('limits',[]):
+    if item.get('type') == 'Container':
+        print(item.get('max',{}).get('cpu',''))
+        break
+" 2>/dev/null || true)
+    CONTAINER_MAX_MEM=$(echo "$LR_JSON" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for item in d.get('spec',{}).get('limits',[]):
+    if item.get('type') == 'Container':
+        print(item.get('max',{}).get('memory',''))
+        break
+" 2>/dev/null || true)
+    if [[ -n "$CONTAINER_MAX_CPU" ]]; then
+      pass "LimitRange container cpu max: ${CONTAINER_MAX_CPU}"
+    else
+      dim "  - LimitRange container cpu max not set"
+    fi
+    if [[ -n "$CONTAINER_MAX_MEM" ]]; then
+      pass "LimitRange container memory max: ${CONTAINER_MAX_MEM}"
+    else
+      dim "  - LimitRange container memory max not set"
+    fi
+  else
+    fail_test "LimitRange hypershell-gateway-limits not found in ${GW_NAMESPACE}"
+  fi
+
+  # Verify the GatewayProfile API returns the default profile
+  show_cmd "curl ${API_URL}/api/hypershell/v1/gateway_profiles"
+  GP_RESP=$(curl -sk -H "${API_AUTH_HEADER:-}" "${API_URL}/api/hypershell/v1/gateway_profiles" 2>/dev/null || true)
+  GP_COUNT=$(echo "$GP_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || true)
+  if [[ "${GP_COUNT:-0}" -ge 1 ]]; then
+    pass "GatewayProfile API: ${GP_COUNT} profile(s) registered"
+  else
+    fail_test "GatewayProfile API returned no profiles (expected at least 1)"
+  fi
+else
+  dim "  - No gateway namespace recorded; skipping quota checks"
+fi
+sep
+
 # ── results ───────────────────────────────────────────────────────────────
 
 echo ""

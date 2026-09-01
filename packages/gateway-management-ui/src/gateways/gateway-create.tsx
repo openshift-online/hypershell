@@ -13,17 +13,22 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
-import { Controller, useForm, type Control } from "react-hook-form";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
+import { Controller, useForm, useWatch, type Control } from "react-hook-form";
 import { FormattedMessage, useIntl } from "react-intl";
 import { z } from "zod";
 
 import { useGatewayUi } from "../gateway-ui-provider";
 import type { GatewayProvisionInput } from "../application/gateway-types";
 import { messages } from "../messages";
-import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
+import {
+  gatewayListQueryRoot,
+  gatewayPlacementDetailQueryKey,
+  gatewayQueryKey,
+} from "./gateway-data";
 import { GatewayPlacementSelect } from "./gateway-placement-select";
+import { GatewayProfileSelect } from "./gateway-profile-select";
 
 export interface GatewayCreatePageProps {
   onCreated?: (gatewayId: string) => Promise<void> | void;
@@ -32,6 +37,7 @@ export interface GatewayCreatePageProps {
 interface GatewayFormValues {
   clusterId: string | null;
   name: string;
+  profileId: string | null;
 }
 
 interface GatewayTextFieldProps {
@@ -98,26 +104,46 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         .string({ error: requiredMessage })
         .nullable()
         .transform((value, context) => {
-          if (value === null) {
+          if (!value) {
             context.addIssue({ code: "custom", message: requiredMessage });
             return z.NEVER;
           }
           return value;
         }),
       name: requiredString,
+      profileId: z
+        .string()
+        .nullable()
+        .transform((value) => value ?? undefined),
     });
   }, [requiredMessage]);
-  const { control, handleSubmit } = useForm<
+  const { control, handleSubmit, setValue } = useForm<
     GatewayFormValues,
     undefined,
     GatewayProvisionInput
   >({
     defaultValues: {
-      clusterId: "",
+      clusterId: null,
       name: "",
+      profileId: null,
     },
     resolver: zodResolver(schema),
   });
+
+  const clusterId = useWatch({ control, name: "clusterId" });
+  const clusterPlacementQuery = useQuery({
+    enabled: !!clusterId,
+    queryFn: ({ signal }) =>
+      gateways.getGatewayPlacement(clusterId ?? "", signal),
+    queryKey: gatewayPlacementDetailQueryKey(clusterId ?? ""),
+  });
+
+  useEffect(() => {
+    const profileId = clusterPlacementQuery.data?.profileId;
+    if (profileId) {
+      setValue("profileId", profileId);
+    }
+  }, [clusterPlacementQuery.data, setValue]);
 
   const createGateway = useMutation({
     mutationFn: (values: GatewayProvisionInput) => {
@@ -179,6 +205,18 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
             name="clusterId"
             render={({ field, fieldState }) => (
               <GatewayPlacementSelect
+                error={fieldState.error?.message}
+                isDisabled={createGateway.isPending}
+                onChange={field.onChange}
+                value={field.value}
+              />
+            )}
+          />
+          <Controller
+            control={control}
+            name="profileId"
+            render={({ field, fieldState }) => (
+              <GatewayProfileSelect
                 error={fieldState.error?.message}
                 isDisabled={createGateway.isPending}
                 onChange={field.onChange}

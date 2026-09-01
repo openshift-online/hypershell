@@ -65,6 +65,13 @@ func ReconcileGateway(
 		}
 	}
 
+	// Apply the ResourceQuota / LimitRange before deploying any workload so the
+	// gateway's own pods are admitted under the same quota and receive the
+	// LimitRange container defaults. Reconciles toward absence when Quota is nil.
+	if err := ReconcileNamespaceQuota(ctx, clientset, nsConfig.Name, opts.Quota); err != nil {
+		return fmt.Errorf("reconcile namespace quota in %s: %w", nsConfig.Name, err)
+	}
+
 	if err := ValidateGatewayConfig(nsConfig.Gateway); err != nil {
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}

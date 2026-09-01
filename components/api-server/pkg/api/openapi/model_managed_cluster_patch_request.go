@@ -25,6 +25,9 @@ type ManagedClusterPatchRequest struct {
 	KubeconfigSecret *string `json:"kubeconfig_secret,omitempty"`
 	Status           *string `json:"status,omitempty"`
 	ApiServerUrl     *string `json:"api_server_url,omitempty"`
+	// Default GatewayProfile for gateways on this cluster; set to empty string to clear
+	ProfileId  *string `json:"profile_id,omitempty"`
+	DatabaseId *string `json:"database_id,omitempty"`
 }
 
 // NewManagedClusterPatchRequest instantiates a new ManagedClusterPatchRequest object
@@ -236,6 +239,70 @@ func (o *ManagedClusterPatchRequest) SetApiServerUrl(v string) {
 	o.ApiServerUrl = &v
 }
 
+// GetProfileId returns the ProfileId field value if set, zero value otherwise.
+func (o *ManagedClusterPatchRequest) GetProfileId() string {
+	if o == nil || IsNil(o.ProfileId) {
+		var ret string
+		return ret
+	}
+	return *o.ProfileId
+}
+
+// GetProfileIdOk returns a tuple with the ProfileId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedClusterPatchRequest) GetProfileIdOk() (*string, bool) {
+	if o == nil || IsNil(o.ProfileId) {
+		return nil, false
+	}
+	return o.ProfileId, true
+}
+
+// HasProfileId returns a boolean if a field has been set.
+func (o *ManagedClusterPatchRequest) HasProfileId() bool {
+	if o != nil && !IsNil(o.ProfileId) {
+		return true
+	}
+
+	return false
+}
+
+// SetProfileId gets a reference to the given string and assigns it to the ProfileId field.
+func (o *ManagedClusterPatchRequest) SetProfileId(v string) {
+	o.ProfileId = &v
+}
+
+// GetDatabaseId returns the DatabaseId field value if set, zero value otherwise.
+func (o *ManagedClusterPatchRequest) GetDatabaseId() string {
+	if o == nil || IsNil(o.DatabaseId) {
+		var ret string
+		return ret
+	}
+	return *o.DatabaseId
+}
+
+// GetDatabaseIdOk returns a tuple with the DatabaseId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedClusterPatchRequest) GetDatabaseIdOk() (*string, bool) {
+	if o == nil || IsNil(o.DatabaseId) {
+		return nil, false
+	}
+	return o.DatabaseId, true
+}
+
+// HasDatabaseId returns a boolean if a field has been set.
+func (o *ManagedClusterPatchRequest) HasDatabaseId() bool {
+	if o != nil && !IsNil(o.DatabaseId) {
+		return true
+	}
+
+	return false
+}
+
+// SetDatabaseId gets a reference to the given string and assigns it to the DatabaseId field.
+func (o *ManagedClusterPatchRequest) SetDatabaseId(v string) {
+	o.DatabaseId = &v
+}
+
 func (o ManagedClusterPatchRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -263,6 +330,12 @@ func (o ManagedClusterPatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ApiServerUrl) {
 		toSerialize["api_server_url"] = o.ApiServerUrl
+	}
+	if !IsNil(o.ProfileId) {
+		toSerialize["profile_id"] = o.ProfileId
+	}
+	if !IsNil(o.DatabaseId) {
+		toSerialize["database_id"] = o.DatabaseId
 	}
 	return toSerialize, nil
 }

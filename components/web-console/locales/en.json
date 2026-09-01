@@ -67,12 +67,8 @@
     "defaultMessage": "Hub cluster",
     "description": "Placement label for the cluster hosting HyperShell."
   },
-  "app.gateway.cluster.hubDefault": {
-    "defaultMessage": "Hub cluster (default)",
-    "description": "Default placement option for a gateway provisioning form."
-  },
   "app.gateway.cluster.loadError.body": {
-    "defaultMessage": "You can provision on Hub cluster (default), or try loading managed clusters again.",
+    "defaultMessage": "Try loading managed clusters again.",
     "description": "Recovery guidance when remote gateway placements cannot be loaded."
   },
   "app.gateway.cluster.loadError.title": {
@@ -631,6 +627,138 @@
     "defaultMessage": "Console unavailable for this gateway",
     "description": "Tooltip on the disabled console button once the console failed to become available within the expected time."
   },
+  "app.gatewayProfile.clearSearch": {
+    "defaultMessage": "Clear gateway profile search",
+    "description": "Accessible label for clearing the gateway profile typeahead input."
+  },
+  "app.gatewayProfile.containerCpuLimitMax": {
+    "defaultMessage": "Container CPU limit (max)",
+    "description": "Label for the maximum CPU limit allowed on a single container."
+  },
+  "app.gatewayProfile.containerCpuRequestDefault": {
+    "defaultMessage": "Container CPU request (default)",
+    "description": "Label for the default CPU request applied to a container."
+  },
+  "app.gatewayProfile.containerMemoryLimitMax": {
+    "defaultMessage": "Container memory limit (max)",
+    "description": "Label for the maximum memory limit allowed on a single container."
+  },
+  "app.gatewayProfile.containerMemoryRequestDefault": {
+    "defaultMessage": "Container memory request (default)",
+    "description": "Label for the default memory request applied to a container."
+  },
+  "app.gatewayProfile.cpuLimitTotal": {
+    "defaultMessage": "Total CPU limit",
+    "description": "Label for the total CPU limit across a gateway profile quota."
+  },
+  "app.gatewayProfile.cpuRequestTotal": {
+    "defaultMessage": "Total CPU request",
+    "description": "Label for the total CPU request across a gateway profile quota."
+  },
+  "app.gatewayProfile.delete": {
+    "defaultMessage": "Delete gateway profile",
+    "description": "Action that permanently deletes a gateway profile."
+  },
+  "app.gatewayProfile.delete.confirmation": {
+    "defaultMessage": "Deleting {gatewayProfileName} will permanently remove the gateway profile. This action cannot be undone.",
+    "description": "Warning shown before permanently deleting a gateway profile."
+  },
+  "app.gatewayProfile.delete.conflict.body": {
+    "defaultMessage": "Reassign or delete the gateways that use this profile before deleting it.",
+    "description": "Recovery guidance when a gateway profile is still referenced by gateways."
+  },
+  "app.gatewayProfile.delete.conflict.title": {
+    "defaultMessage": "Gateway profile is in use",
+    "description": "Title shown when a gateway profile cannot be deleted because gateways reference it."
+  },
+  "app.gatewayProfile.delete.error.body": {
+    "defaultMessage": "No changes were made. Try again.",
+    "description": "Recovery guidance when gateway profile deletion fails."
+  },
+  "app.gatewayProfile.delete.error.title": {
+    "defaultMessage": "Gateway profile could not be deleted",
+    "description": "Title shown when gateway profile deletion fails."
+  },
+  "app.gatewayProfile.delete.pending": {
+    "defaultMessage": "Deleting gateway profile",
+    "description": "Accessible progress text while a gateway profile is being deleted."
+  },
+  "app.gatewayProfile.delete.title": {
+    "defaultMessage": "Delete {gatewayProfileName}?",
+    "description": "Title for the gateway profile deletion confirmation dialog."
+  },
+  "app.gatewayProfile.deleted": {
+    "defaultMessage": "Gateway profile {gatewayProfileName} deleted",
+    "description": "Success notification after deleting a gateway profile."
+  },
+  "app.gatewayProfile.description": {
+    "defaultMessage": "Description",
+    "description": "Label for a gateway profile description field and column."
+  },
+  "app.gatewayProfile.ephemeralStorageTotal": {
+    "defaultMessage": "Total ephemeral storage",
+    "description": "Label for the total ephemeral storage across a gateway profile quota."
+  },
+  "app.gatewayProfile.load.error.body": {
+    "defaultMessage": "Refresh the page to try again.",
+    "description": "Recovery guidance when gateway profile data cannot be loaded."
+  },
+  "app.gatewayProfile.load.error.title": {
+    "defaultMessage": "Gateway profiles could not be loaded",
+    "description": "Title shown when gateway profile data cannot be loaded from the API."
+  },
+  "app.gatewayProfile.loading": {
+    "defaultMessage": "Loading gateway profiles",
+    "description": "Accessible label shown while gateway profile data is loading."
+  },
+  "app.gatewayProfile.memoryLimitTotal": {
+    "defaultMessage": "Total memory limit",
+    "description": "Label for the total memory limit across a gateway profile quota."
+  },
+  "app.gatewayProfile.memoryRequestTotal": {
+    "defaultMessage": "Total memory request",
+    "description": "Label for the total memory request across a gateway profile quota."
+  },
+  "app.gatewayProfile.moreResults": {
+    "defaultMessage": "More gateway profiles are available. Refine your search to find a specific profile.",
+    "description": "Guidance when a bounded gateway profile search has additional API results."
+  },
+  "app.gatewayProfile.name": {
+    "defaultMessage": "Profile name",
+    "description": "Label for a gateway profile name field and column."
+  },
+  "app.gatewayProfile.none": {
+    "defaultMessage": "No profile",
+    "description": "Option and value indicating that no gateway profile is selected."
+  },
+  "app.gatewayProfile.podCount": {
+    "defaultMessage": "Pods",
+    "description": "Label for the maximum pod count in a gateway profile quota."
+  },
+  "app.gatewayProfile.pvcCount": {
+    "defaultMessage": "Persistent volume claims",
+    "description": "Label for the maximum persistent volume claim count in a gateway profile quota."
+  },
+  "app.gatewayProfile.quota.heading": {
+    "defaultMessage": "Resource quota",
+    "description": "Heading for the gateway profile resource quota section."
+  },
+  "app.gatewayProfile.rowActions": {
+    "defaultMessage": "Actions for {gatewayProfileName}",
+    "description": "Accessible label for a gateway profile row actions menu."
+  },
+  "app.gatewayProfile.select": {
+    "defaultMessage": "Select a gateway profile",
+    "description": "Accessible label and placeholder for the gateway profile selector."
+  },
+  "app.gatewayProfile.singular": {
+    "defaultMessage": "Gateway profile",
+    "description": "Fallback breadcrumb label while a gateway profile is loading."
+  },
+  "app.gatewayProfiles.refresh": {
+    "defaultMessage": "Refresh gateway profiles",
+    "description": "Accessible label for refreshing the gateway profile list."
+  },
   "app.gateways.refresh": {
     "defaultMessage": "Refresh gateways",
     "description": "Accessible label for refreshing the gateway list."
@@ -646,6 +774,10 @@
   "app.logout": {
     "defaultMessage": "Log out",
     "description": "Sign-out action in the masthead identity menu."
+  },
+  "app.nav.gatewayProfiles": {
+    "defaultMessage": "Gateway profiles",
+    "description": "Page and resource collection label for gateway resource quota profiles."
   },
   "app.nav.gateways": {
     "defaultMessage": "OpenShell Gateways",
@@ -670,6 +802,58 @@
   "app.page.gatewayDetails.title": {
     "defaultMessage": "Gateway details",
     "description": "Metadata title for a user-facing gateway details page."
+  },
+  "app.page.gatewayProfileCreate.description": {
+    "defaultMessage": "Configure a new gateway resource quota profile.",
+    "description": "Supporting text on the gateway profile creation page."
+  },
+  "app.page.gatewayProfileCreate.error.body": {
+    "defaultMessage": "Check the values and try again.",
+    "description": "Recovery guidance when gateway profile creation fails."
+  },
+  "app.page.gatewayProfileCreate.error.title": {
+    "defaultMessage": "Gateway profile could not be created",
+    "description": "Title shown when gateway profile creation fails."
+  },
+  "app.page.gatewayProfileCreate.pending": {
+    "defaultMessage": "Creating gateway profile",
+    "description": "Accessible progress text while a gateway profile is being created."
+  },
+  "app.page.gatewayProfileCreate.title": {
+    "defaultMessage": "Create gateway profile",
+    "description": "Page title and action for creating a gateway profile."
+  },
+  "app.page.gatewayProfileDetails.description": {
+    "defaultMessage": "Review this gateway profile's resource quota.",
+    "description": "Metadata description for the gateway profile detail page."
+  },
+  "app.page.gatewayProfileDetails.title": {
+    "defaultMessage": "Gateway profile details",
+    "description": "Metadata title for a gateway profile details page."
+  },
+  "app.page.gatewayProfiles.description": {
+    "defaultMessage": "HyperShell gateway resource quota profiles.",
+    "description": "Browser metadata description for the gateway profiles page."
+  },
+  "app.page.gatewayProfiles.empty.body": {
+    "defaultMessage": "Created gateway profiles will appear here.",
+    "description": "Body text when the gateway profile list is empty."
+  },
+  "app.page.gatewayProfiles.empty.title": {
+    "defaultMessage": "No gateway profiles",
+    "description": "Heading when the gateway profile list is empty."
+  },
+  "app.page.gatewayProfiles.filter": {
+    "defaultMessage": "Filter by name",
+    "description": "Placeholder and accessible label for gateway profile search."
+  },
+  "app.page.gatewayProfiles.noResults.body": {
+    "defaultMessage": "Adjust or clear the filter to see gateway profiles.",
+    "description": "Guidance when no gateway profiles match the current filter."
+  },
+  "app.page.gatewayProfiles.noResults.title": {
+    "defaultMessage": "No matching gateway profiles",
+    "description": "Heading when no gateway profiles match the current filter."
   },
   "app.page.gatewayProvision.description": {
     "defaultMessage": "Configure a new OpenShell gateway.",

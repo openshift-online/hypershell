@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gatewayNetworks"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gatewayProfiles"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gatewayReleases"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gateways"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/managedClusters"
@@ -22,6 +23,7 @@ var Cmd = &cobra.Command{
 func init() {
 	Cmd.AddCommand(gateways.Cmd)
 	Cmd.AddCommand(gatewayNetworks.Cmd)
+	Cmd.AddCommand(gatewayProfiles.Cmd)
 	Cmd.AddCommand(gatewayReleases.Cmd)
 	Cmd.AddCommand(managedClusters.Cmd)
 	Cmd.AddCommand(managedDatabases.Cmd)

@@ -48,15 +48,16 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete)
-**Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console
-**Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 complete)
+**Last analyzed**: 2026-09-01 (Gateway Quota GQ-W1 complete - rebased on main)
+**Spec corpus**: 41 spec files; the coverage table tracks 33 analyzed feature/spec groups after adding OpenShell Gateway Quota
+**Codebase commit**: reconcile-quota (rebased on e4e4e55)
 
 ### Coverage Summary
 
 | Domain | Specs | Requirements | Present | Partial | Missing | Deferred | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|----------|
 | Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
+| Platform - Gateway Quota | 1 | 12 | 12 | 0 | 0 | 0 | 100% |
 | Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
 | Platform - Gateway DB | 1 | 14 | 11 | 0 | 3 | 0 | 79% |
@@ -75,7 +76,7 @@ skills/
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **32** | **225** | **176** | **18** | **26** | **5** | **82%** |
+| **TOTAL** | **33** | **236** | **187** | **18** | **26** | **5** | **83%** |
 
 ### Spec Dependency Order
 
@@ -204,6 +205,28 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | G16 | Separation from Agent Config | Present | - | - | - |
 | G17 | SSH Payload Delivery | Missing | `internal/openshell/ssh_upload.go` does not exist | - | Future |
 | G18 | Per-Tenant Gateway API Resource | Missing | Code creates GRPCRoute only; no per-tenant K8s Gateway | - | W8 |
+
+### openshell-gateway-quota.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GQ-1 | GatewayProfile as API resource (CRUD) | Present | New plugin cloned from managedDatabases pattern; 13 fields incl. quota totals, counts, container defaults/maxima | `plugins/gatewayProfiles/` | GQ-W1 ✅ |
+| GQ-2 | Field validation (quantities/counts) | Present | `resource.ParseQuantity` for quantities; non-negative counts → HTTP 400 | `plugins/gatewayProfiles/validate.go` | GQ-W1 ✅ |
+| GQ-3 | ManagedCluster default profile (`profile_id`) | Present | Added `profile_id` (+ `database_id`) to model/API/proto/migration | `plugins/managedClusters/` | GQ-W1 ✅ |
+| GQ-4 | Gateway `profile_id` required at create | Present | Client value → cluster default → HTTP 400 if neither | `plugins/gateways/service.go` | GQ-W1 ✅ |
+| GQ-5 | Profile existence check on create/patch | Present | Non-existent profile → HTTP 400 | `plugins/gateways/service.go`, `handler.go` | GQ-W1 ✅ |
+| GQ-6 | Profile reassignment (patch), no-clear | Present | PATCH gateway.profile_id allowed; clearing rejected (400) | `plugins/gateways/handler.go` | GQ-W1 ✅ |
+| GQ-7 | Deletion protection - cluster reference | Present | HTTP 409 when profile is a cluster default | `plugins/gatewayProfiles/service.go`, `dao.go` | GQ-W1 ✅ |
+| GQ-8 | Deletion protection - gateway reference | Present | HTTP 409 when profile referenced by a gateway | `plugins/gatewayProfiles/service.go`, `dao.go` | GQ-W1 ✅ |
+| GQ-9 | Control-plane fetches profile (unary gRPC) | Present | `GetGatewayProfile`; fetch failure blocks provisioning; empty profile_id skips quota | `reconciler/reconciler.go` | GQ-W1 ✅ |
+| GQ-10 | ResourceQuota + LimitRange per namespace | Present | Update-or-create via `apiequality.Semantic.DeepEqual`; managed labels; delete-when-empty | `gateway/quota.go` | GQ-W1 ✅ |
+| GQ-11 | Controller RBAC (resourcequotas/limitranges) | Present | Added to unified ClusterRole in base overlay | `deploy/base/controller-rbac.yaml` | GQ-W1 ✅ |
+| GQ-12 | Full-stack surfaces (SDK/CLI/UI) | Present | Go+TS SDK regenerated; CLI CRUD + `--profile-id`; web-console GatewayProfile slice + profile selector | `components/sdk-*`, `components/cli/`, `packages/gateway-management-ui/`, `components/web-console/` | GQ-W1 ✅ |
+
+**Divergences (D-items) - code deviates from spec/expectation; specs left unmodified per skill contract:**
+
+- **DQ-1 (data-model.spec.md drift):** The working tree's `specs/platform/data-model.spec.md` was modified (uncommitted) alongside the new quota spec to add `profile_id`/`database_id`. Reconciliation implemented code to match; the spec edit itself was authored outside `/reconcile` (skill contract forbids modifying specs during reconciliation). No code divergence - recorded for provenance.
+- **DQ-2 (reassignment convergence timing):** The spec implies a profile reassignment (`PATCH gateway.profile_id`) re-drives quota reconciliation via the existing gateway watch stream. In practice the control-plane's pre-existing **phase gate** (`reconciler.go` ~L1309: skip non-delete events when phase ∈ {Running, Provisioning, Degraded}) means a reassignment on a non-terminal-phase gateway converges on the next seed/retry (controller reconnect via `forceSeedRecovery`, or a phase transition) rather than instantaneously. This matches how *all* gateway spec-field mutations behave today and was **verified live** (quota updated to the new profile after a controller restart). Changing the global phase gate is out of scope; recorded as a known convergence-timing limitation.
 
 ### openshell-gateway-database.spec.md
 
@@ -475,6 +498,45 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 7. Run control-plane build, vet, test, alignment, and review checks.
 
 **GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by ingress mode, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
+
+### GQ-W1: Gateway Quota (GatewayProfile) - full stack
+
+**Scope:** GQ-1 … GQ-12
+**Dependency:** data-model, control-plane, openshell-gateway (core)
+**Status:** Complete (backend + control-plane verified live in kind; full-stack UI verified green)
+
+1. New `gatewayProfiles` plugin (model/dao/service/handler/presenter/grpc/migration/validate/plugin), cloned from `managedDatabases`.
+2. Added `profile_id` to Gateway; `profile_id` + `database_id` to ManagedCluster (model/OpenAPI/proto/migration/presenters/handlers).
+3. Create-time profile resolution (client → cluster default → 400) and existence checks; patch reassignment with no-clear rule.
+4. Two-reference deletion protection (cluster default + gateway) → HTTP 409, distinct messages.
+5. Control-plane: unary `GetGatewayProfile` fetch (fetch failure blocks provisioning; empty profile_id skips quota), `ReconcileNamespaceQuota` (ResourceQuota + LimitRange, update-or-create, managed labels, delete-when-empty).
+6. Controller RBAC for resourcequotas/limitranges (base + IBM overlay).
+7. Regenerated Go+TS SDK and CLI; added CLI gatewayProfile CRUD (delete cmd hand-added, generator preserves reviewed deletes) and `--profile-id` flags; web-console GatewayProfile vertical slice + gateway profile selector.
+8. Unit tests for quota spec/limitrange mapping; backend build/vet + OpenAPI contract test + control-plane build/vet/tests pass.
+9. Web-console wiring completed: `GatewayProfileUiProvider` mounted in the application shell, gateway-profile breadcrumbs (collection/detail/create) and host navigation added, routes registered (`gateway-profiles`, `/new`, `/:id`) matching `route-contract.json`. `locales/en.json` re-extracted (+47 GatewayProfile messages). Full `pnpm --filter @openshift-online/hypershell-web-console check` green (format, architecture, lint, typecheck, 101 tests / 14 files with coverage thresholds met, i18n:check, production build, Storybook build); reusable `gateway-management-ui` package `check` green (219+ tests). TS SDK dist built for typecheck.
+
+**GQ-W1 kind proof of execution (2026-08-28, `KIND_NO_SUDO=true`, api-server + control-plane swapped to local builds):**
+
+| # | Behavior | Result |
+|---|----------|--------|
+| 1 | Auth: unauth `GET /gateway_profiles` | HTTP 401 |
+| 2 | Auth + new endpoint reachable | HTTP 200 |
+| 3 | Schema: `gateway_profiles` table + `gateways.profile_id` + `managed_clusters.profile_id/database_id` | present (psql `\d`) |
+| 4 | Create valid profile | HTTP 201 |
+| 5 | Invalid quantity `"tow"` | HTTP 400 (`invalid quantity for cpu_request_total`) |
+| 6 | Negative `pod_count: -3` | HTTP 400 (`must not be negative`) |
+| 7 | Cluster create with default `profile_id` | HTTP 201 (echoed) |
+| 8 | Delete profile referenced by cluster default | HTTP 409 (`default profile for one or more clusters`) |
+| 9 | Gateway create, no cluster default + no profile | HTTP 400 (`profile_id is required`) |
+| 10 | Gateway create inherits cluster default | HTTP 201 (profile_id populated) |
+| 11 | Gateway create with explicit profile | HTTP 201 |
+| 12 | Gateway create with non-existent profile | HTTP 400 (`does not exist`) |
+| 13 | Delete profile referenced by gateway | HTTP 409 (`referenced by one or more gateways`) |
+| 14 | ResourceQuota + LimitRange created in gateway namespace, matching profile, managed labels, enforcing (`pods 2/10`) | verified via kubectl |
+| 15 | Reassignment → quota **updated** to new profile (pods 20/cpu 4/mem 8Gi) | `INFO updated ResourceQuota` after seed reconcile |
+| 16 | Empty/legacy profile_id → quota + limitrange **deleted** | `INFO deleted ResourceQuota` / `deleted LimitRange` |
+
+RBAC gap found during the proof (the live cluster predated the manifest edit) and fixed by applying the updated ClusterRole; manifests already carry the rule. See DQ-2 for reassignment convergence timing.
 
 ### HYPERSHELL-49 OpenShellGatewayServiceAccount waves
 
