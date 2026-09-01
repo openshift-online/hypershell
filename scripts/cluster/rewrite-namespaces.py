@@ -19,6 +19,12 @@ PLATFORM_NS = "hypershell-system"
 KEYCLOAK_NS = "keycloak"
 DEV_SCOPE = "dev"
 CLUSTER_SCOPED_KINDS = frozenset({"ClusterRole", "ClusterRoleBinding"})
+# Rewrite the platform namespace as a DNS label, not a substring of a longer
+# name (image repos, args). Still matches namespace fields, label selectors,
+# env values, and in-cluster DNS like hypershell-api-server.hypershell-system.svc.
+PLATFORM_NS_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9-])" + re.escape(PLATFORM_NS) + r"(?![A-Za-z0-9-])"
+)
 
 
 def cluster_scoped_prefix(platform_ns: str) -> str:
@@ -80,7 +86,7 @@ def prefix_role_ref(doc: str, prefix: str) -> str:
 
 def rewrite_doc(doc: str, platform_ns: str, keycloak_ns: str) -> str:
     kind = kind_of(doc)
-    rewritten = doc.replace(PLATFORM_NS, platform_ns)
+    rewritten = PLATFORM_NS_TOKEN.sub(platform_ns, doc)
     rewritten = re.sub(
         r"^(\s*namespace:\s*)" + re.escape(KEYCLOAK_NS) + r"\s*$",
         rf"\g<1>{keycloak_ns}",

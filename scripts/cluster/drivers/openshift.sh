@@ -785,54 +785,30 @@ seed_via_api() {
     echo "${resp}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true
   }
 
-  local seed_failed="" FLEET_ID="" CLUSTER_ID="" RELEASE_ID="" DATABASE_ID="" GATEWAY_ID=""
+  local seed_failed="" CLUSTER_ID="" RELEASE_ID="" DATABASE_ID="" GATEWAY_ID=""
   local raw http body
 
-  raw="$(api_exec GET /api/hypershell/v1/fleets)"
+  raw="$(api_exec GET /api/hypershell/v1/managed_clusters)"
   http="$(printf '%s' "${raw}" | tail -1)"
   body="$(printf '%s' "${raw}" | sed '$d')"
   if [[ "${http}" == "200" ]]; then
-    FLEET_ID="$(extract_named_id "${body}" default)"
+    CLUSTER_ID="$(extract_named_id "${body}" local-openshift)"
   fi
-  if [[ -z "${FLEET_ID}" ]]; then
-    info "Creating default Fleet..."
-    raw="$(api_exec POST /api/hypershell/v1/fleets '{"name":"default","description":"OpenShift development fleet"}')"
+  if [[ -z "${CLUSTER_ID}" ]]; then
+    info "Creating ManagedCluster..."
+    raw="$(api_exec POST /api/hypershell/v1/managed_clusters \
+      "{\"name\":\"local-openshift\",\"provider\":\"openshift\",\"kubeconfig_secret\":\"openshift-kubeconfig\"}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
-    FLEET_ID="$(extract_id "${body}")"
-    if [[ -z "${FLEET_ID}" ]]; then
-      warn "Fleet creation failed (HTTP ${http}): ${body:-no response}"
+    CLUSTER_ID="$(extract_id "${body}")"
+    if [[ -z "${CLUSTER_ID}" ]]; then
+      warn "ManagedCluster creation failed (HTTP ${http}): ${body:-no response}"
       seed_failed=true
     else
-      success "Fleet created: ${FLEET_ID}"
+      success "ManagedCluster created: ${CLUSTER_ID}"
     fi
   else
-    success "default Fleet already exists: ${FLEET_ID}"
-  fi
-
-  if [[ -z "${seed_failed}" ]]; then
-    raw="$(api_exec GET /api/hypershell/v1/managed_clusters)"
-    http="$(printf '%s' "${raw}" | tail -1)"
-    body="$(printf '%s' "${raw}" | sed '$d')"
-    if [[ "${http}" == "200" ]]; then
-      CLUSTER_ID="$(extract_named_id "${body}" local-openshift)"
-    fi
-    if [[ -z "${CLUSTER_ID}" ]]; then
-      info "Creating ManagedCluster..."
-      raw="$(api_exec POST /api/hypershell/v1/managed_clusters \
-        "{\"name\":\"local-openshift\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"openshift\",\"kubeconfig_secret\":\"openshift-kubeconfig\"}")"
-      http="$(printf '%s' "${raw}" | tail -1)"
-      body="$(printf '%s' "${raw}" | sed '$d')"
-      CLUSTER_ID="$(extract_id "${body}")"
-      if [[ -z "${CLUSTER_ID}" ]]; then
-        warn "ManagedCluster creation failed (HTTP ${http}): ${body:-no response}"
-        seed_failed=true
-      else
-        success "ManagedCluster created: ${CLUSTER_ID}"
-      fi
-    else
-      success "local-openshift ManagedCluster already exists: ${CLUSTER_ID}"
-    fi
+    success "local-openshift ManagedCluster already exists: ${CLUSTER_ID}"
   fi
 
   if [[ -z "${seed_failed}" ]]; then
@@ -845,7 +821,7 @@ seed_via_api() {
     if [[ -z "${RELEASE_ID}" ]]; then
       info "Creating GatewayRelease..."
       raw="$(api_exec POST /api/hypershell/v1/gateway_releases \
-        "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")"
+        "{\"name\":\"dev-release\",\"image\":\"${GATEWAY_IMAGE}\"}")"
       http="$(printf '%s' "${raw}" | tail -1)"
       body="$(printf '%s' "${raw}" | sed '$d')"
       RELEASE_ID="$(extract_id "${body}")"
@@ -870,7 +846,7 @@ seed_via_api() {
     if [[ -z "${DATABASE_ID}" ]]; then
       info "Creating ManagedDatabase..."
       raw="$(api_exec POST /api/hypershell/v1/managed_databases \
-        "{\"name\":\"openshell-db\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"cnpg\"}")"
+        "{\"name\":\"openshell-db\",\"provider\":\"cnpg\"}")"
       http="$(printf '%s' "${raw}" | tail -1)"
       body="$(printf '%s' "${raw}" | sed '$d')"
       if [[ "${http}" != "201" && "${http}" != "200" ]]; then
@@ -897,7 +873,7 @@ seed_via_api() {
       local oidc
       oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
       raw="$(api_exec POST /api/hypershell/v1/gateways \
-        "{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\"}")"
+        "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
       http="$(printf '%s' "${raw}" | tail -1)"
       body="$(printf '%s' "${raw}" | sed '$d')"
       GATEWAY_ID="$(extract_id "${body}")"

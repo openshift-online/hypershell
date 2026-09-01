@@ -230,6 +230,15 @@ subjects:
   - kind: ServiceAccount
     name: hypershell-controller
     namespace: hypershell-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sidecar-ref
+  namespace: hypershell-system
+data:
+  image: quay.io/example/hypershell-system-sidecar:1
+  dns: hypershell-api-server.hypershell-system.svc.cluster.local
 EOF
 
 rewritten="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
@@ -237,7 +246,24 @@ rewritten="$(python3 "${SCRIPT_DIR}/rewrite-namespaces.py" \
   --keycloak-namespace alice-keycloak < "${fixture}")"
 rm -f "${fixture}"
 
-assert_eq 0 "$(printf '%s' "${rewritten}" | grep -c hypershell-system || true)" "no leftover hypershell-system"
+if printf '%s' "${rewritten}" | grep -qE '(^|[^A-Za-z0-9-])hypershell-system([^A-Za-z0-9-]|$)'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: leftover hypershell-system token after rewrite'
+else
+  PASS=$((PASS + 1))
+fi
+if printf '%s' "${rewritten}" | grep -q 'quay.io/example/hypershell-system-sidecar:1'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: hyphenated image name containing hypershell-system was rewritten'
+fi
+if printf '%s' "${rewritten}" | grep -q 'hypershell-api-server.alice.svc.cluster.local'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: in-cluster DNS hypershell-system was not rewritten'
+fi
 printf '%s' "${rewritten}" | grep -q $'kind: Namespace\nmetadata:\n  name: alice$' \
   || printf '%s' "${rewritten}" | grep -A2 'kind: Namespace' | grep -q 'name: alice'
 if printf '%s' "${rewritten}" | grep -q 'name: alice$'; then
