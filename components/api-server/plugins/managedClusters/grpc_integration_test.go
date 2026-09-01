@@ -53,7 +53,6 @@ func TestGRPCManagedClusterCRUD(t *testing.T) {
 
 	createReq := &pb.CreateManagedClusterRequest{
 		Name:             "TestName",
-		FleetId:          "TestFleetId",
 		Provider:         "TestProvider",
 		Region:           func() *string { s := "TestRegion"; return &s }(),
 		KubeconfigSecret: "TestKubeconfigSecret",
@@ -74,7 +73,6 @@ func TestGRPCManagedClusterCRUD(t *testing.T) {
 	updateReq := &pb.UpdateManagedClusterRequest{
 		Id:               managedClusterID,
 		Name:             func() *string { s := "UpdatedName"; return &s }(),
-		FleetId:          func() *string { s := "UpdatedFleetId"; return &s }(),
 		Provider:         func() *string { s := "UpdatedProvider"; return &s }(),
 		Region:           func() *string { s := "UpdatedRegion"; return &s }(),
 		KubeconfigSecret: func() *string { s := "UpdatedKubeconfigSecret"; return &s }(),

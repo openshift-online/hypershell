@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,20 +88,22 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	manifestJSON := string(jsonBytes)
 	manifestJSON = strings.ReplaceAll(manifestJSON, "NAMESPACE_PLACEHOLDER", namespace)
 
-	supervisorImage := images.DefaultSupervisorImage()
-	if config.SupervisorImage != "" {
-		supervisorImage = config.SupervisorImage
+	supervisorImage := cmp.Or(config.SupervisorImage, images.DefaultSupervisorImage())
+	if supervisorImage == "" {
+		return nil, errors.New("supervisor image is not configured and no default is available")
 	}
+
 	manifestJSON = strings.ReplaceAll(manifestJSON, "SUPERVISOR_IMAGE_PLACEHOLDER", supervisorImage)
 
 	// Replace SANDBOX_IMAGE_PLACEHOLDER before IMAGE_PLACEHOLDER because the
 	// shorter string is a substring of the longer one.
 	manifestJSON = strings.ReplaceAll(manifestJSON, "SANDBOX_IMAGE_PLACEHOLDER", images.DefaultSandboxImage())
 
-	image := images.DefaultGatewayImage()
-	if config.Image != "" {
-		image = config.Image
+	image := cmp.Or(config.Image, images.DefaultGatewayImage())
+	if image == "" {
+		return nil, errors.New("gateway image is not configured and no default is available")
 	}
+
 	manifestJSON = strings.ReplaceAll(manifestJSON, "IMAGE_PLACEHOLDER", image)
 
 	result := &unstructured.Unstructured{}

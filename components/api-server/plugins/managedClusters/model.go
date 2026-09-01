@@ -8,7 +8,6 @@ import (
 type ManagedCluster struct {
 	api.Meta
 	Name             string  `json:"name"`
-	FleetId          string  `json:"fleet_id"`
 	Provider         string  `json:"provider"`
 	Region           *string `json:"region"`
 	KubeconfigSecret string  `json:"kubeconfig_secret"`
@@ -34,7 +33,6 @@ func (d *ManagedCluster) BeforeCreate(tx *gorm.DB) error {
 
 type ManagedClusterPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
-	FleetId          *string `json:"fleet_id,omitempty"`
 	Provider         *string `json:"provider,omitempty"`
 	Region           *string `json:"region,omitempty"`
 	KubeconfigSecret *string `json:"kubeconfig_secret,omitempty"`

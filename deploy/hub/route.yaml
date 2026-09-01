@@ -2,7 +2,7 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: hypershell-api
-  namespace: hypershell
+  namespace: hypershell-system
 spec:
   to:
     kind: Service

@@ -69,7 +69,7 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 
 		username := auth.GetUsernameFromContext(ctx)
 		if isManagedDatabaseTombstoneReplay(ctx, info.FullMethod) {
-			// Historical tombstones are fleet-unscoped control-plane recovery data.
+			// Historical tombstones are control-plane recovery data.
 			// Unlike the ordinary live watch, replay is never available through role
 			// bindings or the no-allowlist fallback.
 			if len(config.ServiceAccounts) == 0 || !isServiceAccount(username, config.ServiceAccounts) {

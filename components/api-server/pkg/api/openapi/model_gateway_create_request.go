@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -22,7 +22,6 @@ var _ MappedNullable = &GatewayCreateRequest{}
 // GatewayCreateRequest struct for GatewayCreateRequest
 type GatewayCreateRequest struct {
 	Name      string `json:"name"`
-	FleetId   string `json:"fleet_id"`
 	ClusterId string `json:"cluster_id"`
 	ReleaseId string `json:"release_id"`
 	// Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
@@ -52,10 +51,9 @@ type _GatewayCreateRequest GatewayCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayCreateRequest(name string, fleetId string, clusterId string, releaseId string, databaseId string) *GatewayCreateRequest {
+func NewGatewayCreateRequest(name string, clusterId string, releaseId string, databaseId string) *GatewayCreateRequest {
 	this := GatewayCreateRequest{}
 	this.Name = name
-	this.FleetId = fleetId
 	this.ClusterId = clusterId
 	this.ReleaseId = releaseId
 	this.DatabaseId = databaseId
@@ -92,30 +90,6 @@ func (o *GatewayCreateRequest) GetNameOk() (*string, bool) {
 // SetName sets field value
 func (o *GatewayCreateRequest) SetName(v string) {
 	o.Name = v
-}
-
-// GetFleetId returns the FleetId field value
-func (o *GatewayCreateRequest) GetFleetId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value
-// and a boolean to check if the value has been set.
-func (o *GatewayCreateRequest) GetFleetIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.FleetId, true
-}
-
-// SetFleetId sets field value
-func (o *GatewayCreateRequest) SetFleetId(v string) {
-	o.FleetId = v
 }
 
 // GetClusterId returns the ClusterId field value
@@ -553,7 +527,6 @@ func (o GatewayCreateRequest) MarshalJSON() ([]byte, error) {
 func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["name"] = o.Name
-	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
 	toSerialize["database_id"] = o.DatabaseId
@@ -599,7 +572,6 @@ func (o *GatewayCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"fleet_id",
 		"cluster_id",
 		"release_id",
 		"database_id",

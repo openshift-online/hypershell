@@ -7,37 +7,25 @@
 
 The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers.
 
-**TODO: Sector/Fleet removal** - The model previously included a top-level "Sector" organizational unit, but this abstraction is being removed. All gateways are part of the same fleet, and there's no need to sectorize. The API currently uses "fleet" terminology (`/api/hypershell/v1/fleets`), but this entire layer will be removed in a future PR. Gateways, clusters, databases, releases, and networks will become top-level resources without fleet/sector scoping.
+Gateways, clusters, databases, releases, and networks are **top-level resources**. An earlier model included a top-level "Sector" (later renamed "Fleet") organizational unit that grouped these resources via a `fleet_id`; that layer has been removed. There is no sectorization: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner`/`gateway:viewer`), not by a fleet grouping. See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md).
 
-Current model (to be simplified):
+Current model:
 
-- **Fleet** (formerly "Sector") - top-level organizational unit. Groups clusters, databases, releases, gateways, and networks. All resources belong to exactly one fleet via `fleet_id`. **This will be removed.**
-- **ManagedCluster** - a Kubernetes cluster registered into a fleet. Tracks provider, region, API server URL, and a kubeconfig secret reference.
-- **ManagedDatabase** - a database instance provisioned for a fleet. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
-- **GatewayRelease** - a versioned container image for gateway deployments within a fleet. Supports rollout strategies with canary percent/duration controls.
+- **ManagedCluster** - a Kubernetes cluster registered into the platform. Tracks provider, region, API server URL, and a kubeconfig secret reference.
+- **ManagedDatabase** - a database instance provisioned for gateway use. Tracks provider, region, engine type/version, instance class, and a connection secret reference.
+- **GatewayRelease** - a versioned container image for gateway deployments. Supports rollout strategies with canary percent/duration controls.
 - **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
-- **GatewayNetwork** - defines network connectivity topology between gateways in a fleet. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
+- **GatewayNetwork** - defines network connectivity topology between gateways. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
 
 ## Entity Relationship Diagram
 
 ```mermaid
 erDiagram
 
-    Fleet {
-        string ID PK
-        string name
-        string description
-        string status
-        time created_at
-        time updated_at
-        time deleted_at
-    }
-
     ManagedCluster {
         string ID PK
         string name
-        string fleet_id FK
         string provider
         string region
         string kubeconfig_secret
@@ -52,7 +40,6 @@ erDiagram
         string ID PK
         string name
         string namespace
-        string fleet_id FK
         string provider
         string region
         string engine
@@ -68,7 +55,6 @@ erDiagram
     GatewayRelease {
         string ID PK
         string name
-        string fleet_id FK
         string image
         string rollout_strategy
         int canary_percent
@@ -82,7 +68,6 @@ erDiagram
     Gateway {
         string ID PK
         string name
-        string fleet_id FK
         string cluster_id FK
         string release_id FK
         string database_id FK
@@ -127,7 +112,6 @@ erDiagram
     GatewayNetwork {
         string ID PK
         string name
-        string fleet_id FK
         string topology
         string tunnel_mode
         string hub_gateway_id FK
@@ -136,12 +120,6 @@ erDiagram
         time updated_at
         time deleted_at
     }
-
-    Fleet ||--o{ ManagedCluster : "owns"
-    Fleet ||--o{ ManagedDatabase : "owns"
-    Fleet ||--o{ GatewayRelease : "owns"
-    Fleet ||--o{ Gateway : "owns"
-    Fleet ||--o{ GatewayNetwork : "owns"
 
     ManagedCluster ||--o{ Gateway : "hosts"
     GatewayRelease ||--o{ Gateway : "deployed_as"
@@ -152,29 +130,20 @@ erDiagram
 
 ## Requirements
 
-### Requirement: Fleet Lifecycle
+### Requirement: Top-Level Resources
 
-The system SHALL support creating, reading, updating, and deleting Fleets. A Fleet SHALL have a unique name, optional description, and a status field.
+ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, and GatewayNetwork SHALL be top-level resources. They SHALL NOT be scoped by a fleet or sector grouping, and their create and update contracts SHALL NOT include a `fleet_id` field.
 
-#### Scenario: Create Fleet
-- GIVEN a valid fleet name
-- WHEN a POST request is made to `/api/hypershell/v1/fleets`
-- THEN a new Fleet is created with a KSUID
-- AND the response includes the created Fleet
-
-### Requirement: Fleet-Scoped Resources
-
-All resources (ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, GatewayNetwork) SHALL belong to exactly one Fleet via `fleet_id`.
-
-#### Scenario: Create Gateway with Fleet Reference
-- GIVEN a valid fleet_id, cluster_id, release_id, and database_id
+#### Scenario: Create Gateway Without a Fleet Reference
+- GIVEN a valid cluster_id, release_id, and database_id
 - WHEN a POST request is made to `/api/hypershell/v1/gateways`
-- THEN a new Gateway is created within the specified fleet
+- THEN a new Gateway is created as a top-level resource
 - AND the Gateway references valid cluster, release, and database resources
+- AND the request SHALL NOT require or accept a `fleet_id`
 
 ### Requirement: Gateway Namespace Ownership
 
-The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<id-hex-8>`, where `id-hex-8` is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload, producing a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`). This is stable, collision-safe for realistic fleet sizes (~1 in 10^9 at 1M gateways), and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
+The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<id-hex-8>`, where `id-hex-8` is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload, producing a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`). This is stable, collision-safe for realistic gateway counts (~1 in 10^9 at 1M gateways), and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
 
 #### Scenario: Create Gateways Without a Namespace
 
@@ -195,12 +164,12 @@ The API server SHALL assign each Gateway an immutable Kubernetes namespace befor
 
 A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster.
 
-> **Relationship to fleet management fields:** The `image` field provides a direct image reference for the control plane reconciler, while `release_id` references a GatewayRelease for fleet-level rollout management (canary, rollback). When both are set, `release_id` takes precedence and the reconciler resolves it to an image. Similarly, `database` (JSONB) carries inline provisioning config for the reconciler, while `database_id` references a ManagedDatabase for fleet-level database lifecycle. When `database_id` is set, it takes precedence and the reconciler reads the connection details from the referenced ManagedDatabase.
+> **Relationship to release and database management fields:** The `image` field provides a direct image reference for the control plane reconciler, while `release_id` references a GatewayRelease for rollout management (canary, rollback). When both are set, `release_id` takes precedence and the reconciler resolves it to an image. Similarly, `database` (JSONB) carries inline provisioning config for the reconciler, while `database_id` references a ManagedDatabase for database lifecycle. When `database_id` is set, it takes precedence and the reconciler reads the connection details from the referenced ManagedDatabase.
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `ghcr.io/nvidia/openshell/gateway:21da343c9f838bd9ac85dc61bf44889de1a72873`) |
-| `supervisor_image` | string | Supervisor sidecar container image (default: `ghcr.io/nvidia/openshell/supervisor:0.0.109`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd`) |
+| `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
@@ -232,7 +201,7 @@ A GatewayRelease SHALL support canary deployment via `rollout_strategy`, `canary
 
 ### Requirement: Network Topology
 
-A GatewayNetwork SHALL define how gateways within a fleet communicate. The `topology` field indicates the network shape and `tunnel_mode` the encapsulation method.
+A GatewayNetwork SHALL define how gateways communicate. The `topology` field indicates the network shape and `tunnel_mode` the encapsulation method.
 
 #### Scenario: Hub-and-Spoke Network
 - GIVEN a GatewayNetwork with `topology: hub-spoke` and a `hub_gateway_id`
@@ -245,8 +214,6 @@ All routes under `/api/hypershell/v1/`:
 
 | Method | Path | Operation |
 |--------|------|-----------|
-| GET/POST | `/fleets` | List/Create |
-| GET/PATCH/DELETE | `/fleets/{id}` | Get/Update/Delete |
 | GET/POST | `/gateways` | List/Create |
 | GET/PATCH/DELETE | `/gateways/{id}` | Get/Update/Delete |
 | GET/POST | `/gateways/{gateway_id}/service_accounts` | List/Create gateway OpenShellGatewayServiceAccounts |
@@ -267,26 +234,13 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 
 ### API ↔ CLI Mapping
 
-#### Fleets
-
-**Note:** Fleet/Sector is being removed entirely. All gateways are part of the same fleet with no need for sectorization. The commands below are implemented but will be deprecated once the Fleet abstraction is removed and resources become top-level.
-
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/fleets` | `hsctl list fleets` | ✅ implemented |
-| `GET /api/hypershell/v1/fleets/{id}` | `hsctl get fleet <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/fleets` | `hsctl create fleet --name <n> [--description <d>] [--status <s>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/fleets/{id}` | `hsctl update fleet <id> [--name <n>] [--description <d>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/fleets/{id}` | `hsctl delete fleet <id> [--yes]` | 🔲 planned |
-
 #### Gateways
 
 | REST API | `hypershell` Command | Status |
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways?search=fleet_id%3D<fleet_id>` | `hsctl list gateways --fleet-id <fleet-id>` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --fleet-id <f> --cluster-id <c> --release-id <r> --database-id <d> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> --release-id <r> --database-id <d> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id> [--yes]` | 🔲 planned |
 
@@ -306,7 +260,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` | ✅ implemented |
 | `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --fleet-id <f> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented |
+| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id> [--yes]` | 🔲 planned |
 
@@ -316,7 +270,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` | ✅ implemented |
 | `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --fleet-id <f> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented |
+| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id> [--yes]` | 🔲 planned |
 
@@ -326,7 +280,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented |
 | `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --fleet-id <f> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented |
+| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented |
 | `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id> [--yes]` | 🔲 planned |
 
@@ -336,7 +290,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/managed_databases` | `hsctl list managedDatabases` | ✅ implemented |
 | `GET /api/hypershell/v1/managed_databases/{id}` | `hsctl get managedDatabase <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_databases` | `hsctl create managedDatabase --name <n> --fleet-id <f> --provider <p> --region <r> --engine <e> --instance-class <c> --connection-secret <s>` | ✅ implemented |
+| `POST /api/hypershell/v1/managed_databases` | `hsctl create managedDatabase --name <n> --provider <p> --region <r> --engine <e> --instance-class <c> --connection-secret <s>` | ✅ implemented |
 | `PATCH /api/hypershell/v1/managed_databases/{id}` | `hsctl update managedDatabase <id> [--instance-class <c>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/managed_databases/{id}` | `hsctl delete managedDatabase <id> [--yes]` | 🔲 planned |
 
@@ -350,7 +304,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | `DELETE /api/hypershell/v1/roles/{id}` | `hsctl delete role <id>` | 🔲 planned |
 | `GET /api/hypershell/v1/role_bindings` | `hsctl list roleBindings` | ✅ implemented |
 | `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>] [--fleet-id <f>]` | ✅ implemented |
+| `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` | ✅ implemented |
 | `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` | 🔲 planned |
 
 #### Auth & Context
@@ -363,20 +317,19 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | Config get | `hsctl config get <key>` | ✅ implemented |
 | Config set | `hsctl config set <key> <value>` | ✅ implemented |
 
-### `hsctl apply` - Declarative Fleet Management
+### `hsctl apply` - Declarative Resource Management
 
-`hsctl apply` reconciles Fleets, Gateways, and infrastructure from declarative YAML files, mirroring `kubectl apply` semantics.
+`hsctl apply` reconciles Gateways and infrastructure from declarative YAML files, mirroring `kubectl apply` semantics.
 
 #### Supported Kinds
 
 | Kind | Fields applied | Status |
 |---|---|---|
-| `Fleet` | `name`, `description`, `status` | 🔲 planned |
-| `Gateway` | `name`, `fleet_id`, `cluster_id`, `release_id`, `database_id`, `image`, `server_dns_names`, `oidc`, `route`, `database`, `external_dns`, `tls_mode`, `service_type` | 🔲 planned |
-| `GatewayNetwork` | `name`, `fleet_id`, `topology`, `tunnel_mode`, `hub_gateway_id` | 🔲 planned |
-| `GatewayRelease` | `name`, `fleet_id`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | 🔲 planned |
-| `ManagedCluster` | `name`, `fleet_id`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | 🔲 planned |
-| `ManagedDatabase` | `name`, `fleet_id`, `provider`, `region`, `engine`, `engine_version`, `instance_class`, `connection_secret` | 🔲 planned |
+| `Gateway` | `name`, `cluster_id`, `release_id`, `database_id`, `image`, `server_dns_names`, `oidc`, `route`, `database`, `external_dns`, `tls_mode`, `service_type` | 🔲 planned |
+| `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | 🔲 planned |
+| `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | 🔲 planned |
+| `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | 🔲 planned |
+| `ManagedDatabase` | `name`, `provider`, `region`, `engine`, `engine_version`, `instance_class`, `connection_secret` | 🔲 planned |
 
 #### `-f` - File or Directory
 
@@ -389,14 +342,12 @@ hsctl apply -f -                    # read from stdin
 Each file may contain one or more YAML documents separated by `---`. Documents with unrecognized `kind` values are skipped with a warning.
 
 Apply behavior per resource:
-- **Fleet**: if a fleet with `name` already exists, `PATCH` it. If it does not exist, `POST` to create it.
-- **Gateway**: if a gateway with matching `name` and `fleet_id` exists, `PATCH` it. Otherwise, `POST` to create it.
+- **Gateway**: if a gateway with matching `name` exists, `PATCH` it. Otherwise, `POST` to create it.
 - Similar upsert logic for all other resource types.
 
 Output (default - one line per resource):
 
 ```
-fleet/production configured
 gateway/api-gw-us-east created
 gateway/api-gw-eu-west configured
 managedCluster/eks-us-east-1 unchanged
@@ -418,17 +369,17 @@ The kustomization schema is a subset of Kubernetes Kustomize:
 kind: Kustomization
 
 resources:           # relative paths to YAML files included in this build
-  - fleet.yaml
   - gateways/
+  - releases/
 
 bases:               # other kustomization directories to include first
   - ../../base
 
 patches:             # strategic-merge patches applied after resource collection
-  - path: fleet-patch.yaml
+  - path: gateway-patch.yaml
     target:
-      kind: Fleet
-      name: production
+      kind: Gateway
+      name: api-gw-us-east
 ```
 
 Patches use **strategic merge**: scalar fields overwrite, maps merge, sequences replace.
@@ -436,7 +387,7 @@ Patches use **strategic merge**: scalar fields overwrite, maps merge, sequences 
 #### Examples
 
 ```sh
-## Apply the full base fleet
+## Apply the full base configuration
 hsctl apply -f .hypershell/base/
 
 ## Apply the prod overlay (resolves base + patches)
@@ -460,7 +411,6 @@ cat gateway.yaml | hsctl apply -f -
 | `-k <dir>` | Kustomize directory. Mutually exclusive with `-f`. | 🔲 planned |
 | `--dry-run` | Print what would be applied without making API calls. | 🔲 planned |
 | `-o json` | JSON output (array of applied resources). | 🔲 planned |
-| `--fleet <name>` | Override fleet context for scoped resources. | 🔲 planned |
 
 #### Status column
 
@@ -479,23 +429,12 @@ cat gateway.yaml | hsctl apply -f -
 | `-o wide` | Wide table output |
 | `--limit <n>` | Max items to return (default: 100) |
 
-### Fleet Context
-
-The CLI can maintain a current fleet context in `~/.hypershell/config.yaml` (overridable via `HYPERSHELL_FLEET` env var). Operations that require `fleet_id` read it from context automatically.
-
-```sh
-hsctl login https://api.example.com --token $TOKEN
-hsctl fleet select production
-hsctl list gateways
-hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0 --database-id db-1
-```
-
 ## Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | KSUID for all IDs | Sortable, globally unique, no coordination required |
-| Fleet as top-level scope | Natural tenant boundary for multi-team environments |
+| Resources are top-level | Sector/Fleet grouping was removed; tenancy is enforced by RBAC (platform + per-gateway), not by a resource grouping |
 | Separate Release from Gateway | Decouples versioning from deployment; enables canary and rollback |
 | GatewayNetwork as explicit entity | Makes network topology declarative and auditable |
 | Secret references (not inline secrets) | Keeps secrets in K8s Secrets, not in the database |

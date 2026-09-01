@@ -24,8 +24,10 @@ skills/
 │   ├── full-stack-pipeline/  # Single-spec wave-based implementation pipeline
 │   └── dev-cluster/          # Kind cluster lifecycle for local testing
 ├── deploy/
-│   ├── deploy-cluster/       # OpenShift deployment (internal registry, kustomize)
-│   └── kind/                 # Kind local development (image loading, NodePort)
+│   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
+│   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, CNPG, kustomize)
+│   ├── gcp-cluster/          # GCP OSD cluster deployment (Route mode)
+│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment (Route mode)
 ├── plan/
 │   └── spec/                 # Spec authoring (desired state)
 ├── review/
@@ -36,18 +38,19 @@ skills/
     ├── align/                # Convention compliance scoring
     ├── jira-log/             # Jira work logging
     ├── maintain-ci/          # CI and component registration maintenance
-    └── memory/               # Project memory management
+    ├── memory/               # Project memory management
+    └── update-openshell/     # Update to upstream OpenShell releases
 ```
 
-**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/kind`
+**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/dev-cluster`
 
 ---
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-21 (HYPERSHELL-49 spec delta only)
-**Spec corpus**: 40 spec files; the coverage table tracks 31 previously analyzed feature/spec groups after adding OpenShellGatewayServiceAccounts
-**Codebase commit**: 2b5eaf4 (spec/machine-account-client-secret)
+**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete)
+**Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console
+**Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 complete)
 
 ### Coverage Summary
 
@@ -60,6 +63,7 @@ skills/
 | Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
 | Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
+| Platform - Gateway Console | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Keycloak | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Service Accounts | 1 | 15 | 15 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Secret Rotation | 1 | 8 | 5 | 0 | 1 | 2 | 63% |
@@ -67,11 +71,11 @@ skills/
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
-| Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
+| Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **31** | **215** | **166** | **18** | **26** | **5** | **81%** |
+| **TOTAL** | **32** | **225** | **176** | **18** | **26** | **5** | **82%** |
 
 ### Spec Dependency Order
 
@@ -84,6 +88,7 @@ Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
 Layer 4.5:        openshell-gateway-secret-rotation (depends on database, credentials, TLS)
 Layer 5:          openshell-gateway-routing (depends on TLS for BackendTLSPolicy)
 Layer 5.5:        openshell-gateway-keycloak (depends on oidc, rbac-enforcement)
+Layer 5.6:        openshell-gateway-console (depends on routing, keycloak)
 Layer 5.75:       openshell-gateway-service-accounts (depends on keycloak, oidc, rbac-enforcement, security)
 Layer 6:          local-development (depends on all platform specs)
 Layer 1.5:        security/rbac-enforcement (depends on data-model)
@@ -93,6 +98,26 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
+
+### openshell-gateway-console.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GC-1 | Console enablement follows the selected ingress mode | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
+| GC-2 | Confidential console Keycloak client | Present | - | `control-plane/internal/keycloak/client.go`, `gateway/console.go` | - |
+| GC-3 | Stable console credential Secret | Present | - | `control-plane/internal/gateway/console.go` | - |
+| GC-4 | Console Deployment | Present | - | `control-plane/internal/gateway/console.go` | - |
+| GC-5 | Service and mode-selected HTTP exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
+| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace and supports both ingress controllers. | `control-plane/internal/gateway/console.go` | - |
+| GC-7 | Console lifecycle and cleanup | Present | - | `control-plane/internal/gateway/{console.go,reconciler.go}`, `reconciler/health.go` | GC-W1 |
+| GC-8 | Provisioning atomicity and idempotency | Present | - | `control-plane/internal/gateway/console.go`, `internal/keycloak/client.go` | - |
+| GC-9 | Console address discovery | Present | - | `control-plane/internal/reconciler/reconciler.go`, `gateway/console.go` | GC-W1 |
+
+**Scoped analysis notes:**
+
+- The API, data model, SDKs, CLI, Keycloak client, Secret, Deployment, Service, and NetworkPolicy contracts need no change.
+- GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
+- The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
 
 ### openshell-gateway-service-accounts.spec.md
 
@@ -111,13 +136,14 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SA-11 | Workspace membership is a separate grant | Present | - | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W1, W4, W5 |
 | SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
 | SA-13 | Auditability and secret redaction | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs, `components/web-console/bff/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3, W5 |
-| SA-14 | Reconciliation and drift repair | Present | Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction | `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-14 | Reconciliation and drift repair | Present | The control-plane convergence predicate accepts Keycloak's built-in `service_account` scope and rejects all other client scopes. Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction. | `components/control-plane/internal/serviceaccountkeycloak/client.go`, `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | KC-ES-W1 |
 | SA-15 | Verification coverage | Present | - | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go`, `components/cli/pkg/serviceaccount/*_test.go`, `packages/gateway-management-ui/src/service-accounts/*_test.ts*`, `components/web-console/**/*test*` | SA-W1..W6 |
 
 **Scoped analysis notes:**
 
 - The nested API, generated SDKs, CLI, Keycloak lifecycle, reconciliation, cleanup barrier, and gateway-detail management UI now implement the resource's public behavior.
 - The SDK and CLI generators now project the nested service-account collection. Generated clients and commands remain reproducible from the OpenAPI contract.
+- Keycloak 26.1 and later adds the built-in `service_account` default client scope. The control-plane convergence predicate accepts this provider-managed scope without a write and rejects all additional scopes.
 - The spec forbids retrieving or regenerating a delivered client secret during reconciliation, while the full-scope drift scenario asks reconciliation to issue and inspect another Client Credentials token. Creation can perform this token test because it still holds the new secret. Later reconciliation can verify and repair structural Keycloak state but cannot perform a new grant without violating the stronger one-time-secret rule. This remains a specification mismatch; reconciliation will not fetch the secret.
 - The BFF forwards `Cache-Control` and `Pragma`, preserving the one-time response's no-store policy end to end.
 
@@ -125,8 +151,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| DM-1 | Fleet (Sector) Lifecycle CRUD | Present | Naming: spec says "Sector", code says "Fleet" | `plugins/fleets/` | - |
-| DM-2 | Fleet-Scoped Resources (FK) | Present | `fleet_id` instead of `sector_id` | all child models | - |
+| DM-1 | ~~Fleet (Sector) Lifecycle CRUD~~ | Removed | Fleet/Sector grouping removed; all resources are top-level, tenancy via RBAC | (removed) | - |
+| DM-2 | ~~Fleet-Scoped Resources (FK)~~ | Removed | `fleet_id` field dropped from all models and contracts | (removed) | - |
 | DM-3a | Gateway field: `image` | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3b | Gateway field: `server_dns_names` | Present | Added as JSONB (model `*string`), proto `repeated string`, OpenAPI `[]string` | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3c | Gateway field: `oidc` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
@@ -186,7 +212,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | D1 | ManagedDatabase Reconciliation (provider=cnpg) | Present | ManagedDatabaseReconciler creates CNPG Cluster CRs | `reconciler.go` | W8 ✅ |
 | D2 | Per-gateway Database/DatabaseRole/Secret CRs | Present | GatewayReconciler provisions CNPG Database+DatabaseRole+Secret in ManagedDB namespace | `gateway/reconciler.go` | W8 ✅ |
 | D3 | ManagedDatabase Deletion Protection | Present | API rejects delete (409) when gateways reference it | `plugins/managedDatabases/service.go` | W8 ✅ |
-| D4 | Gateway Database Resolution (auto fleet+db) | Present | fleet_id auto-resolved from cluster_id; database_id auto-assigned when sole DB in fleet | `plugins/gateways/service.go` | W8 ✅ |
+| D4 | Gateway Database Resolution (auto db) | Present | database_id auto-assigned when a sole ManagedDatabase exists | `plugins/gateways/service.go` | W8 ✅ |
 | D5 | Gateway Credentials Secret (tenant namespace) | Present | `openshell-gateway-db-credentials` created in tenant NS with host/port/dbname/user/password/uri | `gateway/reconciler.go` | W8 ✅ |
 | D6 | Database Provisioning Readiness | Present | `waitForCNPGDatabase()` waits 2min for CNPG Database CR `status.applied: true` | `gateway/reconciler.go` | W8 ✅ |
 | D7 | Database Credential Security (crypto/rand) | Present | 32-byte hex password; create-or-skip semantics | `gateway/reconciler.go` | W8 ✅ |
@@ -309,6 +335,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OI-4 | BFF Browser Session Contract | Present | GET /auth/session with identity, roles, expiry; no tokens | `bff/src/auth.ts` | OIDC ✅ |
 | OI-5 | Kind OIDC Always-On | Present | OIDC enabled unconditionally in kind-up; KIND_ENABLE_OIDC removed | `scripts/kind/`, `Makefile` | OIDC ✅ |
 | OI-6 | Identity Provider Client Security | Partial | redirectUris restricted but port wildcard pattern not supported by Keycloak; needs explicit port URIs | `keycloak.yaml` | Follow-up |
+| OI-7 | Control Plane Service Token Reuse | Present | - | `components/control-plane/internal/auth/token_provider.go`, `components/control-plane/internal/auth/token_provider_test.go` | KC-ES-W1 |
 
 ### rbac-enforcement.spec.md
 
@@ -417,6 +444,37 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Wave Plan
+
+### KC-ES-W1: Stop the Keycloak event storm
+
+**Scope:** OI-7, SA-14
+**Dependency:** Existing control-plane token provider and service-account Keycloak reconciliation
+**Status:** Complete
+
+1. Interpret the token response's `expires_in` value as seconds and keep the 80 percent refresh threshold.
+2. Add a regression test that proves that repeated calls reuse one token.
+3. Accept an empty default-scope list or one built-in `service_account` scope as converged.
+4. Reject every other default scope and every optional scope as drift.
+5. Add regression tests for the provider-managed scope and additional-scope drift.
+6. Run control-plane tests, race tests, vet, build, alignment, and review checks.
+
+**KC-ES-W1 summary:** The token provider now interprets `expires_in` as seconds and refreshes after 80 percent of the token lifetime. Service-account reconciliation now accepts Keycloak's built-in `service_account` scope without a write and repairs every other client scope. Sequential, concurrent, threshold, no-write, drift, and update-payload tests cover the changes. The complete control-plane test suite, affected-package race tests, vet, lint, build, alignment scan, and independent review passed.
+
+### GC-W1: OpenShift Route support for the Gateway Console
+
+**Scope:** GC-1, GC-5, GC-7, GC-9
+**Dependency:** Existing Gateway Console and Route ingress implementations
+**Status:** Complete
+
+1. Select console exposure from the effective gateway ingress mode.
+2. Create an edge-terminated OpenShift Route for `openshell-console` in Route mode.
+3. Observe HTTPRoute acceptance or OpenShift Route admission for address publication.
+4. Reconcile initial provisioning, health repair, inactive exposure removal, and teardown for both modes.
+5. Add `routes/custom-host` controller RBAC.
+6. Add unit tests for resource shape, readiness, mode selection, and cleanup.
+7. Run control-plane build, vet, test, alignment, and review checks.
+
+**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by ingress mode, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
 
 ### HYPERSHELL-49 OpenShellGatewayServiceAccount waves
 
@@ -629,6 +687,10 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-08-31 | working tree | Completed Keycloak event-storm KC-ES-W1 | 82% | Corrected the token lifetime unit, reused tokens until the 80 percent threshold, accepted the provider-managed service-account scope, rejected all other client scopes, and added regression tests. OI-7 and SA-14 are present. |
+| 2026-08-31 | 9ac4354 | Keycloak event-storm scoped gap analysis | 82% | Found two partial requirements: the token cache uses nanoseconds for `expires_in`, and service-account convergence rejects Keycloak's built-in scope. Planned control-plane wave KC-ES-W1. |
+| 2026-08-27 | 9984ed0 | Completed Gateway Console GC-W1 | 82% | Added mode-selected Route exposure, admission readiness, lifecycle cleanup, custom-host RBAC, and tests. All nine console requirements are present. |
+| 2026-08-27 | 612b373 | Gateway Console scoped gap analysis | 81% | Added the console spec to the registry and found four partial requirements. Planned one control-plane wave for OpenShift Route exposure, readiness, cleanup, RBAC, and tests. |
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
 | 2026-08-05 | working tree | Registered UI standards | 100% platform | UI standards are evaluated by `/ui-standards`, not counted as feature reconciliation requirements |
 | 2026-08-05 | working tree | Added PatternFly standard | 100% platform | PatternFly 6, canonical reuse, and duplicate-component prevention apply to the web console |
@@ -657,3 +719,4 @@ label-selected pod informer.
 | 2026-08-21 | 361305e | HYPERSHELL-49 scoped gap analysis | 69% | Added 15 OpenShellGatewayServiceAccount requirements, all initially missing. Planned strict API -> SDK -> service/Keycloak -> CLI -> UI -> integration waves. Recorded the post-delivery token-verification contradiction without changing specs. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W1..W3 | pending final recount | Added nested REST/OpenAPI, generated SDKs, durable persistence/audit, exact gateway-scoped Keycloak clients, one-time verified secret delivery, role-capped authorization, expiration/revoke/delete reconciliation, and gateway cleanup barriers. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W4 | pending final recount | Extended the CLI generator for the nested gateway collection; added create/list/get/revoke/delete commands, explicit mode-0600 one-time credential output, expiration handling, workspace guidance, and secret-redaction tests. |
+| 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 82% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |

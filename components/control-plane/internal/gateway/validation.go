@@ -158,6 +158,12 @@ func validateIdentifier(value string) error {
 	return nil
 }
 
+// claimPathRegex matches a JWT claim reference: one or more dot-separated
+// segments of letters, digits, and underscores. It accepts both top-level
+// claims ("roles", "groups") and nested paths ("realm_access.roles",
+// "hypershell.roles") that realms emit for role mapping.
+var claimPathRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$`)
+
 func ValidateOIDCConfig(oidc OIDCConfig) error {
 	if oidc.Issuer == "" {
 		return nil
@@ -165,6 +171,18 @@ func ValidateOIDCConfig(oidc OIDCConfig) error {
 
 	if (oidc.AdminRole != "") != (oidc.UserRole != "") {
 		return fmt.Errorf("both admin_role and user_role must be set, or both must be empty")
+	}
+
+	// Format-validate roles_claim only when it is set. A blank roles_claim is left
+	// to the gateway's own default (groups), so a BYO OIDC config that sets
+	// admin_role/user_role and omits roles_claim keeps delegating to that default
+	// rather than being rejected. Validation runs on the reconcile path
+	// (ReconcileGateway), so hard-failing a pre-existing config here would break
+	// its reconciliation with no migration. A claim the realm never emits still
+	// can't be caught here without the token (P3-1); this only rejects a
+	// syntactically invalid claim path.
+	if oidc.RolesClaim != "" && !claimPathRegex.MatchString(oidc.RolesClaim) {
+		return fmt.Errorf("invalid roles_claim %q: must be a dot-separated JWT claim path (e.g. \"roles\" or \"realm_access.roles\")", oidc.RolesClaim)
 	}
 
 	return nil

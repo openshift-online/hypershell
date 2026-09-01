@@ -42,13 +42,9 @@ func (h *gatewayNetworkGRPCHandler) CreateGatewayNetwork(ctx context.Context, re
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("fleet_id", req.FleetId, true); err != nil {
-		return nil, err
-	}
 
 	gatewayNetwork := &GatewayNetwork{
 		Name:         req.Name,
-		FleetId:      req.FleetId,
 		Topology:     req.Topology,
 		TunnelMode:   req.TunnelMode,
 		HubGatewayId: req.HubGatewayId,
@@ -67,11 +63,6 @@ func (h *gatewayNetworkGRPCHandler) UpdateGatewayNetwork(ctx context.Context, re
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.FleetId != nil {
-		if err := grpcutil.ValidateStringField("fleet_id", *req.FleetId, false); err != nil {
 			return nil, err
 		}
 	}
@@ -102,9 +93,6 @@ func (h *gatewayNetworkGRPCHandler) UpdateGatewayNetwork(ctx context.Context, re
 	}
 	if req.Name != nil {
 		gatewayNetwork.Name = *req.Name
-	}
-	if req.FleetId != nil {
-		gatewayNetwork.FleetId = *req.FleetId
 	}
 	if req.Topology != nil {
 		gatewayNetwork.Topology = req.Topology

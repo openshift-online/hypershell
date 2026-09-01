@@ -48,7 +48,6 @@ func TestManagedClusterPost(t *testing.T) {
 
 	managedClusterInput := openapi.ManagedCluster{
 		Name:             "test-name",
-		FleetId:          "test-fleet_id",
 		Provider:         "test-provider",
 		Region:           openapi.PtrString("test-region"),
 		KubeconfigSecret: "test-kubeconfig_secret",
@@ -169,7 +168,6 @@ func TestManagedClusterListSearchEscapedLiteral(t *testing.T) {
 	clusterName := "team's_100%"
 	clusterInput := openapi.ManagedCluster{
 		Name:             clusterName,
-		FleetId:          "test-fleet_id",
 		Provider:         "test-provider",
 		KubeconfigSecret: "test-kubeconfig_secret",
 	}

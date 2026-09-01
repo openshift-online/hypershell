@@ -15,7 +15,6 @@ func managedClusterToProto(d *ManagedCluster) *pb.ManagedCluster {
 			Href:      "/api/hypershell/v1/managed_clusters/" + d.ID,
 		},
 		Name:             d.Name,
-		FleetId:          d.FleetId,
 		Provider:         d.Provider,
 		Region:           d.Region,
 		KubeconfigSecret: d.KubeconfigSecret,

@@ -1,6 +1,6 @@
 # Platform OIDC Integration
 
-**Date:** 2026-08-14
+**Date:** 2026-08-31
 **Status:** Draft
 **Related:** `openshell-gateway-oidc.spec.md` - per-gateway OIDC authentication; `../web-console/architecture.spec.md` - WEB-AUTH-01 through WEB-AUTH-03; `local-development.spec.md` - Kind cluster environment
 
@@ -91,7 +91,6 @@ When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL
 
 - `/grpc.health.v1.Health/`
 - `/grpc.reflection.v1alpha.ServerReflection/`
-- `/hypershell.v1.FleetService/WatchFleets`
 - `/hypershell.v1.GatewayService/WatchGateways`
 - `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
 - `/hypershell.v1.ManagedClusterService/WatchManagedClusters`
@@ -315,6 +314,23 @@ The API server SHALL support JWT validation against a configurable JWKS endpoint
 - GIVEN the API server is started with JWT enabled
 - WHEN a request is made to `/healthcheck` or `/api/hypershell/v1/openapi`
 - THEN the request SHALL be processed without JWT validation
+
+### Requirement: Control Plane Service Token Reuse
+
+The control plane SHALL cache the access token that it gets with its Client Credentials grant. It SHALL interpret the token response's `expires_in` value as seconds. It SHALL reuse the token until 80 percent of its lifetime has passed. Concurrent calls SHALL use the same cached token.
+
+#### Scenario: Repeated gRPC calls reuse one token
+
+- GIVEN Keycloak returns a control-plane access token with `expires_in=300`
+- WHEN the control plane makes two gRPC calls before 240 seconds have passed
+- THEN it SHALL make one Client Credentials grant
+- AND both gRPC calls SHALL use the same access token
+
+#### Scenario: The refresh threshold has passed
+
+- GIVEN the cached control-plane access token has passed 80 percent of its lifetime
+- WHEN the control plane makes another authenticated gRPC call
+- THEN it SHALL get a new access token before it makes the call
 
 ### Requirement: BFF OIDC Authorization Code Flow
 

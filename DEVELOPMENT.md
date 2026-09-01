@@ -227,7 +227,7 @@ TOKEN=$(curl -sk -X POST \
   -d "password=admin" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
 
 curl -s -H "Authorization: Bearer ${TOKEN}" \
-  https://api.hypershell.localhost/api/hypershell/v1/fleets
+  https://api.hypershell.localhost/api/hypershell/v1/gateways
 ```
 
 ## Private Registry Pull Secret
@@ -372,12 +372,11 @@ so per-tenant gateways work without port-forward workarounds.
 
 ### Creating a gateway with OIDC
 
-`make kind-up` seeds Fleet, ManagedCluster, GatewayRelease, and ManagedDatabase
+`make kind-up` seeds ManagedCluster, GatewayRelease, and ManagedDatabase
 but does not create a Gateway. Create one via the API:
 
 ```bash
 # Get the seeded resource IDs
-FLEET_ID=$(curl -s http://localhost:8000/api/hypershell/v1/fleets | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 CLUSTER_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_clusters | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 RELEASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/gateway_releases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
 DATABASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_databases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
@@ -387,7 +386,6 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"dev-gateway\",
-    \"fleet_id\": \"${FLEET_ID}\",
     \"cluster_id\": \"${CLUSTER_ID}\",
     \"release_id\": \"${RELEASE_ID}\",
     \"database_id\": \"${DATABASE_ID}\",

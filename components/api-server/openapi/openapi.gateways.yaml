@@ -225,15 +225,12 @@ components:
         - type: object
           required:
             - name
-            - fleet_id
             - cluster_id
             - release_id
             - database_id
             - namespace
           properties:
             name:
-              type: string
-            fleet_id:
               type: string
             cluster_id:
               type: string
@@ -298,14 +295,11 @@ components:
       type: object
       required:
         - name
-        - fleet_id
         - cluster_id
         - release_id
         - database_id
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         cluster_id:
           type: string
@@ -361,8 +355,6 @@ components:
       type: object
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         cluster_id:
           type: string

@@ -30,11 +30,11 @@ Gateway Lifecycle (Gateway ADDED/DELETED events):
 
     Caller (UI, hsctl, CI pipeline, curl)
         |  POST /api/hypershell/v1/gateways
-        |  Body includes: name, fleet_id (OIDC config is NOT part of the create request)
+        |  Body includes: name (OIDC config is NOT part of the create request)
         v
     API Server
         |  1. Authorizes via RBAC (caller must have gateway:creator role)
-        |  2. Persists Gateway with fleet_id (oidc field empty at this point)
+        |  2. Persists Gateway (oidc field empty at this point)
         |  3. Auto-provisions gateway:owner RoleBinding for the creator (same transaction)
         |  4. Emits gRPC watch event
         v
@@ -200,7 +200,7 @@ When the GatewayReconciler receives a Gateway ADDED event, it SHALL create a ded
 
 #### Client ID Format
 
-The Keycloak `clientId` SHALL be `{name}-{id}`, where `{name}` is the user-visible gateway name and `{id}` is the API-server resource ID (KSUID). This prevents name clashes when multiple gateways share the same name across fleets or when a gateway is deleted and recreated with the same name. Example: a gateway named `my-gateway` with ID `2FhMpQzXBz` produces `clientId = "my-gateway-2FhMpQzXBz"`.
+The Keycloak `clientId` SHALL be `{name}-{id}`, where `{name}` is the user-visible gateway name and `{id}` is the API-server resource ID (KSUID). This prevents name clashes when multiple gateways share the same name or when a gateway is deleted and recreated with the same name. Example: a gateway named `my-gateway` with ID `2FhMpQzXBz` produces `clientId = "my-gateway-2FhMpQzXBz"`.
 
 For reconciliation of an existing gateway, persisted OIDC `client_id` and `audience` values SHALL be used to preserve identity across a gateway rename only when both non-empty values agree and the identity is gateway-owned: either exactly the immutable gateway ID (legacy format) or a control-character-free identifier ending in `-{gateway-id}`. Control characters and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. The current `{name}-{id}` format is used only when neither persisted identity value exists. Historical identifiers containing spaces or non-ASCII characters remain valid; whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
 

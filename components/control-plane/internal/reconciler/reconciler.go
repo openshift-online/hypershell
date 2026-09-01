@@ -40,36 +40,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type FleetReconciler struct {
-	mu     sync.Mutex
-	active map[string]struct{}
-}
-
-func NewFleetReconciler() *FleetReconciler {
-	return &FleetReconciler{active: make(map[string]struct{})}
-}
-
-func (r *FleetReconciler) Handle(ctx context.Context, event watcher.Event[*pb.Fleet]) error {
-	r.mu.Lock()
-	if _, ok := r.active[event.ResourceID]; ok {
-		r.mu.Unlock()
-		return nil
-	}
-	r.active[event.ResourceID] = struct{}{}
-	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		delete(r.active, event.ResourceID)
-		r.mu.Unlock()
-	}()
-
-	_, endSpan := cpotel.StartReconcileSpan(ctx, "Fleet", event.Type.String())
-	defer func() { endSpan(nil) }()
-
-	log.Printf("INFO reconciling Fleet %s (event=%d)", event.ResourceID, event.Type)
-	return nil
-}
-
 type ManagedClusterReconciler struct {
 	mu     sync.Mutex
 	active map[string]struct{}
@@ -1221,6 +1191,7 @@ type GatewayReconciler struct {
 	isOpenShift           bool
 	hasCertManager        bool
 	hasGatewayAPI         bool
+	ingressMode           string
 	skipNetworkPolicies   bool
 	hasCNPG               bool
 	manifestsDir          string
@@ -1247,6 +1218,7 @@ func NewGatewayReconciler(
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
+	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 	skipNetworkPolicies := os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true"
 	hasCNPG := gateway.DetectCNPG(clientset)
 
@@ -1261,8 +1233,8 @@ func NewGatewayReconciler(
 		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
 	}
 
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v cnpg=%v keycloak=%v netpol=%v",
-		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, hasCNPG, kcClient != nil, !skipNetworkPolicies)
+	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s cnpg=%v keycloak=%v netpol=%v",
+		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, hasCNPG, kcClient != nil, !skipNetworkPolicies)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -1273,6 +1245,7 @@ func NewGatewayReconciler(
 		isOpenShift:           isOpenShift,
 		hasCertManager:        hasCertManager,
 		hasGatewayAPI:         hasGatewayAPI,
+		ingressMode:           ingressMode,
 		skipNetworkPolicies:   skipNetworkPolicies,
 		hasCNPG:               hasCNPG,
 		manifestsDir:          manifestsDir,
@@ -1316,7 +1289,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			var dbErr error
 			deleteDBConfig, dbErr = r.resolveDatabaseConfig(ctx, gw)
 			if dbErr != nil {
-				deleteErrs = append(deleteErrs, fmt.Errorf("resolve database config for deleted gateway %s: %w", event.ResourceID, dbErr))
+				// Deletion must be idempotent. When the ManagedDatabase is already
+				// gone (a legitimate delete ordering) there is no DB config left to
+				// resolve and nothing more to tear down for it, so treat NotFound as
+				// already-cleaned and continue finalizing the gateway. Appending it to
+				// deleteErrs instead would fail the whole delete-reconcile, which the
+				// watcher retries every 30s -- forever, because the ManagedDatabase
+				// never comes back. Any other error still fails so it is retried.
+				if status.Code(dbErr) == codes.NotFound {
+					log.Printf("INFO gateway %s: ManagedDatabase %s already deleted; skipping database cleanup", event.ResourceID, gw.DatabaseId)
+				} else {
+					deleteErrs = append(deleteErrs, fmt.Errorf("resolve database config for deleted gateway %s: %w", event.ResourceID, dbErr))
+				}
 			}
 		}
 
@@ -1491,9 +1475,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gwConfig.OIDC = oidcConfig
 	}
 
-	if gw.Route != nil && *gw.Route != "" {
-		var routeConfig gateway.RouteConfig
-		if err := json.Unmarshal([]byte(*gw.Route), &routeConfig); err != nil {
+	if gw.Route != nil {
+		routeConfig, err := parseGatewayRouteConfig(*gw.Route)
+		if err != nil {
 			reconcileErr = fmt.Errorf("invalid route config for gateway %s: %w", gw.Name, err)
 			return reconcileErr
 		}
@@ -1566,7 +1550,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// non-routed gateway - or any gateway on a cluster without the exposure port -
 	// is Running on Deployment readiness alone. See
 	// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
-	if r.exposure != nil && isRoutedGateway(gw) {
+	routed := isRoutedGateway(gw)
+	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
 			r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
 			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
@@ -1574,17 +1559,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			r.updateGatewayHealth(ctx, event.ResourceID, "Provisioning", "Deployment ready; awaiting route readiness")
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
-		// The console pod starts after the gateway is routed and typically becomes
-		// Ready seconds to a minute later. Poll its readiness on a tight cadence in
-		// the background and publish console_address as soon as it can serve, so the
-		// web UI's console button enables promptly instead of waiting for the next
-		// 30s health-reconciler tick. It runs in the background so a slow console
-		// image pull never blocks the (serial) gateway watch loop; the health
-		// reconciler remains the backstop that publishes and retracts the address.
-		go r.publishConsoleAddressWhenReady(ctx, event.ResourceID, gw)
 	} else {
 		r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
+	}
+
+	// The console can start after the gateway is ready. Poll the console in the
+	// background so the address appears without waiting for the next health tick.
+	// The health reconciler continues to publish and retract the address.
+	if routed && r.ingressMode != gateway.IngressModeNone {
+		go r.publishConsoleAddressWhenReady(ctx, event.ResourceID, gw)
 	}
 	return nil
 }
@@ -1806,7 +1790,7 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 			// End the poll rather than publishing against the stale snapshot.
 			return true
 		}
-		return syncConsoleAddress(ctx, r.clientset, r.dynamicClient, client, gatewayID, current, r.exposure != nil)
+		return syncConsoleAddress(ctx, r.clientset, r.dynamicClient, client, gatewayID, current, r.ingressMode)
 	})
 }
 
@@ -1859,15 +1843,35 @@ func poll(ctx context.Context, interval, window time.Duration, attempt func() bo
 	}
 }
 
-// isRoutedGateway reports whether a Gateway declares external route exposure
-// (a non-empty `route` configuration), and therefore requires its external
-// exposure to be observed Ready before it can be reported Running.
+// parseGatewayRouteConfig parses the route field. A route object is enabled by
+// default for compatibility with existing empty and host-only route objects.
+// An explicit enabled=false value disables it. An empty or null value has no
+// route.
+func parseGatewayRouteConfig(raw string) (gateway.RouteConfig, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "null" {
+		return gateway.RouteConfig{}, nil
+	}
+
+	config := gateway.RouteConfig{Enabled: true}
+	if err := json.Unmarshal([]byte(trimmed), &config); err != nil {
+		return gateway.RouteConfig{}, err
+	}
+	return config, nil
+}
+
+// isRoutedGateway reports whether a Gateway enables external route exposure.
 func isRoutedGateway(gw *pb.Gateway) bool {
 	if gw.Route == nil {
 		return false
 	}
-	route := strings.TrimSpace(*gw.Route)
-	return route != "" && route != "null"
+	routeConfig, err := parseGatewayRouteConfig(*gw.Route)
+	if err != nil {
+		// The provisioning path reports invalid configuration. Preserve the
+		// exposure until that path can resolve the invalid value.
+		return true
+	}
+	return routeConfig.Enabled
 }
 
 // gatewayNamespace returns the Kubernetes namespace a Gateway is deployed into.
@@ -1971,17 +1975,12 @@ func consoleAddressFor(ready bool, url string) string {
 
 // syncConsoleAddress publishes the gateway's console_address once its console is
 // observed servable and clears it otherwise, so the web UI only offers the
-// console button when the console can actually serve. "Servable" requires both
-// the console Deployment to be Ready AND the console HTTPRoute to be accepted
-// (Accepted + ResolvedRefs on the shared Gateway listener) -- a Ready Deployment
-// alone does not prove the public route works, and publishing the address then
-// would enable a dead link. It is a no-op for gateways without a console (no
-// exposure port, or not routed) and when the base domain is unconfigured, and it
-// leaves the address untouched on a transient readiness-observation error rather
-// than flapping the button. It returns whether the console is currently servable,
-// so a caller polling during provisioning can stop once the address is published.
-func syncConsoleAddress(ctx context.Context, clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway, hasExposure bool) bool {
-	if gatewayID == "" || !hasExposure || !isRoutedGateway(gw) {
+// console button when the console can serve. The console Deployment and the
+// selected exposure resource must both be Ready. It does not publish an address
+// without a selected ingress mode. It leaves the address unchanged after a
+// temporary observation error. It returns whether the console can serve.
+func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dynamicClient dynamic.Interface, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway, ingressMode string) bool {
+	if gatewayID == "" || ingressMode == gateway.IngressModeNone || !isRoutedGateway(gw) {
 		return false
 	}
 	namespace, err := gatewayNamespace(gw)
@@ -1989,25 +1988,24 @@ func syncConsoleAddress(ctx context.Context, clientset *kubernetes.Clientset, dy
 		log.Printf("WARN console address for %s: %v", gatewayID, err)
 		return false
 	}
-	url, ok := gateway.ConsoleURL(namespace)
-	if !ok {
-		return false
-	}
-	ready, _, err := gateway.DeploymentReadiness(ctx, clientset, namespace, gateway.ConsoleDeploymentName)
-	if err != nil {
-		log.Printf("WARN console readiness for %s: %v", namespace, err)
-		return false
-	}
-	if ready {
-		// The Deployment is Ready; require the public route to be accepted too
-		// before publishing the address, logging the listener rejection reason
-		// otherwise so a misconfigured HTTP listener is diagnosable.
-		routeReady, reason, routeErr := gateway.ConsoleRouteReady(ctx, dynamicClient, namespace)
-		if routeErr != nil {
-			log.Printf("WARN console route readiness for %s: %v", namespace, routeErr)
+	url, hasURL := gateway.ConsoleURL(namespace)
+	ready := false
+	if hasURL {
+		ready, _, err = gateway.DeploymentReadiness(ctx, clientset, namespace, gateway.ConsoleDeploymentName)
+		if err != nil {
+			log.Printf("WARN console readiness for %s: %v", namespace, err)
 			return false
 		}
-		if !routeReady {
+	}
+	if ready {
+		// The selected public exposure must be Ready before the reconciler
+		// publishes the address.
+		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, namespace, ingressMode)
+		if exposureErr != nil {
+			log.Printf("WARN console exposure readiness for %s: %v", namespace, exposureErr)
+			return false
+		}
+		if !exposureReady {
 			log.Printf("INFO console for %s not servable yet: %s", namespace, reason)
 			ready = false
 		}
@@ -2090,7 +2088,7 @@ type databaseConfig struct {
 
 func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (databaseConfig, error) {
 	if gw.DatabaseId == "" {
-		return databaseConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the fleet")
+		return databaseConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the gateway")
 	}
 
 	client := pb.NewManagedDatabaseServiceClient(r.grpcConn)

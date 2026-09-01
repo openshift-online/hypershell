@@ -1,6 +1,5 @@
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
 LEFTHOOK_CMD=go tool lefthook
-GO_TOOLCHAIN=go1.26.4
 GOLANGCI_LINT_VERSION=v2.12.2
 GOLANGCI_LINT_PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 DEPENDENCY_MIN_AGE_DAYS=14
@@ -91,6 +90,8 @@ help:
 	@echo "    kind-up                  Create cluster + deploy all components (OIDC enabled)"
 	@echo "                             LOCAL_IMAGES=true: build from working tree (default)"
 	@echo "                             LOCAL_IMAGES=true BUILD_SOURCE=baseline: build from origin/main"
+	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
+	@echo "    kind-seed                Seed platform resources into a running cluster"
 	@echo "    kind-down                Remove namespace and its resources"
 	@echo "    kind-teardown            Destroy Kind cluster, stop cloud-provider-kind"
 	@echo "    kind-status              Show cluster info, pods, services, swap state"
@@ -230,8 +231,8 @@ lint-api-server:
 		echo "$$unformatted"; \
 		exit 1; \
 	fi
-	cd components/api-server && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
-	cd components/api-server && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+	cd components/api-server && go vet ./...
+	cd components/api-server && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
 .PHONY: lint-cli
 lint-cli:
@@ -241,8 +242,8 @@ lint-cli:
 		echo "$$unformatted"; \
 		exit 1; \
 	fi
-	cd components/cli && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
-	cd components/cli && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+	cd components/cli && go vet ./...
+	cd components/cli && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
 .PHONY: lint-control-plane
 lint-control-plane:
@@ -252,8 +253,8 @@ lint-control-plane:
 		echo "$$unformatted"; \
 		exit 1; \
 	fi
-	cd components/control-plane && GOTOOLCHAIN=$(GO_TOOLCHAIN) go vet ./...
-	cd components/control-plane && GOTOOLCHAIN=$(GO_TOOLCHAIN) go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+	cd components/control-plane && go vet ./...
+	cd components/control-plane && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
 .PHONY: lint-sdk-typescript
 lint-sdk-typescript: install-js
@@ -382,6 +383,10 @@ kind-env:
 .PHONY: kind-up
 kind-up:
 	@scripts/kind/up.sh
+
+.PHONY: kind-seed
+kind-seed:
+	@scripts/kind/seed.sh
 
 .PHONY: kind-down
 kind-down:

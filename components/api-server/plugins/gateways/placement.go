@@ -72,8 +72,7 @@ func NewCNPGPlacement(dbs DatabaseLookup) PlacementResolver {
 
 func (p *cnpgPlacement) Resolve(ctx context.Context, gw *Gateway) error {
 	// database_id is owned by placement. Never trust or preserve a value supplied
-	// by an API client. fleet_id remains API and persistence data, but database
-	// placement does not use it.
+	// by an API client. Database placement is resolved server-side.
 	gw.DatabaseId = ""
 
 	dbID, err := p.dbs.FindSole(ctx)

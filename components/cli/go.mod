@@ -2,6 +2,8 @@ module github.com/openshift-online/hypershell/components/cli
 
 go 1.26.4
 
+toolchain go1.26.7
+
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/nwidger/jsoncolor v0.3.2

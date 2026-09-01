@@ -42,16 +42,12 @@ func (h *gatewayReleaseGRPCHandler) CreateGatewayRelease(ctx context.Context, re
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("fleet_id", req.FleetId, true); err != nil {
-		return nil, err
-	}
 	if err := grpcutil.ValidateStringField("image", req.Image, true); err != nil {
 		return nil, err
 	}
 
 	gatewayRelease := &GatewayRelease{
 		Name:            req.Name,
-		FleetId:         req.FleetId,
 		Image:           req.Image,
 		RolloutStrategy: req.RolloutStrategy,
 		CanaryPercent: func() *int {
@@ -77,11 +73,6 @@ func (h *gatewayReleaseGRPCHandler) UpdateGatewayRelease(ctx context.Context, re
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.FleetId != nil {
-		if err := grpcutil.ValidateStringField("fleet_id", *req.FleetId, false); err != nil {
 			return nil, err
 		}
 	}
@@ -112,9 +103,6 @@ func (h *gatewayReleaseGRPCHandler) UpdateGatewayRelease(ctx context.Context, re
 	}
 	if req.Name != nil {
 		gatewayRelease.Name = *req.Name
-	}
-	if req.FleetId != nil {
-		gatewayRelease.FleetId = *req.FleetId
 	}
 	if req.Image != nil {
 		gatewayRelease.Image = *req.Image

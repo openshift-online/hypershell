@@ -412,7 +412,6 @@ if [[ -z "$EXISTING_ID" ]]; then
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': 'e2e-db',

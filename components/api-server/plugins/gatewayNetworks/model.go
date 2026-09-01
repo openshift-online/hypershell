@@ -8,7 +8,6 @@ import (
 type GatewayNetwork struct {
 	api.Meta
 	Name         string  `json:"name"`
-	FleetId      string  `json:"fleet_id"`
 	Topology     *string `json:"topology"`
 	TunnelMode   *string `json:"tunnel_mode"`
 	HubGatewayId *string `json:"hub_gateway_id"`
@@ -33,7 +32,6 @@ func (d *GatewayNetwork) BeforeCreate(tx *gorm.DB) error {
 
 type GatewayNetworkPatchRequest struct {
 	Name         *string `json:"name,omitempty"`
-	FleetId      *string `json:"fleet_id,omitempty"`
 	Topology     *string `json:"topology,omitempty"`
 	TunnelMode   *string `json:"tunnel_mode,omitempty"`
 	HubGatewayId *string `json:"hub_gateway_id,omitempty"`

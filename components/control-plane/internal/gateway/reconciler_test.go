@@ -24,6 +24,7 @@ func routeResourceListKinds() map[schema.GroupVersionResource]string {
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}:         "GRPCRouteList",
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}: "BackendTLSPolicyList",
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}:         "HTTPRouteList",
+		{Group: "route.openshift.io", Version: "v1", Resource: "routes"}:                    "RouteList",
 		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}:            "NetworkPolicyList",
 		{Group: "apps", Version: "v1", Resource: "deployments"}:                             "DeploymentList",
 	}
@@ -39,7 +40,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 	t.Run("all absent returns true", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -48,12 +49,24 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		}
 	})
 
+	t.Run("all absent in route mode returns true", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeRoute, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !absent {
+			t.Fatal("want absent=true when no Route-mode resources exist")
+		}
+	})
+
 	t.Run("a resurrected dynamic resource returns false", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
 			labeledResource("gateway.networking.k8s.io/v1", "GRPCRoute", ns, "openshell-gateway", true),
 		)
 		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -62,12 +75,60 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		}
 	})
 
+	t.Run("route mode probes the gateway Route", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
+			labeledResource("route.openshift.io/v1", "Route", ns, "openshell-gateway", true),
+		)
+		cs := k8sfake.NewSimpleClientset()
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeRoute, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if absent {
+			t.Fatal("want absent=false when the gateway Route reappeared")
+		}
+	})
+
+	for _, tc := range []struct {
+		name       string
+		mode       string
+		apiVersion string
+		kind       string
+	}{
+		{
+			name:       "gateway api mode probes an inactive console Route",
+			mode:       IngressModeGatewayAPI,
+			apiVersion: "route.openshift.io/v1",
+			kind:       "Route",
+		},
+		{
+			name:       "route mode probes an inactive console HTTPRoute",
+			mode:       IngressModeRoute,
+			apiVersion: "gateway.networking.k8s.io/v1",
+			kind:       "HTTPRoute",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
+				labeledResource(tc.apiVersion, tc.kind, ns, consoleName, true),
+			)
+			cs := k8sfake.NewSimpleClientset()
+			absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, tc.mode, nil, "")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if absent {
+				t.Fatalf("want absent=false when the inactive console %s reappeared", tc.kind)
+			}
+		})
+	}
+
 	t.Run("a resurrected typed resource returns false", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "openshell-backend-ca"},
 		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -82,7 +143,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		cs.PrependReactor("get", "configmaps", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, fmt.Errorf("apiserver unavailable")
 		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
 		if err == nil {
 			t.Fatal("want an error when a probe cannot observe the resource")
 		}
@@ -98,7 +159,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{exists: true}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -113,7 +174,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{err: fmt.Errorf("keycloak unreachable")}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
 		if err == nil {
 			t.Fatal("want an error when the Keycloak client cannot be observed")
 		}
@@ -128,7 +189,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{exists: false}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -291,4 +352,229 @@ func TestCopyDeploymentDatabaseCredentialsRejectsIncompleteSource(t *testing.T) 
 	if err == nil {
 		t.Fatal("copyDeploymentDatabaseCredentials = nil, want missing-key error")
 	}
+}
+
+// TestReconcileRouteResourcesTermination covers the GATEWAY_ROUTE_TERMINATION
+// knob: passthrough is the default, and reencrypt sets a router-terminated TLS
+// block whose destinationCACertificate comes from the openshell-server-tls
+// secret (failing closed when that CA is not yet available).
+func TestReconcileRouteResourcesTermination(t *testing.T) {
+	routesGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+	nsConfig := NamespaceConfig{
+		Name: "openshell-test",
+		Gateway: GatewayConfig{
+			Route: RouteConfig{Enabled: true, Host: "gw-openshell-test.apps.example.com"},
+		},
+	}
+
+	getRouteTLS := func(t *testing.T, dc *dynamicfake.FakeDynamicClient) map[string]interface{} {
+		t.Helper()
+		obj, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get Route: %v", err)
+		}
+		tls, found, err := unstructured.NestedMap(obj.Object, "spec", "tls")
+		if err != nil || !found {
+			t.Fatalf("route spec.tls missing: found=%v err=%v", found, err)
+		}
+		return tls
+	}
+
+	t.Run("passthrough is the default", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		tls := getRouteTLS(t, dc)
+		if tls["termination"] != "passthrough" {
+			t.Errorf("termination = %v, want passthrough", tls["termination"])
+		}
+		if tls["insecureEdgeTerminationPolicy"] != "None" {
+			t.Errorf("insecureEdgeTerminationPolicy = %v, want None", tls["insecureEdgeTerminationPolicy"])
+		}
+		if _, ok := tls["destinationCACertificate"]; ok {
+			t.Errorf("passthrough Route must not set destinationCACertificate")
+		}
+	})
+
+	t.Run("reencrypt sets destinationCACertificate from server TLS secret", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+		const caPEM = "-----BEGIN CERTIFICATE-----\ntest-openshell-ca\n-----END CERTIFICATE-----\n"
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset(&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: nsConfig.Name},
+			Data:       map[string][]byte{"ca.crt": []byte(caPEM)},
+		})
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		tls := getRouteTLS(t, dc)
+		if tls["termination"] != "reencrypt" {
+			t.Errorf("termination = %v, want reencrypt", tls["termination"])
+		}
+		if tls["insecureEdgeTerminationPolicy"] != "Redirect" {
+			t.Errorf("insecureEdgeTerminationPolicy = %v, want Redirect", tls["insecureEdgeTerminationPolicy"])
+		}
+		if tls["destinationCACertificate"] != caPEM {
+			t.Errorf("destinationCACertificate = %q, want the secret ca.crt", tls["destinationCACertificate"])
+		}
+		// The router serves its own publicly-trusted wildcard, so the Route must
+		// not carry an edge certificate/key.
+		if _, ok := tls["certificate"]; ok {
+			t.Errorf("reencrypt Route must not set certificate")
+		}
+		if _, ok := tls["key"]; ok {
+			t.Errorf("reencrypt Route must not set key")
+		}
+	})
+
+	t.Run("reencrypt without CA fails closed and creates no Route", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset() // no openshell-server-tls secret
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err == nil {
+			t.Fatal("reconcileRouteResources = nil, want error when ca.crt is unavailable")
+		}
+
+		if _, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+			t.Errorf("expected no Route to be created, get err = %v", err)
+		}
+	})
+}
+
+// TestReconcileRouteResourcesTLSIssuer covers the GATEWAY_ROUTE_TLS_ISSUER knob:
+// with reencrypt it annotates the Route for the cert-manager openshift-routes
+// controller and preserves any edge certificate that controller has injected; it
+// is ignored for passthrough and when unset.
+func TestReconcileRouteResourcesTLSIssuer(t *testing.T) {
+	routesGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+	nsConfig := NamespaceConfig{
+		Name: "openshell-test",
+		Gateway: GatewayConfig{
+			Route: RouteConfig{Enabled: true, Host: "gw-openshell-test.apps.example.com"},
+		},
+	}
+	const caPEM = "-----BEGIN CERTIFICATE-----\ntest-openshell-ca\n-----END CERTIFICATE-----\n"
+
+	serverTLSSecret := func() *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "openshell-server-tls", Namespace: nsConfig.Name},
+			Data:       map[string][]byte{"ca.crt": []byte(caPEM)},
+		}
+	}
+	getRoute := func(t *testing.T, dc *dynamicfake.FakeDynamicClient) *unstructured.Unstructured {
+		t.Helper()
+		obj, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get Route: %v", err)
+		}
+		return obj
+	}
+
+	t.Run("reencrypt + issuer annotates the Route", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset(serverTLSSecret())
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		ann, _, _ := unstructured.NestedStringMap(getRoute(t, dc).Object, "metadata", "annotations")
+		if ann["cert-manager.io/issuer-name"] != "letsencrypt-http01" {
+			t.Errorf("issuer-name annotation = %q, want letsencrypt-http01", ann["cert-manager.io/issuer-name"])
+		}
+		if ann["cert-manager.io/issuer-kind"] != "ClusterIssuer" {
+			t.Errorf("issuer-kind annotation = %q, want ClusterIssuer", ann["cert-manager.io/issuer-kind"])
+		}
+		if ann["haproxy.router.openshift.io/timeout"] != "3600s" {
+			t.Errorf("haproxy timeout annotation lost: %q", ann["haproxy.router.openshift.io/timeout"])
+		}
+	})
+
+	t.Run("passthrough ignores the issuer", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01") // no reencrypt
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset()
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		ann, _, _ := unstructured.NestedStringMap(getRoute(t, dc).Object, "metadata", "annotations")
+		if _, ok := ann["cert-manager.io/issuer-name"]; ok {
+			t.Errorf("passthrough Route must not carry the cert-manager issuer annotation")
+		}
+	})
+
+	t.Run("reencrypt without issuer carries no cert-manager annotation", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
+		cs := k8sfake.NewSimpleClientset(serverTLSSecret())
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		ann, _, _ := unstructured.NestedStringMap(getRoute(t, dc).Object, "metadata", "annotations")
+		if _, ok := ann["cert-manager.io/issuer-name"]; ok {
+			t.Errorf("Route must not carry the cert-manager annotation when the issuer is unset")
+		}
+	})
+
+	t.Run("reconcile preserves an injected edge certificate", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TERMINATION", "reencrypt")
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
+		const injectedCert = "-----BEGIN CERTIFICATE-----\ninjected-by-openshift-routes\n-----END CERTIFICATE-----\n"
+		const injectedKey = "-----BEGIN PRIVATE KEY-----\ninjected-key\n-----END PRIVATE KEY-----\n"
+
+		// A Route already reconciled once and since patched by openshift-routes to
+		// carry its issued edge certificate/key.
+		seedRoute := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "route.openshift.io/v1",
+			"kind":       "Route",
+			"metadata":   map[string]interface{}{"name": "openshell-gateway", "namespace": nsConfig.Name},
+			"spec": map[string]interface{}{
+				"host": nsConfig.Gateway.Route.Host,
+				"tls": map[string]interface{}{
+					"termination": "reencrypt",
+					"certificate": injectedCert,
+					"key":         injectedKey,
+				},
+			},
+		}}
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(), seedRoute)
+		cs := k8sfake.NewSimpleClientset(serverTLSSecret())
+
+		if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+			t.Fatalf("reconcileRouteResources: %v", err)
+		}
+
+		tls, _, _ := unstructured.NestedMap(getRoute(t, dc).Object, "spec", "tls")
+		if tls["certificate"] != injectedCert {
+			t.Errorf("injected certificate not preserved: got %q", tls["certificate"])
+		}
+		if tls["key"] != injectedKey {
+			t.Errorf("injected key not preserved: got %q", tls["key"])
+		}
+		// The reconcile still owns termination + destinationCACertificate.
+		if tls["termination"] != "reencrypt" {
+			t.Errorf("termination = %v, want reencrypt", tls["termination"])
+		}
+		if tls["destinationCACertificate"] != caPEM {
+			t.Errorf("destinationCACertificate = %q, want the secret ca.crt", tls["destinationCACertificate"])
+		}
+	})
 }

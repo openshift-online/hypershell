@@ -40,7 +40,6 @@ func newSandboxCountClient(t *testing.T) (pb.GatewayServiceClient, context.Conte
 func createGatewayForSandboxCount(ctx context.Context, client pb.GatewayServiceClient, name string) *pb.Gateway {
 	created, err := client.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:       name,
-		FleetId:    "test-fleet",
 		ClusterId:  "test-cluster",
 		ReleaseId:  "test-release",
 		DatabaseId: "test-db",

@@ -54,7 +54,7 @@ func TestStartReconcileSpanDisabled(t *testing.T) {
 	defer func() { enabled = prev }()
 
 	ctx := context.Background()
-	ctx2, end := StartReconcileSpan(ctx, "Fleet", "reconcile")
+	ctx2, end := StartReconcileSpan(ctx, "Gateway", "reconcile")
 	end(nil)
 
 	if ctx2 != ctx {
@@ -68,7 +68,7 @@ func TestStartWatchSpanDisabled(t *testing.T) {
 	defer func() { enabled = prev }()
 
 	ctx := context.Background()
-	ctx2, end := StartWatchSpan(ctx, "Fleet")
+	ctx2, end := StartWatchSpan(ctx, "Gateway")
 	end(nil)
 
 	if ctx2 != ctx {

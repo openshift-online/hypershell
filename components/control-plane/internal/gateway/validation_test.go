@@ -14,6 +14,7 @@ func TestValidateImageReference(t *testing.T) {
 		{name: "bare name with tag", ref: "postgres:18", wantErr: false},
 		{name: "docker hub library path", ref: "docker.io/library/postgres:18", wantErr: false},
 		{name: "ghcr multi-segment path with tag", ref: "ghcr.io/nvidia/openshell/gateway:0.0.101", wantErr: false},
+		{name: "multi-segment path with tag and reference", ref: "quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd", wantErr: false},
 		{name: "quay long path with tag", ref: "quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-api-server-main:dev", wantErr: false},
 		{name: "digest reference", ref: "registry.redhat.io/rhel9/postgresql-16@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", wantErr: false},
 		// In-cluster registry service address carries an explicit port; this is
@@ -53,6 +54,67 @@ func TestValidateGatewayConfigRouteHost(t *testing.T) {
 			err := ValidateGatewayConfig(cfg)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ValidateGatewayConfig(host=%q) error = %v, wantErr %v", tt.host, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateOIDCConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		oidc    OIDCConfig
+		wantErr bool
+	}{
+		{name: "no issuer skips validation", oidc: OIDCConfig{}, wantErr: false},
+		{name: "issuer without roles is valid", oidc: OIDCConfig{Issuer: "https://kc/realm"}, wantErr: false},
+		{
+			// A BYO config that sets roles but omits roles_claim delegates to the
+			// gateway's own default (groups); validation must not reject it on the
+			// reconcile path, or pre-existing gateways would fail to reconcile.
+			name:    "roles mapped without roles_claim delegates to gateway default",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", UserRole: "user"},
+			wantErr: false,
+		},
+		{
+			name:    "roles mapped with top-level roles_claim is valid",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", UserRole: "user", RolesClaim: "roles"},
+			wantErr: false,
+		},
+		{
+			name:    "roles mapped with nested roles_claim is valid",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", UserRole: "user", RolesClaim: "realm_access.roles"},
+			wantErr: false,
+		},
+		{
+			name:    "managed model claim path is valid",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "openshell-admin", UserRole: "openshell-user", RolesClaim: "hypershell.roles"},
+			wantErr: false,
+		},
+		{
+			name:    "only admin_role set is rejected",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", AdminRole: "admin", RolesClaim: "roles"},
+			wantErr: true,
+		},
+		{
+			name:    "malformed roles_claim with spaces is rejected",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", RolesClaim: "realm access.roles"},
+			wantErr: true,
+		},
+		{
+			name:    "malformed roles_claim with leading dot is rejected",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", RolesClaim: ".roles"},
+			wantErr: true,
+		},
+		{
+			name:    "roles_claim without role mapping still validates format",
+			oidc:    OIDCConfig{Issuer: "https://kc/realm", RolesClaim: "groups"},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateOIDCConfig(tt.oidc); (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateOIDCConfig(%+v) error = %v, wantErr %v", tt.oidc, err, tt.wantErr)
 			}
 		})
 	}

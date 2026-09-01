@@ -117,7 +117,7 @@ Gateway         CLI         partial     get/list implemented, delete missing
 - Acceptance: `go build ./...`, `go vet ./...` clean
 
 **Wave 7 -- Integration**
-- End-to-end smoke test in Kind cluster (`make kind-rebuild`) or OpenShift (`/deploy-cluster`)
+- End-to-end smoke test in Kind cluster (`make kind-api-server-up` / `make kind-control-plane-up`) or OpenShift (`/deploy-cluster`)
 - Test CLI commands against deployed API
 - Verify CRUD on all affected Kinds via both API and CLI
 - Run e2e test suite: `bash components/pr-test/e2e-openshell.sh`
@@ -139,7 +139,7 @@ New Kinds use the generator:
 cd components/api-server
 go run ./scripts/generator.go \
   --kind YourKind \
-  --fields "name:string:required,fleet_id:string:required,status:string" \
+  --fields "name:string:required,cluster_id:string:required,status:string" \
   --project hypershell \
   --repo github.com/openshift-online/hypershell/components/api-server \
   --library github.com/openshift-online/rh-trex-ai
@@ -152,10 +152,10 @@ go run ./scripts/generator.go \
 `rh-trex-ai` is a Go module dependency (not a local sibling). Dockerfiles use
 `GOPRIVATE=github.com/openshift-online/rh-trex-ai` during `go mod download`.
 
+Build all container images from the repository root:
+
 ```bash
-cd components/api-server
-make image            # API server (build context: .)
-make image-controller # Controller (build context: components/)
+make build-all  # Build all container images (API server + controller)
 ```
 
 ### Proto Regeneration
@@ -171,7 +171,7 @@ cd proto && buf generate
 
 ### Deploy Targets
 
-- **Kind**: `make kind-up` / `make kind-rebuild` (see `/kind` skill)
+- **Kind**: `make kind-up` / `make kind-api-server-up` / `make kind-control-plane-up` (see `/dev-cluster` skill)
 - **OpenShift**: Build, push to internal registry, `oc kustomize deploy/openshift/` (see `/deploy-cluster` skill)
 
 ## SDK Generator
@@ -200,7 +200,7 @@ Template files:
 
 ### Common Pitfalls
 
-- **Nested resource base path (TS):** Generator uses first path segment as base - wrong for nested resources like `/fleets/{fleet_id}/gateways`. May need hand-crafted extensions.
+- **Nested resource base path (TS):** Generator uses first path segment as base - wrong for nested resources like `/gateways/{gateway_id}/service_accounts`. May need hand-crafted extensions.
 - **Required fields:** OpenAPI `required[]` must match spec ERD exactly
 - **Generated variable names:** Ensure route path params match handler `mux.Vars()` keys
 - **CLI output formats:** Always support `-o json` for scriptability

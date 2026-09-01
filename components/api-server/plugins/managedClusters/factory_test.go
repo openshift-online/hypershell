@@ -13,7 +13,6 @@ func newManagedCluster(id string) (*managedClusters.ManagedCluster, error) {
 
 	managedCluster := &managedClusters.ManagedCluster{
 		Name:             "test-name",
-		FleetId:          "test-fleet_id",
 		Provider:         "test-provider",
 		Region:           stringPtr("test-region"),
 		KubeconfigSecret: "test-kubeconfig_secret",
