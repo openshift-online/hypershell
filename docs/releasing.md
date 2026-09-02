@@ -53,8 +53,10 @@ first changelog does not contain older repository history.
 ## GitHub App Setup
 
 The current workflow requires a GitHub App token. The built-in `GITHUB_TOKEN`
-can create a Release PR, but that PR does not start other GitHub Actions
-workflows. The app token lets the Release PR start the normal required checks.
+can create a Release PR, but GitHub puts the [resulting workflow runs][github-token]
+in an approval-required state. A person would have to approve the checks after
+each Release PR update. The app token lets the normal required checks start
+without manual approval.
 
 The client ID identifies the app. It is not a secret. The private key proves
 the app identity and is a secret. The workflow uses both values to create a
@@ -78,9 +80,9 @@ Do not give the app organization permissions. Install the app on the
 `openshift-online` organization and give it access only to the `hypershell`
 repository. The organization policy can require owner approval.
 
-On the app settings page, copy the client ID. Under **Private keys**, select
-**Generate a private key**. GitHub downloads a PEM file. Keep this file secure,
-and do not commit it. If the file is lost, generate a new key.
+On the app settings page, copy the client ID. Under **Private keys**,
+[generate a private key][private-key]. GitHub downloads a PEM file. Keep this
+file secure, and do not commit it. If the file is lost, generate a new key.
 
 In the HyperShell repository, go to **Settings > Secrets and variables >
 Actions**. Add these values:
@@ -94,6 +96,8 @@ workflows, but it is tied to a person. A GitHub App is the preferred repository
 credential for this automation.
 
 [register-app]: https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app
+[private-key]: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
+[github-token]: https://docs.github.com/en/actions/concepts/security/github_token
 
 ## Failure Recovery
 
