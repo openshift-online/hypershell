@@ -396,11 +396,10 @@ diagnostics (namespace state and control-plane logs).
 Before deletion the suite SHALL confirm the gateway's managed namespace exists,
 so its later disappearance is a real garbage-collection signal rather than a
 namespace that never existed. After issuing
-`DELETE /api/hypershell/v1/gateways/<id>`, the suite SHALL poll until the gateway
-record returns `404` (the delete event has been processed) and until the managed
-namespace is gone, within `E2E_GC_TIMEOUT` seconds. A namespace that is not reaped
-within the timeout SHALL be reported as a test failure with GC diagnostics (the
-namespace's remaining state and control-plane logs).
+`DELETE /api/hypershell/v1/gateways/<id>`, the suite SHALL poll until finalization
+removes the Gateway record and its managed namespace, within `E2E_GC_TIMEOUT`
+seconds. Incomplete finalization SHALL be reported with the Gateway deletion
+state, remaining namespace state, and control-plane logs.
 
 Deletion SHALL NOT be gated on the gateway's active sandbox count: even with
 active sandboxes the delete is accepted and the namespace is reaped, cascading
@@ -437,11 +436,11 @@ removal of the in-namespace sandbox resources (see
 - THEN the namespace SHALL be present
 - AND its absence SHALL be reported as a failure, because the GC check cannot then be validated
 
-#### Scenario: Gateway record removed after delete
+#### Scenario: Gateway record removed after finalization
 
-- GIVEN the gateway has been deleted via `DELETE /api/hypershell/v1/gateways/<id>` (accepted with `204 No Content`)
-- WHEN the suite polls `GET /api/hypershell/v1/gateways/<id>`
-- THEN the API SHALL report `404` once the control plane has processed the delete event
+- GIVEN deletion has been requested for a Gateway
+- WHEN the control plane completes required cleanup and removes its finalizer
+- THEN the API SHALL report `404` for that Gateway
 
 #### Scenario: Managed namespace garbage collected
 

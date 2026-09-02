@@ -27,7 +27,9 @@ The Watcher establishes gRPC streaming connections to the API server for each re
 
 ### Reconciler
 
-The Reconciler receives resource events from the Watcher and converges the Kubernetes state on managed clusters to match. Key responsibilities:
+The Reconciler receives resource events from the Watcher and converges the Kubernetes state on managed clusters to match. All reconcilers SHALL follow the shared behavior contract in [`reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md). Resource-specific sub-specs refine desired state but do not weaken that contract.
+
+Key responsibilities:
 
 - Deploy/update Gateway workloads on target clusters
 - Provision per-gateway PostgreSQL databases and roles via CNPG `Database` and `DatabaseRole` CRDs in the ManagedDatabase's CNPG Cluster (resolved via the gateway's `database_id`)
@@ -122,7 +124,7 @@ When a Gateway is deleted, the control plane SHALL clean up all associated Kuber
 
 ### Requirement: Status Synchronization
 
-The control plane SHALL continuously reconcile the `phase` and `status` fields of Gateway resources in the API server to reflect actual cluster state, even after a Gateway has reached `Running`. The phase gate that prevents redundant re-provisioning SHALL NOT suppress these health updates. Full lifecycle semantics are defined in the [health spec](./openshell-gateway-health.spec.md).
+The control plane SHALL continuously reconcile the `phase` and `status` fields of Gateway resources in the API server to reflect actual cluster state, even after a Gateway has reached `Running`. It MAY avoid unconditional manifest writes, but Gateway phase SHALL NOT suppress health observation or periodic drift repair. Full lifecycle semantics are defined in the [health spec](./openshell-gateway-health.spec.md).
 
 #### Scenario: Gateway Health Check
 - GIVEN a Gateway with `phase` `Running` on a managed cluster
@@ -135,7 +137,7 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 
 | Decision | Rationale |
 |----------|-----------|
-| gRPC watch streams (not polling) | Real-time event delivery, efficient resource usage |
+| gRPC watch streams with periodic resync | Watch streams provide low-latency notification; resync repairs missed events and drift |
 | Separate module from API server | Independent lifecycle, separate deployment |
 | No controller-runtime dependency | Lightweight, custom reconciliation without CRD overhead |
 | Multi-cluster client pool | Each managed cluster gets its own KubeClient for isolation |

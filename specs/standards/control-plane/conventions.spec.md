@@ -7,12 +7,13 @@
 - **Language:** Go 1.25+
 - **Pattern:** gRPC watch-stream reconciler (watches the API server via gRPC streams, not controller-runtime)
 - **Primary Files:** `components/control-plane/internal/reconciler/reconciler.go`, `components/control-plane/internal/watcher/watcher.go`
+- **Behavior contract:** [`reconciliation-contract.spec.md`](./reconciliation-contract.spec.md)
 
 ## Critical Rules
 
 ### Resource Cleanup
 
-The control plane is responsible for cleaning up Kubernetes resources when a gateway or other managed resource is deleted. Cleanup is driven by the API server's lifecycle events received via gRPC.
+The control plane is responsible for cleaning up Kubernetes and external resources when a managed resource enters durable deletion. Lifecycle events schedule cleanup, but the retained deleting resource and its finalizer are authoritative.
 
 ### SecurityContext on All Pod Specs
 

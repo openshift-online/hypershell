@@ -162,22 +162,21 @@ back to `Running`.
 - AND, for a routed gateway, its external exposure is observed Ready
 - THEN the control plane SHALL set the `phase` back to `Running`
 
-### Requirement: Health Reconciliation Not Suppressed By Phase
+### Requirement: Health Status Does Not Suppress Reconciliation
 
-The control plane's phase gate SHALL prevent redundant re-provisioning
-(re-applying manifests) of a Gateway that is already `Provisioning` or
-`Running`, but SHALL NOT prevent phase or status updates that reflect the
-Gateway's actual observed workload health. A Gateway that has reached `Running`
-SHALL still be able to transition to `Degraded`, and a `Degraded` Gateway SHALL
-still be able to return to `Running`.
+The control plane MAY avoid unconditional manifest writes during each health
+observation, but a Gateway's phase SHALL NOT suppress the drift reconciliation
+required by the shared control-plane reconciliation contract. A `Running`,
+`Provisioning`, or `Degraded` Gateway SHALL remain eligible for actual-state
+observation and repair. Health observation SHALL continue to update phase and
+status independently of whether manifest repair is required.
 
-#### Scenario: Health update proceeds despite provisioning gate
+#### Scenario: Healthy gateway remains reconcilable
 
-- GIVEN a Gateway with `phase` `Running` whose manifests are unchanged
-- WHEN a reconciliation or health check occurs
-- THEN the control plane SHALL skip re-applying the gateway manifests
-- BUT it SHALL still update the `phase` to `Degraded` if the workload is
-  observed unhealthy
+- GIVEN a Gateway with phase `Running`
+- WHEN an owned manifest resource drifts from desired state
+- THEN a later reconciliation SHALL repair the resource
+- AND health observation SHALL continue to update phase and status
 
 ### Requirement: Console Reflects Recoverable States
 
