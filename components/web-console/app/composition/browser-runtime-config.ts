@@ -5,6 +5,9 @@
 const runtimeConfigMetaName = "hypershell-runtime-config";
 
 export interface BrowserRuntimeConfig {
+  build: {
+    version?: string;
+  };
   tracing: {
     /** Fraction of browser-rooted traces to record, 0..1. */
     sampleRatio: number;
@@ -14,8 +17,16 @@ export interface BrowserRuntimeConfig {
 // When no config is available the browser records nothing: it must never emit
 // traces the BFF cannot relay (a dev server or a deployment with tracing off).
 const disabledRuntimeConfig: BrowserRuntimeConfig = {
+  build: {},
   tracing: { sampleRatio: 0 },
 };
+
+const buildVersionPattern =
+  /^(?:dev|v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-[0-9a-f]{7}$/u;
+
+function isBuildVersion(value: unknown): value is string {
+  return typeof value === "string" && buildVersionPattern.test(value);
+}
 
 function isSampleRatio(value: unknown): value is number {
   return (
@@ -46,12 +57,15 @@ export function readBrowserRuntimeConfig(
   }
   try {
     const parsed = JSON.parse(content) as {
+      build?: { version?: unknown };
       tracing?: { sampleRatio?: unknown };
     };
+    const buildVersion = parsed.build?.version;
     const sampleRatio = parsed.tracing?.sampleRatio;
-    return isSampleRatio(sampleRatio)
-      ? { tracing: { sampleRatio } }
-      : disabledRuntimeConfig;
+    return {
+      build: isBuildVersion(buildVersion) ? { version: buildVersion } : {},
+      tracing: { sampleRatio: isSampleRatio(sampleRatio) ? sampleRatio : 0 },
+    };
   } catch {
     return disabledRuntimeConfig;
   }

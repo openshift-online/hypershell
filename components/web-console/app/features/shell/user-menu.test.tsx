@@ -29,8 +29,19 @@ function renderMenu() {
   );
 }
 
+function setBuildVersion(version: string) {
+  const meta = document.createElement("meta");
+  meta.setAttribute("name", "hypershell-runtime-config");
+  meta.setAttribute(
+    "content",
+    JSON.stringify({ build: { version }, tracing: { sampleRatio: 0 } }),
+  );
+  document.head.append(meta);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  document.querySelector('meta[name="hypershell-runtime-config"]')?.remove();
 });
 
 it("shows the user name and a full sign-out link", async () => {
@@ -40,6 +51,7 @@ it("shows the user name and a full sign-out link", async () => {
     roles: ["hypershell-users"],
     user: { name: "Ada Lovelace", preferredUsername: "ada" },
   });
+  setBuildVersion("v1.6.0-1234567");
 
   renderMenu();
 
@@ -47,10 +59,38 @@ it("shows the user name and a full sign-out link", async () => {
   await user.click(toggle);
 
   const menu = screen.getByRole("menu");
+  const version = within(menu).getByRole("menuitem", {
+    name: "Console version v1.6.0-1234567",
+  });
   const logout = within(menu).getByRole("menuitem", { name: "Log out" });
+  expect((version as HTMLButtonElement).disabled).toBe(true);
+  expect(version.getAttribute("href")).toBeNull();
   // Sign-out is a real navigation to the BFF endpoint, not a client route, so
   // the BFF can clear the session and perform RP-initiated Keycloak logout.
   expect(logout.getAttribute("href")).toBe("/auth/logout");
+});
+
+it("shows an unknown version and keeps logout available", async () => {
+  const user = userEvent.setup();
+  getSessionMock.mockResolvedValue({
+    authenticated: true,
+    roles: ["hypershell-users"],
+    user: { name: "Ada Lovelace" },
+  });
+  setBuildVersion("latest");
+
+  renderMenu();
+
+  await user.click(
+    await screen.findByRole("button", { name: /Ada Lovelace/u }),
+  );
+  const menu = screen.getByRole("menu");
+  expect(
+    within(menu).getByRole("menuitem", {
+      name: "Console version unknown",
+    }),
+  ).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: "Log out" })).toBeTruthy();
 });
 
 it("falls back to the preferred username, then email, then Account", async () => {

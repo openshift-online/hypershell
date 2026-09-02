@@ -32,6 +32,14 @@ const httpOrigin = z
 
 const configSchema = z.object({
   HOST: z.string().trim().min(1).default("0.0.0.0"),
+  HYPERSHELL_BUILD_VERSION: z
+    .string()
+    .trim()
+    .regex(
+      /^(?:dev|v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-[0-9a-f]{7}$/u,
+      "must contain a supported image build version",
+    )
+    .optional(),
   HYPERSHELL_API_ORIGIN: httpOrigin.default("http://127.0.0.1:8000"),
   HYPERSHELL_API_TIMEOUT_MS: z.coerce
     .number()
@@ -85,6 +93,7 @@ export interface TracingConfig {
 export interface ServerConfig {
   apiOrigin: string;
   apiTimeoutMs: number;
+  buildVersion?: string;
   host: string;
   logLevel: z.infer<typeof configSchema>["LOG_LEVEL"];
   nodeEnv: z.infer<typeof configSchema>["NODE_ENV"];
@@ -105,6 +114,9 @@ export interface ServerConfig {
  * origins, session secret, and OIDC settings never cross this boundary.
  */
 export interface BrowserRuntimeConfig {
+  build: {
+    version?: string;
+  };
   tracing: {
     /**
      * Fraction of browser-rooted traces to record, 0..1. It mirrors the BFF
@@ -121,6 +133,7 @@ export function browserRuntimeConfig(
   config: ServerConfig,
 ): BrowserRuntimeConfig {
   return {
+    build: config.buildVersion ? { version: config.buildVersion } : {},
     tracing: { sampleRatio: config.tracing?.sampleRatio ?? 0 },
   };
 }
@@ -161,6 +174,7 @@ export function loadConfig(
   return {
     apiOrigin: result.data.HYPERSHELL_API_ORIGIN,
     apiTimeoutMs: result.data.HYPERSHELL_API_TIMEOUT_MS,
+    buildVersion: result.data.HYPERSHELL_BUILD_VERSION,
     host: result.data.HOST,
     logLevel: result.data.LOG_LEVEL,
     nodeEnv: result.data.NODE_ENV,

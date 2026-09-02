@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete)
-**Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console
-**Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 complete)
+**Last analyzed**: 2026-09-02 (source-release REL-W4 complete)
+**Spec corpus**: 44 spec files; the coverage table tracks 33 analyzed feature/spec groups
+**Codebase commit**: working tree (source-release REL-W4 complete)
 
 ### Coverage Summary
 
@@ -72,16 +72,17 @@ skills/
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
+| Platform - Source Release | 1 | 12 | 12 | 0 | 0 | 0 | 100% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **32** | **225** | **176** | **18** | **26** | **5** | **82%** |
+| **TOTAL** | **33** | **237** | **188** | **18** | **26** | **5** | **83%** |
 
 ### Spec Dependency Order
 
 ```
 Layer 0 (roots):  data-model, standards/*
-Layer 1:          control-plane, local-development, web-console architecture
+Layer 1:          control-plane, local-development, source-release, web-console architecture
 Layer 2:          openshell-gateway (core)
 Layer 3:          openshell-gateway-database, openshell-gateway-tls
 Layer 4:          openshell-gateway-oidc (depends on TLS for trusted CA)
@@ -112,9 +113,9 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | REL-07 | Build version format | Present | - | `Makefile`, `scripts/build-version.sh`, `scripts/kind/`, `.tekton/` | REL-W2 |
 | REL-08 | Container metadata | Present | - | `components/{api-server,control-plane,web-console}/Dockerfile` | REL-W2 |
 | REL-09 | API service metadata | Present | - | `components/api-server/openapi/openapi.yaml`, `components/api-server/pkg/api/metadata_test.go` | REL-W3 |
-| REL-10 | Web-console version display | Missing | Runtime configuration and the user-menu row are absent. | `components/web-console/` | REL-W4 |
+| REL-10 | Web-console version display | Present | - | `components/web-console/bff/src/config.ts`, `components/web-console/app/features/shell/user-menu.tsx` | REL-W4 |
 | REL-11 | Registry and deployment scope | Present | - | `.tekton/`, `docs/releasing.md` | REL-W1 |
-| REL-12 | Verification and documentation | Partial | Release controls have tests and documentation. Image, API, and console checks remain. | `scripts/test_release_policy.py`, `docs/releasing.md` | REL-W1..REL-W4 |
+| REL-12 | Verification and documentation | Present | - | `scripts/test_release_policy.py`, `scripts/test_build_version.py`, `scripts/check_image_build_policy.py`, `components/api-server/pkg/api/metadata_test.go`, `components/web-console/app/features/shell/user-menu.test.tsx`, `docs/releasing.md` | REL-W1..REL-W4 |
 
 **Wave plan:**
 

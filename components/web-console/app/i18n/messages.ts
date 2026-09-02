@@ -11,6 +11,11 @@ export const messages = defineMessages({
     defaultMessage: "Breadcrumb",
     description: "Accessible label for the application breadcrumb navigation.",
   },
+  consoleVersion: {
+    id: "app.consoleVersion",
+    defaultMessage: "Console version {version}",
+    description: "Web-console image version in the identity menu.",
+  },
   errorBody: {
     id: "app.error.body",
     defaultMessage: "Refresh the page to try again.",
@@ -69,5 +74,10 @@ export const messages = defineMessages({
     defaultMessage: "Switch to light mode",
     description:
       "Accessible label for the color scheme toggle when dark mode is active.",
+  },
+  unknownVersion: {
+    id: "app.unknownVersion",
+    defaultMessage: "unknown",
+    description: "Version value when the web-console image version is absent.",
   },
 });
