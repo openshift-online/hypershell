@@ -525,10 +525,9 @@ E2E_INFRA_DRIVER ?= kind
 .PHONY: e2e
 e2e:
 	@echo ""
-	@echo "==> Running E2E tests ($(E2E_INFRA_DRIVER))"
+	@echo "==> Running E2E tests"
 	@echo ""
-	@E2E_INFRA_DRIVER=$(E2E_INFRA_DRIVER) \
-		E2E_PROVISION_TIMEOUT=300 \
+	@E2E_PROVISION_TIMEOUT=300 \
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-openshell.sh
 

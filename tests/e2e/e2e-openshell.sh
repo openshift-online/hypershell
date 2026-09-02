@@ -5,17 +5,19 @@
 # Proves the full path: HyperShell API -> control plane -> gateway provisioning
 # -> openshell CLI -> sandbox pod creation + interaction.
 #
-# The E2E_INFRA_DRIVER environment variable selects the infrastructure driver.
-# Each driver (tests/e2e/drivers/<driver>.sh) implements a fixed set of
-# functions that abstract infrastructure-specific operations.
+# The infrastructure driver is auto-detected from the current KUBECONFIG
+# context: a cluster that serves the route.openshift.io API group is
+# OpenShift, otherwise Kind is assumed. Set E2E_INFRA_DRIVER to override
+# detection. Each driver (tests/e2e/drivers/<driver>.sh) implements a fixed
+# set of functions that abstract infrastructure-specific operations.
 #
 # Usage:
-#   E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh
+#   bash tests/e2e/e2e-openshell.sh
 #   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift \
-#     bash tests/e2e/e2e-openshell.sh
+#     bash tests/e2e/e2e-openshell.sh   # override detection
 #
 # Environment variables:
-#   E2E_INFRA_DRIVER      (required) Infra driver: kind or openshift
+#   E2E_INFRA_DRIVER      Infra driver override: kind, openshift (default: auto-detected)
 #   E2E_NAMESPACE          Namespace for e2e resources (default: openshell-e2e)
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw)
 #   E2E_MODE               Run depth: long (default, every step) or short (essential steps)
@@ -46,8 +48,20 @@ DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
 
 e2e_validate_mode
 
+# Detects OpenShift by checking whether the current KUBECONFIG context serves
+# the route.openshift.io API group, an API only OpenShift clusters expose.
+# Any other cluster is assumed to be Kind.
+detect_infra_driver() {
+  if kubectl api-versions 2>/dev/null | grep -q '^route\.openshift\.io/'; then
+    echo "openshift"
+  else
+    echo "kind"
+  fi
+}
+
 if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
-  e2e_die_unknown_driver "E2E_INFRA_DRIVER is not set."
+  E2E_INFRA_DRIVER="$(detect_infra_driver)"
+  dim "  Detected infra driver: ${E2E_INFRA_DRIVER} (from KUBECONFIG context; set E2E_INFRA_DRIVER to override)"
 fi
 
 DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"

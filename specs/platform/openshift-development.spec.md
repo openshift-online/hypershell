@@ -89,7 +89,8 @@ Makefile (single entry point)
     │
     └── e2e tests (infra-agnostic, unchanged contract)
             │
-            └── selects driver via E2E_INFRA_DRIVER
+            └── selects driver by auto-detecting the KUBECONFIG context
+                    (E2E_INFRA_DRIVER overrides detection)
                     ├── tests/e2e/drivers/kind.sh
                     └── tests/e2e/drivers/openshift.sh         (this spec)
 ```
@@ -129,11 +130,14 @@ OpenShift lifecycle driver and the OpenShift e2e driver
 
 The lifecycle driver and the e2e driver for a target SHALL select the same
 infrastructure. The lifecycle driver comes from the make target name. The e2e
-driver comes from `E2E_INFRA_DRIVER`, which the test entry points require (see
-`e2e-testing.spec.md`). The test entry points (`make e2e`, `make e2e-performance`)
-are each one infrastructure-agnostic target, so they need an explicit selector. The
-lifecycle targets do not need a selector, because the target name already fixes the
-infrastructure.
+driver auto-detects from the current KUBECONFIG context, which the test entry
+points require to already point at the target infrastructure (see
+`e2e-testing.spec.md`); `E2E_INFRA_DRIVER` remains available to override
+detection. The test entry points (`make e2e`, `make e2e-performance`) are each
+one infrastructure-agnostic target, so a developer who has run `make
+openshift-up` and left their `oc` context pointed at that cluster gets the
+OpenShift e2e driver with no extra selector. The lifecycle targets do not need
+a selector either, because the target name already fixes the infrastructure.
 
 #### Scenario: Default driver preserves Kind behavior
 
@@ -190,7 +194,15 @@ Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
 developer needs for a working gateway -- a ManagedCluster, a
 GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
 OIDC values for the environment, so that one command produces a working gateway and
-the OpenShift workflow matches the Kind workflow.
+the OpenShift workflow matches the Kind workflow. When the CloudNativePG operator
+is not on the cluster, `make openshift-up` already falls back to the bundled
+PostgreSQL Deployment for the API server; seeding SHALL create the ManagedDatabase
+with `provider=deployment` in that case, not `provider=cnpg`. When CNPG is
+present, seeding MAY use `provider=cnpg`. The OpenShift overlay SHALL set
+`GATEWAY_API_HTTP_LISTENER_NAME=grpc` so console HTTPRoutes attach to the shared
+Gateway listener of that name. The default `https` sectionName SHALL NOT be used
+on this overlay: the shared Gateway has no `https` listener, and that mismatch
+reports `NoMatchingParent` and does not self-heal.
 
 The `make openshift-down` command SHALL delete the applied manifests and SHALL
 remove every project in the environment namespace group: the platform project
@@ -213,6 +225,19 @@ component swap state, the same categories that `make kind-status` reports.
 The command names SHALL mirror the Kind command names by replacing the `kind`
 prefix with `openshift`.
 
+Like `make kind-up`, `make openshift-up` SHALL wait until the stack is ready
+before it prints the running banner or seeds. The wait SHALL cover Keycloak,
+PostgreSQL when it is deployed as a Deployment, the API server, the control
+plane, and the web console, including after Route-derived environment updates
+and including a swapped working-tree image. The wait SHALL use
+`oc rollout status`, not `oc wait --for=condition=available`, so a Deployment
+that stays Available during a rolling update cannot report ready while a new
+ReplicaSet is still in flight. The control plane Deployment SHALL expose a TCP
+readiness probe on the service-account provisioner port so rollout is not
+complete until that port is listening. The wait SHALL NOT probe OpenShift
+Routes for `/healthcheck`, `/openapi`, or an OIDC token; seeding already retries
+those from the developer machine.
+
 #### Scenario: Deploy the full stack to OpenShift
 
 - GIVEN a developer has a kubeconfig context for an OpenShift cluster
@@ -224,6 +249,15 @@ prefix with `openshift`.
   ManagedDatabase, and a Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
+
+#### Scenario: Wait until the stack can serve
+
+- GIVEN overlay apply, swap restore, and Route-derived environment updates have
+  triggered rollouts
+- WHEN the developer runs `make openshift-up`
+- THEN the command does not print the running banner until `oc rollout status`
+  succeeds for Keycloak, the API server, the control plane, and the web console
+- AND the command does not skip that wait for a swapped component
 
 #### Scenario: Console login and API seeding use the OpenShift Routes
 
@@ -569,9 +603,12 @@ cluster-wildcard certificate, the suite SHALL rely on the system trust store. Wh
 the shared Gateway serves a private CA, the driver SHALL extract that CA and point
 `SSL_CERT_FILE` at it. The suite SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`.
 
-The OpenShift e2e suite SHALL run with `E2E_INFRA_DRIVER=openshift bash
-tests/e2e/e2e-openshell.sh`, and SHALL exercise the same test areas that the Kind
-suite exercises, so that a single suite validates both infrastructure targets.
+The OpenShift e2e suite SHALL run with `bash tests/e2e/e2e-openshell.sh` against
+a KUBECONFIG context pointed at the OpenShift cluster -- the suite auto-detects
+the OpenShift driver from that context, or a caller MAY force it explicitly
+with `E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh` -- and SHALL
+exercise the same test areas that the Kind suite exercises, so that a single
+suite validates both infrastructure targets.
 
 #### Scenario: Discover the API host on OpenShift
 

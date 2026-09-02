@@ -2,12 +2,15 @@ package gateway
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -33,12 +36,33 @@ func managedNamespaceForInstance(name, instance string, annotations map[string]s
 }
 
 func TestManagedNamespaceSelector(t *testing.T) {
-	got := ManagedNamespaceSelector("alice")
+	got, err := ManagedNamespaceSelector("alice")
+	if err != nil {
+		t.Fatalf("ManagedNamespaceSelector() error = %v", err)
+	}
 	want := "hypershell.redhat.io/managed=true,app.kubernetes.io/managed-by=hypershell-control-plane,hypershell.redhat.io/instance=alice"
 	if got != want {
 		t.Errorf("ManagedNamespaceSelector() = %q, want %q", got, want)
 	}
-	if ManagedNamespaceSelector("") == ManagedNamespaceSelector("hypershell") {
+	empty, err := ManagedNamespaceSelector("")
+	if err == nil {
+		t.Fatal("ManagedNamespaceSelector(\"\") error = nil, want error")
+	}
+	if _, parseErr := labels.Parse(empty); parseErr != nil {
+		t.Fatalf("empty-instance selector %q is not a valid label selector: %v", empty, parseErr)
+	}
+	_, value, ok := strings.Cut(empty, "=")
+	if !ok {
+		t.Fatalf("empty-instance selector %q has no value", empty)
+	}
+	if msgs := validation.IsValidLabelValue(value); len(msgs) != 0 {
+		t.Fatalf("sentinel label value %q is invalid: %v", value, msgs)
+	}
+	real, err := ManagedNamespaceSelector("hypershell")
+	if err != nil {
+		t.Fatalf("ManagedNamespaceSelector(hypershell) error = %v", err)
+	}
+	if empty == real {
 		t.Errorf("empty instance selector must not match a real instance")
 	}
 }

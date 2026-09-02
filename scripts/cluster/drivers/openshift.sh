@@ -681,10 +681,21 @@ wait_for_route_host() {
   return 1
 }
 
+wait_for_named_rollout() {
+  local deployment="$1"
+  local ns="$2"
+  local timeout="${3:-180s}"
+  info "Waiting for ${deployment}..."
+  if ! oc_cli rollout status "deployment/${deployment}" -n "${ns}" --timeout="${timeout}"; then
+    error "${deployment} did not become ready in ${ns}"
+    oc_cli describe "deploy/${deployment}" -n "${ns}" | tail -30 || true
+    exit 1
+  fi
+  success "${deployment} ready"
+}
+
 wait_for_keycloak() {
-  info "Waiting for Keycloak..."
-  oc_cli rollout status deployment/keycloak -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" --timeout=180s
-  success "Keycloak ready"
+  wait_for_named_rollout keycloak "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
 }
 
 configure_oidc_from_routes() {
@@ -732,6 +743,11 @@ configure_oidc_from_routes() {
 
 wait_for_deployments() {
   header "Readiness"
+  # Use `rollout status`, not `wait --for=condition=available`. With replicas=1
+  # and the default rolling update the Deployment stays Available throughout a
+  # rollout (the old pod keeps serving until the new one is Ready), so
+  # `wait --for=condition=available` returns immediately after Route-derived
+  # `oc set env` and swap restore -- while a rollout is still in flight.
   wait_for_keycloak
 
   if [[ -n "$(oc_cli get cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found -o name 2>/dev/null || true)" ]]; then
@@ -739,32 +755,12 @@ wait_for_deployments() {
     oc_cli wait --for=condition=Ready cluster/hypershell-db -n "${OPENSHIFT_NAMESPACE}" --timeout=300s \
       || warn "CNPG cluster not Ready yet; API server will retry connections"
   elif oc_cli get deployment/hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
-    info "Waiting for PostgreSQL deployment..."
-    if ! oc_cli rollout status deployment/hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" --timeout=120s; then
-      warn "PostgreSQL rollout timed out. ReplicaSet events:"
-      oc_cli describe deploy/hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" | tail -20 || true
-      oc_cli get events -n "${OPENSHIFT_NAMESPACE}" --field-selector involvedObject.kind=ReplicaSet \
-        --sort-by='.lastTimestamp' 2>/dev/null | tail -10 || true
-      exit 1
-    fi
-    success "PostgreSQL ready"
+    wait_for_named_rollout hypershell-postgres "${OPENSHIFT_NAMESPACE}" 120s
   fi
 
-  if ! is_openshift_swapped api-server; then
-    info "Waiting for API server..."
-    oc_cli rollout status deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" --timeout=180s
-    success "API server ready"
-  fi
-  if ! is_openshift_swapped control-plane; then
-    info "Waiting for control plane..."
-    oc_cli rollout status deployment/hypershell-controller -n "${OPENSHIFT_NAMESPACE}" --timeout=180s
-    success "Control plane ready"
-  fi
-  if ! is_openshift_swapped web-console; then
-    info "Waiting for web console..."
-    oc_cli rollout status deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" --timeout=180s
-    success "Web console ready"
-  fi
+  wait_for_named_rollout hypershell-api-server "${OPENSHIFT_NAMESPACE}"
+  wait_for_named_rollout hypershell-controller "${OPENSHIFT_NAMESPACE}"
+  wait_for_named_rollout hypershell-web-console "${OPENSHIFT_NAMESPACE}"
 }
 
 # Talk to OpenShift Routes from the developer machine. The API server image has
@@ -936,16 +932,26 @@ seed_via_api() {
   fi
 
   if [[ -z "${seed_failed}" ]]; then
+    local db_provider="cnpg"
+    if ! cnpg_available; then
+      db_provider="deployment"
+    fi
     raw="$(api_exec GET /api/hypershell/v1/managed_databases)"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     if [[ "${http}" == "200" ]]; then
       DATABASE_ID="$(extract_named_id "${body}" openshell-db)"
     fi
-    if [[ -z "${DATABASE_ID}" ]]; then
-      info "Creating ManagedDatabase..."
+    if [[ -n "${DATABASE_ID}" ]] && ! cnpg_available \
+      && printf '%s' "${body}" | grep -Fq '"provider":"cnpg"'; then
+      warn "openshell-db ManagedDatabase ${DATABASE_ID} has provider=cnpg, but this cluster has no CNPG operator"
+      warn "Gateways using it will not reconcile. Run make openshift-down then make openshift-up, or delete that ManagedDatabase and make openshift-seed"
+      seed_failed=true
+    fi
+    if [[ -z "${seed_failed}" && -z "${DATABASE_ID}" ]]; then
+      info "Creating ManagedDatabase (provider=${db_provider})..."
       raw="$(api_exec POST /api/hypershell/v1/managed_databases \
-        "{\"name\":\"openshell-db\",\"provider\":\"cnpg\"}")"
+        "{\"name\":\"openshell-db\",\"provider\":\"${db_provider}\"}")"
       http="$(printf '%s' "${raw}" | tail -1)"
       body="$(printf '%s' "${raw}" | sed '$d')"
       if [[ "${http}" != "201" && "${http}" != "200" ]]; then
@@ -953,9 +959,9 @@ seed_via_api() {
         seed_failed=true
       else
         DATABASE_ID="$(extract_id "${body}")"
-        success "ManagedDatabase created: ${DATABASE_ID}"
+        success "ManagedDatabase created: ${DATABASE_ID} (provider=${db_provider})"
       fi
-    else
+    elif [[ -z "${seed_failed}" ]]; then
       success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
     fi
   fi

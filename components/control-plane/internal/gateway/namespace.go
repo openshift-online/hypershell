@@ -53,14 +53,17 @@ const (
 )
 
 // ManagedNamespaceSelector selects namespaces created by this control-plane
-// instance. An empty instance matches nothing: listing by the generic management
+// instance. An empty instance is an error: listing by the generic management
 // labels alone would treat every other HyperShell on the cluster as an orphan.
-func ManagedNamespaceSelector(instance string) string {
+// The returned selector is still a valid Kubernetes label selector that matches
+// nothing, so a caller that ignores the error cannot trigger an HTTP 400 or
+// list every namespace (an empty LabelSelector would).
+func ManagedNamespaceSelector(instance string) (string, error) {
 	if instance == "" {
-		return InstanceLabel + "=__no-such-instance__"
+		return InstanceLabel + "=no-such-instance", fmt.Errorf("instance identity is empty; refusing to build a managed-namespace selector")
 	}
 	return fmt.Sprintf("%s=%s,%s=%s,%s=%s",
-		ManagedLabel, ManagedLabelValue, ManagedByLabel, ManagedByValue, InstanceLabel, instance)
+		ManagedLabel, ManagedLabelValue, ManagedByLabel, ManagedByValue, InstanceLabel, instance), nil
 }
 
 // LegacyUnlabeledSelector selects HyperShell-managed namespaces that predate the

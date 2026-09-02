@@ -149,9 +149,15 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	}
 	backfillCancel()
 
+	selector, err := gateway.ManagedNamespaceSelector(r.cpNamespace)
+	if err != nil {
+		tickErr = err
+		log.Printf("WARN namespace gc: %v", tickErr)
+		return
+	}
 	listCtx, cancel := context.WithTimeout(ctx, namespaceListTimeout)
 	namespaces, err := r.client.CoreV1().Namespaces().List(listCtx, metav1.ListOptions{
-		LabelSelector: gateway.ManagedNamespaceSelector(r.cpNamespace),
+		LabelSelector: selector,
 	})
 	cancel()
 	if err != nil {

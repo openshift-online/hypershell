@@ -141,6 +141,39 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_up does not honor SKIP_SEED'
 fi
+if grep -A8 'db_provider="cnpg"' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cnpg_available' \
+  && grep -A20 'Creating ManagedDatabase' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'provider='; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed still hardcodes ManagedDatabase provider=cnpg'
+fi
+if grep -A30 '^wait_for_deployments()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'is_openshift_swapped'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: wait_for_deployments skips swapped components'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A30 '^wait_for_deployments()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'wait_for_named_rollout hypershell-api-server' \
+  && grep -A30 '^wait_for_deployments()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'wait_for_named_rollout hypershell-controller' \
+  && grep -A30 '^wait_for_deployments()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'wait_for_named_rollout hypershell-web-console'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: wait_for_deployments does not wait for platform rollouts'
+fi
+if grep -qE 'wait_for_oidc_token|wait_for_api_openapi|wait_for_api_healthcheck' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: wait_for_deployments still probes Routes for HTTP readiness'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A20 'containerPort: 9443' "${SCRIPT_DIR}/../../deploy/base/controller.yaml" | grep -q 'readinessProbe'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: control plane Deployment has no readiness probe on the provisioner port'
+fi
 if grep -A15 'Automatic seeding incomplete' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'seed_strict'; then
   PASS=$((PASS + 1))
 else
@@ -679,6 +712,12 @@ if bad:
     else
       FAIL=$((FAIL + 1))
       echo 'FAIL: OpenShift overlay dropped HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR FQDN'
+    fi
+    if grep -A1 'name: GATEWAY_API_HTTP_LISTENER_NAME' "${os_out}" | grep -q 'grpc'; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo 'FAIL: OpenShift overlay does not set GATEWAY_API_HTTP_LISTENER_NAME=grpc'
     fi
   else
     FAIL=$((FAIL + 1))

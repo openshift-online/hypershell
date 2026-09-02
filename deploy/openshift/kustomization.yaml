@@ -33,6 +33,12 @@ patches:
                     value: openshell.stage.example.com
                   - name: GATEWAY_API_TLS_ISSUER_NAME
                     value: hypershell-ca-issuer
+                  # Shared Gateway listener is named grpc (see
+                  # deploy/openshift/infrastructure/gateway.yaml). Console
+                  # HTTPRoutes default sectionName to https, which yields
+                  # NoMatchingParent on this cluster.
+                  - name: GATEWAY_API_HTTP_LISTENER_NAME
+                    value: grpc
                   - name: OIDC_ISSUER
                     valueFrom:
                       secretKeyRef:

@@ -378,7 +378,7 @@ command stops with an error.
 
 | Target | Use |
 |--------|-----|
-| `make openshift-up` | Deploy the stack into the current oc project (`OPENSHIFT_NAMESPACE` override) and companion `${name}-keycloak`. Does not create an OpenShift cluster. Seeds unless `SKIP_SEED=true`. |
+| `make openshift-up` | Deploy the stack into the current oc project (`OPENSHIFT_NAMESPACE` override) and companion `${name}-keycloak`. Does not create an OpenShift cluster. Waits for component rollouts, then seeds unless `SKIP_SEED=true`. |
 | `make openshift-down` | Delete the platform and Keycloak projects. If project deletion is forbidden, strip HyperShell resources and leave the projects. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |

@@ -56,9 +56,9 @@ Namespace creation and provisioning mechanics are defined in
   names match the gateway prefix (`openshell-<hex>`) and excludes ManagedDatabase
   namespaces (`openshell-db-<hex>`). A namespace owned by a different instance is
   never listed, annotated, or reaped. A gateway namespace that carries both
-  management labels but no instance label is a pre-label leftover: each GC sweep
-  claims it for this instance (stamps `hypershell.redhat.io/instance`) and then
-  evaluates it as any other owned namespace. ManagedDatabase namespaces and
+  management labels but no instance label is unlabeled leftover. Periodic GC
+  SHALL leave it unlabeled. An operator labels it for the owning instance when
+  they want that instance's sweep to consider it. ManagedDatabase namespaces and
   namespaces already labeled for another instance are never claimed.
   A Gateway pointed at a pre-existing or shared namespace can never cause that
   namespace to be reaped.
@@ -157,16 +157,10 @@ same cluster is never observed as an orphan of this instance. If
 `HYPERSHELL_NAMESPACE` is empty, the reconciler SHALL abort the sweep rather than
 list by the generic management labels alone.
 
-Before that instance-scoped list, each sweep SHALL claim unlabeled legacy
-gateway namespaces: those that carry both management labels, have no
-`hypershell.redhat.io/instance` key, and match the gateway prefix (not
-`openshell-db-<hex>`). Claiming SHALL stamp this instance's identity and SHALL
-NOT overwrite a label that already identifies a different instance. Unlabeled
-ManagedDatabase namespaces SHALL NOT be claimed. After claiming, the sweep SHALL
-evaluate those namespaces as owned by this instance (live Gateways are retained;
-orphans start or continue the grace timer and are reaped after it elapses). If
-claiming fails, the reconciler SHALL still sweep already-labeled namespaces.
-The sweep interval defaults to
+The sweep SHALL NOT stamp `hypershell.redhat.io/instance` onto unlabeled
+namespaces. Unlabeled leftovers stay unlabeled until an operator assigns the
+owning instance. Live Gateways this instance reconciles still receive the
+instance label through `EnsureManagedNamespace`. The sweep interval defaults to
 5 minutes and the grace period defaults to 10 minutes. Garbage collection SHALL
 be enabled by default and configurable without code changes via environment
 variables:
@@ -197,25 +191,24 @@ database prefix, and carrying this instance's identity label).
 - THEN it SHALL NOT list, annotate, or delete instance A's namespaces
 - AND it SHALL NOT record them as orphaned of instance B
 
-#### Scenario: Unlabeled legacy orphan is claimed then swept
+#### Scenario: Unlabeled leftover is left for an operator
 
 - GIVEN a namespace that carries the two management labels but not
   `hypershell.redhat.io/instance`
 - AND its name is gateway-prefixed (`openshell-<hex>`, not `openshell-db-<hex>`)
 - AND no live Gateway in this instance's API server maps to it
 - WHEN this instance's garbage-collection reconciler sweeps
-- THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance
-- AND it SHALL treat the namespace as an orphan of this instance (stamp
-  `gc-eligible-since`, and delete after the grace period)
+- THEN it SHALL NOT stamp `hypershell.redhat.io/instance`
+- AND it SHALL NOT stamp `gc-eligible-since` or delete that namespace
 
-#### Scenario: Live unlabeled gateway namespace is labeled but not orphaned
+#### Scenario: Live unlabeled gateway namespace is labeled on reconcile, not by GC
 
 - GIVEN a namespace that carries the two management labels but not
   `hypershell.redhat.io/instance`
 - AND a live Gateway in this instance's API server maps to it
-- WHEN this instance's garbage-collection reconciler sweeps
+- WHEN the control plane reconciles that Gateway
 - THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance
-- AND it SHALL NOT stamp `gc-eligible-since` or delete that namespace
+- AND the garbage-collection sweep SHALL NOT stamp that label on its own
 
 #### Scenario: Unlabeled ManagedDatabase namespace is not claimed
 
@@ -242,11 +235,10 @@ database prefix, and carrying this instance's identity label).
 
 - GIVEN the control plane was down when a Gateway is deleted, so the namespace
   was never reaped by the delete path
-- AND the namespace is either labeled for this instance or is an unlabeled
-  legacy namespace carrying both management labels
+- AND the namespace already carries this instance's identity label
 - WHEN the control plane restarts and the garbage-collection reconciler sweeps
-- THEN it SHALL observe the namespace as orphaned (claiming an unlabeled
-  leftover first) and, once the grace period has elapsed, delete it
+- THEN it SHALL observe the namespace as orphaned and, once the grace period has
+  elapsed, delete it
 
 ### Requirement: Stamp This Instance's Identity on Namespaces It Manages
 
@@ -257,12 +249,11 @@ two management labels. If the namespace already carries a different instance
 identity, the control plane SHALL NOT adopt, relabel, or delete it. Reconciling a
 live Gateway SHALL add the instance label to a legacy unlabeled namespace this
 instance is actively managing, so a later orphan can be reaped by this instance's
-periodic GC. Each GC sweep SHALL also stamp this instance's identity onto
-unlabeled legacy gateway namespaces (both management labels, no instance label,
-gateway prefix) so a missed-delete orphan that never hits the live-reconcile
-path becomes eligible for the orphan sweep. An empty `HYPERSHELL_NAMESPACE`
-SHALL NOT create or relabel a managed namespace. Two controllers on the same
-cluster SHALL NOT share an instance identity.
+periodic GC. Periodic GC SHALL NOT stamp instance labels onto unlabeled
+namespaces. An operator who wants an unlabeled leftover swept assigns
+`hypershell.redhat.io/instance` to the owning control-plane namespace. An empty
+`HYPERSHELL_NAMESPACE` SHALL NOT create or relabel a managed namespace. Two
+controllers on the same cluster SHALL NOT share an instance identity.
 
 #### Scenario: Created gateway namespace is labeled for this instance
 

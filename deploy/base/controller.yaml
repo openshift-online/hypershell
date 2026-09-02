@@ -55,6 +55,19 @@ spec:
           ports:
             - containerPort: 9443
               name: provisioner
+          startupProbe:
+            tcpSocket:
+              port: provisioner
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: provisioner
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: provisioner
+            periodSeconds: 5
           resources:
             requests:
               cpu: 100m
