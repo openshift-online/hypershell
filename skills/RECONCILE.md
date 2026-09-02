@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-02 (source-release REL-W4 complete)
+**Last analyzed**: 2026-09-02 (source-release manual approval update complete)
 **Spec corpus**: 44 spec files; the coverage table tracks 33 analyzed feature/spec groups
-**Codebase commit**: working tree (source-release REL-W4 complete)
+**Codebase commit**: working tree (source-release manual approval update complete)
 
 ### Coverage Summary
 
@@ -107,7 +107,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | REL-01 | Conventional pull request titles | Present | - | `scripts/release_policy.py`, `.github/workflows/lint.yml` | REL-W1 |
 | REL-02 | Managed Release PR | Present | - | `.github/workflows/release-please.yml`, `release-please-config.json` | REL-W1 |
 | REL-03 | Release files | Present | - | `VERSION`, `CHANGELOG.md`, `build-version.env`, `.release-please-manifest.json` | REL-W1 |
-| REL-04 | Release publication | Present | The repository owner must set the documented GitHub App variable and secret. | `.github/workflows/release-please.yml`, `docs/releasing.md` | REL-W1 |
+| REL-04 | Release publication | Present | - | `.github/workflows/release-please.yml`, `docs/releasing.md` | REL-W1 |
 | REL-05 | First release baseline | Present | - | `release-please-config.json`, `.release-please-manifest.json` | REL-W1 |
 | REL-06 | Component-selective CI builds | Present | - | `.tekton/`, `.github/workflows/e2e.yml` | REL-W2 |
 | REL-07 | Build version format | Present | - | `Makefile`, `scripts/build-version.sh`, `scripts/kind/`, `.tekton/` | REL-W2 |

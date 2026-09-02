@@ -50,53 +50,24 @@ The first manifest version is `0.0.0`. The history baseline is the commit
 before this release strategy. Thus, the first feature proposes `0.1.0`, and the
 first changelog does not contain older repository history.
 
-## GitHub App Setup
+## Release PR Workflow Approval
 
-The current workflow requires a GitHub App token. The built-in `GITHUB_TOKEN`
-can create a Release PR, but GitHub puts the [resulting workflow runs][github-token]
-in an approval-required state. A person would have to approve the checks after
-each Release PR update. The app token lets the normal required checks start
-without manual approval.
+The Release Please workflow uses the built-in `GITHUB_TOKEN`. It needs no
+repository variable or secret. Its permissions are limited to write access for
+contents, issues, and pull requests.
 
-The client ID identifies the app. It is not a secret. The private key proves
-the app identity and is a secret. The workflow uses both values to create a
-short-lived installation token for this repository.
+GitHub puts [workflow runs for an automation-created pull request][github-token]
+in an approval-required state. After Release Please opens or updates the
+Release PR, a user with write access must open the PR and select **Approve
+workflows to run**. Approve the workflow runs for the current revision before
+you merge the Release PR. You can wait until the release is ready and approve
+only the current revision.
 
-First, ask an `openshift-online` organization owner whether a suitable release
-automation app already exists. If it does not exist, an organization owner or
-a person with permission to manage the organization GitHub Apps must
-[register a GitHub App][register-app]. Use these settings:
+Events that the built-in token creates do not start later workflows, except for
+the documented pull request case. This strategy does not require a later tag or
+release workflow. If a later change adds that automation, use a GitHub App or a
+personal access token for Release Please.
 
-- Make the app private to the organization.
-- Set the homepage URL to the HyperShell repository.
-- Disable webhooks. This workflow does not use them.
-- Do not request user authorization.
-- Give the app these repository permissions:
-  - Contents: Read and write
-  - Issues: Read and write
-  - Pull requests: Read and write
-
-Do not give the app organization permissions. Install the app on the
-`openshift-online` organization and give it access only to the `hypershell`
-repository. The organization policy can require owner approval.
-
-On the app settings page, copy the client ID. Under **Private keys**,
-[generate a private key][private-key]. GitHub downloads a PEM file. Keep this
-file secure, and do not commit it. If the file is lost, generate a new key.
-
-In the HyperShell repository, go to **Settings > Secrets and variables >
-Actions**. Add these values:
-
-- Variable `RELEASE_PLEASE_APP_CLIENT_ID`: the app client ID
-- Secret `RELEASE_PLEASE_APP_PRIVATE_KEY`: the complete PEM private key
-
-The workflow does not store the generated installation token. GitHub expires
-the token after one hour. A personal access token can also start subsequent
-workflows, but it is tied to a person. A GitHub App is the preferred repository
-credential for this automation.
-
-[register-app]: https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app
-[private-key]: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
 [github-token]: https://docs.github.com/en/actions/concepts/security/github_token
 
 ## Failure Recovery

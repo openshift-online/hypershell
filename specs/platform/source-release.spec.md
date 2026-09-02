@@ -73,6 +73,11 @@ selects it for release. The automation SHALL NOT enable automatic merge.
 The Release PR is a release decision surface. It is not a SemVer prerelease,
 and it SHALL NOT create an `-rc` tag.
 
+Release Please SHALL use the repository `GITHUB_TOKEN` to create and update the
+Release PR. GitHub SHALL hold the resulting CI workflow runs for manual
+approval. A user with write access SHALL approve the workflow runs for the
+current Release PR revision before merge.
+
 #### Scenario: Work enters main while the Release PR is open
 
 - GIVEN an open Release PR proposes version `0.4.0`
@@ -80,6 +85,7 @@ and it SHALL NOT create an `-rc` tag.
 - THEN Release Please SHALL update the same Release PR
 - AND it SHALL update the proposed changelog
 - AND it SHALL recalculate the proposed version when necessary
+- AND CI workflow runs for the updated revision SHALL wait for manual approval
 - AND it SHALL NOT create a GitHub release
 
 #### Scenario: Maintenance-only work
@@ -117,8 +123,9 @@ PR commit. The GitHub release notes SHALL use the matching `CHANGELOG.md`
 section. The repository SHALL have immutable GitHub releases enabled.
 
 Release automation SHALL be safe to run again after a failure. It SHALL use a
-dedicated GitHub App token so that automation-created pull requests run normal
-CI. Each external GitHub Action SHALL use a full commit SHA.
+repository `GITHUB_TOKEN` with write access only for contents, issues, and pull
+requests. The repository SHALL allow GitHub Actions to create pull requests.
+Each external GitHub Action SHALL use a full commit SHA.
 
 #### Scenario: Ordinary merge
 
@@ -290,8 +297,9 @@ Repository checks SHALL verify conventional title validation, release-file
 consistency, build-version calculation, API metadata, browser runtime
 configuration, user-menu presentation, and event-specific image selection.
 Release documentation SHALL describe commit types, release PR operation,
-required GitHub App permissions, the manual merge step, first-release behavior,
-failure recovery, and the boundary with Argo image bump.
+`GITHUB_TOKEN` permissions, manual workflow approval, the manual merge step,
+first-release behavior, failure recovery, and the boundary with Argo image
+bump.
 
 #### Scenario: Release automation fails after merge
 
