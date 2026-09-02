@@ -341,21 +341,25 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 
 The dashboard SHALL use PatternFly's `@patternfly/widgetized-dashboard` (`GridLayout`, `WidgetDrawer`, `AddWidgetsButton`) with a four-column grid on `xl`, `lg`, and `md` breakpoints and a single-column stack on `sm`.
 
-The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these widgets:
+The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these widgets. Each section begins with a full-width `section-title` row (OP-DASH-20); metric widgets in that section start on the row below the title.
 
-| Widget type | Default position (4-column) |
-| --- | --- |
-| `usage-summary` | Column 0, top |
-| `system-summary` | Column 0, below usage summary |
-| `gateway-status` | Column 1, spans two metric rows |
-| `provisioned-sandboxes` | Column 2, top |
-| `memory` | Column 3, top |
-| `active-users` | Column 2, second row |
+| Widget type | Layout item `i` | Default position (4-column) |
+| --- | --- | --- |
+| `section-title` | `section-title#platform-adoption` | Full width, row 0 (platform adoption header) |
+| `usage-summary` | `usage-summary#1` | Column 0, platform adoption |
+| `gateway-status` | `gateway-status#1` | Columns 1–2, platform adoption, spans two columns |
+| `provisioned-sandboxes` | `provisioned-sandboxes#1` | Column 3, platform adoption |
+| `registered-users` | `registered-users#1` | Column 3, platform adoption second row |
+| `section-title` | `section-title#hub-cluster` | Full width, hub cluster header row |
+| `system-summary` | `system-summary#1` | Column 0, hub cluster |
+| `memory` | `memory#1` | Column 1, hub cluster |
+| `cpu` | `cpu#1` | Column 2, hub cluster |
+| `pods` | `pods#1` | Column 3, hub cluster |
+| `nodes` | `nodes#1` | Column 1, hub cluster second row |
 
-**Note:** Widget type `active-users` is superseded by `registered-users` per `platform/registered-users.spec.md` RU-05. New implementations SHALL use `registered-users` only.
-| `cpu` | Column 3, second row |
-| `pods` | Column 3, third row (one grid unit taller than `cpu`; same height as `nodes`) |
-| `nodes` | Column 2, third row (one grid unit taller than `cpu`) |
+On `sm`, widgets SHALL stack in section order: platform adoption title, adoption metrics, hub cluster title, then hub cluster metrics.
+
+The page header SHALL place the localized last-refreshed timestamp, manual refresh control, reset-to-default link, and add-widgets button in the top-right column, stacked vertically with compact spacing. The grid SHALL NOT use a separate sticky toolbar between the page header and widgets. The last-refreshed timestamp SHALL be formatted from `lastSuccessfulRefresh`. The page description SHALL describe v1 scope and the 15-minute refresh interval without duplicating refresh instructions already shown in the timestamp area.
 
 Widget titles in the layout template SHALL be localized via `localizeDashboardLayoutTemplate` using the package `messages` catalog.
 
@@ -372,11 +376,11 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 ### Requirement: OP-DASH-11 -- Layout Persistence
 
-The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v20`.
+The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v23`.
 
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
-Duplicate `widgetType` entries in a single variant SHALL be deduplicated on save (first occurrence wins).
+Duplicate layout item `i` values in a single variant SHALL be deduplicated on save (first occurrence wins). Duplicate metric `widgetType` entries (every type except `section-title`) SHALL also be deduplicated on save (first occurrence wins). Multiple `section-title` instances with distinct `i` values SHALL be preserved.
 
 When persistence fails (for example, storage quota exceeded), the dashboard SHALL continue to function in memory and SHALL publish a `dashboard.layout.template.persistence-failed` probe with outcome `failed`.
 
@@ -515,6 +519,40 @@ Loading states SHALL use a `Spinner` with a localized `aria-label` on the initia
 - WHEN the description paragraph renders
 - THEN it SHALL summarize gateway fleet health, hub cluster capacity, and platform usage
 - AND it SHALL state that metrics refresh every 15 minutes and that Refresh updates them immediately
+
+---
+
+### Requirement: OP-DASH-20 -- Section Title Widgets
+
+The dashboard SHALL support a `section-title` widget type for full-width section headers that group related metric widgets. Section titles are decorative labels only; they do not load metrics.
+
+The default layout template SHALL include two `section-title` instances:
+
+| Layout item `i` | Localized title | Message ID |
+| --- | --- | --- |
+| `section-title#platform-adoption` | Platform adoption | `app.dashboard.sectionTitle.platformAdoption` |
+| `section-title#hub-cluster` | Hub cluster | `app.dashboard.sectionTitle.hubCluster` |
+
+Each `section-title` layout item SHALL span all four columns (`w: 4`), use height `TITLE_WIDGET_HEIGHT` (one grid unit), and sit on its own row above the widgets in that section.
+
+`localizeDashboardLayoutTemplate` SHALL resolve each instance's visible title from its layout item `i` via `SECTION_TITLE_MESSAGE_BY_ID`. Unknown `i` values SHALL keep the template's fallback `title` string.
+
+The `section-title` widget body SHALL render `SectionTitleCard` with the resolved title. Presentation SHALL:
+
+- Hide the widget grid tile header (no drag handle, kabob menu, or title bar)
+- Suppress resize handles on the grid item
+- Render a borderless, transparent card shell (no box shadow)
+- Style the label as uppercase, subtle gray, small-caps typography (`.hypershell-dashboard-section-title`)
+
+Users MAY add additional `section-title` widgets from the add-widgets drawer. New instances SHALL use the localized default label `app.dashboard.widget.sectionTitle` until the layout item `i` is mapped in `SECTION_TITLE_MESSAGE_BY_ID`.
+
+#### Scenario: Section titles label each dashboard region
+
+- GIVEN the default layout template is active
+- WHEN the dashboard grid renders on a four-column breakpoint
+- THEN a localized **Platform adoption** header SHALL appear full width above the adoption widgets
+- AND a localized **Hub cluster** header SHALL appear full width above the hub cluster widgets
+- AND neither section title SHALL show a widget card header or border chrome
 
 ---
 

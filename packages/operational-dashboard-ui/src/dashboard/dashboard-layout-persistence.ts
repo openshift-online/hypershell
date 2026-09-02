@@ -30,12 +30,24 @@ export function sanitizeDashboardTemplate(
   template: ExtendedTemplateConfig,
 ): ExtendedTemplateConfig {
   return (Object.keys(template) as Variants[]).reduce((acc, variant) => {
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenMetricWidgetTypes = new Set<string>();
+
     acc[variant] = template[variant].filter((item) => {
-      if (seen.has(item.widgetType)) {
+      if (seenIds.has(item.i)) {
         return false;
       }
-      seen.add(item.widgetType);
+      seenIds.add(item.i);
+
+      if (item.widgetType === "section-title") {
+        return true;
+      }
+
+      if (seenMetricWidgetTypes.has(item.widgetType)) {
+        return false;
+      }
+
+      seenMetricWidgetTypes.add(item.widgetType);
       return true;
     });
     return acc;

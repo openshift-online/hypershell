@@ -14,7 +14,7 @@ export const messages = defineMessages({
   description: {
     id: "app.dashboard.description",
     defaultMessage:
-      "Live view of gateway fleet health, hub cluster capacity, and platform usage. Metrics refresh every 15 minutes; use Refresh to update now.",
+      "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     description: "Supporting text on the operational dashboard page.",
   },
   gateways: {
@@ -67,6 +67,12 @@ export const messages = defineMessages({
     id: "app.dashboard.widget.gatewayStatus",
     defaultMessage: "Gateway status",
     description: "Title for the gateway status dashboard widget.",
+  },
+  lastRefreshed: {
+    id: "app.dashboard.lastRefreshed",
+    defaultMessage: "Last refreshed: {timestamp}",
+    description:
+      "Timestamp shown when operational dashboard metrics were last loaded successfully.",
   },
   loadErrorBody: {
     id: "app.dashboard.loadError.body",
@@ -291,6 +297,22 @@ export const messages = defineMessages({
     defaultMessage: "Reset to default",
     description:
       "Label for restoring the operational dashboard default layout.",
+  },
+  sectionTitleDefault: {
+    id: "app.dashboard.widget.sectionTitle",
+    defaultMessage: "Section title",
+    description:
+      "Default label for a section title widget in the add-widgets drawer.",
+  },
+  sectionTitleHubCluster: {
+    id: "app.dashboard.sectionTitle.hubCluster",
+    defaultMessage: "Hub cluster",
+    description: "Section title above hub cluster capacity widgets.",
+  },
+  sectionTitlePlatformAdoption: {
+    id: "app.dashboard.sectionTitle.platformAdoption",
+    defaultMessage: "Platform adoption",
+    description: "Section title above platform adoption widgets.",
   },
   statusDonutDataLabel: {
     id: "app.dashboard.statusDonut.dataLabel",

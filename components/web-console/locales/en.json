@@ -32,7 +32,7 @@
     "description": "Label for the button that opens the widget drawer."
   },
   "app.dashboard.description": {
-    "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform usage. Metrics refresh every 15 minutes; use Refresh to update now.",
+    "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the operational dashboard page."
   },
   "app.dashboard.gatewayStatus.ariaDesc": {
@@ -66,6 +66,10 @@
   "app.dashboard.gatewayStatus.provisioning": {
     "defaultMessage": "Provisioning",
     "description": "Legend label for provisioning gateways."
+  },
+  "app.dashboard.lastRefreshed": {
+    "defaultMessage": "Last refreshed: {timestamp}",
+    "description": "Timestamp shown when operational dashboard metrics were last loaded successfully."
   },
   "app.dashboard.loadError.body": {
     "defaultMessage": "An unexpected error occurred while loading dashboard metrics.",
@@ -190,6 +194,14 @@
   "app.dashboard.resetToDefault": {
     "defaultMessage": "Reset to default",
     "description": "Label for restoring the operational dashboard default layout."
+  },
+  "app.dashboard.sectionTitle.hubCluster": {
+    "defaultMessage": "Hub cluster",
+    "description": "Section title above hub cluster capacity widgets."
+  },
+  "app.dashboard.sectionTitle.platformAdoption": {
+    "defaultMessage": "Platform adoption",
+    "description": "Section title above platform adoption widgets."
   },
   "app.dashboard.statusDonut.dataLabel": {
     "defaultMessage": "{status}: {count}",
@@ -326,6 +338,10 @@
   "app.dashboard.widget.registeredUsers": {
     "defaultMessage": "Registered users",
     "description": "Title for the registered users dashboard widget."
+  },
+  "app.dashboard.widget.sectionTitle": {
+    "defaultMessage": "Section title",
+    "description": "Default label for a section title widget in the add-widgets drawer."
   },
   "app.dashboard.widget.summary": {
     "defaultMessage": "Summary",

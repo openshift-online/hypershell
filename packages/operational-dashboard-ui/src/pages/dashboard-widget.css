@@ -1,9 +1,55 @@
+.hypershell-dashboard-header-actions {
+  flex-shrink: 0;
+}
+
+.hypershell-dashboard-last-refreshed {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm);
+  white-space: nowrap;
+}
+
 .hypershell-dashboard-metric-card {
   --pf-v6-c-content--MarginBottom: 0;
 }
 
 .hypershell-dashboard-metric-card .pf-v6-c-stack {
   --pf-v6-c-stack--m-gutter--Gap: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-title-widget {
+  --pf-v6-c-card--BackgroundColor: transparent;
+  --pf-v6-c-card--BorderColor: transparent;
+  --pf-v6-c-card--BorderWidth: 0;
+  --pf-v6-c-card--BoxShadow: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.hypershell-dashboard-title-widget .pf-v6-widget-grid-tile__header {
+  display: none;
+}
+
+.hypershell-dashboard-title-widget .pf-v6-widget-grid-tile__body {
+  align-items: center;
+  display: flex;
+  min-height: 0;
+  padding-block: var(--pf-t--global--spacer--xs);
+  padding-inline: 0;
+}
+
+.react-grid-item:has(.hypershell-dashboard-title-widget)
+  .react-resizable-handle {
+  display: none !important;
+}
+
+.hypershell-dashboard-section-title {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  letter-spacing: 0.05em;
+  margin: 0;
+  text-transform: uppercase;
 }
 
 .hypershell-dashboard-sparkline-chart {

@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-17; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
+**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
 **Spec corpus**: 48 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
-**Codebase commit**: `c9d68e0` (rebased HYPERSHELL-276 initial dashboard data branch)
+**Codebase commit**: `c9d68e0` (rebased HYPERSHELL-276 initial dashboard data branch; section titles + last-refreshed header; partial metric-source failure; NaN/Infinity display fallback; layout persistence v23)
 
 ### Coverage Summary
 
@@ -81,10 +81,10 @@ skills/
 | Platform - Cluster Nodes | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Provision Time | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
-| Web Console - Operational Dashboard | 1 | 17 | 17 | 0 | 0 | 0 | 100% |
+| Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **39** | **288** | **245** | **17** | **13** | **5** | **85%** |
+| **TOTAL** | **39** | **291** | **248** | **17** | **13** | **5** | **85%** |
 
 ### Spec Dependency Order
 
@@ -407,14 +407,16 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | OP-DASH-08 | Connected vs placeholder metrics | Present | - | `DATA_SOURCES.md`, `dashboard/dashboard-data.ts` | OP-W1 ✅ |
 | OP-DASH-09 | Metrics refresh policy (15 min + manual refresh, partial failure) | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
 | OP-DASH-10 | Widgetized grid layout | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-template.ts` | - |
-| OP-DASH-11 | Layout persistence (`localStorage` v19) | Present | - | `operational-dashboard-page.tsx` | - |
+| OP-DASH-11 | Layout persistence (`localStorage` v22) | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-persistence.ts` | - |
 | OP-DASH-12 | Gateway status donut widget | Present | - | `dashboard/gateway-status-chart.tsx`, `dashboard/status-donut-chart.tsx`, `dashboard-widget.tsx` | - |
 | OP-DASH-13 | Metric, utilization, and summary widgets | Present | - | `dashboard-widget.tsx`, `dashboard/utilization-chart.tsx` | - |
 | OP-DASH-14 | Localization and accessibility | Present | - | `messages.ts`, `web-console/locales/en.json` | - |
 | OP-DASH-15 | Verification fixtures and Storybook | Present | - | `fixtures/`, `operational-dashboard.stories.tsx`, `src/dashboard/*.test.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
 | OP-DASH-16 | Shared status donut + nodes widget | Present | - | `dashboard/status-donut-*.ts(x)`, `dashboard/node-status-*.ts(x)`, `dashboard-layout-template.ts` | - |
 | OP-DASH-17 | Pod capacity widget (phase + Unused segments) | Present | - | `dashboard/pod-capacity-*.ts(x)`, `bff/src/metrics-cluster-pods.ts`, `dashboard-control-plane.ts` | - |
+| OP-DASH-18 | Non-displayable metric values (NaN/Infinity fallback) | Present | - | `dashboard-widget.tsx`, `messages.ts` | - |
 | OP-DASH-19 | Independent metric sources and partial failure | Present | - | `dashboard-control-plane.ts`, `dashboard-metric-sources.ts`, `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
+| OP-DASH-20 | Section title widgets (platform adoption / hub cluster) | Present | - | `dashboard-layout-template.ts`, `dashboard-widget.tsx`, `dashboard-widget.css` | - |
 
 **Scoped analysis notes:**
 
@@ -424,6 +426,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 - OP-DASH-16 (2026-08-31): shared `StatusDonutChart` stack; `nodes` widget at `NODE_STATUS_WIDGET_HEIGHT`; layout persistence key `hypershell.operational-dashboard.layout.v17`.
 - OP-DASH-17 (2026-08-31): `pods` widget uses `PodCapacityChart` (phase segments + gray Unused); BFF phase PromQL; layout persistence key `hypershell.operational-dashboard.layout.v18`.
 - Post-OP-DASH-17 polish (2026-08-31): system-summary failed pod count; taller system-summary widget; expanded compact donut for pods subtitle; Storybook mock aligned to production adapter; layout persistence key `hypershell.operational-dashboard.layout.v19`.
+- OP-DASH-20 (2026-09-02): `section-title` widget for platform adoption and hub cluster headers; full-width title rows; headerless/borderless presentation; layout persistence key `hypershell.operational-dashboard.layout.v22`; `sanitizeDashboardTemplate` preserves multiple `section-title` instances; page header consolidates refresh, reset, and add-widgets controls (no separate toolbar).
 - Post-connect polish (2026-09-02, `06d6c56`): removed interim `usesSampleData` info banner and i18n keys; all OP-DASH-08 metrics are connected so the banner is no longer required.
 - OP-W2 (2026-09-03): partial metric-source failure handling - adapter fetches sources independently, page shows warning + metric-unavailable per widget/summary row, refresh merges stale data for failed sources (`dashboard-metric-sources.ts`, `get-metrics-data.ts` `keepPreviousData`).
 
@@ -455,7 +458,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | CM-04 | BFF `GET /api/metrics/cluster-memory` | Present | - | `bff/src/app.ts`, `bff/src/metrics-cluster-memory.ts` | CM-W2 ✅ |
 | CM-05 | Operational dashboard `memory` metric mapping | Present | - | `dashboard-control-plane.ts` | CM-W3 ✅ |
 | CM-06 | Prometheus scrape prerequisites | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `node-exporter-servicemonitor.yaml` | CM-W1 ✅ |
-| CM-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, adapter fails on BFF error | - |
+| CM-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
 | CM-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-memory*.test.ts`, `dashboard-control-plane.test.ts` | CM-W2 ✅, CM-W3 ✅ |
 
 **Scoped analysis notes:**
@@ -474,7 +477,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | CC-04 | BFF `GET /api/metrics/cluster-cpu` | Present | - | `bff/src/app.ts` | CC-W2 ✅ |
 | CC-05 | Operational dashboard `cpu` metric mapping | Present | - | `dashboard-control-plane.ts` | CC-W3 ✅ |
 | CC-06 | Prometheus scrape prerequisites (reuse node-exporter) | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `DATA_SOURCES.md` | CC-W1 ✅ |
-| CC-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, adapter fails on BFF error | - |
+| CC-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
 | CC-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-cpu*.test.ts`, `dashboard-control-plane.test.ts` | CC-W2 ✅, CC-W3 ✅ |
 
 **Scoped analysis notes:**
@@ -492,7 +495,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | CLP-04 | BFF `GET /api/metrics/cluster-pods` | Present | - | `bff/src/app.ts` | CLP-W2 ✅ |
 | CLP-05 | Operational dashboard `pods` metric mapping | Present | - | `dashboard-control-plane.ts` | CLP-W3 ✅ |
 | CLP-06 | Prometheus scrape prerequisites (kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `kube-state-metrics-servicemonitor.yaml` | CLP-W1 ✅ |
-| CLP-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, adapter fails on BFF error | - |
+| CLP-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
 | CLP-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-pods*.test.ts`, `dashboard-control-plane.test.ts` | CLP-W2 ✅, CLP-W3 ✅ |
 
 **Scoped analysis notes:**
@@ -511,7 +514,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | CLN-04 | BFF `GET /api/metrics/cluster-nodes` | Present | - | `bff/src/app.ts` | CLN-W2 ✅ |
 | CLN-05 | Operational dashboard `nodes` metric mapping | Present | - | `dashboard-control-plane.ts`, `dashboard-widget.tsx` | CLN-W3 ✅ |
 | CLN-06 | Prometheus scrape prerequisites (reuse kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `DATA_SOURCES.md` | CLN-W1 ✅ |
-| CLN-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, adapter fails on BFF error | - |
+| CLN-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
 | CLN-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-nodes*.test.ts`, `dashboard-control-plane.test.ts` | CLN-W2 ✅, CLN-W3 ✅ |
 
 **Scoped analysis notes:**
@@ -956,6 +959,20 @@ label-selected pod informer.
 3. Add Vitest unit tests in `operational-dashboard-ui` for `getMetricTrendChange`, `buildGatewayStatusData`, and layout sanitization helpers
 4. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
 
+### Wave OP-W2: Independent Metric Sources and Partial Failure
+
+**Scope:** OP-DASH-09 (partial-failure scenarios), OP-DASH-19
+**Dependency:** OP-W1, all cluster-metric BFF routes connected
+**Status:** Complete ✅
+
+1. Refactor `createDashboardControlPlaneAdapter` to fetch metric sources concurrently with `Promise.allSettled`
+2. Add `dashboard-metric-sources.ts` merge helper; extend `get-metrics-data.ts` to preserve stale metrics on refetch partial failure
+3. Publish `dashboard.metrics.partial-failure` probe when one or more sources fail but at least one succeeds
+4. Page shows warning `Alert` + per-widget metric-unavailable state for omitted metrics
+5. Update platform cluster-metric specs CM-07/CC-07/CLP-07/CLN-07 and registered-users RU-07 for source-scoped failure (OP-DASH-19)
+6. Add adapter tests for partial failure, total failure, and abort propagation
+7. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console adapter tests
+
 ### Wave RU-W1: Registered Users API and Authorization ✅
 
 **Scope:** RU-01, RU-02, RU-03, RU-04, RU-08 (API)
@@ -1237,4 +1254,7 @@ label-selected pod informer.
 | 2026-08-31 | working tree | Executed GPT-W1: gateway provision time | 85% | Adapter computes mean `Running` gateway provision minutes from paginated list; `provision-time` metric connected; adapter tests; `DATA_SOURCES.md` + OP-DASH-08 updated. Gateway provision time 8/8 present. OP-DASH-08 all metrics connected. |
 | 2026-08-31 | working tree | OP-DASH-17: pod capacity chart + phase breakdown | 85% | BFF phase PromQL + validation; `PodCapacityChart` with Unused segment; layout v18; CLP-02/04/05 spec updates; BFF + adapter tests. Operational dashboard 17/17 present. |
 | 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 84% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |
+| 2026-09-02 | working tree | OP-DASH-20: section title widgets + layout v22 | 85% (unchanged) | `section-title` headers for platform adoption and hub cluster; OP-DASH-10/11/20 spec alignment; layout key v22; i18n extract for section title message IDs. Operational dashboard 19/19 present (renumbered to OP-DASH-20 when OP-DASH-19 assigned to partial failure). |
 | 2026-09-02 | 06d6c56 | Post-connect polish: remove sample-data banner | 85% (unchanged) | Removed `usesSampleData` provider flag, inline info `Alert`, and `app.dashboard.sampleData.*` i18n keys after all OP-DASH-08 metrics connected. Operational dashboard 17/17 present. |
+| 2026-09-03 | 6ab016a+6583d2c | Executed OP-W2: partial metric-source failure | 85% (unchanged) | Independent adapter sources with `Promise.allSettled`; `dashboard-metric-sources.ts` stale-merge on refetch; `dashboard.metrics.partial-failure` probe; platform spec CM/CC/CLP/CLN-07 + RU-07 aligned to OP-DASH-19. Operational dashboard 19/19 present. |
+| 2026-09-03 | 56befbf | Reconcile: OP-DASH-18/19/20 verification | 85% (unchanged) | Verified OP-DASH-18 (NaN/Infinity fallback), OP-DASH-19 (partial failure), OP-DASH-20 (section titles + last-refreshed header + layout v22). All `operational-dashboard-ui` and adapter tests pass. Operational dashboard 20/20 present. |

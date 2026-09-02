@@ -11,11 +11,9 @@ import {
   Spinner,
   Flex,
   FlexItem,
+  Timestamp,
+  TimestampFormat,
   Title,
-  Toolbar,
-  ToolbarContent,
-  ToolbarGroup,
-  ToolbarItem,
 } from "@patternfly/react-core";
 import {
   ClusterIcon,
@@ -43,11 +41,14 @@ import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
 import {
   defaultDashboardLayoutTemplate,
+  DASHBOARD_COLUMN_COUNT,
   GATEWAY_STATUS_WIDGET_HEIGHT,
   NODE_STATUS_WIDGET_HEIGHT,
   localizeDashboardLayoutTemplate,
   PROVISION_TIME_WIDGET_HEIGHT,
+  SECTION_TITLE_WIDGET_TYPE,
   SYSTEM_SUMMARY_WIDGET_HEIGHT,
+  TITLE_WIDGET_HEIGHT,
   USAGE_SUMMARY_WIDGET_HEIGHT,
 } from "../dashboard/dashboard-layout-template";
 import {
@@ -67,13 +68,14 @@ import {
   PodCapacityCard,
   ProvisionTimeCard,
   SystemSummaryCard,
+  SectionTitleCard,
   UsageSummaryCard,
 } from "./dashboard-widget";
 import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v21";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v23";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -139,9 +141,24 @@ function layoutProbe(
 
 const METRIC_WIDGET_DEFAULTS = { h: 3, maxH: 5, minH: 2, w: 1 };
 
+function findLayoutItemTitle(
+  template: ExtendedTemplateConfig,
+  widgetId: string,
+): string {
+  for (const variant of Object.keys(template) as Variants[]) {
+    const item = template[variant].find((entry) => entry.i === widgetId);
+    if (item) {
+      return item.title;
+    }
+  }
+
+  return "";
+}
+
 function createWidgetMapping(
   metrics: OperationalDashboardMetrics,
   intl: IntlShape,
+  template: ExtendedTemplateConfig,
 ): WidgetMapping {
   const metricById = new Map(
     metrics.metrics.map((metric) => [metric.id, metric]),
@@ -201,6 +218,26 @@ function createWidgetMapping(
   };
 
   return {
+    [SECTION_TITLE_WIDGET_TYPE]: {
+      defaults: {
+        h: TITLE_WIDGET_HEIGHT,
+        maxH: TITLE_WIDGET_HEIGHT,
+        minH: TITLE_WIDGET_HEIGHT,
+        w: DASHBOARD_COLUMN_COUNT,
+      },
+      config: {
+        title: intl.formatMessage(messages.sectionTitleDefault),
+        wrapperProps: {
+          className: "hypershell-dashboard-title-widget",
+        },
+        cardBodyProps: {
+          className: "hypershell-dashboard-title-widget__body",
+        },
+      },
+      renderWidget: (widgetId) => (
+        <SectionTitleCard title={findLayoutItemTitle(template, widgetId)} />
+      ),
+    },
     "usage-summary": {
       defaults: {
         h: USAGE_SUMMARY_WIDGET_HEIGHT,
@@ -246,7 +283,7 @@ function createWidgetMapping(
         h: GATEWAY_STATUS_WIDGET_HEIGHT,
         maxH: GATEWAY_STATUS_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
+        w: 2,
       },
       config: {
         icon: <ClusterIcon />,
@@ -415,10 +452,11 @@ export function OperationalDashboardPage({
   const widgetMapping = useMemo(
     () =>
       dashboardMetrics
-        ? createWidgetMapping(dashboardMetrics, intl)
+        ? createWidgetMapping(dashboardMetrics, intl, displayTemplate)
         : undefined,
-    [dashboardMetrics, intl],
+    [dashboardMetrics, displayTemplate, intl],
   );
+
   const hasWidgetsToAdd = useMemo(() => {
     if (!widgetMapping) {
       return false;
@@ -520,15 +558,71 @@ export function OperationalDashboardPage({
             </p>
           </Content>
         </FlexItem>
-        {metrics === undefined ? (
-          <FlexItem>
-            <ResourceRefreshButton
-              ariaLabel={intl.formatMessage(messages.refresh)}
-              isRefreshing={metricsQuery.isFetching}
-              onRefresh={() => {
-                void metricsQuery.refetch();
-              }}
-            />
+        {metrics === undefined || widgetMapping ? (
+          <FlexItem className="hypershell-dashboard-header-actions">
+            <Flex
+              alignItems={{ default: "alignItemsCenter" }}
+              direction={{ default: "column" }}
+              spaceItems={{ default: "spaceItemsSm" }}
+            >
+              {metrics === undefined ? (
+                <Flex
+                  alignItems={{ default: "alignItemsCenter" }}
+                  spaceItems={{ default: "spaceItemsSm" }}
+                >
+                  {dashboardMetrics?.lastSuccessfulRefresh ? (
+                    <FlexItem>
+                      <span className="hypershell-dashboard-last-refreshed">
+                        <FormattedMessage
+                          {...messages.lastRefreshed}
+                          values={{
+                            timestamp: (
+                              <Timestamp
+                                date={dashboardMetrics.lastSuccessfulRefresh}
+                                dateFormat={TimestampFormat.medium}
+                                timeFormat={TimestampFormat.medium}
+                              />
+                            ),
+                          }}
+                        />
+                      </span>
+                    </FlexItem>
+                  ) : null}
+                  <FlexItem>
+                    <ResourceRefreshButton
+                      ariaLabel={intl.formatMessage(messages.refresh)}
+                      isRefreshing={metricsQuery.isFetching}
+                      onRefresh={() => {
+                        void metricsQuery.refetch();
+                      }}
+                    />
+                  </FlexItem>
+                </Flex>
+              ) : null}
+              {widgetMapping ? (
+                <Flex
+                  alignItems={{ default: "alignItemsCenter" }}
+                  spaceItems={{ default: "spaceItemsSm" }}
+                >
+                  <FlexItem>
+                    <Button variant="link" onClick={handleResetToDefault}>
+                      {intl.formatMessage(messages.resetToDefault)}
+                    </Button>
+                  </FlexItem>
+                  {hasWidgetsToAdd ? (
+                    <FlexItem>
+                      <AddWidgetsButton
+                        onClick={() => {
+                          setDrawerOpen(!drawerOpen);
+                        }}
+                      >
+                        {intl.formatMessage(messages.addWidgets)}
+                      </AddWidgetsButton>
+                    </FlexItem>
+                  ) : null}
+                </Flex>
+              ) : null}
+            </Flex>
           </FlexItem>
         ) : null}
       </Flex>
@@ -572,50 +666,26 @@ export function OperationalDashboardPage({
         </Alert>
       ) : null}
       {widgetMapping ? (
-        <>
-          <Toolbar isSticky>
-            <ToolbarContent>
-              <ToolbarGroup align={{ default: "alignEnd" }}>
-                <ToolbarItem>
-                  <Button variant="link" onClick={handleResetToDefault}>
-                    {intl.formatMessage(messages.resetToDefault)}
-                  </Button>
-                </ToolbarItem>
-                {hasWidgetsToAdd ? (
-                  <ToolbarItem>
-                    <AddWidgetsButton
-                      onClick={() => {
-                        setDrawerOpen(!drawerOpen);
-                      }}
-                    >
-                      {intl.formatMessage(messages.addWidgets)}
-                    </AddWidgetsButton>
-                  </ToolbarItem>
-                ) : null}
-              </ToolbarGroup>
-            </ToolbarContent>
-          </Toolbar>
-          <WidgetDrawer
-            currentlyUsedWidgets={activeWidgetTypes}
-            isOpen={drawerOpen}
-            onOpenChange={setDrawerOpen}
-            onWidgetDragEnd={() => {
-              setDroppingWidgetType(undefined);
-            }}
-            onWidgetDragStart={setDroppingWidgetType}
+        <WidgetDrawer
+          currentlyUsedWidgets={activeWidgetTypes}
+          isOpen={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          onWidgetDragEnd={() => {
+            setDroppingWidgetType(undefined);
+          }}
+          onWidgetDragStart={setDroppingWidgetType}
+          widgetMapping={widgetMapping}
+        >
+          <GridLayout
+            key={gridLayoutKey}
+            columns={CUSTOM_COLUMNS}
+            droppingWidgetType={droppingWidgetType}
+            onDrawerExpandChange={setDrawerOpen}
+            onTemplateChange={handleTemplateChange}
+            template={displayTemplate}
             widgetMapping={widgetMapping}
-          >
-            <GridLayout
-              key={gridLayoutKey}
-              columns={CUSTOM_COLUMNS}
-              droppingWidgetType={droppingWidgetType}
-              onDrawerExpandChange={setDrawerOpen}
-              onTemplateChange={handleTemplateChange}
-              template={displayTemplate}
-              widgetMapping={widgetMapping}
-            />
-          </WidgetDrawer>
-        </>
+          />
+        </WidgetDrawer>
       ) : null}
     </PageSection>
   );
