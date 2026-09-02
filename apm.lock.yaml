@@ -1,0 +1,1693 @@
+lockfile_version: '1'
+generated_at: '2026-08-14T18:42:40.227384+00:00'
+apm_version: 0.26.0
+dependencies:
+- repo_url: openshift-fleet/agentic-sdlc
+  name: ocp-fleet-agentic-sdlc
+  host: github.com
+  resolved_commit: b04b1171f6100062c2edf7b89ee2ab871a6a3e9b
+  resolved_ref: b04b1171f6100062c2edf7b89ee2ab871a6a3e9b
+  version: 1.0.35
+  package_type: marketplace_plugin
+  deployed_files:
+  - .claude/agents/review-gemini-pro.md
+  - .claude/agents/review-opus.md
+  - .claude/agents/review-sonnet.md
+  - .claude/commands/README.md
+  - .claude/commands/check.agent.md
+  - .claude/commands/finish-work.md
+  - .claude/commands/ignite.agent.md
+  - .claude/commands/myissues.md
+  - .claude/commands/repo-team-standards.md
+  - .claude/commands/ship.md
+  - .claude/commands/start-work.md
+  - .claude/commands/summary.md
+  - .claude/skills/acm-release
+  - .claude/skills/acm-release/SKILL.md
+  - .claude/skills/breaking-changes
+  - .claude/skills/breaking-changes/SKILL.md
+  - .claude/skills/bug-specialist
+  - .claude/skills/bug-specialist/SKILL.md
+  - .claude/skills/bug-specialist/template.md
+  - .claude/skills/ci-triage
+  - .claude/skills/ci-triage/SKILL.md
+  - .claude/skills/coderabbit-sync
+  - .claude/skills/coderabbit-sync/SKILL.md
+  - .claude/skills/diagnosing-bugs
+  - .claude/skills/diagnosing-bugs/SKILL.md
+  - .claude/skills/epic-specialist
+  - .claude/skills/epic-specialist/SKILL.md
+  - .claude/skills/epic-specialist/template.md
+  - .claude/skills/f2f-daily-summary
+  - .claude/skills/f2f-daily-summary/SKILL.md
+  - .claude/skills/f2f-epic-specialist
+  - .claude/skills/f2f-epic-specialist/SKILL.md
+  - .claude/skills/feature-specialist
+  - .claude/skills/feature-specialist/SKILL.md
+  - .claude/skills/feature-specialist/template.md
+  - .claude/skills/finish-work
+  - .claude/skills/finish-work/SKILL.md
+  - .claude/skills/init-context-docs
+  - .claude/skills/init-context-docs/SKILL.md
+  - .claude/skills/init-context-docs/checklists/agents-md-checklist.md
+  - .claude/skills/init-context-docs/checklists/claude-md-checklist.md
+  - .claude/skills/init-context-docs/checklists/guideline-checklist.md
+  - .claude/skills/init-context-docs/checklists/readme-checklist.md
+  - .claude/skills/init-context-docs/scripts/automated-checks.sh
+  - .claude/skills/initiative-specialist
+  - .claude/skills/initiative-specialist/SKILL.md
+  - .claude/skills/initiative-specialist/template.md
+  - .claude/skills/jira-create
+  - .claude/skills/jira-create/SKILL.md
+  - .claude/skills/jira-report
+  - .claude/skills/jira-report/SKILL.md
+  - .claude/skills/jira-report/issue-review-template.md
+  - .claude/skills/jira-report/listing-by-component-template.md
+  - .claude/skills/jira-report/listing-by-team-template.md
+  - .claude/skills/jira-report/listing-by-worktype-template.md
+  - .claude/skills/jira-specialist
+  - .claude/skills/jira-specialist/SKILL.md
+  - .claude/skills/jira-specialist/activity-types.md
+  - .claude/skills/jira-type-audit
+  - .claude/skills/jira-type-audit/SKILL.md
+  - .claude/skills/opencode-setup
+  - .claude/skills/opencode-setup/SKILL.md
+  - .claude/skills/org-repo-audit
+  - .claude/skills/org-repo-audit/SKILL.md
+  - .claude/skills/outcome-specialist
+  - .claude/skills/outcome-specialist/SKILL.md
+  - .claude/skills/outcome-specialist/strategic-goal-template.md
+  - .claude/skills/outcome-specialist/template.md
+  - .claude/skills/pr-fix
+  - .claude/skills/pr-fix/SKILL.md
+  - .claude/skills/pr-hygiene
+  - .claude/skills/pr-hygiene/SKILL.md
+  - .claude/skills/pr-hygiene/scripts/pr-hygiene.py
+  - .claude/skills/pr-hygiene/scripts/test-pr-hygiene.py
+  - .claude/skills/pr-review
+  - .claude/skills/pr-review-detailed
+  - .claude/skills/pr-review-detailed/ARCHITECTURE.md
+  - .claude/skills/pr-review-detailed/GENERAL.md
+  - .claude/skills/pr-review-detailed/LANGUAGE/JS_SECURITY.md
+  - .claude/skills/pr-review-detailed/LANGUAGE/MAKEFILE_SHELL.md
+  - .claude/skills/pr-review-detailed/OTHER/README.md
+  - .claude/skills/pr-review-detailed/README.md
+  - .claude/skills/pr-review-detailed/REPO_SPECIFIC/UNIT_TESTS.md
+  - .claude/skills/pr-review-detailed/REPO_SPECIFIC/VERIFICATION.md
+  - .claude/skills/pr-review-detailed/SECURITY.md
+  - .claude/skills/pr-review-detailed/SKILL.md
+  - .claude/skills/pr-review-detailed/TESTING.md
+  - .claude/skills/pr-review-detailed/UI/ACCESSIBILITY.md
+  - .claude/skills/pr-review-detailed/UI/PATTERNFLY.md
+  - .claude/skills/pr-review-detailed/UI/REACT.md
+  - .claude/skills/pr-review-detailed/scripts/filter-audit.js
+  - .claude/skills/pr-review-detailed/scripts/security-changed-packages.js
+  - .claude/skills/pr-review-fix
+  - .claude/skills/pr-review-fix/SKILL.md
+  - .claude/skills/pr-review-fix/prompts/review-fix-pass.md
+  - .claude/skills/pr-review/README.md
+  - .claude/skills/pr-review/SKILL.md
+  - .claude/skills/pr-review/scripts/prepare-worktree.py
+  - .claude/skills/pr-review/scripts/summarize-pr.py
+  - .claude/skills/presentation-task
+  - .claude/skills/presentation-task/SKILL.md
+  - .claude/skills/release-dod
+  - .claude/skills/release-dod/SKILL.md
+  - .claude/skills/release-dod/subtasks/communicate.md
+  - .claude/skills/release-dod/subtasks/configure.md
+  - .claude/skills/release-dod/subtasks/verify.md
+  - .claude/skills/release-dod/template.md
+  - .claude/skills/release-notes
+  - .claude/skills/release-notes/SKILL.md
+  - .claude/skills/repo-content-audit
+  - .claude/skills/repo-content-audit/SKILL.md
+  - .claude/skills/repo-setup
+  - .claude/skills/repo-setup/SKILL.md
+  - .claude/skills/rhacm-addon-wizard
+  - .claude/skills/rhacm-addon-wizard/SKILL.md
+  - .claude/skills/risk-specialist
+  - .claude/skills/risk-specialist/SKILL.md
+  - .claude/skills/risk-specialist/template.md
+  - .claude/skills/scored-code-review
+  - .claude/skills/scored-code-review/SKILL.md
+  - .claude/skills/spike-specialist
+  - .claude/skills/spike-specialist/SKILL.md
+  - .claude/skills/spike-specialist/template.md
+  - .claude/skills/start-work
+  - .claude/skills/start-work/SKILL.md
+  - .claude/skills/story-specialist
+  - .claude/skills/story-specialist/SKILL.md
+  - .claude/skills/story-specialist/template.md
+  - .claude/skills/task-specialist
+  - .claude/skills/task-specialist/SKILL.md
+  - .claude/skills/task-specialist/subtask-template.md
+  - .claude/skills/task-specialist/template.md
+  - .claude/skills/test-coverage-gap
+  - .claude/skills/test-coverage-gap/SKILL.md
+  - .claude/skills/test-coverage-gap/reference/coverage-formats.md
+  - .claude/skills/ticket-specialist
+  - .claude/skills/ticket-specialist/SKILL.md
+  - .claude/skills/ticket-specialist/template.md
+  deployed_file_hashes:
+    .claude/agents/review-gemini-pro.md: sha256:6dd3b0e657aaddb5942b49a9890ee6741b94d271aef520c78a3634472367a3b3
+    .claude/agents/review-opus.md: sha256:5a6812430f0d2210ebe0b1bbaadaec0882db2acf0fbc3e92ac05ddcfd59719b2
+    .claude/agents/review-sonnet.md: sha256:0d8af8c527cbec8c5511685612aa2e4828c781341f9899159113bc57a891de77
+    .claude/commands/README.md: sha256:0458d44c25b4a66fcf1dfa9f9cb4349263d992061df61d105a15c3b86f19b392
+    .claude/commands/check.agent.md: sha256:62e370ea9a01e01e6b0cfcd99288dd1a1b4930024f193776d3b575e2328376d0
+    .claude/commands/finish-work.md: sha256:9a5998c2ea8f4c623fd736214fd6b94b241b2ce55ed5e94abb874e038cd7c5c8
+    .claude/commands/ignite.agent.md: sha256:2a54e24111b6edb6a6982d879e8b44111a7c7224e0918e01882653be59f15174
+    .claude/commands/myissues.md: sha256:5d53f2b54ac4974163d8a89572cb81014faad29d183f0b9247eaeafd68167e1f
+    .claude/commands/repo-team-standards.md: sha256:66f3cbc1593e92668b9927ff2a0d80a3d6dae8e8c2307cbdb70ebcf0cb1f3426
+    .claude/commands/ship.md: sha256:ef70da2f11ec9db04e7a0ba5688bf5afc9ec475e638640e53c10d603ae072306
+    .claude/commands/start-work.md: sha256:7f28ebe050b1f69a1e38530ad38e36691f36b63316fc3a1f4fa1daca3ebe8cbf
+    .claude/commands/summary.md: sha256:755e41b9f37d80947b879bd1b31eddfb5f09db9832c34349d42d82fac30ac97f
+    .claude/skills/acm-release/SKILL.md: sha256:e2b5d5f31e74cc328502d683f7ee9f29bed482998e7d700a0fcf9127a8d70e93
+    .claude/skills/breaking-changes/SKILL.md: sha256:36bc111a3c99fe5372594319ee4b8f109f0a07d2743e544c81973dce8e476652
+    .claude/skills/bug-specialist/SKILL.md: sha256:9650dfe85f29594342f3fd1cd0f8b5471459fddaf1f3b39e2a4b47d5c2505884
+    .claude/skills/bug-specialist/template.md: sha256:ca09d536e3007e37ab695d804ad2b83d734d3e81426979ad5aed83d281320ca2
+    .claude/skills/ci-triage/SKILL.md: sha256:6432ffdcaf2722a6931b5632cacee8e2d2a7a0b5c676c6e525c576aabc714187
+    .claude/skills/coderabbit-sync/SKILL.md: sha256:f5e47ac0ca0cd779d4cb0f25910cbe78ec12c1fbb1e17fd5694e6c99127e7a81
+    .claude/skills/diagnosing-bugs/SKILL.md: sha256:e750d1996c8af54ed25f8a293297c9376efc51ff223ec8aab7115076ffefe287
+    .claude/skills/epic-specialist/SKILL.md: sha256:9f8cf1ebdd20a3bb056382d0282dc8533a88f0befa2dd7f0a0bd09641d3327d4
+    .claude/skills/epic-specialist/template.md: sha256:73e00540bdcae4e92735cd0909b88abdc688d8cc279a16fda9fe92d38c7c984e
+    .claude/skills/f2f-daily-summary/SKILL.md: sha256:bd69244b54b67f035b221fee06f5c367aacbef8a174decae2f655cce6d1f7798
+    .claude/skills/f2f-epic-specialist/SKILL.md: sha256:b94cabeb16314ff5e175ad704e79f2e82955760a9a88bb73f7fbcccc8a5161ac
+    .claude/skills/feature-specialist/SKILL.md: sha256:0eafc78717944b829445d26c18039d3d033b65dbcb7bda154d52ca64a840e741
+    .claude/skills/feature-specialist/template.md: sha256:9af96a48fccace25f9fcf960f8b38eaaa0bbfe3aa8f3fe02a44ff71a9e3f0d66
+    .claude/skills/finish-work/SKILL.md: sha256:a6bc44b5de71f78096c53fc32001bed59bdb4bc8de52cfd23d680c3104bb45fa
+    .claude/skills/init-context-docs/SKILL.md: sha256:07525d56960297119f2099e15b691ef197614ec594d47e97ffe9db3be5f26773
+    .claude/skills/init-context-docs/checklists/agents-md-checklist.md: sha256:5742c40b4da8efda31ca53dab654f6f808a9108f8ca4da9e9daa834c4d750870
+    .claude/skills/init-context-docs/checklists/claude-md-checklist.md: sha256:a3a2558f71713492ae16afdd5a57d07219247ecb173f43a83d6966c203311e5e
+    .claude/skills/init-context-docs/checklists/guideline-checklist.md: sha256:21112ba1387ff72875e391cb5557b880e3bb36f96c59e54373615cbc43156861
+    .claude/skills/init-context-docs/checklists/readme-checklist.md: sha256:729ca7358922ab15523b49446686062f8e7f6179de8fa5fa31645c1eba80a43b
+    .claude/skills/init-context-docs/scripts/automated-checks.sh: sha256:147a6ee18ba6eed2b44524f972036bb5f0b2f31636381410ef723423a29bf3b3
+    .claude/skills/initiative-specialist/SKILL.md: sha256:7190bad1f7adee95c15d50a844010bd403f6078151d0ec6bf4ffef0780aecc8c
+    .claude/skills/initiative-specialist/template.md: sha256:571b3ecc9185f6439730b0175ba5ee8b907495dda4f944eed2267fbfcf335e78
+    .claude/skills/jira-create/SKILL.md: sha256:0170a2e5c5714ff0140a776a205d073bb32ab8527f0bd414799ac0b7f9284695
+    .claude/skills/jira-report/SKILL.md: sha256:74e9e0e4d0c1fb0b68a57e31ed744df56364a41a55b27bf63a74b0535cb339c7
+    .claude/skills/jira-report/issue-review-template.md: sha256:fee2418ada26233bfefe90bd3fc36a25230231076118931239ec0b21b3a2e4ff
+    .claude/skills/jira-report/listing-by-component-template.md: sha256:a61911acf821e5c09f08e3510a0a010a2ba5482361b054d953f3d9a6431b99ba
+    .claude/skills/jira-report/listing-by-team-template.md: sha256:8a9737f4a8aec3f291adf82f98d263df0769ea5d62e2ebc6e0b3d52ff2331403
+    .claude/skills/jira-report/listing-by-worktype-template.md: sha256:65adb2fb85364e51ee164a3ce136dc010d952aecfdeea9584e573a15e54ebaf0
+    .claude/skills/jira-specialist/SKILL.md: sha256:41587f724a2f66a867532d1765cba9eee96204f45e32b8913726d8b61f530e2a
+    .claude/skills/jira-specialist/activity-types.md: sha256:5dd68c83020ef65e149b327045f2dcab4ebce34f631137f6870c91e27be63771
+    .claude/skills/jira-type-audit/SKILL.md: sha256:8d39a91839b4d7c07809fe73616f2a0421e2c186571c116cee93bf5aced08b5e
+    .claude/skills/opencode-setup/SKILL.md: sha256:110ffb3ef5f67ff9695a114eebf679aa866d6467c0488dc2581cf181f15f907c
+    .claude/skills/org-repo-audit/SKILL.md: sha256:6b16ed1f994f0b81f8c6719615963730ea2700134d577fc594dc295827602ddc
+    .claude/skills/outcome-specialist/SKILL.md: sha256:8cafa331aecfc5ec11bb52fff74be5d9fe6e7f4a1bfe6a0ee868166610e81293
+    .claude/skills/outcome-specialist/strategic-goal-template.md: sha256:12c57fd6290eb910cf71ab9f01eb423f3e673123fc2959472570c9721dc771bc
+    .claude/skills/outcome-specialist/template.md: sha256:141d7007b4b09ed68f036e13e2e1265828303662a53b7d79012180909177038b
+    .claude/skills/pr-fix/SKILL.md: sha256:a3379b884904ba7930755b265f17cd3a2fb1f53677e7edd615759cbb411a4f9b
+    .claude/skills/pr-hygiene/SKILL.md: sha256:499b7b0e8fc32c22348269201011d1e867b17972acf5c44c5bc44894bc18aff2
+    .claude/skills/pr-hygiene/scripts/pr-hygiene.py: sha256:aa677b11ccae18cc254433ebcc327d29e1e1ec2665fb0a2d8a29b9a43d3497ce
+    .claude/skills/pr-hygiene/scripts/test-pr-hygiene.py: sha256:773983b60cbd78130558e535a8473c171d2a8cf6d2e3977c79b4bff8dc3c352b
+    .claude/skills/pr-review-detailed/ARCHITECTURE.md: sha256:ab4e8a4a9c294740272fbec95f70d782c1f7aa6784c81254baaaa016ed543a2d
+    .claude/skills/pr-review-detailed/GENERAL.md: sha256:315628eb2862b4a25813f2972604999bbb032429b20c709db793875429176037
+    .claude/skills/pr-review-detailed/LANGUAGE/JS_SECURITY.md: sha256:32308da1d775783a6fae7d9c5be927cdc2188af096e82acf2e66ea1904e4325a
+    .claude/skills/pr-review-detailed/LANGUAGE/MAKEFILE_SHELL.md: sha256:566ac7d863065cf2ad72bb9eab5c6c1b4cbe5bc1d0247703738d989c932ce5f6
+    .claude/skills/pr-review-detailed/OTHER/README.md: sha256:d86bda592aa78c3da37aff35a6a8b23ec59b13bb2ff7421b0ff908896b7fabc1
+    .claude/skills/pr-review-detailed/README.md: sha256:6d25de1874f237fa5eec10128a5b0b26ab40f42b4c4421f35aac3fd0aa867dd6
+    .claude/skills/pr-review-detailed/REPO_SPECIFIC/UNIT_TESTS.md: sha256:0947008ed0a7dab1c49a0196354be26d6b2055d1e9d7d5cdd850f716a87385f8
+    .claude/skills/pr-review-detailed/REPO_SPECIFIC/VERIFICATION.md: sha256:c64cf2850e92cebe8dc989e5281a75114057293786c144b2e02f1a7d2053b435
+    .claude/skills/pr-review-detailed/SECURITY.md: sha256:18e3fbd70b9a8b3363c8b2e1010da8d1436c67e0b57f37ecb5fdc364f303f9e4
+    .claude/skills/pr-review-detailed/SKILL.md: sha256:24ebe82874006ad669ce8b5d193242f921291b4628816eeab5e1eb821f0b8760
+    .claude/skills/pr-review-detailed/TESTING.md: sha256:a454ffca5f1a1bbf5c75356826389cb11d2b5cdcc0856495afb45bc2fcb1cf15
+    .claude/skills/pr-review-detailed/UI/ACCESSIBILITY.md: sha256:6333a51496348ac9de898b272cb78aeb650e16e4e8a007281390e5302b35018c
+    .claude/skills/pr-review-detailed/UI/PATTERNFLY.md: sha256:955b78acd1587f0bfa5889c5814fd14d9522ff959be957ecbee2f5a9a3cefe01
+    .claude/skills/pr-review-detailed/UI/REACT.md: sha256:7f18288623c42727d5d0c9bb5fbae493f595e97d7defa7082c34e9f9411b6b44
+    .claude/skills/pr-review-detailed/scripts/filter-audit.js: sha256:875374540820829e03a87d34cec59fd80f8605a92d8bb14ab2d191d04482d4da
+    .claude/skills/pr-review-detailed/scripts/security-changed-packages.js: sha256:29dacf5b0e1cbb649cebee12dbc869245c15ec9a4db1a9de6b4bb25770f5779f
+    .claude/skills/pr-review-fix/SKILL.md: sha256:dff5149fa38d4ce1e4d7e518065efdb7714f1eef3ad078d50066d5b873c69f1a
+    .claude/skills/pr-review-fix/prompts/review-fix-pass.md: sha256:a53c164032693712a6797b835688b3fdade8553c4d09a1c29da5e6ce09298247
+    .claude/skills/pr-review/README.md: sha256:6ca51a6dd33ec6e2daeae8e51542192965b528e2e6066ef5abe7cbf2211011d8
+    .claude/skills/pr-review/SKILL.md: sha256:a1aee488a3de5db50d3cab377f49b1d9d5c0ec598ad571e7c05069bea07f221a
+    .claude/skills/pr-review/scripts/prepare-worktree.py: sha256:6d7b710c618ef7b821e5882ecfc9385ad1b766de5bfd8f348f23650ab6692232
+    .claude/skills/pr-review/scripts/summarize-pr.py: sha256:9ffe7b81e24f9c3f00b736f236a7a3d72d1f370fe4ff08d4e5b940144efe3355
+    .claude/skills/presentation-task/SKILL.md: sha256:cd292391b7bf4275dc7cc7644b89ed9991ebf3536d55fae2c9722dc1df3bfb0d
+    .claude/skills/release-dod/SKILL.md: sha256:a7d0680866c5e04a7962aabe38d7452027ed5cebc0391e3f291d9d235264ae36
+    .claude/skills/release-dod/subtasks/communicate.md: sha256:47a7af2bc408e718c2eed025a9c295924d4d3edc6eb53b41d86c3d51a0f6628e
+    .claude/skills/release-dod/subtasks/configure.md: sha256:4d8c454ef3ad23826e7a42f1c815c6e5e4eb031447ddd5a5e93f6a1d0ade4f88
+    .claude/skills/release-dod/subtasks/verify.md: sha256:410343058d0217ce64374d818ed2c071031b13deb369a2769c514d42bd28ffec
+    .claude/skills/release-dod/template.md: sha256:636b37d79b05723fd14f48f71fcbeaa0c3c340e59bef46438700bf3015f7a797
+    .claude/skills/release-notes/SKILL.md: sha256:5c2daecd611d6da8ffa3f84b0bcdd66f6ad7b3e9b60ea145ad319d743dc28fad
+    .claude/skills/repo-content-audit/SKILL.md: sha256:32337ad7d5da1c755547f7ed15e1e5669ecdc0a3e8f9a3dc5a64eaddca7d2909
+    .claude/skills/repo-setup/SKILL.md: sha256:5475ce5b71c8b662a33b2f1146be087d5657231099d6fc032dcfdfd446d96b4a
+    .claude/skills/rhacm-addon-wizard/SKILL.md: sha256:2162bd7fbc94aa8ec85409c8bcb13a636e3d7554c0c71467c10e417665d9ada4
+    .claude/skills/risk-specialist/SKILL.md: sha256:a36d72894b2fb51e95c049549dfa63e997dc042b33d79b8a4ddc1551ecf40f7a
+    .claude/skills/risk-specialist/template.md: sha256:1a09f012ec85200aaa12d8b49b6c5be9233640ebb52a548e9ecf11e3a2f25ae6
+    .claude/skills/scored-code-review/SKILL.md: sha256:a1840e3890f46719a46700ea014107237f4e570554e975f353f3db28268a934c
+    .claude/skills/spike-specialist/SKILL.md: sha256:5e66a9e1b6f5455a95c636e6c1b1428ebf5810068ecfeb09223ca67571bd6112
+    .claude/skills/spike-specialist/template.md: sha256:d84151b77cac24667bea71a1db1b89af97e873399d781c4d44b7a32a6eb06c12
+    .claude/skills/start-work/SKILL.md: sha256:31614a730ce206838ef4d831e069c05d19ebdf298e7ffe0d529f884a85652482
+    .claude/skills/story-specialist/SKILL.md: sha256:3a9ad5d7214e0dba9ac5b2a24124c278f7e030cbfeb63a401051b3b822e147b5
+    .claude/skills/story-specialist/template.md: sha256:ccdbd280e9e04b5b8e22c16719fdf0da65c17938f62218cb18593cadb64ed271
+    .claude/skills/task-specialist/SKILL.md: sha256:00e0b518a009f38cb1e71b77e5142f5598fdd623a14a2b8e0a87c41b9a062220
+    .claude/skills/task-specialist/subtask-template.md: sha256:f59ff90cc12870493460a3539b4294204378b70a4c9dd7965559a802c1777fb7
+    .claude/skills/task-specialist/template.md: sha256:6780c24de7d5bb82a8939538767de163e381e24a7f09544b97aa96369c96638b
+    .claude/skills/test-coverage-gap/SKILL.md: sha256:101c3421e6b9ff22b689fa1fc94142a33bb361bd1dcb29e79a86d19284b59532
+    .claude/skills/test-coverage-gap/reference/coverage-formats.md: sha256:b1aa0a8d22a5b865bf88260274733a8e2f8ed5adac487b29918feb65ce9f8565
+    .claude/skills/ticket-specialist/SKILL.md: sha256:12e2ccbe835306a0b1e56fa383016e3a5df817932a3b3740958f93f189722974
+    .claude/skills/ticket-specialist/template.md: sha256:26d4713a33b26b836bac9d7db4192ea115b0572cad83268e42c2937d5c876ad7
+  content_hash: sha256:9c235bfa33c3341d3ae4dea0a8733b7489abf2b6a139e4fdd849a1744f24c03c
+  declared_license: Apache-2.0
+- repo_url: redhatproductsecurity/prodsec-skills
+  name: database-security
+  host: github.com
+  resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
+  version: unknown
+  virtual_path: module/skills/database-security
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/database-security
+  - .claude/skills/database-security/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/database-security/SKILL.md: sha256:d76ecdaeeae9d3a90114913ed0a24faa57bad1a1954485a7db916599d94dfb95
+  content_hash: sha256:6d1733298eb9de5f1a330ed00eb6a3edaa87129eb0b2a84e58b5141ff1558d82
+- repo_url: redhatproductsecurity/prodsec-skills
+  name: go-security
+  host: github.com
+  resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
+  version: unknown
+  virtual_path: module/skills/go-security
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/go-security
+  - .claude/skills/go-security/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/go-security/SKILL.md: sha256:9c317e8b7c799cce91989a828d0828dc6b88ccb6354485b0e16956a84d2727aa
+  content_hash: sha256:34597605a60a6e6d073e82ac22fdbab786f788f146de352dd5ac264b74118b3a
+- repo_url: redhatproductsecurity/prodsec-skills
+  name: helm-chart-security
+  host: github.com
+  resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
+  version: unknown
+  virtual_path: module/skills/helm-chart-security
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/helm-chart-security
+  - .claude/skills/helm-chart-security/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/helm-chart-security/SKILL.md: sha256:36f91043bb6d4c71c1893d52e17c7b73a46e397a6871c6a3e6e36558c60d5cce
+  content_hash: sha256:4fb9d8cad1207c2a00d19ca63acd29dc2b66955d60dc05eb569c0aad6fe639eb
+- repo_url: redhatproductsecurity/prodsec-skills
+  name: linux-capabilities
+  host: github.com
+  resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
+  version: unknown
+  virtual_path: module/skills/linux-capabilities
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/linux-capabilities
+  - .claude/skills/linux-capabilities/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/linux-capabilities/SKILL.md: sha256:fdd6b68fc3d4747c55ae9c9b41d46769f2dcaaf4e42454607f6c9e63d7ce2a18
+  content_hash: sha256:e999ac807577cc70ecf1bb19528f99fcccefbf77bfc585baefbd76f350ea247e
+- repo_url: redhatproductsecurity/prodsec-skills
+  name: react-security
+  host: github.com
+  resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
+  version: unknown
+  virtual_path: module/skills/react-security
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/react-security
+  - .claude/skills/react-security/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/react-security/SKILL.md: sha256:78ba6268bff3aaa5023ee3ec27f704298da5e3266ac7333bdaff5f7f5259f70e
+  content_hash: sha256:18a0a254df498ae8b9b5b859e2058aaea98cf8312872f1528cc9d9255195c806
+- repo_url: redhatproductsecurity/prodsec-skills
+  name: tls-compliance
+  host: github.com
+  resolved_commit: b55c6b9c3392645f62da59a447c29473c413e371
+  resolved_ref: b55c6b9c3392645f62da59a447c29473c413e371
+  version: unknown
+  virtual_path: module/skills/tls-compliance
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/tls-compliance
+  - .claude/skills/tls-compliance/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/tls-compliance/SKILL.md: sha256:1cf9984ff184bc6adbc88f80a03cdbe0dfe397e88378106c8884a31e9c0cae87
+  content_hash: sha256:207a7c6be75252d5f38d45ae2fe3db852a66494fae8e61bf1ec75aac0a6d5b44
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/agents/review-gemini-pro.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6dd3b0e657aaddb5942b49a9890ee6741b94d271aef520c78a3634472367a3b3
+- kind: project-relative
+  target: claude
+  value: .claude/agents/review-opus.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:5a6812430f0d2210ebe0b1bbaadaec0882db2acf0fbc3e92ac05ddcfd59719b2
+- kind: project-relative
+  target: claude
+  value: .claude/agents/review-sonnet.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:0d8af8c527cbec8c5511685612aa2e4828c781341f9899159113bc57a891de77
+- kind: project-relative
+  target: claude
+  value: .claude/commands/README.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:0458d44c25b4a66fcf1dfa9f9cb4349263d992061df61d105a15c3b86f19b392
+- kind: project-relative
+  target: claude
+  value: .claude/commands/check.agent.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:62e370ea9a01e01e6b0cfcd99288dd1a1b4930024f193776d3b575e2328376d0
+- kind: project-relative
+  target: claude
+  value: .claude/commands/finish-work.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:9a5998c2ea8f4c623fd736214fd6b94b241b2ce55ed5e94abb874e038cd7c5c8
+- kind: project-relative
+  target: claude
+  value: .claude/commands/ignite.agent.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:2a54e24111b6edb6a6982d879e8b44111a7c7224e0918e01882653be59f15174
+- kind: project-relative
+  target: claude
+  value: .claude/commands/myissues.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:5d53f2b54ac4974163d8a89572cb81014faad29d183f0b9247eaeafd68167e1f
+- kind: project-relative
+  target: claude
+  value: .claude/commands/repo-team-standards.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:66f3cbc1593e92668b9927ff2a0d80a3d6dae8e8c2307cbdb70ebcf0cb1f3426
+- kind: project-relative
+  target: claude
+  value: .claude/commands/ship.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:ef70da2f11ec9db04e7a0ba5688bf5afc9ec475e638640e53c10d603ae072306
+- kind: project-relative
+  target: claude
+  value: .claude/commands/start-work.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:7f28ebe050b1f69a1e38530ad38e36691f36b63316fc3a1f4fa1daca3ebe8cbf
+- kind: project-relative
+  target: claude
+  value: .claude/commands/summary.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:755e41b9f37d80947b879bd1b31eddfb5f09db9832c34349d42d82fac30ac97f
+- kind: project-relative
+  target: claude
+  value: .claude/skills/acm-release
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/acm-release/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:e2b5d5f31e74cc328502d683f7ee9f29bed482998e7d700a0fcf9127a8d70e93
+- kind: project-relative
+  target: claude
+  value: .claude/skills/breaking-changes
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/breaking-changes/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:36bc111a3c99fe5372594319ee4b8f109f0a07d2743e544c81973dce8e476652
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bug-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bug-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:9650dfe85f29594342f3fd1cd0f8b5471459fddaf1f3b39e2a4b47d5c2505884
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bug-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:ca09d536e3007e37ab695d804ad2b83d734d3e81426979ad5aed83d281320ca2
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ci-triage
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ci-triage/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6432ffdcaf2722a6931b5632cacee8e2d2a7a0b5c676c6e525c576aabc714187
+- kind: project-relative
+  target: claude
+  value: .claude/skills/coderabbit-sync
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/coderabbit-sync/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:f5e47ac0ca0cd779d4cb0f25910cbe78ec12c1fbb1e17fd5694e6c99127e7a81
+- kind: project-relative
+  target: claude
+  value: .claude/skills/database-security
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/database-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/database-security
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/database-security/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/database-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/database-security
+  content_hash: sha256:d76ecdaeeae9d3a90114913ed0a24faa57bad1a1954485a7db916599d94dfb95
+- kind: project-relative
+  target: claude
+  value: .claude/skills/diagnosing-bugs
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/diagnosing-bugs/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:e750d1996c8af54ed25f8a293297c9376efc51ff223ec8aab7115076ffefe287
+- kind: project-relative
+  target: claude
+  value: .claude/skills/epic-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/epic-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:9f8cf1ebdd20a3bb056382d0282dc8533a88f0befa2dd7f0a0bd09641d3327d4
+- kind: project-relative
+  target: claude
+  value: .claude/skills/epic-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:73e00540bdcae4e92735cd0909b88abdc688d8cc279a16fda9fe92d38c7c984e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/f2f-daily-summary
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/f2f-daily-summary/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:bd69244b54b67f035b221fee06f5c367aacbef8a174decae2f655cce6d1f7798
+- kind: project-relative
+  target: claude
+  value: .claude/skills/f2f-epic-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/f2f-epic-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:b94cabeb16314ff5e175ad704e79f2e82955760a9a88bb73f7fbcccc8a5161ac
+- kind: project-relative
+  target: claude
+  value: .claude/skills/feature-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/feature-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:0eafc78717944b829445d26c18039d3d033b65dbcb7bda154d52ca64a840e741
+- kind: project-relative
+  target: claude
+  value: .claude/skills/feature-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:9af96a48fccace25f9fcf960f8b38eaaa0bbfe3aa8f3fe02a44ff71a9e3f0d66
+- kind: project-relative
+  target: claude
+  value: .claude/skills/finish-work
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/finish-work/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a6bc44b5de71f78096c53fc32001bed59bdb4bc8de52cfd23d680c3104bb45fa
+- kind: project-relative
+  target: claude
+  value: .claude/skills/go-security
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/go-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/go-security
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/go-security/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/go-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/go-security
+  content_hash: sha256:9c317e8b7c799cce91989a828d0828dc6b88ccb6354485b0e16956a84d2727aa
+- kind: project-relative
+  target: claude
+  value: .claude/skills/helm-chart-security
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/helm-chart-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/helm-chart-security
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/helm-chart-security/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/helm-chart-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/helm-chart-security
+  content_hash: sha256:36f91043bb6d4c71c1893d52e17c7b73a46e397a6871c6a3e6e36558c60d5cce
+- kind: project-relative
+  target: claude
+  value: .claude/skills/init-context-docs
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/init-context-docs/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:07525d56960297119f2099e15b691ef197614ec594d47e97ffe9db3be5f26773
+- kind: project-relative
+  target: claude
+  value: .claude/skills/init-context-docs/checklists/agents-md-checklist.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:5742c40b4da8efda31ca53dab654f6f808a9108f8ca4da9e9daa834c4d750870
+- kind: project-relative
+  target: claude
+  value: .claude/skills/init-context-docs/checklists/claude-md-checklist.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a3a2558f71713492ae16afdd5a57d07219247ecb173f43a83d6966c203311e5e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/init-context-docs/checklists/guideline-checklist.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:21112ba1387ff72875e391cb5557b880e3bb36f96c59e54373615cbc43156861
+- kind: project-relative
+  target: claude
+  value: .claude/skills/init-context-docs/checklists/readme-checklist.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:729ca7358922ab15523b49446686062f8e7f6179de8fa5fa31645c1eba80a43b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/init-context-docs/scripts/automated-checks.sh
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:147a6ee18ba6eed2b44524f972036bb5f0b2f31636381410ef723423a29bf3b3
+- kind: project-relative
+  target: claude
+  value: .claude/skills/initiative-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/initiative-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:7190bad1f7adee95c15d50a844010bd403f6078151d0ec6bf4ffef0780aecc8c
+- kind: project-relative
+  target: claude
+  value: .claude/skills/initiative-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:571b3ecc9185f6439730b0175ba5ee8b907495dda4f944eed2267fbfcf335e78
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-create
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-create/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:0170a2e5c5714ff0140a776a205d073bb32ab8527f0bd414799ac0b7f9284695
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-report
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-report/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:74e9e0e4d0c1fb0b68a57e31ed744df56364a41a55b27bf63a74b0535cb339c7
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-report/issue-review-template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:fee2418ada26233bfefe90bd3fc36a25230231076118931239ec0b21b3a2e4ff
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-report/listing-by-component-template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a61911acf821e5c09f08e3510a0a010a2ba5482361b054d953f3d9a6431b99ba
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-report/listing-by-team-template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:8a9737f4a8aec3f291adf82f98d263df0769ea5d62e2ebc6e0b3d52ff2331403
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-report/listing-by-worktype-template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:65adb2fb85364e51ee164a3ce136dc010d952aecfdeea9584e573a15e54ebaf0
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:41587f724a2f66a867532d1765cba9eee96204f45e32b8913726d8b61f530e2a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-specialist/activity-types.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:5dd68c83020ef65e149b327045f2dcab4ebce34f631137f6870c91e27be63771
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-type-audit
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/jira-type-audit/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:8d39a91839b4d7c07809fe73616f2a0421e2c186571c116cee93bf5aced08b5e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/linux-capabilities
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/linux-capabilities
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/linux-capabilities
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/linux-capabilities/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/linux-capabilities
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/linux-capabilities
+  content_hash: sha256:fdd6b68fc3d4747c55ae9c9b41d46769f2dcaaf4e42454607f6c9e63d7ce2a18
+- kind: project-relative
+  target: claude
+  value: .claude/skills/opencode-setup
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/opencode-setup/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:110ffb3ef5f67ff9695a114eebf679aa866d6467c0488dc2581cf181f15f907c
+- kind: project-relative
+  target: claude
+  value: .claude/skills/org-repo-audit
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/org-repo-audit/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6b16ed1f994f0b81f8c6719615963730ea2700134d577fc594dc295827602ddc
+- kind: project-relative
+  target: claude
+  value: .claude/skills/outcome-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/outcome-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:8cafa331aecfc5ec11bb52fff74be5d9fe6e7f4a1bfe6a0ee868166610e81293
+- kind: project-relative
+  target: claude
+  value: .claude/skills/outcome-specialist/strategic-goal-template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:12c57fd6290eb910cf71ab9f01eb423f3e673123fc2959472570c9721dc771bc
+- kind: project-relative
+  target: claude
+  value: .claude/skills/outcome-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:141d7007b4b09ed68f036e13e2e1265828303662a53b7d79012180909177038b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-fix
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-fix/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a3379b884904ba7930755b265f17cd3a2fb1f53677e7edd615759cbb411a4f9b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-hygiene
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-hygiene/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:499b7b0e8fc32c22348269201011d1e867b17972acf5c44c5bc44894bc18aff2
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-hygiene/scripts/pr-hygiene.py
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:aa677b11ccae18cc254433ebcc327d29e1e1ec2665fb0a2d8a29b9a43d3497ce
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-hygiene/scripts/test-pr-hygiene.py
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:773983b60cbd78130558e535a8473c171d2a8cf6d2e3977c79b4bff8dc3c352b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/ARCHITECTURE.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:ab4e8a4a9c294740272fbec95f70d782c1f7aa6784c81254baaaa016ed543a2d
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/GENERAL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:315628eb2862b4a25813f2972604999bbb032429b20c709db793875429176037
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/LANGUAGE/JS_SECURITY.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:32308da1d775783a6fae7d9c5be927cdc2188af096e82acf2e66ea1904e4325a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/LANGUAGE/MAKEFILE_SHELL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:566ac7d863065cf2ad72bb9eab5c6c1b4cbe5bc1d0247703738d989c932ce5f6
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/OTHER/README.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:d86bda592aa78c3da37aff35a6a8b23ec59b13bb2ff7421b0ff908896b7fabc1
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/README.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6d25de1874f237fa5eec10128a5b0b26ab40f42b4c4421f35aac3fd0aa867dd6
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/REPO_SPECIFIC/UNIT_TESTS.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:0947008ed0a7dab1c49a0196354be26d6b2055d1e9d7d5cdd850f716a87385f8
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/REPO_SPECIFIC/VERIFICATION.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:c64cf2850e92cebe8dc989e5281a75114057293786c144b2e02f1a7d2053b435
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/SECURITY.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:18e3fbd70b9a8b3363c8b2e1010da8d1436c67e0b57f37ecb5fdc364f303f9e4
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:24ebe82874006ad669ce8b5d193242f921291b4628816eeab5e1eb821f0b8760
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/TESTING.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a454ffca5f1a1bbf5c75356826389cb11d2b5cdcc0856495afb45bc2fcb1cf15
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/UI/ACCESSIBILITY.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6333a51496348ac9de898b272cb78aeb650e16e4e8a007281390e5302b35018c
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/UI/PATTERNFLY.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:955b78acd1587f0bfa5889c5814fd14d9522ff959be957ecbee2f5a9a3cefe01
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/UI/REACT.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:7f18288623c42727d5d0c9bb5fbae493f595e97d7defa7082c34e9f9411b6b44
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/scripts/filter-audit.js
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:875374540820829e03a87d34cec59fd80f8605a92d8bb14ab2d191d04482d4da
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-detailed/scripts/security-changed-packages.js
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:29dacf5b0e1cbb649cebee12dbc869245c15ec9a4db1a9de6b4bb25770f5779f
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-fix
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-fix/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:dff5149fa38d4ce1e4d7e518065efdb7714f1eef3ad078d50066d5b873c69f1a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review-fix/prompts/review-fix-pass.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a53c164032693712a6797b835688b3fdade8553c4d09a1c29da5e6ce09298247
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review/README.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6ca51a6dd33ec6e2daeae8e51542192965b528e2e6066ef5abe7cbf2211011d8
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a1aee488a3de5db50d3cab377f49b1d9d5c0ec598ad571e7c05069bea07f221a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review/scripts/prepare-worktree.py
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6d7b710c618ef7b821e5882ecfc9385ad1b766de5bfd8f348f23650ab6692232
+- kind: project-relative
+  target: claude
+  value: .claude/skills/pr-review/scripts/summarize-pr.py
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:9ffe7b81e24f9c3f00b736f236a7a3d72d1f370fe4ff08d4e5b940144efe3355
+- kind: project-relative
+  target: claude
+  value: .claude/skills/presentation-task
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/presentation-task/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:cd292391b7bf4275dc7cc7644b89ed9991ebf3536d55fae2c9722dc1df3bfb0d
+- kind: project-relative
+  target: claude
+  value: .claude/skills/react-security
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/react-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/react-security
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/react-security/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/react-security
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/react-security
+  content_hash: sha256:78ba6268bff3aaa5023ee3ec27f704298da5e3266ac7333bdaff5f7f5259f70e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-dod
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-dod/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a7d0680866c5e04a7962aabe38d7452027ed5cebc0391e3f291d9d235264ae36
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-dod/subtasks/communicate.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:47a7af2bc408e718c2eed025a9c295924d4d3edc6eb53b41d86c3d51a0f6628e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-dod/subtasks/configure.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:4d8c454ef3ad23826e7a42f1c815c6e5e4eb031447ddd5a5e93f6a1d0ade4f88
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-dod/subtasks/verify.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:410343058d0217ce64374d818ed2c071031b13deb369a2769c514d42bd28ffec
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-dod/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:636b37d79b05723fd14f48f71fcbeaa0c3c340e59bef46438700bf3015f7a797
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-notes
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/release-notes/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:5c2daecd611d6da8ffa3f84b0bcdd66f6ad7b3e9b60ea145ad319d743dc28fad
+- kind: project-relative
+  target: claude
+  value: .claude/skills/repo-content-audit
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/repo-content-audit/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:32337ad7d5da1c755547f7ed15e1e5669ecdc0a3e8f9a3dc5a64eaddca7d2909
+- kind: project-relative
+  target: claude
+  value: .claude/skills/repo-setup
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/repo-setup/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:5475ce5b71c8b662a33b2f1146be087d5657231099d6fc032dcfdfd446d96b4a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rhacm-addon-wizard
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rhacm-addon-wizard/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:2162bd7fbc94aa8ec85409c8bcb13a636e3d7554c0c71467c10e417665d9ada4
+- kind: project-relative
+  target: claude
+  value: .claude/skills/risk-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/risk-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a36d72894b2fb51e95c049549dfa63e997dc042b33d79b8a4ddc1551ecf40f7a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/risk-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:1a09f012ec85200aaa12d8b49b6c5be9233640ebb52a548e9ecf11e3a2f25ae6
+- kind: project-relative
+  target: claude
+  value: .claude/skills/scored-code-review
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/scored-code-review/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:a1840e3890f46719a46700ea014107237f4e570554e975f353f3db28268a934c
+- kind: project-relative
+  target: claude
+  value: .claude/skills/spike-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/spike-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:5e66a9e1b6f5455a95c636e6c1b1428ebf5810068ecfeb09223ca67571bd6112
+- kind: project-relative
+  target: claude
+  value: .claude/skills/spike-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:d84151b77cac24667bea71a1db1b89af97e873399d781c4d44b7a32a6eb06c12
+- kind: project-relative
+  target: claude
+  value: .claude/skills/start-work
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/start-work/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:31614a730ce206838ef4d831e069c05d19ebdf298e7ffe0d529f884a85652482
+- kind: project-relative
+  target: claude
+  value: .claude/skills/story-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/story-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:3a9ad5d7214e0dba9ac5b2a24124c278f7e030cbfeb63a401051b3b822e147b5
+- kind: project-relative
+  target: claude
+  value: .claude/skills/story-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:ccdbd280e9e04b5b8e22c16719fdf0da65c17938f62218cb18593cadb64ed271
+- kind: project-relative
+  target: claude
+  value: .claude/skills/task-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/task-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:00e0b518a009f38cb1e71b77e5142f5598fdd623a14a2b8e0a87c41b9a062220
+- kind: project-relative
+  target: claude
+  value: .claude/skills/task-specialist/subtask-template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:f59ff90cc12870493460a3539b4294204378b70a4c9dd7965559a802c1777fb7
+- kind: project-relative
+  target: claude
+  value: .claude/skills/task-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:6780c24de7d5bb82a8939538767de163e381e24a7f09544b97aa96369c96638b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/test-coverage-gap
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/test-coverage-gap/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:101c3421e6b9ff22b689fa1fc94142a33bb361bd1dcb29e79a86d19284b59532
+- kind: project-relative
+  target: claude
+  value: .claude/skills/test-coverage-gap/reference/coverage-formats.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:b1aa0a8d22a5b865bf88260274733a8e2f8ed5adac487b29918feb65ce9f8565
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ticket-specialist
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ticket-specialist/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:12e2ccbe835306a0b1e56fa383016e3a5df817932a3b3740958f93f189722974
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ticket-specialist/template.md
+  runtime: null
+  scope: project
+  owners:
+  - openshift-fleet/agentic-sdlc
+  active_owner: openshift-fleet/agentic-sdlc
+  content_hash: sha256:26d4713a33b26b836bac9d7db4192ea115b0572cad83268e42c2937d5c876ad7
+- kind: project-relative
+  target: claude
+  value: .claude/skills/tls-compliance
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/tls-compliance
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/tls-compliance
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/tls-compliance/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - redhatproductsecurity/prodsec-skills/module/skills/tls-compliance
+  active_owner: redhatproductsecurity/prodsec-skills/module/skills/tls-compliance
+  content_hash: sha256:1cf9984ff184bc6adbc88f80a03cdbe0dfe397e88378106c8884a31e9c0cae87

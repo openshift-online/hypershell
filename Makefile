@@ -133,6 +133,11 @@ help:
 	@echo "    hooks-install            Install Git hooks (lefthook)"
 	@echo "    hooks-run                Run hook checks manually"
 	@echo ""
+	@echo "  APM"
+	@echo "    apm-install              Install APM dependencies + run security scan"
+	@echo "    apm-install-force        Install APM dependencies + require skillspector scan (CI)"
+	@echo "    apm-audit                Run APM security audit"
+	@echo ""
 
 # ============================================================================
 # Build targets
@@ -218,6 +223,21 @@ hooks-install:
 .PHONY: hooks-run
 hooks-run:
 	$(LEFTHOOK_CMD) run check
+
+# ============================================================================
+# APM
+# ============================================================================
+
+.PHONY: apm-install apm-install-force
+apm-install:
+	@scripts/apm-install.sh
+
+apm-install-force:
+	@scripts/apm-install.sh --force
+
+.PHONY: apm-audit
+apm-audit:
+	apm run audit
 
 # ============================================================================
 # Lint targets

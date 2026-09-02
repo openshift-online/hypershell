@@ -20,7 +20,7 @@ checks manually with `make check`.
 - `components/control-plane/` - Go service, watches API server via gRPC and reconciles gateway resources into K8s
 - `packages/gateway-management-ui/` - Private reusable React package containing canonical gateway management workflows
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
-- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
+- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/), [security-audit](skills/security/run-security-audit)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
 
 ## Key Files
@@ -76,6 +76,7 @@ Support skills available at any point:
 - `/align` -- convention health check
 - `/maintain-ci` -- CI workflow and component registration maintenance
 - `/update-openshell` -- sync HyperShell to a new upstream OpenShell release (self-reinforcing)
+- `/run-security-audit` -- comprehensive security audit (threat model + code audit)
 - `/memory` -- project memory management
 
 ## Commands
@@ -103,6 +104,10 @@ make kind-up                                   # Start local Kind cluster
 make kind-down                                 # Destroy Kind cluster
 make kind-status                               # Show cluster status
 make lint                                      # Lint all Go code
+
+# APM & Security
+make apm-install                               # Install APM dependencies + run security scan
+make apm-audit                                 # Run APM security audit
 ```
 
 ## Critical Conventions
