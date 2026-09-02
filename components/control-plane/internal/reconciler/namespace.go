@@ -45,10 +45,14 @@ const (
 // this control-plane instance created but that no longer have a live Gateway in
 // this instance's API server. Other HyperShell instances on the same cluster are
 // ignored: the sweep selects on hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>.
-// This reaps namespaces orphaned by a delete event missed while the control
-// plane was down, and namespaces whose gateway failed to bootstrap and was then
-// deleted. Reaping is best-effort and idempotent, and is delayed by a grace
-// period recorded on the namespace itself so it survives restarts.
+// At the start of each sweep it claims unlabeled legacy gateway namespaces
+// (both management labels, no instance label) by stamping this instance, so a
+// missed-delete orphan from before the instance label existed is not left
+// invisible to GC. This reaps namespaces orphaned by a delete event missed
+// while the control plane was down, and namespaces whose gateway failed to
+// bootstrap and was then deleted. Reaping is best-effort and idempotent, and is
+// delayed by a grace period recorded on the namespace itself so it survives
+// restarts.
 //
 // See openshell-gateway-namespace-gc.spec.md (HYPERSHELL-78).
 type NamespaceGCReconciler struct {
@@ -131,6 +135,19 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 		log.Printf("WARN namespace gc: build live gateway set: %v", err)
 		return
 	}
+
+	// Claim pre-instance-label leftover gateway namespaces so a missed-delete
+	// orphan (two management labels, no instance label, no live Gateway) is
+	// visible to the instance-scoped sweep below. Live unlabeled namespaces
+	// are also stamped here; the live set then keeps them from being orphaned.
+	// Failure to claim must not abort the labeled sweep: already-labeled
+	// orphans can still be reaped. Foreign instance labels are never overwritten.
+	backfillCtx, backfillCancel := context.WithTimeout(ctx, namespaceListTimeout)
+	if err := gateway.BackfillInstanceLabels(backfillCtx, r.client, r.cpNamespace); err != nil {
+		tickErr = errors.Join(tickErr, err)
+		log.Printf("WARN namespace gc: backfill unlabeled instance labels: %v", err)
+	}
+	backfillCancel()
 
 	listCtx, cancel := context.WithTimeout(ctx, namespaceListTimeout)
 	namespaces, err := r.client.CoreV1().Namespaces().List(listCtx, metav1.ListOptions{

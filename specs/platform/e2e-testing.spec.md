@@ -619,6 +619,7 @@ The `deploy/` directory SHALL use a kustomize base/overlay structure to support 
 - WHEN `kustomize build deploy/openshift/` is executed
 - THEN the output SHALL include all base resources
 - AND OpenShift-specific resources: Routes for the API server, web console, and Keycloak with edge TLS termination; SecurityContextConstraints RoleBindings; `keycloak-allow-platform` NetworkPolicy so platform pods can reach Keycloak on TCP/8080
+- AND the API server Deployment SHALL set `API_ENV=development_oidc` (the overlay, not the lifecycle script)
 - AND `make openshift-up` SHALL rewrite overlay namespaces so `hypershell-system` maps to `OPENSHIFT_NAMESPACE` and `keycloak` maps to `${OPENSHIFT_NAMESPACE}-keycloak`, prefix cluster-scoped RBAC names with `${OPENSHIFT_NAMESPACE}-dev-`, and set the control plane `GATEWAY_API_BASE_DOMAIN` from the shared Gateway listener hostname
 
 #### Scenario: Base Resource Propagation

@@ -133,10 +133,10 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OS-7 | E2E Script Consolidation | Missing | Intentionally deferred: not local-dev lifecycle | `components/pr-test/` | Future |
 | OS-8 | Ephemeral CI Environment Provisioning | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
 | OS-9 | Environment Access Handoff | Missing | Intentionally deferred: CI-only | - | Future |
-| OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
+| OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; `API_ENV=development_oidc` in the overlay (not `oc set env`); gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
 | OS-11 | OpenShift CI Workflow Shape | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
 | OS-12 | Cluster Infrastructure Prerequisites | Present | `make openshift-up` fails fast when the shared Gateway is missing or not Programmed. GatewayClass is cluster-scoped and not GET-checked (developers typically cannot read it). | `drivers/openshift.sh` `check_infrastructure` | OS-W2 |
-| OS-13 | Cluster-Scoped Permissions + SCC/RBAC posture | Present | Default applies prefixed overlay ClusterRole+ClusterRoleBinding (`bind` on clusterroles, same shape as stage). `OPENSHIFT_USE_EXISTING_CLUSTERROLE=true` looks up ClusterRole `hypershell-controller` and binds a prefixed CRB to it. Never touches unprefixed `hypershell-controller`. Down deletes this env's prefixed ClusterRole/CRB. | `rewrite-namespaces.py`, `drivers/openshift.sh` `apply_cluster_rbac`, `deploy/base/controller-rbac.yaml` | OS-W2 |
+| OS-13 | Cluster-Scoped Permissions + SCC/RBAC posture | Present | Default applies prefixed overlay ClusterRole then ClusterRoleBinding. If ClusterRole create is Forbidden, bind the prefixed CRB to existing ClusterRole `hypershell-controller` (replace immutable roleRef if needed). Never touches unprefixed `hypershell-controller`. Down deletes this env's prefixed ClusterRole/CRB. | `rewrite-namespaces.py`, `drivers/openshift.sh` `apply_cluster_rbac`, `deploy/base/controller-rbac.yaml` | OS-W2 |
 
 Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemented. E2E driver completion beyond the OS-W1 manual slice, legacy `pr-test` consolidation, ephemeral CI, access handoff, overlay drift CI, and the OpenShift e2e workflow remain out of scope for this wave.
 
@@ -420,7 +420,7 @@ The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HY
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | NGC-1 | Gateway deletion reaps the gateway namespace (cascade + out-of-namespace cleanup) | Present | Delete event deletes the managed namespace (cascading in-namespace resources incl. sandbox pods); ClusterRoleBinding, Keycloak client, cross-namespace credential RBAC cleaned explicitly; best-effort/idempotent; never gated on sandbox count | `gateway/reconciler.go` `DeleteGatewayResources()`, `gateway/namespace.go` | NGC ✅ |
-| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps managed namespaces (both management labels required); `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `config/config.go` | NGC ✅ |
+| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; each sweep backfills `hypershell.redhat.io/instance` onto unlabeled legacy gateway namespaces (`openshell-*`, not `openshell-db-*`) then reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go` `BackfillInstanceLabels`, `config/config.go` | NGC ✅ |
 | NGC-3 | Grace period prevents premature deletion (durable annotation) | Present | `hypershell.redhat.io/gc-eligible-since` (RFC3339) stamped on and measured from the namespace so it survives restarts; cleared when a live Gateway reappears | `gateway/namespace.go` `MarkGCEligible`/`ClearGCEligible` | NGC ✅ |
 | NGC-4 | Do not reap namespaces of live gateways (abort on list failure) | Present | Liveness derived from API-reported Gateways; sweep aborts entirely if Gateways cannot be listed; existing gateway preserved regardless of phase (Degraded/Failed) | `reconciler/namespace.go` | NGC ✅ |
 | NGC-5 | Preserve a durable record before deletion | Present | `GarbageCollected` Event recorded in the control-plane namespace summarizing orphan duration, pod state, and active sandbox count; summary best-effort, never blocks the reap | `reconciler/namespace.go:203` | NGC ✅ |
@@ -665,8 +665,12 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 
 **Namespace GC (NGC):** `NamespaceGCReconciler` sweeps managed namespaces (both
 `app.kubernetes.io/managed-by=hypershell-control-plane` and
-`hypershell.redhat.io/managed=true` required) and reaps those orphaned past the
-grace period. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
+`hypershell.redhat.io/managed=true` required, plus
+`hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`) and reaps those orphaned
+past the grace period. Each sweep first claims unlabeled legacy gateway
+namespaces (management labels, no instance label, `openshell-*` not
+`openshell-db-*`) so missed-delete orphans from before the instance label are
+not invisible to GC. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
 annotation (RFC3339) and cleared when a Gateway reappears. Sweep aborts entirely
 if Gateways cannot be listed, so a transient API failure never reaps a live
 namespace. A `GarbageCollected` Event is recorded in the control-plane namespace

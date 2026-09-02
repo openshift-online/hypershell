@@ -400,6 +400,16 @@ produce incorrect discovery and issuer URLs and break token validation. This mir
 the Kind configuration, where `KC_HOSTNAME` is host-only and only the issuer values
 carry `/realms/hypershell`.
 
+The API server JWT environment SHALL live in `deploy/openshift/kustomization.yaml`
+with the other JWT and RBAC overlay patches, not in the lifecycle script. The
+default `development` environment force-disables JWT after flag parsing, so
+`--enable-jwt=true` is silent unless `API_ENV=development_oidc`. Route-derived
+values (Keycloak `KC_HOSTNAME`, console redirect URIs, gateway OIDC issuer) remain
+script-applied after Routes are assigned, because those hosts are not known at
+kustomize-build time. The overlay SHALL re-declare any base container env the
+JSON6902 env-array replace would otherwise drop, including
+`HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR`.
+
 This spec defines only where Keycloak lands. The broader isolation of other
 non-request-serving components (for example the database and observability) into
 their own namespaces is out of scope here and belongs to a separate spec.
@@ -414,6 +424,14 @@ their own namespaces is out of scope here and belongs to a separate spec.
 - AND every other HyperShell component runs in the `alice` namespace
 - AND the current oc project is `alice` after Keycloak is applied
 - AND the OIDC issuer points at the Keycloak route in `alice-keycloak`
+
+#### Scenario: API_ENV is declared in the OpenShift overlay
+
+- GIVEN `deploy/openshift/kustomization.yaml` is built
+- WHEN the rendered API server Deployment is inspected
+- THEN it SHALL set `API_ENV=development_oidc`
+- AND it SHALL retain `HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR`
+- AND `make openshift-up` SHALL NOT set `API_ENV` with `oc set env`
 
 #### Scenario: Platform workloads can reach Keycloak across the namespace group
 
@@ -949,17 +967,24 @@ unprefixed ClusterRole `hypershell-controller` or ClusterRoleBinding
 cluster, such as stage. Built-in ClusterRoles whose names start with `system:`
 SHALL NOT be renamed.
 
-When `OPENSHIFT_USE_EXISTING_CLUSTERROLE` is `true`, the command SHALL look up
-ClusterRole `hypershell-controller` and SHALL apply a ClusterRoleBinding named
+If the prefixed ClusterRole apply is Forbidden (Kubernetes escalation
+prevention: the ClusterRole grants verbs the current user does not hold, for
+example `routes/custom-host`) and ClusterRole `hypershell-controller` exists,
+the command SHALL apply a ClusterRoleBinding named
 `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` whose `roleRef` is that
 existing ClusterRole and whose subject is this environment's controller
-service account. It SHALL NOT create a ClusterRole, and it SHALL NOT look for
-`hypershell-controller-scc-bind`. If ClusterRole `hypershell-controller` is
-missing, the command SHALL fail.
+service account. It SHALL NOT create a ClusterRole on that path, and it SHALL
+NOT look for `hypershell-controller-scc-bind`. ClusterRoleBinding `roleRef` is
+immutable, so if a ClusterRoleBinding of that name already points at a
+different ClusterRole (for example a previous apply created the binding before
+the ClusterRole was rejected), the command SHALL delete and recreate it so the
+binding points at `hypershell-controller`. The command SHALL apply the
+ClusterRole before the ClusterRoleBinding so a failed ClusterRole create does
+not leave a binding that cannot be retargeted.
 
 Kubernetes escalation prevention forbids a typical developer from granting
-those ClusterRoles, so when ClusterRole or ClusterRoleBinding apply is
-Forbidden, the command SHALL warn and continue with the rest of the stack.
+those ClusterRoles, so when both the prefixed ClusterRole and the existing-role
+fallback fail, the command SHALL warn and continue with the rest of the stack.
 Gateways and sandboxes will not provision until this environment's controller
 is bound. `make openshift-down` SHALL delete this environment's
 `${OPENSHIFT_NAMESPACE}-dev-*` ClusterRoles and ClusterRoleBindings and SHALL
@@ -981,14 +1006,14 @@ namespace.
 - AND the controller can create the per-namespace privileged RoleBinding for a sandbox because it was granted `bind`
 - AND the deployment does not attempt to grant the cluster-scoped `bind` through a namespace-scoped RoleBinding
 
-#### Scenario: Shared cluster ClusterRole workaround
+#### Scenario: Prefixed ClusterRole is forbidden, existing ClusterRole is used
 
-- GIVEN ClusterRole `hypershell-controller` already exists on the cluster
-- AND `OPENSHIFT_USE_EXISTING_CLUSTERROLE=true`
+- GIVEN the developer cannot create ClusterRole `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` because of escalation prevention
+- AND ClusterRole `hypershell-controller` already exists on the cluster
 - AND the developer can create ClusterRoleBindings prefixed with `${OPENSHIFT_NAMESPACE}-dev-`
 - WHEN the developer runs `make openshift-up`
-- THEN the command looks up ClusterRole `hypershell-controller`
-- AND applies ClusterRoleBinding `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` with `roleRef` `hypershell-controller`
+- THEN the command applies ClusterRoleBinding `${OPENSHIFT_NAMESPACE}-dev-hypershell-controller` with `roleRef` `hypershell-controller`
+- AND if that ClusterRoleBinding already pointed at a different ClusterRole, the command replaces it
 - AND the command does not create a ClusterRole
 - AND the command does not create or patch ClusterRoleBinding `hypershell-controller`
 

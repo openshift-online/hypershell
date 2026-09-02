@@ -266,26 +266,87 @@ check_infrastructure() {
   info "Gateway base domain: ${GATEWAY_API_BASE_DOMAIN} (from ${gw_ns}/${gw_name} listener)"
 }
 
-use_existing_clusterrole() {
-  case "${OPENSHIFT_USE_EXISTING_CLUSTERROLE:-}" in
-    true|TRUE|1|yes|YES) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 warn_skipped_cluster_rbac() {
   local err="$1"
   OPENSHIFT_CLUSTER_RBAC_APPLIED=false
   warn "Could not apply cluster-scoped RBAC for this environment."
   warn "${err}"
-  if use_existing_clusterrole; then
-    warn "OPENSHIFT_USE_EXISTING_CLUSTERROLE requires ClusterRole hypershell-controller and permission to create a prefixed ClusterRoleBinding to it."
-  else
-    warn "Expected this environment's ClusterRole and ClusterRoleBinding:"
-    warn "  ${OPENSHIFT_NAMESPACE}-dev-hypershell-controller"
-  fi
+  warn "Expected ClusterRoleBinding ${OPENSHIFT_NAMESPACE}-dev-hypershell-controller"
+  warn "bound to this environment's ClusterRole or to ClusterRole hypershell-controller."
   warn "Gateways and sandboxes will not provision until this environment's controller is bound."
   warn "Do not apply unprefixed ClusterRoleBinding hypershell-controller; that belongs to stage."
+}
+
+# roleRef is immutable. Delete a leftover ClusterRoleBinding so the next apply
+# can point at the intended ClusterRole (prefixed copy vs cluster-wide).
+replace_clusterrolebinding_if_role_ref_differs() {
+  local name="$1"
+  local want_ref="$2"
+  local current
+  current="$(oc_cli get clusterrolebinding "${name}" -o jsonpath='{.roleRef.name}' 2>/dev/null || true)"
+  if [[ -z "${current}" || "${current}" == "${want_ref}" ]]; then
+    return 0
+  fi
+  info "Replacing ClusterRoleBinding ${name} (roleRef ${current} -> ${want_ref}; roleRef is immutable)"
+  oc_cli delete clusterrolebinding "${name}"
+}
+
+apply_rendered_cluster_rbac() {
+  local rendered err
+  if ! rendered="$(render_openshift_manifests "$@")"; then
+    return 1
+  fi
+  assert_expected_cluster_scoped "${rendered}"
+  if ! err="$(oc_cli apply -f "${rendered}" 2>&1)"; then
+    rm -f "${rendered}"
+    LAST_CLUSTER_RBAC_ERR="${err}"
+    return 1
+  fi
+  printf '%s\n' "${err}"
+  rm -f "${rendered}"
+  return 0
+}
+
+bind_existing_clusterrole() {
+  local prefix="${OPENSHIFT_NAMESPACE}-dev-"
+  local crb="${prefix}hypershell-controller"
+  if ! oc_cli get clusterrole hypershell-controller >/dev/null 2>&1; then
+    LAST_CLUSTER_RBAC_ERR="ClusterRole hypershell-controller was not found"
+    return 1
+  fi
+  info "Binding this environment to ClusterRole hypershell-controller (${crb})"
+  if ! replace_clusterrolebinding_if_role_ref_differs "${crb}" "hypershell-controller"; then
+    LAST_CLUSTER_RBAC_ERR="Could not replace ClusterRoleBinding ${crb} so roleRef can change"
+    return 1
+  fi
+  apply_rendered_cluster_rbac \
+    --only-namespace __cluster__ \
+    --include-cluster-scoped \
+    --omit-kinds ClusterRole \
+    --keep-role-refs \
+    --omit-names "${prefix}hypershell-controller-scc-bind"
+}
+
+apply_prefixed_cluster_rbac() {
+  local prefix="${OPENSHIFT_NAMESPACE}-dev-"
+  local crb="${prefix}hypershell-controller"
+  # Apply the ClusterRole first. Applying it with the ClusterRoleBinding in one
+  # shot can create a CRB that points at a ClusterRole that never exists, and
+  # roleRef cannot be patched afterward.
+  if ! apply_rendered_cluster_rbac \
+    --only-namespace __cluster__ \
+    --include-cluster-scoped \
+    --only-kinds ClusterRole; then
+    return 1
+  fi
+  if ! replace_clusterrolebinding_if_role_ref_differs "${crb}" "${crb}"; then
+    LAST_CLUSTER_RBAC_ERR="Could not replace ClusterRoleBinding ${crb} so roleRef can change"
+    return 1
+  fi
+  apply_rendered_cluster_rbac \
+    --only-namespace __cluster__ \
+    --include-cluster-scoped \
+    --only-kinds ClusterRoleBinding
 }
 
 assert_expected_cluster_scoped() {
@@ -345,49 +406,35 @@ EOF
 
 apply_cluster_rbac() {
   # Default: apply the overlay ClusterRole and ClusterRoleBinding, names prefixed
-  # so they never replace stage's hypershell-controller. Workaround: bind this
+  # so they never replace stage's hypershell-controller. If ClusterRole create is
+  # Forbidden (escalation prevention: rules the user does not hold), bind this
   # environment's service account to the existing cluster-wide ClusterRole.
   local prefix="${OPENSHIFT_NAMESPACE}-dev-"
-  local render_args=(
-    --only-namespace __cluster__
-    --include-cluster-scoped
-  )
-  local rendered err
   OPENSHIFT_CLUSTER_RBAC_APPLIED=true
+  LAST_CLUSTER_RBAC_ERR=""
 
-  if use_existing_clusterrole; then
-    info "OPENSHIFT_USE_EXISTING_CLUSTERROLE: looking up ClusterRole hypershell-controller"
-    if ! oc_cli get clusterrole hypershell-controller >/dev/null 2>&1; then
-      error "OPENSHIFT_USE_EXISTING_CLUSTERROLE is set but ClusterRole hypershell-controller was not found."
-      exit 1
-    fi
-    info "Binding this environment to ClusterRole hypershell-controller (${prefix}hypershell-controller)"
-    render_args+=(
-      --omit-kinds ClusterRole
-      --keep-role-refs
-      --omit-names "${prefix}hypershell-controller-scc-bind"
-    )
-  else
-    info "Applying cluster-scoped RBAC from deploy/openshift (${prefix}*)..."
+  info "Applying cluster-scoped RBAC from deploy/openshift (${prefix}*)..."
+  if apply_prefixed_cluster_rbac; then
+    apply_sandbox_scc
+    return 0
   fi
 
-  if ! rendered="$(render_openshift_manifests "${render_args[@]}")"; then
-    exit 1
-  fi
-  assert_expected_cluster_scoped "${rendered}"
-  if ! err="$(oc_cli apply -f "${rendered}" 2>&1)"; then
-    rm -f "${rendered}"
-    if grep -qiE 'forbidden|not found' <<<"${err}"; then
-      warn_skipped_cluster_rbac "${err}"
-      apply_sandbox_scc || true
-      return 0
-    fi
+  local err="${LAST_CLUSTER_RBAC_ERR}"
+  if ! grep -qi 'forbidden' <<<"${err}"; then
     error "${err}"
     return 1
   fi
-  printf '%s\n' "${err}"
-  rm -f "${rendered}"
-  apply_sandbox_scc
+
+  warn "Could not create ClusterRole ${prefix}hypershell-controller."
+  warn "${err}"
+  warn "Falling back to existing ClusterRole hypershell-controller."
+  if bind_existing_clusterrole; then
+    success "Bound this environment to ClusterRole hypershell-controller"
+    apply_sandbox_scc
+    return 0
+  fi
+  warn_skipped_cluster_rbac "${LAST_CLUSTER_RBAC_ERR:-${err}}"
+  apply_sandbox_scc || true
 }
 
 create_bootstrap_secrets() {
@@ -666,10 +713,6 @@ configure_oidc_from_routes() {
   info "Setting Keycloak KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}"
   oc_cli set env deployment/keycloak -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
     "KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}" >/dev/null
-
-  info "Configuring API server JWT environment"
-  oc_cli set env deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" -c api-server \
-    API_ENV=development_oidc >/dev/null
 
   info "Configuring web console OIDC"
   oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
@@ -974,7 +1017,7 @@ print_banner() {
   if [[ "${OPENSHIFT_CLUSTER_RBAC_APPLIED:-true}" != "true" ]]; then
     echo ""
     warn "This environment's controller is not bound to a ClusterRole."
-    warn "Gateways/sandboxes need ${OPENSHIFT_NAMESPACE}-dev-hypershell-controller, or OPENSHIFT_USE_EXISTING_CLUSTERROLE=true plus ClusterRole hypershell-controller."
+    warn "Gateways/sandboxes need ClusterRoleBinding ${OPENSHIFT_NAMESPACE}-dev-hypershell-controller."
   fi
 }
 

@@ -103,19 +103,37 @@ if grep -E 'delete clusterrole(binding)? "hypershell-controller' "${SCRIPT_DIR}/
 else
   PASS=$((PASS + 1))
 fi
-if grep -q 'OPENSHIFT_USE_EXISTING_CLUSTERROLE' "${SCRIPT_DIR}/drivers/openshift.sh" \
-  && grep -A50 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'get clusterrole hypershell-controller' \
-  && grep -A50 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'keep-role-refs'; then
+if grep -A40 '^bind_existing_clusterrole()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'get clusterrole hypershell-controller' \
+  && grep -A40 '^bind_existing_clusterrole()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'keep-role-refs'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OPENSHIFT_USE_EXISTING_CLUSTERROLE does not look up ClusterRole hypershell-controller'
+  echo 'FAIL: bind_existing_clusterrole does not look up ClusterRole hypershell-controller'
+fi
+if grep -q 'OPENSHIFT_USE_EXISTING_CLUSTERROLE' "${SCRIPT_DIR}/drivers/openshift.sh" "${REPO_ROOT}/Makefile"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OPENSHIFT_USE_EXISTING_CLUSTERROLE is still present; fallback bind replaced it'
+else
+  PASS=$((PASS + 1))
 fi
 if grep -A50 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'Applying cluster-scoped RBAC from deploy/openshift'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: default apply_cluster_rbac does not apply overlay ClusterRole/ClusterRoleBinding'
+fi
+if grep -A80 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'Falling back to existing ClusterRole hypershell-controller' \
+  && grep -A80 '^apply_cluster_rbac()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'bind_existing_clusterrole'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: apply_cluster_rbac does not fall back to ClusterRole hypershell-controller'
+fi
+if grep -A20 '^replace_clusterrolebinding_if_role_ref_differs()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'roleRef is immutable'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: leftover ClusterRoleBinding roleRef is not replaced before fallback bind'
 fi
 if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'skip_seed'; then
   PASS=$((PASS + 1))
@@ -649,6 +667,18 @@ if bad:
       FAIL=$((FAIL + 1))
       echo 'FAIL: namespaced SCC RoleBinding lost built-in system: roleRef'
     fi
+    if grep -A1 'name: API_ENV' "${os_out}" | grep -q 'development_oidc'; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo 'FAIL: OpenShift overlay does not set API_ENV=development_oidc'
+    fi
+    if grep -q 'name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR' "${os_out}"; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo 'FAIL: OpenShift overlay dropped HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR'
+    fi
   else
     FAIL=$((FAIL + 1))
     echo 'FAIL: rewritten overlay render'
@@ -656,6 +686,13 @@ if bad:
   rm -f "${os_out}"
 else
   warn "kustomize not installed; skipping overlay render checks"
+fi
+
+if grep -q 'API_ENV=development_oidc' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift driver still sets API_ENV imperatively; it belongs in deploy/openshift'
+else
+  PASS=$((PASS + 1))
 fi
 
 printf 'OpenShift lifecycle tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"

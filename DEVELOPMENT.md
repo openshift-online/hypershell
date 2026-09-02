@@ -340,13 +340,16 @@ manifests (with prune scoped to this environment), registers the web-console
 Route as the Keycloak `hypershell-frontend` redirect URI, seeds a
 ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway from this machine
 against the API and Keycloak Routes (the API server image has no `curl`), and
-prints the API, web-console, and Keycloak Routes. The gateway base domain is
+prints the API, web-console, and Keycloak Routes. The overlay sets
+`API_ENV=development_oidc` on the API server so `--enable-jwt=true` is not
+clobbered by the default `development` environment. Route-derived OIDC values
+(`KC_HOSTNAME`, console redirect URIs, gateway issuer) are applied after the
+Routes exist. The gateway base domain is
 read from the shared Gateway's listener hostname, not from
 `GATEWAY_API_BASE_DOMAIN`. When ClusterRole create is forbidden, the command
-warns and continues. `OPENSHIFT_USE_EXISTING_CLUSTERROLE=true` skips creating a
-per-environment ClusterRole and instead creates `${namespace}-dev-hypershell-controller`
-ClusterRoleBinding whose `roleRef` is the existing cluster-wide
-`hypershell-controller` ClusterRole. It never applies unprefixed
+binds `${namespace}-dev-hypershell-controller` to the existing cluster-wide
+ClusterRole `hypershell-controller` if that ClusterRole exists. Only if that
+fallback also fails does it warn and continue. It never applies unprefixed
 `hypershell-controller`. `make openshift-down` deletes this environment's
 `${namespace}-dev-*` ClusterRoles and ClusterRoleBindings and does not delete
 stage's `hypershell-controller`.
@@ -396,7 +399,6 @@ active swaps.
 | `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
 | `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
 | `OPENSHIFT_NAMESPACE` | `oc project -q` | Override for the platform namespace. Unset, the current oc project is used. Max 54 chars; Keycloak lands in `${name}-keycloak`. |
-| `OPENSHIFT_USE_EXISTING_CLUSTERROLE` | (unset) | Set to `true` to bind this environment to the existing ClusterRole `hypershell-controller` instead of creating `${namespace}-dev-hypershell-controller`. |
 | `SKIP_SEED` | (unset) | Set to `true` to skip ManagedCluster/GatewayRelease/ManagedDatabase/Gateway seeding on `make kind-up` and `make openshift-up`. `KIND_SKIP_SEED` is still accepted. |
 | `SEED_STRICT` | (unset) | Set to `true` to fail `make kind-up` / `make kind-seed` / `make openshift-up` if seeding is incomplete. `KIND_SEED_STRICT` is still accepted. |
 | `GATEWAY_API_GATEWAY_NAME` | `openshell-grpc-gateway` | Pre-existing shared Gateway name |

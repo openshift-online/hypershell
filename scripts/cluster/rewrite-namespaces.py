@@ -8,8 +8,8 @@ ClusterRole and ClusterRoleBinding names (and ClusterRoleBinding roleRefs to
 those ClusterRoles) are prefixed with ${platform}-dev- so each openshift-up
 environment has its own copy and does not patch stage's hypershell-controller.
 Built-in ClusterRoles (system:*) are not renamed. --keep-role-refs leaves
-roleRef pointing at the existing cluster-wide ClusterRole (workaround for
-OPENSHIFT_USE_EXISTING_CLUSTERROLE).
+roleRef pointing at the existing cluster-wide ClusterRole when a prefixed
+ClusterRole cannot be created.
 """
 from __future__ import annotations
 

@@ -76,6 +76,24 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/env
         value:
+          # API_ENV selects the rh-trex runtime environment. The default
+          # "development" hard-forces Auth.EnableJWT=false in OverrideConfig()
+          # AFTER flag parsing, which silently clobbers --enable-jwt=true below
+          # and leaves REST with no identity so RBAC 401s every request.
+          # "development_oidc" is the purpose-built environment for a
+          # self-contained Keycloak: it leaves EnableJWT to the flags and keeps
+          # the OCM/AMS client mocked (enable-mock=true default), so the
+          # api-server does NOT require sso.redhat.com secret files. Any overlay
+          # that enables JWT against a self-hosted IdP MUST set this. Mirrors the
+          # deploy/kind overlay and the gitops jwt-enforce component.
+          - name: API_ENV
+            value: "development_oidc"
+          # Re-declare the base env: this JSON6902 add REPLACES the whole env
+          # array, so the base values would otherwise be dropped.
+          - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
+            value: "hypershell-controller:9443"
+          - name: DB_SSLMODE
+            value: require
           - name: JWK_CERT_URL
             valueFrom:
               secretKeyRef:
@@ -91,6 +109,11 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--enable-authz=true"
+      # NOTE: the OCM/Red Hat AMS client stays mocked via API_ENV=development_oidc
+      # (enable-mock=true default), so no explicit --enable-mock flag is needed.
+      # A self-contained Keycloak deployment has no sso.redhat.com secret files,
+      # and the AMS client is unused here; JWT auth (enable-jwt) and gateway RBAC
+      # (RBAC_ENFORCE) are independent of the mock and stay on.
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=$(JWK_CERT_URL)"

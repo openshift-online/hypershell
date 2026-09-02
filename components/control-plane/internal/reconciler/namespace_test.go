@@ -325,14 +325,96 @@ func TestReconcileOnce_OnlySweepsThisInstance(t *testing.T) {
 		t.Errorf("this instance's orphan was not stamped gc-eligible-since")
 	}
 
-	for _, name := range []string{"openshell-stage", "openshell-legacy"} {
-		got, err := client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get %s: %v", name, err)
-		}
-		if _, ok := got.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
-			t.Errorf("%s was treated as an orphan of this instance, want ignored", name)
-		}
+	legacy, err := client.CoreV1().Namespaces().Get(ctx, "openshell-legacy", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get unlabeled legacy namespace: %v", err)
+	}
+	if legacy.Labels[gateway.InstanceLabel] != "hypershell" {
+		t.Errorf("unlabeled legacy namespace instance = %q, want hypershell after backfill", legacy.Labels[gateway.InstanceLabel])
+	}
+	if legacy.Annotations[gateway.GCEligibleSinceAnnotation] != now.Format(time.RFC3339) {
+		t.Errorf("unlabeled legacy orphan was not stamped gc-eligible-since after backfill")
+	}
+
+	foreignUpdated, err := client.CoreV1().Namespaces().Get(ctx, "openshell-stage", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get foreign namespace: %v", err)
+	}
+	if foreignUpdated.Labels[gateway.InstanceLabel] != "hypershell-stage" {
+		t.Errorf("foreign instance label overwritten to %q", foreignUpdated.Labels[gateway.InstanceLabel])
+	}
+	if _, ok := foreignUpdated.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
+		t.Errorf("foreign instance namespace was treated as an orphan of this instance, want ignored")
+	}
+}
+
+func TestReconcileOnce_BackfillDoesNotOrphanLiveUnlabeled(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	unlabeled := nsWithLabels("openshell-legacy", map[string]string{
+		gateway.ManagedByLabel: gateway.ManagedByValue,
+		gateway.ManagedLabel:   gateway.ManagedLabelValue,
+	}, nil)
+	client := fake.NewSimpleClientset(unlabeled)
+	r := newTestGC(client, now)
+	r.liveNamespaces = func(context.Context) (map[string]struct{}, error) {
+		return map[string]struct{}{"openshell-legacy": {}}, nil
+	}
+
+	r.reconcileOnce(ctx)
+
+	got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-legacy", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+	if got.Labels[gateway.InstanceLabel] != "hypershell" {
+		t.Errorf("live unlabeled namespace instance = %q, want hypershell after backfill", got.Labels[gateway.InstanceLabel])
+	}
+	if _, ok := got.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
+		t.Errorf("live unlabeled namespace was marked orphaned, want retained")
+	}
+}
+
+func TestReconcileOnce_BackfillDoesNotClaimUnlabeledDatabase(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	db := nsWithLabels("openshell-db-a1b2c3d4e5f67890", map[string]string{
+		gateway.ManagedByLabel: gateway.ManagedByValue,
+		gateway.ManagedLabel:   gateway.ManagedLabelValue,
+	}, nil)
+	client := fake.NewSimpleClientset(db)
+	r := newTestGC(client, now)
+
+	r.reconcileOnce(ctx)
+
+	got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-db-a1b2c3d4e5f67890", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+	if _, ok := got.Labels[gateway.InstanceLabel]; ok {
+		t.Errorf("unlabeled ManagedDatabase namespace was claimed, want unlabeled")
+	}
+	if _, ok := got.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
+		t.Errorf("ManagedDatabase namespace was treated as an orphan, want ignored")
+	}
+}
+
+func TestReconcileOnce_UnlabeledOrphanPastGraceIsReaped(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	unlabeled := nsWithLabels("openshell-legacy", map[string]string{
+		gateway.ManagedByLabel: gateway.ManagedByValue,
+		gateway.ManagedLabel:   gateway.ManagedLabelValue,
+	}, map[string]string{
+		gateway.GCEligibleSinceAnnotation: now.Add(-20 * time.Minute).Format(time.RFC3339),
+	})
+	client := fake.NewSimpleClientset(unlabeled)
+	r := newTestGC(client, now)
+
+	r.reconcileOnce(ctx)
+
+	if nsExists(t, client, "openshell-legacy") {
+		t.Fatalf("unlabeled legacy orphan past grace retained, want reaped after backfill")
 	}
 }
 

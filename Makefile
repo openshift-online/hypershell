@@ -97,7 +97,6 @@ help:
 	@echo "    Kind uses KIND_NAMESPACE (default hypershell-system); kind-up creates the cluster."
 	@echo "    OpenShift uses the current oc project (oc project -q); OPENSHIFT_NAMESPACE overrides."
 	@echo "    OpenShift requires an existing cluster; openshift-up does not create one."
-	@echo "    OPENSHIFT_USE_EXISTING_CLUSTERROLE=true binds to ClusterRole hypershell-controller instead of creating a per-env copy."
 	@echo ""
 	@echo "    <prefix>-up                   Deploy the stack (Kind also creates the cluster)"
 	@echo "    <prefix>-down                 Remove the environment namespace(s)"
@@ -320,7 +319,7 @@ export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME METRICS_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
-export OPENSHIFT_NAMESPACE OPENSHIFT_IMAGE_REGISTRY OPENSHIFT_USE_EXISTING_CLUSTERROLE SKIP_SEED SEED_STRICT
+export OPENSHIFT_NAMESPACE OPENSHIFT_IMAGE_REGISTRY SKIP_SEED SEED_STRICT
 export GATEWAY_API_GATEWAY_NAME GATEWAY_API_GATEWAY_NAMESPACE GATEWAY_IMAGE
 
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
