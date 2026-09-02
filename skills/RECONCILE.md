@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-02 (source-release manual approval update complete)
+**Last analyzed**: 2026-09-02 (source-release image version display complete)
 **Spec corpus**: 44 spec files; the coverage table tracks 33 analyzed feature/spec groups
-**Codebase commit**: working tree (source-release manual approval update complete)
+**Codebase commit**: working tree (source-release image version display complete)
 
 ### Coverage Summary
 
@@ -113,7 +113,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | REL-07 | Build version format | Present | - | `Makefile`, `scripts/build-version.sh`, `scripts/kind/`, `.tekton/` | REL-W2 |
 | REL-08 | Container metadata | Present | - | `components/{api-server,control-plane,web-console}/Dockerfile` | REL-W2 |
 | REL-09 | API service metadata | Present | - | `components/api-server/openapi/openapi.yaml`, `components/api-server/pkg/api/metadata_test.go` | REL-W3 |
-| REL-10 | Web-console version display | Present | - | `components/web-console/bff/src/config.ts`, `components/web-console/app/features/shell/user-menu.tsx` | REL-W4 |
+| REL-10 | Web-console version display | Present | - | `components/web-console/bff/src/config.ts`, `components/web-console/app/adapters/api/api-version.ts`, `components/web-console/app/features/shell/user-menu.tsx` | REL-W4 |
 | REL-11 | Registry and deployment scope | Present | - | `.tekton/`, `docs/releasing.md` | REL-W1 |
 | REL-12 | Verification and documentation | Present | - | `scripts/test_release_policy.py`, `scripts/test_build_version.py`, `scripts/check_image_build_policy.py`, `components/api-server/pkg/api/metadata_test.go`, `components/web-console/app/features/shell/user-menu.test.tsx`, `docs/releasing.md` | REL-W1..REL-W4 |
 
@@ -122,7 +122,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 - REL-W1 adds the managed source-release control and policy checks.
 - REL-W2 adds deterministic image identity and final-release build selection.
 - REL-W3 makes the existing API metadata route report the image identity.
-- REL-W4 adds the console identity to runtime configuration and the user menu.
+- REL-W4 adds the console and API identities to the user menu.
 
 ### openshell-gateway-console.spec.md
 

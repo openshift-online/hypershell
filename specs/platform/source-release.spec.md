@@ -255,25 +255,32 @@ current paths and meanings.
 The web-console image SHALL give its build version to the BFF as runtime
 configuration. The BFF SHALL include only this non-secret value in the existing
 browser runtime-configuration allowlist. The authenticated user menu SHALL show
-the localized text `Console version <build-version>` as non-action content. The
-menu SHALL remain usable when the value is unavailable and SHALL show a
-localized unknown value.
+the localized text `Console version <build-version>` as non-action content. It
+SHALL get the API server build version from the existing metadata endpoint
+through the same-origin BFF proxy. It SHALL show the localized text
+`API version <build-version>` as separate non-action content. The menu SHALL
+remain usable when either value is unavailable and SHALL show a localized
+unknown value for that source.
 
-The console SHALL show its own image build version. It SHALL NOT state or imply
+The two rows SHALL identify their source. The console SHALL NOT state or imply
 that the console and API server use the same revision.
 
-#### Scenario: Show the console build version
+#### Scenario: Show both image build versions
 
 - GIVEN an authenticated user uses console build `v1.6.0-1234567`
+- AND the API server returns build version `v1.6.0-7654321`
 - WHEN the user opens the user menu
 - THEN the menu SHALL show `Console version v1.6.0-1234567`
-- AND the version row SHALL not start navigation or another action
+- AND the menu SHALL show `API version v1.6.0-7654321`
+- AND neither version row SHALL start navigation or another action
 
-#### Scenario: Build version is unavailable
+#### Scenario: Build versions are unavailable
 
 - GIVEN browser runtime configuration has no valid build version
+- AND the API metadata request is unavailable
 - WHEN an authenticated user opens the user menu
-- THEN the menu SHALL show a localized unknown version
+- THEN the menu SHALL show a localized unknown console version
+- AND the menu SHALL show a localized unknown API version
 - AND the Log out action SHALL remain available
 
 ### Requirement REL-11: Registry and deployment scope

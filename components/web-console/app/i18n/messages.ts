@@ -6,6 +6,11 @@ export const messages = defineMessages({
     defaultMessage: "Account",
     description: "Fallback label for the identity menu when no name is known.",
   },
+  apiVersion: {
+    id: "app.apiVersion",
+    defaultMessage: "API version {version}",
+    description: "API server image version in the identity menu.",
+  },
   breadcrumbLabel: {
     id: "app.breadcrumb.ariaLabel",
     defaultMessage: "Breadcrumb",

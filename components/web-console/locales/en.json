@@ -15,6 +15,10 @@
     "defaultMessage": "Retry",
     "description": "Action that repeats a failed request."
   },
+  "app.apiVersion": {
+    "defaultMessage": "API version {version}",
+    "description": "API server image version in the identity menu."
+  },
   "app.breadcrumb.ariaLabel": {
     "defaultMessage": "Breadcrumb",
     "description": "Accessible label for the application breadcrumb navigation."

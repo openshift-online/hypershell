@@ -10,21 +10,28 @@ import { FormattedMessage, useIntl } from "react-intl";
 
 import { readBrowserRuntimeConfig } from "../../composition/browser-runtime-config";
 import { messages } from "../../i18n/messages";
+import { useApiVersion } from "./use-api-version";
 import { useSession } from "./use-session";
 
 /**
- * Masthead identity menu. Shows the authenticated user's display name and a
- * single sign-out action that performs full RP-initiated logout by navigating
- * to the BFF `/auth/logout` endpoint (a real navigation, not a client route).
- * Renders nothing when unauthenticated or in no-auth mode.
+ * Masthead identity menu. Shows the user's display name, the console and API
+ * image versions, and a sign-out action. Sign-out uses the BFF `/auth/logout`
+ * endpoint so that the BFF can complete RP-initiated logout. The menu renders
+ * nothing when the user is not authenticated or when no-auth mode is active.
  */
 export function UserMenu() {
   const intl = useIntl();
   const [isOpen, setIsOpen] = useState(false);
+  const [configuredBuildVersion] = useState(
+    () => readBrowserRuntimeConfig().build.version,
+  );
   const { data: session } = useSession();
-  const buildVersion =
-    readBrowserRuntimeConfig().build.version ??
-    intl.formatMessage(messages.unknownVersion);
+  const { data: apiBuildVersion } = useApiVersion(
+    session?.authenticated === true,
+  );
+  const unknownVersion = intl.formatMessage(messages.unknownVersion);
+  const consoleBuildVersion = configuredBuildVersion ?? unknownVersion;
+  const displayedApiBuildVersion = apiBuildVersion ?? unknownVersion;
 
   if (!session?.authenticated) {
     return null;
@@ -62,7 +69,13 @@ export function UserMenu() {
         <DropdownItem isDisabled>
           <FormattedMessage
             {...messages.consoleVersion}
-            values={{ version: buildVersion }}
+            values={{ version: consoleBuildVersion }}
+          />
+        </DropdownItem>
+        <DropdownItem isDisabled>
+          <FormattedMessage
+            {...messages.apiVersion}
+            values={{ version: displayedApiBuildVersion }}
           />
         </DropdownItem>
         <DropdownItem to="/auth/logout">
