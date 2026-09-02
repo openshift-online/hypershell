@@ -1,26 +1,48 @@
 # Local Development Environment
 
-HyperShell provides a single-command local development environment. Kind
-([Kind](https://kind.sigs.k8s.io/), Kubernetes in Docker) is the default
-single-tenant path. OpenShift uses the same make-target pattern
-(`make openshift-up`, `make openshift-<component>-up`) against an existing
-cluster and an ephemeral namespace group. The environment deploys all platform
-components -- API server, control plane, and web console -- so developers can
-test changes end-to-end.
+HyperShell deploys the same stack (API server, control plane, web console,
+Keycloak) on Kind or on an existing OpenShift cluster. Targets follow the same
+shape: `make kind-<name>` or `make openshift-<name>`. Kind creates a local
+cluster. OpenShift never creates a cluster; it deploys into the oc project you
+select.
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Kind Development](#kind-development)
+  - [Quickstart](#quickstart)
+  - [Kind make targets](#kind-make-targets)
+  - [Per-component swap](#per-component-swap)
+  - [Keycloak](#keycloak)
+  - [Kind environment variables](#kind-environment-variables)
+- [OpenShift Development](#openshift-development)
+  - [OpenShift quickstart](#openshift-quickstart)
+  - [OpenShift make targets](#openshift-make-targets)
+  - [OpenShift per-component swap](#openshift-per-component-swap)
+  - [OpenShift environment variables](#openshift-environment-variables)
+- [Gateway Access](#gateway-access)
+- [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
 | Tool | Purpose | Install |
 |------|---------|---------|
 | [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman.io/docs/installation) | Container engine | OS package manager |
-| [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) | Local Kubernetes clusters | `brew install kind` |
-| [kubectl](https://kubernetes.io/docs/tasks/tools/) | Kubernetes CLI | `brew install kubectl` |
+| [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) | Local Kubernetes clusters (Kind path) | `brew install kind` |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | Kubernetes CLI (Kind path) | `brew install kubectl` |
+| [oc](https://docs.openshift.com/container-platform/latest/cli_reference/openshift_cli/getting-started-cli.html) | OpenShift CLI (OpenShift path) | [install oc](https://docs.openshift.com/container-platform/latest/cli_reference/openshift_cli/getting-started-cli.html) |
 | [cloud-provider-kind](https://github.com/kubernetes-sigs/cloud-provider-kind) | LoadBalancer + Gateway API for Kind | `brew install cloud-provider-kind` |
 
 The container engine is auto-detected (Podman preferred). Override with
 `CONTAINER_ENGINE=docker` or `CONTAINER_ENGINE=podman`.
 
-## Quickstart
+## Kind Development
+
+Kind ([Kubernetes in Docker](https://kind.sigs.k8s.io/)) is the default
+single-tenant path. `make kind-up` creates the cluster and deploys every
+platform component so you can test changes end to end.
+
+### Quickstart
 
 ```bash
 make kind-up
@@ -57,7 +79,30 @@ host port 443 to cloud-provider-kind's ephemeral Gateway port.
 The TLS certificate is self-signed -- trust it in your browser or use
 `curl --cacert`.
 
-## Per-Component Swap
+### Kind make targets
+
+`make kind-up` is idempotent: running it again on an existing cluster
+reapplies manifests and waits for readiness. Swapped components are preserved.
+
+| Target | Use |
+|--------|-----|
+| `make kind-up` | Create the Kind cluster, install prerequisites, deploy the stack, seed sample resources, and wait until ready. |
+| `make kind-down` | Remove the `hypershell-system` namespace and its resources. Leaves the Kind cluster running. |
+| `make kind-teardown` | Destroy the Kind cluster and stop cloud-provider-kind. |
+| `make kind-status` | Show cluster info, pods, services, and which components are swapped. |
+| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding. `kind-up` already seeds unless `SKIP_SEED=true`. |
+| `make kind-prereqs` | Build the pinned `cloud-provider-kind` binary into `bin/`. `kind-up` runs this; use it alone when the binary is missing. |
+| `make kind-env` | Print `export` statements for the current Kind make variables. |
+| `make kind-fix-ports` | Re-establish host port 443 forwarding to the Gateway's ephemeral port. |
+| `make kind-gateway-trust` | Write the cluster CA to `bin/hypershell-ca.crt` and print `export SSL_CERT_FILE=...` for the openshell CLI. Run `eval "$(make kind-gateway-trust)"`. |
+| `make kind-api-server-up` | Build the API server from the working tree and swap it into the cluster. |
+| `make kind-api-server-down` | Revert the API server to the baseline registry image. |
+| `make kind-control-plane-up` | Build the control plane from the working tree and swap it into the cluster. |
+| `make kind-control-plane-down` | Revert the control plane to the baseline registry image. |
+| `make kind-web-console-up` | Hot-reload the web console (default), or build and swap a full image when `KIND_HOT_RELOAD=false`. |
+| `make kind-web-console-down` | Revert the web console to the baseline registry image. |
+
+### Per-component swap
 
 Baseline images are pulled from the container registry. To build all baseline
 images locally instead (e.g. when registry access is unavailable), run:
@@ -108,7 +153,7 @@ make kind-status
 Shows which components are running local builds vs. baseline images. Swap state
 is tracked in `.kind-swaps` (gitignored).
 
-## Hot Reload
+### Hot reload
 
 The web console supports hot reload by default. When you run
 `make kind-web-console-up`, the host source directory is mounted into the
@@ -125,7 +170,7 @@ Hot reload is only supported for the web console. The API server and control
 plane are Go services that require a full rebuild (`make kind-api-server-up` /
 `make kind-control-plane-up`).
 
-## Keycloak
+### Keycloak
 
 The local Keycloak instance mirrors the downstream Keycloak topology used in
 production.
@@ -192,7 +237,7 @@ KIND_KEYCLOAK_URL=https://keycloak.example.com/realms/hypershell make kind-up
 This skips the local Keycloak deployment and points the gateway OIDC issuer at
 the external URL.
 
-## OIDC Authentication
+### OIDC authentication
 
 The Kind cluster runs with OIDC authentication enabled. Keycloak is deployed as
 the identity provider and all components are configured for JWT validation and
@@ -250,7 +295,7 @@ curl -s -H "Authorization: Bearer ${TOKEN}" \
   https://api.hypershell.localhost/api/hypershell/v1/gateways
 ```
 
-## Private Registry Pull Secret
+### Private registry pull secret
 
 If your baseline images live in a private registry, provide a pull secret:
 
@@ -261,7 +306,7 @@ KIND_PULL_SECRET=/path/to/pull-secret.yaml make kind-up
 The YAML file is applied into the target namespace with `kubectl apply`. It
 should contain a `kubernetes.io/dockerconfigjson` Secret.
 
-## Offline Development
+### Offline development
 
 Build all component images from the local working tree instead of pulling from
 the container registry:
@@ -274,25 +319,40 @@ This builds api-server, control-plane, and web-console images locally and loads
 them into Kind. The Dockerfiles drop the local `rh-trex-ai` replace directive at
 build time, so no external dependency checkout is needed.
 
-## Cluster Lifecycle
+### Kind environment variables
 
-```bash
-make kind-up        # Create cluster + deploy everything
-make kind-down      # Remove namespace and its resources
-make kind-teardown  # Destroy Kind cluster entirely
-make kind-status    # Show cluster info, pods, services, swap state
-```
-
-`make kind-up` is idempotent -- running it again on an existing cluster
-reapplies manifests and waits for readiness. Swapped components are preserved.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KIND_CLUSTER_NAME` | `hypershell-dev` | Kind cluster name |
+| `KIND_NAMESPACE` | `hypershell-system` | Target namespace for swap and teardown |
+| `KIND_HOT_RELOAD` | `true` | Hot reload for the web console |
+| `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
+| `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
+| `KEYCLOAK_OIDC_ISSUER` | `https://keycloak.hypershell.localhost/realms/hypershell` | OIDC issuer URL |
+| `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
+| `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry for baseline images |
+| `IMAGE_TAG` | `latest` | Image tag for baseline images |
+| `LOCAL_IMAGES` | (unset) | Set to `true` to build baseline images from the working tree |
+| `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
+| `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
+| `CLOUD_PROVIDER_KIND_REPO` | `https://github.com/squizzi/cloud-provider-kind.git` | cloud-provider-kind git repo |
+| `CLOUD_PROVIDER_KIND_BRANCH` | `hypershell` | cloud-provider-kind branch to build |
+| `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
+| `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18.4@sha256:9b19...` | Database image for Gateway; override for OSS dev |
+| `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
+| `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
+| `SKIP_SEED` | (unset) | Set to `true` to skip seeding on `make kind-up`. `KIND_SKIP_SEED` is still accepted. |
+| `SEED_STRICT` | (unset) | Set to `true` to fail `make kind-up` / `make kind-seed` if seeding is incomplete. `KIND_SEED_STRICT` is still accepted. |
 
 ## OpenShift Development
 
-`make openshift-up` deploys the same stack into an isolated namespace group on
-an OpenShift cluster selected by the current kubeconfig context. It does not
-create the cluster. An administrator must already have provisioned the shared
-Gateway, GatewayClass, certificate issuer, and wildcard certificate (see
+`make openshift-up` deploys the same stack into the current oc project on an
+OpenShift cluster selected by kubeconfig. It does not create the cluster. An
+administrator must already have provisioned the shared Gateway, GatewayClass,
+certificate issuer, and wildcard certificate (see
 `deploy/openshift/infrastructure/GATEWAY-SETUP.md`).
+
+### OpenShift quickstart
 
 The platform namespace is the current oc project. Select it first, then bring
 the environment up:
@@ -313,6 +373,23 @@ The name must be a valid RFC 1123 DNS label of at most 54 characters so the
 companion Keycloak namespace `${name}-keycloak` stays within the 63-character
 limit. If no project is selected and `OPENSHIFT_NAMESPACE` is unset, the
 command stops with an error.
+
+### OpenShift make targets
+
+| Target | Use |
+|--------|-----|
+| `make openshift-up` | Deploy the stack into the current oc project (`OPENSHIFT_NAMESPACE` override) and companion `${name}-keycloak`. Does not create an OpenShift cluster. Seeds unless `SKIP_SEED=true`. |
+| `make openshift-down` | Delete the platform and Keycloak projects. If project deletion is forbidden, strip HyperShell resources and leave the projects. |
+| `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
+| `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
+| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. `openshift-up` already seeds unless `SKIP_SEED=true`. |
+| `make openshift-api-server-up` | Build, push an immutable image to the internal registry, and swap the API server. |
+| `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
+| `make openshift-control-plane-up` | Build, push, and swap the control plane. |
+| `make openshift-control-plane-down` | Revert the control plane to the baseline registry image. |
+| `make openshift-web-console-up` | Build, push, and swap the web console. There is no Kind-style Vite hot reload. |
+| `make openshift-web-console-down` | Revert the web console to the baseline registry image. |
+| `make openshift-test` | Run `scripts/cluster/lib_test.sh` on the laptop (overlay rewrite tests). Does not talk to a cluster. |
 
 `make openshift-up` deploys into the project you selected. It does not ask
 for confirmation, and it does not require permission to label the namespace.
@@ -360,7 +437,7 @@ and the companion `${name}-keycloak` project. If project deletion is
 forbidden, they delete HyperShell resources inside both projects (including
 unlabeled Keycloak) and leave the projects. Labels are not required.
 
-### Per-component swap
+### OpenShift per-component swap
 
 ```bash
 make openshift-api-server-up
@@ -376,60 +453,19 @@ and the exact image each one uses. Swap state is tracked per namespace in
 `.openshift-swaps/` (gitignored). A subsequent `make openshift-up` preserves
 active swaps.
 
-## Environment Variable Reference
+### OpenShift environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KIND_CLUSTER_NAME` | `hypershell-dev` | Kind cluster name |
-| `KIND_NAMESPACE` | `hypershell-system` | Target namespace for swap/teardown |
-| `KIND_HOT_RELOAD` | `true` | Hot reload for web console |
-| `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
-| `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
-| `KEYCLOAK_OIDC_ISSUER` | `https://keycloak.hypershell.localhost/realms/hypershell` | OIDC issuer URL |
-| `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
-| `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry |
-| `IMAGE_TAG` | `latest` | Image tag for baseline images |
-| `LOCAL_IMAGES` | (unset) | Set to `true` for offline baseline builds |
-| `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
-| `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
-| `CLOUD_PROVIDER_KIND_REPO` | `https://github.com/squizzi/cloud-provider-kind.git` | cloud-provider-kind git repo |
-| `CLOUD_PROVIDER_KIND_BRANCH` | `hypershell` | cloud-provider-kind branch to build |
-| `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager version |
-| `KIND_DB_IMAGE` | `registry.access.redhat.com/hi/postgresql:18.4@sha256:9b19...` | Database image for Gateway; override for OSS dev |
-| `KIND_NO_SUDO` | (unset) | Set to `true` to skip sudo operations |
-| `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
 | `OPENSHIFT_NAMESPACE` | `oc project -q` | Override for the platform namespace. Unset, the current oc project is used. Max 54 chars; Keycloak lands in `${name}-keycloak`. |
-| `SKIP_SEED` | (unset) | Set to `true` to skip ManagedCluster/GatewayRelease/ManagedDatabase/Gateway seeding on `make kind-up` and `make openshift-up`. `KIND_SKIP_SEED` is still accepted. |
-| `SEED_STRICT` | (unset) | Set to `true` to fail `make kind-up` / `make kind-seed` / `make openshift-up` if seeding is incomplete. `KIND_SEED_STRICT` is still accepted. |
 | `GATEWAY_API_GATEWAY_NAME` | `openshell-grpc-gateway` | Pre-existing shared Gateway name |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace of the shared Gateway |
 | `OPENSHIFT_IMAGE_REGISTRY` | `oc registry info` | Registry used to push swapped images |
-
-## Make Targets
-
-| Target | Description |
-|--------|-------------|
-| `make kind-up` | Create cluster + prerequisites + deploy + wait |
-| `make kind-down` | Remove namespace and its resources |
-| `make kind-teardown` | Destroy Kind cluster, stop cloud-provider-kind |
-| `make kind-status` | Show cluster info, pods, services, swap state |
-| `make kind-api-server-up` | Build + swap API server from working tree |
-| `make kind-api-server-down` | Revert API server to baseline image |
-| `make kind-control-plane-up` | Build + swap control plane from working tree |
-| `make kind-control-plane-down` | Revert control plane to baseline image |
-| `make kind-web-console-up` | Hot reload (default) or build + swap web console |
-| `make kind-web-console-down` | Revert web console to baseline image |
-| `make kind-fix-ports` | Re-establish host port forwarding (443) |
-| `make openshift-up` | Deploy into an ephemeral OpenShift namespace group |
-| `make openshift-down` | Remove the namespace group (platform project and `${name}-keycloak`) |
-| `make openshift-teardown` | Same as `openshift-down` (OpenShift has no cluster to destroy) |
-| `make openshift-status` | Show namespaces, pods, Routes, Gateway, swap state |
-| `make openshift-api-server-up` | Build, push, and swap API server from working tree |
-| `make openshift-api-server-down` | Revert API server to baseline image |
-| `make openshift-control-plane-up` | Build, push, and swap control plane from working tree |
-| `make openshift-control-plane-down` | Revert control plane to baseline image |
-| `make openshift-web-console-up` | Build, push, and swap web console from working tree |
-| `make openshift-web-console-down` | Revert web console to baseline image |
+| `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry for baseline images |
+| `IMAGE_TAG` | `latest` | Image tag for baseline images |
+| `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
+| `SKIP_SEED` | (unset) | Set to `true` to skip seeding on `make openshift-up`. `KIND_SKIP_SEED` is still accepted. |
+| `SEED_STRICT` | (unset) | Set to `true` to fail `make openshift-up` / `make openshift-seed` if seeding is incomplete. `KIND_SEED_STRICT` is still accepted. |
 
 ## Gateway Access
 

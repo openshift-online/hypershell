@@ -30,6 +30,8 @@ func newControlPlaneProvisionerFromEnvironment() (ServiceAccountProvisioner, err
 	if address == "" {
 		return nil, nil
 	}
+	// grpc-go DNS does not apply kube-DNS search domains. Callers must pass a
+	// cluster-local FQDN (see deploy/base/api-server.yaml).
 	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("create control-plane provisioner client: %w", err)

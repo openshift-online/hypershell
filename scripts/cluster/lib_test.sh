@@ -673,11 +673,12 @@ if bad:
       FAIL=$((FAIL + 1))
       echo 'FAIL: OpenShift overlay does not set API_ENV=development_oidc'
     fi
-    if grep -q 'name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR' "${os_out}"; then
+    if grep -q 'name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR' "${os_out}" \
+      && grep -q 'hypershell-controller.alice.svc.cluster.local:9443' "${os_out}"; then
       PASS=$((PASS + 1))
     else
       FAIL=$((FAIL + 1))
-      echo 'FAIL: OpenShift overlay dropped HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR'
+      echo 'FAIL: OpenShift overlay dropped HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR FQDN'
     fi
   else
     FAIL=$((FAIL + 1))

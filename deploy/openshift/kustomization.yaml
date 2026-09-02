@@ -91,7 +91,7 @@ patches:
           # Re-declare the base env: this JSON6902 add REPLACES the whole env
           # array, so the base values would otherwise be dropped.
           - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
-            value: "hypershell-controller:9443"
+            value: "hypershell-controller.hypershell-system.svc.cluster.local:9443"
           - name: DB_SSLMODE
             value: require
           - name: JWK_CERT_URL

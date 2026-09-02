@@ -408,7 +408,13 @@ values (Keycloak `KC_HOSTNAME`, console redirect URIs, gateway OIDC issuer) rema
 script-applied after Routes are assigned, because those hosts are not known at
 kustomize-build time. The overlay SHALL re-declare any base container env the
 JSON6902 env-array replace would otherwise drop, including
-`HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR`.
+`HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR`. That address SHALL be the
+cluster-local FQDN
+`hypershell-controller.${OPENSHIFT_NAMESPACE}.svc.cluster.local:9443`
+(the overlay stores `hypershell-system`; namespace rewrite substitutes the
+assigned project). grpc-go does not apply kube-DNS search domains, so the
+short name `hypershell-controller:9443` fails in-cluster even when `nc` to
+that short name succeeds.
 
 This spec defines only where Keycloak lands. The broader isolation of other
 non-request-serving components (for example the database and observability) into
@@ -430,7 +436,8 @@ their own namespaces is out of scope here and belongs to a separate spec.
 - GIVEN `deploy/openshift/kustomization.yaml` is built
 - WHEN the rendered API server Deployment is inspected
 - THEN it SHALL set `API_ENV=development_oidc`
-- AND it SHALL retain `HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR`
+- AND it SHALL retain `HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR` as the
+  cluster-local FQDN for this project's controller Service
 - AND `make openshift-up` SHALL NOT set `API_ENV` with `oc set env`
 
 #### Scenario: Platform workloads can reach Keycloak across the namespace group
