@@ -6,10 +6,20 @@ export const messages = defineMessages({
     defaultMessage: "Account",
     description: "Fallback label for the identity menu when no name is known.",
   },
+  apiVersion: {
+    id: "app.apiVersion",
+    defaultMessage: "API version {version}",
+    description: "API server image version in the identity menu.",
+  },
   breadcrumbLabel: {
     id: "app.breadcrumb.ariaLabel",
     defaultMessage: "Breadcrumb",
     description: "Accessible label for the application breadcrumb navigation.",
+  },
+  consoleVersion: {
+    id: "app.consoleVersion",
+    defaultMessage: "Console version {version}",
+    description: "Web-console image version in the identity menu.",
   },
   errorBody: {
     id: "app.error.body",
@@ -69,5 +79,10 @@ export const messages = defineMessages({
     defaultMessage: "Switch to light mode",
     description:
       "Accessible label for the color scheme toggle when dark mode is active.",
+  },
+  unknownVersion: {
+    id: "app.unknownVersion",
+    defaultMessage: "unknown",
+    description: "Version value when the web-console image version is absent.",
   },
 });

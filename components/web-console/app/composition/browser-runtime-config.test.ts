@@ -19,20 +19,27 @@ function documentWithMeta(content: string | undefined): Document {
 describe("readBrowserRuntimeConfig", () => {
   it("reads the sample ratio from the injected meta tag", () => {
     const config = readBrowserRuntimeConfig(
-      documentWithMeta('{"tracing":{"sampleRatio":0.25}}'),
+      documentWithMeta(
+        '{"build":{"version":"v1.6.0-1234567"},"tracing":{"sampleRatio":0.25}}',
+      ),
     );
 
-    expect(config).toEqual({ tracing: { sampleRatio: 0.25 } });
+    expect(config).toEqual({
+      build: { version: "v1.6.0-1234567" },
+      tracing: { sampleRatio: 0.25 },
+    });
   });
 
   it("samples nothing when the meta tag is absent", () => {
     expect(readBrowserRuntimeConfig(documentWithMeta(undefined))).toEqual({
+      build: {},
       tracing: { sampleRatio: 0 },
     });
   });
 
   it("fails closed to no tracing when the content is not valid JSON", () => {
     expect(readBrowserRuntimeConfig(documentWithMeta("not-json"))).toEqual({
+      build: {},
       tracing: { sampleRatio: 0 },
     });
   });
@@ -46,8 +53,32 @@ describe("readBrowserRuntimeConfig", () => {
       "{}",
     ]) {
       expect(readBrowserRuntimeConfig(documentWithMeta(content))).toEqual({
+        build: {},
         tracing: { sampleRatio: 0 },
       });
     }
+  });
+
+  it("ignores an invalid build version without changing tracing", () => {
+    expect(
+      readBrowserRuntimeConfig(
+        documentWithMeta(
+          '{"build":{"version":"latest"},"tracing":{"sampleRatio":0.5}}',
+        ),
+      ),
+    ).toEqual({
+      build: {},
+      tracing: { sampleRatio: 0.5 },
+    });
+  });
+
+  it("reads a modified local image build version", () => {
+    const config = readBrowserRuntimeConfig(
+      documentWithMeta(
+        '{"build":{"version":"dev-abcdef0-modified"},"tracing":{"sampleRatio":0}}',
+      ),
+    );
+
+    expect(config.build.version).toBe("dev-abcdef0-modified");
   });
 });

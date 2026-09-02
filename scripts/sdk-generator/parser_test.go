@@ -69,3 +69,17 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSpecExcludesSingletonMetadata(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell/v1")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	for _, resource := range spec.Resources {
+		if resource.Name == "ServiceMetadata" {
+			t.Fatal("singleton metadata must not become a CRUD SDK resource")
+		}
+	}
+}

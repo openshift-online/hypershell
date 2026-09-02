@@ -1,0 +1,58 @@
+name: Release Please
+
+on:
+  workflow_run:
+    workflows:
+      - E2E
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Update or publish the source release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Decide whether Release Please must run
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          open_count="$(gh pr list --base main --label 'autorelease: pending' --state open --json number --jq 'length')"
+          if [[ "${open_count}" -gt 0 ]]; then
+            open_release_pr=true
+          else
+            open_release_pr=false
+          fi
+          decision="$(python3 scripts/release_policy.py should-run --head-ref "${HEAD_REF}" --open-release-pr "${open_release_pr}")"
+          echo "run=${decision}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update the Release PR or publish the release
+        if: steps.gate.outputs.run == 'true'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

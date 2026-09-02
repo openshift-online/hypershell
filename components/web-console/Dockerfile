@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1
+ARG BUILD_PREFIX=dev
+ARG BUILD_SUFFIX=
+ARG VCS_REF
+
 FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:e2a04f7443db3d27751ed6e9d74ee5c3a02217dbf6c8769e468ef3b1b2a3e6fa AS build
 
 USER root
@@ -24,17 +28,41 @@ COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui packages/g
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console components/web-console
 COPY --chown=${CONTAINER_DEFAULT_USER} images/brand images/brand
 
+ARG VCS_REF
+# Validate the full revision before any 40-to-7-character shortening.
+RUN set -eu; \
+  if [ "${#VCS_REF}" -ne 40 ]; then \
+    echo "VCS_REF must be a full 40-character lowercase hexadecimal Git SHA" >&2; \
+    exit 1; \
+  fi; \
+  case "${VCS_REF}" in \
+    *[!0-9a-f]*) \
+      echo "VCS_REF must be a full 40-character lowercase hexadecimal Git SHA" >&2; \
+      exit 1; \
+      ;; \
+  esac
+
 RUN pnpm run build:web \
   && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
   && cp -R components/web-console/build/client /tmp/web-console/public
 
 FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:07b0f6cf5dabef30b1efa030eea020095b1ea227c088dbcbe0ebd35bb24b7ad9
 
+ARG BUILD_PREFIX
+ARG BUILD_SUFFIX
+ARG VCS_REF
+
+# The build stage validates VCS_REF before this expression removes 33 characters.
+# Remove the final 33 characters from the 40-character VCS_REF.
+# This keeps the first seven characters.
 LABEL org.opencontainers.image.title="HyperShell web console" \
       org.opencontainers.image.description="HyperShell web console BFF and static application" \
-      org.opencontainers.image.version="0.0.1"
+      org.opencontainers.image.version="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}${BUILD_SUFFIX}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 
 ENV HOST=0.0.0.0 \
+  HYPERSHELL_BUILD_REVISION="${VCS_REF}" \
+  HYPERSHELL_BUILD_VERSION="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}${BUILD_SUFFIX}" \
   HYPERSHELL_API_ORIGIN=http://127.0.0.1:8000 \
   HYPERSHELL_API_TIMEOUT_MS=30000 \
   NODE_ENV=production \

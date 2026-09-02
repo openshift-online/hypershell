@@ -31,6 +31,11 @@ spec:
     value: components/control-plane/Dockerfile
   - name: path-context
     value: .
+  - name: build-args
+    value:
+    - VCS_REF={{revision}}
+  - name: build-args-file
+    value: build-version.env
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.

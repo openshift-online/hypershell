@@ -18,6 +18,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint-pull-request-title:
+    name: Conventional pull request title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check pull request title
+        env:
+          PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 scripts/release_policy.py check-title "${PULL_REQUEST_TITLE}"
+
   detect-changes:
     name: Detect changed components
     runs-on: ubuntu-24.04
@@ -60,6 +72,9 @@ jobs:
         with:
           go-version-file: hypershell/components/api-server/go.mod
           cache-dependency-path: hypershell/components/api-server/go.sum
+      - name: Verify linked build metadata
+        working-directory: hypershell/components/api-server
+        run: make check-build-metadata
       - name: Check formatting
         working-directory: hypershell/components/api-server
         run: |
@@ -249,6 +264,7 @@ jobs:
     name: Lint CI gate
     if: ${{ always() && !cancelled() }}
     needs:
+      - lint-pull-request-title
       - detect-changes
       - lint-api-server
       - lint-cli
@@ -262,6 +278,7 @@ jobs:
       - name: Check lint results
         env:
           DETECTION_RESULT: ${{ needs.detect-changes.result }}
+          PULL_REQUEST_TITLE_RESULT: ${{ needs.lint-pull-request-title.result }}
           API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
           CLI_RESULT: ${{ needs.lint-cli.result }}
           CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
@@ -270,7 +287,7 @@ jobs:
           SDK_TYPESCRIPT_RESULT: ${{ needs.lint-sdk-typescript.result }}
           WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CLI_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
+          for result in "${PULL_REQUEST_TITLE_RESULT}" "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CLI_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more lint jobs failed or were cancelled."
               exit 1

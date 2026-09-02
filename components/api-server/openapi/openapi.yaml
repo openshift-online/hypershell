@@ -18,14 +18,17 @@ paths:
   /api/hypershell/v1/metadata:
     get:
       summary: Service metadata
+      description: Returns the API server build identity without a database query.
       operationId: getMetadata
+      security: []
+      x-sdk-exclude: true
       responses:
         '200':
           description: Service metadata
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ObjectReference'
+                $ref: '#/components/schemas/ServiceMetadata'
   /api/hypershell/v1/managed_clusters:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters'
   /api/hypershell/v1/managed_clusters/{id}:
@@ -63,6 +66,31 @@ paths:
   # AUTO-ADD NEW PATHS
 components:
   schemas:
+    ServiceMetadata:
+      type: object
+      required:
+        - id
+        - href
+        - kind
+        - version
+        - build_time
+      properties:
+        id:
+          type: string
+          description: Service identifier
+        href:
+          type: string
+          description: Metadata request path
+        kind:
+          type: string
+          enum:
+            - API
+        version:
+          type: string
+          description: API server image build version
+        build_time:
+          type: string
+          description: Time when the API server binary was built
     List:
       allOf:
         - type: object

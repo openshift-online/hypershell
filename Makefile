@@ -10,11 +10,12 @@ PNPM?=pnpm
 IMAGE_REGISTRY?=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
 IMAGE_TAG?=latest
 
-# Build version (embedded in api-server binary via ldflags)
-git_sha:=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-git_dirty:=$(shell git diff --quiet 2>/dev/null || echo -modified)
-build_version:=$(git_sha)$(git_dirty)
-build_time:=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
+# Build identity for supported local image builds
+vcs_ref:=$(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+build_prefix:=dev
+build_version:=$(shell HYPERSHELL_VCS_REF=$(vcs_ref) scripts/build-version.sh local 2>/dev/null || echo dev-unknown)
+build_suffix:=$(if $(filter %-modified,$(build_version)),-modified,)
+build_time:=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Computed baseline references (registry images used in Kind manifests)
 api_server_ref=$(IMAGE_REGISTRY)/hypershell-api-server-main:$(IMAGE_TAG)
@@ -128,6 +129,8 @@ help:
 	@echo "    check-dependency-pins    Verify dependency version pins"
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
+	@echo "    check-release-policy     Verify source-release controls and files"
+	@echo "    check-image-build-policy Verify image identity and selective build rules"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -155,12 +158,18 @@ install-js: verify-pnpm
 .PHONY: build-api-server
 build-api-server:
 	$(CONTAINER_ENGINE) build -t $(api_server_local) \
-		--build-arg GIT_VERSION=$(build_version) --build-arg BUILD_TIME="$(build_time)" \
-		components/api-server
+		--build-arg BUILD_PREFIX=$(build_prefix) \
+		--build-arg BUILD_SUFFIX=$(build_suffix) \
+		--build-arg VCS_REF=$(vcs_ref) \
+		--build-arg BUILD_TIME="$(build_time)" \
+		-f components/api-server/Dockerfile .
 
 .PHONY: build-controller
 build-controller:
 	$(CONTAINER_ENGINE) build -t $(control_plane_local) \
+		--build-arg BUILD_PREFIX=$(build_prefix) \
+		--build-arg BUILD_SUFFIX=$(build_suffix) \
+		--build-arg VCS_REF=$(vcs_ref) \
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
@@ -170,6 +179,9 @@ build-cli:
 .PHONY: build-web-console
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
+		--build-arg BUILD_PREFIX=$(build_prefix) \
+		--build-arg BUILD_SUFFIX=$(build_suffix) \
+		--build-arg VCS_REF=$(vcs_ref) \
 		-f components/web-console/Dockerfile .
 
 # ============================================================================
@@ -204,8 +216,24 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: test-release-policy
+test-release-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_release_policy.py
+
+.PHONY: check-release-policy
+check-release-policy: test-release-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_policy.py check-files
+
+.PHONY: test-image-build-policy
+test-image-build-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_build_version.py scripts/test_check_image_build_policy.py
+
+.PHONY: check-image-build-policy
+check-image-build-policy: test-image-build-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_image_build_policy.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-release-policy check-image-build-policy
 
 # ============================================================================
 # Git hooks
@@ -299,7 +327,7 @@ export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
 export api_server_local control_plane_local web_console_local
-export build_version build_time
+export vcs_ref build_prefix build_suffix build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
 

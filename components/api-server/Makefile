@@ -12,11 +12,10 @@ SDK_GO_MODULE=github.com/openshift-online/hypershell/components/sdk-go
 CLI_MODULE=github.com/openshift-online/hypershell/components/cli
 
 # Version information for ldflags
-git_sha:=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-git_dirty:=$(shell git diff --quiet 2>/dev/null || echo "-modified")
-build_version:=$(git_sha)$(git_dirty)
-build_time:=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
-ldflags=-X github.com/openshift-online/hypershell/components/api-server/pkg/api.Version=$(build_version) -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=$(build_time)'
+git_sha:=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+build_version:=$(shell HYPERSHELL_VCS_REF=$(git_sha) ../../scripts/build-version.sh local 2>/dev/null || echo "dev-unknown")
+build_time:=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+ldflags=-X github.com/openshift-online/rh-trex-ai/pkg/api.Version=$(build_version) -X 'github.com/openshift-online/rh-trex-ai/pkg/api.BuildTime=$(build_time)'
 
 .PHONY: binary
 binary:
@@ -26,6 +25,14 @@ binary:
 .PHONY: install
 install:
 	go install -ldflags="$(ldflags)" ./cmd/hypershell
+
+.PHONY: check-build-metadata
+check-build-metadata:
+	HYPERSHELL_EXPECTED_BUILD_VERSION="$(build_version)" \
+		HYPERSHELL_EXPECTED_BUILD_TIME="$(build_time)" \
+		go test -tags=linked_metadata -count=1 \
+			-run '^TestLinkedBuildIdentity$$' \
+			-ldflags="$(ldflags)" ./pkg/api
 
 .PHONY: run
 run: binary
@@ -38,7 +45,7 @@ run-no-auth: binary
 	./$(BINARY_NAME) serve --enable-authz=false --enable-jwt=false
 
 .PHONY: test
-test: install
+test: install check-build-metadata
 	go test -v ./...
 
 .PHONY: test-integration

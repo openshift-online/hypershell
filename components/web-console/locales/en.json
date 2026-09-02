@@ -15,6 +15,10 @@
     "defaultMessage": "Retry",
     "description": "Action that repeats a failed request."
   },
+  "app.apiVersion": {
+    "defaultMessage": "API version {version}",
+    "description": "API server image version in the identity menu."
+  },
   "app.breadcrumb.ariaLabel": {
     "defaultMessage": "Breadcrumb",
     "description": "Accessible label for the application breadcrumb navigation."
@@ -26,6 +30,10 @@
   "app.clipboard.copy": {
     "defaultMessage": "Copy",
     "description": "Tooltip for a button that copies text to the clipboard."
+  },
+  "app.consoleVersion": {
+    "defaultMessage": "Console version {version}",
+    "description": "Web-console image version in the identity menu."
   },
   "app.error.body": {
     "defaultMessage": "Refresh the page to try again.",
@@ -754,6 +762,10 @@
   "app.toggleDarkMode.on": {
     "defaultMessage": "Switch to light mode",
     "description": "Accessible label for the color scheme toggle when dark mode is active."
+  },
+  "app.unknownVersion": {
+    "defaultMessage": "unknown",
+    "description": "Version value when the web-console image version is absent."
   },
   "app.value.notAvailable": {
     "defaultMessage": "Not available",

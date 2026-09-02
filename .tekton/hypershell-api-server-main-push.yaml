@@ -9,7 +9,7 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
       == "main" && ( "components/api-server/***".pathChanged() || ".tekton/hypershell-api-server-main-push.yaml".pathChanged()
-      )
+      || "VERSION".pathChanged() )
   labels:
     appstudio.openshift.io/application: hypershell-main
     appstudio.openshift.io/component: hypershell-api-server-main
@@ -25,9 +25,14 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:{{revision}}
   - name: dockerfile
-    value: Dockerfile
+    value: components/api-server/Dockerfile
   - name: path-context
-    value: components/api-server
+    value: .
+  - name: build-args
+    value:
+    - VCS_REF={{revision}}
+  - name: build-args-file
+    value: build-version.env
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.

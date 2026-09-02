@@ -44,7 +44,7 @@ func (e *DevOidcEnvImpl) Flags() map[string]string {
 		"enable-https":         "false",
 		"enable-metrics-https": "false",
 		"api-server-hostname":  "localhost",
-		"auth-bypass-paths":    "/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi",
+		"auth-bypass-paths":    "/healthcheck,/metrics,/api/hypershell/v1/metadata,/api/hypershell/v1/openapi,/openapi",
 		"auth-bypass-methods":  "/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks",
 	}
 }

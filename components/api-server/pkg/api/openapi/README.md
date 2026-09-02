@@ -153,6 +153,7 @@ Class | Method | HTTP request | Description
  - [RoleBinding](docs/RoleBinding.md)
  - [RoleBindingList](docs/RoleBindingList.md)
  - [RoleList](docs/RoleList.md)
+ - [ServiceMetadata](docs/ServiceMetadata.md)
 
 
 ## Documentation For Authorization

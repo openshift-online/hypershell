@@ -2922,12 +2922,14 @@ type ApiGetMetadataRequest struct {
 	ApiService *DefaultAPIService
 }
 
-func (r ApiGetMetadataRequest) Execute() (*ObjectReference, *http.Response, error) {
+func (r ApiGetMetadataRequest) Execute() (*ServiceMetadata, *http.Response, error) {
 	return r.ApiService.GetMetadataExecute(r)
 }
 
 /*
 GetMetadata Service metadata
+
+Returns the API server build identity without a database query.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiGetMetadataRequest
@@ -2941,13 +2943,13 @@ func (a *DefaultAPIService) GetMetadata(ctx context.Context) ApiGetMetadataReque
 
 // Execute executes the request
 //
-//	@return ObjectReference
-func (a *DefaultAPIService) GetMetadataExecute(r ApiGetMetadataRequest) (*ObjectReference, *http.Response, error) {
+//	@return ServiceMetadata
+func (a *DefaultAPIService) GetMetadataExecute(r ApiGetMetadataRequest) (*ServiceMetadata, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *ObjectReference
+		localVarReturnValue *ServiceMetadata
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.GetMetadata")

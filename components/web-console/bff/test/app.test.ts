@@ -84,6 +84,7 @@ describe("web-console BFF", () => {
     const config: ServerConfig = {
       apiOrigin: `http://127.0.0.1:${String(address.port)}`,
       apiTimeoutMs: 100,
+      buildVersion: "v1.6.0-1234567",
       host: "127.0.0.1",
       logLevel: "silent",
       nodeEnv: "test",
@@ -152,6 +153,9 @@ describe("web-console BFF", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('name="hypershell-runtime-config"');
+    expect(response.body).toContain(
+      "&quot;version&quot;:&quot;v1.6.0-1234567&quot;",
+    );
     expect(response.body).toContain("&quot;sampleRatio&quot;:0");
     // The meta tag lands in the head, before the application markup.
     expect(response.body.indexOf("hypershell-runtime-config")).toBeLessThan(
