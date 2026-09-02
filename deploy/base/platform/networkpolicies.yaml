@@ -1,0 +1,125 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hypershell-service-account-provisioner
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  # Restrict the internal service-account provisioner gRPC port so that only the
+  # API server pod can reach it. This replaces client mTLS on the channel; see
+  # specs/platform/openshell-gateway-service-accounts.spec.md (Internal
+  # Provisioner Network Isolation).
+  podSelector:
+    matchLabels:
+      app: hypershell-control-plane
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: hypershell-api-server
+      ports:
+        - protocol: TCP
+          port: 9443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openshell-gateway-sandbox-ssh
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchExpressions:
+      - key: openshell.ai/managed-by
+        operator: In
+        values: ["openshell"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openshell
+              app.kubernetes.io/instance: openshell-gateway
+      ports:
+        - protocol: TCP
+          port: 2222
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openshell-gateway-sandbox-ssh-v2
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchExpressions:
+      - key: agents.x-k8s.io/sandbox-name-hash
+        operator: Exists
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openshell
+              app.kubernetes.io/instance: openshell-gateway
+      ports:
+        - protocol: TCP
+          port: 2222
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openshell-gateway-allow-sandbox
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: openshell-gateway
+      app.kubernetes.io/name: openshell
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: agents.x-k8s.io/sandbox-name-hash
+                operator: Exists
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openshell-gateway-db
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: openshell-gateway-db
+      app.kubernetes.io/name: openshell
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openshell
+              app.kubernetes.io/instance: openshell-gateway
+      ports:
+        - protocol: TCP
+          port: 5432

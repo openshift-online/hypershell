@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hypershell-control-plane
+  template:
+    metadata:
+      labels:
+        app: hypershell-control-plane
+    spec:
+      serviceAccountName: hypershell-control-plane
+      containers:
+        - name: control-plane
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest
+          env:
+            - name: HYPERSHELL_GRPC_SERVER_ADDR
+              value: "hypershell-api-server:9000"
+            - name: HYPERSHELL_API_SERVER_URL
+              value: "http://hypershell-api-server:8000"
+            - name: HYPERSHELL_NAMESPACE
+              value: "hypershell-stage"
+            - name: HYPERSHELL_LOG_LEVEL
+              value: "info"
+            - name: GATEWAY_API_BASE_DOMAIN
+              value: "openshell.stage.devshift.net"
+            - name: GATEWAY_API_GATEWAY_NAME
+              value: "openshell-grpc-gateway"
+            - name: GATEWAY_API_GATEWAY_NAMESPACE
+              value: "openshift-ingress"
+            - name: GATEWAY_API_HTTP_LISTENER_NAME
+              value: "grpc"
+            # Plaintext in-cluster gRPC provisioner endpoint. A NetworkPolicy
+            # restricts port 9443 to the api-server pod; the channel mirrors the
+            # sibling control-plane -> api-server watch channel (no mTLS).
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS
+              value: "0.0.0.0:9443"
+            - name: GATEWAY_IMAGE
+              value: quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
+            - name: GATEWAY_SUPERVISOR_IMAGE
+              value: quay.io/opendatahub/odh-openshell-supervisor:v0.0.109-rhaiv.0@sha256:96e21135c18bc9f6f4d1dfd0cccae3c91769ef4d87da2e470eca4b56a24b2152
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: provisioner
+              containerPort: 9443
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
