@@ -9,15 +9,16 @@
 # once the swapped-in images are live, exercises the branch's own contract.
 #
 # Local `make kind-up` invokes this inline by default. CI defers it: it sets
-# KIND_SKIP_SEED=true on kind-up and runs `make kind-seed` after the swap.
+# SKIP_SEED=true on kind-up and runs `make kind-seed` after the swap.
 #
 # Environment:
 #   DATABASE_PROVIDER   cnpg | deployment (default: deployment). Must match the
 #                       provider kind-up provisioned infrastructure for.
-#   KIND_SEED_STRICT    when "true", a seeding failure exits non-zero instead of
+#   SEED_STRICT         when "true", a seeding failure exits non-zero instead of
 #                       only warning. CI sets this so a contract regression fails
 #                       the job at the seed step with the real HTTP error, rather
 #                       than surfacing later as a confusing discovery failure.
+#                       KIND_SEED_STRICT remains an alias.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -298,7 +299,7 @@ fi
 cleanup_pf
 trap - EXIT
 echo ""
-if [[ -n "${seed_failed}" && "${KIND_SEED_STRICT:-}" == "true" ]]; then
-  error "Platform seeding failed and KIND_SEED_STRICT=true - failing"
+if [[ -n "${seed_failed}" ]] && seed_strict; then
+  error "Platform seeding failed and SEED_STRICT=true - failing"
   exit 1
 fi

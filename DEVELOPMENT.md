@@ -397,6 +397,8 @@ active swaps.
 | `KIND_DNS_PORT` | `5553` | Host port for CoreDNS container |
 | `OPENSHIFT_NAMESPACE` | `oc project -q` | Override for the platform namespace. Unset, the current oc project is used. Max 54 chars; Keycloak lands in `${name}-keycloak`. |
 | `OPENSHIFT_USE_EXISTING_CLUSTERROLE` | (unset) | Set to `true` to bind this environment to the existing ClusterRole `hypershell-controller` instead of creating `${namespace}-dev-hypershell-controller`. |
+| `SKIP_SEED` | (unset) | Set to `true` to skip ManagedCluster/GatewayRelease/ManagedDatabase/Gateway seeding on `make kind-up` and `make openshift-up`. `KIND_SKIP_SEED` is still accepted. |
+| `SEED_STRICT` | (unset) | Set to `true` to fail `make kind-up` / `make kind-seed` / `make openshift-up` if seeding is incomplete. `KIND_SEED_STRICT` is still accepted. |
 | `GATEWAY_API_GATEWAY_NAME` | `openshell-grpc-gateway` | Pre-existing shared Gateway name |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace of the shared Gateway |
 | `OPENSHIFT_IMAGE_REGISTRY` | `oc registry info` | Registry used to push swapped images |

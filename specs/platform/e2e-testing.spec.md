@@ -377,8 +377,9 @@ To exercise the periodic path without waiting for production defaults (5m sweep 
 short Go duration strings (for example `30s`; any positive value accepted by
 `time.ParseDuration` is valid). Immediately after gateway provisioning succeeds,
 the suite SHALL seed a synthetic orphaned managed namespace (`openshell-e2e-orphan-*`)
-labeled with both required management labels (`hypershell.redhat.io/managed=true`
-and `app.kubernetes.io/managed-by=hypershell-control-plane`) and a name matching
+labeled with the three required ownership labels (`hypershell.redhat.io/managed=true`,
+`app.kubernetes.io/managed-by=hypershell-control-plane`, and
+`hypershell.redhat.io/instance=<E2E_HS_NAMESPACE>`) and a name matching
 the gateway prefix (not `openshell-db-*`), annotate it with a
 backdated `hypershell.redhat.io/gc-eligible-since` timestamp so the next sweep can
 reap without waiting a full grace period. Steps 3–10 SHALL run while the periodic
@@ -414,7 +415,7 @@ removal of the in-namespace sandbox resources (see
 - GIVEN the Kind overlay has shortened `GATEWAY_NAMESPACE_GC_INTERVAL` and
   `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` (for example `30s`)
 - AND a synthetic managed namespace was seeded after gateway provisioning with
-  both management labels, a gateway-style name, and a backdated
+  this instance's three ownership labels, a gateway-style name, and a backdated
   `hypershell.redhat.io/gc-eligible-since`
   annotation, with no live Gateway backing it
 - AND steps 3–10 have run while the periodic reaper may have deleted it

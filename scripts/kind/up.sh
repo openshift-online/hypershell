@@ -749,12 +749,12 @@ echo ""
 # --- Seed platform resources via REST API ---
 # Seeding lives in seed.sh so CI can run it AFTER the component image swap
 # (see scripts/kind/seed.sh). Local runs seed inline by default; CI sets
-# KIND_SKIP_SEED=true here and runs `make kind-seed` once the swapped-in
+# SKIP_SEED=true here and runs `make kind-seed` once the swapped-in
 # working-tree images are live, so the seed exercises the branch's own request
 # contract instead of the baseline placeholder image kind-up deploys first.
-if [[ "${KIND_SKIP_SEED:-}" == "true" ]]; then
+if skip_seed; then
   header "Gateway Provisioning"
-  info "KIND_SKIP_SEED=true - deferring platform seeding (run 'make kind-seed')"
+  info "SKIP_SEED=true - deferring platform seeding (run 'make kind-seed')"
   echo ""
 else
   "${SCRIPT_DIR}/seed.sh"

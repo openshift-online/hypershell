@@ -117,6 +117,18 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: default apply_cluster_rbac does not apply overlay ClusterRole/ClusterRoleBinding'
 fi
+if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'skip_seed'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_up does not honor SKIP_SEED'
+fi
+if grep -A15 'Automatic seeding incomplete' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'seed_strict'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seeding does not honor SEED_STRICT'
+fi
 if grep -q 'fail_required_cluster_rbac' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift still fails the whole up when cluster RBAC cannot be applied'
@@ -144,7 +156,7 @@ assert_ok "openshift driver loads" bash -c '
   source "'"${SCRIPT_DIR}"'/lib.sh"
   CLUSTER_DRIVER=openshift
   load_cluster_driver
-  declare -F cluster_up cluster_down cluster_teardown cluster_status component_swap component_revert >/dev/null
+  declare -F cluster_up cluster_down cluster_teardown cluster_status cluster_seed component_swap component_revert >/dev/null
 '
 
 CLUSTER_DRIVER=not-a-driver

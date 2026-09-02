@@ -71,7 +71,7 @@ KIND_DNS_PORT?=5553
 # The gateway base domain is discovered from that Gateway's listener hostname.
 GATEWAY_API_GATEWAY_NAME?=openshell-grpc-gateway
 GATEWAY_API_GATEWAY_NAMESPACE?=openshift-ingress
-GATEWAY_IMAGE?=ghcr.io/nvidia/openshell/gateway:0.0.109
+GATEWAY_IMAGE?=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
@@ -96,7 +96,7 @@ help:
 	@echo ""
 	@echo "    Kind uses KIND_NAMESPACE (default hypershell-system); kind-up creates the cluster."
 	@echo "    OpenShift uses the current oc project (oc project -q); OPENSHIFT_NAMESPACE overrides."
-	@echo "    OpenShift requires an existing cluster — openshift-up does not create one."
+	@echo "    OpenShift requires an existing cluster; openshift-up does not create one."
 	@echo "    OPENSHIFT_USE_EXISTING_CLUSTERROLE=true binds to ClusterRole hypershell-controller instead of creating a per-env copy."
 	@echo ""
 	@echo "    <prefix>-up                   Deploy the stack (Kind also creates the cluster)"
@@ -113,7 +113,8 @@ help:
 	@echo "    Kind Specific"
 	@echo "    kind-env                 Print environment variables for local setup"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
-	@echo "                             KIND_SKIP_SEED=true: defer seeding during kind-up"
+	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
+	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"
 	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
 	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
 	@echo "    LOCAL_IMAGES=true        Build baseline images from the working tree (kind-up)"
@@ -319,7 +320,7 @@ export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME METRICS_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
-export OPENSHIFT_NAMESPACE OPENSHIFT_IMAGE_REGISTRY OPENSHIFT_USE_EXISTING_CLUSTERROLE
+export OPENSHIFT_NAMESPACE OPENSHIFT_IMAGE_REGISTRY OPENSHIFT_USE_EXISTING_CLUSTERROLE SKIP_SEED SEED_STRICT
 export GATEWAY_API_GATEWAY_NAME GATEWAY_API_GATEWAY_NAMESPACE GATEWAY_IMAGE
 
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
@@ -406,7 +407,7 @@ kind-up:
 
 .PHONY: kind-seed
 kind-seed:
-	@scripts/kind/seed.sh
+	@CLUSTER_DRIVER=kind scripts/cluster/seed.sh
 
 .PHONY: kind-down
 kind-down:
@@ -459,6 +460,10 @@ kind-gateway-trust:
 .PHONY: openshift-up
 openshift-up:
 	@CLUSTER_DRIVER=openshift scripts/cluster/up.sh
+
+.PHONY: openshift-seed
+openshift-seed:
+	@CLUSTER_DRIVER=openshift scripts/cluster/seed.sh
 
 .PHONY: openshift-down
 openshift-down:

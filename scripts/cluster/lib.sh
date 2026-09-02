@@ -36,7 +36,7 @@ REPO_ROOT="$(cd "${CLUSTER_SCRIPT_DIR}/../.." && pwd)"
 : "${web_console_local:=localhost/hypershell-web-console:dev}"
 : "${build_version:=$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 : "${build_time:=$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
-: "${GATEWAY_IMAGE:=ghcr.io/nvidia/openshell/gateway:0.0.109}"
+: "${GATEWAY_IMAGE:=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd}"
 : "${GATEWAY_API_GATEWAY_NAME:=openshell-grpc-gateway}"
 : "${GATEWAY_API_GATEWAY_NAMESPACE:=openshift-ingress}"
 
@@ -120,7 +120,7 @@ load_cluster_driver() {
   # shellcheck source=/dev/null
   source "${path}"
   local fn
-  for fn in cluster_up cluster_down cluster_teardown cluster_status component_swap component_revert; do
+  for fn in cluster_up cluster_down cluster_teardown cluster_status cluster_seed component_swap component_revert; do
     if ! declare -F "${fn}" >/dev/null; then
       error "Driver '${driver}' does not implement ${fn}"
       return 1
@@ -243,7 +243,7 @@ print(docs[0]["id"] if docs else "")
 }
 
 # Restrict a Keycloak client representation to this console origin.
-# Spec: oidc-integration Identity Provider Client Security — no wildcards.
+# Spec: oidc-integration Identity Provider Client Security: no wildcards.
 keycloak_client_with_console_redirects() {
   local console_host="$1"
   python3 -c 'import json,sys
@@ -252,4 +252,19 @@ doc=json.load(sys.stdin)
 doc["redirectUris"]=[f"https://{host}/auth/callback", f"https://{host}"]
 json.dump(doc, sys.stdout)
 ' "${console_host}"
+}
+
+# SKIP_SEED and SEED_STRICT apply to Kind and OpenShift. KIND_* names remain aliases.
+skip_seed() {
+  case "${SKIP_SEED:-${KIND_SKIP_SEED:-}}" in
+    true|TRUE|1|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+seed_strict() {
+  case "${SEED_STRICT:-${KIND_SEED_STRICT:-}}" in
+    true|TRUE|1|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
 }

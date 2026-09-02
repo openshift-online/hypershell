@@ -38,7 +38,9 @@ spec:
             - name: HYPERSHELL_API_SERVER_URL
               value: "http://hypershell-api-server:8000"
             - name: HYPERSHELL_NAMESPACE
-              value: "hypershell-system"
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: HYPERSHELL_LOG_LEVEL
               value: "info"
             # Plaintext in-cluster gRPC provisioner endpoint. A NetworkPolicy

@@ -29,7 +29,7 @@ func TestManagedDatabaseDeleteUsesTombstoneAndIsIdempotent(t *testing.T) {
 	const namespace = "database-ns"
 	dynamic := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), deploymentCleanupObjects(namespace)...)
 	typed := kubernetesfake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})
-	r := NewManagedDatabaseReconciler(dynamic, typed, nil)
+	r := NewManagedDatabaseReconciler(dynamic, typed, nil, "hypershell")
 	event := watcher.Event[*pb.ManagedDatabase]{Type: watcher.EventDeleted, ResourceID: "db-1", Resource: &pb.ManagedDatabase{Name: "database", Namespace: namespace, Provider: "deployment"}}
 	if err := r.Handle(context.Background(), event); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -50,7 +50,7 @@ func TestManagedDatabaseDeleteNilTombstoneUsesLastSeenAndRetainsOnFailure(t *tes
 	const namespace = "database-ns"
 	dynamic := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), deploymentCleanupObjects(namespace)...)
 	typed := kubernetesfake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})
-	r := NewManagedDatabaseReconciler(dynamic, typed, nil)
+	r := NewManagedDatabaseReconciler(dynamic, typed, nil, "hypershell")
 	fail := true
 	dynamic.PrependReactor("delete", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
 		if fail {
@@ -76,7 +76,7 @@ func TestManagedDatabaseDeleteNilTombstoneUsesLastSeenAndRetainsOnFailure(t *tes
 }
 
 func TestManagedDatabaseReconcilerNilClientsReturnsError(t *testing.T) {
-	r := NewManagedDatabaseReconciler(nil, nil, nil)
+	r := NewManagedDatabaseReconciler(nil, nil, nil, "")
 	err := r.Handle(context.Background(), watcher.Event[*pb.ManagedDatabase]{Type: watcher.EventDeleted, ResourceID: "db-1", Resource: &pb.ManagedDatabase{Namespace: "must-not-guess", Provider: "deployment"}})
 	if err == nil {
 		t.Fatal("want nil client error")
@@ -86,7 +86,7 @@ func TestManagedDatabaseReconcilerNilClientsReturnsError(t *testing.T) {
 func TestDeleteCNPGClusterPropagatesErrorsAndNotFoundIsIdempotent(t *testing.T) {
 	dynamic := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
 	typed := kubernetesfake.NewSimpleClientset()
-	r := NewManagedDatabaseReconciler(dynamic, typed, nil)
+	r := NewManagedDatabaseReconciler(dynamic, typed, nil, "hypershell")
 	dynamic.PrependReactor("delete", "clusters", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("CNPG unavailable")
 	})

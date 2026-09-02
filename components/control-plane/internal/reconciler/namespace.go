@@ -42,7 +42,9 @@ const (
 )
 
 // NamespaceGCReconciler periodically garbage-collects gateway namespaces that
-// the control plane created but that no longer have a live Gateway backing them.
+// this control-plane instance created but that no longer have a live Gateway in
+// this instance's API server. Other HyperShell instances on the same cluster are
+// ignored: the sweep selects on hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>.
 // This reaps namespaces orphaned by a delete event missed while the control
 // plane was down, and namespaces whose gateway failed to bootstrap and was then
 // deleted. Reaping is best-effort and idempotent, and is delayed by a grace
@@ -91,7 +93,7 @@ func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.Client
 
 // Run drives the garbage-collection loop until the context is cancelled.
 func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO namespace GC reconciler started (interval=%s grace=%s)", r.interval, r.gracePeriod)
+	log.Printf("INFO namespace GC reconciler started (interval=%s grace=%s instance=%s)", r.interval, r.gracePeriod, r.cpNamespace)
 	r.reconcileOnce(ctx)
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -111,6 +113,15 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	var tickErr error
 	defer func() { endSpan(tickErr) }()
 
+	// An empty instance identity would list every HyperShell-managed namespace
+	// on the cluster. Abort rather than treat another instance's gateways as
+	// orphans of this one.
+	if r.cpNamespace == "" {
+		tickErr = fmt.Errorf("no control-plane namespace configured; refusing to sweep")
+		log.Printf("WARN namespace gc: %v", tickErr)
+		return
+	}
+
 	// Build the set of namespaces backed by a live Gateway. If we cannot list
 	// gateways we must abort the whole sweep: an empty or failed list would make
 	// every managed namespace look orphaned and risk reaping live ones.
@@ -123,7 +134,7 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 
 	listCtx, cancel := context.WithTimeout(ctx, namespaceListTimeout)
 	namespaces, err := r.client.CoreV1().Namespaces().List(listCtx, metav1.ListOptions{
-		LabelSelector: gateway.ManagedNamespaceSelector,
+		LabelSelector: gateway.ManagedNamespaceSelector(r.cpNamespace),
 	})
 	cancel()
 	if err != nil {
@@ -179,7 +190,7 @@ func (r *NamespaceGCReconciler) grpcLiveNamespaces(ctx context.Context) (map[str
 func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *corev1.Namespace, live map[string]struct{}) error {
 	// Defense in depth: only gateway workload namespaces are subject to this
 	// reconciler, even if the server-side label selector over-returns.
-	if !gateway.IsGatewayNamespaceForGC(ns) {
+	if !gateway.IsGatewayNamespaceForGC(ns, r.cpNamespace) {
 		return nil
 	}
 	// A namespace already terminating needs no further action.
@@ -255,7 +266,7 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 
 	deleteCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
 	defer cancel()
-	if _, err := gateway.DeleteManagedNamespace(deleteCtx, r.client, ns.Name); err != nil {
+	if _, err := gateway.DeleteManagedNamespace(deleteCtx, r.client, ns.Name, r.cpNamespace); err != nil {
 		return err
 	}
 	return nil

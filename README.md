@@ -163,7 +163,7 @@ Or apply a kustomize patch via `deploy/openshift/kustomization.yaml` with your s
 |---|---|---|---|
 | `HYPERSHELL_GRPC_SERVER_ADDR` | `localhost:9000` | ✓ | gRPC address of the API server |
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | ✓ | HTTP address of the API server |
-| `HYPERSHELL_NAMESPACE` | `hypershell-system` | ✓ | Namespace the control plane runs in (used for trusted CA bundle source) |
+| `HYPERSHELL_NAMESPACE` | pod namespace | ✓ | Namespace this controller runs in. In cluster this is the downward API (`metadata.namespace`), so the value is unique to that controller. It is also the `hypershell.redhat.io/instance` identity stamped on gateway namespaces so GC never reaps another HyperShell's workloads. |
 | `GATEWAY_IMAGE` | *(none)* | **✓ required** | Container image for tenant gateways (pinned by digest; no fallback). Set in `deploy/base/controller.yaml` |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(none)* | **✓ required** | Container image for gateway supervisors (pinned by digest; no fallback). Set in `deploy/base/controller.yaml` |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | ✓ | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |

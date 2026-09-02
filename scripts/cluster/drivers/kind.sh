@@ -22,6 +22,10 @@ cluster_status() {
   exec "${KIND_SCRIPTS}/status.sh"
 }
 
+cluster_seed() {
+  exec "${KIND_SCRIPTS}/seed.sh"
+}
+
 component_swap() {
   exec "${KIND_SCRIPTS}/swap-component.sh" up "$1"
 }

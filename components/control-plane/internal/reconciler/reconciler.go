@@ -71,21 +71,23 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 }
 
 type ManagedDatabaseReconciler struct {
-	mu            sync.Mutex
-	active        map[string]struct{}
-	pending       map[string]watcher.Event[*pb.ManagedDatabase]
-	dynamicClient dynamic.Interface
-	clientset     kubernetes.Interface
-	grpcConn      *grpc.ClientConn
-	hasCNPG       bool
-	isOpenShift   bool
-	lastSeen      map[string]*pb.ManagedDatabase
+	mu                    sync.Mutex
+	active                map[string]struct{}
+	pending               map[string]watcher.Event[*pb.ManagedDatabase]
+	dynamicClient         dynamic.Interface
+	clientset             kubernetes.Interface
+	grpcConn              *grpc.ClientConn
+	hasCNPG               bool
+	isOpenShift           bool
+	controlPlaneNamespace string
+	lastSeen              map[string]*pb.ManagedDatabase
 }
 
 func NewManagedDatabaseReconciler(
 	dynamicClient dynamic.Interface,
 	clientset kubernetes.Interface,
 	grpcConn *grpc.ClientConn,
+	controlPlaneNamespace string,
 ) *ManagedDatabaseReconciler {
 	hasCNPG := false
 	isOpenShift := false
@@ -98,14 +100,15 @@ func NewManagedDatabaseReconciler(
 		}
 	}
 	return &ManagedDatabaseReconciler{
-		active:        make(map[string]struct{}),
-		pending:       make(map[string]watcher.Event[*pb.ManagedDatabase]),
-		lastSeen:      make(map[string]*pb.ManagedDatabase),
-		dynamicClient: dynamicClient,
-		clientset:     clientset,
-		grpcConn:      grpcConn,
-		hasCNPG:       hasCNPG,
-		isOpenShift:   isOpenShift,
+		active:                make(map[string]struct{}),
+		pending:               make(map[string]watcher.Event[*pb.ManagedDatabase]),
+		lastSeen:              make(map[string]*pb.ManagedDatabase),
+		dynamicClient:         dynamicClient,
+		clientset:             clientset,
+		grpcConn:              grpcConn,
+		hasCNPG:               hasCNPG,
+		isOpenShift:           isOpenShift,
+		controlPlaneNamespace: controlPlaneNamespace,
 	}
 }
 
@@ -304,10 +307,8 @@ func (r *ManagedDatabaseReconciler) handleDeploymentDatabase(ctx context.Context
 func (r *ManagedDatabaseReconciler) reconcileCNPGCluster(ctx context.Context, db *pb.ManagedDatabase) error {
 	namespace := db.Namespace
 
-	if !gateway.NamespaceExists(ctx, r.clientset, namespace) {
-		if err := gateway.CreateManagedNamespace(ctx, r.clientset, namespace); err != nil {
-			return fmt.Errorf("create namespace %s: %w", namespace, err)
-		}
+	if err := gateway.EnsureManagedNamespace(ctx, r.clientset, namespace, r.controlPlaneNamespace); err != nil {
+		return fmt.Errorf("ensure namespace %s: %w", namespace, err)
 	}
 
 	clusterName := managedDatabaseCNPGClusterName()
@@ -468,31 +469,7 @@ func (r *ManagedDatabaseReconciler) deleteCNPGCluster(ctx context.Context, names
 	return errors.Join(errs...)
 }
 func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabaseNamespace(ctx context.Context, namespace string) error {
-	namespaces := r.clientset.CoreV1().Namespaces()
-	existing, err := namespaces.Get(ctx, namespace, metav1.GetOptions{})
-	if k8serrors.IsNotFound(err) {
-		if err := gateway.CreateManagedNamespace(ctx, r.clientset, namespace); err != nil {
-			return fmt.Errorf("create namespace %s: %w", namespace, err)
-		}
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get namespace %s: %w", namespace, err)
-	}
-
-	updated := existing.DeepCopy()
-	if updated.Labels == nil {
-		updated.Labels = map[string]string{}
-	}
-	updated.Labels[gateway.ManagedByLabel] = gateway.ManagedByValue
-	updated.Labels[gateway.ManagedLabel] = gateway.ManagedLabelValue
-	if reflect.DeepEqual(existing.Labels, updated.Labels) {
-		return nil
-	}
-	if _, err := namespaces.Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update namespace %s labels: %w", namespace, err)
-	}
-	return nil
+	return gateway.EnsureManagedNamespace(ctx, r.clientset, namespace, r.controlPlaneNamespace)
 }
 
 func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabaseCredentials(ctx context.Context, namespace, name string) error {
@@ -1347,7 +1324,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			// Namespace deletion and database deletion are independent cleanup
 			// operations. Attempt both and aggregate failures so one partial failure
 			// cannot silently leak the other resource.
-			deleted, err := gateway.DeleteManagedNamespace(ctx, r.clientset, namespace)
+			deleted, err := gateway.DeleteManagedNamespace(ctx, r.clientset, namespace, r.controlPlaneNamespace)
 			if err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway namespace %s: %w", namespace, err))
 			} else if !deleted {

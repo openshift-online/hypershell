@@ -395,7 +395,7 @@ jobs:
           # contract change (e.g. a removed/added required field) against that
           # stale image would 400 and abort. The "Seed platform resources" step
           # runs it once the working-tree images are swapped in.
-          KIND_SKIP_SEED: "true"
+          SKIP_SEED: "true"
         run: make kind-up
 
       # Block until each triggered component build has concluded.
@@ -460,12 +460,12 @@ jobs:
       # Seed platform resources now that the working-tree images are live (the
       # swap above rolled them in). Deferred from kind-up so the seed exercises
       # this PR's request contract instead of the baseline placeholder image.
-      # KIND_SEED_STRICT fails the job here with the real HTTP error if a create
+      # SEED_STRICT fails the job here with the real HTTP error if a create
       # is rejected, rather than surfacing later as a confusing discovery miss.
       - name: Seed platform resources
         env:
           DATABASE_PROVIDER: ${{ matrix.database-provider }}
-          KIND_SEED_STRICT: "true"
+          SEED_STRICT: "true"
         run: make kind-seed
 
       - name: Run e2e tests

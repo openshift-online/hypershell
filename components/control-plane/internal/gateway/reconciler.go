@@ -59,10 +59,8 @@ func ReconcileGateway(
 	}
 	ingressMode := gatewayIngressMode(opts)
 
-	if !namespaceExists(ctx, clientset, nsConfig.Name) {
-		if err := createNamespace(ctx, clientset, nsConfig.Name); err != nil {
-			return fmt.Errorf("create namespace %s: %w", nsConfig.Name, err)
-		}
+	if err := EnsureManagedNamespace(ctx, clientset, nsConfig.Name, opts.ControlPlaneNamespace); err != nil {
+		return fmt.Errorf("ensure namespace %s: %w", nsConfig.Name, err)
 	}
 
 	if err := ValidateGatewayConfig(nsConfig.Gateway); err != nil {
@@ -764,38 +762,6 @@ func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, 
 		log.Printf("INFO Route resources removed from namespace %s", namespace)
 	}
 	return errors.Join(errs...)
-}
-
-func NamespaceExists(ctx context.Context, clientset kubernetes.Interface, namespace string) bool {
-	_, err := clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
-	return err == nil
-}
-
-func namespaceExists(ctx context.Context, clientset *kubernetes.Clientset, namespace string) bool {
-	return NamespaceExists(ctx, clientset, namespace)
-}
-
-func CreateManagedNamespace(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
-	return createNamespace(ctx, clientset, namespace)
-}
-
-func createNamespace(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: namespace,
-			Labels: map[string]string{
-				ManagedByLabel: ManagedByValue,
-				ManagedLabel:   ManagedLabelValue,
-			},
-		},
-	}
-
-	_, err := clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
-	if err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create namespace: %w", err)
-	}
-	log.Printf("INFO created namespace %s", namespace)
-	return nil
 }
 
 func deployGateway(

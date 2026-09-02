@@ -786,6 +786,10 @@ seed_via_api() {
   local i
   if ! command -v curl >/dev/null 2>&1; then
     warn "curl is required on this machine to seed the API; skip automatic seeding"
+    if seed_strict; then
+      error "Platform seeding failed and SEED_STRICT=true - failing"
+      return 1
+    fi
     return 0
   fi
   info "Obtaining API token from Keycloak Route..."
@@ -801,6 +805,10 @@ seed_via_api() {
   done
   if [[ -z "${token}" ]]; then
     warn "Could not obtain API token; skip automatic seeding"
+    if seed_strict; then
+      error "Platform seeding failed and SEED_STRICT=true - failing"
+      return 1
+    fi
     return 0
   fi
   success "API token obtained"
@@ -937,6 +945,15 @@ seed_via_api() {
 
   if [[ -n "${seed_failed}" ]]; then
     warn "Automatic seeding incomplete - create resources manually after the API server is ready"
+    warn "Hint: If your local branch has schema / contract changes (e.g. dropped 'fleet_id'), the baseline API server image in the registry might reject your seed request."
+    warn "      To resolve this, swap in your working-tree API server build first, then run 'make openshift-seed':"
+    warn "      1. SKIP_SEED=true make openshift-up"
+    warn "      2. make openshift-api-server-up"
+    warn "      3. make openshift-seed"
+    if seed_strict; then
+      error "Platform seeding failed and SEED_STRICT=true - failing"
+      return 1
+    fi
   fi
 }
 
@@ -978,9 +995,25 @@ cluster_up() {
   configure_oidc_from_routes
   wait_for_deployments
   add_keycloak_redirect_uri || true
-  seed_via_api
+  if skip_seed; then
+    info "SKIP_SEED=true - skipping platform seeding"
+  else
+    seed_via_api
+  fi
   echo ""
   print_banner
+}
+
+cluster_seed() {
+  header "Seeding HyperShell on OpenShift"
+  echo ""
+  require_openshift_cluster
+  resolve_openshift_namespace
+  OPENSHIFT_ENTRY_PROJECT="$(current_project)"
+  trap 'if [[ -n "${OPENSHIFT_ENTRY_PROJECT:-}" ]]; then oc_cli project "${OPENSHIFT_ENTRY_PROJECT}" >/dev/null 2>&1 || true; fi' EXIT
+  validate_namespace_group
+  configure_oidc_from_routes
+  seed_via_api
 }
 
 verify_owned_namespace() {

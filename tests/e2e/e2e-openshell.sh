@@ -493,6 +493,7 @@ metadata:
   labels:
     hypershell.redhat.io/managed: "true"
     app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/instance: "${E2E_HS_NAMESPACE}"
   annotations:
     hypershell.redhat.io/gc-eligible-since: "${ORPHAN_ELIGIBLE_SINCE}"
 EOF
@@ -1650,8 +1651,9 @@ else
   # Deleting the Gateway via the API drives the control-plane delete path
   # (watch-delete-events.spec.md): DeleteGatewayResources then
   # DeleteManagedNamespace, best-effort and idempotent. The gateway namespace is
-  # managed (carries both hypershell.redhat.io/managed=true and
-  # app.kubernetes.io/managed-by=hypershell-control-plane), so it MUST be reaped.
+  # managed (carries hypershell.redhat.io/managed=true,
+  # app.kubernetes.io/managed-by=hypershell-control-plane, and
+  # hypershell.redhat.io/instance=<this control plane>), so it MUST be reaped.
   # Any namespace missed by the delete path is later swept by the
   # NamespaceGCReconciler. See openshell-gateway-namespace-gc.spec.md
   # (HYPERSHELL-96, HYPERSHELL-78).

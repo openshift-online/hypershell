@@ -204,7 +204,7 @@ command SHALL still refuse reserved names and namespaces labeled as a different
 HyperShell environment. The command SHALL wait until each project is gone before it reports success,
 rather than return after it has only requested deletion. When `oc delete project`
 is forbidden, the command SHALL delete HyperShell resources inside both projects
-— including the bundled Keycloak workload, which is unlabeled — wait for those
+(including the bundled Keycloak workload, which is unlabeled), wait for those
 deletes, and leave the projects. The
 `make openshift-status` command SHALL report the cluster, the environment
 namespaces, the pods, the services, the Routes, the Gateway status, and the

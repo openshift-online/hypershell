@@ -38,17 +38,26 @@ Namespace creation and provisioning mechanics are defined in
 - **Gateway namespace** - the Kubernetes namespace a gateway's workloads run in.
   Its name is API-assigned from the Gateway identifier and is prefixed
   `openshell-` (e.g. `openshell-a14873d1631f1b74`).
-- **Managed namespace** - a namespace the control plane created and is
-  responsible for, identified by carrying BOTH of the labels the control plane
+- **Control-plane instance** - one HyperShell control plane (the
+  `hypershell-controller` in its platform namespace). Its identity is unique to
+  that controller: the Kubernetes namespace the controller pod runs in, which is
+  unique on the cluster. In cluster this is `HYPERSHELL_NAMESPACE`, taken from the
+  pod's own namespace via the downward API so two controllers cannot accidentally
+  share a copied static value. Multiple instances MAY share a cluster (for
+  example stage alongside an e2e run, or two developers' local-dev environments).
+  Each instance has its own API server and therefore its own set of live Gateways.
+- **Managed namespace** - a namespace this control-plane instance created and is
+  responsible for, identified by carrying ALL of the labels the control plane
   stamps at creation:
   - `app.kubernetes.io/managed-by=hypershell-control-plane`
   - `hypershell.redhat.io/managed=true`
-  Periodic garbage collection sweeps managed namespaces whose names match the
-  gateway prefix (`openshell-<hex>`) and excludes ManagedDatabase namespaces
-  (`openshell-db-<hex>`). This name-based scope keeps pre-existing orphaned
-  gateway namespaces eligible for GC without a label migration. A Gateway
-  pointed at a pre-existing or shared namespace can never cause that namespace to
-  be reaped.
+  - `hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`
+  Periodic garbage collection sweeps only namespaces owned by this instance whose
+  names match the gateway prefix (`openshell-<hex>`) and excludes ManagedDatabase
+  namespaces (`openshell-db-<hex>`). A namespace owned by a different instance, or
+  lacking this instance's identity label, is never listed, annotated, or reaped.
+  A Gateway pointed at a pre-existing or shared namespace can never cause that
+  namespace to be reaped.
 - **Orphaned namespace** - a gateway namespace (matching the gateway prefix, not
   the database prefix) for which no live Gateway exists (no Gateway in the API
   server maps to it). This is the sole trigger for garbage collection.
@@ -92,7 +101,11 @@ live outside its namespace, because namespace deletion does not reach them:
 
 Namespace deletion SHALL be best-effort and idempotent: an already-absent or
 already-terminating namespace is treated as success, and a namespace that is not
-managed by this control plane SHALL NOT be deleted.
+managed by this control-plane instance SHALL NOT be deleted. A namespace that
+carries `hypershell.redhat.io/instance` set to a different instance SHALL NOT be
+deleted. A legacy namespace that carries the two management labels but no
+instance label MAY still be deleted on this path, because the delete is keyed to
+a Gateway from this instance's API server rather than a cluster-wide sweep.
 
 Namespace deletion SHALL NOT be gated on the number of active sandboxes. A delete
 is processed and the namespace is removed; if the namespace no longer exists when
@@ -120,12 +133,25 @@ the delete is processed, the delete is considered complete.
 - WHEN the control plane processes the Gateway delete event
 - THEN it SHALL NOT delete that namespace
 
+#### Scenario: Delete does not touch another instance's namespace
+
+- GIVEN a Gateway delete event whose namespace carries
+  `hypershell.redhat.io/instance` set to a different control-plane instance
+- WHEN the control plane processes the Gateway delete event
+- THEN it SHALL NOT delete that namespace
+
 ### Requirement: Periodic Garbage Collection of Orphaned Namespaces
 
 The control plane SHALL run a background reconciler that periodically lists
-managed namespaces and reaps gateway workload namespaces (`openshell-<hex>`,
-excluding ManagedDatabase namespaces `openshell-db-<hex>`) that have been orphaned
-(no live Gateway) for at least the grace period. The sweep interval defaults to
+namespaces owned by this control-plane instance and reaps gateway workload
+namespaces (`openshell-<hex>`, excluding ManagedDatabase namespaces
+`openshell-db-<hex>`) that have been orphaned (no live Gateway in this instance's
+API server) for at least the grace period. The list selector SHALL include
+`hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>` in addition to the two
+management labels, so a namespace created by another HyperShell instance on the
+same cluster is never observed as an orphan of this instance. If
+`HYPERSHELL_NAMESPACE` is empty, the reconciler SHALL abort the sweep rather than
+list by the generic management labels alone. The sweep interval defaults to
 5 minutes and the grace period defaults to 10 minutes. Garbage collection SHALL
 be enabled by default and configurable without code changes via environment
 variables:
@@ -134,17 +160,34 @@ variables:
 - `GATEWAY_NAMESPACE_GC_INTERVAL` (default `5m`)
 - `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` (default `10m`)
 
-Reaping SHALL be best-effort and idempotent, and SHALL only ever delete managed
-gateway workload namespaces (matching the gateway prefix, not the database
-prefix).
+Reaping SHALL be best-effort and idempotent, and SHALL only ever delete gateway
+workload namespaces owned by this instance (matching the gateway prefix, not the
+database prefix, and carrying this instance's identity label).
 
 #### Scenario: Orphaned gateway namespace reaped after grace period
 
-- GIVEN a managed namespace with a gateway-prefixed name (`openshell-<hex>`, not
-  `openshell-db-<hex>`) with no live Gateway
+- GIVEN a namespace owned by this control-plane instance with a gateway-prefixed
+  name (`openshell-<hex>`, not `openshell-db-<hex>`) with no live Gateway in this
+  instance's API server
 - AND it has been continuously orphaned for longer than the grace period
 - WHEN the garbage-collection reconciler sweeps
 - THEN it SHALL delete the namespace
+
+#### Scenario: Another instance's gateway namespace is not treated as orphaned
+
+- GIVEN two HyperShell control-plane instances share a cluster
+- AND instance A has live Gateways whose namespaces are labeled
+  `hypershell.redhat.io/instance=<A's HYPERSHELL_NAMESPACE>`
+- WHEN instance B's garbage-collection reconciler sweeps
+- THEN it SHALL NOT list, annotate, or delete instance A's namespaces
+- AND it SHALL NOT record them as orphaned of instance B
+
+#### Scenario: Unlabeled legacy namespace is not swept
+
+- GIVEN a namespace that carries the two management labels but not
+  `hypershell.redhat.io/instance`
+- WHEN this instance's garbage-collection reconciler sweeps
+- THEN it SHALL NOT list, annotate, or delete that namespace
 
 #### Scenario: ManagedDatabase namespace is not reaped
 
@@ -161,11 +204,50 @@ prefix).
 
 #### Scenario: Delete event missed during downtime is recovered
 
-- GIVEN the control plane was down when a Gateway was deleted, so the namespace
+- GIVEN the control plane was down when a Gateway is deleted, so the namespace
   was never reaped by the delete path
+- AND the namespace carries this instance's identity label
 - WHEN the control plane restarts and the garbage-collection reconciler sweeps
 - THEN it SHALL observe the namespace as orphaned and, once the grace period has
   elapsed, delete it
+
+### Requirement: Stamp This Instance's Identity on Namespaces It Manages
+
+When the control plane creates or reconciles a namespace it owns, it SHALL stamp
+`hypershell.redhat.io/instance` with a value unique to that controller (the
+namespace the controller pod runs in, `HYPERSHELL_NAMESPACE`) together with the
+two management labels. If the namespace already carries a different instance
+identity, the control plane SHALL NOT adopt, relabel, or delete it. Reconciling a
+live Gateway SHALL add the instance label to a legacy unlabeled namespace this
+instance is actively managing, so a later orphan can be reaped by this instance's
+periodic GC. An empty `HYPERSHELL_NAMESPACE` SHALL NOT create or relabel a
+managed namespace. Two controllers on the same cluster SHALL NOT share an
+instance identity.
+
+#### Scenario: Created gateway namespace is labeled for this instance
+
+- GIVEN a Gateway ADDED event for a namespace that does not yet exist
+- WHEN the control plane creates the namespace
+- THEN the namespace SHALL carry `hypershell.redhat.io/instance` equal to this
+  controller's unique identity (`HYPERSHELL_NAMESPACE`, the namespace the
+  controller pod runs in)
+
+#### Scenario: Live reconcile labels a legacy namespace this instance owns
+
+- GIVEN a live Gateway whose namespace carries the two management labels but no
+  instance label
+- WHEN the control plane reconciles that Gateway
+- THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance
+- AND it SHALL NOT change an instance label that already identifies a different
+  instance
+
+#### Scenario: Foreign instance namespace is not adopted
+
+- GIVEN a namespace labeled `hypershell.redhat.io/instance` for a different
+  control-plane instance
+- WHEN this instance would create or reconcile a Gateway in that namespace
+- THEN it SHALL NOT overwrite the instance label
+- AND it SHALL NOT deploy into or delete that namespace
 
 ### Requirement: Grace Period Prevents Premature Deletion
 
@@ -301,7 +383,10 @@ real-time guarantee.
 |----------|-----------|
 | GC triggers on orphaning (no live Gateway), not on `phase` being `Degraded`/`Failed` | A gateway that still exists - even if unhealthy - is the health reconciler's and the operator's concern; only the absence of a backing Gateway unambiguously means the namespace is garbage. This avoids reaping a namespace an operator is still debugging. |
 | Exclude `openshell-db-*` managed namespaces from periodic GC | ManagedDatabase CNPG namespaces share the management labels but are owned by the ManagedDatabase reconciler; the stable `openshell-db-` prefix distinguishes them without requiring a label migration on existing gateway namespaces. |
-| Require BOTH management labels before deleting | Defense in depth: even if a label selector over-returns, a namespace not created by this control plane (e.g. a shared or pre-existing namespace) is never deleted. |
+| Require this instance's identity label before periodic GC | Two HyperShell controllers on one cluster share the generic management labels. Without a value unique to that controller (`hypershell.redhat.io/instance=<the controller's namespace>`), instance B's sweep treats instance A's live gateways as orphans (they are absent from B's API server) and would delete them after the grace period. The identity is the controller pod's namespace from the downward API so it cannot be a copied static string. |
+| Leave unlabeled legacy namespaces out of periodic GC | Fail closed on coexistence: a namespace without this instance's identity might belong to another HyperShell that predates the label. Delete-driven cleanup of a Gateway from this API server may still reap an unlabeled managed namespace, because that path is keyed to this instance's own Gateway rather than a cluster-wide list. |
+| Require BOTH management labels plus this instance's identity before deleting | Defense in depth: even if a label selector over-returns, a namespace not created by this control-plane instance (another HyperShell, a shared namespace, or a pre-existing namespace) is never deleted by periodic GC. |
+| Stamp the instance label on create and on live reconcile | Periodic GC can only see namespaces this instance labeled. Stamping at create covers new gateways; stamping on live reconcile migrates this instance's pre-label namespaces so they remain eligible for a later orphan sweep. |
 | Grace period persisted on the namespace annotation | The delay must survive control-plane restarts; storing `gc-eligible-since` on the namespace makes the timer durable without a separate store. |
 | Abort the whole sweep if Gateways cannot be listed | An empty or failed Gateway list would make every managed namespace look orphaned; aborting is the only safe response to avoid mass reaping of live namespaces. |
 | Delete is best-effort and not gated on sandbox count | Deletion is idempotent - process the delete, remove the namespace, and if it is already gone consider the delete done. The sandbox count is a warning surfaced to the operator, not a backend precondition. |

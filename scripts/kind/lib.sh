@@ -44,6 +44,21 @@ fi
 : "${CPK_LOG:=/tmp/cloud-provider-kind.log}"
 DNS_CONTAINER_NAME="${KIND_CLUSTER_NAME}-dns"
 
+# SKIP_SEED and SEED_STRICT apply to Kind and OpenShift. KIND_* names remain aliases.
+skip_seed() {
+  case "${SKIP_SEED:-${KIND_SKIP_SEED:-}}" in
+    true|TRUE|1|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+seed_strict() {
+  case "${SEED_STRICT:-${KIND_SEED_STRICT:-}}" in
+    true|TRUE|1|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # --- Cluster helpers ---
 
 cluster_exists() {

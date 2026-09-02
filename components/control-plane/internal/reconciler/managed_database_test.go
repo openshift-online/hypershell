@@ -21,7 +21,7 @@ import (
 )
 
 func TestNewManagedDatabaseReconcilerWithoutKubernetesClient(t *testing.T) {
-	r := NewManagedDatabaseReconciler(nil, nil, nil)
+	r := NewManagedDatabaseReconciler(nil, nil, nil, "")
 	if r.hasCNPG {
 		t.Fatal("hasCNPG = true without a Kubernetes client, want false")
 	}
@@ -223,7 +223,7 @@ func TestReconcileDeploymentDatabaseUsesOpenShellImageAndPostgresSecurityContext
 
 	clientset := kubernetesfake.NewSimpleClientset()
 	dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
-	r := &ManagedDatabaseReconciler{clientset: clientset, dynamicClient: dynamicClient}
+	r := &ManagedDatabaseReconciler{clientset: clientset, dynamicClient: dynamicClient, controlPlaneNamespace: "hypershell"}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Avoid waiting for fake Deployment readiness after resources are applied.
 	if err := r.reconcileDeploymentDatabase(ctx, &pb.ManagedDatabase{Namespace: namespace}); !errors.Is(err, context.Canceled) {
