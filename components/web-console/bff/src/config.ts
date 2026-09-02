@@ -32,6 +32,7 @@ const httpOrigin = z
 
 const configSchema = z.object({
   HOST: z.string().trim().min(1).default("0.0.0.0"),
+  // REL-07 in specs/platform/source-release.spec.md defines this format.
   HYPERSHELL_BUILD_VERSION: z
     .string()
     .trim()

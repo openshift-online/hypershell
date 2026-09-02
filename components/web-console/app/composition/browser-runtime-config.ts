@@ -21,6 +21,7 @@ const disabledRuntimeConfig: BrowserRuntimeConfig = {
   tracing: { sampleRatio: 0 },
 };
 
+// REL-07 in specs/platform/source-release.spec.md defines this format.
 const buildVersionPattern =
   /^(?:dev-[0-9a-f]{7}(?:-modified)?|v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-[0-9a-f]{7})$/u;
 
