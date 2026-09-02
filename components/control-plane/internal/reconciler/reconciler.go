@@ -1150,13 +1150,70 @@ func cnpgClusterGVR() schema.GroupVersionResource {
 	}
 }
 
+// Control-plane-owned GatewayRelease status values (see
+// gateway-release-reconciliation.spec.md). The reconciler settles a release's
+// status to reflect the reconciled validation outcome. Available means the image
+// reference is well-formed and the release may be used by gateways; Invalid is
+// prefixed onto a short reason describing why validation failed.
+const (
+	releaseStatusAvailable = "Available"
+	releaseStatusInvalid   = "Invalid"
+	// releaseFanOutPageSize is the page size used when listing gateways to find
+	// the ones that reference a changed release. It matches the other reconcilers'
+	// list page size so a typical fleet is covered in a single request.
+	releaseFanOutPageSize = 500
+)
+
+// gatewayEnqueuer requests a gateway be re-reconciled through the shared gateway
+// reconcile queue. The release reconciler uses it to propagate an image change to
+// referencing gateways. EnqueueForced bypasses the gateway reconciler's phase
+// gate (as recovery seeds do) so a gateway already Running is re-reconciled to
+// pick up the new desired image rather than being skipped. *watcher.GatewayReconcileQueue
+// satisfies it.
+type gatewayEnqueuer interface {
+	EnqueueForced(watcher.Event[*pb.Gateway])
+}
+
+// GatewayReleaseReconciler reconciles GatewayRelease resources. A release owns no
+// Kubernetes resources, so reconciliation means: validate the release image,
+// write a deterministic status back to the API server, and -- when a known
+// release's effective image changes -- request reconciliation of every gateway
+// that references the release so the cluster converges toward the new version.
+// Resolving release_id -> image at gateway deploy time and rollout safety are
+// owned by sibling specs; this reconciler only guarantees the referencing
+// gateways are re-reconciled.
 type GatewayReleaseReconciler struct {
 	mu     sync.Mutex
 	active map[string]struct{}
+	// lastImage records the last validated image observed per release ID so an
+	// update that does not change the effective image does not fan out, and so the
+	// first observation of a release (e.g. on controller start or a fresh create)
+	// establishes a baseline without re-provisioning gateways that are already
+	// running. Guarded by mu.
+	lastImage map[string]string
+
+	gateways pb.GatewayServiceClient
+	releases pb.GatewayReleaseServiceClient
+	gwQueue  gatewayEnqueuer
 }
 
-func NewGatewayReleaseReconciler() *GatewayReleaseReconciler {
-	return &GatewayReleaseReconciler{active: make(map[string]struct{})}
+// NewGatewayReleaseReconciler builds the release reconciler. conn is the API
+// server gRPC connection used to write release status and list referencing
+// gateways; gwQueue is the shared gateway reconcile queue used to propagate image
+// changes. Either dependency may be nil (e.g. when the controller runs without a
+// Kubernetes client), in which case propagation is skipped but validation and
+// status write-back still run.
+func NewGatewayReleaseReconciler(conn *grpc.ClientConn, gwQueue gatewayEnqueuer) *GatewayReleaseReconciler {
+	r := &GatewayReleaseReconciler{
+		active:    make(map[string]struct{}),
+		lastImage: make(map[string]string),
+		gwQueue:   gwQueue,
+	}
+	if conn != nil {
+		r.gateways = pb.NewGatewayServiceClient(conn)
+		r.releases = pb.NewGatewayReleaseServiceClient(conn)
+	}
+	return r
 }
 
 func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Event[*pb.GatewayRelease]) error {
@@ -1174,10 +1231,150 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 	}()
 
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String())
-	defer func() { endSpan(nil) }()
+	var reconcileErr error
+	defer func() { endSpan(reconcileErr) }()
 
-	log.Printf("INFO reconciling GatewayRelease %s (event=%d)", event.ResourceID, event.Type)
+	// A release owns no cluster resources, so a delete is a terminal, idempotent
+	// no-op with respect to Kubernetes: running gateways deployed from the release
+	// are left untouched. Forget the baseline so a later create of a new release
+	// (KSUIDs are never reused, but be defensive) starts clean.
+	if event.Type == watcher.EventDeleted {
+		r.forget(event.ResourceID)
+		log.Printf("INFO gateway release %s deleted; no cluster resources to remove", event.ResourceID)
+		return nil
+	}
+
+	rel := event.Resource
+	if rel == nil {
+		log.Printf("WARN gateway release event %s has nil resource, skipping", event.ResourceID)
+		return nil
+	}
+
+	// Validate the image reference using the same rules applied to gateway
+	// workloads (well-formed reference, no shell-injection metacharacters). An
+	// empty image is rejected too.
+	image := rel.GetImage()
+	validationErr := gateway.ValidateImageReference(image)
+
+	desiredStatus := releaseStatusAvailable
+	if validationErr != nil {
+		desiredStatus = fmt.Sprintf("%s: %s", releaseStatusInvalid, validationErr)
+	}
+
+	// Deterministic, idempotent status write-back: only update when the persisted
+	// status differs from the reconciled outcome.
+	if rel.GetStatus() != desiredStatus {
+		if err := r.updateStatus(ctx, event.ResourceID, desiredStatus); err != nil {
+			reconcileErr = fmt.Errorf("update gateway release %s status: %w", event.ResourceID, err)
+			return reconcileErr
+		}
+	}
+
+	if validationErr != nil {
+		// An invalid release is not propagated to any gateway. The last valid image
+		// baseline is intentionally retained (not forgotten): a later correction to
+		// an image different from that baseline is then detected as a genuine change
+		// and fans out, while a correction back to the same image correctly no-ops.
+		// Forgetting here would reclassify the correction as a first observation and
+		// silently skip the fan-out.
+		log.Printf("INFO gateway release %s invalid image: %v", event.ResourceID, validationErr)
+		return nil
+	}
+
+	// Fan out only when a previously-observed release's effective image changed.
+	// The first observation records a baseline without fanning out: a brand-new
+	// release has no referencing gateways yet, and on controller restart every
+	// release would otherwise force-reconcile every running gateway.
+	prev, seen := r.lastImageFor(event.ResourceID)
+	if seen && prev != image {
+		if err := r.propagateToGateways(ctx, event.ResourceID, image); err != nil {
+			reconcileErr = fmt.Errorf("propagate gateway release %s to referencing gateways: %w", event.ResourceID, err)
+			// Leave the baseline unchanged so the retry re-detects the change and
+			// re-attempts the fan-out.
+			return reconcileErr
+		}
+	}
+	r.rememberImage(event.ResourceID, image)
 	return nil
+}
+
+// updateStatus writes the release's reconciled status back to the API server. It
+// is a no-op when the release client is not configured.
+func (r *GatewayReleaseReconciler) updateStatus(ctx context.Context, id, status string) error {
+	if r.releases == nil {
+		return nil
+	}
+	_, err := r.releases.UpdateGatewayRelease(ctx, &pb.UpdateGatewayReleaseRequest{
+		Id:     id,
+		Status: &status,
+	})
+	return err
+}
+
+// propagateToGateways enqueues every gateway that references the release for
+// reconciliation. It is a no-op when the gateway client or the shared queue is
+// not configured (e.g. the controller has no Kubernetes client).
+func (r *GatewayReleaseReconciler) propagateToGateways(ctx context.Context, releaseID, image string) error {
+	if r.gateways == nil || r.gwQueue == nil {
+		return nil
+	}
+	gws, err := r.listGatewaysForRelease(ctx, releaseID)
+	if err != nil {
+		return err
+	}
+	for _, gw := range gws {
+		r.gwQueue.EnqueueForced(watcher.Event[*pb.Gateway]{
+			Type:       watcher.EventUpdated,
+			ResourceID: gw.GetMetadata().GetId(),
+			Resource:   gw,
+		})
+	}
+	log.Printf("INFO gateway release %s image changed to %s; enqueued %d referencing gateway(s) for reconciliation", releaseID, image, len(gws))
+	return nil
+}
+
+// listGatewaysForRelease returns every gateway whose release_id references the
+// given release, paginating through the API server.
+func (r *GatewayReleaseReconciler) listGatewaysForRelease(ctx context.Context, releaseID string) ([]*pb.Gateway, error) {
+	var matching []*pb.Gateway
+	for page := int32(1); ; page++ {
+		resp, err := r.gateways.ListGateways(ctx, &pb.ListGatewaysRequest{
+			Page: page,
+			Size: releaseFanOutPageSize,
+		})
+		if err != nil {
+			return nil, err
+		}
+		items := resp.GetItems()
+		for _, gw := range items {
+			if gw.GetReleaseId() == releaseID {
+				matching = append(matching, gw)
+			}
+		}
+		total := int(resp.GetMetadata().GetTotal())
+		if len(items) == 0 || len(items) < releaseFanOutPageSize || (total > 0 && page*releaseFanOutPageSize >= int32(total)) {
+			return matching, nil
+		}
+	}
+}
+
+func (r *GatewayReleaseReconciler) lastImageFor(id string) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	img, ok := r.lastImage[id]
+	return img, ok
+}
+
+func (r *GatewayReleaseReconciler) rememberImage(id, image string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastImage[id] = image
+}
+
+func (r *GatewayReleaseReconciler) forget(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.lastImage, id)
 }
 
 type GatewayReconciler struct {

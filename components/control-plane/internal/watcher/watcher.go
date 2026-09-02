@@ -338,6 +338,15 @@ func listManagedDatabasesOnce(ctx context.Context, client pb.ManagedDatabaseServ
 
 func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.GatewayRelease]) error {
 	client := pb.NewGatewayReleaseServiceClient(conn)
+	// Drive release reconciliation through a per-resource reconcile queue rather
+	// than inline so a failed reconcile (e.g. a transient API-server error writing
+	// the release status, or listing the referencing gateways for fan-out) is
+	// retried with capped backoff instead of being logged and dropped. Releases
+	// own no cluster resources, so -- unlike gateways -- no startup seed or
+	// recovery is needed; the queue exists purely for retry and per-release
+	// serialization.
+	rq := newReconcileQueue(ctx, "GatewayRelease", handler)
+	defer rq.stop()
 	return watchLoop(ctx, "GatewayRelease", func(ctx context.Context) error {
 		stream, err := client.WatchGatewayReleases(ctx, &pb.WatchGatewayReleasesRequest{})
 		if err != nil {
@@ -351,18 +360,45 @@ func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Ha
 			if err != nil {
 				return fmt.Errorf("receiving gateway release event: %w", err)
 			}
-			if err := handler.Handle(ctx, Event[*pb.GatewayRelease]{
+			rq.enqueue(Event[*pb.GatewayRelease]{
 				Type:       toEventType(event.Type),
 				ResourceID: event.ResourceId,
 				Resource:   event.GatewayRelease,
-			}); err != nil {
-				log.Printf("ERROR handling gateway release %s: %v", event.ResourceId, err)
-			}
+			})
 		}
 	})
 }
 
-func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Gateway]) error {
+// GatewayReconcileQueue is a shareable handle to the gateway reconcile queue. It
+// lets an out-of-band reconciler -- e.g. the GatewayRelease reconciler on an
+// image change -- request a gateway be re-reconciled through the same serialized,
+// retrying, phase-gate-bypassing path the gateway watch stream uses, without
+// blocking the caller on the (potentially multi-minute) reconcile itself.
+type GatewayReconcileQueue struct {
+	q *reconcileQueue[*pb.Gateway]
+}
+
+// NewGatewayReconcileQueue builds and starts the shared gateway reconcile queue.
+// The caller owns its lifecycle and must call Stop (or cancel ctx) to drain it.
+// Pass the returned queue to both WatchGateways and any out-of-band enqueuer.
+func NewGatewayReconcileQueue(ctx context.Context, handler Handler[*pb.Gateway]) *GatewayReconcileQueue {
+	return &GatewayReconcileQueue{
+		q: newReconcileQueue(ctx, "Gateway", handler,
+			withRetryTransform(clearGatewayPhaseForRetry),
+			withVersion(gatewayEventVersion)),
+	}
+}
+
+// EnqueueForced requests reconciliation of the given gateway, marking it so the
+// next handler attempt bypasses the reconciler phase gate (as recovery seeds do).
+// This is what lets a release image change re-reconcile a gateway that is already
+// Running, which the phase gate would otherwise skip.
+func (g *GatewayReconcileQueue) EnqueueForced(ev Event[*pb.Gateway]) { g.q.enqueueForced(ev) }
+
+// Stop drains and shuts the queue down.
+func (g *GatewayReconcileQueue) Stop() { g.q.stop() }
+
+func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayReconcileQueue) error {
 	client := pb.NewGatewayServiceClient(conn)
 	// Gateway reconciliation is driven through a per-resource reconcile queue rather
 	// than invoked inline: the watch stream does not replay state on reconnect, so a
@@ -370,11 +406,10 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 	// Failed phase) would otherwise strand the gateway until its spec next changes.
 	// The queue serializes work per gateway, coalesces to the latest observed state,
 	// and retries failures indefinitely with capped backoff -- all on the watcher
-	// lifetime context so recovery survives a stream reconnect.
-	rq := newReconcileQueue(ctx, "Gateway", handler,
-		withRetryTransform(clearGatewayPhaseForRetry),
-		withVersion(gatewayEventVersion))
-	defer rq.stop()
+	// lifetime context so recovery survives a stream reconnect. The queue is owned
+	// by the caller (main) and shared with out-of-band enqueuers such as the
+	// GatewayRelease reconciler, so it is neither created nor stopped here.
+	rq := queue.q
 	return watchLoop(ctx, "Gateway", func(ctx context.Context) error {
 		// Derive a cancelable child before creating the stream so either the
 		// receiver or the seed can cancel and join the other without waiting
