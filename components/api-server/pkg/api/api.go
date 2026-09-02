@@ -18,7 +18,3 @@ const (
 
 // Re-export TRex functions
 var NewID = trexapi.NewID
-var (
-	Version   string
-	BuildTime string
-)

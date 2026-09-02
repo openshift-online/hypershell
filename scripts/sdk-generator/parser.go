@@ -21,6 +21,9 @@ func parseSpec(specPath, apiPrefix string) (*Spec, error) {
 	resourceViews := primaryCollectionViews(document, apiPrefix)
 	resources := make([]Resource, 0, len(resourceViews))
 	for _, view := range resourceViews {
+		if extensionIsTrue(view.Extensions, "x-sdk-exclude") {
+			continue
+		}
 		schema := document.Schema(view.SchemaRef)
 		if schema == nil || schema.Name == "" {
 			continue
@@ -140,7 +143,7 @@ func scopedCollectionViews(document *ir.Document, apiPrefix string) []*ir.Resour
 	var result []*ir.ResourceView
 	seen := make(map[string]bool)
 	for _, view := range document.ResourceViews {
-		if view.Kind != ir.ResourceCollection || !view.Capabilities.Has(ir.CapabilityList) || len(view.ScopeParameters) == 0 {
+		if view.Kind != ir.ResourceCollection || !view.Capabilities.Has(ir.CapabilityList) || len(view.ScopeParameters) == 0 || extensionIsTrue(view.Extensions, "x-sdk-exclude") {
 			continue
 		}
 		remainder := strings.TrimPrefix(view.Path, strings.TrimSuffix(apiPrefix, "/")+"/")
@@ -504,7 +507,7 @@ func projectFields(document *ir.Document, schemaRef string, includeReadOnly bool
 func primaryCollectionViews(document *ir.Document, apiPrefix string) []*ir.ResourceView {
 	bySchema := make(map[string]*ir.ResourceView)
 	for _, view := range document.ResourceViews {
-		if view.Kind != ir.ResourceCollection || !view.Capabilities.Has(ir.CapabilityList) {
+		if view.Kind != ir.ResourceCollection || !view.Capabilities.Has(ir.CapabilityList) || extensionIsTrue(view.Extensions, "x-sdk-exclude") {
 			continue
 		}
 		remainder := strings.TrimPrefix(view.Path, strings.TrimSuffix(apiPrefix, "/")+"/")

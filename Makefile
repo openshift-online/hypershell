@@ -14,7 +14,7 @@ IMAGE_TAG?=latest
 vcs_ref:=$(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 build_prefix:=dev
 build_version:=$(shell HYPERSHELL_VCS_REF=$(vcs_ref) scripts/build-version.sh local 2>/dev/null || echo dev-unknown)
-build_time:=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
+build_time:=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Computed baseline references (registry images used in Kind manifests)
 api_server_ref=$(IMAGE_REGISTRY)/hypershell-api-server-main:$(IMAGE_TAG)

@@ -111,7 +111,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | REL-06 | Component-selective CI builds | Present | - | `.tekton/`, `.github/workflows/e2e.yml` | REL-W2 |
 | REL-07 | Build version format | Present | - | `Makefile`, `scripts/build-version.sh`, `scripts/kind/`, `.tekton/` | REL-W2 |
 | REL-08 | Container metadata | Present | - | `components/{api-server,control-plane,web-console}/Dockerfile` | REL-W2 |
-| REL-09 | API service metadata | Partial | The route exists, but its contract and build stamp are not complete. | `components/api-server/` | REL-W3 |
+| REL-09 | API service metadata | Present | - | `components/api-server/openapi/openapi.yaml`, `components/api-server/pkg/api/metadata_test.go` | REL-W3 |
 | REL-10 | Web-console version display | Missing | Runtime configuration and the user-menu row are absent. | `components/web-console/` | REL-W4 |
 | REL-11 | Registry and deployment scope | Present | - | `.tekton/`, `docs/releasing.md` | REL-W1 |
 | REL-12 | Verification and documentation | Partial | Release controls have tests and documentation. Image, API, and console checks remain. | `scripts/test_release_policy.py`, `docs/releasing.md` | REL-W1..REL-W4 |

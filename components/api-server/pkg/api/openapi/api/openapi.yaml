@@ -19,15 +19,18 @@ tags:
 paths:
   /api/hypershell/v1/metadata:
     get:
+      description: Returns the API server build identity without a database query.
       operationId: getMetadata
       responses:
         "200":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ObjectReference"
+                $ref: "#/components/schemas/ServiceMetadata"
           description: Service metadata
+      security: []
       summary: Service metadata
+      x-sdk-exclude: true
   /api/hypershell/v1/managed_clusters:
     get:
       operationId: listManagedClusters
@@ -2119,6 +2122,37 @@ components:
             $ref: "#/components/schemas/Error"
       description: Keycloak provisioning or lifecycle verification is unavailable
   schemas:
+    ServiceMetadata:
+      example:
+        kind: API
+        build_time: build_time
+        id: id
+        href: href
+        version: version
+      properties:
+        id:
+          description: Service identifier
+          type: string
+        href:
+          description: Metadata request path
+          type: string
+        kind:
+          enum:
+          - API
+          type: string
+        version:
+          description: API server image build version
+          type: string
+        build_time:
+          description: Time when the API server binary was built
+          type: string
+      required:
+      - build_time
+      - href
+      - id
+      - kind
+      - version
+      type: object
     List:
       allOf:
       - properties:
@@ -2133,12 +2167,6 @@ components:
         type: object
       - $ref: "#/components/schemas/ObjectReference"
     ObjectReference:
-      example:
-        updated_at: 2000-01-23T04:56:07.000+00:00
-        kind: kind
-        created_at: 2000-01-23T04:56:07.000+00:00
-        id: id
-        href: href
       properties:
         id:
           type: string

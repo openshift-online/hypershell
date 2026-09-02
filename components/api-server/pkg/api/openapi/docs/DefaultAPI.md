@@ -1378,9 +1378,11 @@ Name | Type | Description  | Notes
 
 ## GetMetadata
 
-> ObjectReference GetMetadata(ctx).Execute()
+> ServiceMetadata GetMetadata(ctx).Execute()
 
 Service metadata
+
+
 
 ### Example
 
@@ -1403,7 +1405,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetMetadata``: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
 	}
-	// response from `GetMetadata`: ObjectReference
+	// response from `GetMetadata`: ServiceMetadata
 	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetMetadata`: %v\n", resp)
 }
 ```
@@ -1419,11 +1421,11 @@ Other parameters are passed through a pointer to a apiGetMetadataRequest struct 
 
 ### Return type
 
-[**ObjectReference**](ObjectReference.md)
+[**ServiceMetadata**](ServiceMetadata.md)
 
 ### Authorization
 
-[Bearer](../README.md#Bearer)
+No authorization required
 
 ### HTTP request headers
 

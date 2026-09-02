@@ -45,3 +45,10 @@ func TestDevOverrideConfigDisablesJWT(t *testing.T) {
 		t.Error("development environment must disable HTTPS")
 	}
 }
+
+func TestDevOIDCMetadataBypass(t *testing.T) {
+	paths := (&DevOidcEnvImpl{}).Flags()["auth-bypass-paths"]
+	if !strings.Contains(paths, "/api/hypershell/v1/metadata") {
+		t.Fatalf("auth bypass paths do not contain the metadata endpoint: %q", paths)
+	}
+}

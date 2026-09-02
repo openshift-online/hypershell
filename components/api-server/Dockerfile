@@ -17,11 +17,14 @@ COPY components/api-server/openapi/ openapi/
 ARG BUILD_PREFIX
 ARG VCS_REF
 ARG BUILD_TIME=unknown
-RUN short_ref="${VCS_REF%?????????????????????????????????}" \
-  && build_version="${BUILD_PREFIX}-${short_ref}" \
-  && CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w \
+RUN set -eu; \
+  short_ref="${VCS_REF%?????????????????????????????????}"; \
+  build_version="${BUILD_PREFIX}-${short_ref}"; \
+  build_time="${BUILD_TIME}"; \
+  if [ "${build_time}" = "unknown" ]; then build_time="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; fi; \
+  CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w \
     -X github.com/openshift-online/rh-trex-ai/pkg/api.Version=${build_version} \
-    -X 'github.com/openshift-online/rh-trex-ai/pkg/api.BuildTime=${BUILD_TIME}'" \
+    -X 'github.com/openshift-online/rh-trex-ai/pkg/api.BuildTime=${build_time}'" \
     -o hypershell ./cmd/hypershell
 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071

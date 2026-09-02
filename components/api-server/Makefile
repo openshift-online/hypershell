@@ -14,7 +14,7 @@ CLI_MODULE=github.com/openshift-online/hypershell/components/cli
 # Version information for ldflags
 git_sha:=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 build_version:=$(shell HYPERSHELL_VCS_REF=$(git_sha) ../../scripts/build-version.sh local 2>/dev/null || echo "dev-unknown")
-build_time:=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
+build_time:=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 ldflags=-X github.com/openshift-online/rh-trex-ai/pkg/api.Version=$(build_version) -X 'github.com/openshift-online/rh-trex-ai/pkg/api.BuildTime=$(build_time)'
 
 .PHONY: binary
