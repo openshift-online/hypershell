@@ -99,6 +99,30 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 ## Gap Table
 
+### source-release.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| REL-01 | Conventional pull request titles | Present | - | `scripts/release_policy.py`, `.github/workflows/lint.yml` | REL-W1 |
+| REL-02 | Managed Release PR | Present | - | `.github/workflows/release-please.yml`, `release-please-config.json` | REL-W1 |
+| REL-03 | Release files | Present | - | `VERSION`, `CHANGELOG.md`, `build-version.env`, `.release-please-manifest.json` | REL-W1 |
+| REL-04 | Release publication | Present | The repository owner must set the documented GitHub App variable and secret. | `.github/workflows/release-please.yml`, `docs/releasing.md` | REL-W1 |
+| REL-05 | First release baseline | Present | - | `release-please-config.json`, `.release-please-manifest.json` | REL-W1 |
+| REL-06 | Component-selective CI builds | Missing | `VERSION` does not yet start the three final push builds. | `.tekton/`, `.github/workflows/e2e.yml` | REL-W2 |
+| REL-07 | Build version format | Missing | Component builds do not yet use the managed build prefix. | `Makefile`, `scripts/kind/`, `.tekton/` | REL-W2 |
+| REL-08 | Container metadata | Missing | The three image files still use static versions. | `components/*/Dockerfile` | REL-W2 |
+| REL-09 | API service metadata | Partial | The route exists, but its contract and build stamp are not complete. | `components/api-server/` | REL-W3 |
+| REL-10 | Web-console version display | Missing | Runtime configuration and the user-menu row are absent. | `components/web-console/` | REL-W4 |
+| REL-11 | Registry and deployment scope | Present | - | `.tekton/`, `docs/releasing.md` | REL-W1 |
+| REL-12 | Verification and documentation | Partial | Release controls have tests and documentation. Image, API, and console checks remain. | `scripts/test_release_policy.py`, `docs/releasing.md` | REL-W1..REL-W4 |
+
+**Wave plan:**
+
+- REL-W1 adds the managed source-release control and policy checks.
+- REL-W2 adds deterministic image identity and final-release build selection.
+- REL-W3 makes the existing API metadata route report the image identity.
+- REL-W4 adds the console identity to runtime configuration and the user menu.
+
 ### openshell-gateway-console.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |

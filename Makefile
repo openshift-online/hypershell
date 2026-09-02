@@ -128,6 +128,7 @@ help:
 	@echo "    check-dependency-pins    Verify dependency version pins"
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
+	@echo "    check-release-policy     Verify source-release controls and files"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -204,8 +205,16 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: test-release-policy
+test-release-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_release_policy.py
+
+.PHONY: check-release-policy
+check-release-policy: test-release-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_policy.py check-files
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-release-policy
 
 # ============================================================================
 # Git hooks
