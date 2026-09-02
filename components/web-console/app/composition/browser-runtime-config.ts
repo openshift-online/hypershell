@@ -22,7 +22,7 @@ const disabledRuntimeConfig: BrowserRuntimeConfig = {
 };
 
 const buildVersionPattern =
-  /^(?:dev|v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-[0-9a-f]{7}$/u;
+  /^(?:dev-[0-9a-f]{7}(?:-modified)?|v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-[0-9a-f]{7})$/u;
 
 function isBuildVersion(value: unknown): value is string {
   return typeof value === "string" && buildVersionPattern.test(value);

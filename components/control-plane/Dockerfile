@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 ARG BUILD_PREFIX=dev
+ARG BUILD_SUFFIX=
 ARG VCS_REF=unknown
 
 FROM registry.access.redhat.com/hi/go:1.26.7@sha256:4c7c064cc73698c13384d1445ab93595f3b9309dd89ed45b9992e67284e3ed82 AS builder
@@ -24,17 +25,20 @@ RUN cd components/control-plane && CGO_ENABLED=0 go build -mod=mod -ldflags="-s 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
 ARG BUILD_PREFIX
+ARG BUILD_SUFFIX
 ARG VCS_REF
 
 COPY --from=builder /workspace/hypershell-controller /usr/local/bin/
 COPY components/control-plane/manifests/ /manifests/
 
-ENV HYPERSHELL_BUILD_VERSION="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}" \
+# Remove the final 33 characters from the 40-character VCS_REF.
+# This keeps the first seven characters.
+ENV HYPERSHELL_BUILD_VERSION="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}${BUILD_SUFFIX}" \
     HYPERSHELL_BUILD_REVISION="${VCS_REF}"
 
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 
 LABEL org.opencontainers.image.title="HyperShell Controller" \
       org.opencontainers.image.description="Control plane that reconciles HyperShell resources via gRPC watch streams" \
-      org.opencontainers.image.version="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}" \
+      org.opencontainers.image.version="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}${BUILD_SUFFIX}" \
       org.opencontainers.image.revision="${VCS_REF}"

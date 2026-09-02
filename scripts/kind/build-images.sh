@@ -35,11 +35,25 @@ fi
 
 build_vcs_ref="$(git -C "${BUILD_DIR}" rev-parse HEAD)"
 build_prefix=dev
+local_build_version="$(
+  HYPERSHELL_GIT_WORK_TREE="${BUILD_DIR}" \
+    HYPERSHELL_VCS_REF="${build_vcs_ref}" \
+    "${REPO_ROOT}/scripts/build-version.sh" local
+)"
+case "${local_build_version}" in
+  "dev-${build_vcs_ref:0:7}") build_suffix="" ;;
+  "dev-${build_vcs_ref:0:7}-modified") build_suffix=-modified ;;
+  *)
+    error "Unexpected local build version: ${local_build_version}"
+    exit 1
+    ;;
+esac
 
 info "Building API server..."
 ${CONTAINER_ENGINE} build -t "${api_server_local}" \
   -f "${BUILD_DIR}/components/api-server/Dockerfile" \
   --build-arg BUILD_PREFIX="${build_prefix}" \
+  --build-arg BUILD_SUFFIX="${build_suffix}" \
   --build-arg VCS_REF="${build_vcs_ref}" \
   --build-arg BUILD_TIME="${build_time}" \
   "${BUILD_DIR}"
@@ -48,6 +62,7 @@ info "Building control plane..."
 ${CONTAINER_ENGINE} build -t "${control_plane_local}" \
   -f "${BUILD_DIR}/components/control-plane/Dockerfile" \
   --build-arg BUILD_PREFIX="${build_prefix}" \
+  --build-arg BUILD_SUFFIX="${build_suffix}" \
   --build-arg VCS_REF="${build_vcs_ref}" \
   "${BUILD_DIR}"
 
@@ -55,6 +70,7 @@ info "Building web console..."
 ${CONTAINER_ENGINE} build -t "${web_console_local}" \
   -f "${BUILD_DIR}/components/web-console/Dockerfile" \
   --build-arg BUILD_PREFIX="${build_prefix}" \
+  --build-arg BUILD_SUFFIX="${build_suffix}" \
   --build-arg VCS_REF="${build_vcs_ref}" \
   "${BUILD_DIR}"
 

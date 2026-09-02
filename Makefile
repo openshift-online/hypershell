@@ -14,6 +14,7 @@ IMAGE_TAG?=latest
 vcs_ref:=$(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 build_prefix:=dev
 build_version:=$(shell HYPERSHELL_VCS_REF=$(vcs_ref) scripts/build-version.sh local 2>/dev/null || echo dev-unknown)
+build_suffix:=$(if $(filter %-modified,$(build_version)),-modified,)
 build_time:=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Computed baseline references (registry images used in Kind manifests)
@@ -157,14 +158,18 @@ install-js: verify-pnpm
 .PHONY: build-api-server
 build-api-server:
 	$(CONTAINER_ENGINE) build -t $(api_server_local) \
-		--build-arg BUILD_PREFIX=$(build_prefix) --build-arg VCS_REF=$(vcs_ref) \
+		--build-arg BUILD_PREFIX=$(build_prefix) \
+		--build-arg BUILD_SUFFIX=$(build_suffix) \
+		--build-arg VCS_REF=$(vcs_ref) \
 		--build-arg BUILD_TIME="$(build_time)" \
 		-f components/api-server/Dockerfile .
 
 .PHONY: build-controller
 build-controller:
 	$(CONTAINER_ENGINE) build -t $(control_plane_local) \
-		--build-arg BUILD_PREFIX=$(build_prefix) --build-arg VCS_REF=$(vcs_ref) \
+		--build-arg BUILD_PREFIX=$(build_prefix) \
+		--build-arg BUILD_SUFFIX=$(build_suffix) \
+		--build-arg VCS_REF=$(vcs_ref) \
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
@@ -174,7 +179,9 @@ build-cli:
 .PHONY: build-web-console
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
-		--build-arg BUILD_PREFIX=$(build_prefix) --build-arg VCS_REF=$(vcs_ref) \
+		--build-arg BUILD_PREFIX=$(build_prefix) \
+		--build-arg BUILD_SUFFIX=$(build_suffix) \
+		--build-arg VCS_REF=$(vcs_ref) \
 		-f components/web-console/Dockerfile .
 
 # ============================================================================
@@ -320,7 +327,7 @@ export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
 export api_server_local control_plane_local web_console_local
-export vcs_ref build_prefix build_version build_time
+export vcs_ref build_prefix build_suffix build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
 

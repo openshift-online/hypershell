@@ -30,6 +30,7 @@ _ASSIGNMENT_PATTERN = (
 _BUILD_VERSION_PATTERN = re.compile(
     r"(?:\$BUILD_PREFIX|\$\{BUILD_PREFIX\})-"
     r"\$\{VCS_REF%(?P<trim>\?+)\}"
+    r"\$\{BUILD_SUFFIX\}"
 )
 
 
@@ -77,7 +78,7 @@ def image_metadata_errors(relative_path: str, dockerfile: str) -> list[str]:
         match = _BUILD_VERSION_PATTERN.fullmatch(values[0])
         if match is None:
             errors.append(
-                f"{relative_path} {label} must combine BUILD_PREFIX and a shortened VCS_REF"
+                f"{relative_path} {label} must combine BUILD_PREFIX, a shortened VCS_REF, and BUILD_SUFFIX"
             )
             continue
         if len(match.group("trim")) != SHORT_REVISION_TRIM:

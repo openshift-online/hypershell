@@ -36,7 +36,7 @@ const configSchema = z.object({
     .string()
     .trim()
     .regex(
-      /^(?:dev|v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-[0-9a-f]{7}$/u,
+      /^(?:dev-[0-9a-f]{7}(?:-modified)?|v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-[0-9a-f]{7})$/u,
       "must contain a supported image build version",
     )
     .optional(),

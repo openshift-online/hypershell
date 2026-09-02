@@ -191,12 +191,13 @@ these three builds. This rule SHALL apply only to a `main` push.
 
 ### Requirement REL-07: Build version format
 
-A supported local image build SHALL use build version
-`dev-<short-revision>`. A CI image build SHALL use build version
-`v<release-version>-<short-revision>`. CI SHALL read the release version from
-the checked-in release files. It SHALL NOT query for a live Git tag during the
-image build. A build SHALL use the triggering full revision and SHALL derive the
-short revision from it.
+A supported local image build from a clean Git work tree SHALL use build
+version `dev-<short-revision>`. A local build with staged, unstaged, or
+untracked changes SHALL append `-modified`. A CI image build SHALL use build
+version `v<release-version>-<short-revision>`. CI SHALL read the release version
+from the checked-in release files. It SHALL NOT query for a live Git tag during
+the image build. A build SHALL use the triggering full revision and SHALL
+derive the short revision from it.
 
 A normal CI build after a release SHALL continue to use that release version
 until the next Release PR merges. Thus, different component builds MAY have
@@ -208,6 +209,13 @@ by a Release PR merge SHALL have the same build version.
 - GIVEN local `HEAD` is revision `abcdef0123456789abcdef0123456789abcdef01`
 - WHEN a developer uses a supported local image build command
 - THEN the image build version SHALL be `dev-abcdef0`
+
+#### Scenario: Modified local image build
+
+- GIVEN local `HEAD` is revision `abcdef0123456789abcdef0123456789abcdef01`
+- AND the local Git work tree contains an uncommitted change
+- WHEN a developer uses a supported local image build command
+- THEN the image build version SHALL be `dev-abcdef0-modified`
 
 #### Scenario: CI image build
 
@@ -222,7 +230,8 @@ Each API server, control-plane, and web-console image SHALL set
 `org.opencontainers.image.version` to its build version. It SHALL set
 `org.opencontainers.image.revision` to its full revision. The image SHALL also
 contain the build version as a runtime environment value. Static placeholder
-versions SHALL NOT remain in these Containerfiles.
+versions SHALL NOT remain in these Containerfiles. The Containerfiles SHALL
+explain how they shorten the full revision.
 
 #### Scenario: Inspect a CI image
 

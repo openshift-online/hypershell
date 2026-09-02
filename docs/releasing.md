@@ -87,3 +87,7 @@ console once.
 The build keeps the existing full-SHA registry tags. Argo image bump continues
 to select deployment images. This process does not promote images, create
 semantic registry aliases, or change Argo configuration.
+
+Supported local build commands use `dev-<short-sha>` for a clean Git work tree.
+They use `dev-<short-sha>-modified` when the work tree contains staged,
+unstaged, or untracked changes. CI versions never use the `-modified` suffix.

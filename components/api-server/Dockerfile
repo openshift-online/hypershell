@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 ARG BUILD_PREFIX=dev
+ARG BUILD_SUFFIX=
 ARG VCS_REF=unknown
 
 FROM registry.access.redhat.com/hi/go:1.26.7@sha256:4c7c064cc73698c13384d1445ab93595f3b9309dd89ed45b9992e67284e3ed82 AS builder
@@ -15,11 +16,14 @@ COPY components/api-server/plugins/ plugins/
 COPY components/api-server/openapi/ openapi/
 
 ARG BUILD_PREFIX
+ARG BUILD_SUFFIX
 ARG VCS_REF
 ARG BUILD_TIME=unknown
+# Remove the final 33 characters from the 40-character VCS_REF.
+# This keeps the first seven characters.
 RUN set -eu; \
   short_ref="${VCS_REF%?????????????????????????????????}"; \
-  build_version="${BUILD_PREFIX}-${short_ref}"; \
+  build_version="${BUILD_PREFIX}-${short_ref}${BUILD_SUFFIX}"; \
   build_time="${BUILD_TIME}"; \
   if [ "${build_time}" = "unknown" ]; then build_time="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; fi; \
   CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w \
@@ -30,11 +34,12 @@ RUN set -eu; \
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 
 ARG BUILD_PREFIX
+ARG BUILD_SUFFIX
 ARG VCS_REF
 
 COPY --from=builder /workspace/hypershell /usr/local/bin/
 
-ENV HYPERSHELL_BUILD_VERSION="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}" \
+ENV HYPERSHELL_BUILD_VERSION="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}${BUILD_SUFFIX}" \
     HYPERSHELL_BUILD_REVISION="${VCS_REF}"
 
 EXPOSE 8000
@@ -45,5 +50,5 @@ CMD ["serve"]
 
 LABEL org.opencontainers.image.title="HyperShell API Server" \
       org.opencontainers.image.description="REST + gRPC API server for HyperShell fleet management" \
-      org.opencontainers.image.version="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}" \
+      org.opencontainers.image.version="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}${BUILD_SUFFIX}" \
       org.opencontainers.image.revision="${VCS_REF}"

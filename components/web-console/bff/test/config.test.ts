@@ -42,6 +42,15 @@ describe("loadConfig", () => {
     );
   });
 
+  it("accepts a modified local image build version", () => {
+    const config = loadConfig({
+      HYPERSHELL_BUILD_VERSION: "dev-abcdef0-modified",
+      STATIC_ROOT: "./public",
+    });
+
+    expect(config.buildVersion).toBe("dev-abcdef0-modified");
+  });
+
   it("leaves tracing disabled when no collector endpoint is set", () => {
     const config = loadConfig({ STATIC_ROOT: "./public" });
 

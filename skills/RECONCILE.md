@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-02 (source-release image version display complete)
+**Last analyzed**: 2026-09-02 (source-release review follow-up complete)
 **Spec corpus**: 44 spec files; the coverage table tracks 33 analyzed feature/spec groups
-**Codebase commit**: working tree (source-release image version display complete)
+**Codebase commit**: working tree (source-release review follow-up complete)
 
 ### Coverage Summary
 

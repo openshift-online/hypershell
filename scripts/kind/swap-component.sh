@@ -10,7 +10,24 @@ require_cluster
 ACTION="${1:-}"
 COMPONENT="${2:-}"
 VCS_REF="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
-BUILD_ARGS=(--build-arg "BUILD_PREFIX=dev" --build-arg "VCS_REF=${VCS_REF}")
+LOCAL_BUILD_VERSION="$(
+  HYPERSHELL_GIT_WORK_TREE="${REPO_ROOT}" \
+    HYPERSHELL_VCS_REF="${VCS_REF}" \
+    "${REPO_ROOT}/scripts/build-version.sh" local
+)"
+case "${LOCAL_BUILD_VERSION}" in
+  "dev-${VCS_REF:0:7}") BUILD_SUFFIX="" ;;
+  "dev-${VCS_REF:0:7}-modified") BUILD_SUFFIX=-modified ;;
+  *)
+    error "Unexpected local build version: ${LOCAL_BUILD_VERSION}"
+    exit 1
+    ;;
+esac
+BUILD_ARGS=(
+  --build-arg "BUILD_PREFIX=dev"
+  --build-arg "BUILD_SUFFIX=${BUILD_SUFFIX}"
+  --build-arg "VCS_REF=${VCS_REF}"
+)
 
 if [[ -z "${ACTION}" ]] || [[ -z "${COMPONENT}" ]]; then
   error "Usage: swap-component.sh up|down <api-server|control-plane|web-console>"

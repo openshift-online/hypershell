@@ -71,4 +71,14 @@ describe("readBrowserRuntimeConfig", () => {
       tracing: { sampleRatio: 0.5 },
     });
   });
+
+  it("reads a modified local image build version", () => {
+    const config = readBrowserRuntimeConfig(
+      documentWithMeta(
+        '{"build":{"version":"dev-abcdef0-modified"},"tracing":{"sampleRatio":0}}',
+      ),
+    );
+
+    expect(config.build.version).toBe("dev-abcdef0-modified");
+  });
 });

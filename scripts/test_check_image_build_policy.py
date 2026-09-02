@@ -15,9 +15,9 @@ class ImageMetadataPolicyTest(unittest.TestCase):
         dockerfile = f"""
         # syntax=docker/dockerfile:1
         ENV HYPERSHELL_BUILD_REVISION=$VCS_REF \\
-            HYPERSHELL_BUILD_VERSION='${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}'
+            HYPERSHELL_BUILD_VERSION='${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}${{BUILD_SUFFIX}}'
         LABEL org.opencontainers.image.revision='${{VCS_REF}}' \\
-            org.opencontainers.image.version="${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}"
+            org.opencontainers.image.version="${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}${{BUILD_SUFFIX}}"
         """
 
         self.assertEqual([], POLICY.image_metadata_errors("Dockerfile", dockerfile))
@@ -34,6 +34,21 @@ class ImageMetadataPolicyTest(unittest.TestCase):
     def test_reports_an_invalid_short_revision(self):
         trim = "?" * 32
         dockerfile = f"""
+        ENV HYPERSHELL_BUILD_VERSION="${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}${{BUILD_SUFFIX}}" \\
+            HYPERSHELL_BUILD_REVISION="${{VCS_REF}}"
+        LABEL org.opencontainers.image.version="${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}${{BUILD_SUFFIX}}" \\
+            org.opencontainers.image.revision="${{VCS_REF}}"
+        """
+
+        errors = POLICY.image_metadata_errors("Dockerfile", dockerfile)
+
+        self.assertEqual(2, len(errors))
+        for error in errors:
+            self.assertIn("must shorten the revision to seven characters", error)
+
+    def test_requires_the_local_build_suffix(self):
+        trim = "?" * 33
+        dockerfile = f"""
         ENV HYPERSHELL_BUILD_VERSION="${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}" \\
             HYPERSHELL_BUILD_REVISION="${{VCS_REF}}"
         LABEL org.opencontainers.image.version="${{BUILD_PREFIX}}-${{VCS_REF%{trim}}}" \\
@@ -44,7 +59,7 @@ class ImageMetadataPolicyTest(unittest.TestCase):
 
         self.assertEqual(2, len(errors))
         for error in errors:
-            self.assertIn("must shorten the revision to seven characters", error)
+            self.assertIn("and BUILD_SUFFIX", error)
 
 
 if __name__ == "__main__":
