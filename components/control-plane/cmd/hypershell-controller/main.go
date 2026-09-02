@@ -182,7 +182,6 @@ func main() {
 	} else {
 		log.Printf("WARN ManagedDatabase watch disabled: both Kubernetes typed and dynamic clients are required")
 	}
-	releaseReconciler := reconciler.NewGatewayReleaseReconciler()
 	networkReconciler := reconciler.NewGatewayNetworkReconciler()
 
 	manifestsDir := os.Getenv("GATEWAY_MANIFESTS_DIR")
@@ -240,6 +239,14 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
+	// The gateway reconcile queue is shared: the gateway watch stream drives it,
+	// and the GatewayRelease reconciler enqueues referencing gateways into it when
+	// a release image changes. It is created here (not inside WatchGateways) so the
+	// release reconciler can hold the same instance.
+	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
+	defer gatewayQueue.Stop()
+	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue)
+
 	watchCount := 4 // managed clusters, gateway releases, gateways, networks
 	if databaseReconciler != nil {
 		watchCount++
@@ -286,7 +293,7 @@ func main() {
 		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
 	})
 	supervise("Gateway watch", func(ctx context.Context) error {
-		return watcher.WatchGateways(ctx, conn, gatewayReconciler, cfg.ClusterID, cfg.GatewayReconcileWorkers)
+		return watcher.WatchGateways(ctx, conn, gatewayQueue, cfg.ClusterID)
 	})
 	supervise("GatewayNetwork watch", func(ctx context.Context) error {
 		return watcher.WatchGatewayNetworks(ctx, conn, networkReconciler)

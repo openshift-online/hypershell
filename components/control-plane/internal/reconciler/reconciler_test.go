@@ -717,9 +717,11 @@ func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
+	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, r, config.DefaultGatewayReconcileWorkers)
+	defer gatewayQueue.Stop()
 	watchErr := make(chan error, 1)
 	go func() {
-		watchErr <- watcher.WatchGateways(ctx, grpcConn, r, "", config.DefaultGatewayReconcileWorkers)
+		watchErr <- watcher.WatchGateways(ctx, grpcConn, gatewayQueue, "")
 	}()
 
 	deadline := time.NewTimer(8 * time.Second)
