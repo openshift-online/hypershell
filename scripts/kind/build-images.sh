@@ -33,20 +33,30 @@ else
   info "Building from working tree ($(git rev-parse --short HEAD))"
 fi
 
+build_vcs_ref="$(git -C "${BUILD_DIR}" rev-parse HEAD)"
+build_prefix=dev
+
 info "Building API server..."
 ${CONTAINER_ENGINE} build -t "${api_server_local}" \
   -f "${BUILD_DIR}/components/api-server/Dockerfile" \
-  --build-arg GIT_VERSION="${build_version}" \
+  --build-arg BUILD_PREFIX="${build_prefix}" \
+  --build-arg VCS_REF="${build_vcs_ref}" \
   --build-arg BUILD_TIME="${build_time}" \
-  "${BUILD_DIR}/components/api-server"
+  "${BUILD_DIR}"
 
 info "Building control plane..."
 ${CONTAINER_ENGINE} build -t "${control_plane_local}" \
-  -f "${BUILD_DIR}/components/control-plane/Dockerfile" "${BUILD_DIR}"
+  -f "${BUILD_DIR}/components/control-plane/Dockerfile" \
+  --build-arg BUILD_PREFIX="${build_prefix}" \
+  --build-arg VCS_REF="${build_vcs_ref}" \
+  "${BUILD_DIR}"
 
 info "Building web console..."
 ${CONTAINER_ENGINE} build -t "${web_console_local}" \
-  -f "${BUILD_DIR}/components/web-console/Dockerfile" "${BUILD_DIR}"
+  -f "${BUILD_DIR}/components/web-console/Dockerfile" \
+  --build-arg BUILD_PREFIX="${build_prefix}" \
+  --build-arg VCS_REF="${build_vcs_ref}" \
+  "${BUILD_DIR}"
 
 success "All images built"
 

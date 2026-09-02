@@ -28,9 +28,14 @@ spec:
   - name: image-expires-after
     value: 5d
   - name: dockerfile
-    value: Dockerfile
+    value: components/api-server/Dockerfile
   - name: path-context
-    value: components/api-server
+    value: .
+  - name: build-args
+    value:
+    - VCS_REF={{revision}}
+  - name: build-args-file
+    value: build-version.env
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.

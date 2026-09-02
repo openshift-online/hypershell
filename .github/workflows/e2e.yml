@@ -77,18 +77,26 @@ jobs:
           api_server=false
           control_plane=false
           web_console=false
+          release_version_changed=false
+
+          # A release version selects all three component builds only after the
+          # Release PR merges to main. Pull request and merge queue events do not
+          # use this rule.
+          if [[ "${EVENT_NAME}" == "push" ]] && grep -qx "VERSION" <<<"${changed_files}"; then
+            release_version_changed=true
+          fi
 
           # These patterns MUST mirror each component's event-specific Konflux
           # CEL trigger in .tekton/hypershell-<component>-main-${pipeline_suffix}.yaml.
           # Only components whose path-filtered pipelines actually run may use
           # the event's commit-tagged image and wait for the corresponding check.
-          if grep -qE "^components/api-server/|^\\.tekton/hypershell-api-server-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
+          if [[ "${release_version_changed}" == "true" ]] || grep -qE "^components/api-server/|^\\.tekton/hypershell-api-server-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
             api_server=true
           fi
-          if grep -qE "^components/control-plane/|^\\.tekton/hypershell-control-plane-main-${pipeline_suffix}\\.yaml$|^Dockerfile$" <<<"${changed_files}"; then
+          if [[ "${release_version_changed}" == "true" ]] || grep -qE "^components/control-plane/|^\\.tekton/hypershell-control-plane-main-${pipeline_suffix}\\.yaml$|^Dockerfile$" <<<"${changed_files}"; then
             control_plane=true
           fi
-          if grep -qE "^components/web-console/|^packages/gateway-management-ui/|^\\.tekton/hypershell-web-console-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
+          if [[ "${release_version_changed}" == "true" ]] || grep -qE "^components/web-console/|^packages/gateway-management-ui/|^\\.tekton/hypershell-web-console-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
             web_console=true
           fi
 

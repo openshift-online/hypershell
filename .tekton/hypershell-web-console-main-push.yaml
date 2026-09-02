@@ -9,7 +9,8 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
       == "main" && ( "components/web-console/***".pathChanged() || "packages/gateway-management-ui/***".pathChanged()
-      || ".tekton/hypershell-web-console-main-push.yaml".pathChanged() )
+      || ".tekton/hypershell-web-console-main-push.yaml".pathChanged() || "VERSION".pathChanged()
+      )
   labels:
     appstudio.openshift.io/application: hypershell-main
     appstudio.openshift.io/component: hypershell-web-console-main
@@ -28,6 +29,11 @@ spec:
     value: components/web-console/Dockerfile
   - name: path-context
     value: .
+  - name: build-args
+    value:
+    - VCS_REF={{revision}}
+  - name: build-args-file
+    value: build-version.env
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while reducing network traffic.

@@ -9,6 +9,8 @@ require_cluster
 
 ACTION="${1:-}"
 COMPONENT="${2:-}"
+VCS_REF="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+BUILD_ARGS=(--build-arg "BUILD_PREFIX=dev" --build-arg "VCS_REF=${VCS_REF}")
 
 if [[ -z "${ACTION}" ]] || [[ -z "${COMPONENT}" ]]; then
   error "Usage: swap-component.sh up|down <api-server|control-plane|web-console>"
@@ -23,8 +25,8 @@ case "${COMPONENT}" in
     LOCAL_IMAGE="${api_server_local}"
     BASELINE_IMAGE="${api_server_ref}"
     DOCKERFILE="components/api-server/Dockerfile"
-    BUILD_CONTEXT="components/api-server"
-    BUILD_ARGS=(--build-arg "GIT_VERSION=${build_version}" --build-arg "BUILD_TIME=${build_time}")
+    BUILD_CONTEXT="."
+    BUILD_ARGS+=(--build-arg "BUILD_TIME=${build_time}")
     ;;
   control-plane)
     DEPLOYMENT="hypershell-controller"
@@ -33,7 +35,6 @@ case "${COMPONENT}" in
     BASELINE_IMAGE="${control_plane_ref}"
     DOCKERFILE="components/control-plane/Dockerfile"
     BUILD_CONTEXT="."
-    BUILD_ARGS=()
     ;;
   web-console)
     DEPLOYMENT="hypershell-web-console"
@@ -42,7 +43,6 @@ case "${COMPONENT}" in
     BASELINE_IMAGE="${web_console_ref}"
     DOCKERFILE="components/web-console/Dockerfile"
     BUILD_CONTEXT="."
-    BUILD_ARGS=()
     ;;
   *)
     error "Unknown component: ${COMPONENT}"
