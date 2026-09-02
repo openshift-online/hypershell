@@ -217,12 +217,12 @@ test-release-policy:
 check-release-policy: test-release-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_policy.py check-files
 
-.PHONY: test-build-version
-test-build-version:
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_build_version.py
+.PHONY: test-image-build-policy
+test-image-build-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_build_version.py scripts/test_check_image_build_policy.py
 
 .PHONY: check-image-build-policy
-check-image-build-policy: test-build-version
+check-image-build-policy: test-image-build-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_image_build_policy.py
 
 .PHONY: check

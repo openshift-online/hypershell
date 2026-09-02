@@ -2,6 +2,7 @@
 """Check image identity and event-specific component build rules."""
 
 from pathlib import Path
+import re
 import sys
 
 
@@ -21,6 +22,78 @@ COMPONENTS = {
     },
 }
 NON_PUSH_RELEASE_FILES = ("VERSION", "CHANGELOG.md", "build-version.env")
+SHORT_REVISION_TRIM = 33
+_ASSIGNMENT_PATTERN = (
+    r"(?:^|\s){name}\s*=\s*(?:\"(?P<double>[^\"]*)\"|"
+    r"'(?P<single>[^']*)'|(?P<bare>[^\s]+))"
+)
+_BUILD_VERSION_PATTERN = re.compile(
+    r"(?:\$BUILD_PREFIX|\$\{BUILD_PREFIX\})-"
+    r"\$\{VCS_REF%(?P<trim>\?+)\}"
+)
+
+
+def _logical_instructions(dockerfile: str) -> list[str]:
+    """Return Dockerfile instructions with joined continuation lines."""
+    joined = re.sub(r"\\[ \t]*\n[ \t]*", " ", dockerfile)
+    return [
+        line.strip()
+        for line in joined.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _assignment_values(instructions: list[str], name: str) -> list[str]:
+    """Return all values for one Dockerfile assignment."""
+    pattern = re.compile(_ASSIGNMENT_PATTERN.format(name=re.escape(name)))
+    values: list[str] = []
+    for instruction in instructions:
+        for match in pattern.finditer(instruction):
+            values.append(
+                match.group("double")
+                or match.group("single")
+                or match.group("bare")
+            )
+    return values
+
+
+def _is_variable_reference(value: str, name: str) -> bool:
+    return value in {f"${name}", f"${{{name}}}"}
+
+
+def image_metadata_errors(relative_path: str, dockerfile: str) -> list[str]:
+    """Return errors for image identity metadata."""
+    errors: list[str] = []
+    instructions = _logical_instructions(dockerfile)
+
+    for name, label in (
+        ("org.opencontainers.image.version", "OCI build version"),
+        ("HYPERSHELL_BUILD_VERSION", "runtime build version"),
+    ):
+        values = _assignment_values(instructions, name)
+        if len(values) != 1:
+            errors.append(f"{relative_path} must set one {label}")
+            continue
+        match = _BUILD_VERSION_PATTERN.fullmatch(values[0])
+        if match is None:
+            errors.append(
+                f"{relative_path} {label} must combine BUILD_PREFIX and a shortened VCS_REF"
+            )
+            continue
+        if len(match.group("trim")) != SHORT_REVISION_TRIM:
+            errors.append(
+                f"{relative_path} {label} must shorten the revision to seven characters"
+            )
+
+    for name, label in (
+        ("org.opencontainers.image.revision", "OCI revision"),
+        ("HYPERSHELL_BUILD_REVISION", "runtime revision"),
+    ):
+        values = _assignment_values(instructions, name)
+        if len(values) != 1 or not _is_variable_reference(values[0], "VCS_REF"):
+            errors.append(f"{relative_path} must set {label} from VCS_REF")
+
+    return errors
 
 
 def check_repository(root: Path) -> list[str]:
@@ -53,12 +126,7 @@ def check_repository(root: Path) -> list[str]:
 
         dockerfile_path = root / values["dockerfile"]
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
-        if 'org.opencontainers.image.version="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}"' not in dockerfile:
-            errors.append(f"{values['dockerfile']} must set the OCI build version")
-        if 'org.opencontainers.image.revision="${VCS_REF}"' not in dockerfile:
-            errors.append(f"{values['dockerfile']} must set the OCI revision")
-        if 'HYPERSHELL_BUILD_VERSION="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}"' not in dockerfile:
-            errors.append(f"{values['dockerfile']} must set the runtime build version")
+        errors.extend(image_metadata_errors(values["dockerfile"], dockerfile))
 
     e2e = (root / ".github/workflows/e2e.yml").read_text(encoding="utf-8")
     if "release_version_changed=false" not in e2e:
