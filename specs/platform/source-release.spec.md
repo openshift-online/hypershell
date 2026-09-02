@@ -197,7 +197,8 @@ untracked changes SHALL append `-modified`. A CI image build SHALL use build
 version `v<release-version>-<short-revision>`. CI SHALL read the release version
 from the checked-in release files. It SHALL NOT query for a live Git tag during
 the image build. A build SHALL use the triggering full revision and SHALL
-derive the short revision from it.
+derive the short revision from it. Each image build SHALL reject `VCS_REF`
+unless it is a 40-character lowercase hexadecimal Git SHA.
 
 A normal CI build after a release SHALL continue to use that release version
 until the next Release PR merges. Thus, different component builds MAY have
@@ -224,6 +225,13 @@ by a Release PR merge SHALL have the same build version.
 - WHEN CI builds a component image
 - THEN its build version SHALL be `v1.6.0-1234567`
 
+#### Scenario: Reject an invalid image revision
+
+- GIVEN `VCS_REF` is `abcdef0`
+- WHEN a component image build starts
+- THEN the build SHALL stop before it shortens the revision
+- AND the build SHALL report that a full 40-character Git SHA is required
+
 ### Requirement REL-08: Container metadata
 
 Each API server, control-plane, and web-console image SHALL set
@@ -248,7 +256,9 @@ server build version and build time. The `version` value SHALL equal the API
 server image build version. The endpoint SHALL be available without user
 authentication and SHALL NOT query the database. The OpenAPI contract SHALL
 describe its response. Existing liveness and readiness probes SHALL keep their
-current paths and meanings.
+current paths and meanings. CI SHALL link a focused test with the production
+linker flags. The test SHALL fail when the linked version or build time does not
+equal its expected value.
 
 #### Scenario: Read API build identity
 
@@ -258,6 +268,12 @@ current paths and meanings.
 - THEN the response status SHALL be `200`
 - AND the response `version` SHALL be `v1.6.0-1234567`
 - AND the response SHALL include `build_time`
+
+#### Scenario: Detect an invalid linker target
+
+- GIVEN a linker target does not set the framework build identity
+- WHEN CI runs the linked build-metadata test
+- THEN the test SHALL fail
 
 ### Requirement REL-10: Web-console version display
 

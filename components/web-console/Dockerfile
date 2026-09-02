@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG BUILD_PREFIX=dev
 ARG BUILD_SUFFIX=
-ARG VCS_REF=unknown
+ARG VCS_REF
 
 FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:e2a04f7443db3d27751ed6e9d74ee5c3a02217dbf6c8769e468ef3b1b2a3e6fa AS build
 
@@ -28,6 +28,20 @@ COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui packages/g
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console components/web-console
 COPY --chown=${CONTAINER_DEFAULT_USER} images/brand images/brand
 
+ARG VCS_REF
+# Validate the full revision before any 40-to-7-character shortening.
+RUN set -eu; \
+  if [ "${#VCS_REF}" -ne 40 ]; then \
+    echo "VCS_REF must be a full 40-character lowercase hexadecimal Git SHA" >&2; \
+    exit 1; \
+  fi; \
+  case "${VCS_REF}" in \
+    *[!0-9a-f]*) \
+      echo "VCS_REF must be a full 40-character lowercase hexadecimal Git SHA" >&2; \
+      exit 1; \
+      ;; \
+  esac
+
 RUN pnpm run build:web \
   && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
   && cp -R components/web-console/build/client /tmp/web-console/public
@@ -38,6 +52,7 @@ ARG BUILD_PREFIX
 ARG BUILD_SUFFIX
 ARG VCS_REF
 
+# The build stage validates VCS_REF before this expression removes 33 characters.
 # Remove the final 33 characters from the 40-character VCS_REF.
 # This keeps the first seven characters.
 LABEL org.opencontainers.image.title="HyperShell web console" \

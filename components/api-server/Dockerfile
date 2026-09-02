@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG BUILD_PREFIX=dev
 ARG BUILD_SUFFIX=
-ARG VCS_REF=unknown
+ARG VCS_REF
 
 FROM registry.access.redhat.com/hi/go:1.26.7@sha256:4c7c064cc73698c13384d1445ab93595f3b9309dd89ed45b9992e67284e3ed82 AS builder
 
@@ -19,6 +19,19 @@ ARG BUILD_PREFIX
 ARG BUILD_SUFFIX
 ARG VCS_REF
 ARG BUILD_TIME=unknown
+# Validate the full revision before any 40-to-7-character shortening.
+RUN set -eu; \
+  if [ "${#VCS_REF}" -ne 40 ]; then \
+    echo "VCS_REF must be a full 40-character lowercase hexadecimal Git SHA" >&2; \
+    exit 1; \
+  fi; \
+  case "${VCS_REF}" in \
+    *[!0-9a-f]*) \
+      echo "VCS_REF must be a full 40-character lowercase hexadecimal Git SHA" >&2; \
+      exit 1; \
+      ;; \
+  esac
+
 # Remove the final 33 characters from the 40-character VCS_REF.
 # This keeps the first seven characters.
 RUN set -eu; \
@@ -39,6 +52,7 @@ ARG VCS_REF
 
 COPY --from=builder /workspace/hypershell /usr/local/bin/
 
+# The builder validates VCS_REF before this expression keeps seven characters.
 ENV HYPERSHELL_BUILD_VERSION="${BUILD_PREFIX}-${VCS_REF%?????????????????????????????????}${BUILD_SUFFIX}" \
     HYPERSHELL_BUILD_REVISION="${VCS_REF}"
 

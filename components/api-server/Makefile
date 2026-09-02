@@ -26,6 +26,14 @@ binary:
 install:
 	go install -ldflags="$(ldflags)" ./cmd/hypershell
 
+.PHONY: check-build-metadata
+check-build-metadata:
+	HYPERSHELL_EXPECTED_BUILD_VERSION="$(build_version)" \
+		HYPERSHELL_EXPECTED_BUILD_TIME="$(build_time)" \
+		go test -tags=linked_metadata -count=1 \
+			-run '^TestLinkedBuildIdentity$$' \
+			-ldflags="$(ldflags)" ./pkg/api
+
 .PHONY: run
 run: binary
 	./$(BINARY_NAME) migrate
@@ -37,7 +45,7 @@ run-no-auth: binary
 	./$(BINARY_NAME) serve --enable-authz=false --enable-jwt=false
 
 .PHONY: test
-test: install
+test: install check-build-metadata
 	go test -v ./...
 
 .PHONY: test-integration

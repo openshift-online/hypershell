@@ -72,6 +72,9 @@ jobs:
         with:
           go-version-file: hypershell/components/api-server/go.mod
           cache-dependency-path: hypershell/components/api-server/go.sum
+      - name: Verify linked build metadata
+        working-directory: hypershell/components/api-server
+        run: make check-build-metadata
       - name: Check formatting
         working-directory: hypershell/components/api-server
         run: |

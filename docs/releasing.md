@@ -91,3 +91,5 @@ semantic registry aliases, or change Argo configuration.
 Supported local build commands use `dev-<short-sha>` for a clean Git work tree.
 They use `dev-<short-sha>-modified` when the work tree contains staged,
 unstaged, or untracked changes. CI versions never use the `-modified` suffix.
+Each image build rejects a revision that is not a full 40-character lowercase
+hexadecimal Git SHA.
