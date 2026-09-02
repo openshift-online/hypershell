@@ -4,11 +4,11 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | **string** | Service identifier |
-**Href** | **string** | Metadata request path |
-**Kind** | **string** |  |
-**Version** | **string** | API server image build version |
-**BuildTime** | **string** | Time when the API server binary was built |
+**Id** | **string** | Service identifier | 
+**Href** | **string** | Metadata request path | 
+**Kind** | **string** |  | 
+**Version** | **string** | API server image build version | 
+**BuildTime** | **string** | Time when the API server binary was built | 
 
 ## Methods
 
@@ -131,3 +131,5 @@ SetBuildTime sets BuildTime field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
+
+
