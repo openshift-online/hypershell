@@ -30,6 +30,12 @@ The type and scope SHALL use lowercase characters. The repository SHALL check
 the title in a required CI gate. A squash merge SHALL use the pull request title
 as the commit subject on `main`.
 
+An optional Jira key MAY be the first part of the description. It SHALL use the
+form `[HYPERSHELL-<number>]`. The conventional type SHALL remain the first part
+of the title. For example, `feat(api): [HYPERSHELL-123] add service status` is
+valid. `[HYPERSHELL-123] feat(api): add service status` is not valid because
+Release Please cannot parse that squash commit subject.
+
 `fix` SHALL request a patch increment. `feat` SHALL request a minor increment.
 The `!` marker or a `BREAKING CHANGE` footer SHALL request a major increment.
 Before version `1.0.0`, a breaking change SHALL request a minor increment.
@@ -48,6 +54,13 @@ version increment by themselves.
 - GIVEN the current release version is `1.2.3`
 - WHEN `feat(api): add service status` enters `main`
 - THEN the Release PR SHALL propose version `1.3.0`
+
+#### Scenario: Jira-linked pull request title
+
+- GIVEN a pull request tracks Jira issue `HYPERSHELL-123`
+- WHEN its title is `feat(api): [HYPERSHELL-123] add service status`
+- THEN the required lint gate SHALL pass
+- AND the squash commit subject SHALL keep the Jira key
 
 ### Requirement REL-02: Managed release pull request
 

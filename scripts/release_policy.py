@@ -13,6 +13,7 @@ import sys
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 TITLE_FORM = "<type>(<optional-scope>)<optional-!>: <description>"
+JIRA_TITLE_EXAMPLE = "feat: [HYPERSHELL-123] <description>"
 ALLOWED_TYPES = (
     "build",
     "chore",
@@ -29,10 +30,13 @@ ALLOWED_TYPES = (
     "test",
 )
 _TYPE_PATTERN = "|".join(ALLOWED_TYPES)
+_JIRA_KEY_PATTERN = r"\[HYPERSHELL-[1-9][0-9]*\]"
 _TITLE_PATTERN = re.compile(
     rf"^(?P<type>{_TYPE_PATTERN})"
     r"(?:\((?P<scope>[a-z0-9][a-z0-9._/-]*)\))?"
-    r"(?P<breaking>!)?: (?P<description>\S(?:.*\S)?)$"
+    r"(?P<breaking>!)?: "
+    rf"(?:(?P<jira>{_JIRA_KEY_PATTERN}) )?"
+    r"(?P<description>(?!\[HYPERSHELL-)\S(?:.*\S)?)$"
 )
 _SEMVER_PATTERN = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 _RELEASE_TITLE_PATTERN = re.compile(r"^chore\(main\): release (?P<version>" + _SEMVER_PATTERN.pattern + r")$")
@@ -50,7 +54,10 @@ def title_error(title: str) -> str | None:
     if _TITLE_PATTERN.fullmatch(title):
         return None
     allowed = ", ".join(ALLOWED_TYPES)
-    return f"title must use {TITLE_FORM}; allowed types: {allowed}"
+    return (
+        f"title must use {TITLE_FORM}; an optional Jira key must follow the "
+        f"colon, for example {JIRA_TITLE_EXAMPLE}; allowed types: {allowed}"
+    )
 
 
 def is_releasing_commit(message: str) -> bool:

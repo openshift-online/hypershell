@@ -12,6 +12,16 @@ Use this form for each pull request title:
 <type>(<optional-scope>)<optional-!>: <description>
 ```
 
+To keep Jira tracking in the title, put the Jira key after the colon:
+
+```text
+feat(release): [HYPERSHELL-123] add managed source releases
+```
+
+The conventional type must remain first. Do not put the Jira key before the
+type. Release Please cannot parse a squash commit that starts with the Jira
+key.
+
 The allowed types are `feat`, `fix`, `perf`, `refactor`, `docs`, `spec`,
 `deps`, `build`, `ci`, `test`, `style`, `chore`, and `revert`. The `feat` type
 increments the minor version. The `fix` type increments the patch version. A

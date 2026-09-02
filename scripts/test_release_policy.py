@@ -17,6 +17,7 @@ class PullRequestTitleTest(unittest.TestCase):
             "feat: add releases",
             "fix(api): return the version",
             "feat(web-console)!: change the menu",
+            "feat(release): [HYPERSHELL-123] add releases",
             "chore(main): release 0.1.0",
         ):
             with self.subTest(title=title):
@@ -27,6 +28,8 @@ class PullRequestTitleTest(unittest.TestCase):
             "Add releases",
             "Feature: add releases",
             "feat(API): add releases",
+            "[HYPERSHELL-123] feat(release): add releases",
+            "feat(release): [HYPERSHELL-ABC] add releases",
             "feat: ",
             "feat add releases",
             "merge: add releases",
