@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
@@ -733,7 +734,7 @@ func sameIDSet(a, b map[string]struct{}) bool {
 // gateways are not re-provisioned on every reconnect.
 func forceSeedRecovery(gw *pb.Gateway) bool {
 	switch gw.GetPhase() {
-	case "Provisioning", "Degraded":
+	case string(gatewayhealth.PhaseProvisioning), string(gatewayhealth.PhaseDegraded):
 		return true
 	default:
 		return false

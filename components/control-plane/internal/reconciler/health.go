@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
@@ -223,7 +224,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// observable workload. Leave Pending gateways to the provisioning path and
 	// Failed gateways to a subsequent spec change.
 	switch phase {
-	case "Running", "Degraded", "Provisioning":
+	case string(gatewayhealth.PhaseRunning), string(gatewayhealth.PhaseDegraded), string(gatewayhealth.PhaseProvisioning):
 	default:
 		return
 	}
@@ -273,7 +274,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 			return
 		}
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = "Degraded", reason
+		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), reason
 	case h.exposure != nil && isRoutedGateway(gw):
 		// Deployment is Ready; a routed gateway additionally requires its external
 		// exposure to be observed Ready before it can be Running.
@@ -285,7 +286,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		}
 	default:
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = "Running", "Healthy"
+		desiredPhase, desiredStatus = string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
 	}
 
 	// active_sandbox_count is maintained independently by the event-driven
@@ -534,21 +535,21 @@ func (h *GatewayHealthReconciler) evaluateRouteReadiness(ctx context.Context, ga
 	}
 	if rr.Ready {
 		h.clearRouteTimer(gatewayID)
-		return "Running", "Healthy"
+		return string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
 	}
 
-	if currentPhase == "Provisioning" {
+	if currentPhase == string(gatewayhealth.PhaseProvisioning) {
 		since := h.markRouteNotReady(gatewayID)
 		if h.now().Sub(since) >= h.routeReadyTimeout {
 			h.clearRouteTimer(gatewayID)
-			return "Degraded", fmt.Sprintf("route not ready after %s: %s", h.routeReadyTimeout, rr.Reason)
+			return string(gatewayhealth.PhaseDegraded), fmt.Sprintf("route not ready after %s: %s", h.routeReadyTimeout, rr.Reason)
 		}
-		return "Provisioning", rr.Reason
+		return string(gatewayhealth.PhaseProvisioning), rr.Reason
 	}
 
 	// currentPhase is Running (lost readiness) or Degraded (still unhealthy).
 	h.clearRouteTimer(gatewayID)
-	return "Degraded", rr.Reason
+	return string(gatewayhealth.PhaseDegraded), rr.Reason
 }
 
 // markRouteNotReady records the first time the gateway's Deployment was observed

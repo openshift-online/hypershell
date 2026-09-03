@@ -60,7 +60,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
 		Status:      func() *string { s := "TestStatus"; return &s }(),
-		Phase:       func() *string { s := "TestPhase"; return &s }(),
+		Phase:       func() *string { s := "Provisioning"; return &s }(),
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
@@ -88,7 +88,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
 		Status:      func() *string { s := "UpdatedStatus"; return &s }(),
-		Phase:       func() *string { s := "UpdatedPhase"; return &s }(),
+		Phase:       func() *string { s := "Running"; return &s }(),
 	}
 	updated, err := grpcClient.UpdateGateway(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())

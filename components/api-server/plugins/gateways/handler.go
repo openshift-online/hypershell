@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -40,6 +41,18 @@ type gatewayHandler struct {
 	ownerLookup      GatewayOwnerLookup
 }
 
+// validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
+// absent or empty phase is accepted so the field stays optional.
+func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
+	if phase == nil || *phase == "" {
+		return nil
+	}
+	if !gatewayhealth.IsValidPhase(*phase) {
+		return errors.Validation("phase %q is not a valid gateway phase; allowed: %v", *phase, gatewayhealth.PhaseStrings())
+	}
+	return nil
+}
+
 func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup) *gatewayHandler {
 	return &gatewayHandler{
 		gateway:          gateway,
@@ -58,6 +71,9 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
+			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
+				return nil, phaseErr
+			}
 			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
 			if err != nil {
 				return nil, err
@@ -116,6 +132,9 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				found.Status = patch.Status
 			}
 			if patch.Phase != nil {
+				if phaseErr := validateGatewayPhaseValue(patch.Phase); phaseErr != nil {
+					return nil, phaseErr
+				}
 				found.Phase = patch.Phase
 			}
 			if patch.Image != nil {

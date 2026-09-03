@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/pkg/server/grpcutil"
@@ -25,6 +26,18 @@ type gatewayGRPCHandler struct {
 
 func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker) pb.GatewayServiceServer {
 	return &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
+}
+
+// validateGatewayPhase rejects a phase outside the canonical vocabulary. An
+// absent or empty phase is accepted so the field stays optional.
+func validateGatewayPhase(phase *string) error {
+	if phase == nil || *phase == "" {
+		return nil
+	}
+	if !gatewayhealth.IsValidPhase(*phase) {
+		return status.Errorf(codes.InvalidArgument, "phase %q is not a valid gateway phase; allowed: %v", *phase, gatewayhealth.PhaseStrings())
+	}
+	return nil
 }
 
 func (h *gatewayGRPCHandler) GetGateway(ctx context.Context, req *pb.GetGatewayRequest) (*pb.GetGatewayResponse, error) {
@@ -50,6 +63,9 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		return nil, err
 	}
 	if err := grpcutil.ValidateStringField("database_id", req.DatabaseId, false); err != nil {
+		return nil, err
+	}
+	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
 	}
 	var serverDnsNamesJSON *string
@@ -122,6 +138,9 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.Phase != nil {
 		if err := grpcutil.ValidateStringField("phase", *req.Phase, false); err != nil {
+			return nil, err
+		}
+		if err := validateGatewayPhase(req.Phase); err != nil {
 			return nil, err
 		}
 	}
