@@ -199,8 +199,11 @@ The control plane SHALL export OpenTelemetry metrics for reconciliation and watc
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
 | `reconcile.duration` | Histogram | `ms` | Latency of a single resource reconciliation |
+| `gateway.provision.duration` | Histogram | `s` | Time from Gateway creation until its first successful transition to `Running` |
 | `reconcile.errors` | Counter | `{error}` | Count of failed reconciliations |
 | `watch.reconnects` | Counter | `{reconnect}` | Count of watch stream reconnections |
+
+The control plane SHALL record one `gateway.provision.duration` observation only after the Gateway phase update to `Running` succeeds. The initial reconcile path SHALL record a direct transition to `Running`. The health reconcile path SHALL record a delayed transition from `Provisioning` to `Running`. It SHALL NOT record a later recovery from `Degraded` to `Running` as a new provision. The duration SHALL use the `created_at` and `updated_at` values in the stored Gateway that the API server returns. It SHALL ignore missing, invalid, or reversed timestamps. The metric SHALL NOT contain a Gateway identifier. Its explicit bucket boundaries SHALL cover 1 second through 15 minutes.
 
 Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT prevent adding one later.
 
@@ -219,6 +222,15 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - WHEN a Gateway reconciliation fails
 - THEN `reconcile.errors` SHALL be incremented
 - AND the sample SHALL be labeled with the resource kind
+
+#### Scenario: Gateway provision duration recorded
+
+- GIVEN a Gateway has a valid creation time
+- AND the Gateway has not reached `Running`
+- WHEN the control plane successfully changes its phase to `Running`
+- THEN `gateway.provision.duration` SHALL record the time from creation to that phase change in seconds
+- AND a later recovery from `Degraded` to `Running` SHALL NOT record another observation
+- AND the metric SHALL NOT contain the Gateway identifier
 
 #### Scenario: Watch reconnect metric incremented
 

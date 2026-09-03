@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	reconcileDuration metric.Int64Histogram
-	reconcileErrors   metric.Int64Counter
-	watchReconnects   metric.Int64Counter
+	reconcileDuration        metric.Int64Histogram
+	gatewayProvisionDuration metric.Float64Histogram
+	reconcileErrors          metric.Int64Counter
+	watchReconnects          metric.Int64Counter
 )
 
 func registerMetrics() error {
@@ -23,6 +24,16 @@ func registerMetrics() error {
 		"reconcile.duration",
 		metric.WithUnit("ms"),
 		metric.WithDescription("Latency of a single resource reconciliation"),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewayProvisionDuration, err = meter.Float64Histogram(
+		"gateway.provision.duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("Time from Gateway creation until its first successful transition to Running"),
+		metric.WithExplicitBucketBoundaries(1, 5, 10, 15, 30, 45, 60, 90, 120, 180, 300, 600, 900),
 	)
 	if err != nil {
 		return err
@@ -54,6 +65,15 @@ func RecordReconcileDuration(ctx context.Context, kind, eventType string, start 
 		attribute.String("resource.kind", kind),
 		attribute.String("event.type", eventType),
 	))
+}
+
+// RecordGatewayProvisionDuration records one successful create-to-Running
+// duration. The caller owns the one-observation rule for each Gateway.
+func RecordGatewayProvisionDuration(ctx context.Context, duration time.Duration) {
+	if gatewayProvisionDuration == nil || duration < 0 {
+		return
+	}
+	gatewayProvisionDuration.Record(ctx, duration.Seconds())
 }
 
 // RecordReconcileError increments the reconcile error counter.

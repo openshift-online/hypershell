@@ -1530,14 +1530,20 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	routed := isRoutedGateway(gw)
 	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
-			r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
+			// The phase gate prevents a second full provision after Running.
+			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy"); runningGateway != nil {
+				observeGatewayProvisionDuration(ctx, runningGateway)
+			}
 			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
 		} else {
 			r.updateGatewayHealth(ctx, event.ResourceID, "Provisioning", "Deployment ready; awaiting route readiness")
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
 	} else {
-		r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy")
+		// The phase gate prevents a second full provision after Running.
+		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy"); runningGateway != nil {
+			observeGatewayProvisionDuration(ctx, runningGateway)
+		}
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
 	}
 
@@ -1901,17 +1907,20 @@ func listAllGateways(ctx context.Context, client pb.GatewayServiceClient) ([]*pb
 
 // updateGatewayHealth sets the Gateway `phase` and `status` together in a single
 // gRPC update so the console and CLI observe a consistent lifecycle state and
-// health descriptor.
-func (r *GatewayReconciler) updateGatewayHealth(ctx context.Context, gatewayID, phase, status string) {
+// health descriptor. It returns the stored Gateway on success so callers can
+// use the API server timestamps. It returns nil if the update fails.
+func (r *GatewayReconciler) updateGatewayHealth(ctx context.Context, gatewayID, phase, status string) *pb.Gateway {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
-	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+	response, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
 		Id:     gatewayID,
 		Phase:  &phase,
 		Status: &status,
 	})
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s health to %s (%s): %v", gatewayID, phase, status, err)
+		return nil
 	}
+	return response.GetGateway()
 }
 
 func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID string, phase string) {

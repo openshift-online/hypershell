@@ -297,9 +297,13 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		return
 	}
 
-	if _, err := client.UpdateGateway(ctx, update); err != nil {
+	response, err := client.UpdateGateway(ctx, update)
+	if err != nil {
 		log.Printf("WARN gateway health: update %s to %s: %v", gatewayID, desiredPhase, err)
 		return
+	}
+	if isGatewayProvisionCompletion(phase, desiredPhase) {
+		observeGatewayProvisionDuration(ctx, response.GetGateway())
 	}
 
 	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
