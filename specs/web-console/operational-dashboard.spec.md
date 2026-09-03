@@ -53,7 +53,7 @@ The operational dashboard package SHALL follow the narrow hexagonal UI boundary 
 - `createDashboardOperations` SHALL accept a `DashboardControlPlane` adapter, an optional `DashboardWorkflowRuntime` (default: `crypto.randomUUID()` correlation IDs), and an optional `DashboardProbePublisher`.
 - Presentation code SHALL call `dashboard.getOperationalMetrics(signal)` through `useDashboardUi()`; it SHALL NOT call `fetch`, the SDK, or BFF routes directly.
 
-Workflow probes SHALL be published for `get-operational-metrics` with names `dashboard.workflow.started` and `dashboard.workflow.completed`, recording outcomes `started`, `succeeded`, `failed`, or `cancelled`.
+Workflow probes SHALL be published for `get-operational-metrics` with names `dashboard.workflow.started` and `dashboard.workflow.completed`, recording outcomes `started`, `succeeded`, `failed`, or `cancelled`. When one or more metric sources fail but at least one succeeds, a `dashboard.metrics.partial-failure` probe with outcome `failed` SHALL also be published (OP-DASH-19).
 
 #### Scenario: AbortSignal propagates to the adapter
 
@@ -148,7 +148,7 @@ When the browser hostname is `dashboard.hypershell.localhost`, the SPA root rout
 
 The host `DashboardControlPlane` adapter SHALL load operational metrics by paginating `GET /api/hypershell/v1/gateways` through the browser TypeScript SDK with page size `100`, ordered by `name asc`, until all pages are retrieved.
 
-The adapter SHALL validate each list response for internal consistency (page number, total count, and item count). An inconsistent response SHALL fail the metrics load with an error.
+The adapter SHALL validate each list response for internal consistency (page number, total count, and item count). An inconsistent response SHALL fail only the gateway-list metric source; other metric sources SHALL still be attempted (OP-DASH-19).
 
 The adapter SHALL return `OperationalDashboardMetrics` containing:
 
@@ -174,12 +174,13 @@ Gateway list results SHALL reflect the caller's RBAC visibility (the API applies
 - THEN the adapter SHALL issue two paginated list requests
 - AND the `provisioned-gateways` metric `value` SHALL be `"150"`
 
-#### Scenario: Inconsistent pagination fails the load
+#### Scenario: Inconsistent pagination omits gateway-derived metrics
 
 - GIVEN a list response reports `page: 2` when page `1` was requested
 - WHEN the adapter processes the response
-- THEN it SHALL throw an error
-- AND the dashboard SHALL enter its load-error state
+- THEN the gateway list source SHALL be treated as failed
+- AND `provisioned-gateways`, `provisioned-sandboxes`, and `provision-time` SHALL be omitted from the adapter response
+- AND the dashboard SHALL NOT synthesize zero counts for those metrics
 
 ---
 
@@ -218,7 +219,9 @@ Version 1 of the operational dashboard SHALL distinguish **connected** metrics (
 | `pods` | Yes | BFF `GET /api/metrics/cluster-pods` (Prometheus kube-state-metrics); see `platform/cluster-pods.spec.md` |
 | `provision-time` | Yes | BFF `GET /api/metrics/gateway-provision-duration` (Prometheus control-plane histogram); see `platform/gateway-provision-time.spec.md` |
 
-Widgets for placeholder metrics SHALL remain in the default layout and in the add-widgets drawer. When a metric ID is missing from the adapter response, the widget body SHALL render a localized "Metric unavailable" empty state (title and recovery guidance) instead of failing the entire dashboard.
+Widgets for placeholder metrics SHALL remain in the default layout and in the add-widgets drawer. When a metric ID is missing from the adapter response — whether because the metric is not yet connected or because its data source failed (OP-DASH-19) — the widget body SHALL render a localized "Metric unavailable" empty state (title and recovery guidance) instead of failing the entire dashboard.
+
+Summary rows (`usage-summary`, `system-summary`) that reference a missing metric SHALL render the same localized metric-unavailable message in place of the value instead of omitting the row or showing a blank cell.
 
 Historical trend data (`OperationalMetric.trend`) and utilization capacity fields (`unit`, `total`) are not loaded by the production adapter in v1. Widgets SHALL omit trend sparklines and utilization donuts when those fields are absent.
 
@@ -241,21 +244,96 @@ The package SHALL maintain `DATA_SOURCES.md` documenting connected vs placeholde
 - `refetchInterval` and `staleTime` of `operationalDashboardRefreshMilliseconds` (`900_000` ms - 15 minutes)
 - `enabled` controlled by the page (disabled when static `metrics` props are supplied for Storybook/tests)
 
-The page SHALL expose a manual refresh control that calls `refetch()` on the query. While a refetch is in flight, the refresh button SHALL expose a localized refreshing state.
+The page SHALL expose a manual refresh control that calls `refetch()` on the query. While a refetch is in flight, the refresh button SHALL expose a localized refreshing state and SHALL remain in that state until every metric source fetch in the current invocation has settled (succeeded or failed).
 
-#### Scenario: Initial load failure blocks the grid
+#### Scenario: Total initial load failure blocks the grid
 
 - GIVEN no metrics have ever loaded successfully
-- WHEN the query fails
+- WHEN every metric source fails on the first fetch
 - THEN a danger `Alert` with localized title and body SHALL be shown
 - AND the widget grid SHALL NOT render
 
-#### Scenario: Refresh failure preserves last data
+#### Scenario: Partial initial load shows warning and available data
+
+- GIVEN no metrics have ever loaded successfully
+- WHEN at least one metric source succeeds and at least one metric source fails
+- THEN a warning `Alert` with localized title and body SHALL be shown indicating that some metrics could not be loaded and the dashboard may be incomplete
+- AND the widget grid SHALL render with every successfully loaded metric
+- AND widgets and summary rows for omitted metrics SHALL render the localized metric-unavailable state (OP-DASH-08)
+
+#### Scenario: Refresh with partial failure preserves last data for failed sources
 
 - GIVEN metrics loaded successfully on a prior fetch
-- WHEN a subsequent refetch fails
+- WHEN a subsequent refetch completes with at least one metric source failure
+- THEN a warning `Alert` SHALL be shown indicating that some metrics could not be refreshed and the dashboard may show stale or missing data
+- AND the widget grid SHALL continue displaying the last successful value for each metric whose source failed on this fetch
+- AND metrics whose sources succeeded on this fetch SHALL display the refreshed values
+
+#### Scenario: Refresh with total failure preserves all last data
+
+- GIVEN metrics loaded successfully on a prior fetch
+- WHEN a subsequent refetch fails for every metric source
 - THEN a warning `Alert` SHALL be shown
-- AND the widget grid SHALL continue displaying the last successful metrics
+- AND the widget grid SHALL continue displaying the last successful metrics from the prior fetch
+
+---
+
+### Requirement: OP-DASH-19 -- Independent Metric Sources and Partial Failure
+
+The host `DashboardControlPlane` adapter SHALL load operational metrics from independent sources. A failure in one source SHALL NOT prevent other sources from contributing metrics to the same `getOperationalMetrics` invocation.
+
+| Source | Metric IDs affected |
+| --- | --- |
+| Paginated gateway list (`GET /api/hypershell/v1/gateways`) | `provisioned-gateways`, `provisioned-sandboxes`, `provision-time` |
+| Users list (`GET /api/hypershell/v1/users`, `page=1`, `size=1`) | `registered-users` |
+| BFF `GET /api/metrics/cluster-memory` | `memory` |
+| BFF `GET /api/metrics/cluster-cpu` | `cpu` |
+| BFF `GET /api/metrics/cluster-pods` | `pods` |
+| BFF `GET /api/metrics/cluster-nodes` | `nodes` |
+
+The adapter SHALL fetch these sources concurrently. When a source fails (network error, non-success HTTP status, inconsistent pagination, or other adapter validation error for that source), the adapter SHALL:
+
+- Omit every metric ID owned by that source from the returned `metrics` array
+- NOT synthesize zero, empty, or placeholder values for failed metrics
+- NOT throw from `getOperationalMetrics` solely because one or more sources failed
+
+`getOperationalMetrics` SHALL throw only when every metric source fails or when the request is aborted.
+
+When at least one source succeeds, the adapter SHALL return `OperationalDashboardMetrics` with:
+
+- `lastSuccessfulRefresh` set to the current time
+- `metrics` containing only the metrics from successful sources
+
+Workflow probes for `get-operational-metrics` SHALL record outcome `succeeded` when at least one metric source succeeds and outcome `failed` only when every source fails or the invocation is aborted. When one or more sources fail but at least one succeeds, the adapter or application layer SHALL publish an additional probe (for example `dashboard.metrics.partial-failure`) with outcome `failed`, naming the failed source identifiers.
+
+The dashboard page SHALL derive partial-failure warnings from the adapter result (omitted expected metrics and/or explicit failure metadata) rather than treating a partial response as a query error that blocks the grid.
+
+#### Scenario: Prometheus down does not hide gateway metrics
+
+- GIVEN the gateway list and users list requests succeed
+- AND every BFF cluster-metrics request fails
+- WHEN the operator opens `/dashboard`
+- THEN gateway, sandbox, and registered-user widgets SHALL display loaded values
+- AND cluster metric widgets SHALL render the localized metric-unavailable state
+- AND a warning `Alert` SHALL explain that some metrics could not be loaded
+
+#### Scenario: Gateway list failure does not hide cluster metrics
+
+- GIVEN every BFF cluster-metrics request succeeds
+- AND the gateway list request fails
+- WHEN the operator opens `/dashboard`
+- THEN cluster metric widgets SHALL display loaded values
+- AND gateway, sandbox, and provision-time widgets or summary rows SHALL render the localized metric-unavailable state
+- AND a warning `Alert` SHALL explain that some metrics could not be loaded
+
+#### Scenario: No qualifying provision-time samples omit only provision time
+
+- GIVEN the gateway list succeeds but contains no qualifying `Running` gateway duration samples
+- WHEN `getOperationalMetrics` runs
+- THEN `provisioned-gateways` and `provisioned-sandboxes` SHALL still be emitted
+- AND `provision-time` SHALL be omitted
+- AND the provision-time widget or summary row SHALL render the localized metric-unavailable state
+- AND the dashboard SHALL NOT enter the total load-error state
 
 ---
 
@@ -429,7 +507,7 @@ All user-visible dashboard strings SHALL be declared with `defineMessages` in th
 
 The web-console host SHALL extract dashboard message IDs into its `locales/en.json` catalog for production rendering.
 
-Loading states SHALL use a `Spinner` with a localized `aria-label`. Empty and error states SHALL use PatternFly `EmptyState` or `Alert` with localized titles and bodies. Interactive trend and status icons SHALL expose localized `aria-label` values via `Tooltip` or button labels.
+Loading states SHALL use a `Spinner` with a localized `aria-label` on the initial load only (before any metrics are available). Empty, partial-failure, and total-failure states SHALL use PatternFly `EmptyState` or `Alert` with localized titles and bodies. Partial-failure warnings SHALL use the `warning` alert variant; total initial-load failure SHALL use the `danger` variant. The operational-dashboard-ui package SHALL declare localized `partialLoadWarningTitle` and `partialLoadWarningBody` messages (or equivalent IDs) for the warning shown when one or more metric sources fail but the grid still renders. Refresh-time partial failures MAY reuse the same warning copy or dedicated refresh-partial-failure messages; in all cases the alert SHALL state that some metrics could not be loaded or refreshed and that the dashboard may be incomplete or stale. Interactive trend and status icons SHALL expose localized `aria-label` values via `Tooltip` or button labels.
 
 #### Scenario: Page description introduces live metrics and refresh behavior
 
@@ -472,7 +550,7 @@ The fallback message SHALL be declared in the operational-dashboard-ui `messages
 
 The operational-dashboard-ui package SHALL ship `mockOperationalDashboardMetrics` containing all widget metric IDs with representative fields matching production adapter output (`status`, `podPhases`, `unit`, `total` where applicable). Fixtures SHALL NOT include `trend` data because historical series are not loaded in version 1.
 
-The web console SHALL provide Storybook stories for default, loading, initial-load-error, and refresh-error states using mock or stub `DashboardControlPlane` adapters.
+The web console SHALL provide Storybook stories for default, loading, partial-load-warning, total-initial-load-error, and refresh-partial-failure states using mock or stub `DashboardControlPlane` adapters.
 
 The host mock adapter (`createMockDashboardControlPlane`) MAY introduce an artificial delay for demo purposes; production adapters SHALL NOT.
 

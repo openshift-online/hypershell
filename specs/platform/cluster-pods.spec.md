@@ -217,13 +217,15 @@ Version 1 SHALL deploy kube-state-metrics (or an equivalent collector exposing c
 
 Cluster pods SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (OP-DASH-09).
 
-A failed `GET /api/metrics/cluster-pods` request SHALL fail the entire `getOperationalMetrics` workflow. The dashboard SHALL NOT display `0` pods as a fallback used or capacity figure.
+A failed `GET /api/metrics/cluster-pods` request SHALL fail only the cluster-pods metric source (OP-DASH-19). The adapter SHALL omit the `pods` metric from the response. The dashboard SHALL NOT display `0` pods as a fallback used or capacity figure.
 
-#### Scenario: Pods query failure surfaces dashboard error
+#### Scenario: Pods query failure omits pod metrics
 
 - GIVEN Prometheus is down
+- AND at least one other metric source succeeds
 - WHEN the operator opens `/dashboard`
-- THEN the dashboard SHALL show its localized load-error state
+- THEN the dashboard SHALL show its localized partial-load warning (OP-DASH-09)
+- AND the `pods` widget and system-summary pods row SHALL render the localized metric-unavailable state
 - AND the `pods` widget SHALL NOT silently show zero utilization
 
 ---

@@ -141,12 +141,14 @@ The operational dashboard package SHALL rename the widget and summary labels fro
 - THEN the `registered-users` metric SHALL have `value: "42"`
 - AND the usage summary row SHALL display `42` under **Registered users**
 
-#### Scenario: Unauthorized adapter call surfaces dashboard error
+#### Scenario: Unauthorized adapter call omits registered-users metric
 
 - GIVEN the signed-in user lacks dashboard-operator API authorization
+- AND at least one other metric source succeeds
 - WHEN the host adapter calls `GET /api/hypershell/v1/users`
-- THEN the operational metrics load SHALL fail
-- AND the dashboard SHALL show its localized load-error state (not a silent zero count)
+- THEN the `registered-users` metric SHALL be omitted from the adapter response
+- AND the dashboard SHALL show its localized partial-load warning (OP-DASH-09)
+- AND the registered-users widget and usage-summary row SHALL render the localized metric-unavailable state (not a silent zero count)
 
 ---
 
@@ -171,7 +173,7 @@ All user-visible strings SHALL use `defineMessages` in `operational-dashboard-ui
 
 Registered user counts SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior defined in `web-console/operational-dashboard.spec.md` OP-DASH-09.
 
-A failed users List request SHALL fail the entire `getOperationalMetrics` workflow; the dashboard SHALL NOT display `0` as a fallback count.
+A failed users List request SHALL fail only the registered-users metric source (OP-DASH-19); the dashboard SHALL NOT display `0` as a fallback count.
 
 #### Scenario: Refresh updates the displayed total
 

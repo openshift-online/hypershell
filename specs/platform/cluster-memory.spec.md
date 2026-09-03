@@ -182,13 +182,15 @@ At minimum, the Prometheus `ClusterRole` (or equivalent scrape credentials) and 
 
 Cluster memory SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (OP-DASH-09).
 
-A failed `GET /api/metrics/cluster-memory` request SHALL fail the entire `getOperationalMetrics` workflow. The dashboard SHALL NOT display `0` GiB as a fallback used or capacity figure.
+A failed `GET /api/metrics/cluster-memory` request SHALL fail only the cluster-memory metric source (OP-DASH-19). The adapter SHALL omit the `memory` metric from the response. The dashboard SHALL NOT display `0` GiB as a fallback used or capacity figure.
 
-#### Scenario: Memory query failure surfaces dashboard error
+#### Scenario: Memory query failure omits memory metrics
 
 - GIVEN Prometheus is down
+- AND at least one other metric source succeeds
 - WHEN the operator opens `/dashboard`
-- THEN the dashboard SHALL show its localized load-error state
+- THEN the dashboard SHALL show its localized partial-load warning (OP-DASH-09)
+- AND the `memory` widget and system-summary memory row SHALL render the localized metric-unavailable state
 - AND the `memory` widget SHALL NOT silently show zero utilization
 
 ---

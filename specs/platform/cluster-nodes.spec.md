@@ -192,14 +192,16 @@ Version 1 SHALL reuse the kube-state-metrics Deployment and `ServiceMonitor` dep
 
 Cluster nodes SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (OP-DASH-09).
 
-A failed `GET /api/metrics/cluster-nodes` request SHALL fail the entire `getOperationalMetrics` workflow. The dashboard SHALL NOT display `0` nodes as a fallback count.
+A failed `GET /api/metrics/cluster-nodes` request SHALL fail only the cluster-nodes metric source (OP-DASH-19). The adapter SHALL omit the `nodes` metric from the response. The dashboard SHALL NOT display `0` nodes as a fallback count.
 
-#### Scenario: Nodes query failure surfaces dashboard error
+#### Scenario: Nodes query failure omits node metrics
 
 - GIVEN Prometheus is down
+- AND at least one other metric source succeeds
 - WHEN the operator opens `/dashboard`
-- THEN the dashboard SHALL show its localized load-error state
-- AND the `system-summary` nodes row SHALL NOT silently show zero
+- THEN the dashboard SHALL show its localized partial-load warning (OP-DASH-09)
+- AND the `nodes` widget and system-summary nodes row SHALL render the localized metric-unavailable state
+- AND the system-summary nodes row SHALL NOT silently show zero
 
 ---
 
