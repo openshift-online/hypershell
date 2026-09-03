@@ -1,5 +1,6 @@
 import {
   Alert,
+  AlertActionLink,
   Bullseye,
   Button,
   Content,
@@ -357,8 +358,10 @@ export function OperationalDashboardPage({
     enabled: metrics === undefined,
   });
   const dashboardMetrics = metrics ?? metricsQuery.data;
-  const showInitialLoadError =
+  const showTotalInitialLoadError =
     metrics === undefined && metricsQuery.isError && !metricsQuery.data;
+  const showPartialLoadWarning =
+    metrics === undefined && (dashboardMetrics?.failedSources?.length ?? 0) > 0;
   const showRefreshError =
     metrics === undefined &&
     metricsQuery.isError &&
@@ -534,12 +537,30 @@ export function OperationalDashboardPage({
           <Spinner aria-label={intl.formatMessage(messages.loading)} />
         </Bullseye>
       ) : null}
-      {showInitialLoadError ? (
+      {showTotalInitialLoadError ? (
         <Alert
           title={intl.formatMessage(messages.loadErrorTitle)}
           variant="danger"
         >
           <FormattedMessage {...messages.loadErrorBody} />
+        </Alert>
+      ) : null}
+      {showPartialLoadWarning ? (
+        <Alert
+          actionLinks={
+            <AlertActionLink
+              isDisabled={metricsQuery.isFetching}
+              onClick={() => {
+                void metricsQuery.refetch();
+              }}
+            >
+              {intl.formatMessage(messages.partialLoadWarningRefreshAction)}
+            </AlertActionLink>
+          }
+          title={intl.formatMessage(messages.partialLoadWarningTitle)}
+          variant="warning"
+        >
+          <FormattedMessage {...messages.partialLoadWarningBody} />
         </Alert>
       ) : null}
       {showRefreshError ? (

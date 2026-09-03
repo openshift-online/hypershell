@@ -44,7 +44,16 @@ export interface SignupTrendPoint {
   value: number;
 }
 
+export type DashboardMetricSourceId =
+  | "cluster-cpu"
+  | "cluster-memory"
+  | "cluster-nodes"
+  | "cluster-pods"
+  | "gateway-list"
+  | "registered-users";
+
 export interface OperationalDashboardMetrics {
+  failedSources?: readonly DashboardMetricSourceId[];
   lastSuccessfulRefresh: Date;
   metrics: readonly OperationalMetric[];
 }

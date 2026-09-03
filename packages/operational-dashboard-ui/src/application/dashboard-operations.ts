@@ -1,6 +1,7 @@
 import type {
   DashboardControlPlane,
   DashboardInvocationContext,
+  DashboardMetricSourceId,
   DashboardOperations,
   DashboardWorkflowRuntime,
 } from "./dashboard-types";
@@ -48,6 +49,23 @@ function workflowProbe(
   });
 }
 
+function partialFailureProbe(
+  correlationId: string,
+  failedSources: readonly DashboardMetricSourceId[],
+): DashboardProbe {
+  return Object.freeze({
+    context: Object.freeze({ correlationId }),
+    fields: Object.freeze({
+      action: workflowAction,
+      failedSources,
+      outcome: "failed",
+    }),
+    name: "dashboard.metrics.partial-failure",
+    occurredAt: new Date().toISOString(),
+    schemaVersion: 1,
+  });
+}
+
 export function createDashboardOperations({
   controlPlane,
   probes = noopDashboardProbePublisher,
@@ -83,6 +101,14 @@ export function createDashboardOperations({
             "succeeded",
           ),
         );
+        if (
+          metrics.failedSources !== undefined &&
+          metrics.failedSources.length > 0
+        ) {
+          probes.publish(
+            partialFailureProbe(correlationId, metrics.failedSources),
+          );
+        }
         return metrics;
       } catch (error) {
         probes.publish(

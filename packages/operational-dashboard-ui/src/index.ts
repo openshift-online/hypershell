@@ -6,6 +6,7 @@ export {
 export type {
   DashboardControlPlane,
   DashboardInvocationContext,
+  DashboardMetricSourceId,
   DashboardOperations,
   DashboardProbe,
   DashboardProbeAction,

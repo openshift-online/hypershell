@@ -490,9 +490,12 @@ describe("createDashboardControlPlaneAdapter", () => {
       unit: "GiB",
       value: "1",
     });
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
   });
 
-  it("rejects inconsistent pagination responses", async () => {
+  it("omits gateway-derived metrics for inconsistent pagination responses", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
     usersListApi.mockResolvedValueOnce({
@@ -504,9 +507,15 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 2));
 
-    await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
-      "Gateway list response was inconsistent",
-    );
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["gateway-list"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "memory"),
+    ).toBeDefined();
   });
 
   it("forwards abort signals to the gateway list client", async () => {
@@ -553,7 +562,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
-  it("fails when cluster memory metrics are unavailable", async () => {
+  it("omits memory metrics when cluster memory is unavailable", async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === "/api/metrics/cluster-memory") {
         return Promise.resolve({
@@ -609,12 +618,18 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
-    await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
-      "Failed to fetch cluster memory metrics: 502",
-    );
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["cluster-memory"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "memory"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
   });
 
-  it("fails when cluster CPU metrics are unavailable", async () => {
+  it("omits CPU metrics when cluster CPU is unavailable", async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === "/api/metrics/cluster-memory") {
         return Promise.resolve({
@@ -670,12 +685,18 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
-    await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
-      "Failed to fetch cluster CPU metrics: 502",
-    );
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["cluster-cpu"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "cpu"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
   });
 
-  it("fails when cluster pods metrics are unavailable", async () => {
+  it("omits pod metrics when cluster pods are unavailable", async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === "/api/metrics/cluster-memory") {
         return Promise.resolve({
@@ -733,12 +754,18 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
-    await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
-      "Failed to fetch cluster pods metrics: 502",
-    );
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["cluster-pods"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "pods"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
   });
 
-  it("fails when cluster nodes metrics are unavailable", async () => {
+  it("omits node metrics when cluster nodes are unavailable", async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === "/api/metrics/cluster-memory") {
         return Promise.resolve({
@@ -788,8 +815,24 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["cluster-nodes"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "nodes"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
+  });
+
+  it("fails when every metric source is unavailable", async () => {
+    fetchMock.mockRejectedValue(new Error("network down"));
+    usersListApi.mockRejectedValueOnce(new Error("users unavailable"));
+    gatewayListApi.mockRejectedValueOnce(new Error("gateways unavailable"));
+
     await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
-      "Failed to fetch cluster nodes metrics: 502",
+      "All operational dashboard metric sources failed",
     );
   });
 });

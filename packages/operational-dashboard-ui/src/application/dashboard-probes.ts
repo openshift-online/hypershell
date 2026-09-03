@@ -14,6 +14,7 @@ export type DashboardProbeOutcome =
 export type DashboardProbeName =
   | "dashboard.workflow.started"
   | "dashboard.workflow.completed"
+  | "dashboard.metrics.partial-failure"
   | "dashboard.layout.template.invalid"
   | "dashboard.layout.template.persistence-failed";
 
@@ -22,6 +23,7 @@ export type DashboardProbe = DomainProbe<
   1,
   {
     readonly action: DashboardProbeAction;
+    readonly failedSources?: readonly string[];
     readonly outcome: DashboardProbeOutcome;
   }
 >;

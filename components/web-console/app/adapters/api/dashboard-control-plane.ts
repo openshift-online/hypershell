@@ -5,6 +5,7 @@ import {
 import type {
   DashboardControlPlane,
   DashboardInvocationContext,
+  DashboardMetricSourceId,
   OperationalDashboardMetrics,
   OperationalMetric,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
@@ -219,6 +220,15 @@ interface GatewayListAggregate {
   total: number;
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  );
+}
+
 async function aggregateGatewayList(
   context: DashboardInvocationContext,
   apiFactory: DashboardApiFactory,
@@ -274,6 +284,85 @@ async function aggregateGatewayList(
   };
 }
 
+async function fetchGatewayListMetrics(
+  context: DashboardInvocationContext,
+  apiFactory: DashboardApiFactory,
+): Promise<OperationalMetric[]> {
+  const aggregate = await aggregateGatewayList(context, apiFactory);
+  const metrics: OperationalMetric[] = [
+    gatewayDisplayCountsToMetric(
+      aggregate.total,
+      aggregate.displayStatusCounts,
+    ),
+    {
+      id: "provisioned-sandboxes",
+      value: String(aggregate.activeSandboxCount),
+    },
+  ];
+
+  const provisionTimeMetric = await fetchGatewayProvisionDurationMetric(
+    context.signal,
+  );
+  if (provisionTimeMetric !== undefined) {
+    metrics.push(provisionTimeMetric);
+  }
+
+  return metrics;
+}
+
+async function fetchRegisteredUsersMetric(
+  context: DashboardInvocationContext,
+  apiFactory: DashboardApiFactory,
+): Promise<OperationalMetric[]> {
+  const client = apiFactory(context.correlationId);
+  const userList = await client.users.list(
+    { orderBy: "username asc", page: 1, size: 1 },
+    { signal: context.signal },
+  );
+
+  return [
+    {
+      id: "registered-users",
+      value: String(userList.total),
+    },
+  ];
+}
+
+interface MetricSourceDefinition {
+  fetch: (
+    context: DashboardInvocationContext,
+    apiFactory: DashboardApiFactory,
+  ) => Promise<OperationalMetric[]>;
+  id: DashboardMetricSourceId;
+}
+
+const metricSources: readonly MetricSourceDefinition[] = [
+  {
+    id: "gateway-list",
+    fetch: fetchGatewayListMetrics,
+  },
+  {
+    id: "registered-users",
+    fetch: fetchRegisteredUsersMetric,
+  },
+  {
+    id: "cluster-memory",
+    fetch: async (context) => [await fetchClusterMemoryMetric(context.signal)],
+  },
+  {
+    id: "cluster-cpu",
+    fetch: async (context) => [await fetchClusterCpuMetric(context.signal)],
+  },
+  {
+    id: "cluster-pods",
+    fetch: async (context) => [await fetchClusterPodsMetric(context.signal)],
+  },
+  {
+    id: "cluster-nodes",
+    fetch: async (context) => [await fetchClusterNodesMetric(context.signal)],
+  },
+];
+
 export function createDashboardControlPlaneAdapter(
   apiFactory: DashboardApiFactory,
 ): DashboardControlPlane {
@@ -283,51 +372,42 @@ export function createDashboardControlPlaneAdapter(
     ): Promise<OperationalDashboardMetrics> {
       context.signal?.throwIfAborted();
 
-      const aggregate = await aggregateGatewayList(context, apiFactory);
-      const client = apiFactory(context.correlationId);
-      const [
-        userList,
-        memoryMetric,
-        cpuMetric,
-        podsMetric,
-        nodesMetric,
-        provisionTimeMetric,
-      ] = await Promise.all([
-        client.users.list(
-          { orderBy: "username asc", page: 1, size: 1 },
-          { signal: context.signal },
+      const settled = await Promise.allSettled(
+        metricSources.map((source) =>
+          source.fetch(context, apiFactory).then((metrics) => ({
+            id: source.id,
+            metrics,
+          })),
         ),
-        fetchClusterMemoryMetric(context.signal),
-        fetchClusterCpuMetric(context.signal),
-        fetchClusterPodsMetric(context.signal),
-        fetchClusterNodesMetric(context.signal),
-        fetchGatewayProvisionDurationMetric(context.signal),
-      ]);
+      );
 
-      const metrics: OperationalMetric[] = [
-        gatewayDisplayCountsToMetric(
-          aggregate.total,
-          aggregate.displayStatusCounts,
-        ),
-        {
-          id: "provisioned-sandboxes",
-          value: String(aggregate.activeSandboxCount),
-        },
-        {
-          id: "registered-users",
-          value: String(userList.total),
-        },
-        memoryMetric,
-        cpuMetric,
-        podsMetric,
-        nodesMetric,
-      ];
+      const metrics: OperationalMetric[] = [];
+      const failedSources: DashboardMetricSourceId[] = [];
 
-      if (provisionTimeMetric !== undefined) {
-        metrics.push(provisionTimeMetric);
+      for (const [index, result] of settled.entries()) {
+        const source = metricSources[index];
+        if (source === undefined) {
+          continue;
+        }
+
+        if (result.status === "fulfilled") {
+          metrics.push(...result.value.metrics);
+          continue;
+        }
+
+        if (isAbortError(result.reason)) {
+          throw result.reason;
+        }
+
+        failedSources.push(source.id);
+      }
+
+      if (metrics.length === 0) {
+        throw new Error("All operational dashboard metric sources failed");
       }
 
       return {
+        ...(failedSources.length > 0 ? { failedSources } : {}),
         lastSuccessfulRefresh: new Date(),
         metrics,
       };

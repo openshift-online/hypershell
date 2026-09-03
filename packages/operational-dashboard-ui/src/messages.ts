@@ -140,6 +140,25 @@ export const messages = defineMessages({
     defaultMessage: "Ready",
     description: "Legend label for ready nodes.",
   },
+  partialLoadWarningBody: {
+    id: "app.dashboard.partialLoadWarning.body",
+    defaultMessage:
+      "Some dashboard metrics could not be loaded. Available data is shown below; missing areas may be incomplete.",
+    description:
+      "Recovery guidance when one or more operational dashboard metric sources fail.",
+  },
+  partialLoadWarningRefreshAction: {
+    id: "app.dashboard.partialLoadWarning.refreshAction",
+    defaultMessage: "Refresh all data now",
+    description:
+      "Action link on the partial-load warning that retries every dashboard metric source.",
+  },
+  partialLoadWarningTitle: {
+    id: "app.dashboard.partialLoadWarning.title",
+    defaultMessage: "Some dashboard metrics are unavailable",
+    description:
+      "Title shown when one or more operational dashboard metric sources fail.",
+  },
   pods: {
     id: "app.dashboard.summary.pods",
     defaultMessage: "Pods",

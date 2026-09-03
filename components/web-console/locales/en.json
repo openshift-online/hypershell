@@ -111,6 +111,18 @@
     "defaultMessage": "Ready",
     "description": "Legend label for ready nodes."
   },
+  "app.dashboard.partialLoadWarning.body": {
+    "defaultMessage": "Some dashboard metrics could not be loaded. Available data is shown below; missing areas may be incomplete.",
+    "description": "Recovery guidance when one or more operational dashboard metric sources fail."
+  },
+  "app.dashboard.partialLoadWarning.refreshAction": {
+    "defaultMessage": "Refresh all data now",
+    "description": "Action link on the partial-load warning that retries every dashboard metric source."
+  },
+  "app.dashboard.partialLoadWarning.title": {
+    "defaultMessage": "Some dashboard metrics are unavailable",
+    "description": "Title shown when one or more operational dashboard metric sources fail."
+  },
   "app.dashboard.podStatus.ariaDesc": {
     "defaultMessage": "Pod capacity by phase and unused slots",
     "description": "Accessible description for the pod capacity donut chart."

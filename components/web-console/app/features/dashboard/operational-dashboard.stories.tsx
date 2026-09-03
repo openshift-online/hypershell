@@ -45,6 +45,23 @@ const initialLoadFailedDashboard = createDashboardOperations({
   },
 });
 
+const partialLoadDashboard = createDashboardOperations({
+  controlPlane: {
+    getOperationalMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        failedSources: ["cluster-memory", "cluster-cpu", "cluster-pods", "cluster-nodes"],
+        lastSuccessfulRefresh: new Date(),
+        metrics: mockOperationalDashboardMetrics.metrics.filter((metric) =>
+          ["provisioned-gateways", "provisioned-sandboxes", "registered-users", "provision-time"].includes(
+            metric.id,
+          ),
+        ),
+      });
+    },
+  },
+});
+
 function createRefreshFailedDashboard(): DashboardOperations {
   let callCount = 0;
 
@@ -134,6 +151,16 @@ export const WithRefresh: Story = {
 
 export const InitialLoadFailed: Story = {
   render: () => <DashboardPreview dashboard={initialLoadFailedDashboard} />,
+};
+
+export const PartialLoadWarning: Story = {
+  render: () => <DashboardPreview dashboard={partialLoadDashboard} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Some dashboard metrics are unavailable");
+    await expect(canvas.getByText("Usage summary")).toBeVisible();
+  },
 };
 
 export const RefreshFailed: Story = {
