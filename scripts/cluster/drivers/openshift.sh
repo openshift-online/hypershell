@@ -1074,13 +1074,19 @@ verify_owned_namespace() {
   local owned env_id
   owned="$(namespace_label_value "${ns}" "${OWNED_LABEL}")"
   env_id="$(namespace_label_value "${ns}" "${ENV_LABEL}")"
-  if [[ "${owned}" == "true" && -n "${env_id}" && -n "${OPENSHIFT_ENVIRONMENT_ID:-}" && "${env_id}" != "${OPENSHIFT_ENVIRONMENT_ID}" ]]; then
+
+  # Destructive operations must be fail-closed. An unlabeled project may be a
+  # developer's currently selected project, but down cannot prove that this
+  # lifecycle created it; deleting it could erase unrelated workloads.
+  if [[ "${owned}" != "true" || -z "${env_id}" ]]; then
+    error "Namespace '${ns}' is not a complete HyperShell environment (expected ${OWNED_LABEL}=true and ${ENV_LABEL}). Refusing to delete it."
+    exit 1
+  fi
+  if [[ -n "${OPENSHIFT_ENVIRONMENT_ID:-}" && "${env_id}" != "${OPENSHIFT_ENVIRONMENT_ID}" ]]; then
     error "Namespace '${ns}' belongs to environment '${env_id}', not '${OPENSHIFT_ENVIRONMENT_ID}'. Refusing to delete it."
     exit 1
   fi
-  if [[ "${owned}" == "true" && -n "${env_id}" ]]; then
-    OPENSHIFT_ENVIRONMENT_ID="${env_id}"
-  fi
+  OPENSHIFT_ENVIRONMENT_ID="${env_id}"
 }
 
 delete_hypershell_resources() {

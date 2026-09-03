@@ -25,6 +25,7 @@ OPENSHIFT_NAMESPACE=test-team
 oc() {
   local args="$*"
   case "$args" in
+    "project -q") printf '%s' "${OC_PROJECT:-}" ;;
     *"get route hypershell-api -n test-team"*) printf '%s' 'api-test.apps.example.com' ;;
     *"get route keycloak -n test-team-keycloak"*) printf '%s' 'sso-test.apps.example.com' ;;
     *"get deployment hypershell-controller -n test-team"*) printf '%s' 'gw.test.example.com' ;;
@@ -64,9 +65,12 @@ else
   PASS=$((PASS + 1))
 fi
 
-if (unset OPENSHIFT_NAMESPACE; discover_api_host >/dev/null 2>&1); then
+resolved_namespace="$(unset OPENSHIFT_NAMESPACE; OC_PROJECT=current-project; _openshift_require_config >/dev/null; printf '%s' "${OPENSHIFT_NAMESPACE}")"
+assert_eq 'current-project' "${resolved_namespace}" 'current oc project selects OpenShift E2E namespace'
+
+if (unset OPENSHIFT_NAMESPACE; OC_PROJECT=; _openshift_require_config >/dev/null 2>&1); then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: missing OPENSHIFT_NAMESPACE was accepted'
+  echo 'FAIL: missing OPENSHIFT_NAMESPACE and oc project were accepted'
 else
   PASS=$((PASS + 1))
 fi

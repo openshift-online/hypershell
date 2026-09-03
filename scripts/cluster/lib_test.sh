@@ -40,6 +40,22 @@ assert_fail() {
   fi
 }
 
+# Exercise the destructive-path ownership predicate with a minimal OpenShift
+# seam. The driver exits on an unsafe namespace, so this wrapper is a subshell.
+verify_openshift_namespace_fixture() (
+  # shellcheck source=drivers/openshift.sh
+  source "${SCRIPT_DIR}/drivers/openshift.sh"
+  namespace_exists() { return 0; }
+  namespace_label_value() {
+    case "$2" in
+      "${OWNED_LABEL}") printf '%s' "${FIXTURE_OWNED:-}" ;;
+      "${ENV_LABEL}") printf '%s' "${FIXTURE_ENV_ID:-}" ;;
+    esac
+  }
+  OPENSHIFT_ENVIRONMENT_ID="${FIXTURE_EXPECTED_ENV_ID:-}"
+  verify_owned_namespace fixture
+)
+
 # --- RFC 1123 / sanitization ---
 assert_eq "kube-admin" "$(sanitize_dns_label 'kube:admin')" "sanitize kube:admin"
 assert_eq "user-redhat-com" "$(sanitize_dns_label 'user@redhat.com')" "sanitize email"
@@ -150,6 +166,28 @@ if grep -E 'deletion started|removal started' "${SCRIPT_DIR}/drivers/openshift.s
 else
   PASS=$((PASS + 1))
 fi
+if grep -A30 '^verify_owned_namespace()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q '"${owned}" != "true" || -z "${env_id}"'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift down does not refuse unlabeled or partially labeled namespaces'
+fi
+if grep -A30 '^verify_owned_namespace()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'Refusing to delete it'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift down ownership verification does not fail closed'
+fi
+FIXTURE_OWNED= FIXTURE_ENV_ID= \
+  assert_fail "unlabeled project is refused by openshift-down" verify_openshift_namespace_fixture
+FIXTURE_OWNED=true FIXTURE_ENV_ID= \
+  assert_fail "partially labeled project is refused by openshift-down" verify_openshift_namespace_fixture
+FIXTURE_OWNED=true FIXTURE_ENV_ID=environment-a FIXTURE_EXPECTED_ENV_ID=environment-b \
+  assert_fail "foreign environment is refused by openshift-down" verify_openshift_namespace_fixture
+FIXTURE_OWNED=true FIXTURE_ENV_ID=environment-a FIXTURE_EXPECTED_ENV_ID=environment-a \
+  assert_ok "owned environment is accepted by openshift-down" verify_openshift_namespace_fixture
 if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'OPENSHIFT_KEYCLOAK_NAMESPACE'; then
   PASS=$((PASS + 1))
 else

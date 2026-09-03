@@ -2,7 +2,8 @@
 # OpenShift infrastructure driver for the shared e2e and performance suites.
 #
 # The environment must already exist. OPENSHIFT_NAMESPACE selects its platform
-# namespace; other runtime settings are discovered from that deployment.
+# namespace; when unset, use the current oc project just like openshift-up.
+# Other runtime settings are discovered from that deployment.
 
 # Reuse the infrastructure-neutral OIDC, Keycloak role, and JWT helpers. Every
 # infrastructure operation and the TLS policy are overridden below.
@@ -15,8 +16,15 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kind.sh"
 
 _openshift_require_config() {
   if [[ -z "${OPENSHIFT_NAMESPACE:-}" ]]; then
-    red "  OPENSHIFT_NAMESPACE is required for an OpenShift e2e run"
-    return 1
+    local project
+    project="$(oc project -q 2>/dev/null || true)"
+    if [[ -z "${project}" ]]; then
+      red "  OPENSHIFT_NAMESPACE is unset and no oc project is selected"
+      red "  Run 'oc project <name>' or set OPENSHIFT_NAMESPACE before running make e2e"
+      return 1
+    fi
+    OPENSHIFT_NAMESPACE="${project}"
+    dim "  OPENSHIFT_NAMESPACE unset; using oc project '${OPENSHIFT_NAMESPACE}'"
   fi
   E2E_HS_NAMESPACE="${OPENSHIFT_NAMESPACE}"
   E2E_KEYCLOAK_NAMESPACE="${OPENSHIFT_NAMESPACE}-keycloak"
