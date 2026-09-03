@@ -123,6 +123,8 @@ export function buildSandboxCreateCommand(
   return [
     "openshell sandbox create",
     `--name ${name}`,
+    "--cpu 0.2",
+    "--memory 512Mi",
     "--env=ANTHROPIC_BASE_URL=https://inference.local",
     "--env=ANTHROPIC_API_KEY=unused",
     "--no-auto-providers",

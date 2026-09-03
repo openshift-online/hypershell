@@ -500,7 +500,7 @@ The `Connection` tab SHALL guide the user through three ordered steps using an a
 
 2. **Add a Claude on Vertex AI provider.** The step SHALL present, as its primary read-only Clipboard Copy value, one `openshell provider create` command for the `google-vertex-ai` provider that reads credentials and configuration from the user's own environment rather than requiring hand-edited secrets. An expandable details disclosure SHALL document the Application Default Credentials prerequisite, the environment variables the command reads, the command that routes a Claude model through the provider, and the sandbox routing caveats, including reaching Vertex through `inference.local` and not setting `CLAUDE_CODE_USE_VERTEX` inside the sandbox. The step SHALL NOT display, request, or persist Google Cloud credentials, service-account keys, project identifiers, or access tokens in the browser.
 
-3. **Create a sandbox.** The step SHALL present an `openshell sandbox create` command that names a sandbox, attaches the provider from step 2, and launches the agent, as a read-only Clipboard Copy value.
+3. **Create a sandbox.** The step SHALL present an `openshell sandbox create` command that names a sandbox, specifies CPU and memory resource requests and limits via `--cpu` and `--memory` flags, attaches the provider from step 2, and launches the agent, as a read-only Clipboard Copy value. The default values SHALL be `--cpu 0.2 --memory 512Mi`.
 
 The `Connection` tab SHALL also contain a secondary `Create or manage service accounts` link with its introductory content, before the walkthrough. The link SHALL set `tab=service-accounts`. It SHALL not start a create operation.
 

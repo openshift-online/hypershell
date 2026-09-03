@@ -152,6 +152,8 @@ describe("gateway connections", () => {
     expect(buildSandboxCreateCommand()).toBe(
       `openshell sandbox create \\
   --name ${sandboxName} \\
+  --cpu 0.2 \\
+  --memory 512Mi \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
@@ -160,6 +162,8 @@ describe("gateway connections", () => {
     expect(buildSandboxCreateCommand("demo")).toBe(
       `openshell sandbox create \\
   --name demo \\
+  --cpu 0.2 \\
+  --memory 512Mi \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
