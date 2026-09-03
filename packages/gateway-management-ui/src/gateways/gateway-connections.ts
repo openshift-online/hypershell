@@ -120,11 +120,23 @@ export function buildSandboxCreateCommand(
   name: string = sandboxName,
   model: string = claudeModel,
 ): string {
+  const driverConfig = JSON.stringify({
+    kubernetes: {
+      containers: {
+        agent: {
+          resources: {
+            requests: { cpu: "100m", memory: "512Mi" },
+            limits: { cpu: "500m", memory: "512Mi" },
+          },
+        },
+      },
+    },
+  });
+
   return [
     "openshell sandbox create",
     `--name ${name}`,
-    "--cpu 0.2",
-    "--memory 512Mi",
+    `--driver-config-json '${driverConfig}'`,
     "--env=ANTHROPIC_BASE_URL=https://inference.local",
     "--env=ANTHROPIC_API_KEY=unused",
     "--no-auto-providers",
