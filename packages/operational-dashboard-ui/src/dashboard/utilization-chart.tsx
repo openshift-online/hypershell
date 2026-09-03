@@ -58,7 +58,7 @@ const UTILIZATION_CHART_SIZE = 130;
 /** Extra left padding keeps hover tooltips inside the clipped widget body. */
 const UTILIZATION_CHART_PADDING = {
   bottom: 10,
-  left: 32,
+  left: 16,
   right: 10,
   top: 10,
 } as const;

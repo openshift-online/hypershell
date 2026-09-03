@@ -29,7 +29,11 @@ export interface OperationalMetricProvisionDuration {
 }
 
 export interface OperationalMetric {
+  createdLast30Days?: string;
   id: string;
+  inventoryProviders?: Record<string, number>;
+  inventoryRegions?: Record<string, number>;
+  inventoryStatus?: Record<string, number>;
   podPhases?: OperationalMetricPodPhases;
   provisionDuration?: OperationalMetricProvisionDuration;
   status?: OperationalMetricStatus;
@@ -50,6 +54,7 @@ export type DashboardMetricSourceId =
   | "cluster-nodes"
   | "cluster-pods"
   | "gateway-list"
+  | "platform-inventory"
   | "registered-users";
 
 export interface OperationalDashboardMetrics {

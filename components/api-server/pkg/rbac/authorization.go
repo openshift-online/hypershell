@@ -139,6 +139,10 @@ func hasUsersInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool 
 	return hasPlatformAdmin(bindings) || HasHypershellAdminRole(jwtRoles)
 }
 
+func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
+	return hasUsersInventoryAccess(bindings, jwtRoles) || hasGatewayCreator(bindings)
+}
+
 func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
 	resource, resourceID = extractResourceInfoFromRoute(r)
 	if resource != "" {
@@ -242,6 +246,11 @@ func extractGatewayIDFromPath(path string) (resource string, gatewayID string) {
 func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string) bool {
 	if resource == "users" {
 		return hasUsersInventoryAccess(bindings, jwtRoles)
+	}
+
+	if (resource == "managed_clusters" || resource == "managed_databases") &&
+		method == http.MethodGet && resourceID == "" {
+		return hasDashboardInventoryAccess(bindings, jwtRoles)
 	}
 
 	if resource == "gateways" && method == http.MethodPost && resourceID == "" {

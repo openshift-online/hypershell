@@ -365,9 +365,10 @@ The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these
 | `section-title` | `section-title#hub-cluster` | Full width, hub cluster header row |
 | `system-summary` | `system-summary#1` | Column 0, hub cluster |
 | `memory` | `memory#1` | Column 1, hub cluster |
+| `provision-time` | `provision-time#1` | Column 1, hub cluster second row (below memory) |
 | `cpu` | `cpu#1` | Column 2, hub cluster |
 | `pods` | `pods#1` | Column 3, hub cluster |
-| `nodes` | `nodes#1` | Column 1, hub cluster second row |
+| `nodes` | `nodes#1` | Column 2, hub cluster second row (below cpu) |
 
 On `sm`, widgets SHALL stack in section order: platform adoption title, adoption metrics, hub cluster title, then hub cluster metrics.
 

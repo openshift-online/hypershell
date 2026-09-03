@@ -1,4 +1,10 @@
 import type { Gateway, GatewayList } from "@openshift-online/hypershell-sdk";
+import type {
+  ManagedCluster,
+  ManagedClusterList,
+  ManagedDatabase,
+  ManagedDatabaseList,
+} from "@openshift-online/hypershell-sdk";
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,12 +12,20 @@ import { createDashboardControlPlaneAdapter } from "./dashboard-control-plane";
 
 const gatewayListApi = vi.fn();
 const usersListApi = vi.fn();
+const managedClustersListApi = vi.fn();
+const managedDatabasesListApi = vi.fn();
 const fetchMock = vi.fn();
 const apiFactory = vi.fn(
   () =>
     ({
       gateways: {
         list: gatewayListApi,
+      },
+      managedClusters: {
+        list: managedClustersListApi,
+      },
+      managedDatabases: {
+        list: managedDatabasesListApi,
       },
       users: {
         list: usersListApi,
@@ -101,6 +115,22 @@ beforeEach(() => {
   fetchMock.mockReset();
   gatewayListApi.mockReset();
   usersListApi.mockReset();
+  managedClustersListApi.mockReset();
+  managedDatabasesListApi.mockReset();
+  managedClustersListApi.mockResolvedValue({
+    items: [],
+    kind: "ManagedClusterList",
+    page: 1,
+    size: 0,
+    total: 0,
+  });
+  managedDatabasesListApi.mockResolvedValue({
+    items: [],
+    kind: "ManagedDatabaseList",
+    page: 1,
+    size: 0,
+    total: 0,
+  });
 });
 
 afterEach(() => {
@@ -157,6 +187,75 @@ function gatewayList(
   return {
     items,
     kind: "GatewayList",
+    page,
+    size: items.length,
+    total,
+  };
+}
+
+function managedCluster(
+  overrides: Partial<ManagedCluster> = {},
+): ManagedCluster {
+  return {
+    api_server_url: "",
+    created_at: "2026-08-01T10:00:00.000Z",
+    href: "/api/hypershell/v1/managed_clusters/cluster-1",
+    id: "cluster-1",
+    kind: "ManagedCluster",
+    kubeconfig_secret: "secret",
+    name: "cluster-1",
+    provider: "aws",
+    region: "us-east-1",
+    status: "Ready",
+    updated_at: "2026-08-01T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function managedClusterList(
+  items: ManagedCluster[],
+  total = items.length,
+  page = 1,
+): ManagedClusterList {
+  return {
+    items,
+    kind: "ManagedClusterList",
+    page,
+    size: items.length,
+    total,
+  };
+}
+
+function managedDatabase(
+  overrides: Partial<ManagedDatabase> = {},
+): ManagedDatabase {
+  return {
+    connection_secret: "secret",
+    created_at: "2026-08-01T10:00:00.000Z",
+    engine: "postgres",
+    engine_version: "16",
+    href: "/api/hypershell/v1/managed_databases/database-1",
+    id: "database-1",
+    instance_class: "small",
+    kind: "ManagedDatabase",
+    name: "database-1",
+    namespace: "openshell",
+    provider: "aws",
+    region: "us-east-1",
+    status: "Ready",
+    updated_at: "2026-08-01T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function managedDatabaseList(
+  items: ManagedDatabase[],
+  total = items.length,
+  page = 1,
+): ManagedDatabaseList {
+  return {
+    items,
+    kind: "ManagedDatabaseList",
     page,
     size: items.length,
     total,
@@ -830,9 +929,177 @@ describe("createDashboardControlPlaneAdapter", () => {
     fetchMock.mockRejectedValue(new Error("network down"));
     usersListApi.mockRejectedValueOnce(new Error("users unavailable"));
     gatewayListApi.mockRejectedValueOnce(new Error("gateways unavailable"));
+    managedClustersListApi.mockRejectedValueOnce(
+      new Error("managed clusters unavailable"),
+    );
+    managedDatabasesListApi.mockRejectedValueOnce(
+      new Error("managed databases unavailable"),
+    );
 
     await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
       "All operational dashboard metric sources failed",
+    );
+  });
+
+  it("aggregates managed cluster and database inventory into operational metrics", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T12:00:00.000Z"));
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    usersListApi.mockResolvedValueOnce({
+      items: [],
+      kind: "UserList",
+      page: 1,
+      size: 1,
+      total: 0,
+    });
+    gatewayListApi.mockResolvedValueOnce(gatewayList([], 0, 1));
+
+    const firstClusterPage = Array.from({ length: 100 }, (_, index) =>
+      managedCluster({
+        created_at:
+          index < 2 ? "2026-08-15T10:00:00.000Z" : "2026-01-01T10:00:00.000Z",
+        id: `cluster-${String(index)}`,
+        name: `cluster-${String(index)}`,
+        provider: index < 5 ? "aws" : index < 7 ? "gcp" : "ibm",
+        region: index < 4 ? "us-east-1" : "eu-west-1",
+        status: index === 0 ? undefined : "Ready",
+      }),
+    );
+    const secondClusterPage = Array.from({ length: 50 }, (_, index) =>
+      managedCluster({
+        created_at: "2026-01-01T10:00:00.000Z",
+        id: `cluster-${String(index + 100)}`,
+        name: `cluster-${String(index + 100)}`,
+        provider: "openshift",
+        region: "  ",
+        status: "Failed",
+      }),
+    );
+
+    managedClustersListApi
+      .mockResolvedValueOnce(managedClusterList(firstClusterPage, 150, 1))
+      .mockResolvedValueOnce(managedClusterList(secondClusterPage, 150, 2));
+    managedDatabasesListApi.mockResolvedValueOnce(
+      managedDatabaseList(
+        [
+          managedDatabase({ status: "Ready" }),
+          managedDatabase({ status: undefined }),
+        ],
+        2,
+        1,
+      ),
+    );
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(managedClustersListApi).toHaveBeenCalledTimes(2);
+    expect(managedDatabasesListApi).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: undefined },
+    );
+
+    const clustersMetric = metrics.metrics.find(
+      (metric) => metric.id === "managed-clusters",
+    );
+    const databasesMetric = metrics.metrics.find(
+      (metric) => metric.id === "managed-databases",
+    );
+
+    expect(clustersMetric).toEqual({
+      createdLast30Days: "2",
+      id: "managed-clusters",
+      inventoryProviders: {
+        aws: 5,
+        gcp: 2,
+        ibm: 93,
+        openshift: 50,
+      },
+      inventoryRegions: {
+        "eu-west-1 (aws)": 1,
+        "eu-west-1 (gcp)": 2,
+        "eu-west-1 (ibm)": 93,
+        "unknown (openshift)": 50,
+        "us-east-1 (aws)": 4,
+      },
+      inventoryStatus: {
+        Failed: 50,
+        Ready: 99,
+        unknown: 1,
+      },
+      value: "150",
+    });
+    expect(databasesMetric).toEqual({
+      id: "managed-databases",
+      inventoryStatus: {
+        Ready: 1,
+        unknown: 1,
+      },
+      value: "2",
+    });
+
+    vi.useRealTimers();
+  });
+
+  it("omits platform inventory metrics when managed database pagination is inconsistent", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    usersListApi.mockResolvedValueOnce({
+      items: [],
+      kind: "UserList",
+      page: 1,
+      size: 1,
+      total: 0,
+    });
+    gatewayListApi.mockResolvedValueOnce(gatewayList([], 0, 1));
+    managedClustersListApi.mockResolvedValueOnce(managedClusterList([], 0, 1));
+    managedDatabasesListApi.mockResolvedValueOnce(
+      managedDatabaseList([managedDatabase()], 1, 2),
+    );
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["platform-inventory"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "managed-clusters"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "managed-databases"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "memory"),
+    ).toBeDefined();
+  });
+
+  it("forwards abort signals to managed inventory list clients", async () => {
+    const controller = new AbortController();
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    usersListApi.mockResolvedValueOnce({
+      items: [],
+      kind: "UserList",
+      page: 1,
+      size: 1,
+      total: 0,
+    });
+    gatewayListApi.mockResolvedValueOnce(gatewayList([], 0, 1));
+    managedClustersListApi.mockResolvedValueOnce(managedClusterList([], 0, 1));
+    managedDatabasesListApi.mockResolvedValueOnce(
+      managedDatabaseList([], 0, 1),
+    );
+
+    await adapter.getOperationalMetrics({
+      ...context,
+      signal: controller.signal,
+    });
+
+    expect(managedClustersListApi).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: controller.signal },
+    );
+    expect(managedDatabasesListApi).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: controller.signal },
     );
   });
 });

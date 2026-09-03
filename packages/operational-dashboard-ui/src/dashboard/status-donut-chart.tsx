@@ -16,14 +16,14 @@ export const COMPACT_STATUS_DONUT_CHART_HEIGHT = 130;
 /** Extra right padding keeps the legend inside the clipped widget body. */
 export const STATUS_DONUT_CHART_PADDING = {
   bottom: 25,
-  left: 20,
+  left: 8,
   right: 145,
   top: 20,
 } as const;
 
 export const COMPACT_STATUS_DONUT_CHART_PADDING = {
   bottom: 12,
-  left: 12,
+  left: 4,
   right: 100,
   top: 4,
 } as const;
@@ -31,7 +31,7 @@ export const COMPACT_STATUS_DONUT_CHART_PADDING = {
 /** Extra bottom padding reserves space for the capacity subtitle without enlarging the donut. */
 export const COMPACT_STATUS_DONUT_WITH_SUBTITLE_CHART_PADDING = {
   bottom: 28,
-  left: 12,
+  left: 4,
   right: 115,
   top: 4,
 } as const;

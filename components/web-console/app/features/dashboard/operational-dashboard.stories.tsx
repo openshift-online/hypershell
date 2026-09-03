@@ -153,6 +153,20 @@ type Story = StoryObj<typeof meta>;
 
 export const MockedMetrics: Story = {};
 
+export const InventorySummary: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Platform inventory");
+    await expect(canvas.getByText("Inventory summary")).toBeVisible();
+    await expect(canvas.getByText("Cluster providers")).toBeVisible();
+    await expect(canvas.getByText("Cluster regions")).toBeVisible();
+    await expect(canvas.getByText("Database status")).toBeVisible();
+    await expect(canvas.getByText("Clusters")).toBeVisible();
+    await expect(canvas.getByText("Databases")).toBeVisible();
+  },
+};
+
 export const WithRefresh: Story = {
   render: () => <DashboardPreview />,
 };

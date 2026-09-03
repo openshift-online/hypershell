@@ -14,13 +14,12 @@ const TITLE_ROW_OFFSET = TITLE_WIDGET_HEIGHT + METRIC_ROW_GAP;
 export const NODE_STATUS_WIDGET_HEIGHT = METRIC_WIDGET_HEIGHT + 1;
 /** Pod capacity donut shares the same height as the nodes status widget. */
 export const POD_CAPACITY_WIDGET_HEIGHT = NODE_STATUS_WIDGET_HEIGHT;
-/** Gateway status spans two metric rows plus the row gap between them. */
-export const GATEWAY_STATUS_WIDGET_HEIGHT =
-  METRIC_WIDGET_HEIGHT * 2 + METRIC_ROW_GAP;
 const SUMMARY_COLUMN_HEIGHT = METRIC_WIDGET_HEIGHT + 2 * METRIC_ROW_STEP;
 const BASE_SUMMARY_WIDGET_HEIGHT = (SUMMARY_COLUMN_HEIGHT - METRIC_ROW_GAP) / 2;
 /** Equal height for usage and system summary widgets in the left column. */
 export const USAGE_SUMMARY_WIDGET_HEIGHT = BASE_SUMMARY_WIDGET_HEIGHT + 1;
+/** Gateway status matches usage summary height in the platform adoption section. */
+export const GATEWAY_STATUS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
 /** One row taller than usage summary; fits exception status rows on pods and nodes. */
 export const SYSTEM_SUMMARY_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 1;
 /** Stats list and P95 note. */
@@ -31,18 +30,37 @@ const HUB_CLUSTER_TITLE_Y =
   ADOPTION_SECTION_START_Y + GATEWAY_STATUS_WIDGET_HEIGHT + METRIC_ROW_GAP;
 /** Grid row where hub-cluster capacity widgets begin (below hub cluster title). */
 export const HUB_CLUSTER_START_Y = HUB_CLUSTER_TITLE_Y + TITLE_ROW_OFFSET;
+/** Grid row for the platform inventory section title. */
+export const PLATFORM_INVENTORY_TITLE_Y =
+  HUB_CLUSTER_START_Y +
+  METRIC_ROW_STEP +
+  NODE_STATUS_WIDGET_HEIGHT +
+  METRIC_ROW_GAP;
+/** Grid row where the inventory summary widget begins. */
+export const PLATFORM_INVENTORY_START_Y =
+  PLATFORM_INVENTORY_TITLE_Y + TITLE_ROW_OFFSET;
+/** Height for the inventory summary DescriptionList widget. */
+export const INVENTORY_SUMMARY_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
 
 export const SECTION_TITLE_WIDGET_TYPE = "section-title";
 
 const SECTION_TITLE_MESSAGE_BY_ID: Record<string, MessageDescriptor> = {
   "section-title#hub-cluster": messages.sectionTitleHubCluster,
   "section-title#platform-adoption": messages.sectionTitlePlatformAdoption,
+  "section-title#platform-inventory": messages.sectionTitlePlatformInventory,
 };
 
 const WIDGET_TITLE_MESSAGES = {
   "usage-summary": messages.usageSummaryWidget,
   "system-summary": messages.systemSummaryWidget,
+  "inventory-summary": messages.inventorySummaryWidget,
   "registered-users": messages.registeredUsers,
+  "managed-cluster-providers": messages.widgetManagedClusterProviders,
+  "managed-cluster-regions": messages.widgetManagedClusterRegions,
+  "managed-clusters": messages.widgetManagedClusters,
+  "managed-cluster-status": messages.widgetManagedClusterStatus,
+  "managed-databases": messages.widgetManagedDatabases,
+  "managed-database-status": messages.widgetManagedDatabaseStatus,
   "gateway-status": messages.gatewayStatusWidget,
   memory: messages.widgetMemory,
   nodes: messages.nodes,
@@ -81,15 +99,6 @@ const fourColumnLayout = [
     widgetType: "gateway-status",
     x: 1,
     y: ADOPTION_SECTION_START_Y,
-  },
-  {
-    h: PROVISION_TIME_WIDGET_HEIGHT,
-    i: "provision-time#1",
-    title: "Provision time",
-    w: 1,
-    widgetType: "provision-time",
-    x: 1,
-    y: GATEWAY_STATUS_WIDGET_HEIGHT,
   },
   {
     h: METRIC_WIDGET_HEIGHT,
@@ -137,6 +146,15 @@ const fourColumnLayout = [
     y: HUB_CLUSTER_START_Y,
   },
   {
+    h: PROVISION_TIME_WIDGET_HEIGHT,
+    i: "provision-time#1",
+    title: "Provision time",
+    w: 1,
+    widgetType: "provision-time",
+    x: 1,
+    y: HUB_CLUSTER_START_Y + METRIC_ROW_STEP,
+  },
+  {
     h: METRIC_WIDGET_HEIGHT,
     i: "cpu#1",
     title: "CPU",
@@ -160,8 +178,53 @@ const fourColumnLayout = [
     title: "Nodes",
     w: 1,
     widgetType: "nodes",
-    x: 1,
+    x: 2,
     y: HUB_CLUSTER_START_Y + METRIC_ROW_STEP,
+  },
+  {
+    h: TITLE_WIDGET_HEIGHT,
+    i: "section-title#platform-inventory",
+    title: "Platform inventory",
+    w: DASHBOARD_COLUMN_COUNT,
+    widgetType: SECTION_TITLE_WIDGET_TYPE,
+    x: 0,
+    y: PLATFORM_INVENTORY_TITLE_Y,
+  },
+  {
+    h: INVENTORY_SUMMARY_WIDGET_HEIGHT,
+    i: "inventory-summary#1",
+    title: "Inventory summary",
+    w: 1,
+    widgetType: "inventory-summary",
+    x: 0,
+    y: PLATFORM_INVENTORY_START_Y,
+  },
+  {
+    h: NODE_STATUS_WIDGET_HEIGHT,
+    i: "managed-cluster-providers#1",
+    title: "Cluster providers",
+    w: 1,
+    widgetType: "managed-cluster-providers",
+    x: 1,
+    y: PLATFORM_INVENTORY_START_Y,
+  },
+  {
+    h: NODE_STATUS_WIDGET_HEIGHT,
+    i: "managed-cluster-regions#1",
+    title: "Cluster regions",
+    w: 2,
+    widgetType: "managed-cluster-regions",
+    x: 2,
+    y: PLATFORM_INVENTORY_START_Y,
+  },
+  {
+    h: NODE_STATUS_WIDGET_HEIGHT,
+    i: "managed-database-status#1",
+    title: "Database status",
+    w: 1,
+    widgetType: "managed-database-status",
+    x: 1,
+    y: PLATFORM_INVENTORY_START_Y + METRIC_ROW_STEP,
   },
 ] as const;
 
@@ -194,15 +257,20 @@ const mobileLayoutOrder = [
   "section-title#platform-adoption",
   "usage-summary",
   "gateway-status",
-  "provision-time",
   "provisioned-sandboxes",
   "registered-users",
   "section-title#hub-cluster",
   "system-summary",
   "memory",
+  "provision-time",
   "cpu",
   "pods",
   "nodes",
+  "section-title#platform-inventory",
+  "inventory-summary",
+  "managed-cluster-providers",
+  "managed-cluster-regions",
+  "managed-database-status",
 ] as const;
 
 function findLayoutItem(
