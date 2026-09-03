@@ -10,7 +10,7 @@ This spec defines the desired state for continuously updating the downstream
 OpenShell gateway and supervisor container images consumed by the HyperShell
 control plane. The mechanism must detect new upstream image tags/digests, propose
 a bump via pull request, gate that bump on the platform's full PR test suite, and
-merge only on green — preventing both silent drift and unvalidated upgrades.
+merge only on green - preventing both silent drift and unvalidated upgrades.
 
 ## Scope
 
@@ -22,10 +22,10 @@ merge only on green — preventing both silent drift and unvalidated upgrades.
 
 **Out of scope:**
 
-- Internal registry mirrors (e.g. `deploy/ibm/kustomization.yaml`) — these are
+- Internal registry mirrors (e.g. `deploy/ibm/kustomization.yaml`) - these are
   cluster-local copies updated by the mirror process, not by Renovate.
 - Go source constants for non-OpenShell images (`defaultConsoleImage`,
-  `defaultOAuth2ProxyImage`, etc.) — separate concern.
+  `defaultOAuth2ProxyImage`, etc.) - separate concern.
 - Database-backed image defaults (future; tracked by existing TODO in
   `config.go`).
 
@@ -71,7 +71,7 @@ The regex matches the two-line YAML pattern:
 
 ### Version Filtering
 
-The upstream quay.io repositories contain thousands of tags — commit SHAs,
+The upstream quay.io repositories contain thousands of tags - commit SHAs,
 architecture-specific manifests (`-linux-m2xlarge-amd64`), and build artifacts
 (`.git`, `.prefetch`). A `regex` versioning template restricts Renovate to tags
 matching the release convention:
@@ -111,7 +111,7 @@ Automerge is enabled (`automerge: true`, `automergeType: "pr"`). Renovate merges
 the PR only after all required status checks pass. If any check fails:
 
 - The PR stays open and blocked.
-- The failure is visible in the PR checks — not swallowed.
+- The failure is visible in the PR checks - not swallowed.
 - A platform maintainer must investigate before the image is adopted.
 
 ## Cross-Stack Consistency
