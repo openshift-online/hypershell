@@ -129,7 +129,7 @@ help:
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
-	@echo "    e2e                      Run E2E tests locally (requires Kind cluster)"
+	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
 	@echo "    e2e-performance          Run the performance harness (requires a running cluster)"
 	@echo "    e2e-performance-report   Tabulate recent local performance runs"
 	@echo "    lint                     Run all linters (Go + JS/TS)"

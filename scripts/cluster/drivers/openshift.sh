@@ -1309,10 +1309,7 @@ push_component_image() {
   target_arch="$(swap_target_goarch)" || exit 1
 
   info "Building ${component} from working tree for linux/${target_arch}..."
-  if [[ "${component}" == "web-console" ]]; then
-    warn "web-console cannot Go-cross-compile; this Node image matches the laptop unless you rebuild on ${target_arch}."
-  fi
-  ${CONTAINER_ENGINE} build -t "${LOCAL_IMAGE}" \
+  ${CONTAINER_ENGINE} build --platform "linux/${target_arch}" -t "${LOCAL_IMAGE}" \
     -f "${REPO_ROOT}/${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} \
     --build-arg "TARGETARCH=${target_arch}" \
     --build-arg "TARGETOS=linux" \

@@ -452,7 +452,8 @@ Each swap builds from the working tree, pushes an immutable image (commit +
 namespace tag) to `SWAP_REGISTRY`, and updates the Deployment image refs to
 the registry digest from that push (not the local image digest). Images are
 built for the OpenShift node architecture (`SWAP_PLATFORM`, or detected from
-the cluster), not the laptop architecture. `SWAP_REGISTRY` is the org prefix only (`quay.io/<org>`). Repo
+the cluster) via `--platform linux/<arch>`. Component Dockerfiles pin HI bases
+per architecture. `SWAP_REGISTRY` is the org prefix only (`quay.io/<org>`). Repo
 names default to `hypershell-api-server`, `hypershell-controller`, and
 `hypershell-web-console`; set `SWAP_REPOSITORY` to override the repo for the
 current swap. `SWAP_REGISTRY` is required; swaps do not use `IMAGE_REGISTRY`.

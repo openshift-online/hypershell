@@ -544,11 +544,13 @@ registry digest is available, the driver SHALL pin the unique tag.
 
 The swap build SHALL target the OpenShift node architecture, not the laptop
 architecture. When `SWAP_PLATFORM` is set (`linux/amd64` or `linux/arm64`),
-the driver SHALL use that GOARCH. When it is unset, the driver SHALL read the
-architecture from the cluster nodes. Go component Dockerfiles SHALL honor
-`TARGETARCH` so an arm64 laptop can cross-compile an amd64 binary with
-`CGO_ENABLED=0`. A native laptop build pushed to amd64 nodes SHALL NOT be
-used: that fails init with `Exec format error`.
+the driver SHALL use that architecture. When it is unset, the driver SHALL read
+the architecture from the cluster nodes. The driver SHALL pass
+`--platform linux/<arch>` to the container build. Component Dockerfiles SHALL
+pin Red Hat Hardened Image manifests per architecture (`amd64` and `arm64`)
+and SHALL select the pin with `TARGETARCH` (and `BUILDARCH` for a native Go
+toolchain). A single-arch pin SHALL NOT be used: that produces `Exec format
+error` when an arm64 laptop image is pulled by amd64 nodes.
 
 Because more than one developer can share one cluster, each working-tree image
 SHALL have an immutable identity scoped to the source commit and to
@@ -594,7 +596,8 @@ build, which run the baseline image, and the exact image each one runs.
 - GIVEN the developer laptop is arm64
 - AND the OpenShift nodes are amd64
 - WHEN the developer runs `make openshift-api-server-up`
-- THEN the scripts build the API server with `TARGETARCH=amd64`
+- THEN the scripts build the API server with `--platform linux/amd64`
+- AND the Dockerfiles select the amd64 HI digest pins
 - AND the migrate init container SHALL start without `Exec format error`
 
 #### Scenario: Swap without SWAP_REGISTRY stops

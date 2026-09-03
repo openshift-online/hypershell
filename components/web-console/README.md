@@ -66,6 +66,8 @@ podman run --rm \
   localhost/hypershell-web-console:dev
 ```
 
-The image is multi-stage and pins Red Hat's `hi/nodejs` builder and runtime variants by digest. Its runtime contains the production BFF dependency closure and built assets, runs as a numeric non-root user, writes no files, exposes port 8080, and provides `/health/live` and `/health/ready` probes.
+The image is multi-stage and pins Red Hat's `hi/nodejs` builder and runtime
+variants by per-architecture digest (`amd64` and `arm64`). `docker`/`podman`
+`--platform` selects the pin. Its runtime contains the production BFF dependency closure and built assets, runs as a numeric non-root user, writes no files, exposes port 8080, and provides `/health/live` and `/health/ready` probes.
 
 The BFF proxies `/api/*` to the fixed `HYPERSHELL_API_ORIGIN` origin, which defaults to `http://127.0.0.1:8000` for a colocated API. Set that variable to an HTTP(S) origin reachable from the container when the API is deployed separately. Browser cookies and authorization headers are not forwarded; the current product assumption is that all gateway records are visible. `HYPERSHELL_API_TIMEOUT_MS` bounds each upstream request and defaults to 30 seconds.

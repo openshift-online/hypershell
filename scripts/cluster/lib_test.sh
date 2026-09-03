@@ -859,6 +859,28 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: swap build does not pass TARGETARCH for the cluster node architecture'
 fi
+if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q -- '--platform'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap build does not pass --platform linux/<arch>'
+fi
+if grep -q 'AS go-amd64' "${REPO_ROOT}/components/api-server/Dockerfile" \
+  && grep -q 'AS go-arm64' "${REPO_ROOT}/components/api-server/Dockerfile" \
+  && grep -q 'AS static-amd64' "${REPO_ROOT}/components/api-server/Dockerfile" \
+  && grep -q 'AS static-arm64' "${REPO_ROOT}/components/api-server/Dockerfile" \
+  && grep -q 'AS go-amd64' "${REPO_ROOT}/components/control-plane/Dockerfile" \
+  && grep -q 'AS go-arm64' "${REPO_ROOT}/components/control-plane/Dockerfile" \
+  && grep -q 'AS build-amd64' "${REPO_ROOT}/components/web-console/Dockerfile" \
+  && grep -q 'AS build-arm64' "${REPO_ROOT}/components/web-console/Dockerfile" \
+  && grep -q 'AS runtime-amd64' "${REPO_ROOT}/components/web-console/Dockerfile" \
+  && grep -q 'AS runtime-arm64' "${REPO_ROOT}/components/web-console/Dockerfile"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap Dockerfiles do not pin HI bases per amd64 and arm64'
+fi
 if grep -q 'GOARCH="${TARGETARCH' "${REPO_ROOT}/components/api-server/Dockerfile" \
   && grep -q 'GOARCH="${TARGETARCH' "${REPO_ROOT}/components/control-plane/Dockerfile"; then
   PASS=$((PASS + 1))
