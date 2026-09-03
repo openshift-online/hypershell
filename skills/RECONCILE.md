@@ -50,7 +50,7 @@ skills/
 
 **Last analyzed**: 2026-09-03 (scoped analysis of the CP-OBS-07 Gateway provision-duration changes; the last full-corpus analysis remains 2026-08-31)
 **Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console and OpenShift Development
-**Codebase commit**: `a9f707c` plus the CP-OBS-GPD-W1 reconciliation changes in the working tree
+**Codebase commit**: `b97a99d` (CP-OBS-GPD-W1 complete)
 
 ### Coverage Summary
 
@@ -772,7 +772,7 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
-| 2026-09-03 | `a9f707c` plus working tree | Reconciled the CP-OBS-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
+| 2026-09-03 | `b97a99d` | Reconciled the CP-OBS-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
 | 2026-08-31 | working tree | Completed Keycloak event-storm KC-ES-W1 | 82% | Corrected the token lifetime unit, reused tokens until the 80 percent threshold, accepted the provider-managed service-account scope, rejected all other client scopes, and added regression tests. OI-7 and SA-14 are present. |
 | 2026-08-31 | 9ac4354 | Keycloak event-storm scoped gap analysis | 82% | Found two partial requirements: the token cache uses nanoseconds for `expires_in`, and service-account convergence rejects Keycloak's built-in scope. Planned control-plane wave KC-ES-W1. |
 | 2026-08-27 | 9984ed0 | Completed Gateway Console GC-W1 | 82% | Added mode-selected Route exposure, admission readiness, lifecycle cleanup, custom-host RBAC, and tests. All nine console requirements are present. |
