@@ -57,9 +57,11 @@ Namespace creation and provisioning mechanics are defined in
   namespaces (`openshell-db-<hex>`). A namespace owned by a different instance is
   never listed, annotated, or reaped. A gateway namespace that carries both
   management labels but no instance label is unlabeled leftover. Periodic GC
-  SHALL leave it unlabeled. An operator labels it for the owning instance when
-  they want that instance's sweep to consider it. ManagedDatabase namespaces and
-  namespaces already labeled for another instance are never claimed.
+  SHALL leave it unlabeled. A namespace still recorded by a live Gateway in this
+  instance's API server is claimed for this instance by the startup backfill (see
+  "Backfill Instance Labels on Startup") and by live reconcile; an unlabeled
+  leftover with no such Gateway is claimed only by an operator. ManagedDatabase
+  namespaces and namespaces already labeled for another instance are never claimed.
   A Gateway pointed at a pre-existing or shared namespace can never cause that
   namespace to be reaped.
 - **Orphaned namespace** - a gateway namespace (matching the gateway prefix, not
@@ -280,6 +282,57 @@ controllers on the same cluster SHALL NOT share an instance identity.
 - THEN it SHALL NOT overwrite the instance label
 - AND it SHALL NOT deploy into or delete that namespace
 
+### Requirement: Backfill Instance Labels on Startup
+
+On startup, before the periodic garbage collector's first sweep, the control
+plane SHALL stamp `hypershell.redhat.io/instance` onto the legacy gateway
+namespaces it still owns per its API server, so periodic GC can reclaim them once
+their Gateway is deleted. The backfill is required because the reconciler's phase
+gate skips reconciliation of a Gateway already in a steady-state phase
+(`Running`/`Provisioning`/`Degraded`) on (re)start, so `EnsureManagedNamespace`
+never runs for it and its pre-label namespace would otherwise never gain the
+instance label; a later missed-delete would then leak that namespace past the
+instance-scoped sweep.
+
+The backfill SHALL be driven from the Gateway inventory in this instance's API
+server: for each Gateway that records a namespace, it stamps the instance label
+onto that namespace only if the namespace already carries both management labels
+and no instance label. It SHALL NOT create a namespace, SHALL NOT touch a
+namespace lacking the management labels, and SHALL NOT overwrite an instance
+label that already identifies a different instance. It SHALL be idempotent and
+best-effort: a per-namespace failure is recorded and the backfill continues, and
+a failure of the whole backfill SHALL NOT block controller startup (the periodic
+sweep still functions for already-labeled namespaces and the backfill is retried
+on the next restart).
+
+A namespace already orphaned before this instance ever labeled it (no Gateway
+records its name, only the two management labels) cannot be reclaimed by the
+backfill: on a shared cluster it is indistinguishable from a namespace another
+HyperShell owns, so claiming it is unsafe. Such namespaces require manual
+cleanup.
+
+#### Scenario: Startup backfill labels a live gateway's legacy namespace
+
+- GIVEN a namespace that carries the two management labels but no instance label
+- AND a live Gateway in this instance's API server records that namespace
+- WHEN the control plane starts and runs the instance-label backfill
+- THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance onto that
+  namespace
+
+#### Scenario: Startup backfill does not claim a foreign or unmanaged namespace
+
+- GIVEN a live Gateway in this instance's API server records a namespace
+- AND that namespace either carries `hypershell.redhat.io/instance` for a
+  different instance, or lacks the management labels
+- WHEN the control plane runs the instance-label backfill
+- THEN it SHALL NOT stamp or overwrite the instance label on that namespace
+
+#### Scenario: Startup backfill never creates a namespace
+
+- GIVEN a live Gateway that records a namespace which does not exist on the cluster
+- WHEN the control plane runs the instance-label backfill
+- THEN it SHALL NOT create that namespace
+
 ### Requirement: Grace Period Prevents Premature Deletion
 
 The control plane SHALL NOT delete an orphaned namespace immediately. It SHALL
@@ -417,7 +470,8 @@ real-time guarantee.
 | Require this instance's identity label before periodic GC | Two HyperShell controllers on one cluster share the generic management labels. Without a value unique to that controller (`hypershell.redhat.io/instance=<the controller's namespace>`), instance B's sweep treats instance A's live gateways as orphans (they are absent from B's API server) and would delete them after the grace period. The identity is the controller pod's namespace from the downward API so it cannot be a copied static string. |
 | Periodic GC never claims unlabeled legacy gateway namespaces | An earlier design had each sweep stamp the instance label onto unlabeled leftovers before evaluating them for orphaning, so a missed-delete orphan predating the instance label would not leak forever. In practice this reclaimed the label on every sweep for a namespace whose instance label never durably stuck (e.g. a naming or list-vs-read inconsistency), which reset `gc-eligible-since` to "now" on every tick and made the namespace look freshly orphaned forever, so it was never reaped. Claiming unlabeled leftovers is now an explicit operator action instead. |
 | Require BOTH management labels plus this instance's identity before deleting | Defense in depth: even if a label selector over-returns, a namespace not created by this control-plane instance (another HyperShell, a shared namespace, or a pre-existing namespace) is never deleted by periodic GC. |
-| Stamp the instance label on create and on live reconcile only | Periodic GC can only reap namespaces this instance labeled. Stamping at create covers new gateways; stamping on live reconcile migrates this instance's still-live pre-label namespaces. Unlabeled leftovers with no live Gateway stay unlabeled and excluded from GC until an operator labels them. |
+| Stamp the instance label on create, on live reconcile, and via a startup backfill | Periodic GC can only reap namespaces this instance labeled. Stamping at create covers new gateways; stamping on live reconcile migrates pre-label namespaces as gateways reconcile. But the reconciler's phase gate skips a Gateway already in a steady-state phase on (re)start, so live reconcile alone never migrates a Running gateway's legacy namespace. A one-shot startup backfill, driven from the Gateway inventory, closes that gap before the first sweep. Unlabeled leftovers with no live Gateway stay unlabeled and excluded from GC until an operator labels them. |
+| Startup backfill is DB-driven and cannot reclaim already-orphaned unlabeled namespaces | The backfill only ever labels namespaces a Gateway in this instance's API server records, so on a shared cluster it never touches a namespace another HyperShell owns. A namespace already orphaned before the instance label existed has no Gateway recording it and only the two generic management labels, making it indistinguishable from another HyperShell's namespace; claiming it is unsafe, so it is left for manual cleanup. An earlier attempt to reclaim such namespaces from cluster state alone was abandoned as too error-prone for exactly this reason. |
 | Grace period persisted on the namespace annotation | The delay must survive control-plane restarts; storing `gc-eligible-since` on the namespace makes the timer durable without a separate store. |
 | Abort the whole sweep if Gateways cannot be listed | An empty or failed Gateway list would make every managed namespace look orphaned; aborting is the only safe response to avoid mass reaping of live namespaces. |
 | Delete is best-effort and not gated on sandbox count | Deletion is idempotent - process the delete, remove the namespace, and if it is already gone consider the delete done. The sandbox count is a warning surfaced to the operator, not a backend precondition. |

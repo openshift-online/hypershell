@@ -265,6 +265,100 @@ func TestEnsureManagedNamespace(t *testing.T) {
 	})
 }
 
+func TestBackfillInstanceLabel(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("stamps instance on legacy managed namespace", func(t *testing.T) {
+		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "", nil))
+		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gw", "hypershell")
+		if err != nil {
+			t.Fatalf("BackfillInstanceLabel() error = %v", err)
+		}
+		if !labeled {
+			t.Errorf("labeled = false, want true for legacy namespace")
+		}
+		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-gw", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get namespace: %v", err)
+		}
+		if got.Labels[InstanceLabel] != "hypershell" {
+			t.Errorf("instance label = %q, want hypershell", got.Labels[InstanceLabel])
+		}
+		if got.Labels[ManagedLabel] != ManagedLabelValue || got.Labels[ManagedByLabel] != ManagedByValue {
+			t.Errorf("management labels lost during patch: %v", got.Labels)
+		}
+	})
+
+	t.Run("is a no-op when already labeled for this instance", func(t *testing.T) {
+		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "hypershell", nil))
+		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gw", "hypershell")
+		if err != nil {
+			t.Fatalf("BackfillInstanceLabel() error = %v", err)
+		}
+		if labeled {
+			t.Errorf("labeled = true, want false when label already present")
+		}
+	})
+
+	t.Run("never overwrites a foreign instance label", func(t *testing.T) {
+		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "stage", nil))
+		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gw", "hypershell")
+		if err != nil {
+			t.Fatalf("BackfillInstanceLabel() error = %v", err)
+		}
+		if labeled {
+			t.Errorf("labeled = true, want false for foreign instance")
+		}
+		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-gw", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get namespace: %v", err)
+		}
+		if got.Labels[InstanceLabel] != "stage" {
+			t.Errorf("instance label overwritten to %q, want stage", got.Labels[InstanceLabel])
+		}
+	})
+
+	t.Run("skips a namespace without management labels", func(t *testing.T) {
+		unmanaged := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "openshell-gw"}}
+		client := fake.NewSimpleClientset(unmanaged)
+		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gw", "hypershell")
+		if err != nil {
+			t.Fatalf("BackfillInstanceLabel() error = %v", err)
+		}
+		if labeled {
+			t.Errorf("labeled = true, want false for a namespace lacking management labels")
+		}
+		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-gw", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get namespace: %v", err)
+		}
+		if _, ok := got.Labels[InstanceLabel]; ok {
+			t.Errorf("instance label stamped on an unmanaged namespace: %v", got.Labels)
+		}
+	})
+
+	t.Run("never creates an absent namespace", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		labeled, err := BackfillInstanceLabel(ctx, client, "openshell-gone", "hypershell")
+		if err != nil {
+			t.Fatalf("BackfillInstanceLabel() error = %v", err)
+		}
+		if labeled {
+			t.Errorf("labeled = true, want false for an absent namespace")
+		}
+		if _, err := client.CoreV1().Namespaces().Get(ctx, "openshell-gone", metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+			t.Errorf("namespace was created by backfill, err = %v", err)
+		}
+	})
+
+	t.Run("refuses an empty instance identity", func(t *testing.T) {
+		client := fake.NewSimpleClientset(managedNamespaceForInstance("openshell-gw", "", nil))
+		if _, err := BackfillInstanceLabel(ctx, client, "openshell-gw", ""); err == nil {
+			t.Fatalf("BackfillInstanceLabel() error = nil, want empty instance error")
+		}
+	})
+}
+
 func TestMarkGCEligible(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)

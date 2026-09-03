@@ -26,6 +26,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountprovisioner"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/supervisor"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,41 +35,13 @@ import (
 
 const defaultManifestsDir = "/manifests/gateway"
 
+// instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
+// this instance's identity label onto its legacy gateway namespaces, so a stalled
+// API server or apiserver cannot delay the GC reconciler's launch indefinitely.
+const instanceLabelBackfillTimeout = 2 * time.Minute
+
 func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
 	return clientset != nil && dynamicClient != nil
-}
-
-// supervisedRestartCap bounds the backoff between restarts of a supervised
-// background component, matching the cap watchLoop uses for stream
-// reconnects.
-const supervisedRestartCap = 30 * time.Second
-
-// runSupervised runs fn in a loop so a failure in one background component
-// (a watch stream, a reconciler's Run loop, the service-account provisioner)
-// cannot take down the others by exiting the whole process. Every fn here is
-// expected to block until ctx is done and return ctx.Err() at that point,
-// exactly as watchLoop and the reconciler Run methods already do; a return
-// before then is treated as a failure of that component alone; it is retried
-// with the same capped exponential backoff watchLoop uses for stream
-// reconnects rather than propagated to the process.
-func runSupervised(ctx context.Context, name string, fn func(context.Context) error) {
-	backoff := time.Second
-	for {
-		err := fn(ctx)
-		if err == nil || ctx.Err() != nil {
-			return
-		}
-		log.Printf("WARN %s exited with error, restarting in %s: %v", name, backoff, err)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-		if backoff > supervisedRestartCap {
-			backoff = supervisedRestartCap
-		}
-	}
 }
 
 func main() {
@@ -270,7 +243,7 @@ func main() {
 		watchCount++
 	}
 
-	// Each background component below runs under runSupervised on its own
+	// Each background component below runs under supervisor.Run on its own
 	// goroutine: a failure in one (a dropped watch stream, a reconciler's Run
 	// loop returning, the service-account provisioner's listener dying) is
 	// logged and retried in place, and never takes the others down with it.
@@ -279,7 +252,7 @@ func main() {
 	var wg sync.WaitGroup
 	supervise := func(name string, fn func(context.Context) error) {
 		wg.Go(func() {
-			runSupervised(ctx, name, fn)
+			supervisor.Run(ctx, name, fn)
 		})
 	}
 
@@ -349,6 +322,17 @@ func main() {
 	// while the control plane was down, or a gateway that failed to bootstrap).
 	// It requires an in-cluster Kubernetes client.
 	if clientset != nil && cfg.NamespaceGCEnabled {
+		// Before the first sweep, backfill this instance's identity label onto the
+		// legacy gateway namespaces it still owns per its API server. A Gateway in
+		// a steady-state phase is skipped by the reconciler's phase gate on start,
+		// so its pre-label namespace is otherwise never migrated and a later
+		// missed-delete would leak it past the instance-scoped sweep. This runs
+		// synchronously so the first sweep sees the freshly-labeled namespaces; it
+		// is best-effort and never blocks startup on failure.
+		backfillCtx, cancelBackfill := context.WithTimeout(ctx, instanceLabelBackfillTimeout)
+		reconciler.RunInstanceLabelBackfill(backfillCtx, clientset, conn, cfg.Namespace)
+		cancelBackfill()
+
 		gcReconciler := reconciler.NewNamespaceGCReconciler(
 			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace,
 		)

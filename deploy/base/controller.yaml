@@ -55,6 +55,10 @@ spec:
           ports:
             - containerPort: 9443
               name: provisioner
+          # These probes are coupled to the service account provisioner port (9443).
+          # If HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS is ever empty,
+          # the provisioner is disabled, nothing binds port 9443, and the controller will fail probes.
+          # Overlays that disable the provisioner must also override or remove these probes.
           startupProbe:
             tcpSocket:
               port: provisioner
