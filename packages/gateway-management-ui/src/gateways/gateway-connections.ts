@@ -133,15 +133,19 @@ export function buildSandboxCreateCommand(
     },
   });
 
-  return [
+  const variable = `DRIVER_CONFIG='${driverConfig}'`;
+
+  const command = [
     "openshell sandbox create",
     `--name ${name}`,
-    `--driver-config-json '${driverConfig}'`,
+    '--driver-config-json "$DRIVER_CONFIG"',
     "--env=ANTHROPIC_BASE_URL=https://inference.local",
     "--env=ANTHROPIC_API_KEY=unused",
     "--no-auto-providers",
     `-- claude --bare --model ${model}`,
   ].join(" \\\n  ");
+
+  return `${variable}\n\n${command}`;
 }
 
 /**

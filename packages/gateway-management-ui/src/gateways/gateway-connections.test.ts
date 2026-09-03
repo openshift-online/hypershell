@@ -150,21 +150,21 @@ describe("gateway connections", () => {
 
   it("creates a sandbox that runs claude against the local inference endpoint", () => {
     const driverConfig =
-      '\'{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}\'';
+      'DRIVER_CONFIG=\'{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}\'';
 
     expect(buildSandboxCreateCommand()).toBe(
-      `openshell sandbox create \\
+      `${driverConfig}\n\nopenshell sandbox create \\
   --name ${sandboxName} \\
-  --driver-config-json ${driverConfig} \\
+  --driver-config-json "$DRIVER_CONFIG" \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
   -- claude --bare --model ${claudeModel}`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
-      `openshell sandbox create \\
+      `${driverConfig}\n\nopenshell sandbox create \\
   --name demo \\
-  --driver-config-json ${driverConfig} \\
+  --driver-config-json "$DRIVER_CONFIG" \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
