@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="HyperShell architecture site generator">
+  <title>Gateway workload · HyperShell architecture atlas</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="site-header"><div class="header-inner">
+  <p class="eyebrow">HyperShell architecture atlas</p>
+  <h1>Gateway workload</h1>
+  <p class="lede">Each Gateway receives an API-assigned namespace containing the OpenShell Gateway, its Supervisor, dynamic Sandboxes, security policy, certificates, and access configuration.</p>
+  <nav class="page-nav" aria-label="Architecture pages"><a href="index.html">Overview</a><a href="api-server.html">API server</a><a href="client-surfaces.html">Clients and SDKs</a><a href="control-plane.html">Control plane</a><a href="data-plane.html">Database architecture</a><a href="delivery.html">Provisioning and delivery</a><a href="domain-model.html">Domain model</a><a href="gateway-workload.html">Gateway workload</a><a href="identity.html">Identity and access</a><a href="ingress.html">Gateway ingress</a><a href="observability.html">Observability</a><a href="platform-topology.html">Platform topology</a><a href="web-console.html">Web console</a></nav>
+</div></header>
+<main><p class="breadcrumb"><a href="index.html">Architecture atlas</a> / View</p><p class="meta">Authoritative source: <code>specs/platform/openshell-gateway.spec.md; specs/platform/openshell-gateway-sandbox-count.spec.md</code></p><h3>Namespace-per-Gateway is the isolation and lifecycle boundary. The control plane owns the Kubernetes resources; the Gateway owns sandbox runtime state.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1430.5121666666666 855.5999999999999" width="1430.5121666666666" height="855.5999999999999" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<g class="subgraph" data-id="NS" data-label="openshell-&lt;gateway-id&gt; tenant namespace">
+  <rect x="40" y="130.9" width="1350.5121666666666" height="494.6" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="40" y="130.9" width="1350.5121666666666" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="52" y="144.9" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">openshell-&lt;gateway-id&gt; tenant namespace</text>
+</g>
+<polyline class="edge" data-from="GW" data-to="DB" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="OPENSHELL_DB_URL" points="640.6931666666666,398.79999999999995 640.6931666666666,410.79999999999995 638.2131666666666,410.79999999999995 638.2131666666666,747.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CERT" data-to="TLS" data-style="dotted" data-arrow-start="false" data-arrow-end="true" points="1325.7018333333333,76.9 1325.7018333333333,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="AGENT" data-to="S1" data-style="dotted" data-arrow-start="false" data-arrow-end="true" points="697.4396666666667,76.9 697.4396666666665,174.9" fill="none" stroke="var(--_line)" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="SUP" data-style="solid" data-arrow-start="false" data-arrow-end="false" points="550.8931666666666,398.79999999999995 550.8931666666666,410.79999999999995 135.14350000000002,410.79999999999995 135.14350000000002,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" />
+<polyline class="edge" data-from="GW" data-to="SVC" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="694.5731666666666,398.79999999999995 694.5731666666666,422.79999999999995 1123.9016666666666,422.79999999999995 1123.9016666666666,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="CFG" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="568.8531666666667,398.79999999999995 568.8531666666667,422.79999999999995 300.31199999999995,422.79999999999995 300.31199999999995,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="TLS" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="712.5331666666666,398.79999999999995 712.5331666666666,410.79999999999995 1276.8915,410.79999999999995 1276.8915,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="JWT" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="604.7731666666666,398.79999999999995 604.7731666666666,446.79999999999995 520.0804999999999,446.79999999999995 520.0804999999999,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="RBAC" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="676.6131666666665,398.79999999999995 676.6131666666665,434.79999999999995 917.6076666666665,434.79999999999995 917.6076666666665,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="NP" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="658.6531666666666,398.79999999999995 658.6531666666666,446.79999999999995 718.3531666666665,446.79999999999995 718.3531666666665,470.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="S1" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="651.4691666666665,328.1 651.4691666666665,292.1 677.1896666666665,292.1 677.1896666666665,223.8 680.6914999999999,223.8 680.6914999999999,211.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="S2" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="611.9571666666666,328.1 611.9571666666666,292.1 586.4836666666665,292.1 586.4836666666665,223.8 584.2168333333333,223.8 584.2168333333333,211.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GW" data-to="SN" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="622.7331666666665,398.79999999999995 622.7331666666665,458.79999999999995 598.8499999999999,458.79999999999995 598.8499999999999,536.6 529.7066666666666,536.6 529.7066666666666,572.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S1" data-to="GW" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="SSH :2222" points="714.1878333333332,211.8 714.1878333333332,223.8 717.6896666666665,223.8 717.6896666666665,292.1 690.9811666666666,292.1 690.9811666666666,328.1" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S2" data-to="GW" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="gRPC" points="549.2384999999999,211.8 549.2384999999999,223.8 552.4906666666666,223.8 552.4906666666666,292.1 572.4451666666666,292.1 572.4451666666666,328.1" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SN" data-to="GW" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="gRPC" points="473.9803333333333,572.6 473.9803333333333,536.6 404.83699999999993,536.6 404.83699999999993,434.79999999999995 586.8131666666666,434.79999999999995 586.8131666666666,398.79999999999995" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="GW" data-to="DB" data-label="OPENSHELL_DB_URL">
+  <rect x="573.2131666666664" y="674.5" width="129.322" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="637.8741666666665" y="689.65" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">OPENSHELL_DB_URL</text>
+</g>
+<g class="edge-label" data-from="S1" data-to="GW" data-label="SSH :2222">
+  <rect x="684.1896666666665" y="254.80000000000004" width="66.952" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="717.6656666666665" y="269.95000000000005" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">SSH :2222</text>
+</g>
+<g class="edge-label" data-from="S2" data-to="GW" data-label="gRPC">
+  <rect x="529.9906666666666" y="254.80000000000004" width="44.974000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="552.4776666666666" y="269.95000000000005" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">gRPC</text>
+</g>
+<g class="edge-label" data-from="SN" data-to="GW" data-label="gRPC">
+  <rect x="382.33699999999993" y="482.54999999999995" width="44.974000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="404.82399999999996" y="497.69999999999993" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">gRPC</text>
+</g>
+<g class="node" data-id="DB" data-label="ManagedDatabase
+logical gateway DB" data-shape="cylinder">
+  <rect x="561.2926666666666" y="754.8" width="153.84099999999998" height="53.80000000000001" fill="#d4edda" stroke="none" />
+  <line x1="561.2926666666666" y1="754.8" x2="561.2926666666666" y2="808.5999999999999" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <line x1="715.1336666666666" y1="754.8" x2="715.1336666666666" y2="808.5999999999999" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="638.2131666666666" cy="808.5999999999999" rx="76.92049999999999" ry="7" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="638.2131666666666" cy="754.8" rx="76.92049999999999" ry="7" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="638.2131666666666" y="781.6999999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="638.2131666666666" dy="-3.9000000000000012">ManagedDatabase</tspan><tspan x="638.2131666666666" dy="16.900000000000002">logical gateway DB</tspan></text>
+</g>
+<g class="node" data-id="CERT" data-label="cert-manager" data-shape="rectangle">
+  <rect x="1265.0833333333333" y="40" width="121.237" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1325.7018333333333" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">cert-manager</text>
+</g>
+<g class="node" data-id="AGENT" data-label="Agent Sandbox controller" data-shape="rectangle">
+  <rect x="601.6236666666666" y="40" width="191.63199999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="697.4396666666667" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Agent Sandbox controller</text>
+</g>
+<g class="node" data-id="GW" data-label="OpenShell Gateway
+Deployment :8080 gRPC
+:8081 health · :9090 metrics" data-shape="rectangle">
+  <rect x="532.9331666666666" y="328.1" width="197.55999999999997" height="70.7" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="631.7131666666666" y="363.45000000000005" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="631.7131666666666" dy="-12.350000000000001">OpenShell Gateway</tspan><tspan x="631.7131666666666" dy="16.900000000000002">Deployment :8080 gRPC</tspan><tspan x="631.7131666666666" dy="16.900000000000002">:8081 health · :9090 metrics</tspan></text>
+</g>
+<g class="node" data-id="SUP" data-label="Supervisor sidecar" data-shape="rectangle">
+  <rect x="56" y="470.79999999999995" width="158.287" height="36.900000000000006" rx="0" ry="0" fill="#fff3cd" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="135.14350000000002" y="489.24999999999994" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Supervisor sidecar</text>
+</g>
+<g class="node" data-id="S1" data-label="Sandbox 1" data-shape="rectangle">
+  <rect x="647.1951666666665" y="174.9" width="100.489" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="697.4396666666665" y="193.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Sandbox 1</text>
+</g>
+<g class="node" data-id="S2" data-label="Sandbox 2" data-shape="rectangle">
+  <rect x="514.2601666666666" y="174.9" width="104.93499999999999" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="566.7276666666666" y="193.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Sandbox 2</text>
+</g>
+<g class="node" data-id="SN" data-label="Sandbox N · dynamic" data-shape="rectangle">
+  <rect x="418.2539999999999" y="572.6" width="167.17899999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="501.8434999999999" y="591.0500000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Sandbox N · dynamic</text>
+</g>
+<g class="node" data-id="SVC" data-label="openshell-gateway
+ClusterIP Service" data-shape="rectangle">
+  <rect x="1047.7221666666665" y="470.79999999999995" width="152.359" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1123.9016666666664" y="497.69999999999993" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="1123.9016666666664" dy="-3.9000000000000012">openshell-gateway</tspan><tspan x="1123.9016666666664" dy="16.900000000000002">ClusterIP Service</tspan></text>
+</g>
+<g class="node" data-id="CFG" data-label="ConfigMap
+gateway.toml" data-shape="rectangle">
+  <rect x="242.28699999999998" y="470.79999999999995" width="116.05" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="300.31199999999995" y="497.69999999999993" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="300.31199999999995" dy="-3.9000000000000012">ConfigMap</tspan><tspan x="300.31199999999995" dy="16.900000000000002">gateway.toml</tspan></text>
+</g>
+<g class="node" data-id="TLS" data-label="TLS Secrets
+server + client CA" data-shape="rectangle">
+  <rect x="1228.0811666666666" y="470.79999999999995" width="146.43099999999998" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1301.2966666666666" y="497.69999999999993" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="1301.2966666666666" dy="-3.9000000000000012">TLS Secrets</tspan><tspan x="1301.2966666666666" dy="16.900000000000002">server + client CA</tspan></text>
+</g>
+<g class="node" data-id="JWT" data-label="JWT key Secret" data-shape="rectangle">
+  <rect x="451.3109999999999" y="470.79999999999995" width="137.539" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="520.0804999999999" y="489.24999999999994" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">JWT key Secret</text>
+</g>
+<g class="node" data-id="RBAC" data-label="ServiceAccounts · Roles
+RoleBindings · SCC binding" data-shape="rectangle">
+  <rect x="815.4931666666665" y="470.79999999999995" width="204.22899999999996" height="53.800000000000004" rx="0" ry="0" fill="#f8d7da" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="917.6076666666665" y="497.69999999999993" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="917.6076666666665" dy="-3.9000000000000012">ServiceAccounts · Roles</tspan><tspan x="917.6076666666665" dy="16.900000000000002">RoleBindings · SCC binding</tspan></text>
+</g>
+<g class="node" data-id="NP" data-label="NetworkPolicies" data-shape="rectangle">
+  <rect x="649.2131666666666" y="470.79999999999995" width="138.28000000000003" height="36.900000000000006" rx="0" ry="0" fill="#f8d7da" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="718.3531666666665" y="489.24999999999994" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">NetworkPolicies</text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>graph TB
+  subgraph NS[openshell-&lt;gateway-id&gt; tenant namespace]
+    GW[OpenShell Gateway&lt;br/&gt;Deployment :8080 gRPC&lt;br/&gt;:8081 health · :9090 metrics]
+    SUP[Supervisor sidecar]
+    S1[Sandbox 1]
+    S2[Sandbox 2]
+    SN[Sandbox N · dynamic]
+    SVC[openshell-gateway&lt;br/&gt;ClusterIP Service]
+    CFG[ConfigMap&lt;br/&gt;gateway.toml]
+    TLS[TLS Secrets&lt;br/&gt;server + client CA]
+    JWT[JWT key Secret]
+    RBAC[ServiceAccounts · Roles&lt;br/&gt;RoleBindings · SCC binding]
+    NP[NetworkPolicies]
+    GW --- SUP
+    GW --&gt; SVC
+    GW --&gt; CFG
+    GW --&gt; TLS
+    GW --&gt; JWT
+    GW --&gt; RBAC
+    GW --&gt; NP
+    GW --&gt; S1
+    GW --&gt; S2
+    GW --&gt; SN
+    S1 --&gt;|SSH :2222| GW
+    S2 --&gt;|gRPC| GW
+    SN --&gt;|gRPC| GW
+  end
+  DB[(ManagedDatabase&lt;br/&gt;logical gateway DB)]
+  GW --&gt;|OPENSHELL_DB_URL| DB
+  CERT[cert-manager] -.-&gt; TLS
+  AGENT[Agent Sandbox controller] -.-&gt; S1
+  style NS fill:#f5f8fa
+  style GW fill:#cce5ff
+  style SUP fill:#fff3cd
+  style DB fill:#d4edda
+  style RBAC fill:#f8d7da
+  style NP fill:#f8d7da</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section></main>
+<footer class="site-footer"><div class="site-footer-inner">Diagrams are rendered as inline SVG with <a href="https://github.com/lukilabs/beautiful-mermaid" rel="noreferrer">beautiful-mermaid</a>, the open-source renderer behind Craft's <a href="https://agents.craft.do/mermaid" rel="noreferrer">Mermaid renderer</a>. Mermaid source is included on every page for review and editing.</div></footer>
+</body>
+</html>

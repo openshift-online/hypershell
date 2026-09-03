@@ -2,6 +2,10 @@
 
 HyperShell provisions and manages [OpenShell](https://github.com/NVIDIA/OpenShell) gateways at scale and across clouds.
 
+## Architecture atlas
+
+Open the [hosted HyperShell architecture atlas](https://openshift-online.github.io/hypershell/) or the local [static architecture atlas](docs/architecture/index.html) for rendered diagrams covering the platform topology, API server, control plane, tenant Gateway workload, clients and SDKs, data, ingress, identity, web console, observability, delivery, and domain model. Each page includes its Mermaid source and repository specification citations.
+
 ## Kubernetes Prerequisites
 
 The control plane requires the following resources to be present on the target cluster before it can fully reconcile gateways.
