@@ -1,0 +1,87 @@
+name: Architecture site
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/architecture-site.yml'
+      - 'docs/architecture/**'
+      - 'specs/**'
+      - 'components/**/CLAUDE.md'
+      - 'packages/**/README.md'
+      - 'tools/architecture-site/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.node-version'
+  pull_request:
+    paths:
+      - '.github/workflows/architecture-site.yml'
+      - 'docs/architecture/**'
+      - 'specs/**'
+      - 'components/**/CLAUDE.md'
+      - 'packages/**/README.md'
+      - 'tools/architecture-site/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.node-version'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11.15.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - name: Install architecture-site dependencies
+        run: pnpm install --frozen-lockfile --filter @openshift-online/hypershell-architecture-site
+
+      - name: Validate architecture sources
+        run: pnpm run check:architecture
+
+      - name: Build architecture site
+        run: pnpm run build:architecture
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: dist/architecture
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

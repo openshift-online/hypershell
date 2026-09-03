@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="HyperShell architecture site generator">
+  <title>Clients and SDKs · HyperShell architecture atlas</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="site-header"><div class="header-inner">
+  <p class="eyebrow">HyperShell architecture atlas</p>
+  <h1>Clients and SDKs</h1>
+  <p class="lede">HyperShell exposes the same management API to the Go CLI, Go SDK, TypeScript SDK, and browser-facing web console while keeping transport and authentication boundaries explicit.</p>
+  <nav class="page-nav" aria-label="Architecture pages"><a href="index.html">Overview</a><a href="api-server.html">API server</a><a href="client-surfaces.html">Clients and SDKs</a><a href="control-plane.html">Control plane</a><a href="data-plane.html">Database architecture</a><a href="delivery.html">Provisioning and delivery</a><a href="domain-model.html">Domain model</a><a href="gateway-workload.html">Gateway workload</a><a href="identity.html">Identity and access</a><a href="ingress.html">Gateway ingress</a><a href="observability.html">Observability</a><a href="platform-topology.html">Platform topology</a><a href="web-console.html">Web console</a></nav>
+</div></header>
+<main><p class="breadcrumb"><a href="index.html">Architecture atlas</a> / View</p><p class="meta">Authoritative source: <code>components/cli/; components/sdk-go/; components/sdk-typescript/; specs/web-console/architecture.spec.md</code></p><h3>Client surfaces converge on the versioned REST API. The web console uses the generated TypeScript SDK only through its host adapter; the BFF owns browser authentication.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 794 500.1" width="794" height="500.1" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="USER" data-to="CLI" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="369.6686666666667,76.9 369.6686666666667,94.9 121.737,94.9 121.737,112.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="USER" data-to="WEB" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="369.6686666666667,76.9 369.6686666666667,94.9 530.7692499999999,94.9 530.7692499999999,112.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CLI" data-to="API" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="121.737,166.70000000000002 121.737,286.5 208.546,286.5 208.546,304.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GOSDK" data-to="API" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="208.546,268.5 208.546,286.5 208.546,286.5 208.546,304.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="WEB" data-to="TSSDK" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="530.7692499999999,166.70000000000002 530.7692499999999,190.70000000000002 413.358,190.70000000000002 413.358,214.70000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="WEB" data-to="BFF" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="530.7692499999999,166.70000000000002 530.7692499999999,190.70000000000002 648.1804999999999,190.70000000000002 648.1804999999999,214.70000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="BFF" data-to="API" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="648.1804999999999,268.5 648.1804999999999,286.5 208.546,286.5 208.546,304.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="API" data-to="DATA" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="208.546,358.30000000000007 208.546,406.30000000000007" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="node" data-id="USER" data-label="Operator or automation" data-shape="rectangle">
+  <rect x="282.0036666666667" y="40" width="175.32999999999998" height="36.900000000000006" rx="0" ry="0" fill="#e1f5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="369.6686666666667" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Operator or automation</text>
+</g>
+<g class="node" data-id="CLI" data-label="hsctl CLI
+Go HTTP connection" data-shape="rectangle">
+  <rect x="40" y="112.9" width="163.474" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="121.737" y="139.8" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="121.737" dy="-3.9000000000000012">hsctl CLI</tspan><tspan x="121.737" dy="16.900000000000002">Go HTTP connection</tspan></text>
+</g>
+<g class="node" data-id="GOSDK" data-label="Generated Go SDK
+client + types" data-shape="rectangle">
+  <rect x="132.737" y="214.70000000000002" width="151.618" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="208.546" y="241.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="208.546" dy="-3.9000000000000012">Generated Go SDK</tspan><tspan x="208.546" dy="16.900000000000002">client + types</tspan></text>
+</g>
+<g class="node" data-id="TSSDK" data-label="Generated TypeScript SDK
+Fetch-compatible ESM" data-shape="rectangle">
+  <rect x="312.355" y="214.70000000000002" width="202.00599999999994" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="413.358" y="241.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="413.358" dy="-3.9000000000000012">Generated TypeScript SDK</tspan><tspan x="413.358" dy="16.900000000000002">Fetch-compatible ESM</tspan></text>
+</g>
+<g class="node" data-id="WEB" data-label="React web console
+Gateway Management UI" data-shape="rectangle">
+  <rect x="439.02875" y="112.9" width="183.48099999999994" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="530.7692499999999" y="139.8" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="530.7692499999999" dy="-3.9000000000000012">React web console</tspan><tspan x="530.7692499999999" dy="16.900000000000002">Gateway Management UI</tspan></text>
+</g>
+<g class="node" data-id="BFF" data-label="Fastify BFF
+relative /api + session cookie" data-shape="rectangle">
+  <rect x="542.361" y="214.70000000000002" width="211.639" height="53.800000000000004" rx="0" ry="0" fill="#fff3cd" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="648.1804999999999" y="241.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="648.1804999999999" dy="-3.9000000000000012">Fastify BFF</tspan><tspan x="648.1804999999999" dy="16.900000000000002">relative /api + session cookie</tspan></text>
+</g>
+<g class="node" data-id="API" data-label="HyperShell REST API
+/api/hypershell/v1" data-shape="rectangle">
+  <rect x="123.84500000000003" y="304.5" width="169.40199999999996" height="53.800000000000004" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="208.546" y="331.4" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="208.546" dy="-3.9000000000000012">HyperShell REST API</tspan><tspan x="208.546" dy="16.900000000000002">/api/hypershell/v1</tspan></text>
+</g>
+<g class="node" data-id="DATA" data-label="Typed resource contracts
+CRUD + pagination + errors" data-shape="rectangle">
+  <rect x="107.543" y="406.30000000000007" width="202.00599999999997" height="53.800000000000004" rx="0" ry="0" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="208.546" y="433.20000000000005" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="208.546" dy="-3.9000000000000012">Typed resource contracts</tspan><tspan x="208.546" dy="16.900000000000002">CRUD + pagination + errors</tspan></text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>graph TB
+  USER[Operator or automation]
+  CLI[hsctl CLI&lt;br/&gt;Go HTTP connection]
+  GOSDK[Generated Go SDK&lt;br/&gt;client + types]
+  TSSDK[Generated TypeScript SDK&lt;br/&gt;Fetch-compatible ESM]
+  WEB[React web console&lt;br/&gt;Gateway Management UI]
+  BFF[Fastify BFF&lt;br/&gt;relative /api + session cookie]
+  API[HyperShell REST API&lt;br/&gt;/api/hypershell/v1]
+  USER --&gt; CLI
+  USER --&gt; WEB
+  CLI --&gt; API
+  GOSDK --&gt; API
+  WEB --&gt; TSSDK
+  WEB --&gt; BFF
+  BFF --&gt; API
+  API --&gt; DATA[Typed resource contracts&lt;br/&gt;CRUD + pagination + errors]
+  style USER fill:#e1f5ff
+  style API fill:#cce5ff
+  style BFF fill:#fff3cd
+  style DATA fill:#d4edda</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section></main>
+<footer class="site-footer"><div class="site-footer-inner">Diagrams are rendered as inline SVG with <a href="https://github.com/lukilabs/beautiful-mermaid" rel="noreferrer">beautiful-mermaid</a>, the open-source renderer behind Craft's <a href="https://agents.craft.do/mermaid" rel="noreferrer">Mermaid renderer</a>. Mermaid source is included on every page for review and editing.</div></footer>
+</body>
+</html>

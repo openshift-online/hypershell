@@ -13,6 +13,8 @@
     "dev": "pnpm --filter @openshift-online/hypershell-web-console dev",
     "dev:bff": "pnpm --filter @openshift-online/hypershell-web-console-bff dev",
     "test:e2e": "pnpm --filter @openshift-online/hypershell-web-console test:e2e",
-    "test:e2e:chromium": "pnpm --filter @openshift-online/hypershell-web-console test:e2e:chromium"
+    "test:e2e:chromium": "pnpm --filter @openshift-online/hypershell-web-console test:e2e:chromium",
+    "build:architecture": "pnpm --filter @openshift-online/hypershell-architecture-site build",
+    "check:architecture": "pnpm --filter @openshift-online/hypershell-architecture-site check"
   }
 }

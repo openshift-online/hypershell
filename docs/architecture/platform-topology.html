@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="HyperShell architecture site generator">
+  <title>Platform topology · HyperShell architecture atlas</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="site-header"><div class="header-inner">
+  <p class="eyebrow">HyperShell architecture atlas</p>
+  <h1>Platform topology</h1>
+  <p class="lede">The three-tier hub-and-spoke topology separates global identity, cloud-level operations, and regional OpenShell Gateway workloads.</p>
+  <nav class="page-nav" aria-label="Architecture pages"><a href="index.html">Overview</a><a href="api-server.html">API server</a><a href="client-surfaces.html">Clients and SDKs</a><a href="control-plane.html">Control plane</a><a href="data-plane.html">Database architecture</a><a href="delivery.html">Provisioning and delivery</a><a href="domain-model.html">Domain model</a><a href="gateway-workload.html">Gateway workload</a><a href="identity.html">Identity and access</a><a href="ingress.html">Gateway ingress</a><a href="observability.html">Observability</a><a href="platform-topology.html">Platform topology</a><a href="web-console.html">Web console</a></nav>
+</div></header>
+<main><p class="breadcrumb"><a href="index.html">Architecture atlas</a> / View</p><p class="meta">Authoritative source: <code>specs/platform/global-architecture.spec.md</code></p><h3>Global Hub → Cloud Hubs → ManagedClusters. The control plane reconciles tenant workloads downward while metrics aggregate upward.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1427.0459999999998 750.8" width="1427.0459999999998" height="750.8" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<g class="subgraph" data-id="GH" data-label="Global Hub">
+  <rect x="913.4989999999998" y="479.00000000000006" width="319.33299999999997" height="181.8" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="913.4989999999998" y="479.00000000000006" width="319.33299999999997" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="925.4989999999998" y="493.00000000000006" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">Global Hub</text>
+</g>
+<g class="subgraph" data-id="AWS" data-label="Cloud Hub: AWS">
+  <rect x="204.83787499999994" y="70" width="460.891" height="280.70000000000005" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="204.83787499999994" y="70" width="460.891" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="216.83787499999994" y="84" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">Cloud Hub: AWS</text>
+</g>
+<g class="subgraph" data-id="IBM" data-label="Cloud Hub: IBM">
+  <rect x="730.9918333333331" y="70" width="425.3256666666667" height="280.70000000000005" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="730.9918333333331" y="70" width="425.3256666666667" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="742.9918333333331" y="84" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">Cloud Hub: IBM</text>
+</g>
+<g class="subgraph" data-id="MC" data-label="ManagedClusters">
+  <rect x="95" y="479.00000000000006" width="798.4989999999999" height="181.8" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="95" y="479.00000000000006" width="798.4989999999999" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="107" y="493.00000000000006" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">ManagedClusters</text>
+</g>
+<polyline class="edge" data-from="AP" data-to="GHG" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="593.185875,150.9 593.185875,583.9000000000001 1120.6454999999999,583.9000000000001 1120.6454999999999,607.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="IP" data-to="GHG" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1083.7744999999998,150.9 1083.7744999999998,583.9000000000001 1120.6454999999999,583.9000000000001 1120.6454999999999,607.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GKI" data-to="AK" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="federates" points="971.4789999999998,559.9 971.4789999999998,690.8 1242.8319999999999,690.8 1242.8319999999999,39.99999999999994 459.50987499999997,39.99999999999994 459.50987499999997,113.99999999999994" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GKI" data-to="IK" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="federates" points="1013.4589999999998,559.9 1013.4589999999998,678.8 903.4989999999998,678.8 903.4989999999998,368.7 713.5683749999998,368.7 713.5683749999998,51.99999999999994 796.1248333333332,51.99999999999994 796.1248333333332,113.99999999999994" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="AK" data-to="M1" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="identity federation" points="443.13220833333327,150.9 443.13220833333327,174.9 233.83787499999994,174.9 233.83787499999994,392.70000000000005 262.01133333333337,392.70000000000005 262.01133333333337,461.00000000000006 268.88866666666667,461.00000000000006 268.88866666666667,523" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="AK" data-to="M2" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="identity federation" points="475.8875416666666,150.9 475.8875416666666,392.70000000000005 537.1465,392.70000000000005 537.1465,461.00000000000006 533.7216666666666,461.00000000000006 533.7216666666666,523" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="IK" data-to="M3" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="identity federation" points="796.1248333333332,150.9 796.1248333333332,380.70000000000005 716.4745,380.70000000000005 716.4745,461.00000000000006 719.6103333333333,461.00000000000006 719.6103333333333,523" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="AWS_CONTROL" data-to="M1" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="reconcile" points="291.4491249999999,150.9 291.4491249999999,162.9 220.83787499999994,162.9 220.83787499999994,392.70000000000005 176.21733333333333,392.70000000000005 176.21733333333333,461.00000000000006 189.94433333333336,461.00000000000006 189.94433333333333,523" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="AWS_CONTROL" data-to="M2" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="reconcile" points="352.0676249999999,150.9 352.0676249999999,186.9 408.67887499999995,186.9 408.67887499999995,461.00000000000006 454.77733333333333,461.00000000000006 454.77733333333333,523" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ICP" data-to="M3" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="reconcile" points="913.6701666666665,150.9 913.6701666666665,162.9 889.9160833333332,162.9 889.9160833333332,380.70000000000005 801.6904999999999,380.70000000000005 801.6904999999999,461.00000000000006 798.5546666666667,461.00000000000006 798.5546666666667,523" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MP" data-to="AP" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="metrics upstream" points="469.3503333333333,644.8 469.3503333333333,678.8 85,678.8 85,51.99999999999994 593.1858749999999,51.99999999999994 593.1858749999999,113.99999999999994" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MP" data-to="IP" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="metrics upstream" points="519.1486666666666,644.8 519.1486666666666,702.8 1327.1259999999997,702.8 1327.1259999999997,51.99999999999994 1083.7744999999998,51.99999999999994 1083.7744999999998,113.99999999999994" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GKI" data-to="GHG" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1013.4589999999998,559.9 1013.4589999999998,583.9000000000001 1120.6454999999999,583.9000000000001 1120.6454999999999,607.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="AAPI" data-to="ADB" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="321.75837499999994,235.8 321.75837499999994,283.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="AWS_CONTROL" data-to="AAPI" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="321.7583749999999,150.9 321.75837499999994,198.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="IAPI" data-to="IDB" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="977.8365833333332,235.8 977.8365833333332,283.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ICP" data-to="IAPI" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="954.0824999999999,150.9 954.0824999999999,162.9 977.8365833333332,162.9 977.8365833333332,198.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="M1" data-to="MP" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="229.41649999999998,559.9 229.41649999999998,583.9000000000001 494.24949999999995,583.9000000000001 494.24949999999995,607.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="M2" data-to="MP" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="494.24949999999995,559.9 494.24949999999995,583.9000000000001 494.24949999999995,583.9000000000001 494.24949999999995,607.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="M3" data-to="MP" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="759.0825,559.9 759.0825,583.9000000000001 494.24949999999995,583.9000000000001 494.24949999999995,607.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="GKI" data-to="AK" data-label="federates">
+  <rect x="1211.3319999999999" y="399.7" width="62.794000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1242.7289999999998" y="414.84999999999997" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">federates</text>
+</g>
+<g class="edge-label" data-from="GKI" data-to="IK" data-label="federates">
+  <rect x="871.9989999999998" y="399.7" width="62.794000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="903.3959999999998" y="414.84999999999997" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">federates</text>
+</g>
+<g class="edge-label" data-from="AK" data-to="M1" data-label="identity federation">
+  <rect x="211.51133333333337" y="399.70000000000005" width="100.21600000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="261.6193333333334" y="414.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">identity federation</text>
+</g>
+<g class="edge-label" data-from="AK" data-to="M2" data-label="identity federation">
+  <rect x="486.6465" y="399.70000000000005" width="100.21600000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="536.7545" y="414.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">identity federation</text>
+</g>
+<g class="edge-label" data-from="IK" data-to="M3" data-label="identity federation">
+  <rect x="665.9745" y="399.70000000000005" width="100.21600000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="716.0825000000001" y="414.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">identity federation</text>
+</g>
+<g class="edge-label" data-from="AWS_CONTROL" data-to="M1" data-label="reconcile">
+  <rect x="144.71733333333333" y="399.70000000000005" width="62.794000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="176.11433333333332" y="414.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">reconcile</text>
+</g>
+<g class="edge-label" data-from="AWS_CONTROL" data-to="M2" data-label="reconcile">
+  <rect x="377.17887499999995" y="399.70000000000005" width="62.794000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="408.57587499999994" y="414.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">reconcile</text>
+</g>
+<g class="edge-label" data-from="ICP" data-to="M3" data-label="reconcile">
+  <rect x="770.1904999999999" y="399.70000000000005" width="62.794000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="801.5875" y="414.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">reconcile</text>
+</g>
+<g class="edge-label" data-from="MP" data-to="AP" data-label="metrics upstream">
+  <rect x="36" y="399.7" width="97.84000000000003" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="84.92000000000002" y="414.84999999999997" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">metrics upstream</text>
+</g>
+<g class="edge-label" data-from="MP" data-to="IP" data-label="metrics upstream">
+  <rect x="1278.1259999999997" y="665.5" width="97.84000000000003" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="1327.0459999999998" y="680.65" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">metrics upstream</text>
+</g>
+<g class="node" data-id="GKI" data-label="Keycloak identity root" data-shape="rectangle">
+  <rect x="929.4989999999998" y="523" width="167.92" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1013.4589999999998" y="541.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Keycloak identity root</text>
+</g>
+<g class="node" data-id="GHG" data-label="Grafana cross-cloud view" data-shape="rectangle">
+  <rect x="1024.4589999999998" y="607.9000000000001" width="192.37299999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1120.6454999999999" y="626.3500000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Grafana cross-cloud view</text>
+</g>
+<g class="node" data-id="AK" data-label="Keycloak" data-shape="rectangle">
+  <rect x="410.3768749999999" y="114" width="98.266" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="459.5098749999999" y="132.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Keycloak</text>
+</g>
+<g class="node" data-id="AAPI" data-label="API Server" data-shape="rectangle">
+  <rect x="267.80887499999994" y="198.9" width="107.899" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="321.75837499999994" y="217.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">API Server</text>
+</g>
+<g class="node" data-id="AWS_CONTROL" data-label="Control Plane" data-shape="rectangle">
+  <rect x="261.1398749999999" y="114" width="121.23700000000001" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="321.7583749999999" y="132.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Control Plane</text>
+</g>
+<g class="node" data-id="ADB" data-label="CNPG PostgreSQL" data-shape="cylinder">
+  <rect x="244.83787499999994" y="290.8" width="153.84099999999998" height="36.900000000000006" fill="var(--_node-fill)" stroke="none" />
+  <line x1="244.83787499999994" y1="290.8" x2="244.83787499999994" y2="327.70000000000005" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <line x1="398.67887499999995" y1="290.8" x2="398.67887499999995" y2="327.70000000000005" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="321.75837499999994" cy="327.70000000000005" rx="76.92049999999999" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="321.75837499999994" cy="290.8" rx="76.92049999999999" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="321.75837499999994" y="309.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">CNPG PostgreSQL</text>
+</g>
+<g class="node" data-id="AP" data-label="Prometheus" data-shape="rectangle">
+  <rect x="536.642875" y="114" width="113.086" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="593.185875" y="132.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Prometheus</text>
+</g>
+<g class="node" data-id="IK" data-label="Keycloak" data-shape="rectangle">
+  <rect x="746.9918333333331" y="114" width="98.266" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="796.1248333333332" y="132.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Keycloak</text>
+</g>
+<g class="node" data-id="IAPI" data-label="API Server" data-shape="rectangle">
+  <rect x="923.8870833333332" y="198.9" width="107.899" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="977.8365833333332" y="217.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">API Server</text>
+</g>
+<g class="node" data-id="ICP" data-label="Control Plane" data-shape="rectangle">
+  <rect x="873.2578333333331" y="114" width="121.23700000000001" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="933.8763333333332" y="132.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Control Plane</text>
+</g>
+<g class="node" data-id="IDB" data-label="CNPG PostgreSQL" data-shape="cylinder">
+  <rect x="900.9160833333332" y="290.8" width="153.84099999999998" height="36.900000000000006" fill="var(--_node-fill)" stroke="none" />
+  <line x1="900.9160833333332" y1="290.8" x2="900.9160833333332" y2="327.70000000000005" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <line x1="1054.7570833333332" y1="290.8" x2="1054.7570833333332" y2="327.70000000000005" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="977.8365833333331" cy="327.70000000000005" rx="76.92049999999999" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="977.8365833333331" cy="290.8" rx="76.92049999999999" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="977.8365833333331" y="309.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">CNPG PostgreSQL</text>
+</g>
+<g class="node" data-id="IP" data-label="Prometheus" data-shape="rectangle">
+  <rect x="1027.2314999999999" y="114" width="113.086" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1083.7744999999998" y="132.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Prometheus</text>
+</g>
+<g class="node" data-id="M1" data-label="Gateway workloads + Sandboxes" data-shape="rectangle">
+  <rect x="111" y="523" width="236.833" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="229.41649999999998" y="541.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Gateway workloads + Sandboxes</text>
+</g>
+<g class="node" data-id="M2" data-label="Gateway workloads + Sandboxes" data-shape="rectangle">
+  <rect x="375.83299999999997" y="523" width="236.833" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="494.24949999999995" y="541.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Gateway workloads + Sandboxes</text>
+</g>
+<g class="node" data-id="M3" data-label="Gateway workloads + Sandboxes" data-shape="rectangle">
+  <rect x="640.6659999999999" y="523" width="236.833" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="759.0825" y="541.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Gateway workloads + Sandboxes</text>
+</g>
+<g class="node" data-id="MP" data-label="Local Prometheus" data-shape="rectangle">
+  <rect x="419.55199999999996" y="607.9000000000001" width="149.39499999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="494.24949999999995" y="626.3500000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Local Prometheus</text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>graph TB
+  subgraph GH[Global Hub]
+    GKI[Keycloak identity root]
+    GHG[Grafana cross-cloud view]
+    GKI --&gt; GHG
+  end
+  subgraph AWS[Cloud Hub: AWS]
+    AK[Keycloak]
+    AAPI[API Server]
+    AWS_CONTROL[Control Plane]
+    ADB[(CNPG PostgreSQL)]
+    AP[Prometheus]
+    AAPI --&gt; ADB
+    AWS_CONTROL --&gt; AAPI
+    AP --&gt; GHG
+  end
+  subgraph IBM[Cloud Hub: IBM]
+    IK[Keycloak]
+    IAPI[API Server]
+    ICP[Control Plane]
+    IDB[(CNPG PostgreSQL)]
+    IP[Prometheus]
+    IAPI --&gt; IDB
+    ICP --&gt; IAPI
+    IP --&gt; GHG
+  end
+  subgraph MC[ManagedClusters]
+    M1[Gateway workloads + Sandboxes]
+    M2[Gateway workloads + Sandboxes]
+    M3[Gateway workloads + Sandboxes]
+    MP[Local Prometheus]
+  end
+  GKI --&gt;|federates| AK
+  GKI --&gt;|federates| IK
+  AK --&gt;|identity federation| M1
+  AK --&gt;|identity federation| M2
+  IK --&gt;|identity federation| M3
+  AWS_CONTROL --&gt;|reconcile| M1
+  AWS_CONTROL --&gt;|reconcile| M2
+  ICP --&gt;|reconcile| M3
+  M1 --&gt; MP
+  M2 --&gt; MP
+  M3 --&gt; MP
+  MP --&gt;|metrics upstream| AP
+  MP --&gt;|metrics upstream| IP
+  style GH fill:#e1f5ff
+  style AWS fill:#fff3cd
+  style IBM fill:#fff3cd
+  style MC fill:#d4edda</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section></main>
+<footer class="site-footer"><div class="site-footer-inner">Diagrams are rendered as inline SVG with <a href="https://github.com/lukilabs/beautiful-mermaid" rel="noreferrer">beautiful-mermaid</a>, the open-source renderer behind Craft's <a href="https://agents.craft.do/mermaid" rel="noreferrer">Mermaid renderer</a>. Mermaid source is included on every page for review and editing.</div></footer>
+</body>
+</html>

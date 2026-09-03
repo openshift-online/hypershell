@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="HyperShell architecture site generator">
+  <title>Gateway ingress · HyperShell architecture atlas</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="site-header"><div class="header-inner">
+  <p class="eyebrow">HyperShell architecture atlas</p>
+  <h1>Gateway ingress</h1>
+  <p class="lede">External gRPC exposure is configuration-driven. AWS uses the shared Gateway API path; environments without a functional Gateway API use OpenShift Route passthrough.</p>
+  <nav class="page-nav" aria-label="Architecture pages"><a href="index.html">Overview</a><a href="api-server.html">API server</a><a href="client-surfaces.html">Clients and SDKs</a><a href="control-plane.html">Control plane</a><a href="data-plane.html">Database architecture</a><a href="delivery.html">Provisioning and delivery</a><a href="domain-model.html">Domain model</a><a href="gateway-workload.html">Gateway workload</a><a href="identity.html">Identity and access</a><a href="ingress.html">Gateway ingress</a><a href="observability.html">Observability</a><a href="platform-topology.html">Platform topology</a><a href="web-console.html">Web console</a></nav>
+</div></header>
+<main><p class="breadcrumb"><a href="index.html">Architecture atlas</a> / View</p><p class="meta">Authoritative source: <code>specs/platform/global-architecture.spec.md; specs/platform/openshell-gateway-routing.spec.md</code></p><h3>Reference gateway-api mode: one shared Gateway and load balancer serve many tenant GRPCRoutes.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1415.2469999999998 252.275" width="1415.2469999999998" height="252.275" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="CLI" data-to="DNS" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="162.719,66.89999999999999 210.719,66.89999999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="DNS" data-to="LB" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="350.481,66.89999999999999 393.6645,66.89999999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="LB" data-to="SG" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="560.1025,66.89999999999999 600.919,66.89999999999999 600.919,94.60833333333332 612.919,94.60833333333332" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SG" data-to="ROUTE" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="785.285,103.57499999999999 833.285,103.57499999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ROUTE" data-to="SVC" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1004.169,103.57499999999999 1041.4244999999999,103.57499999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SVC" data-to="POD" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1193.7834999999998,103.57499999999999 1240.5279999999998,103.57499999999999 1240.5279999999998,135.50833333333333 1252.5279999999998,135.50833333333333" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CA" data-to="POD" data-style="dotted" data-arrow-start="false" data-arrow-end="true" points="1215.2724999999998,185.375 1240.5279999999998,185.375 1240.5279999999998,153.44166666666666 1252.5279999999998,153.44166666666666" fill="none" stroke="var(--_line)" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CERT" data-to="SG" data-style="dotted" data-arrow-start="false" data-arrow-end="true" points="569.7355,140.25 600.919,140.25 600.919,112.54166666666666 612.919,112.54166666666666" fill="none" stroke="var(--_line)" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<g class="node" data-id="CLI" data-label="openshell CLI" data-shape="rectangle">
+  <rect x="40" y="48.44999999999999" width="122.71900000000001" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="101.3595" y="66.89999999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">openshell CLI</text>
+</g>
+<g class="node" data-id="DNS" data-label="Wildcard DNS
+Route53 CNAME" data-shape="rectangle">
+  <rect x="210.719" y="39.99999999999999" width="139.76199999999997" height="53.800000000000004" rx="0" ry="0" fill="#fff3cd" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="280.59999999999997" y="66.89999999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="280.59999999999997" dy="-3.9000000000000012">Wildcard DNS</tspan><tspan x="280.59999999999997" dy="16.900000000000002">Route53 CNAME</tspan></text>
+</g>
+<g class="node" data-id="LB" data-label="Cloud Load Balancer" data-shape="rectangle">
+  <rect x="393.6645" y="48.44999999999999" width="166.438" height="36.900000000000006" rx="0" ry="0" fill="#f8d7da" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="476.88349999999997" y="66.89999999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Cloud Load Balancer</text>
+</g>
+<g class="node" data-id="SG" data-label="Shared Gateway
+openshift-ingress :443" data-shape="rectangle">
+  <rect x="612.919" y="76.67499999999998" width="172.36599999999999" height="53.800000000000004" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="699.102" y="103.57499999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="699.102" dy="-3.9000000000000012">Shared Gateway</tspan><tspan x="699.102" dy="16.900000000000002">openshift-ingress :443</tspan></text>
+</g>
+<g class="node" data-id="ROUTE" data-label="GRPCRoute
+per tenant namespace" data-shape="rectangle">
+  <rect x="833.285" y="76.67499999999998" width="170.88399999999996" height="53.800000000000004" rx="0" ry="0" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="918.727" y="103.57499999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="918.727" dy="-3.9000000000000012">GRPCRoute</tspan><tspan x="918.727" dy="16.900000000000002">per tenant namespace</tspan></text>
+</g>
+<g class="node" data-id="SVC" data-label="openshell-gateway
+Service :8080" data-shape="rectangle">
+  <rect x="1041.4244999999999" y="76.67499999999998" width="152.359" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1117.6039999999998" y="103.57499999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="1117.6039999999998" dy="-3.9000000000000012">openshell-gateway</tspan><tspan x="1117.6039999999998" dy="16.900000000000002">Service :8080</tspan></text>
+</g>
+<g class="node" data-id="POD" data-label="Gateway Pod
+TLS backend" data-shape="rectangle">
+  <rect x="1252.5279999999998" y="117.57499999999999" width="122.719" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1313.8874999999998" y="144.475" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="1313.8874999999998" dy="-3.9000000000000012">Gateway Pod</tspan><tspan x="1313.8874999999998" dy="16.900000000000002">TLS backend</tspan></text>
+</g>
+<g class="node" data-id="CA" data-label="BackendTLSPolicy +
+openshell-backend-ca" data-shape="rectangle">
+  <rect x="1041.4244999999999" y="158.475" width="173.84799999999998" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1128.3484999999998" y="185.375" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="1128.3484999999998" dy="-3.9000000000000012">BackendTLSPolicy +</tspan><tspan x="1128.3484999999998" dy="16.900000000000002">openshell-backend-ca</tspan></text>
+</g>
+<g class="node" data-id="CERT" data-label="Wildcard cert-manager
+Certificate" data-shape="rectangle">
+  <rect x="393.6645" y="113.35" width="176.07099999999997" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="481.69999999999993" y="140.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="481.69999999999993" dy="-3.9000000000000012">Wildcard cert-manager</tspan><tspan x="481.69999999999993" dy="16.900000000000002">Certificate</tspan></text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>graph LR
+  CLI[openshell CLI] --&gt; DNS[Wildcard DNS&lt;br/&gt;Route53 CNAME]
+  DNS --&gt; LB[Cloud Load Balancer]
+  LB --&gt; SG[Shared Gateway&lt;br/&gt;openshift-ingress :443]
+  SG --&gt; ROUTE[GRPCRoute&lt;br/&gt;per tenant namespace]
+  ROUTE --&gt; SVC[openshell-gateway&lt;br/&gt;Service :8080]
+  SVC --&gt; POD[Gateway Pod&lt;br/&gt;TLS backend]
+  CA[BackendTLSPolicy +&lt;br/&gt;openshell-backend-ca] -.-&gt; POD
+  CERT[Wildcard cert-manager&lt;br/&gt;Certificate] -.-&gt; SG
+  style DNS fill:#fff3cd
+  style LB fill:#f8d7da
+  style SG fill:#cce5ff
+  style ROUTE fill:#d4edda</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section><h3>Environment-adaptive routing: both modes converge on the same tenant workload and route address contract.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 739.9424166666665 744.1439999999999" width="739.9424166666665" height="744.1439999999999" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="CP" data-to="MODE" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="381.7534999999999,76.9 381.7534999999999,124.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MODE" data-to="GA" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="gateway-api" points="321.9174999999999,304.4079999999999 321.9174999999999,400.2439999999999 160.269,400.2439999999999 160.26899999999998,468.544" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MODE" data-to="OR" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="route" points="381.7534999999999,364.2439999999999 381.7534999999999,468.544" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MODE" data-to="INTERNAL" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="none" points="441.58949999999993,304.4079999999999 441.58949999999993,376.244 594.8639166666666,376.244 594.8639166666666,468.544" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GA" data-to="HOST" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="160.26899999999998,522.3439999999999 160.26899999999998,552.3439999999999 271.0112499999999,552.3439999999999 271.0112499999999,582.3439999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="OR" data-to="HOST" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="381.7534999999999,522.3439999999999 381.7534999999999,552.3439999999999 271.0112499999999,552.3439999999999 271.0112499999999,582.3439999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="INTERNAL" data-to="LOCAL" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="594.8639166666666,505.44399999999996 594.8639166666666,541.444" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="HOST" data-to="GW" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.01124999999996,619.2439999999999 271.01124999999996,667.2439999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="MODE" data-to="GA" data-label="gateway-api">
+  <rect x="122.76899999999999" y="407.2439999999999" width="74.08000000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="159.809" y="422.3939999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">gateway-api</text>
+</g>
+<g class="edge-label" data-from="MODE" data-to="OR" data-label="route">
+  <rect x="360.2534999999999" y="407.2439999999999" width="42.598" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="381.5524999999999" y="422.3939999999999" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">route</text>
+</g>
+<g class="edge-label" data-from="MODE" data-to="INTERNAL" data-label="none">
+  <rect x="573.8639166666666" y="383.244" width="41.41" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="594.5689166666666" y="398.394" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">none</text>
+</g>
+<g class="node" data-id="CP" data-label="Control Plane" data-shape="rectangle">
+  <rect x="321.13499999999993" y="40" width="121.23700000000001" height="36.900000000000006" rx="0" ry="0" fill="#f8d7da" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="381.7534999999999" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Control Plane</text>
+</g>
+<g class="node" data-id="MODE" data-label="GATEWAY_INGRESS_MODE" data-shape="diamond">
+  <polygon points="381.7534999999999,124.9 501.4254999999999,244.57199999999997 381.7534999999999,364.2439999999999 262.08149999999995,244.57199999999997" fill="#fff3cd" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="381.7534999999999" y="244.57199999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">GATEWAY_INGRESS_MODE</text>
+</g>
+<g class="node" data-id="GA" data-label="GRPCRoute + BackendTLSPolicy
+shared Gateway prerequisite" data-shape="rectangle">
+  <rect x="40" y="468.544" width="240.53799999999995" height="53.800000000000004" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="160.26899999999998" y="495.44399999999996" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="160.26899999999998" dy="-3.9000000000000012">GRPCRoute + BackendTLSPolicy</tspan><tspan x="160.26899999999998" dy="16.900000000000002">shared Gateway prerequisite</tspan></text>
+</g>
+<g class="node" data-id="OR" data-label="OpenShift Route
+TLS passthrough" data-shape="rectangle">
+  <rect x="308.53799999999995" y="468.544" width="146.43099999999998" height="53.800000000000004" rx="0" ry="0" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="381.7534999999999" y="495.44399999999996" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="381.7534999999999" dy="-3.9000000000000012">OpenShift Route</tspan><tspan x="381.7534999999999" dy="16.900000000000002">TLS passthrough</tspan></text>
+</g>
+<g class="node" data-id="INTERNAL" data-label="Cluster-internal Service only" data-shape="rectangle">
+  <rect x="489.7854166666666" y="468.544" width="210.15699999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="594.8639166666666" y="486.99399999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Cluster-internal Service only</text>
+</g>
+<g class="node" data-id="HOST" data-label="grpcs://gw-&lt;tenant&gt;.&lt;base-domain&gt;:443" data-shape="rectangle">
+  <rect x="132.95824999999996" y="582.3439999999999" width="276.10599999999994" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="271.0112499999999" y="600.794" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">grpcs://gw-&lt;tenant&gt;.&lt;base-domain&gt;:443</text>
+</g>
+<g class="node" data-id="LOCAL" data-label="Service DNS / port-forward" data-shape="rectangle">
+  <rect x="494.9724166666666" y="541.444" width="199.783" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="594.8639166666666" y="559.894" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Service DNS / port-forward</text>
+</g>
+<g class="node" data-id="GW" data-label="Same OpenShell Gateway pod" data-shape="rectangle">
+  <rect x="163.70974999999996" y="667.2439999999999" width="214.60299999999998" height="36.900000000000006" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="271.01124999999996" y="685.694" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Same OpenShell Gateway pod</text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>graph TB
+  CP[Control Plane]
+  MODE{GATEWAY_INGRESS_MODE}
+  CP --&gt; MODE
+  MODE --&gt;|gateway-api| GA[GRPCRoute + BackendTLSPolicy&lt;br/&gt;shared Gateway prerequisite]
+  MODE --&gt;|route| OR[OpenShift Route&lt;br/&gt;TLS passthrough]
+  MODE --&gt;|none| INTERNAL[Cluster-internal Service only]
+  GA --&gt; HOST[grpcs://gw-&lt;tenant&gt;.&lt;base-domain&gt;:443]
+  OR --&gt; HOST
+  INTERNAL --&gt; LOCAL[Service DNS / port-forward]
+  HOST --&gt; GW[Same OpenShell Gateway pod]
+  style CP fill:#f8d7da
+  style MODE fill:#fff3cd
+  style GA fill:#cce5ff
+  style OR fill:#d4edda
+  style GW fill:#cce5ff</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section></main>
+<footer class="site-footer"><div class="site-footer-inner">Diagrams are rendered as inline SVG with <a href="https://github.com/lukilabs/beautiful-mermaid" rel="noreferrer">beautiful-mermaid</a>, the open-source renderer behind Craft's <a href="https://agents.craft.do/mermaid" rel="noreferrer">Mermaid renderer</a>. Mermaid source is included on every page for review and editing.</div></footer>
+</body>
+</html>

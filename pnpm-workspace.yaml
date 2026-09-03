@@ -1,4 +1,5 @@
 packages:
+  - tools/architecture-site
   - components/sdk-typescript
   - packages/gateway-management-ui
   - components/web-console

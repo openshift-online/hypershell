@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="HyperShell architecture site generator">
+  <title>Control plane · HyperShell architecture atlas</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="site-header"><div class="header-inner">
+  <p class="eyebrow">HyperShell architecture atlas</p>
+  <h1>Control plane</h1>
+  <p class="lede">The control plane follows an informer–reconciler pattern: one watcher maintains gRPC streams and dispatches events to resource-specific reconcilers.</p>
+  <nav class="page-nav" aria-label="Architecture pages"><a href="index.html">Overview</a><a href="api-server.html">API server</a><a href="client-surfaces.html">Clients and SDKs</a><a href="control-plane.html">Control plane</a><a href="data-plane.html">Database architecture</a><a href="delivery.html">Provisioning and delivery</a><a href="domain-model.html">Domain model</a><a href="gateway-workload.html">Gateway workload</a><a href="identity.html">Identity and access</a><a href="ingress.html">Gateway ingress</a><a href="observability.html">Observability</a><a href="platform-topology.html">Platform topology</a><a href="web-console.html">Web console</a></nav>
+</div></header>
+<main><p class="breadcrumb"><a href="index.html">Architecture atlas</a> / View</p><p class="meta">Authoritative source: <code>specs/platform/control-plane.spec.md; components/control-plane/</code></p><h3>Event-driven reconciliation from a persisted Gateway to Kubernetes resources on the target ManagedCluster.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 982.9725 600" width="982.9725" height="600" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="seq-arrow" markerWidth="8" markerHeight="5" refX="8" refY="2.5" orient="auto-start-reverse">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" />
+  </marker>
+  <marker id="seq-arrow-open" markerWidth="8" markerHeight="5" refX="8" refY="2.5" orient="auto-start-reverse">
+    <polyline points="0 0, 8 2.5, 0 5" fill="none" stroke="var(--_arrow)" stroke-width="1" />
+  </marker>
+</defs>
+<line class="lifeline" data-actor="User" x1="74.0215" y1="70" x2="74.0215" y2="570" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="API" x1="214.0215" y1="70" x2="214.0215" y2="570" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="DB" x1="357.996" y1="70" x2="357.996" y2="570" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="W" x1="497.996" y1="70" x2="497.996" y2="570" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="R" x1="655.679" y1="70" x2="655.679" y2="570" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="K" x1="862.268" y1="70" x2="862.268" y2="570" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<g class="message" data-from="User" data-to="API" data-label="POST /gateways" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="74.0215" y1="90" x2="214.0215" y2="90" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="144.0215" y="80" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST /gateways</text>
+</g>
+<g class="message" data-from="API" data-to="DB" data-label="Persist desired state" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="214.0215" y1="130" x2="357.996" y2="130" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="286.00874999999996" y="120" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Persist desired state</text>
+</g>
+<g class="message" data-from="DB" data-to="API" data-label="Gateway record" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="357.996" y1="170" x2="214.0215" y2="170" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="286.00874999999996" y="160" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Gateway record</text>
+</g>
+<g class="message" data-from="API" data-to="W" data-label="gRPC Watch event" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="214.0215" y1="210" x2="497.996" y2="210" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="356.00874999999996" y="200" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">gRPC Watch event</text>
+</g>
+<g class="message" data-from="W" data-to="R" data-label="Dispatch ADDED/MODIFIED" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="497.996" y1="250" x2="655.679" y2="250" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="576.8375" y="240" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Dispatch ADDED/MODIFIED</text>
+</g>
+<g class="message" data-from="R" data-to="K" data-label="Ensure namespace + PKI" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="655.679" y1="290" x2="862.268" y2="290" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="758.9735000000001" y="280" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Ensure namespace + PKI</text>
+</g>
+<g class="message" data-from="R" data-to="K" data-label="Ensure database resources" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="655.679" y1="330" x2="862.268" y2="330" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="758.9735000000001" y="320" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Ensure database resources</text>
+</g>
+<g class="message" data-from="R" data-to="K" data-label="Ensure Deployment + Service + RBAC" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="655.679" y1="370" x2="862.268" y2="370" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="758.9735000000001" y="360" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Ensure Deployment + Service + RBAC</text>
+</g>
+<g class="message" data-from="R" data-to="K" data-label="Ensure exposure resources" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="655.679" y1="410" x2="862.268" y2="410" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="758.9735000000001" y="400" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Ensure exposure resources</text>
+</g>
+<g class="message" data-from="K" data-to="R" data-label="Observe readiness" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="862.268" y1="450" x2="655.679" y2="450" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="758.9735000000001" y="440" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Observe readiness</text>
+</g>
+<g class="message" data-from="R" data-to="API" data-label="PATCH status + route address" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="655.679" y1="490" x2="214.0215" y2="490" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="434.85024999999996" y="480" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">PATCH status + route address</text>
+</g>
+<g class="message" data-from="API" data-to="User" data-label="Gateway is Running" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="214.0215" y1="530" x2="74.0215" y2="530" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="144.0215" y="520" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">Gateway is Running</text>
+</g>
+<g class="actor" data-id="User" data-label="API client" data-type="participant">
+  <rect x="30" y="30" width="88.043" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="74.0215" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">API client</text>
+</g>
+<g class="actor" data-id="API" data-label="API Server" data-type="participant">
+  <rect x="164.072" y="30" width="99.899" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="214.0215" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">API Server</text>
+</g>
+<g class="actor" data-id="DB" data-label="PostgreSQL" data-type="participant">
+  <rect x="303.971" y="30" width="108.04999999999998" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="357.996" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">PostgreSQL</text>
+</g>
+<g class="actor" data-id="W" data-label="Watcher" data-type="participant">
+  <rect x="456.1975" y="30" width="83.59700000000001" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="497.996" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">Watcher</text>
+</g>
+<g class="actor" data-id="R" data-label="Gateway Reconciler" data-type="participant">
+  <rect x="579.7945" y="30" width="151.769" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="655.679" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">Gateway Reconciler</text>
+</g>
+<g class="actor" data-id="K" data-label="ManagedCluster K8s API" data-type="participant">
+  <rect x="771.5635000000001" y="30" width="181.40899999999996" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="862.268" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">ManagedCluster K8s API</text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>sequenceDiagram
+  participant User as API client
+  participant API as API Server
+  participant DB as PostgreSQL
+  participant W as Watcher
+  participant R as Gateway Reconciler
+  participant K as ManagedCluster K8s API
+  User-&gt;&gt;API: POST /gateways
+  API-&gt;&gt;DB: Persist desired state
+  DB--&gt;&gt;API: Gateway record
+  API--&gt;&gt;W: gRPC Watch event
+  W-&gt;&gt;R: Dispatch ADDED/MODIFIED
+  R-&gt;&gt;K: Ensure namespace + PKI
+  R-&gt;&gt;K: Ensure database resources
+  R-&gt;&gt;K: Ensure Deployment + Service + RBAC
+  R-&gt;&gt;K: Ensure exposure resources
+  K--&gt;&gt;R: Observe readiness
+  R-&gt;&gt;API: PATCH status + route address
+  API--&gt;&gt;User: Gateway is Running</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section><h3>Control-plane internal components and the multi-cluster client pool.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1208.4910499999999 541.4" width="1208.4910499999999" height="541.4" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="WS" data-to="W" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="720.5466499999998,76.9 720.5466499999998,124.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="W" data-to="F" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="720.5466499999998,161.8 720.5466499999999,209.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="F" data-to="GR" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="720.5466499999999,246.70000000000002 720.5466499999999,270.70000000000005 377.04234999999994,270.70000000000005 377.04234999999994,294.70000000000005" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="F" data-to="MDR" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="720.5466499999999,246.70000000000002 720.5466499999999,270.70000000000005 634.8930499999999,270.70000000000005 634.8930499999999,294.70000000000005" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="F" data-to="RR" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="720.5466499999999,246.70000000000002 720.5466499999999,270.70000000000005 852.6725499999999,270.70000000000005 852.6725499999999,294.70000000000005" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="F" data-to="NR" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="720.5466499999999,246.70000000000002 720.5466499999999,270.70000000000005 1064.15355,270.70000000000005 1064.15355,294.70000000000005" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GR" data-to="POOL" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="377.04234999999994,331.6 377.04234999999994,355.6 743.7827999999998,355.6 743.7827999999998,379.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MDR" data-to="POOL" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="634.8930499999999,331.6 634.8930499999999,355.6 743.7827999999998,355.6 743.7827999999998,379.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="RR" data-to="POOL" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="852.6725499999999,331.6 852.6725499999999,355.6 743.7827999999998,355.6 743.7827999999998,379.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="NR" data-to="POOL" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1064.15355,331.6 1064.15355,355.6 743.7827999999998,355.6 743.7827999999998,379.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="POOL" data-to="C1" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="743.7827999999998,416.5 743.7827999999998,440.5 574.7240499999998,440.5 574.7240499999998,464.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="POOL" data-to="C2" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="743.7827999999998,416.5 743.7827999999998,440.5 754.3420499999997,440.5 754.3420499999997,464.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="POOL" data-to="HUB" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="743.7827999999998,416.5 743.7827999999998,440.5 912.8415499999998,440.5 912.8415499999998,464.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GR" data-to="EXP" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="337.1001,331.6 337.1001,319.6 142.8555,319.6 142.8555,331.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="EXP" data-to="API" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="142.8555,368.5 142.8555,416.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="GR" data-to="KC" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="377.04234999999994,331.6 377.04234999999994,355.6 400.2784999999999,355.6 400.2784999999999,379.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="node" data-id="WS" data-label=" gRPC Watch streams " data-shape="rectangle">
+  <rect x="636.2161499999997" y="40" width="168.661" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="720.5466499999998" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55"> gRPC Watch streams </text>
+</g>
+<g class="node" data-id="W" data-label="Watcher" data-shape="rectangle">
+  <rect x="674.7481499999999" y="124.9" width="91.59700000000001" height="36.900000000000006" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="720.5466499999999" y="143.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Watcher</text>
+</g>
+<g class="node" data-id="F" data-label="Event fan-out" data-shape="rectangle">
+  <rect x="661.7806499999999" y="209.8" width="117.53200000000001" height="36.900000000000006" rx="0" ry="0" fill="#fff3cd" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="720.5466499999999" y="228.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Event fan-out</text>
+</g>
+<g class="node" data-id="GR" data-label="Gateway Reconciler" data-shape="rectangle">
+  <rect x="297.15784999999994" y="294.70000000000005" width="159.769" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="377.04234999999994" y="313.15000000000003" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Gateway Reconciler</text>
+</g>
+<g class="node" data-id="MDR" data-label="ManagedDatabase Reconciler" data-shape="rectangle">
+  <rect x="524.2570499999999" y="294.70000000000005" width="221.27199999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="634.8930499999999" y="313.15000000000003" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">ManagedDatabase Reconciler</text>
+</g>
+<g class="node" data-id="RR" data-label="Release Reconciler" data-shape="rectangle">
+  <rect x="773.5290499999999" y="294.70000000000005" width="158.287" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="852.6725499999999" y="313.15000000000003" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Release Reconciler</text>
+</g>
+<g class="node" data-id="NR" data-label="GatewayNetwork Reconciler" data-shape="rectangle">
+  <rect x="959.8160499999999" y="294.70000000000005" width="208.67499999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="1064.15355" y="313.15000000000003" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">GatewayNetwork Reconciler</text>
+</g>
+<g class="node" data-id="POOL" data-label="Multi-cluster KubeClient pool" data-shape="rectangle">
+  <rect x="639.8157999999999" y="379.6" width="207.93399999999997" height="36.900000000000006" rx="0" ry="0" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="743.7827999999998" y="398.05" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Multi-cluster KubeClient pool</text>
+</g>
+<g class="node" data-id="C1" data-label="ManagedCluster A" data-shape="rectangle">
+  <rect x="498.91504999999984" y="464.5" width="151.618" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="574.7240499999998" y="482.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">ManagedCluster A</text>
+</g>
+<g class="node" data-id="C2" data-label="ManagedCluster B" data-shape="rectangle">
+  <rect x="678.5330499999998" y="464.5" width="151.618" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="754.3420499999997" y="482.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">ManagedCluster B</text>
+</g>
+<g class="node" data-id="HUB" data-label="Hub cluster" data-shape="rectangle">
+  <rect x="858.1510499999997" y="464.5" width="109.381" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="912.8415499999998" y="482.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Hub cluster</text>
+</g>
+<g class="node" data-id="EXP" data-label="Gateway Exposure port" data-shape="rectangle">
+  <rect x="52.96749999999997" y="331.6" width="179.77599999999995" height="36.900000000000006" rx="0" ry="0" fill="#f8d7da" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="142.85549999999995" y="350.05" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Gateway Exposure port</text>
+</g>
+<g class="node" data-id="API" data-label="Gateway API / Route adapter" data-shape="rectangle">
+  <rect x="40" y="416.5" width="205.71099999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="142.85549999999998" y="434.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Gateway API / Route adapter</text>
+</g>
+<g class="node" data-id="KC" data-label="Keycloak + service-account provisioner" data-shape="rectangle">
+  <rect x="260.7434999999999" y="379.6" width="279.06999999999994" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="400.2784999999999" y="398.05" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Keycloak + service-account provisioner</text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>graph TB
+  WS[ gRPC Watch streams ] --&gt; W[Watcher]
+  W --&gt; F[Event fan-out]
+  F --&gt; GR[Gateway Reconciler]
+  F --&gt; MDR[ManagedDatabase Reconciler]
+  F --&gt; RR[Release Reconciler]
+  F --&gt; NR[GatewayNetwork Reconciler]
+  GR --&gt; POOL[Multi-cluster KubeClient pool]
+  MDR --&gt; POOL
+  RR --&gt; POOL
+  NR --&gt; POOL
+  POOL --&gt; C1[ManagedCluster A]
+  POOL --&gt; C2[ManagedCluster B]
+  POOL --&gt; HUB[Hub cluster]
+  GR --&gt; EXP[Gateway Exposure port]
+  EXP --&gt; API[Gateway API / Route adapter]
+  GR --&gt; KC[Keycloak + service-account provisioner]
+  style W fill:#cce5ff
+  style F fill:#fff3cd
+  style POOL fill:#d4edda
+  style EXP fill:#f8d7da</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section></main>
+<footer class="site-footer"><div class="site-footer-inner">Diagrams are rendered as inline SVG with <a href="https://github.com/lukilabs/beautiful-mermaid" rel="noreferrer">beautiful-mermaid</a>, the open-source renderer behind Craft's <a href="https://agents.craft.do/mermaid" rel="noreferrer">Mermaid renderer</a>. Mermaid source is included on every page for review and editing.</div></footer>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="HyperShell architecture site generator">
+  <title>HyperShell architecture atlas · HyperShell architecture atlas</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="site-header"><div class="header-inner">
+  <p class="eyebrow">HyperShell architecture atlas</p>
+  <h1>HyperShell architecture atlas</h1>
+  <p class="lede">A navigable set of architectural drawings for the HyperShell platform, from the global topology to the tenant Gateway runtime.</p>
+  <nav class="page-nav" aria-label="Architecture pages"><a href="index.html">Overview</a><a href="api-server.html">API server</a><a href="client-surfaces.html">Clients and SDKs</a><a href="control-plane.html">Control plane</a><a href="data-plane.html">Database architecture</a><a href="delivery.html">Provisioning and delivery</a><a href="domain-model.html">Domain model</a><a href="gateway-workload.html">Gateway workload</a><a href="identity.html">Identity and access</a><a href="ingress.html">Gateway ingress</a><a href="observability.html">Observability</a><a href="platform-topology.html">Platform topology</a><a href="web-console.html">Web console</a></nav>
+</div></header>
+<main><p>Last mapped from the active architecture specifications in this repository. Read the project README and the linked sources for implementation details.</p>
+<h3>End-to-end view: clients enter through the web/API surfaces, desired state is persisted by the API server, and the control plane reconciles OpenShell Gateways into ManagedClusters.</h3>
+<section class="diagram-card"><figure aria-label="Architecture diagram"><div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540.2944166666666 758.9999999999999" width="540.2944166666666" height="758.9999999999999" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="USER" data-to="EDGE" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="121.7115833333333,88.9 121.7115833333333,124.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="EDGE" data-to="API" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="159.45474999999993,161.8 159.45474999999993,209.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="API" data-to="DB" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="141.47158333333329,246.70000000000002 141.47158333333329,282.70000000000005 99.13649999999996,282.70000000000005 99.13649999999996,294.70000000000005" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="API" data-to="CP" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="gRPC watch" points="177.4379166666666,246.70000000000002 177.4379166666666,330.20000000000005 219.77299999999997,330.20000000000005 219.77299999999997,410.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CP" data-to="MC" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="219.77299999999997,447.4 219.77299999999997,471.4 299.2319166666666,471.4 299.2319166666666,495.4" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MC" data-to="GW" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="299.2319166666666,532.3 299.2319166666666,560.525 401.5144166666666,560.525 401.5144166666666,588.75" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="CP" data-to="OBS" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="219.77299999999997,447.4 219.77299999999997,471.4 207.44691666666662,471.4 207.44691666666662,588.75" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MC" data-to="OBS" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="299.2319166666666,532.3 299.2319166666666,560.525 207.44691666666662,560.525 207.44691666666662,588.75" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="OBS" data-to="DASH" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="207.44691666666662,625.65 207.44691666666665,682.0999999999999" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ID" data-to="EDGE" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="407.8129166666666,88.9 407.8129166666666,106.9 159.45474999999993,106.9 159.45474999999993,124.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ID" data-to="GW" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="407.8129166666666,88.9 407.8129166666666,106.9 401.5144166666666,106.9 401.5144166666666,588.75" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="API" data-to="CP" data-label="gRPC watch">
+  <rect x="182.27299999999997" y="337.20000000000005" width="74.08000000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="219.313" y="352.35" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">gRPC watch</text>
+</g>
+<g class="node" data-id="USER" data-label="Users + automation" data-shape="rectangle">
+  <rect x="45.16158333333328" y="52" width="153.1" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="121.71158333333328" y="70.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Users + automation</text>
+</g>
+<g class="node" data-id="EDGE" data-label="Web Console BFF / hsctl / SDKs" data-shape="rectangle">
+  <rect x="46.22524999999996" y="124.9" width="226.45899999999995" height="36.900000000000006" rx="0" ry="0" fill="#e1f5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="159.45474999999993" y="143.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Web Console BFF / hsctl / SDKs</text>
+</g>
+<g class="node" data-id="API" data-label="API Server" data-shape="rectangle">
+  <rect x="105.50524999999993" y="209.8" width="107.899" height="36.900000000000006" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="159.45474999999993" y="228.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">API Server</text>
+</g>
+<g class="node" data-id="DB" data-label="PostgreSQL
+desired state" data-shape="cylinder">
+  <rect x="39.99999999999997" y="301.70000000000005" width="118.273" height="53.80000000000001" fill="#fff3cd" stroke="none" />
+  <line x1="39.99999999999997" y1="301.70000000000005" x2="39.99999999999997" y2="355.50000000000006" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <line x1="158.27299999999997" y1="301.70000000000005" x2="158.27299999999997" y2="355.50000000000006" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="99.13649999999997" cy="355.50000000000006" rx="59.1365" ry="7" fill="#fff3cd" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="99.13649999999997" cy="301.70000000000005" rx="59.1365" ry="7" fill="#fff3cd" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="99.13649999999997" y="328.6" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="99.13649999999997" dy="-3.9000000000000012">PostgreSQL</tspan><tspan x="99.13649999999997" dy="16.900000000000002">desired state</tspan></text>
+</g>
+<g class="node" data-id="CP" data-label="Control Plane" data-shape="rectangle">
+  <rect x="159.15449999999996" y="410.5" width="121.23700000000001" height="36.900000000000006" rx="0" ry="0" fill="#f8d7da" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="219.77299999999997" y="428.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Control Plane</text>
+</g>
+<g class="node" data-id="MC" data-label="ManagedClusters" data-shape="rectangle">
+  <rect x="225.27541666666662" y="495.4" width="147.913" height="36.900000000000006" rx="0" ry="0" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="299.2319166666666" y="513.85" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">ManagedClusters</text>
+</g>
+<g class="node" data-id="GW" data-label="OpenShell Gateways
+Supervisors + Sandboxes" data-shape="rectangle">
+  <rect x="302.7344166666666" y="588.75" width="197.55999999999997" height="53.800000000000004" rx="0" ry="0" fill="#d4edda" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="401.5144166666666" y="615.65" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="401.5144166666666" dy="-3.9000000000000012">OpenShell Gateways</tspan><tspan x="401.5144166666666" dy="16.900000000000002">Supervisors + Sandboxes</tspan></text>
+</g>
+<g class="node" data-id="OBS" data-label="Metrics + status" data-shape="rectangle">
+  <rect x="140.15941666666663" y="588.75" width="134.575" height="36.900000000000006" rx="0" ry="0" fill="#cce5ff" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="207.44691666666662" y="607.2" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Metrics + status</text>
+</g>
+<g class="node" data-id="DASH" data-label="Cloud + Global dashboards" data-shape="rectangle">
+  <rect x="107.55541666666664" y="682.0999999999999" width="199.783" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="207.44691666666665" y="700.55" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Cloud + Global dashboards</text>
+</g>
+<g class="node" data-id="ID" data-label="Keycloak federation" data-shape="rectangle">
+  <rect x="327.9284166666666" y="52" width="159.769" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="407.8129166666666" y="70.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Keycloak federation</text>
+</g>
+</svg></div><details><summary>View Mermaid source</summary><pre>graph TB
+  USER[Users + automation] --&gt; EDGE[Web Console BFF / hsctl / SDKs]
+  EDGE --&gt; API[API Server]
+  API --&gt; DB[(PostgreSQL&lt;br/&gt;desired state)]
+  API --&gt;|gRPC watch| CP[Control Plane]
+  CP --&gt; MC[ManagedClusters]
+  MC --&gt; GW[OpenShell Gateways&lt;br/&gt;Supervisors + Sandboxes]
+  CP --&gt; OBS[Metrics + status]
+  MC --&gt; OBS
+  OBS --&gt; DASH[Cloud + Global dashboards]
+  ID[Keycloak federation] --&gt; EDGE
+  ID --&gt; GW
+  style EDGE fill:#e1f5ff
+  style API fill:#cce5ff
+  style DB fill:#fff3cd
+  style CP fill:#f8d7da
+  style MC fill:#d4edda
+  style GW fill:#d4edda
+  style OBS fill:#cce5ff</pre><p><a href="https://agents.craft.do/mermaid/editor" rel="noreferrer">Edit this diagram in Craft Mermaid</a></p></details></figure></section></main>
+<footer class="site-footer"><div class="site-footer-inner">Diagrams are rendered as inline SVG with <a href="https://github.com/lukilabs/beautiful-mermaid" rel="noreferrer">beautiful-mermaid</a>, the open-source renderer behind Craft's <a href="https://agents.craft.do/mermaid" rel="noreferrer">Mermaid renderer</a>. Mermaid source is included on every page for review and editing.</div></footer>
+</body>
+</html>
