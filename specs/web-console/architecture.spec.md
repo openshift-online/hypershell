@@ -502,7 +502,7 @@ The `Connection` tab SHALL guide the user through four ordered steps using an ac
 
 3. **Create a sandbox.** The step SHALL present an `openshell sandbox create` command that names a sandbox, specifies CPU and memory resource requests and limits via a `--driver-config-json` flag, attaches the provider from step 2, and launches the agent, as a read-only Clipboard Copy value. The default resource values SHALL be CPU requests `100m`, CPU limits `500m`, memory requests `512Mi`, and memory limits `512Mi`.
 
-4. **Connect to a sandbox.** The step SHALL present an `openshell sandbox connect` command that references the sandbox name from step 3 and a supported editor value. The sandbox name field SHALL share state with the create step so both commands stay in sync. The editor field SHALL accept only supported values (`cursor`, `vscode`); unsupported input SHALL fall back to the default editor. An info alert SHALL link to the sandbox connect documentation on the canonical docs host.
+4. **Connect to a sandbox.** The step SHALL present an `openshell sandbox connect` command that references the sandbox name from step 3 and an editor value. The sandbox name field SHALL share state with the create step so both commands stay in sync. The editor field defaults to `cursor`; supported values (`cursor`, `vscode`) are documented in an adjacent info alert that SHALL link to the sandbox connect documentation on the canonical docs host. The CLI validates the editor value at runtime.
 
 The `Connection` tab SHALL also contain a secondary `Create or manage service accounts` link with its introductory content, before the walkthrough. The link SHALL set `tab=service-accounts`. It SHALL not start a create operation.
 
