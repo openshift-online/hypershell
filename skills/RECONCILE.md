@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-31 (Keycloak event-storm KC-ES-W1 complete; OpenShift local-dev lifecycle and manual e2e driver features rebased in from 2026-08-25/27)
+**Last analyzed**: 2026-09-03 (scoped analysis of the CP-OBS-07 Gateway provision-duration changes; the last full-corpus analysis remains 2026-08-31)
 **Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console and OpenShift Development
-**Codebase commit**: working tree (Keycloak event-storm KC-ES-W1 + OpenShift local-dev)
+**Codebase commit**: `a9f707c` plus the CP-OBS-GPD-W1 reconciliation changes in the working tree
 
 ### Coverage Summary
 
@@ -99,6 +99,26 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
+
+### control-plane-observability.spec.md (CP-OBS-07 Gateway provision-duration delta)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CP-OBS-07a | Export `gateway.provision.duration` as a histogram in seconds, with explicit buckets from 1 second through 15 minutes | Present | - | `components/control-plane/internal/otel/metrics.go`, `metrics_test.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07b | Use the stored Gateway `created_at` and `updated_at` values, and ignore missing, invalid, or reversed values | Present | - | `components/control-plane/internal/reconciler/metrics.go`, `metrics_test.go`; `components/api-server/plugins/gateways/grpc_presenter.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07c | Record only after a successful direct update to `Running` | Present | - | `components/control-plane/internal/reconciler/reconciler.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07d | Record a delayed `Provisioning` to `Running` transition, but do not record a `Degraded` to `Running` recovery | Present | - | `components/control-plane/internal/reconciler/health.go`, `metrics.go`, `gateway_vocabulary.go`; `components/control-plane/internal/watcher/watcher.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07e | Record at most one observation for one Gateway and do not export a Gateway identifier as a metric attribute | Present | - | `components/control-plane/internal/reconciler/metrics.go`, `metrics_test.go`; `components/control-plane/internal/otel/metrics_test.go` | CP-OBS-GPD-W1 |
+
+**Scoped coverage:** 5 of 5 changed CP-OBS-07 fields are present. This scoped run does not change the full-corpus coverage table.
+
+**Direction checks:**
+
+- Spec to code: The metric contract, both promotion paths, timestamp rules, recovery rule, single-observation rule, and attribute rule are present.
+- Code to spec: All new provision-duration behavior is in CP-OBS-07. The exact intermediate bucket values are implementation details inside the specified range.
+- OpenAPI to spec: The metric does not add a public API field. The existing `ObjectReference` contract supplies `created_at` and `updated_at`, and the gRPC presenter returns both fields after an update.
+
+The first gap analysis found a race between the event-driven reconciler and the health reconciler. Both paths could record the first `Running` transition. CP-OBS-GPD-W1 adds one process-wide claim per Gateway. The delete path removes the claim. A normal reconcile uses the stored phase before work starts. A forced retry keeps the phase that existed before the retry bypass. These checks prevent work on a `Running` or `Degraded` Gateway from producing a new observation.
 
 ### openshell-gateway-console.spec.md
 
@@ -479,6 +499,19 @@ The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HY
 
 ## Wave Plan
 
+### CP-OBS-GPD-W1: Reconcile Gateway provision-duration metrics ✅
+
+**Scope:** Changed CP-OBS-07 fields only | **Status:** Complete
+
+1. Add the histogram name, unit, description, and explicit buckets.
+2. Use API server timestamps from the successful `Running` update response.
+3. Record direct and delayed first promotions.
+4. Exclude `Degraded` recoveries, including forced recovery retries.
+5. Coordinate the two promotion paths so only one path records the observation.
+6. Verify that the metric has no Gateway identifier attribute.
+
+**CP-OBS-GPD-W1 summary:** The first implementation met the metric, timestamp, and transition contracts. The scoped reconcile found and closed one concurrent-recording gap. A per-Gateway claim now coordinates the event-driven and health paths. The direct path checks the stored phase before work starts. The retry adapter keeps the phase that existed before it bypasses the phase gate. Recovery and later desired-state work cannot look like a new provision. Package constants now keep the Gateway phase and healthy-status values consistent. Focused race tests pass.
+
 ### KC-ES-W1: Stop the Keycloak event storm
 
 **Scope:** OI-7, SA-14
@@ -739,6 +772,7 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-09-03 | `a9f707c` plus working tree | Reconciled the CP-OBS-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
 | 2026-08-31 | working tree | Completed Keycloak event-storm KC-ES-W1 | 82% | Corrected the token lifetime unit, reused tokens until the 80 percent threshold, accepted the provider-managed service-account scope, rejected all other client scopes, and added regression tests. OI-7 and SA-14 are present. |
 | 2026-08-31 | 9ac4354 | Keycloak event-storm scoped gap analysis | 82% | Found two partial requirements: the token cache uses nanoseconds for `expires_in`, and service-account convergence rejects Keycloak's built-in scope. Planned control-plane wave KC-ES-W1. |
 | 2026-08-27 | 9984ed0 | Completed Gateway Console GC-W1 | 82% | Added mode-selected Route exposure, admission readiness, lifecycle cleanup, custom-host RBAC, and tests. All nine console requirements are present. |

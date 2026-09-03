@@ -43,6 +43,9 @@ type Event[T any] struct {
 	Type       EventType
 	ResourceID string
 	Resource   T
+	// PhaseBeforeRetry contains the Gateway phase that the retry adapter
+	// cleared. Other resource types leave this field empty.
+	PhaseBeforeRetry string
 }
 
 type Handler[T any] interface {
@@ -487,13 +490,16 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 // record a terminal phase. Clearing the phase -- and only on retries -- restores
 // the gate-bypassing recovery the watch stream cannot provide, while the rest of
 // the payload still reflects the latest observed spec so an un-routed gateway is
-// torn down, not resurrected. proto.Clone avoids mutating the shared latest entry
-// (and copying the message value, which vet forbids).
+// torn down, not resurrected. The event keeps the original phase so the
+// reconciler can distinguish a recovery from a first provision. proto.Clone
+// avoids mutating the shared latest entry (and copying the message value, which
+// vet forbids).
 func clearGatewayPhaseForRetry(ev Event[*pb.Gateway]) Event[*pb.Gateway] {
 	if ev.Resource == nil {
 		return ev
 	}
 	clone := proto.Clone(ev.Resource).(*pb.Gateway)
+	ev.PhaseBeforeRetry = clone.GetPhase()
 	clone.Phase = nil
 	ev.Resource = clone
 	return ev

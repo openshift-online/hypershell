@@ -385,3 +385,23 @@ func TestSeedGateways_KeepsAbsentWhenConfirmFails(t *testing.T) {
 		t.Fatalf("pruned %v, want none (absence unproven when confirmation fails)", sink.pruned)
 	}
 }
+
+func TestClearGatewayPhaseForRetryPreservesOriginalPhase(t *testing.T) {
+	original := gw("gateway-1", "Degraded")
+	event := Event[*pb.Gateway]{
+		Type:       EventUpdated,
+		ResourceID: "gateway-1",
+		Resource:   original,
+	}
+
+	got := clearGatewayPhaseForRetry(event)
+	if got.PhaseBeforeRetry != "Degraded" {
+		t.Fatalf("phase before retry = %q, want Degraded", got.PhaseBeforeRetry)
+	}
+	if got.Resource.GetPhase() != "" {
+		t.Fatalf("retry phase = %q, want empty", got.Resource.GetPhase())
+	}
+	if original.GetPhase() != "Degraded" {
+		t.Fatalf("source phase = %q, want Degraded", original.GetPhase())
+	}
+}

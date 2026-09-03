@@ -1,6 +1,8 @@
 package reconciler
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,5 +91,63 @@ func TestIsGatewayProvisionCompletion(t *testing.T) {
 		if got := isGatewayProvisionCompletion(test.current, test.desired); got != test.want {
 			t.Errorf("isGatewayProvisionCompletion(%q, %q) = %v, want %v", test.current, test.desired, got, test.want)
 		}
+	}
+}
+
+func TestClaimGatewayProvisionObservation(t *testing.T) {
+	const gatewayID = "gateway-provision-observation-test"
+	forgetGatewayProvisionObservation(gatewayID)
+	t.Cleanup(func() { forgetGatewayProvisionObservation(gatewayID) })
+
+	var claims atomic.Int32
+	var group sync.WaitGroup
+	for range 100 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if claimGatewayProvisionObservation(gatewayID) {
+				claims.Add(1)
+			}
+		}()
+	}
+	group.Wait()
+
+	if got := claims.Load(); got != 1 {
+		t.Fatalf("successful claims = %d, want 1", got)
+	}
+	if claimGatewayProvisionObservation("") {
+		t.Fatal("empty Gateway identifier was accepted")
+	}
+
+	forgetGatewayProvisionObservation(gatewayID)
+	if !claimGatewayProvisionObservation(gatewayID) {
+		t.Fatal("claim after Gateway deletion was rejected")
+	}
+}
+
+func TestSuppressGatewayProvisionObservation(t *testing.T) {
+	tests := []struct {
+		phase      string
+		suppressed bool
+	}{
+		{phase: "Running", suppressed: true},
+		{phase: "Degraded", suppressed: true},
+		{phase: "Provisioning", suppressed: false},
+		{phase: "Failed", suppressed: false},
+		{phase: "", suppressed: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.phase, func(t *testing.T) {
+			gatewayID := "gateway-recovery-" + test.phase
+			forgetGatewayProvisionObservation(gatewayID)
+			t.Cleanup(func() { forgetGatewayProvisionObservation(gatewayID) })
+
+			suppressGatewayProvisionObservation(gatewayID, test.phase)
+			claimed := claimGatewayProvisionObservation(gatewayID)
+			if got := !claimed; got != test.suppressed {
+				t.Fatalf("suppressed = %v, want %v", got, test.suppressed)
+			}
+		})
 	}
 }

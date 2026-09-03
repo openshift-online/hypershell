@@ -68,6 +68,9 @@ func TestRecordGatewayProvisionDuration(t *testing.T) {
 			if point.Sum != 37.5 {
 				t.Fatalf("sample sum = %v, want 37.5", point.Sum)
 			}
+			if point.Attributes.Len() != 0 {
+				t.Fatalf("metric attributes = %v, want none", point.Attributes)
+			}
 			wantBounds := []float64{1, 5, 10, 15, 30, 45, 60, 90, 120, 180, 300, 600, 900}
 			if !reflect.DeepEqual(point.Bounds, wantBounds) {
 				t.Fatalf("bucket bounds = %v, want %v", point.Bounds, wantBounds)

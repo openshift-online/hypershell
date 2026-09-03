@@ -1252,6 +1252,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		log.Printf("WARN gateway event %s has nil resource, skipping", event.ResourceID)
 		return nil
 	}
+	previousPhase := gw.GetPhase()
+	if event.PhaseBeforeRetry != "" {
+		previousPhase = event.PhaseBeforeRetry
+	}
+	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
 
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String())
 	span := trace.SpanFromContext(ctx)
@@ -1260,6 +1265,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	defer func() { endSpan(reconcileErr) }()
 
 	if event.Type == watcher.EventDeleted {
+		forgetGatewayProvisionObservation(event.ResourceID)
 		var deleteDBConfig databaseConfig
 		var deleteErrs []error
 		if gw.DatabaseId != "" {
@@ -1358,7 +1364,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// gated. In particular, controller startup seeds existing Running gateways;
 	// reconciling before the return below lets newly introduced client settings
 	// converge without forcing a full gateway rollout.
-	if gw.Phase != nil && (*gw.Phase == "Running" || *gw.Phase == "Provisioning" || *gw.Phase == "Degraded") {
+	if gw.Phase != nil && (*gw.Phase == gatewayPhaseRunning || *gw.Phase == gatewayPhaseProvisioning || *gw.Phase == gatewayPhaseDegraded) {
 		if err := r.reconcileExistingGatewayKeycloakClient(ctx, event.ResourceID, gw); err != nil {
 			var identityErr *gatewayKeycloakClientIdentityError
 			if errors.As(err, &identityErr) {
@@ -1498,10 +1504,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
 	}
 
-	r.updateGatewayPhase(ctx, event.ResourceID, "Provisioning")
+	r.updateGatewayPhase(ctx, event.ResourceID, gatewayPhaseProvisioning)
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
-		r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
+		r.updateGatewayPhase(ctx, event.ResourceID, gatewayPhaseFailed)
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}
@@ -1511,7 +1517,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Deployment never becomes ready, set Degraded and record why.
 	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
 	if !ready {
-		r.updateGatewayHealth(ctx, event.ResourceID, "Degraded", reason)
+		r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseDegraded, reason)
 		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
 		return nil
 	}
@@ -1530,18 +1536,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	routed := isRoutedGateway(gw)
 	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
-			// The phase gate prevents a second full provision after Running.
-			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy"); runningGateway != nil {
+			// The observation guard rejects work that started in Running or Degraded.
+			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseRunning, gatewayStatusHealthy); runningGateway != nil {
 				observeGatewayProvisionDuration(ctx, runningGateway)
 			}
 			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
 		} else {
-			r.updateGatewayHealth(ctx, event.ResourceID, "Provisioning", "Deployment ready; awaiting route readiness")
+			r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseProvisioning, "Deployment ready; awaiting route readiness")
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
 	} else {
-		// The phase gate prevents a second full provision after Running.
-		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, "Running", "Healthy"); runningGateway != nil {
+		// The observation guard rejects work that started in Running or Degraded.
+		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseRunning, gatewayStatusHealthy); runningGateway != nil {
 			observeGatewayProvisionDuration(ctx, runningGateway)
 		}
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)

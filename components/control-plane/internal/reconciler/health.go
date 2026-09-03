@@ -223,7 +223,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// observable workload. Leave Pending gateways to the provisioning path and
 	// Failed gateways to a subsequent spec change.
 	switch phase {
-	case "Running", "Degraded", "Provisioning":
+	case gatewayPhaseRunning, gatewayPhaseDegraded, gatewayPhaseProvisioning:
 	default:
 		return
 	}
@@ -273,7 +273,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 			return
 		}
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = "Degraded", reason
+		desiredPhase, desiredStatus = gatewayPhaseDegraded, reason
 	case h.exposure != nil && isRoutedGateway(gw):
 		// Deployment is Ready; a routed gateway additionally requires its external
 		// exposure to be observed Ready before it can be Running.
@@ -285,7 +285,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		}
 	default:
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = "Running", "Healthy"
+		desiredPhase, desiredStatus = gatewayPhaseRunning, gatewayStatusHealthy
 	}
 
 	// active_sandbox_count is maintained independently by the event-driven
@@ -318,7 +318,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 // observations retain normal ownership of phase and status so operational
 // failures remain visible.
 func observedGatewayHealthUpdate(gatewayID, currentPhase, currentStatus, desiredPhase, desiredStatus string, keycloakConfigured bool) *pb.UpdateGatewayRequest {
-	if keycloakConfigured && isGatewayKeycloakClientStatus(currentStatus) && desiredPhase == "Running" && desiredStatus == "Healthy" {
+	if keycloakConfigured && isGatewayKeycloakClientStatus(currentStatus) && desiredPhase == gatewayPhaseRunning && desiredStatus == gatewayStatusHealthy {
 		if currentPhase == desiredPhase {
 			return nil
 		}
@@ -564,21 +564,21 @@ func (h *GatewayHealthReconciler) evaluateRouteReadiness(ctx context.Context, ga
 	}
 	if rr.Ready {
 		h.clearRouteTimer(gatewayID)
-		return "Running", "Healthy"
+		return gatewayPhaseRunning, gatewayStatusHealthy
 	}
 
-	if currentPhase == "Provisioning" {
+	if currentPhase == gatewayPhaseProvisioning {
 		since := h.markRouteNotReady(gatewayID)
 		if h.now().Sub(since) >= h.routeReadyTimeout {
 			h.clearRouteTimer(gatewayID)
-			return "Degraded", fmt.Sprintf("route not ready after %s: %s", h.routeReadyTimeout, rr.Reason)
+			return gatewayPhaseDegraded, fmt.Sprintf("route not ready after %s: %s", h.routeReadyTimeout, rr.Reason)
 		}
-		return "Provisioning", rr.Reason
+		return gatewayPhaseProvisioning, rr.Reason
 	}
 
 	// currentPhase is Running (lost readiness) or Degraded (still unhealthy).
 	h.clearRouteTimer(gatewayID)
-	return "Degraded", rr.Reason
+	return gatewayPhaseDegraded, rr.Reason
 }
 
 // markRouteNotReady records the first time the gateway's Deployment was observed
