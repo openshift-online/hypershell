@@ -22,6 +22,8 @@ _USES_LINE = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)")
 _FROM_LINE = re.compile(
     r"^\s*FROM\s+(?:--[^\s]+\s+)*([^\s]+)", re.IGNORECASE
 )
+_AS_CLAUSE = re.compile(r"\bAS\s+([^\s]+)", re.IGNORECASE)
+_TEMPLATE_TOKEN = re.compile(r"\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*")
 _IMAGE_LINE = re.compile(r"^(\s*)image:\s*([^\s#]+)")
 _MAKE_IMAGE = re.compile(
     r"^\s*([A-Z][A-Z0-9_]*_IMAGE)\s*(?::|\?)?=\s*([^\s#]+)"
@@ -170,10 +172,37 @@ def _workflow_violations(
     return violations
 
 
+def _stage_reference_pattern(reference: str) -> re.Pattern[str]:
+    """Build a regex matching a FROM reference that interpolates build ARGs.
+
+    `FROM go-${BUILDARCH}` should match a stage declared as `AS go-amd64`
+    without knowing the ARG's value, so each template token becomes a
+    non-empty wildcard.
+    """
+    pattern_parts = []
+    last_end = 0
+    for token in _TEMPLATE_TOKEN.finditer(reference):
+        pattern_parts.append(re.escape(reference[last_end : token.start()]))
+        pattern_parts.append(r".+")
+        last_end = token.end()
+    pattern_parts.append(re.escape(reference[last_end:]))
+    return re.compile("^" + "".join(pattern_parts) + "$")
+
+
 def _dockerfile_violations(
     relative_path: str, lines: list[str]
 ) -> list[tuple[str, int, str]]:
     violations = []
+    stage_names: set[str] = set()
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            continue
+        if not _FROM_LINE.match(line):
+            continue
+        as_match = _AS_CLAUSE.search(line)
+        if as_match:
+            stage_names.add(_unquote(as_match.group(1)))
+
     for line_number, line in enumerate(lines, start=1):
         if line.lstrip().startswith("#"):
             continue
@@ -189,7 +218,16 @@ def _dockerfile_violations(
         if not match:
             continue
         reference = _unquote(match.group(1))
-        if reference.lower() != "scratch" and not _is_digest_pinned(reference):
+        if reference.lower() == "scratch" or reference in stage_names:
+            continue
+        # A FROM referencing an earlier pinned stage by name (e.g. per-arch
+        # variants selected via `FROM go-${BUILDARCH}`) needs no digest of
+        # its own: the stage it resolves to was already validated above.
+        if _TEMPLATE_TOKEN.search(reference) and any(
+            _stage_reference_pattern(reference).match(name) for name in stage_names
+        ):
+            continue
+        if not _is_digest_pinned(reference):
             violations.append(
                 (relative_path, line_number, "base image lacks a sha256 digest")
             )
