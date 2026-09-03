@@ -97,6 +97,212 @@ is_reserved_cluster_namespace() {
   return 1
 }
 
+# True when a registry hostname only resolves inside the cluster. Laptop
+# podman/docker cannot push to these names.
+registry_host_is_cluster_local() {
+  local host="${1:-}"
+  host="${host#https://}"
+  host="${host#http://}"
+  host="${host%%/*}"
+  case "${host}" in
+    *.svc|*.svc:*|*.cluster.local|*.cluster.local:*) return 0 ;;
+  esac
+  return 1
+}
+
+# SWAP_REGISTRY is the laptop-push org prefix for OpenShift component swaps
+# (for example quay.io/<org>). IMAGE_REGISTRY is the baseline/pull path and is
+# never used as the swap destination. Repo names default to hypershell-api-server,
+# hypershell-controller, and hypershell-web-console; SWAP_REPOSITORY overrides
+# the repo name for the current swap.
+require_swap_registry() {
+  if [[ -z "${SWAP_REGISTRY:-}" ]]; then
+    error "SWAP_REGISTRY is unset. Set it to a registry org prefix this cluster can pull (for example quay.io/<org>)."
+    error "IMAGE_REGISTRY is only for baseline images; swaps do not push there."
+    return 1
+  fi
+  local prefix="${SWAP_REGISTRY#https://}"
+  prefix="${prefix#http://}"
+  prefix="${prefix%/}"
+  if registry_host_is_cluster_local "${prefix}"; then
+    error "SWAP_REGISTRY=${SWAP_REGISTRY} is only reachable inside the cluster."
+    error "Set SWAP_REGISTRY to a Quay org prefix this cluster can pull (for example quay.io/<org>)."
+    return 1
+  fi
+  if [[ "${prefix}" != */* ]]; then
+    error "SWAP_REGISTRY must be a registry org prefix (for example quay.io/<org>), not '${SWAP_REGISTRY}'."
+    return 1
+  fi
+}
+
+# GOARCH for OpenShift swap images. Laptop architecture is not used: ROSA and
+# most OpenShift nodes are amd64, while developer laptops may be arm64.
+# SWAP_PLATFORM (linux/amd64 or linux/arm64) wins; otherwise the first node's
+# architecture is used.
+swap_target_goarch() {
+  local raw="${SWAP_PLATFORM:-${SWAP_ARCH:-}}"
+  if [[ -z "${raw}" ]]; then
+    raw="$(oc get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null || true)"
+  fi
+  case "${raw}" in
+    linux/amd64|amd64|x86_64) printf 'amd64' ;;
+    linux/arm64|arm64|aarch64) printf 'arm64' ;;
+    '')
+      error "Could not detect OpenShift node architecture. Set SWAP_PLATFORM=linux/amd64 (or linux/arm64) to match the cluster nodes."
+      return 1
+      ;;
+    *)
+      error "Unsupported swap architecture '${raw}'. Set SWAP_PLATFORM=linux/amd64 or linux/arm64."
+      return 1
+      ;;
+  esac
+}
+
+swap_default_repository() {
+  case "${1:-}" in
+    api-server) printf 'hypershell-api-server' ;;
+    control-plane) printf 'hypershell-controller' ;;
+    web-console) printf 'hypershell-web-console' ;;
+    *)
+      error "Unknown component: ${1:-}"
+      return 1
+      ;;
+  esac
+}
+
+swap_repository_for_component() {
+  if [[ -n "${SWAP_REPOSITORY:-}" ]]; then
+    printf '%s' "${SWAP_REPOSITORY}"
+    return 0
+  fi
+  swap_default_repository "$1"
+}
+
+swap_image_repository() {
+  local prefix repo_name
+  require_swap_registry || return 1
+  prefix="${SWAP_REGISTRY#https://}"
+  prefix="${prefix#http://}"
+  prefix="${prefix%/}"
+  repo_name="$(swap_repository_for_component "$1")" || return 1
+  printf '%s/%s' "${prefix}" "${repo_name}"
+}
+
+# Registry manifest digest from a docker-style push log (`digest: sha256:...`).
+# Ignore unanchored sha256 values: podman progress prints blob and config
+# digests that are not the digest the registry stores for the tag.
+registry_digest_from_push_log() {
+  sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' | tail -1
+}
+
+# PULL_SECRET is the canonical path to a kubernetes.io/dockerconfigjson Secret
+# YAML (or a raw Docker config JSON). KIND_PULL_SECRET remains an alias.
+resolved_pull_secret_path() {
+  printf '%s' "${PULL_SECRET:-${KIND_PULL_SECRET:-}}"
+}
+
+# Print {"username":"...","password":"..."} for registry host from a pull secret.
+registry_auth_json_for_host() {
+  local file="${1:-}" host="${2:-}"
+  if [[ -z "${file}" || ! -f "${file}" ]]; then
+    error "Pull secret file is missing: ${file:-'(empty path)'}"
+    return 1
+  fi
+  python3 - "${file}" "${host}" <<'PY'
+import base64, json, re, sys
+
+path, host = sys.argv[1], sys.argv[2]
+text = open(path, encoding="utf-8").read()
+
+def load_dockerconfig(raw: str):
+    raw = raw.strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, dict) and "auths" in data:
+        return data
+    if isinstance(data, dict):
+        b64 = (data.get("data") or {}).get(".dockerconfigjson")
+        if b64:
+            return json.loads(base64.b64decode(b64))
+    match = re.search(
+        r"^\s*\.dockerconfigjson:\s*[\"']?([A-Za-z0-9+/=]+)[\"']?\s*$",
+        raw,
+        re.M,
+    )
+    if not match:
+        raise SystemExit("no dockerconfigjson in pull secret")
+    blob = match.group(1)
+    decoded = base64.b64decode(blob)
+    try:
+        return json.loads(decoded.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(
+            "pull secret .dockerconfigjson is not JSON; the YAML value may be truncated"
+        ) from exc
+
+def credentials(entry: dict):
+    user, password = entry.get("username"), entry.get("password")
+    if user and password:
+        return user, password
+    auth = entry.get("auth")
+    if not auth:
+        return None
+    decoded = base64.b64decode(auth).decode("utf-8")
+    user, password = decoded.split(":", 1)
+    return user, password
+
+cfg = load_dockerconfig(text)
+auths = cfg.get("auths") or {}
+candidates = [
+    host,
+    f"https://{host}",
+    f"http://{host}",
+    f"https://{host}/v1/",
+    f"https://{host}/v2/",
+]
+entry = None
+for key in candidates:
+    if key in auths:
+        entry = auths[key]
+        break
+if entry is None:
+    for key, value in auths.items():
+        if host in key:
+            entry = value
+            break
+if entry is None:
+    raise SystemExit(f"pull secret has no auth for {host}")
+pair = credentials(entry)
+if not pair:
+    raise SystemExit(f"pull secret auth for {host} has no username/password")
+json.dump({"username": pair[0], "password": pair[1]}, sys.stdout)
+PY
+}
+
+login_registry_with_pull_secret() {
+  local host="$1"
+  local file
+  file="$(resolved_pull_secret_path)"
+  if [[ -z "${file}" ]]; then
+    error "PULL_SECRET is unset. Set it to a kubernetes.io/dockerconfigjson Secret YAML (KIND_PULL_SECRET is still accepted)."
+    return 1
+  fi
+  local auth_json user password
+  if ! auth_json="$(registry_auth_json_for_host "${file}" "${host}")"; then
+    error "Could not read ${host} credentials from ${file}."
+    return 1
+  fi
+  user="$(printf '%s' "${auth_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["username"])')"
+  password="$(printf '%s' "${auth_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')"
+  info "Logging in to ${host} with PULL_SECRET"
+  if ! printf '%s' "${password}" | ${CONTAINER_ENGINE} login --username "${user}" --password-stdin "${host}" >/dev/null; then
+    error "Failed to log in to ${host} with credentials from ${file}."
+    return 1
+  fi
+}
+
 # Strip a Gateway listener hostname (e.g. *.openshell.example.com) down to the
 # tenant base domain the control plane expects (openshell.example.com).
 gateway_base_domain_from_hostname() {

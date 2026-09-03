@@ -444,11 +444,15 @@ kustomize-build time. The overlay SHALL re-declare any base container env the
 JSON6902 env-array replace would otherwise drop, including
 `HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR`. That address SHALL be the
 cluster-local FQDN
-`hypershell-controller.${OPENSHIFT_NAMESPACE}.svc.cluster.local:9443`
-(the overlay stores `hypershell-system`; namespace rewrite substitutes the
-assigned project). grpc-go does not apply kube-DNS search domains, so the
-short name `hypershell-controller:9443` fails in-cluster even when `nc` to
-that short name succeeds.
+`hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443`, where
+`POD_NAMESPACE` is the API server pod's namespace from the downward API
+(`metadata.namespace`). The API server and controller share that namespace, so
+the dial target matches the controller's `HYPERSHELL_NAMESPACE` instance
+identity without a hardcoded `hypershell-system` segment. Namespace rewrite
+does not substitute this value; kubelet expands `$(POD_NAMESPACE)` at pod
+start. grpc-go does not apply kube-DNS search domains, so the short name
+`hypershell-controller:9443` fails in-cluster even when `nc` to that short
+name succeeds.
 
 This spec defines only where Keycloak lands. The broader isolation of other
 non-request-serving components (for example the database and observability) into
@@ -470,8 +474,9 @@ their own namespaces is out of scope here and belongs to a separate spec.
 - GIVEN `deploy/openshift/kustomization.yaml` is built
 - WHEN the rendered API server Deployment is inspected
 - THEN it SHALL set `API_ENV=development_oidc`
-- AND it SHALL retain `HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR` as the
-  cluster-local FQDN for this project's controller Service
+- AND it SHALL retain `HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR` as
+  `hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443` with
+  `POD_NAMESPACE` from the downward API (`metadata.namespace`)
 - AND `make openshift-up` SHALL NOT set `API_ENV` with `oc set env`
 
 #### Scenario: Platform workloads can reach Keycloak across the namespace group
@@ -507,10 +512,43 @@ component to the baseline registry image.
 
 The swap SHALL build the component image from the working tree and make the image
 available to the cluster. Because OpenShift pulls images from a registry rather
-than from a local archive, the OpenShift driver SHALL push the built image to a
-registry that the cluster can pull, rather than use the Kind-specific
-`kind load image-archive`. The driver SHOULD use the OpenShift internal registry
-when it is available, so that the swap does not require an external registry.
+than from a local archive, the OpenShift driver SHALL push the built image to
+`SWAP_REGISTRY`, a laptop-reachable registry prefix the cluster can pull, rather
+than use the Kind-specific `kind load image-archive`. `SWAP_REGISTRY` SHALL be the registry org prefix only (for example
+`quay.io/<org>`), not an image repository. The driver SHALL append a default
+repository name for the component being swapped: `hypershell-api-server` for
+the API server, `hypershell-controller` for the control plane, and
+`hypershell-web-console` for the web console. When `SWAP_REPOSITORY` is set,
+the driver SHALL use that repository name instead of the component default.
+`SWAP_REGISTRY` SHALL be required: when it is unset, or when it is only a
+hostname with no org path, the swap SHALL stop with a clear error. The driver
+SHALL NOT default `SWAP_REGISTRY` to `IMAGE_REGISTRY`; `IMAGE_REGISTRY` is the
+baseline image prefix and SHALL NOT be the swap push destination.
+`OPENSHIFT_IMAGE_REGISTRY` SHALL NOT be used. The driver SHALL NOT push to the
+OpenShift internal registry (`image-registry.openshift-image-registry.svc`)
+from the laptop: that hostname does not resolve outside the cluster, and many
+shared clusters (ROSA/OSD) expose no public registry hostname. The swap SHALL
+authenticate the container engine with `PULL_SECRET` (a
+`kubernetes.io/dockerconfigjson` Secret YAML, or a raw Docker config JSON).
+`KIND_PULL_SECRET` SHALL remain accepted as an alias when `PULL_SECRET` is
+unset. When that file contains credentials for the `SWAP_REGISTRY` host, the
+swap SHALL log in with those credentials and SHALL NOT require an interactive
+`podman login`. After a successful push, the driver SHALL update the component
+Deployment image refs to the pushed identity. The digest SHALL be the registry
+manifest digest recorded by that push (`podman push --digestfile`, or a
+`digest: sha256:...` line from a docker-style push log). The driver SHALL NOT
+pin a digest from `inspect` of the local image, and SHALL NOT scrape blob or
+config SHAs from push progress: those values are not the digest the registry
+stores, so a cluster pull by that digest fails with manifest unknown. When no
+registry digest is available, the driver SHALL pin the unique tag.
+
+The swap build SHALL target the OpenShift node architecture, not the laptop
+architecture. When `SWAP_PLATFORM` is set (`linux/amd64` or `linux/arm64`),
+the driver SHALL use that GOARCH. When it is unset, the driver SHALL read the
+architecture from the cluster nodes. Go component Dockerfiles SHALL honor
+`TARGETARCH` so an arm64 laptop can cross-compile an amd64 binary with
+`CGO_ENABLED=0`. A native laptop build pushed to amd64 nodes SHALL NOT be
+used: that fails init with `Exec format error`.
 
 Because more than one developer can share one cluster, each working-tree image
 SHALL have an immutable identity scoped to the source commit and to
@@ -532,11 +570,41 @@ build, which run the baseline image, and the exact image each one runs.
 - THEN the scripts build the API server image from the working tree
 - AND the pushed image has an immutable identity scoped to the commit and
   `OPENSHIFT_NAMESPACE`
-- AND the scripts push the image to a registry that the cluster can pull
+- AND the scripts push the image to `${SWAP_REGISTRY}/hypershell-api-server`
+  (or `${SWAP_REGISTRY}/${SWAP_REPOSITORY}` when that override is set), not
+  `IMAGE_REGISTRY` and not the OpenShift internal registry
+- AND the scripts update the API server Deployment image refs to that identity
 - AND the scripts record that image identity in the per-namespace swap state
 - AND the scripts roll out the API server deployment to the pushed image
 - AND `make openshift-status` reports the API server as a working-tree build with
   its exact image identity
+
+#### Scenario: Swap pins the registry digest from the push
+
+- GIVEN the container engine's local image digest differs from the digest the
+  registry stored for the pushed tag
+- WHEN the developer runs `make openshift-api-server-up`
+- THEN the scripts pin the Deployment to the registry manifest digest recorded
+  by that push
+- AND they SHALL NOT pin a digest from `inspect` of the local image
+- AND they SHALL NOT scrape blob or config SHAs from push progress
+
+#### Scenario: Swap builds for the cluster architecture
+
+- GIVEN the developer laptop is arm64
+- AND the OpenShift nodes are amd64
+- WHEN the developer runs `make openshift-api-server-up`
+- THEN the scripts build the API server with `TARGETARCH=amd64`
+- AND the migrate init container SHALL start without `Exec format error`
+
+#### Scenario: Swap without SWAP_REGISTRY stops
+
+- GIVEN a HyperShell deployment exists on OpenShift with baseline images
+- AND `SWAP_REGISTRY` is unset
+- WHEN the developer runs `make openshift-api-server-up`
+- THEN the command SHALL stop with a clear error
+- AND it SHALL NOT push to `IMAGE_REGISTRY`
+- AND it SHALL NOT push to the OpenShift internal registry
 
 #### Scenario: Revert a swapped component
 

@@ -51,6 +51,83 @@ assert_fail "uppercase rejected" validate_rfc1123_label "Alice" 54
 assert_fail "underscore rejected" validate_rfc1123_label "alice_dev" 54
 assert_eq "tok" "$(printf '%s' '{"access_token":"tok","expires_in":60}' | json_string_field access_token)" "json_string_field access_token"
 assert_eq "abc-id" "$(printf '%s' '[{"id":"abc-id","clientId":"hypershell-frontend"}]' | json_first_id)" "json_first_id"
+assert_ok "internal registry svc:port is cluster-local" \
+  registry_host_is_cluster_local 'image-registry.openshift-image-registry.svc:5000'
+assert_ok "cluster.local registry is cluster-local" \
+  registry_host_is_cluster_local 'image-registry.openshift-image-registry.svc.cluster.local:5000'
+assert_fail "quay.io is not cluster-local" registry_host_is_cluster_local 'quay.io'
+assert_fail "apps route is not cluster-local" \
+  registry_host_is_cluster_local 'default-route-openshift-image-registry.apps.example.com'
+(
+  unset SWAP_REGISTRY IMAGE_REGISTRY
+  assert_fail "unset SWAP_REGISTRY is an error" require_swap_registry
+)
+SWAP_REGISTRY='quay.io/example' \
+  assert_ok "set SWAP_REGISTRY org prefix is accepted" require_swap_registry
+SWAP_REGISTRY='quay.io' \
+  assert_fail "SWAP_REGISTRY without org is refused" require_swap_registry
+SWAP_REGISTRY='image-registry.openshift-image-registry.svc:5000' \
+  assert_fail "cluster-local SWAP_REGISTRY is refused" require_swap_registry
+assert_eq "hypershell-api-server" "$(swap_default_repository api-server)" "default api-server repo"
+assert_eq "hypershell-controller" "$(swap_default_repository control-plane)" "default control-plane repo"
+assert_eq "hypershell-web-console" "$(swap_default_repository web-console)" "default web-console repo"
+assert_eq "hypershell-api-server" "$(unset SWAP_REPOSITORY; swap_repository_for_component api-server)" \
+  "api-server repo without override"
+assert_eq "custom-api" "$(SWAP_REPOSITORY=custom-api swap_repository_for_component api-server)" \
+  "SWAP_REPOSITORY overrides repo name"
+assert_eq "quay.io/alice/hypershell-api-server" \
+  "$(SWAP_REGISTRY=quay.io/alice SWAP_REPOSITORY= swap_image_repository api-server)" \
+  "swap image is org prefix plus default repo"
+assert_eq "quay.io/alice/custom-api" \
+  "$(SWAP_REGISTRY=quay.io/alice SWAP_REPOSITORY=custom-api swap_image_repository api-server)" \
+  "swap image uses SWAP_REPOSITORY override"
+assert_eq "amd64" "$(SWAP_PLATFORM=linux/amd64 swap_target_goarch)" "SWAP_PLATFORM linux/amd64"
+assert_eq "amd64" "$(SWAP_ARCH=x86_64 SWAP_PLATFORM= swap_target_goarch)" "SWAP_ARCH x86_64"
+assert_eq "arm64" "$(SWAP_PLATFORM=linux/arm64 swap_target_goarch)" "SWAP_PLATFORM linux/arm64"
+SWAP_PLATFORM=linux/ppc64le assert_fail "unsupported SWAP_PLATFORM" swap_target_goarch
+unset SWAP_PLATFORM SWAP_ARCH
+assert_eq "sha256:d3f6ac0a7627fee89b55f34745e09fc64d0073e807719a66f6b4534a96541eb6" \
+  "$(printf '%s\n' \
+    'Copying blob sha256:5bef08742407efd622d243692b79ba0055383bbce12900324f75e56f589aedb0' \
+    'Copying config sha256:ad4686094d8f0186ec8249fc4917b71faa2c1030d7b5a025c29f26e19d95c156' \
+    'Writing manifest to image destination' \
+    '6014ae9-hypershell-e2e-test: digest: sha256:d3f6ac0a7627fee89b55f34745e09fc64d0073e807719a66f6b4534a96541eb6 size: 1927' \
+    | registry_digest_from_push_log)" \
+  "push log parser takes digest: line not blob/config SHAs"
+assert_eq "" \
+  "$(printf '%s\n' \
+    'Copying blob sha256:5bef08742407efd622d243692b79ba0055383bbce12900324f75e56f589aedb0' \
+    'Copying config sha256:ad4686094d8f0186ec8249fc4917b71faa2c1030d7b5a025c29f26e19d95c156' \
+    'Writing manifest to image destination' \
+    'Storing signatures' \
+    | registry_digest_from_push_log)" \
+  "podman progress without a digest: line is not a registry digest"
+assert_eq "/from-pull" \
+  "$(PULL_SECRET=/from-pull KIND_PULL_SECRET=/from-kind resolved_pull_secret_path)" \
+  "PULL_SECRET wins over KIND_PULL_SECRET"
+assert_eq "/from-kind" \
+  "$(PULL_SECRET= KIND_PULL_SECRET=/from-kind resolved_pull_secret_path)" \
+  "KIND_PULL_SECRET is the PULL_SECRET alias"
+_pull_auth="$(printf '%s' 'alice:s3cret' | base64 | tr -d '\n')"
+_pull_dc="$(printf '%s' "{\"auths\":{\"quay.io\":{\"auth\":\"${_pull_auth}\"}}}" | base64 | tr -d '\n')"
+_pull_secret="$(mktemp)"
+cat > "${_pull_secret}" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pull-secret
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: ${_pull_dc}
+type: kubernetes.io/dockerconfigjson
+EOF
+_pull_user="$(registry_auth_json_for_host "${_pull_secret}" quay.io | python3 -c 'import json,sys; print(json.load(sys.stdin)["username"])')"
+_pull_pass="$(registry_auth_json_for_host "${_pull_secret}" quay.io | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')"
+assert_eq "alice" "${_pull_user}" "pull secret username for quay.io"
+assert_eq "s3cret" "${_pull_pass}" "pull secret password for quay.io"
+_pull_https="$(registry_auth_json_for_host "${_pull_secret}" quay.io | python3 -c 'import json,sys; print(json.load(sys.stdin)["username"])')"
+assert_eq "alice" "${_pull_https}" "pull secret matches quay.io host"
+rm -f "${_pull_secret}"
 merged="$(printf '%s' '{"id":"x","redirectUris":["https://console.hypershell.localhost/*"]}' | keycloak_client_with_console_redirects 'console.apps.example.com')"
 assert_eq '["https://console.apps.example.com/auth/callback", "https://console.apps.example.com"]' \
   "$(printf '%s' "${merged}" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["redirectUris"]))')" \
@@ -707,11 +784,19 @@ if bad:
       echo 'FAIL: OpenShift overlay does not set API_ENV=development_oidc'
     fi
     if grep -q 'name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR' "${os_out}" \
-      && grep -q 'hypershell-controller.alice.svc.cluster.local:9443' "${os_out}"; then
+      && grep -q 'hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443' "${os_out}" \
+      && grep -B8 'name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR' "${os_out}" \
+        | grep -q 'fieldPath: metadata.namespace'; then
       PASS=$((PASS + 1))
     else
       FAIL=$((FAIL + 1))
       echo 'FAIL: OpenShift overlay dropped HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR FQDN'
+    fi
+    if grep -q 'hypershell-controller.hypershell-system.svc.cluster.local:9443' "${os_out}"; then
+      FAIL=$((FAIL + 1))
+      echo 'FAIL: provisioner addr still hardcodes hypershell-system instead of $(POD_NAMESPACE)'
+    else
+      PASS=$((PASS + 1))
     fi
     if grep -A1 'name: GATEWAY_API_HTTP_LISTENER_NAME' "${os_out}" | grep -q 'grpc'; then
       PASS=$((PASS + 1))
@@ -733,6 +818,77 @@ if grep -q 'API_ENV=development_oidc' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   echo 'FAIL: OpenShift driver still sets API_ENV imperatively; it belongs in deploy/openshift'
 else
   PASS=$((PASS + 1))
+fi
+if grep -A80 '^login_swap_registry()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'oc registry'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap login still uses oc registry; it should push to SWAP_REGISTRY'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -q 'start-build' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap still uses oc start-build; it should push to SWAP_REGISTRY from the laptop'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A30 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'swap_image_repository'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap push ref does not use swap_image_repository (SWAP_REGISTRY/org + default repo)'
+fi
+if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q -- '--digestfile'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap push does not record the registry digest via --digestfile'
+fi
+if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q "inspect -f '{{.Digest}}'"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap still pins inspect of the local image; that digest is not on the registry'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'TARGETARCH'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap build does not pass TARGETARCH for the cluster node architecture'
+fi
+if grep -q 'GOARCH="${TARGETARCH' "${REPO_ROOT}/components/api-server/Dockerfile" \
+  && grep -q 'GOARCH="${TARGETARCH' "${REPO_ROOT}/components/control-plane/Dockerfile"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Go Dockerfiles do not honor TARGETARCH for OpenShift swap cross-compile'
+fi
+if grep -q 'OPENSHIFT_IMAGE_REGISTRY' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh" "${REPO_ROOT}/Makefile"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OPENSHIFT_IMAGE_REGISTRY is still present; swaps use SWAP_REGISTRY'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -q 'SWAP_REGISTRY:-${IMAGE_REGISTRY}' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: SWAP_REGISTRY still falls back to IMAGE_REGISTRY'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A40 '^login_swap_registry()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'login_registry_with_pull_secret'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap login does not use PULL_SECRET via login_registry_with_pull_secret'
+fi
+if grep -q 'PULL_SECRET:-${KIND_PULL_SECRET' "${REPO_ROOT}/scripts/kind/up.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up does not accept PULL_SECRET with KIND_PULL_SECRET alias'
 fi
 
 printf 'OpenShift lifecycle tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"

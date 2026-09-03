@@ -16,7 +16,8 @@ COPY components/api-server/proto/ components/api-server/proto/
 COPY components/control-plane/cmd/ components/control-plane/cmd/
 COPY components/control-plane/internal/ components/control-plane/internal/
 
-RUN cd components/control-plane && CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
+ARG TARGETARCH
+RUN cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:f4d5109b57cf7eab0a7adc566f2d78f80fa0c5ec9ccab698c9fb8eb448db6071
 

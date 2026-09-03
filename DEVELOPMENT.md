@@ -300,11 +300,13 @@ curl -s -H "Authorization: Bearer ${TOKEN}" \
 If your baseline images live in a private registry, provide a pull secret:
 
 ```bash
-KIND_PULL_SECRET=/path/to/pull-secret.yaml make kind-up
+PULL_SECRET=/path/to/pull-secret.yaml make kind-up
 ```
 
-The YAML file is applied into the target namespace with `kubectl apply`. It
-should contain a `kubernetes.io/dockerconfigjson` Secret.
+`KIND_PULL_SECRET` is still accepted as an alias. The YAML file is applied into
+the target namespace with `kubectl apply`. It should contain a
+`kubernetes.io/dockerconfigjson` Secret. OpenShift component swaps use the
+same file to log the container engine into `SWAP_REGISTRY`.
 
 ### Offline development
 
@@ -329,7 +331,8 @@ build time, so no external dependency checkout is needed.
 | `KIND_HOST_MOUNT_PATH` | Repository root | Host directory mounted into Kind nodes |
 | `KIND_KEYCLOAK_URL` | (unset) | External Keycloak URL; skips local deploy |
 | `KEYCLOAK_OIDC_ISSUER` | `https://keycloak.hypershell.localhost/realms/hypershell` | OIDC issuer URL |
-| `KIND_PULL_SECRET` | (unset) | Path to pull secret YAML for private registries |
+| `PULL_SECRET` | (unset) | Path to a `kubernetes.io/dockerconfigjson` Secret YAML for private registries. Used by Kind `kind-up` and OpenShift swaps. |
+| `KIND_PULL_SECRET` | (unset) | Alias for `PULL_SECRET`. |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
 | `LOCAL_IMAGES` | (unset) | Set to `true` to build baseline images from the working tree |
@@ -383,7 +386,7 @@ command stops with an error.
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
 | `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. `openshift-up` already seeds unless `SKIP_SEED=true`. |
-| `make openshift-api-server-up` | Build, push an immutable image to the internal registry, and swap the API server. |
+| `make openshift-api-server-up` | Build, push an immutable image to `SWAP_REGISTRY`, and point the API server Deployment at that ref. Requires `SWAP_REGISTRY`. |
 | `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
 | `make openshift-control-plane-up` | Build, push, and swap the control plane. |
 | `make openshift-control-plane-down` | Revert the control plane to the baseline registry image. |
@@ -446,12 +449,18 @@ make openshift-web-console-up
 ```
 
 Each swap builds from the working tree, pushes an immutable image (commit +
-namespace) to the OpenShift internal registry, and rolls out that exact
-identity. Matching `-down` targets revert to the baseline registry image.
-`make openshift-status` reports which components run a working-tree build
-and the exact image each one uses. Swap state is tracked per namespace in
-`.openshift-swaps/` (gitignored). A subsequent `make openshift-up` preserves
-active swaps.
+namespace tag) to `SWAP_REGISTRY`, and updates the Deployment image refs to
+the registry digest from that push (not the local image digest). Images are
+built for the OpenShift node architecture (`SWAP_PLATFORM`, or detected from
+the cluster), not the laptop architecture. `SWAP_REGISTRY` is the org prefix only (`quay.io/<org>`). Repo
+names default to `hypershell-api-server`, `hypershell-controller`, and
+`hypershell-web-console`; set `SWAP_REPOSITORY` to override the repo for the
+current swap. `SWAP_REGISTRY` is required; swaps do not use `IMAGE_REGISTRY`.
+Matching `-down` targets revert to the baseline registry image. Registry
+login uses `PULL_SECRET` (`KIND_PULL_SECRET` still works). `make openshift-status`
+reports which components run a working-tree build and the exact image each
+one uses. Swap state is tracked per namespace in `.openshift-swaps/`
+(gitignored). A subsequent `make openshift-up` preserves active swaps.
 
 ### OpenShift environment variables
 
@@ -460,7 +469,10 @@ active swaps.
 | `OPENSHIFT_NAMESPACE` | `oc project -q` | Override for the platform namespace. Unset, the current oc project is used. Max 54 chars; Keycloak lands in `${name}-keycloak`. |
 | `GATEWAY_API_GATEWAY_NAME` | `openshell-grpc-gateway` | Pre-existing shared Gateway name |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace of the shared Gateway |
-| `OPENSHIFT_IMAGE_REGISTRY` | `oc registry info` | Registry used to push swapped images |
+| `SWAP_REGISTRY` | (required for swaps) | Registry org prefix only, for example `quay.io/<org>`. Swaps push `${SWAP_REGISTRY}/hypershell-api-server` (and `hypershell-controller`, `hypershell-web-console`). Must be laptop-reachable; the OpenShift internal registry is refused. `IMAGE_REGISTRY` is not used. |
+| `SWAP_REPOSITORY` | (component default) | Optional repo name override for the current swap. Default is `hypershell-api-server`, `hypershell-controller`, or `hypershell-web-console`. |
+| `SWAP_PLATFORM` | (cluster nodes) | Target platform for swap images, `linux/amd64` or `linux/arm64`. Unset, the scripts use the architecture of the cluster nodes. |
+| `PULL_SECRET` | (unset) | Path to a `kubernetes.io/dockerconfigjson` Secret YAML used to log the container engine into `SWAP_REGISTRY`. `KIND_PULL_SECRET` is still accepted. |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
 | `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
@@ -643,5 +655,20 @@ offline mode or configure a pull secret:
 LOCAL_IMAGES=true make kind-up
 
 # Or: provide registry credentials
-KIND_PULL_SECRET=/path/to/pull-secret.yaml make kind-up
+PULL_SECRET=/path/to/pull-secret.yaml make kind-up
 ```
+
+### OpenShift swap cannot push
+
+Swaps build on the laptop and push to `SWAP_REGISTRY`, then update the
+Deployment image refs. They do not use `IMAGE_REGISTRY` or the OpenShift
+internal registry. If `SWAP_REGISTRY` is unset, the swap stops with an error.
+
+```bash
+PULL_SECRET=/path/to/pull-secret.yaml SWAP_REGISTRY=quay.io/<org> make openshift-api-server-up
+```
+
+That logs the container engine in with the pull secret and pushes
+`quay.io/<org>/hypershell-api-server:<commit>-<namespace>`. Override the repo
+name with `SWAP_REPOSITORY` when it is not the default. `KIND_PULL_SECRET` is
+still accepted if `PULL_SECRET` is unset.

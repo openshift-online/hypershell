@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -64,52 +63,6 @@ func ManagedNamespaceSelector(instance string) (string, error) {
 	}
 	return fmt.Sprintf("%s=%s,%s=%s,%s=%s",
 		ManagedLabel, ManagedLabelValue, ManagedByLabel, ManagedByValue, InstanceLabel, instance), nil
-}
-
-// LegacyUnlabeledSelector selects HyperShell-managed namespaces that predate the
-// instance label: both management labels, and no hypershell.redhat.io/instance
-// key. Periodic GC uses this to claim leftover gateway namespaces so a
-// missed-delete orphan is not invisible forever. Namespaces already labeled for
-// any instance are excluded.
-func LegacyUnlabeledSelector() string {
-	return fmt.Sprintf("%s=%s,%s=%s,!%s",
-		ManagedLabel, ManagedLabelValue, ManagedByLabel, ManagedByValue, InstanceLabel)
-}
-
-// BackfillInstanceLabels stamps this instance's identity onto unlabeled legacy
-// gateway namespaces (both management labels, no instance label, openshell-*
-// and not openshell-db-*). It never creates namespaces, never overwrites a
-// different instance label, and never claims ManagedDatabase namespaces. An
-// empty instance is a configuration error: unlabeled namespaces must not be
-// claimed without an identity.
-func BackfillInstanceLabels(ctx context.Context, client kubernetes.Interface, instance string) error {
-	if instance == "" {
-		return fmt.Errorf("instance identity is empty; refusing to backfill namespace labels")
-	}
-	list, err := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
-		LabelSelector: LegacyUnlabeledSelector(),
-	})
-	if err != nil {
-		return fmt.Errorf("list unlabeled managed namespaces: %w", err)
-	}
-	var errs []error
-	for i := range list.Items {
-		ns := &list.Items[i]
-		// Defense in depth: a selector over-return (or a client that ignores
-		// selectors) must not claim unmanaged or already-labeled namespaces.
-		if !hasManagementLabels(ns) || ns.Labels[InstanceLabel] != "" {
-			continue
-		}
-		if !isGatewayWorkloadName(ns.Name) {
-			continue
-		}
-		if err := EnsureManagedNamespace(ctx, client, ns.Name, instance); err != nil {
-			errs = append(errs, fmt.Errorf("claim unlabeled namespace %s: %w", ns.Name, err))
-			continue
-		}
-		log.Printf("INFO claimed unlabeled legacy namespace %s for instance %s", ns.Name, instance)
-	}
-	return errors.Join(errs...)
 }
 
 // ManagedNamespaceLabels is the label set stamped on namespaces this instance

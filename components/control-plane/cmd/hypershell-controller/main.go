@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -35,6 +36,39 @@ const defaultManifestsDir = "/manifests/gateway"
 
 func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
 	return clientset != nil && dynamicClient != nil
+}
+
+// supervisedRestartCap bounds the backoff between restarts of a supervised
+// background component, matching the cap watchLoop uses for stream
+// reconnects.
+const supervisedRestartCap = 30 * time.Second
+
+// runSupervised runs fn in a loop so a failure in one background component
+// (a watch stream, a reconciler's Run loop, the service-account provisioner)
+// cannot take down the others by exiting the whole process. Every fn here is
+// expected to block until ctx is done and return ctx.Err() at that point,
+// exactly as watchLoop and the reconciler Run methods already do; a return
+// before then is treated as a failure of that component alone; it is retried
+// with the same capped exponential backoff watchLoop uses for stream
+// reconnects rather than propagated to the process.
+func runSupervised(ctx context.Context, name string, fn func(context.Context) error) {
+	backoff := time.Second
+	for {
+		err := fn(ctx)
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+		log.Printf("WARN %s exited with error, restarting in %s: %v", name, backoff, err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > supervisedRestartCap {
+			backoff = supervisedRestartCap
+		}
+	}
 }
 
 func main() {
@@ -235,32 +269,54 @@ func main() {
 	if roleBindingReconciler != nil {
 		watchCount++
 	}
-	// +4 for the continuous gateway health, namespace GC, sandbox-count, and
-	// internal service-account provisioner goroutines.
-	errCh := make(chan error, watchCount+4)
+
+	// Each background component below runs under runSupervised on its own
+	// goroutine: a failure in one (a dropped watch stream, a reconciler's Run
+	// loop returning, the service-account provisioner's listener dying) is
+	// logged and retried in place, and never takes the others down with it.
+	// wg lets main block until every component has actually observed ctx
+	// cancellation and returned, instead of exiting out from under them.
+	var wg sync.WaitGroup
+	supervise := func(name string, fn func(context.Context) error) {
+		wg.Go(func() {
+			runSupervised(ctx, name, fn)
+		})
+	}
 
 	if cfg.ServiceAccountProvisionerAddress != "" {
 		provisionerServer := serviceaccountprovisioner.NewServer(serviceAccountProvider)
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
-		go func() {
-			errCh <- serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
-		}()
+		supervise("service-account provisioner", func(ctx context.Context) error {
+			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
+		})
 		log.Printf("INFO service-account provisioner launched on %s (in-cluster, NetworkPolicy-restricted)", cfg.ServiceAccountProvisionerAddress)
 	} else {
 		log.Printf("INFO service-account provisioner disabled")
 	}
 
-	go func() { errCh <- watcher.WatchManagedClusters(ctx, conn, clusterReconciler) }()
+	supervise("ManagedCluster watch", func(ctx context.Context) error {
+		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler)
+	})
 	if databaseReconciler != nil {
-		go func() { errCh <- watcher.WatchManagedDatabases(ctx, conn, databaseReconciler) }()
+		supervise("ManagedDatabase watch", func(ctx context.Context) error {
+			return watcher.WatchManagedDatabases(ctx, conn, databaseReconciler)
+		})
 	}
-	go func() { errCh <- watcher.WatchGatewayReleases(ctx, conn, releaseReconciler) }()
-	go func() { errCh <- watcher.WatchGateways(ctx, conn, gatewayReconciler) }()
-	go func() { errCh <- watcher.WatchGatewayNetworks(ctx, conn, networkReconciler) }()
+	supervise("GatewayRelease watch", func(ctx context.Context) error {
+		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
+	})
+	supervise("Gateway watch", func(ctx context.Context) error {
+		return watcher.WatchGateways(ctx, conn, gatewayReconciler)
+	})
+	supervise("GatewayNetwork watch", func(ctx context.Context) error {
+		return watcher.WatchGatewayNetworks(ctx, conn, networkReconciler)
+	})
 	if roleBindingReconciler != nil {
-		go func() { errCh <- watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler) }()
+		supervise("RoleBinding watch", func(ctx context.Context) error {
+			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler)
+		})
 	}
 
 	log.Printf("INFO all %d watch streams launched", watchCount)
@@ -270,7 +326,7 @@ func main() {
 	// It requires an in-cluster Kubernetes client to observe Deployments.
 	if clientset != nil {
 		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig)
-		go func() { errCh <- healthReconciler.Run(ctx) }()
+		supervise("gateway health reconciler", healthReconciler.Run)
 		log.Printf("INFO gateway health reconciler launched")
 	} else {
 		log.Printf("WARN no kubernetes client available, gateway health reconciliation disabled")
@@ -282,7 +338,7 @@ func main() {
 	// in-cluster Kubernetes client to watch pods.
 	if clientset != nil {
 		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0)
-		go func() { errCh <- sandboxCountReconciler.Run(ctx) }()
+		supervise("sandbox count reconciler", sandboxCountReconciler.Run)
 		log.Printf("INFO sandbox count reconciler launched")
 	} else {
 		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")
@@ -296,20 +352,16 @@ func main() {
 		gcReconciler := reconciler.NewNamespaceGCReconciler(
 			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace,
 		)
-		go func() { errCh <- gcReconciler.Run(ctx) }()
+		supervise("namespace GC reconciler", gcReconciler.Run)
 		log.Printf("INFO namespace GC reconciler launched (interval=%s grace=%s)",
 			cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod)
 	} else if clientset != nil {
 		log.Printf("INFO namespace GC reconciler disabled (GATEWAY_NAMESPACE_GC_ENABLED=false)")
 	}
 
-	watchErr := <-errCh
-	cancel()
-
-	if watchErr != nil && watchErr != context.Canceled {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", watchErr)
-		os.Exit(1)
-	}
+	<-ctx.Done()
+	log.Printf("INFO shutdown signal received, waiting for background components to stop")
+	wg.Wait()
 
 	log.Printf("INFO hypershell-controller stopped")
 }

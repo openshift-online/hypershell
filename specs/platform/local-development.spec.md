@@ -710,7 +710,15 @@ Local image names:
 
 All container images deployed into the Kind cluster SHALL use [Red Hat Hardened Images](https://images.redhat.com/) (HI). HI images are distroless, CIS-hardened, and signed at build time.
 
-Developers SHALL provide a pull secret file via the `KIND_PULL_SECRET` environment variable to authenticate against `registry.access.redhat.com`. When set, `make kind-up` SHALL apply the secret to the target namespace and patch the default ServiceAccount with `imagePullSecrets` so that pods can pull HI images without per-pod secret references.
+Developers SHALL provide a pull secret file via the `PULL_SECRET` environment
+variable to authenticate against private registries such as
+`registry.access.redhat.com` and Quay. `KIND_PULL_SECRET` SHALL remain accepted
+as an alias when `PULL_SECRET` is unset. When set, `make kind-up` SHALL apply
+the secret to the target namespace and patch the default ServiceAccount with
+`imagePullSecrets` so that pods can pull HI images without per-pod secret
+references. OpenShift component swaps SHALL use the same file to log the
+container engine into `SWAP_REGISTRY` and SHALL NOT require an interactive
+`podman login` when the secret contains credentials for that registry host.
 
 > **Database images:** Two environment variables control PostgreSQL images for the two CNPG provisioning paths:
 > - `HYPERSHELL_DATABASE_IMAGE` - configures the API server's static `hypershell-db` CNPG Cluster. `make kind-up` patches the Cluster with this image after applying manifests. When unset, CNPG uses its built-in default image.
@@ -786,7 +794,8 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 | `KIND_HOT_RELOAD` | `true` | Hot reload for supported components; set to `false` to disable |
 | `KIND_HOST_MOUNT_PATH` | Repository root (`git rev-parse --show-toplevel`) | Host directory mounted into Kind nodes for hot reload |
 | `KIND_KEYCLOAK_URL` | (unset - deploy local) | External Keycloak issuer URL; skips local deployment when set |
-| `KIND_PULL_SECRET` | (unset) | Path to a Kubernetes pull secret YAML file; applied to the target namespace for HI image access |
+| `PULL_SECRET` | (unset) | Path to a Kubernetes pull secret YAML file (`kubernetes.io/dockerconfigjson`); applied to the Kind target namespace and used to log the container engine in for OpenShift swaps |
+| `KIND_PULL_SECRET` | (unset) | Alias for `PULL_SECRET` |
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry path for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
 | `LOCAL_IMAGES` | (unset - pull from registry) | Set to `true` to build images locally instead of pulling from registry |

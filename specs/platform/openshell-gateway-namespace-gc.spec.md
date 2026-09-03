@@ -280,15 +280,6 @@ controllers on the same cluster SHALL NOT share an instance identity.
 - THEN it SHALL NOT overwrite the instance label
 - AND it SHALL NOT deploy into or delete that namespace
 
-#### Scenario: Periodic GC backfills unlabeled legacy gateway namespaces
-
-- GIVEN a gateway-prefixed namespace that carries the two management labels
-  but no instance label
-- WHEN the garbage-collection reconciler sweeps
-- THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance
-- AND it SHALL NOT change an instance label that already identifies a different
-  instance
-
 ### Requirement: Grace Period Prevents Premature Deletion
 
 The control plane SHALL NOT delete an orphaned namespace immediately. It SHALL
@@ -424,9 +415,9 @@ real-time guarantee.
 | GC triggers on orphaning (no live Gateway), not on `phase` being `Degraded`/`Failed` | A gateway that still exists - even if unhealthy - is the health reconciler's and the operator's concern; only the absence of a backing Gateway unambiguously means the namespace is garbage. This avoids reaping a namespace an operator is still debugging. |
 | Exclude `openshell-db-*` managed namespaces from periodic GC | ManagedDatabase CNPG namespaces share the management labels but are owned by the ManagedDatabase reconciler; the stable `openshell-db-` prefix distinguishes them without requiring a label migration on existing gateway namespaces. |
 | Require this instance's identity label before periodic GC | Two HyperShell controllers on one cluster share the generic management labels. Without a value unique to that controller (`hypershell.redhat.io/instance=<the controller's namespace>`), instance B's sweep treats instance A's live gateways as orphans (they are absent from B's API server) and would delete them after the grace period. The identity is the controller pod's namespace from the downward API so it cannot be a copied static string. |
-| Claim unlabeled legacy gateway namespaces at the start of each GC sweep | The instance label was added after namespaces already existed. `EnsureManagedNamespace` only stamps live Gateways; a missed-delete orphan never hits that path and would leak forever if unlabeled namespaces stayed excluded from the sweep. Each sweep lists namespaces that carry both management labels and no instance label, stamps this instance on gateway-prefixed names, then proceeds with the instance-scoped orphan sweep. Namespaces already labeled for another instance are never claimed. Two HyperShell instances that both still have unlabeled namespaces on the same cluster (neither has been upgraded to stamp the instance label) are unsupported: upgrade both, or label namespaces before enabling GC. |
+| Periodic GC never claims unlabeled legacy gateway namespaces | An earlier design had each sweep stamp the instance label onto unlabeled leftovers before evaluating them for orphaning, so a missed-delete orphan predating the instance label would not leak forever. In practice this reclaimed the label on every sweep for a namespace whose instance label never durably stuck (e.g. a naming or list-vs-read inconsistency), which reset `gc-eligible-since` to "now" on every tick and made the namespace look freshly orphaned forever, so it was never reaped. Claiming unlabeled leftovers is now an explicit operator action instead. |
 | Require BOTH management labels plus this instance's identity before deleting | Defense in depth: even if a label selector over-returns, a namespace not created by this control-plane instance (another HyperShell, a shared namespace, or a pre-existing namespace) is never deleted by periodic GC. |
-| Stamp the instance label on create, on live reconcile, and on GC backfill | Periodic GC can only reap namespaces this instance labeled. Stamping at create covers new gateways; stamping on live reconcile migrates this instance's still-live pre-label namespaces; GC backfill migrates unlabeled leftovers that have no live Gateway so the missed-delete path can proceed. |
+| Stamp the instance label on create and on live reconcile only | Periodic GC can only reap namespaces this instance labeled. Stamping at create covers new gateways; stamping on live reconcile migrates this instance's still-live pre-label namespaces. Unlabeled leftovers with no live Gateway stay unlabeled and excluded from GC until an operator labels them. |
 | Grace period persisted on the namespace annotation | The delay must survive control-plane restarts; storing `gc-eligible-since` on the namespace makes the timer durable without a separate store. |
 | Abort the whole sweep if Gateways cannot be listed | An empty or failed Gateway list would make every managed namespace look orphaned; aborting is the only safe response to avoid mass reaping of live namespaces. |
 | Delete is best-effort and not gated on sandbox count | Deletion is idempotent - process the delete, remove the namespace, and if it is already gone consider the delete done. The sandbox count is a warning surfaced to the operator, not a backend precondition. |

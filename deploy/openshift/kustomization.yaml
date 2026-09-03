@@ -95,9 +95,15 @@ patches:
           - name: API_ENV
             value: "development_oidc"
           # Re-declare the base env: this JSON6902 add REPLACES the whole env
-          # array, so the base values would otherwise be dropped.
+          # array, so the base values would otherwise be dropped. POD_NAMESPACE
+          # must precede the provisioner address so kubelet can expand it.
+          # Same downward-API source as the controller HYPERSHELL_NAMESPACE.
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
           - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
-            value: "hypershell-controller.hypershell-system.svc.cluster.local:9443"
+            value: "hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443"
           - name: DB_SSLMODE
             value: require
           - name: JWK_CERT_URL

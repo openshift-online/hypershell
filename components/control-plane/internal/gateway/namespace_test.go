@@ -67,14 +67,6 @@ func TestManagedNamespaceSelector(t *testing.T) {
 	}
 }
 
-func TestLegacyUnlabeledSelector(t *testing.T) {
-	got := LegacyUnlabeledSelector()
-	want := "hypershell.redhat.io/managed=true,app.kubernetes.io/managed-by=hypershell-control-plane,!hypershell.redhat.io/instance"
-	if got != want {
-		t.Errorf("LegacyUnlabeledSelector() = %q, want %q", got, want)
-	}
-}
-
 func TestIsManagedNamespace(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -269,85 +261,6 @@ func TestEnsureManagedNamespace(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		if err := EnsureManagedNamespace(ctx, client, "openshell-gw", ""); err == nil {
 			t.Fatalf("EnsureManagedNamespace() error = nil, want empty instance error")
-		}
-	})
-}
-
-func TestBackfillInstanceLabels(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("stamps unlabeled gateway namespaces", func(t *testing.T) {
-		unlabeled := managedNamespaceForInstance("openshell-legacy", "", nil)
-		client := fake.NewSimpleClientset(unlabeled)
-		if err := BackfillInstanceLabels(ctx, client, "hypershell"); err != nil {
-			t.Fatalf("BackfillInstanceLabels() error = %v", err)
-		}
-		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-legacy", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get namespace: %v", err)
-		}
-		if got.Labels[InstanceLabel] != "hypershell" {
-			t.Errorf("instance label = %q, want hypershell", got.Labels[InstanceLabel])
-		}
-	})
-
-	t.Run("does not claim unlabeled ManagedDatabase namespaces", func(t *testing.T) {
-		db := managedNamespaceForInstance("openshell-db-a1b2c3d4e5f67890", "", nil)
-		client := fake.NewSimpleClientset(db)
-		if err := BackfillInstanceLabels(ctx, client, "hypershell"); err != nil {
-			t.Fatalf("BackfillInstanceLabels() error = %v", err)
-		}
-		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-db-a1b2c3d4e5f67890", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get namespace: %v", err)
-		}
-		if _, ok := got.Labels[InstanceLabel]; ok {
-			t.Errorf("ManagedDatabase namespace was claimed, want unlabeled")
-		}
-	})
-
-	t.Run("does not overwrite a foreign instance label", func(t *testing.T) {
-		foreign := managedNamespaceForInstance("openshell-stage", "hypershell-stage", nil)
-		client := fake.NewSimpleClientset(foreign)
-		if err := BackfillInstanceLabels(ctx, client, "hypershell"); err != nil {
-			t.Fatalf("BackfillInstanceLabels() error = %v", err)
-		}
-		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-stage", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get namespace: %v", err)
-		}
-		if got.Labels[InstanceLabel] != "hypershell-stage" {
-			t.Errorf("instance label = %q, want hypershell-stage", got.Labels[InstanceLabel])
-		}
-	})
-
-	t.Run("refuses an empty instance identity", func(t *testing.T) {
-		unlabeled := managedNamespaceForInstance("openshell-legacy", "", nil)
-		client := fake.NewSimpleClientset(unlabeled)
-		if err := BackfillInstanceLabels(ctx, client, ""); err == nil {
-			t.Fatalf("BackfillInstanceLabels() error = nil, want empty instance error")
-		}
-		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-legacy", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get namespace: %v", err)
-		}
-		if _, ok := got.Labels[InstanceLabel]; ok {
-			t.Errorf("empty instance claimed a namespace, want unlabeled")
-		}
-	})
-
-	t.Run("does not claim an unmanaged openshell namespace", func(t *testing.T) {
-		unmanaged := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "openshell-shared"}}
-		client := fake.NewSimpleClientset(unmanaged)
-		if err := BackfillInstanceLabels(ctx, client, "hypershell"); err != nil {
-			t.Fatalf("BackfillInstanceLabels() error = %v", err)
-		}
-		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-shared", metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get namespace: %v", err)
-		}
-		if len(got.Labels) != 0 {
-			t.Errorf("unmanaged namespace was labeled %v, want untouched", got.Labels)
 		}
 	})
 }

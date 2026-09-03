@@ -91,10 +91,17 @@ spec:
             # the sibling control-plane -> api-server watch channel (no mTLS).
             # Use a cluster-local FQDN. grpc-go's DNS resolver does not apply
             # kube-DNS search domains, so the short name hypershell-controller
-            # fails even when libc lookup (nc) succeeds. OpenShift rewrite maps
-            # hypershell-system to OPENSHIFT_NAMESPACE.
+            # fails even when libc lookup (nc) succeeds. POD_NAMESPACE is this
+            # pod's namespace (downward API), the same source as the
+            # controller's HYPERSHELL_NAMESPACE instance identity. Kubelet
+            # expands $(POD_NAMESPACE) so the dial target tracks the Deployment
+            # namespace without a hardcoded hypershell-system segment.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
-              value: "hypershell-controller.hypershell-system.svc.cluster.local:9443"
+              value: "hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443"
             - name: DB_SSLMODE
               value: require
           startupProbe:

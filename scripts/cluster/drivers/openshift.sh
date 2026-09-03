@@ -1260,31 +1260,38 @@ cluster_status() {
   fi
 }
 
-login_internal_registry() {
-  local registry
-  if [[ -n "${OPENSHIFT_IMAGE_REGISTRY:-}" ]]; then
-    registry="${OPENSHIFT_IMAGE_REGISTRY}"
-  else
-    registry="$(oc_cli registry info 2>/dev/null || true)"
+swap_registry_prefix() {
+  require_swap_registry || exit 1
+  local prefix="${SWAP_REGISTRY#https://}"
+  prefix="${prefix#http://}"
+  printf '%s' "${prefix%/}"
+}
+
+swap_registry_host() {
+  local prefix
+  prefix="$(swap_registry_prefix)"
+  printf '%s' "${prefix%%/*}"
+}
+
+login_swap_registry() {
+  local prefix host
+  prefix="$(swap_registry_prefix)"
+  OPENSHIFT_PUSH_REGISTRY="${prefix}"
+  OPENSHIFT_PULL_REGISTRY="${prefix}"
+  host="$(swap_registry_host)"
+  info "SWAP_REGISTRY=${prefix} (host ${host})"
+  if [[ -n "${SWAP_REPOSITORY:-}" ]]; then
+    info "SWAP_REPOSITORY=${SWAP_REPOSITORY}"
   fi
-  if [[ -z "${registry}" ]]; then
-    error "Could not discover the OpenShift internal registry."
-    error "Set OPENSHIFT_IMAGE_REGISTRY to a registry the cluster can pull from, then retry."
-    exit 1
-  fi
-  OPENSHIFT_PUSH_REGISTRY="${registry}"
-  OPENSHIFT_PULL_REGISTRY="$(oc_cli registry info --internal 2>/dev/null || printf '%s' "${registry}")"
-  info "Logging in to registry ${OPENSHIFT_PUSH_REGISTRY}..."
-  if oc_cli registry login --registry "${OPENSHIFT_PUSH_REGISTRY}" >/dev/null 2>&1; then
+  if [[ -n "$(resolved_pull_secret_path)" ]]; then
+    login_registry_with_pull_secret "${host}" || exit 1
     return 0
   fi
-  local user token
-  user="$(oc_cli whoami)"
-  token="$(oc_cli whoami -t)"
-  if ${CONTAINER_ENGINE} login -u "${user}" -p "${token}" "${OPENSHIFT_PUSH_REGISTRY}" >/dev/null; then
+  if ${CONTAINER_ENGINE} login --get-login "${host}" >/dev/null 2>&1; then
     return 0
   fi
-  error "Failed to log in to ${OPENSHIFT_PUSH_REGISTRY}. Set OPENSHIFT_IMAGE_REGISTRY or fix oc registry login."
+  error "Not logged in to ${host}."
+  error "Set PULL_SECRET to a kubernetes.io/dockerconfigjson Secret YAML (KIND_PULL_SECRET is still accepted), or run: ${CONTAINER_ENGINE} login ${host}"
   exit 1
 }
 
@@ -1295,29 +1302,49 @@ push_component_image() {
   commit="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   local tag="${commit}-${OPENSHIFT_NAMESPACE}"
   tag="$(printf '%s' "${tag}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g')"
-  local imagestream="hypershell-${component}"
-  oc_cli create imagestream "${imagestream}" -n "${OPENSHIFT_NAMESPACE}" --dry-run=client -o yaml \
-    | oc_cli apply -f - >/dev/null
+  local repo
+  repo="$(swap_image_repository "${component}")" || exit 1
+  local push_ref="${repo}:${tag}"
+  local target_arch
+  target_arch="$(swap_target_goarch)" || exit 1
 
-  local push_ref="${OPENSHIFT_PUSH_REGISTRY}/${OPENSHIFT_NAMESPACE}/${imagestream}:${tag}"
-  info "Building ${component} from working tree..."
+  info "Building ${component} from working tree for linux/${target_arch}..."
+  if [[ "${component}" == "web-console" ]]; then
+    warn "web-console cannot Go-cross-compile; this Node image matches the laptop unless you rebuild on ${target_arch}."
+  fi
   ${CONTAINER_ENGINE} build -t "${LOCAL_IMAGE}" \
     -f "${REPO_ROOT}/${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} \
+    --build-arg "TARGETARCH=${target_arch}" \
+    --build-arg "TARGETOS=linux" \
     "${REPO_ROOT}/${BUILD_CONTEXT}"
   ${CONTAINER_ENGINE} tag "${LOCAL_IMAGE}" "${push_ref}"
   info "Pushing ${push_ref}..."
-  ${CONTAINER_ENGINE} push "${push_ref}"
-
-  local digest=""
-  digest="$(oc_cli get imagestreamtag "${imagestream}:${tag}" -n "${OPENSHIFT_NAMESPACE}" \
-    -o jsonpath='{.image.metadata.name}' 2>/dev/null || true)"
-  local pull_ref
-  if [[ -n "${digest}" ]]; then
-    pull_ref="${OPENSHIFT_PULL_REGISTRY}/${OPENSHIFT_NAMESPACE}/${imagestream}@${digest}"
+  # Pin the registry manifest digest from this push, not `inspect` of the
+  # local image. Local digests (and the blob/config SHAs in podman progress)
+  # are not the digest Quay stores, so a cluster pull by that digest fails
+  # with manifest unknown. `podman push --digestfile` writes the digest the
+  # registry accepted. Docker prints `digest: sha256:...` on stdout instead.
+  local digestfile push_log digest=""
+  digestfile="$(mktemp)"
+  push_log="$(mktemp)"
+  if ${CONTAINER_ENGINE} push --help 2>&1 | grep -q -- '--digestfile'; then
+    ${CONTAINER_ENGINE} push --digestfile="${digestfile}" "${push_ref}"
+    digest="$(tr -d '[:space:]' < "${digestfile}")"
   else
-    pull_ref="${OPENSHIFT_PULL_REGISTRY}/${OPENSHIFT_NAMESPACE}/${imagestream}:${tag}"
+    ${CONTAINER_ENGINE} push "${push_ref}" >"${push_log}" 2>&1 || {
+      cat "${push_log}"
+      rm -f "${digestfile}" "${push_log}"
+      exit 1
+    }
+    cat "${push_log}"
+    digest="$(registry_digest_from_push_log < "${push_log}")"
   fi
-  OPENSHIFT_SWAPPED_IMAGE="${pull_ref}"
+  rm -f "${digestfile}" "${push_log}"
+  if [[ "${digest}" == sha256:* ]]; then
+    OPENSHIFT_SWAPPED_IMAGE="${repo}@${digest}"
+  else
+    OPENSHIFT_SWAPPED_IMAGE="${push_ref}"
+  fi
 }
 
 rollout_component_image() {
@@ -1350,7 +1377,7 @@ component_swap() {
     exit 1
   fi
   refuse_foreign_namespace "${OPENSHIFT_NAMESPACE}" >/dev/null
-  login_internal_registry
+  login_swap_registry
   push_component_image "${component}"
   info "Rolling out ${component} to ${OPENSHIFT_SWAPPED_IMAGE}"
   rollout_component_image "${component}" "${OPENSHIFT_SWAPPED_IMAGE}"

@@ -13,7 +13,8 @@ COPY openapi/ openapi/
 
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
-RUN CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w \
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" go build -mod=mod -ldflags="-s -w \
   -X github.com/openshift-online/hypershell/components/api-server/pkg/api.Version=${GIT_VERSION} \
   -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${BUILD_TIME}'" \
   -o hypershell ./cmd/hypershell

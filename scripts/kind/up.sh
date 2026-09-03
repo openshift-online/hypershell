@@ -247,13 +247,14 @@ fi
 # them at start (imagePullPolicy IfNotPresent) with no build or pre-load step.
 
 # --- Apply pull secret (if configured) ---
-if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
+_pull_secret="$(printf '%s' "${PULL_SECRET:-${KIND_PULL_SECRET:-}}")"
+if [[ -n "${_pull_secret}" ]]; then
   header "Pull Secret"
   kube create namespace "${KIND_NAMESPACE}" --dry-run=client -o yaml | \
     kube apply -f -
-  info "Applying pull secret from ${KIND_PULL_SECRET}..."
-  kube apply -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}"
-  SECRET_NAME=$(kube get -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
+  info "Applying pull secret from ${_pull_secret}..."
+  kube apply -f "${_pull_secret}" -n "${KIND_NAMESPACE}"
+  SECRET_NAME=$(kube get -f "${_pull_secret}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
   if [[ -n "${SECRET_NAME}" ]]; then
     info "Waiting for default ServiceAccount in ${KIND_NAMESPACE}..."
     for i in $(seq 1 30); do
