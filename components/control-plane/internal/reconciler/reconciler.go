@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
@@ -1364,7 +1365,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// gated. In particular, controller startup seeds existing Running gateways;
 	// reconciling before the return below lets newly introduced client settings
 	// converge without forcing a full gateway rollout.
-	if gw.Phase != nil && (*gw.Phase == gatewayPhaseRunning || *gw.Phase == gatewayPhaseProvisioning || *gw.Phase == gatewayPhaseDegraded) {
+	if gw.Phase != nil && (*gw.Phase == string(gatewayhealth.PhaseRunning) || *gw.Phase == string(gatewayhealth.PhaseProvisioning) || *gw.Phase == string(gatewayhealth.PhaseDegraded)) {
 		if err := r.reconcileExistingGatewayKeycloakClient(ctx, event.ResourceID, gw); err != nil {
 			var identityErr *gatewayKeycloakClientIdentityError
 			if errors.As(err, &identityErr) {
@@ -1512,10 +1513,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
 	}
 
-	r.updateGatewayPhase(ctx, event.ResourceID, gatewayPhaseProvisioning)
+	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
-		r.updateGatewayPhase(ctx, event.ResourceID, gatewayPhaseFailed)
+		r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed))
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}
@@ -1525,7 +1526,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Deployment never becomes ready, set Degraded and record why.
 	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
 	if !ready {
-		r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseDegraded, reason)
+		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseDegraded), reason)
 		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
 		return nil
 	}
@@ -1545,17 +1546,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
 			// The observation guard rejects work that started in Running or Degraded.
-			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseRunning, gatewayStatusHealthy); runningGateway != nil {
+			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 				observeGatewayProvisionDuration(ctx, runningGateway)
 			}
 			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
 		} else {
-			r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseProvisioning, "Deployment ready; awaiting route readiness")
+			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning), "Deployment ready; awaiting route readiness")
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
 	} else {
 		// The observation guard rejects work that started in Running or Degraded.
-		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseRunning, gatewayStatusHealthy); runningGateway != nil {
+		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 			observeGatewayProvisionDuration(ctx, runningGateway)
 		}
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)

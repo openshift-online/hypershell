@@ -58,7 +58,7 @@ func TestGatewayPost(t *testing.T) {
 		TlsMode:     openapi.PtrString("test-tls_mode"),
 		ServiceType: openapi.PtrString("test-service_type"),
 		Status:      openapi.PtrString("test-status"),
-		Phase:       openapi.PtrString("test-phase"),
+		Phase:       openapi.PtrString("Provisioning"),
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
