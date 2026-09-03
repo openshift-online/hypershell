@@ -27,6 +27,14 @@ type Config struct {
 	Namespace      string
 	LogLevel       string
 
+	// ClusterID is this control-plane's managed-cluster identity (a Gateway
+	// cluster_id / KSUID). When set, the control-plane restricts the gateways it
+	// watches, seeds, and health-checks to those whose cluster_id matches, so a
+	// managed-cluster spoke only ever provisions its own gateways (the pull
+	// model). Empty preserves the single-cluster behaviour of handling every
+	// gateway. Sourced from HYPERSHELL_CLUSTER_ID.
+	ClusterID string
+
 	// ServiceAccountProvisionerAddress is the in-cluster bind address for the
 	// internal service-account provisioner gRPC server. A NetworkPolicy restricts
 	// the port to the API server pod, so the channel is plaintext (no mTLS).
@@ -63,6 +71,7 @@ func Load() (*Config, error) {
 		APIServerURL:                     getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
+		ClusterID:                        getEnv("HYPERSHELL_CLUSTER_ID", ""),
 		ServiceAccountProvisionerAddress: getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS", ""),
 
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),

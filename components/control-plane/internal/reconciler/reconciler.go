@@ -1888,12 +1888,20 @@ const gatewayListPageSize = 500
 // gateway. The list endpoint is server-side paginated (default page size 20),
 // so callers that must reason about the whole fleet (the namespace reaper and
 // the health reconciler) cannot rely on a single unpaged request.
-func listAllGateways(ctx context.Context, client pb.GatewayServiceClient) ([]*pb.Gateway, error) {
+//
+// clusterID, when non-empty, scopes the listing server-side to gateways with
+// that cluster_id. The health reconciler passes its managed-cluster identity so
+// it never stamps a foreign cluster's gateway; the namespace reaper passes ""
+// on purpose (an unfiltered live set is a safe superset that only ever protects
+// namespaces, and gateway namespaces are globally unique, so it never reaps
+// another cluster's namespace).
+func listAllGateways(ctx context.Context, client pb.GatewayServiceClient, clusterID string) ([]*pb.Gateway, error) {
 	var all []*pb.Gateway
 	for page := int32(1); ; page++ {
 		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{
-			Page: page,
-			Size: gatewayListPageSize,
+			Page:      page,
+			Size:      gatewayListPageSize,
+			ClusterId: watcher.OptionalClusterID(clusterID),
 		})
 		if err != nil {
 			return nil, err

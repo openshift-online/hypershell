@@ -52,6 +52,11 @@ func main() {
 
 	log.Printf("INFO hypershell-controller starting")
 	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
+	if cfg.ClusterID != "" {
+		log.Printf("INFO managed-cluster mode: scoping gateway watch/seed/health to cluster_id=%s", cfg.ClusterID)
+	} else {
+		log.Printf("INFO single-cluster mode: handling all gateways (no cluster_id filter)")
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -281,7 +286,7 @@ func main() {
 		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
 	})
 	supervise("Gateway watch", func(ctx context.Context) error {
-		return watcher.WatchGateways(ctx, conn, gatewayReconciler)
+		return watcher.WatchGateways(ctx, conn, gatewayReconciler, cfg.ClusterID)
 	})
 	supervise("GatewayNetwork watch", func(ctx context.Context) error {
 		return watcher.WatchGatewayNetworks(ctx, conn, networkReconciler)
@@ -298,7 +303,7 @@ func main() {
 	// status synchronized with observed workload health (Running <-> Degraded).
 	// It requires an in-cluster Kubernetes client to observe Deployments.
 	if clientset != nil {
-		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig)
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, cfg.ClusterID)
 		supervise("gateway health reconciler", healthReconciler.Run)
 		log.Printf("INFO gateway health reconciler launched")
 	} else {
@@ -310,7 +315,7 @@ func main() {
 	// its cache), instead of a repeated full-namespace pod LIST. It requires an
 	// in-cluster Kubernetes client to watch pods.
 	if clientset != nil {
-		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0)
+		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0, cfg.ClusterID)
 		supervise("sandbox count reconciler", sandboxCountReconciler.Run)
 		log.Printf("INFO sandbox count reconciler launched")
 	} else {
@@ -330,7 +335,7 @@ func main() {
 		// synchronously so the first sweep sees the freshly-labeled namespaces; it
 		// is best-effort and never blocks startup on failure.
 		backfillCtx, cancelBackfill := context.WithTimeout(ctx, instanceLabelBackfillTimeout)
-		reconciler.RunInstanceLabelBackfill(backfillCtx, clientset, conn, cfg.Namespace)
+		reconciler.RunInstanceLabelBackfill(backfillCtx, clientset, conn, cfg.Namespace, cfg.ClusterID)
 		cancelBackfill()
 
 		gcReconciler := reconciler.NewNamespaceGCReconciler(

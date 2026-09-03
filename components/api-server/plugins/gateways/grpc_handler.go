@@ -3,6 +3,7 @@ package gateways
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -234,6 +235,22 @@ func (h *gatewayGRPCHandler) ListGateways(ctx context.Context, req *pb.ListGatew
 		Size: int64(size),
 	}
 
+	// A managed-cluster control-plane sets cluster_id to its own identity so it
+	// only ever lists the gateways it is responsible for provisioning. Filtering
+	// server-side keeps foreign gateways off the wire entirely (see WatchGateways,
+	// which applies the same cooperative scoping to the event stream).
+	//
+	// Validate before interpolating into the search DSL: cluster_id is
+	// request-supplied, so an unvalidated value (e.g. one containing a quote)
+	// could break the filter parse or broaden it. This applies the same field
+	// contract the create/update paths enforce on cluster_id.
+	if clusterID := req.GetClusterId(); clusterID != "" {
+		if err := grpcutil.ValidateStringField("cluster_id", clusterID, false); err != nil {
+			return nil, err
+		}
+		listArgs.Search = fmt.Sprintf("cluster_id = '%s'", clusterID)
+	}
+
 	var gateways []Gateway
 	paging, svcErr := h.generic.List(ctx, "id", listArgs, &gateways)
 	if svcErr != nil {
@@ -256,6 +273,15 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
 	}
+
+	// clusterFilter, when set, scopes this stream to a single managed cluster.
+	// The broker fans EVERY gateway out to EVERY subscriber, so without this a
+	// spoke would receive (and could act on) other clusters' gateways. This is
+	// cooperative scoping, not an enforced trust boundary: the server does not yet
+	// authenticate that the caller owns the claimed cluster_id (no per-caller
+	// RBAC), so any control-plane could pass any cluster_id. Enforcement is pending
+	// the managed-cluster caller-identity binding (remote gRPC TLS+OIDC dial).
+	clusterFilter := req.GetClusterId()
 
 	ctx := stream.Context()
 	sub, err := broker.Subscribe(ctx)
@@ -296,13 +322,26 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 				gateway, svcErr := h.service.GetUnscoped(ctx, evt.SourceID)
 				if svcErr != nil {
 					glog.Warningf("WatchGateways: failed to load soft-deleted gateway %s: %v", evt.SourceID, svcErr)
+					// When a cluster filter is set we cannot attribute an
+					// unloadable delete to a cluster, so we must not leak it to a
+					// scoped subscriber. Skip it; the spoke's namespace GC still
+					// reaps the orphaned namespace.
+					if clusterFilter != "" {
+						continue
+					}
 				} else {
+					if clusterFilter != "" && gateway.ClusterId != clusterFilter {
+						continue
+					}
 					watchEvent.Gateway = gatewayToProto(gateway)
 				}
 			} else {
 				gateway, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
 					glog.Warningf("WatchGateways: failed to load gateway %s: %v", evt.SourceID, svcErr)
+					continue
+				}
+				if clusterFilter != "" && gateway.ClusterId != clusterFilter {
 					continue
 				}
 				watchEvent.Gateway = gatewayToProto(gateway)

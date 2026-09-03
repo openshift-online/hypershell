@@ -127,6 +127,11 @@ message DeleteGatewayRequest {
 message ListGatewaysRequest {
   int32 page = 1;
   int32 size = 2;
+  // cluster_id, when set, restricts results to gateways assigned to that
+  // managed cluster. A control-plane agent sets it to its own cluster identity
+  // so it only ever lists its cluster's gateways (managed-cluster pull model).
+  // Unset preserves the prior behaviour of listing every gateway.
+  optional string cluster_id = 3;
 }
 
 message ListGatewaysResponse {
@@ -136,7 +141,13 @@ message ListGatewaysResponse {
 
 message DeleteGatewayResponse {}
 
-message WatchGatewaysRequest {}
+message WatchGatewaysRequest {
+  // cluster_id, when set, restricts the stream to gateways assigned to that
+  // managed cluster (see ListGatewaysRequest.cluster_id). Because the event
+  // broker fans every gateway out to every subscriber, this filter is the
+  // security boundary that keeps a spoke's stream scoped to its own cluster.
+  optional string cluster_id = 1;
+}
 
 message WatchGatewaysResponse {
   EventType type = 1;

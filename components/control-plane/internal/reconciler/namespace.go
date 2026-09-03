@@ -180,7 +180,13 @@ func (r *NamespaceGCReconciler) grpcLiveNamespaces(ctx context.Context) (map[str
 	listCtx, cancel := context.WithTimeout(ctx, gatewayListTimeout)
 	defer cancel()
 	client := pb.NewGatewayServiceClient(r.grpcConn)
-	gateways, err := listAllGateways(listCtx, client)
+	// Deliberately unfiltered by cluster_id: the live set only ever PROTECTS
+	// namespaces from reaping, and gateway namespaces are globally unique, so a
+	// superset that includes other clusters' gateways can never cause a wrong
+	// delete -- whereas filtering to this cluster could reap a co-located hub's
+	// namespace during the same-cluster test. Reaping decisions are further gated
+	// by a local label selector, so foreign entries in the live set are inert.
+	gateways, err := listAllGateways(listCtx, client, "")
 	if err != nil {
 		return nil, fmt.Errorf("list gateways: %w", err)
 	}

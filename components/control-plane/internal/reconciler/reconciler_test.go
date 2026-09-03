@@ -718,7 +718,7 @@ func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	watchErr := make(chan error, 1)
 	go func() {
-		watchErr <- watcher.WatchGateways(ctx, grpcConn, r)
+		watchErr <- watcher.WatchGateways(ctx, grpcConn, r, "")
 	}()
 
 	deadline := time.NewTimer(8 * time.Second)

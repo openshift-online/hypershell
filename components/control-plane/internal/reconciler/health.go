@@ -29,10 +29,6 @@ const defaultHealthInterval = 30 * time.Second
 // specs/platform/openshell-gateway-routing.spec.md § Gateway Exposure Configuration.
 const defaultRouteReadyTimeout = 10 * time.Minute
 
-// defaultListGatewaysPageSize is the number of gateways requested per page
-// when retrieving the full gateway fleet for health observation.
-const defaultListGatewaysPageSize = 100
-
 // routeVerifyInterval is the minimum time between residual route/console
 // absence re-checks for a settled (torn-down, addressless) gateway.
 //
@@ -49,9 +45,13 @@ const routeVerifyInterval = 5 * time.Minute
 // moved to Degraded, and a Degraded gateway whose workload and exposure recover
 // is moved back to Running. See openshell-gateway-health.spec.md.
 type GatewayHealthReconciler struct {
-	clientset           *kubernetes.Clientset
-	dynamicClient       dynamic.Interface
-	grpcConn            *grpc.ClientConn
+	clientset     *kubernetes.Clientset
+	dynamicClient dynamic.Interface
+	grpcConn      *grpc.ClientConn
+	// clusterID scopes the health sweep to this managed cluster's gateways. When
+	// non-empty the fleet list is filtered server-side so a spoke never stamps
+	// (Degraded/Running) a gateway owned by another cluster. Empty sweeps all.
+	clusterID           string
 	interval            time.Duration
 	exposure            exposure.Port
 	routeReadyTimeout   time.Duration
@@ -99,7 +99,7 @@ type GatewayHealthReconciler struct {
 	routeVerifiedAt    map[string]time.Time
 }
 
-func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig) *GatewayHealthReconciler {
+func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID string) *GatewayHealthReconciler {
 	// Build one long-lived Keycloak client for residual-absence checks so its
 	// token cache survives across ticks (see consoleClientChecker).
 	var consoleClientChecker gateway.ConsoleClientChecker
@@ -120,6 +120,7 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		clientset:            clientset,
 		dynamicClient:        dynamicClient,
 		grpcConn:             grpcConn,
+		clusterID:            clusterID,
 		interval:             defaultHealthInterval,
 		exposure:             exposurePort,
 		routeReadyTimeout:    routeReadyTimeout(),
@@ -173,7 +174,7 @@ func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 	// Page through the whole fleet: the list endpoint is server-side paginated
 	// (default page size 20), so an unpaged request would only ever refresh the
 	// health of the first page of gateways.
-	gateways, err := h.listAllGateways(ctx, client)
+	gateways, err := listAllGateways(ctx, client, h.clusterID)
 	if err != nil {
 		tickErr = err
 		log.Printf("WARN gateway health: list gateways: %v", err)
@@ -183,33 +184,6 @@ func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 	for _, gw := range gateways {
 		h.reconcileGatewayHealth(ctx, client, gw)
 	}
-}
-
-// listAllGateways retrieves all gateways from the API server across all pages.
-func (h *GatewayHealthReconciler) listAllGateways(ctx context.Context, client pb.GatewayServiceClient) ([]*pb.Gateway, error) {
-	var all []*pb.Gateway
-	page := int32(1)
-
-	for {
-		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{
-			Page: page,
-			Size: defaultListGatewaysPageSize,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		items := resp.GetItems()
-		all = append(all, items...)
-
-		meta := resp.GetMetadata()
-		if len(items) == 0 || (meta != nil && int64(len(all)) >= int64(meta.GetTotal())) || len(items) < int(defaultListGatewaysPageSize) {
-			break
-		}
-		page++
-	}
-
-	return all, nil
 }
 
 func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, client pb.GatewayServiceClient, gw *pb.Gateway) {
