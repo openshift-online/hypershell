@@ -9,9 +9,9 @@
     {
       "customType": "regex",
       "description": "OpenShell gateway and supervisor images pinned as env var values in deployment manifests",
-      "fileMatch": ["^deploy/base/.*\\.yaml$"],
+      "managerFilePatterns": ["^deploy/base/.*\\.yaml$"],
       "matchStrings": [
-        "-\\s*name:\\s*GATEWAY(?:_SUPERVISOR)?_IMAGE\\n\\s+value:\\s*(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+        "-\\s*name:\\s*GATEWAY(?:_SUPERVISOR)?_IMAGE\\n\\s+value:\\s*(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?"
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-rhaiv\\.(?<build>\\d+)$"
@@ -58,9 +58,7 @@
         "quay.io/opendatahub/odh-openshell-gateway",
         "quay.io/opendatahub/odh-openshell-supervisor"
       ],
-      "groupName": "OpenShell images",
-      "automerge": true,
-      "automergeType": "pr"
+      "groupName": "OpenShell images"
     }
   ]
 }

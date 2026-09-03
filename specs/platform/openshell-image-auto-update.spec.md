@@ -88,7 +88,7 @@ after `patch`, so `v0.0.113-rhaiv.2` correctly supersedes `v0.0.113-rhaiv.1`.
 
 The auto-update follows the repository's existing Renovate conventions:
 
-- **Schedule:** Monday 00:00–07:00 ET (inherited from top-level `schedule`)
+- **Schedule:** Monday 00:00-07:00 ET (inherited from top-level `schedule`)
 - **Minimum release age:** 14 days (inherited from top-level `minimumReleaseAge`)
 - **Concurrent PR limit:** shared with other Renovate PRs (top-level
   `prConcurrentLimit`)
@@ -107,8 +107,9 @@ automerge configuration.
 
 ### Merge Policy
 
-Automerge is enabled (`automerge: true`, `automergeType: "pr"`). Renovate merges
-the PR only after all required status checks pass. If any check fails:
+Automerge is disabled. Renovate opens the bump PR and a platform maintainer
+must review and merge it after all required status checks pass. If any check
+fails:
 
 - The PR stays open and blocked.
 - The failure is visible in the PR checks - not swallowed.
