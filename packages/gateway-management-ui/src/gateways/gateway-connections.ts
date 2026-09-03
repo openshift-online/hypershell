@@ -78,7 +78,7 @@ export const installDocsUrl =
   "https://docs.nvidia.com/openshell/about/installation";
 
 export const sandboxConnectDocsUrl =
-  "https://nvidia-openshell.mintlify.app/reference/cli-sandbox#openshell-sandbox-connect";
+  "https://docs.nvidia.com/openshell/sandboxes/manage-sandboxes#connect-to-a-sandbox";
 
 /** Default sandbox name shown in the copyable create-sandbox command. */
 export const sandboxName = "mysand";
