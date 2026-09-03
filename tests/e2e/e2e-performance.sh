@@ -678,6 +678,9 @@ bold "Performance summary"
 sep
 perf_print_summary
 
+# Reached the summary without a fatal abort; print_results (lib.sh) notes when
+# this was never set, which does not apply to this script's own cleanup path.
+E2E_COMPLETED=1
 print_results
 
 if [[ "${PERF_RUN_RESULT}" != "pass" ]]; then

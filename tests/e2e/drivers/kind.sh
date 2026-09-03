@@ -46,6 +46,30 @@ discover_api_host() {
   _DISCOVER_API_HOST="${url}"
 }
 
+# discover_console_host - find the HyperShell web console (BFF) base URL.
+# Sets _DISCOVER_CONSOLE_HOST to the gateway HTTPS route for the web console.
+discover_console_host() {
+  _DISCOVER_CONSOLE_HOST=""
+  local host
+  host=$(kubectl get httproute -A -o jsonpath='{range .items[*]}{.spec.hostnames[0]}{"\n"}{end}' 2>/dev/null \
+    | grep -m1 'console\.hypershell\.localhost' || true)
+  if [[ -z "$host" ]]; then
+    red "  No HTTPRoute with hostname console.hypershell.localhost found"
+    return 1
+  fi
+
+  local url="https://${host}"
+  local code
+  code=$(_driver_curl --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+    "${url}/auth/session" 2>/dev/null || true)
+  if [[ -z "$code" || "$code" == "000" ]]; then
+    red "  Console route ${url} is not reachable (no HTTP response)"
+    return 1
+  fi
+
+  _DISCOVER_CONSOLE_HOST="${url}"
+}
+
 # discover_gateway_endpoint - find the gateway gRPC endpoint.
 # Sets _DISCOVER_GW_ENDPOINT from the GRPCRoute hostname once the
 # parent Gateway is Programmed.
@@ -118,6 +142,53 @@ _driver_acquire_oidc_token() {
 
 acquire_oidc_token() {
   _driver_acquire_oidc_token "$@"
+}
+
+: "${E2E_GATEWAY_NAMESPACE_GC_INTERVAL:=30s}"
+: "${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD:=30s}"
+_GC_TIMING_PATCHED=""
+
+# _patch_namespace_gc_timing / _restore_namespace_gc_timing - shared
+# implementation for configure_namespace_gc_timing / restore_namespace_gc_timing.
+# Kind deploys the same manifests as production (deploy/base/), so it also runs
+# with production namespace-GC defaults (5m sweep / 10m grace) -- too slow for
+# the e2e orphan-GC assertion (area 11a) to wait out. Rather than bake e2e-only
+# timing into any deploy overlay, every driver patches the controller
+# deployment to a short interval/grace period for the duration of the run and
+# restores it afterward. Drivers that need to resolve their own namespace
+# first (e.g. OpenShift) override the public functions and delegate here.
+_patch_namespace_gc_timing() {
+  local cli="$1" namespace="$2"
+  dim "  Shortening controller namespace GC timing for e2e (interval=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}, grace=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD})..."
+  if ! "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
+      "GATEWAY_NAMESPACE_GC_INTERVAL=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}" \
+      "GATEWAY_NAMESPACE_GC_GRACE_PERIOD=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}" >/dev/null; then
+    red "  Failed to patch hypershell-controller namespace GC timing"
+    return 1
+  fi
+  _GC_TIMING_PATCHED=1
+  if ! "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null; then
+    red "  hypershell-controller did not roll out after GC timing patch"
+    return 1
+  fi
+}
+
+_restore_namespace_gc_timing() {
+  local cli="$1" namespace="$2"
+  [[ -n "$_GC_TIMING_PATCHED" ]] || return 0
+  dim "  Restoring controller namespace GC timing to deployment defaults..."
+  "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
+    GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- >/dev/null 2>&1 || true
+  "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null 2>&1 || true
+  _GC_TIMING_PATCHED=""
+}
+
+configure_namespace_gc_timing() {
+  _patch_namespace_gc_timing kubectl "${E2E_HS_NAMESPACE}"
+}
+
+restore_namespace_gc_timing() {
+  _restore_namespace_gc_timing kubectl "${E2E_HS_NAMESPACE}"
 }
 
 # _kc_base / _kc_realm - derive the Keycloak base URL and realm from the issuer.

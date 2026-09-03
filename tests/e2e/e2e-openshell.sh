@@ -52,7 +52,13 @@ e2e_validate_mode
 # the route.openshift.io API group, an API only OpenShift clusters expose.
 # Any other cluster is assumed to be Kind.
 detect_infra_driver() {
-  if kubectl api-versions 2>/dev/null | grep -q '^route\.openshift\.io/'; then
+  local api_versions
+  if ! api_versions=$(kubectl api-versions 2>&1); then
+    red "ERROR: 'kubectl api-versions' failed against the current KUBECONFIG context" >&2
+    red "$api_versions" >&2
+    exit 1
+  fi
+  if echo "$api_versions" | grep -q '^route\.openshift\.io/'; then
     echo "openshift"
   else
     echo "kind"
@@ -72,7 +78,7 @@ fi
 # shellcheck source=drivers/kind.sh
 source "$DRIVER_FILE"
 
-REQUIRED_FUNCTIONS=(discover_api_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl)
+REQUIRED_FUNCTIONS=(discover_api_host discover_console_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl configure_namespace_gc_timing restore_namespace_gc_timing)
 for fn in "${REQUIRED_FUNCTIONS[@]}"; do
   if ! declare -f "$fn" >/dev/null 2>&1; then
     red "ERROR: Driver '${E2E_INFRA_DRIVER}' does not implement required function: ${fn}"
@@ -101,6 +107,7 @@ fi
 # --- Cleanup trap ---
 
 cleanup() {
+  restore_namespace_gc_timing
   if [[ -n "${SB_CREATE_PID:-}" ]]; then
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
@@ -126,8 +133,25 @@ cleanup() {
     acquire_oidc_token 2>/dev/null || true
     api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
   fi
+  # Runs on every exit path -- a fatal exit 1 mid-run included -- so the
+  # summary always prints, and print_results itself notes when E2E_COMPLETED
+  # was never set (i.e. the run aborted before reaching the results section).
+  print_results
 }
 trap cleanup EXIT
+
+# --- Namespace GC timing ---
+# Long mode seeds a synthetic orphan namespace later and waits for the periodic
+# reaper to collect it (see area 11a); on drivers whose deployment runs with
+# production GC defaults, that wait can't complete in time unless shortened
+# first. Done once up front, before any gateway is created, so the controller
+# restart this can trigger doesn't land mid-reconciliation.
+if e2e_step long; then
+  if ! configure_namespace_gc_timing; then
+    red "ERROR: Could not configure namespace GC timing for the e2e run"
+    exit 1
+  fi
+fi
 
 # --- Discover API host via driver ---
 
@@ -171,7 +195,7 @@ sep
 # ── 1. infrastructure validation + OIDC verification ─────────────────────
 
 echo ""
-bold "1. Infrastructure Validation + OIDC Verification"
+e2e_area "1. Infrastructure Validation + OIDC Verification"
 echo ""
 
 # Acquire a token for authenticated API calls
@@ -204,7 +228,11 @@ else
 fi
 
 # Verify: BFF /auth/session returns unauthenticated
-CONSOLE_HOST="${API_HOST/api./console.}"
+if ! discover_console_host; then
+  fail_test "Could not discover HyperShell web console host"
+  exit 1
+fi
+CONSOLE_HOST="${_DISCOVER_CONSOLE_HOST}"
 show_cmd "curl -s ${CONSOLE_HOST}/auth/session (driver TLS policy)"
 SESSION_RESP=$(_driver_curl "${CONSOLE_HOST}/auth/session" 2>/dev/null || true)
 SESSION_AUTH=$(echo "${SESSION_RESP}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('authenticated',''))" 2>/dev/null || true)
@@ -330,7 +358,7 @@ sep
 # ── 2. gateway provisioning ────────────────────────────────────────────────
 
 echo ""
-bold "2. Gateway Provisioning via HyperShell API"
+e2e_area "2. Gateway Provisioning via HyperShell API"
 echo ""
 
 # JWT enforcement means every gateway CRUD call below needs a bearer token.
@@ -514,22 +542,20 @@ EOF
   ORPHAN_GC_DEADLINE=$(($(date +%s) + E2E_ORPHAN_GC_TIMEOUT))
 fi
 
-# Per-gateway Keycloak client id. When Keycloak provisioning is enabled (the Kind
-# path), the control-plane reconciler creates a dedicated public client named
-# "${gw.Name}-${gatewayID}" with an audience mapper and overrides the gateway's
-# OIDC config to require aud == this client. Gateway and CLI tokens must therefore
-# be minted against this client, not the shared frontend client, or Envoy rejects
-# them with InvalidAudience. gatewayID is the API resource id (GW_ID).
+# Per-gateway Keycloak client id. The control-plane reconciler creates a
+# dedicated public client named "${gw.Name}-${gatewayID}" with an audience
+# mapper and overrides the gateway's OIDC config to require aud == this
+# client, on every infra target. Gateway and CLI tokens must therefore be
+# minted against this client, not the shared frontend client, or Envoy
+# rejects them with InvalidAudience. gatewayID is the API resource id (GW_ID).
 GW_KC_CLIENT_ID="${GW_NAME}-${GW_ID}"
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  dim "  Per-gateway OIDC client: ${GW_KC_CLIENT_ID}"
-fi
+dim "  Per-gateway OIDC client: ${GW_KC_CLIENT_ID}"
 sep
 
 # ── 3. gateway infrastructure ──────────────────────────────────────────────
 
 echo ""
-bold "3. Gateway Infrastructure"
+e2e_area "3. Gateway Infrastructure"
 echo ""
 
 show_cmd "$CLI get deployment openshell-gateway -n $GW_NAMESPACE"
@@ -709,17 +735,16 @@ sep
 # ── 4. OIDC token acquisition + CA certificate setup ─────────────────────
 
 echo ""
-bold "4. OIDC Token Acquisition + CA Certificate Setup"
+e2e_area "4. OIDC Token Acquisition + CA Certificate Setup"
 echo ""
 
-# The client the admin's gateway/CLI tokens are minted against. On Kind the
-# reconciler forces a per-gateway audience, so we use the per-gateway client and
-# wait for the async owner-binding -> openshell-admin role to land in the token.
-OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+# The client the admin's gateway/CLI tokens are minted against. The
+# reconciler forces a per-gateway audience on every infra target, so we
+# always use the per-gateway client and wait for the async owner-binding ->
+# openshell-admin role to land in the token.
+OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
 
-  if e2e_step long; then
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]] && e2e_step long; then
   # Exercise the real Keycloak device authorization endpoint for the client
   # provisioned by the control plane. A successful authorization response proves
   # that oauth2.device.authorization.grant.enabled reached Keycloak; polling once
@@ -772,26 +797,15 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
     fail_test "Device code poll did not return authorization_pending: ${DEVICE_TOKEN_DESCRIPTION}"
     exit 1
   fi
-  fi
+fi
 
-  show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
-  if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
-    OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
-    pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
-  else
-    fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
-    exit 1
-  fi
-else
-  show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER}"
-  acquire_oidc_token
+show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
+if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
   OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
-  if [[ -n "$OIDC_TOKEN" ]]; then
-    pass "OIDC token acquired (user: ${E2E_OIDC_USERNAME})"
-  else
-    fail_test "Failed to acquire OIDC token from Keycloak"
-    exit 1
-  fi
+  pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
+else
+  fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
+  exit 1
 fi
 
 
@@ -814,7 +828,7 @@ sep
 # ── 5. route discovery + CLI registration ─────────────────────────────────
 
 echo ""
-bold "5. Route Discovery + CLI Registration"
+e2e_area "5. Route Discovery + CLI Registration"
 echo ""
 
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
@@ -881,7 +895,7 @@ sep
 # ── 6. gateway connectivity ───────────────────────────────────────────────
 
 echo ""
-bold "6. Gateway Connectivity"
+e2e_area "6. Gateway Connectivity"
 echo ""
 
 show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} status"
@@ -918,7 +932,7 @@ sep
 # ── 7. sandbox lifecycle ──────────────────────────────────────────────────
 
 echo ""
-bold "7. Sandbox Lifecycle"
+e2e_area "7. Sandbox Lifecycle"
 echo ""
 
 RUN_ID=$(date +%s | tail -c5)
@@ -985,7 +999,7 @@ sep
 # ── 8. sandbox interaction + active sandbox count ─────────────────────────
 
 echo ""
-bold "8. Sandbox Interaction + Active Sandbox Count"
+e2e_area "8. Sandbox Interaction + Active Sandbox Count"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
@@ -1166,43 +1180,32 @@ sep
 # ── 9. developer user RBAC verification ──────────────────────────────────
 
 echo ""
-bold "9. Developer User RBAC Verification"
+e2e_area "9. Developer User RBAC Verification"
 echo ""
 
 # The developer's gateway/CLI token, like the admin's, must be minted against the
-# per-gateway client on Kind. The gateway requires user_role (openshell-user) on
-# that client or it rejects the developer outright ("role 'openshell-user'
-# required"). In production the RoleBinding reconciler assigns this when a
-# gateway:viewer binding is created, but that grant is not expressible through the
-# API for a non-owner (no user_id discovery path), so we provision the same end
-# state directly in Keycloak -- a test-setup shortcut, not a product change.
-DEV_OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  DEV_OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
-  show_cmd "# grant developer openshell-user on ${GW_KC_CLIENT_ID} (mirrors gateway:viewer RoleBinding)"
-  if assign_gateway_client_role "$E2E_DEV_USERNAME" "$GW_KC_CLIENT_ID" openshell-user; then
-    pass "Developer granted openshell-user on per-gateway client"
-  else
-    fail_test "Failed to grant developer openshell-user on per-gateway client"
-  fi
-
-  show_cmd "# acquire per-gateway OIDC token for developer (client: ${GW_KC_CLIENT_ID}, await role: openshell-user)"
-  if acquire_gateway_token_with_role "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD" "$GW_KC_CLIENT_ID" openshell-user; then
-    DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
-    pass "Developer OIDC token acquired with openshell-user (user: ${E2E_DEV_USERNAME})"
-  else
-    DEV_TOKEN=""
-    fail_test "Failed to acquire developer per-gateway OIDC token with openshell-user role"
-  fi
+# per-gateway client on every infra target. The gateway requires user_role
+# (openshell-user) on that client or it rejects the developer outright ("role
+# 'openshell-user' required"). In production the RoleBinding reconciler assigns
+# this when a gateway:viewer binding is created, but that grant is not
+# expressible through the API for a non-owner (no user_id discovery path), so we
+# provision the same end state directly in Keycloak -- a test-setup shortcut,
+# not a product change.
+DEV_OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+show_cmd "# grant developer openshell-user on ${GW_KC_CLIENT_ID} (mirrors gateway:viewer RoleBinding)"
+if assign_gateway_client_role "$E2E_DEV_USERNAME" "$GW_KC_CLIENT_ID" openshell-user; then
+  pass "Developer granted openshell-user on per-gateway client"
 else
-  show_cmd "# acquire OIDC token for developer user"
-  acquire_oidc_token "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD"
+  fail_test "Failed to grant developer openshell-user on per-gateway client"
+fi
+
+show_cmd "# acquire per-gateway OIDC token for developer (client: ${GW_KC_CLIENT_ID}, await role: openshell-user)"
+if acquire_gateway_token_with_role "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD" "$GW_KC_CLIENT_ID" openshell-user; then
   DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
-  if [[ -n "$DEV_TOKEN" ]]; then
-    pass "Developer OIDC token acquired (user: ${E2E_DEV_USERNAME})"
-  else
-    fail_test "Failed to acquire developer OIDC token"
-  fi
+  pass "Developer OIDC token acquired with openshell-user (user: ${E2E_DEV_USERNAME})"
+else
+  DEV_TOKEN=""
+  fail_test "Failed to acquire developer per-gateway OIDC token with openshell-user role"
 fi
 
 if [[ -n "$DEV_TOKEN" ]]; then
@@ -1424,7 +1427,7 @@ sep
 # ── 10. platform admin RBAC verification ─────────────────────────────────
 
 echo ""
-bold "10. Platform Admin RBAC Verification"
+e2e_area "10. Platform Admin RBAC Verification"
 echo ""
 
 if ! e2e_step long; then
@@ -1436,13 +1439,11 @@ else
 
 # Assign platform:admin realm role to the platform admin user (best-effort; user may
 # already have the role from Keycloak realm import)
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  show_cmd "# verify/assign platform:admin realm role to ${E2E_PLATFORM_ADMIN_USERNAME}"
-  if assign_realm_role "$E2E_PLATFORM_ADMIN_USERNAME" "platform:admin"; then
-    pass "Platform admin has platform:admin realm role"
-  else
-    dim "  Note: Could not verify platform:admin role assignment (user may already have it from realm import)"
-  fi
+show_cmd "# verify/assign platform:admin realm role to ${E2E_PLATFORM_ADMIN_USERNAME}"
+if assign_realm_role "$E2E_PLATFORM_ADMIN_USERNAME" "platform:admin"; then
+  pass "Platform admin has platform:admin realm role"
+else
+  dim "  Note: Could not verify platform:admin role assignment (user may already have it from realm import)"
 fi
 
 # Acquire OIDC token for platform admin
@@ -1575,7 +1576,7 @@ sep
 # ── 11. gateway deletion + namespace garbage collection ────────────────────
 
 echo ""
-bold "11. Gateway Deletion + Namespace Garbage Collection"
+e2e_area "11. Gateway Deletion + Namespace Garbage Collection"
 echo ""
 
 if [[ "$E2E_MODE" == "short" ]]; then
@@ -1790,7 +1791,9 @@ sep
 
 # ── results ───────────────────────────────────────────────────────────────
 
-print_results
+# Reached every planned area without a fatal abort; cleanup's EXIT trap prints
+# the results (see cleanup()), so print_results itself is not called here.
+E2E_COMPLETED=1
 
 if [[ $E2E_FAIL -gt 0 ]]; then
   exit 1

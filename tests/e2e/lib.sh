@@ -41,6 +41,8 @@ sep()    { printf "${_DIM}──────────────────
 E2E_PASS=0
 E2E_FAIL=0
 E2E_TESTS=()
+E2E_CURRENT_AREA=""
+E2E_COMPLETED=""
 
 pass() {
   E2E_PASS=$((E2E_PASS + 1))
@@ -59,9 +61,24 @@ show_cmd() {
   sleep "${E2E_PAUSE:-1}"
 }
 
+# e2e_area - announce a numbered test area and record it as the current one,
+# so print_results can name where the run stopped if it never reaches the end.
+e2e_area() {
+  E2E_CURRENT_AREA="$1"
+  bold "$1"
+}
+
 print_results() {
   echo ""
   bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if [[ -z "$E2E_COMPLETED" ]]; then
+    if [[ -n "$E2E_CURRENT_AREA" ]]; then
+      red "⚠ Run aborted during Area ${E2E_CURRENT_AREA} -- later areas did not run and are not reflected below."
+    else
+      red "⚠ Run aborted before any test area started -- no checks ran."
+    fi
+    echo ""
+  fi
   bold "Results: $E2E_PASS passed, $E2E_FAIL failed"
   echo ""
   for t in "${E2E_TESTS[@]}"; do
