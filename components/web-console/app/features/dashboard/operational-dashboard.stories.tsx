@@ -50,12 +50,20 @@ const partialLoadDashboard = createDashboardOperations({
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
-        failedSources: ["cluster-memory", "cluster-cpu", "cluster-pods", "cluster-nodes"],
+        failedSources: [
+          "cluster-memory",
+          "cluster-cpu",
+          "cluster-pods",
+          "cluster-nodes",
+        ],
         lastSuccessfulRefresh: new Date(),
         metrics: mockOperationalDashboardMetrics.metrics.filter((metric) =>
-          ["provisioned-gateways", "provisioned-sandboxes", "registered-users", "provision-time"].includes(
-            metric.id,
-          ),
+          [
+            "provisioned-gateways",
+            "provisioned-sandboxes",
+            "registered-users",
+            "provision-time",
+          ].includes(metric.id),
         ),
       });
     },
