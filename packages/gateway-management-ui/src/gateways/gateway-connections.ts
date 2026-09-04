@@ -83,6 +83,14 @@ export const sandboxName = "mysand";
 /** Claude model the sandbox runs, shared by the inference and sandbox commands. */
 export const claudeModel = "claude-haiku-4-5";
 
+// Sandbox resource defaults -- keep in sync with:
+//   components/cli/cmd/hypershell/get/gateway/cmd.go (sandboxDriverConfig)
+//   specs/web-console/architecture.spec.md § Create a sandbox
+export const sandboxResourceDefaults = {
+  requests: { cpu: "100m", memory: "512Mi" },
+  limits: { cpu: "500m", memory: "512Mi" },
+} as const;
+
 /**
  * Primary "add a provider" command. Pulls credentials from Application Default
  * Credentials (`--from-gcloud-adc`) and reads the project id from the shell, so
@@ -116,18 +124,42 @@ export function buildInferenceSetCommand(
   return `openshell inference set --provider ${providerName} --model ${model}`;
 }
 
+/**
+ * Builds a complete shell script for creating an OpenShell sandbox with resource limits.
+ * Returns a multi-line string containing:
+ * 1. DRIVER_CONFIG variable assignment with JSON resource specification
+ * 2. openshell sandbox create command referencing $DRIVER_CONFIG
+ *
+ * The DRIVER_CONFIG variable is extracted into a shell variable for readability,
+ * avoiding an unwieldy inline JSON argument in the command itself.
+ */
 export function buildSandboxCreateCommand(
   name: string = sandboxName,
   model: string = claudeModel,
 ): string {
-  return [
+  const driverConfig = JSON.stringify({
+    kubernetes: {
+      containers: {
+        agent: {
+          resources: sandboxResourceDefaults,
+        },
+      },
+    },
+  });
+
+  const variable = `DRIVER_CONFIG='${driverConfig}'`;
+
+  const command = [
     "openshell sandbox create",
-    `--name ${name}`,
+    `--name ${shellArgument(name)}`,
+    '--driver-config-json "$DRIVER_CONFIG"',
     "--env=ANTHROPIC_BASE_URL=https://inference.local",
     "--env=ANTHROPIC_API_KEY=unused",
     "--no-auto-providers",
     `-- claude --bare --model ${model}`,
   ].join(" \\\n  ");
+
+  return `${variable}\n\n${command}`;
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   gatewayStatusAppearance,
   isGatewayReadyToConnect,
   sandboxName,
+  sandboxResourceDefaults,
   vertexProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
@@ -149,17 +150,22 @@ describe("gateway connections", () => {
   });
 
   it("creates a sandbox that runs claude against the local inference endpoint", () => {
+    const driverConfig =
+      'DRIVER_CONFIG=\'{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}\'';
+
     expect(buildSandboxCreateCommand()).toBe(
-      `openshell sandbox create \\
+      `${driverConfig}\n\nopenshell sandbox create \\
   --name ${sandboxName} \\
+  --driver-config-json "$DRIVER_CONFIG" \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
   -- claude --bare --model ${claudeModel}`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
-      `openshell sandbox create \\
+      `${driverConfig}\n\nopenshell sandbox create \\
   --name demo \\
+  --driver-config-json "$DRIVER_CONFIG" \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
@@ -171,6 +177,23 @@ describe("gateway connections", () => {
     const cmd = buildSandboxCreateCommand("mysand", "claude-opus-5");
     expect(cmd).toContain("--no-auto-providers");
     expect(cmd).toContain("-- claude --bare --model claude-opus-5");
+  });
+
+  it("quotes sandbox names that contain shell metacharacters", () => {
+    const cmd = buildSandboxCreateCommand("my sandbox");
+    expect(cmd).toContain("--name 'my sandbox'");
+  });
+
+  it("embeds resource defaults from the shared sandboxResourceDefaults constant", () => {
+    const cmd = buildSandboxCreateCommand();
+    expect(cmd).toContain(`"cpu":"${sandboxResourceDefaults.requests.cpu}"`);
+    expect(cmd).toContain(
+      `"memory":"${sandboxResourceDefaults.requests.memory}"`,
+    );
+    expect(cmd).toContain(`"cpu":"${sandboxResourceDefaults.limits.cpu}"`);
+    expect(cmd).toContain(
+      `"memory":"${sandboxResourceDefaults.limits.memory}"`,
+    );
   });
 
   it("combines login, provider, and inference into one setup script when ready", () => {
