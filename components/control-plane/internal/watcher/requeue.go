@@ -479,14 +479,22 @@ func (q *reconcileQueue[T]) processNext() bool {
 	}
 	defer q.queue.Done(id)
 
+	// Claim the ready item under the same lock that protects the gauge state. This
+	// transition is the worker-start boundary for both queue depth and queue wait.
+	// A gauge callback can therefore observe the key as ready before this lock or
+	// as in progress after this lock, but not as both.
+	q.mu.Lock()
+	startedAt := q.now()
+	readyAt, wasReady := q.readyAt[id]
+	delete(q.readyAt, id)
+	nb, backingOff := q.notBefore[id]
+	q.mu.Unlock()
+
 	// Enforce backoff against dirty-key re-adds: if this key failed recently and its
 	// delay has not elapsed, re-defer it without invoking the handler. A dirty re-add
 	// (e.g. from the reconciler's own phase-status watch event) thus costs a cheap
 	// Get/AddAfter/Done cycle instead of an immediate re-handle, so the backoff is
 	// preserved and no spin re-hammers the API server or Keycloak.
-	q.mu.Lock()
-	nb, backingOff := q.notBefore[id]
-	q.mu.Unlock()
 	if backingOff {
 		if remaining := nb.Sub(q.now()); remaining > 0 {
 			q.mu.Lock()
@@ -513,8 +521,6 @@ func (q *reconcileQueue[T]) processNext() bool {
 	preservePayload := q.preservePayload[id]
 	forced := q.forced[id]
 	deferredForced := preservePayload && forced
-	readyAt, wasReady := q.readyAt[id]
-	delete(q.readyAt, id)
 	if !preservePayload {
 		delete(q.forced, id)
 	}
@@ -523,7 +529,6 @@ func (q *reconcileQueue[T]) processNext() bool {
 		// No payload recorded (e.g. a delete already reconciled and pruned it).
 		q.mu.Lock()
 		delete(q.forced, id)
-		delete(q.readyAt, id)
 		q.mu.Unlock()
 		q.queue.Forget(id)
 		q.clearBackoff(id)
@@ -542,7 +547,7 @@ func (q *reconcileQueue[T]) processNext() bool {
 		ev = q.retryTransform(ev)
 	}
 	if wasReady && q.recordQueueWait != nil {
-		if wait := q.now().Sub(readyAt); wait >= 0 {
+		if wait := startedAt.Sub(readyAt); wait >= 0 {
 			q.recordQueueWait(wait)
 		}
 	}

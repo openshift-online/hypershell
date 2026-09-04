@@ -152,6 +152,9 @@ func TestReconcileQueue_RecordsOneWaitForCoalescedKey(t *testing.T) {
 
 	q.enqueue(Event[string]{ResourceID: "blocker", Resource: "blocker"})
 	<-h.enter
+	if got := q.readyDepth(); got != 0 {
+		t.Fatalf("ready depth while handler is in progress = %d, want 0", got)
+	}
 
 	clock.advance(2 * time.Second)
 	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})

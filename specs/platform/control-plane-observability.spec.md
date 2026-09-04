@@ -305,7 +305,7 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 | otelhttp transport wrapper for client-go | Instruments all Kubernetes API calls transparently without modifying reconciler code |
 | Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large deployments |
 | Resource ID as a span attribute, not a span name | Enables per-trace debugging without inflating the span-name namespace |
-| Queue depth and wait use the shared reconcile queue | One bounded resource-kind label covers Gateway, ManagedDatabase, and RoleBinding queues without resource identifiers |
+| Queue depth and wait use the shared reconcile queue | One bounded resource-kind label covers each shared reconcile queue without resource identifiers |
 | OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
 | Reconcile-trace to request-trace correlation deferred | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) deserves its own story |
 
