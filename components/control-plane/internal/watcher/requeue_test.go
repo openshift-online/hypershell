@@ -3,6 +3,7 @@ package watcher
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -99,6 +100,104 @@ func waitForCount(t *testing.T, h *recordingHandler, want int) {
 // fastLimiter is a short-backoff rate limiter so retry tests run quickly.
 func fastLimiter() workqueue.TypedRateLimiter[string] {
 	return workqueue.NewTypedItemExponentialFailureRateLimiter[string](time.Millisecond, 5*time.Millisecond)
+}
+
+type mutableClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *mutableClock) current() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *mutableClock) advance(duration time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(duration)
+	c.mu.Unlock()
+}
+
+type durationRecorder struct {
+	mu     sync.Mutex
+	values []time.Duration
+}
+
+func (r *durationRecorder) record(duration time.Duration) {
+	r.mu.Lock()
+	r.values = append(r.values, duration)
+	r.mu.Unlock()
+}
+
+func (r *durationRecorder) snapshot() []time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]time.Duration(nil), r.values...)
+}
+
+func TestReconcileQueue_RecordsOneWaitForCoalescedKey(t *testing.T) {
+	clock := &mutableClock{now: time.Unix(1_000, 0)}
+	waits := &durationRecorder{}
+	h := &recordingHandler{
+		enter:   make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	q := newReconcileQueue(context.Background(), "Gateway", h,
+		withWorkers[string](1),
+		withNow[string](clock.current),
+		withQueueWaitRecorder[string](waits.record),
+	)
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "blocker", Resource: "blocker"})
+	<-h.enter
+
+	clock.advance(2 * time.Second)
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})
+	clock.advance(time.Second)
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v2"})
+	clock.advance(2 * time.Second)
+	h.release <- struct{}{}
+
+	<-h.enter
+	if got := h.lastSeen(); got != "v2" {
+		t.Fatalf("handler saw %q, want coalesced payload v2", got)
+	}
+	h.release <- struct{}{}
+	waitForCount(t, h, 2)
+
+	got := waits.snapshot()
+	want := []time.Duration{0, 3 * time.Second}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("queue waits = %v, want %v", got, want)
+	}
+}
+
+func TestReconcileQueue_ExcludesRetryBackoffFromWait(t *testing.T) {
+	const backoff = 50 * time.Millisecond
+	waits := &durationRecorder{}
+	h := &recordingHandler{failUntil: 1}
+	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](backoff, backoff)
+	q := newReconcileQueue(context.Background(), "Gateway", h,
+		withWorkers[string](1),
+		withRateLimiter[string](limiter),
+		withQueueWaitRecorder[string](waits.record),
+	)
+	defer q.stop()
+
+	start := time.Now()
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})
+	waitForCount(t, h, 2)
+	elapsed := time.Since(start)
+
+	got := waits.snapshot()
+	if len(got) != 2 {
+		t.Fatalf("queue wait sample count = %d, want 2", len(got))
+	}
+	if excluded := elapsed - got[1]; excluded < backoff-(10*time.Millisecond) {
+		t.Fatalf("retry elapsed = %v and queue wait = %v; scheduled backoff was not excluded", elapsed, got[1])
+	}
 }
 
 // A reconcile that fails transiently must be retried until it succeeds, then stop

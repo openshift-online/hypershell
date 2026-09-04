@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -146,6 +147,10 @@ type reconcileQueue[T any] struct {
 	// refreshes this policy on every failure; success, deletion, or pruning clears
 	// it while leaving any deferred force intent available for the next pass.
 	preservePayload map[string]bool
+	// readyAt stores the first time that a pending key became eligible for a
+	// worker. Coalesced updates keep the first value. A retry replaces it with the
+	// end of its scheduled backoff so the backoff is not queue wait.
+	readyAt map[string]time.Time
 	// notBefore is the earliest time a failed key may be handled again. It defends
 	// the AddRateLimited backoff against client-go's dirty-key semantics: the
 	// reconciler's own phase-status writes emit watch events that Add (mark dirty)
@@ -162,10 +167,13 @@ type reconcileQueue[T any] struct {
 	// which version comparison cannot do reliably, because a replayed delete can
 	// carry the same updated_at as the in-flight one (and versionOf may be nil).
 	// It is deleted with the key on prune.
-	gen      map[string]int64
-	wg       sync.WaitGroup
-	stopOnce sync.Once
-	stopCh   chan struct{}
+	gen                  map[string]int64
+	recordQueueWait      func(time.Duration)
+	unregisterQueueDepth func() error
+	wg                   sync.WaitGroup
+	stopOnce             sync.Once
+	unregisterOnce       sync.Once
+	stopCh               chan struct{}
 }
 
 // queueOption customizes a reconcileQueue before its workers start.
@@ -183,6 +191,16 @@ func withRateLimiter[T any](l workqueue.TypedRateLimiter[string]) queueOption[T]
 		q.limiter = l
 		q.queue = workqueue.NewTypedRateLimitingQueue(l)
 	}
+}
+
+// withNow overrides the queue clock for tests.
+func withNow[T any](now func() time.Time) queueOption[T] {
+	return func(q *reconcileQueue[T]) { q.now = now }
+}
+
+// withQueueWaitRecorder enables queue-wait tracking with a test recorder.
+func withQueueWaitRecorder[T any](record func(time.Duration)) queueOption[T] {
+	return func(q *reconcileQueue[T]) { q.recordQueueWait = record }
 }
 
 // withWorkers overrides the worker count (used by tests).
@@ -232,6 +250,24 @@ func newReconcileQueue[T any](baseCtx context.Context, kind string, handler Hand
 	for _, opt := range opts {
 		opt(q)
 	}
+	if q.recordQueueWait != nil || cpotel.MetricsEnabled() {
+		q.readyAt = make(map[string]time.Time)
+	}
+	if q.recordQueueWait == nil && cpotel.MetricsEnabled() {
+		q.recordQueueWait = func(duration time.Duration) {
+			cpotel.RecordReconcileQueueWaitDuration(q.baseCtx, q.kind, duration)
+		}
+	}
+	if cpotel.MetricsEnabled() {
+		unregister, err := cpotel.RegisterReconcileQueueDepth(q.kind, func() int64 {
+			return int64(q.queue.Len())
+		})
+		if err != nil {
+			log.Printf("WARN register %s reconcile queue depth metric: %v", q.kind, err)
+		} else {
+			q.unregisterQueueDepth = unregister
+		}
+	}
 	// Shut the queue down when the watcher context ends so blocked workers wake and
 	// exit even if stop is never reached; stopCh does the same for an explicit stop
 	// (baseCtx may be context.Background, whose Done never fires). ShutDown is
@@ -279,6 +315,7 @@ func (q *reconcileQueue[T]) enqueueWithForce(ev Event[T], force bool) {
 		q.gen[ev.ResourceID]++
 		delete(q.forced, ev.ResourceID)
 		delete(q.preservePayload, ev.ResourceID)
+		q.markReadyLocked(ev.ResourceID)
 		q.mu.Unlock()
 		q.queue.Add(ev.ResourceID)
 		return
@@ -315,6 +352,7 @@ func (q *reconcileQueue[T]) enqueueWithForce(ev Event[T], force bool) {
 		if q.versionOf != nil && q.versionOf(ev) < q.versionOf(prev) {
 			if force {
 				q.forced[ev.ResourceID] = true
+				q.markReadyLocked(ev.ResourceID)
 				q.mu.Unlock()
 				q.queue.Add(ev.ResourceID)
 				return
@@ -336,8 +374,25 @@ func (q *reconcileQueue[T]) enqueueWithForce(ev Event[T], force bool) {
 	if force {
 		q.forced[ev.ResourceID] = true
 	}
+	q.markReadyLocked(ev.ResourceID)
 	q.mu.Unlock()
 	q.queue.Add(ev.ResourceID)
+}
+
+// markReadyLocked records when a key first becomes eligible for a worker. The
+// caller must hold q.mu.
+func (q *reconcileQueue[T]) markReadyLocked(id string) {
+	if q.recordQueueWait == nil {
+		return
+	}
+	if _, exists := q.readyAt[id]; exists {
+		return
+	}
+	readyAt := q.now()
+	if notBefore, exists := q.notBefore[id]; exists && notBefore.After(readyAt) {
+		readyAt = notBefore
+	}
+	q.readyAt[id] = readyAt
 }
 
 // knownKeys returns a snapshot of the payloads the queue is currently tracking
@@ -383,6 +438,7 @@ func (q *reconcileQueue[T]) pruneIfNonDelete(id string, snapshot Event[T]) bool 
 	delete(q.notBefore, id)
 	delete(q.forced, id)
 	delete(q.preservePayload, id)
+	delete(q.readyAt, id)
 	delete(q.gen, id)
 	return true
 }
@@ -417,6 +473,11 @@ func (q *reconcileQueue[T]) processNext() bool {
 	q.mu.Unlock()
 	if backingOff {
 		if remaining := nb.Sub(q.now()); remaining > 0 {
+			q.mu.Lock()
+			if q.recordQueueWait != nil {
+				q.readyAt[id] = nb
+			}
+			q.mu.Unlock()
 			q.queue.AddAfter(id, remaining)
 			return true
 		}
@@ -436,6 +497,8 @@ func (q *reconcileQueue[T]) processNext() bool {
 	preservePayload := q.preservePayload[id]
 	forced := q.forced[id]
 	deferredForced := preservePayload && forced
+	readyAt, wasReady := q.readyAt[id]
+	delete(q.readyAt, id)
 	if !preservePayload {
 		delete(q.forced, id)
 	}
@@ -444,6 +507,7 @@ func (q *reconcileQueue[T]) processNext() bool {
 		// No payload recorded (e.g. a delete already reconciled and pruned it).
 		q.mu.Lock()
 		delete(q.forced, id)
+		delete(q.readyAt, id)
 		q.mu.Unlock()
 		q.queue.Forget(id)
 		q.clearBackoff(id)
@@ -460,6 +524,11 @@ func (q *reconcileQueue[T]) processNext() bool {
 	// governs live traffic.
 	if q.retryTransform != nil && !preservePayload && (forced || q.queue.NumRequeues(id) > 0) {
 		ev = q.retryTransform(ev)
+	}
+	if wasReady && q.recordQueueWait != nil {
+		if wait := q.now().Sub(readyAt); wait >= 0 {
+			q.recordQueueWait(wait)
+		}
 	}
 
 	if err := q.handler.Handle(q.baseCtx, ev); err != nil {
@@ -484,7 +553,11 @@ func (q *reconcileQueue[T]) processNext() bool {
 		// workload readiness, not that the provisioning Handle recovered.
 		delay := q.limiter.When(id)
 		q.mu.Lock()
-		q.notBefore[id] = q.now().Add(delay)
+		notBefore := q.now().Add(delay)
+		q.notBefore[id] = notBefore
+		if q.recordQueueWait != nil {
+			q.readyAt[id] = notBefore
+		}
 		if PreservesPayloadForRetry(err) {
 			q.preservePayload[id] = true
 		} else {
@@ -508,6 +581,9 @@ func (q *reconcileQueue[T]) processNext() bool {
 	if deferredForced {
 		q.mu.Lock()
 		forcePending := q.forced[id]
+		if forcePending {
+			q.markReadyLocked(id)
+		}
 		q.mu.Unlock()
 		if forcePending {
 			q.queue.Add(id)
@@ -556,4 +632,11 @@ func (q *reconcileQueue[T]) stop() {
 	q.stopOnce.Do(func() { close(q.stopCh) })
 	q.queue.ShutDown()
 	q.wg.Wait()
+	q.unregisterOnce.Do(func() {
+		if q.unregisterQueueDepth != nil {
+			if err := q.unregisterQueueDepth(); err != nil {
+				log.Printf("WARN unregister %s reconcile queue depth metric: %v", q.kind, err)
+			}
+		}
+	})
 }
