@@ -127,8 +127,11 @@ func readExternalAdminSecret(ctx context.Context, clientset kubernetes.Interface
 	if sslmode == "" {
 		sslmode = "require"
 	}
-	if sslmode == "disable" {
-		log.Printf("WARN external DB secret %s: sslmode=disable is insecure; use require or verify-full for production", secretName)
+	switch sslmode {
+	case "disable":
+		log.Printf("WARN external DB secret %s: sslmode=disable is insecure; use verify-full for production", secretName)
+	case "require", "allow", "prefer":
+		log.Printf("WARN external DB secret %s: sslmode=%s encrypts the connection but does not verify the server certificate; use verify-full with sslrootcert for production external servers", secretName, sslmode)
 	}
 
 	return &externalAdminParams{
