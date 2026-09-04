@@ -199,9 +199,22 @@ The control plane SHALL export OpenTelemetry metrics for reconciliation and watc
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
 | `reconcile.duration` | Histogram | `ms` | Latency of a single resource reconciliation |
+| `reconcile.queue.depth` | Observable gauge | `{item}` | Ready resource keys that are waiting for a reconcile worker |
+| `reconcile.queue.wait.duration` | Histogram | `s` | Time from when a resource key becomes ready until a worker starts reconciliation |
 | `gateway.provision.duration` | Histogram | `s` | Time from Gateway creation until its first successful transition to `Running` |
 | `reconcile.errors` | Counter | `{error}` | Count of failed reconciliations |
 | `watch.reconnects` | Counter | `{reconnect}` | Count of watch stream reconnections |
+
+The queue metrics SHALL have a `resource.kind` attribute. They SHALL NOT have a
+resource identifier attribute. Queue depth SHALL include only keys in the ready
+queue. It SHALL exclude work in progress and retries that are in a scheduled
+backoff period.
+
+The queue wait histogram SHALL record one observation when the queue calls
+`Handle` for a resource key. It SHALL start when the key first becomes ready and
+stop when a worker starts the call. Updates that coalesce into the same pending
+key SHALL NOT add observations. A scheduled retry backoff SHALL NOT be part of
+the queue wait duration.
 
 The control plane SHALL record one `gateway.provision.duration` observation only after the Gateway phase update to `Running` succeeds. The initial reconcile path SHALL record a direct transition to `Running`. The health reconcile path SHALL record a delayed transition from `Provisioning` to `Running`. It SHALL NOT record a later recovery from `Degraded` to `Running` as a new provision. The duration SHALL use the `created_at` and `updated_at` values in the stored Gateway that the API server returns. It SHALL ignore missing, invalid, or reversed timestamps. The metric SHALL NOT contain a Gateway identifier. Its explicit bucket boundaries SHALL cover 1 second through 15 minutes.
 
@@ -231,6 +244,24 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - THEN `gateway.provision.duration` SHALL record the time from creation to that phase change in seconds
 - AND a later recovery from `Degraded` to `Running` SHALL NOT record another observation
 - AND the metric SHALL NOT contain the Gateway identifier
+
+#### Scenario: Gateway reconcile queue metrics recorded
+
+- GIVEN all Gateway reconcile workers are busy
+- AND another Gateway key is ready in the queue
+- WHEN a worker starts reconciliation for that key
+- THEN `reconcile.queue.depth` SHALL report the ready backlog while the key waits
+- AND `reconcile.queue.wait.duration` SHALL record the time that the key waited
+- AND both metrics SHALL use `resource.kind=Gateway`
+- AND neither metric SHALL contain the Gateway identifier
+
+#### Scenario: Retry backoff excluded from queue wait
+
+- GIVEN a Gateway reconciliation failed
+- AND the queue scheduled a retry after a backoff period
+- WHEN the backoff period ends and a worker starts the retry
+- THEN `reconcile.queue.wait.duration` SHALL measure from the end of the backoff
+- AND it SHALL NOT include the scheduled backoff period
 
 #### Scenario: Watch reconnect metric incremented
 
@@ -274,6 +305,7 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 | otelhttp transport wrapper for client-go | Instruments all Kubernetes API calls transparently without modifying reconciler code |
 | Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large deployments |
 | Resource ID as a span attribute, not a span name | Enables per-trace debugging without inflating the span-name namespace |
+| Queue depth and wait use the shared reconcile queue | One bounded resource-kind label covers each shared reconcile queue without resource identifiers |
 | OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
 | Reconcile-trace to request-trace correlation deferred | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) deserves its own story |
 

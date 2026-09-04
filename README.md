@@ -181,7 +181,17 @@ The API server exposes Prometheus metrics on its metrics port (default `:8080/me
 |---|---|---|
 | `hypershell_gateways_total{phase="Running"|"Provisioning"|"Degraded"|"Failed"}` | Gauge | Number of gateways by phase. Queried live from the database on each scrape. |
 
-The control plane also exports `gateway.provision.duration` through OTLP. This histogram measures the time in seconds from Gateway creation to its first successful `Running` phase. A standard Prometheus conversion exposes it as `gateway_provision_duration_seconds`.
+The control plane also exports these metrics through OTLP:
+
+| Metric | Type | Description |
+|---|---|---|
+| `gateway.provision.duration` | Histogram | Time from Gateway creation to its first successful `Running` phase |
+| `reconcile.queue.depth` | Observable gauge | Ready resource keys that wait for a reconcile worker |
+| `reconcile.queue.wait.duration` | Histogram | Time from ready queue admission to the start of reconciliation |
+
+The queue metrics use the bounded `resource.kind` attribute. They do not use a
+resource identifier. A standard Prometheus conversion exposes duration values
+in seconds.
 
 ### Grafana dashboard
 

@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -10,10 +11,12 @@ import (
 )
 
 var (
-	reconcileDuration        metric.Int64Histogram
-	gatewayProvisionDuration metric.Float64Histogram
-	reconcileErrors          metric.Int64Counter
-	watchReconnects          metric.Int64Counter
+	reconcileDuration          metric.Int64Histogram
+	reconcileQueueDepth        metric.Int64ObservableGauge
+	reconcileQueueWaitDuration metric.Float64Histogram
+	gatewayProvisionDuration   metric.Float64Histogram
+	reconcileErrors            metric.Int64Counter
+	watchReconnects            metric.Int64Counter
 )
 
 func registerMetrics() error {
@@ -24,6 +27,25 @@ func registerMetrics() error {
 		"reconcile.duration",
 		metric.WithUnit("ms"),
 		metric.WithDescription("Latency of a single resource reconciliation"),
+	)
+	if err != nil {
+		return err
+	}
+
+	reconcileQueueDepth, err = meter.Int64ObservableGauge(
+		"reconcile.queue.depth",
+		metric.WithUnit("{item}"),
+		metric.WithDescription("Ready resource keys that are waiting for a reconcile worker"),
+	)
+	if err != nil {
+		return err
+	}
+
+	reconcileQueueWaitDuration, err = meter.Float64Histogram(
+		"reconcile.queue.wait.duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("Time from when a resource key becomes ready until a worker starts reconciliation"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300),
 	)
 	if err != nil {
 		return err
@@ -54,6 +76,38 @@ func registerMetrics() error {
 		metric.WithDescription("Count of watch stream reconnections"),
 	)
 	return err
+}
+
+// RegisterReconcileQueueDepth registers one callback for a reconcile queue.
+// The returned function removes the callback when the queue stops.
+func RegisterReconcileQueueDepth(kind string, depth func() int64) (func() error, error) {
+	if reconcileQueueDepth == nil {
+		return func() error { return nil }, nil
+	}
+	registration, err := otel.Meter(TracerName).RegisterCallback(
+		func(_ context.Context, observer metric.Observer) error {
+			observer.ObserveInt64(reconcileQueueDepth, depth(), metric.WithAttributes(
+				attribute.String("resource.kind", kind),
+			))
+			return nil
+		},
+		reconcileQueueDepth,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register reconcile queue depth callback: %w", err)
+	}
+	return registration.Unregister, nil
+}
+
+// RecordReconcileQueueWaitDuration records the time that a ready resource key
+// waited before a worker started its reconciliation.
+func RecordReconcileQueueWaitDuration(ctx context.Context, kind string, duration time.Duration) {
+	if reconcileQueueWaitDuration == nil || duration < 0 {
+		return
+	}
+	reconcileQueueWaitDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(
+		attribute.String("resource.kind", kind),
+	))
 }
 
 // RecordReconcileDuration records the duration of a reconcile operation.

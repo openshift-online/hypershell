@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-03 (scoped analysis of the CP-OBS-07 Gateway provision-duration changes; the last full-corpus analysis remains 2026-08-31)
+**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; the last full-corpus analysis remains 2026-08-31)
 **Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console and OpenShift Development
-**Codebase commit**: `b97a99d` (CP-OBS-GPD-W1 complete)
+**Codebase commit**: `bd02232` (CP-OBS-RQ-W1 review fixes complete)
 
 ### Coverage Summary
 
@@ -99,6 +99,24 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
+
+### control-plane-observability.spec.md (CP-OBS-07 reconcile-queue metric delta)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CP-OBS-07f | Export ready reconcile-queue depth as an observable gauge with unit `{item}` | Present | - | `components/control-plane/internal/otel/metrics.go`, `components/control-plane/internal/watcher/requeue.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07g | Export ready-to-worker queue wait as a histogram in seconds | Present | - | `components/control-plane/internal/otel/metrics.go`, `components/control-plane/internal/watcher/requeue.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07h | Use only the bounded `resource.kind` attribute and no resource identifier | Present | - | `components/control-plane/internal/otel/metrics.go`, `metrics_test.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07i | Record one wait observation for coalesced work when `Handle` starts | Present | - | `components/control-plane/internal/watcher/requeue.go`, `requeue_test.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07j | Exclude scheduled retry backoff from queue depth and queue wait | Present | - | `components/control-plane/internal/watcher/requeue.go`, `requeue_test.go` | CP-OBS-RQ-W1 |
+
+**Scoped coverage:** 5 of 5 changed CP-OBS-07 fields are present. This scoped run does not change the full-corpus coverage table.
+
+**Direction checks:**
+
+- Spec to code: The two instruments, bounded label, coalescing rule, and backoff rule are present.
+- Code to spec: All new queue telemetry behavior is in CP-OBS-07. Explicit histogram buckets are an implementation detail.
+- OpenAPI to spec: The metrics do not add a public API field or route.
 
 ### control-plane-observability.spec.md (CP-OBS-07 Gateway provision-duration delta)
 
@@ -499,6 +517,26 @@ The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HY
 
 ## Wave Plan
 
+### CP-OBS-RQ-W1: Reconcile queue metrics ✅
+
+**Scope:** Changed CP-OBS-07 queue fields only | **Status:** Complete
+
+1. Add the queue-depth observable gauge and queue-wait histogram.
+2. Register one depth callback for each shared reconcile queue.
+3. Track the first ready time for each pending key and record it when `Handle` starts.
+4. Keep coalesced work as one sample and exclude scheduled retry backoff.
+5. Verify metric units, attributes, buckets, queue behavior, build, vet, race tests, alignment, and review checks.
+
+**CP-OBS-RQ-W1 summary:** The shared reconcile queue now exports ready depth
+and ready-to-worker wait time through OTel. It keeps one ready time for
+coalesced work. It moves the retry ready time to the end of scheduled backoff.
+The queue does not allocate its telemetry state when metric export is disabled.
+One locked worker-claim boundary removes a key from ready depth and stops its
+queue-wait time. The eligibility time keeps scheduled retry backoff out of both
+metrics, including after a dirty add.
+Focused repeat tests, race tests, the complete control-plane tests, build, vet,
+lint, alignment, and review checks pass.
+
 ### CP-OBS-GPD-W1: Reconcile Gateway provision-duration metrics ✅
 
 **Scope:** Changed CP-OBS-07 fields only | **Status:** Complete
@@ -772,6 +810,9 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-09-04 | `bd02232` | Reanalyzed CP-OBS-RQ-W1 after review fixes | 5/5 scoped fields present | Defined one locked worker-claim boundary for depth and wait, kept dirty adds in backoff out of ready depth, and made the design rationale apply to each shared reconcile queue. The full-corpus percentage is unchanged. |
+| 2026-09-04 | `9c01984` | Completed CP-OBS-RQ-W1 reconcile-queue metrics | 5/5 scoped fields present | Added ready queue depth and ready-to-worker wait metrics with one bounded resource-kind attribute. Coalesced work produces one wait observation, and scheduled retry backoff is excluded. |
+| 2026-09-04 | `e61bdac` | Planned the CP-OBS-07 reconcile-queue metric delta | 0/5 scoped fields present | Found two missing instruments and three missing behavior checks. Planned one control-plane wave for queue depth, queue wait, bounded labels, coalescing, and retry-backoff exclusion. |
 | 2026-09-03 | `b97a99d` | Reconciled the CP-OBS-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
 | 2026-08-31 | working tree | Completed Keycloak event-storm KC-ES-W1 | 82% | Corrected the token lifetime unit, reused tokens until the 80 percent threshold, accepted the provider-managed service-account scope, rejected all other client scopes, and added regression tests. OI-7 and SA-14 are present. |
 | 2026-08-31 | 9ac4354 | Keycloak event-storm scoped gap analysis | 82% | Found two partial requirements: the token cache uses nanoseconds for `expires_in`, and service-account convergence rejects Keycloak's built-in scope. Planned control-plane wave KC-ES-W1. |
