@@ -2141,13 +2141,49 @@ func (r *StubGatewayReconciler) Handle(ctx context.Context, event watcher.Event[
 	return nil
 }
 
+// GatewayNetwork topology vocabulary. See
+// specs/platform/gateway-network-reconciliation.spec.md.
+const (
+	networkTopologyMesh     = "mesh"
+	networkTopologyHubSpoke = "hub-spoke"
+)
+
+// GatewayNetwork control-plane-owned status values. A network owns no Kubernetes
+// resources in this scope, so status reflects configuration validity only, not
+// provisioned connectivity.
+const (
+	networkStatusValid   = "Valid"
+	networkStatusInvalid = "Invalid"
+)
+
+// GatewayNetworkReconciler reconciles GatewayNetwork resources. A network owns no
+// Kubernetes resources in this scope, so reconciliation means: validate the
+// network's topology vocabulary and topology/hub coherence, validate that a
+// designated hub_gateway_id references an existing Gateway, and write a
+// deterministic status back to the API server. Applying real gateway-to-gateway
+// connectivity (mesh/tunnel provisioning) is future work owned by a sibling spec
+// once product defines the network membership model and connectivity technology;
+// this reconciler only records whether the declared configuration is well-formed.
 type GatewayNetworkReconciler struct {
 	mu     sync.Mutex
 	active map[string]struct{}
+
+	gateways pb.GatewayServiceClient
+	networks pb.GatewayNetworkServiceClient
 }
 
-func NewGatewayNetworkReconciler() *GatewayNetworkReconciler {
-	return &GatewayNetworkReconciler{active: make(map[string]struct{})}
+// NewGatewayNetworkReconciler builds the network reconciler. conn is the API
+// server gRPC connection used to look up the designated hub gateway and to write
+// network status back. conn may be nil (e.g. in unit tests), in which case the
+// hub existence check and status write-back are skipped but the rest of
+// validation still runs.
+func NewGatewayNetworkReconciler(conn *grpc.ClientConn) *GatewayNetworkReconciler {
+	r := &GatewayNetworkReconciler{active: make(map[string]struct{})}
+	if conn != nil {
+		r.gateways = pb.NewGatewayServiceClient(conn)
+		r.networks = pb.NewGatewayNetworkServiceClient(conn)
+	}
+	return r
 }
 
 func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Event[*pb.GatewayNetwork]) error {
@@ -2165,8 +2201,102 @@ func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Eve
 	}()
 
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String())
-	defer func() { endSpan(nil) }()
+	var reconcileErr error
+	defer func() { endSpan(reconcileErr) }()
 
-	log.Printf("INFO reconciling GatewayNetwork %s (event=%d)", event.ResourceID, event.Type)
+	// A network owns no cluster resources, so a delete is a terminal, idempotent
+	// no-op with respect to Kubernetes: gateways designated by the network are
+	// left untouched.
+	if event.Type == watcher.EventDeleted {
+		log.Printf("INFO gateway network %s deleted; no cluster resources to remove", event.ResourceID)
+		return nil
+	}
+
+	net := event.Resource
+	if net == nil {
+		log.Printf("WARN gateway network event %s has nil resource, skipping", event.ResourceID)
+		return nil
+	}
+
+	// Validate the declared configuration. A transient dependency failure (e.g. a
+	// transient hub lookup error) is returned so the failure is surfaced (logged
+	// by the watch loop) rather than silently swallowed or settled to a misleading
+	// Invalid. The network watch is inline log-only (no reconcile queue) and does
+	// not replay state on reconnect, so a surfaced error re-converges only when the
+	// network is next mutated, not automatically.
+	desiredStatus, retryErr := r.validate(ctx, net)
+	if retryErr != nil {
+		reconcileErr = fmt.Errorf("validate gateway network %s: %w", event.ResourceID, retryErr)
+		return reconcileErr
+	}
+
+	// Deterministic, idempotent status write-back: only update when the persisted
+	// status differs from the reconciled outcome.
+	if net.GetStatus() != desiredStatus {
+		if err := r.updateStatus(ctx, event.ResourceID, desiredStatus); err != nil {
+			reconcileErr = fmt.Errorf("update gateway network %s status: %w", event.ResourceID, err)
+			return reconcileErr
+		}
+	}
 	return nil
+}
+
+// validate applies the network's structural and referential coherence rules and
+// returns the deterministic desired status (networkStatusValid, or
+// "networkStatusInvalid: reason"). It returns a non-nil error only for a
+// transient dependency failure that should be surfaced rather than swallowed; a
+// definitive not-found for the hub gateway is a deterministic Invalid, not an
+// error.
+func (r *GatewayNetworkReconciler) validate(ctx context.Context, net *pb.GatewayNetwork) (string, error) {
+	invalid := func(reason string) string {
+		return fmt.Sprintf("%s: %s", networkStatusInvalid, reason)
+	}
+
+	topology := net.GetTopology()
+	switch topology {
+	case "":
+		return invalid("topology is required"), nil
+	case networkTopologyMesh, networkTopologyHubSpoke:
+		// recognized
+	default:
+		return invalid(fmt.Sprintf("unrecognized topology %q", topology)), nil
+	}
+
+	hubID := net.GetHubGatewayId()
+	if topology == networkTopologyHubSpoke && hubID == "" {
+		return invalid("hub-spoke network requires a hub_gateway_id"), nil
+	}
+
+	if hubID != "" {
+		// A configured hub must reference an existing Gateway. Skip the lookup when
+		// no gateway client is configured (started without an API-server gRPC
+		// connection, e.g. in unit tests).
+		if r.gateways == nil {
+			return networkStatusValid, nil
+		}
+		_, err := r.gateways.GetGateway(ctx, &pb.GetGatewayRequest{Id: hubID})
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				return invalid(fmt.Sprintf("hub gateway %q does not exist", hubID)), nil
+			}
+			// Transient failure: surface as an error rather than settle to a
+			// misleading Invalid.
+			return "", err
+		}
+	}
+
+	return networkStatusValid, nil
+}
+
+// updateStatus writes the network's reconciled status back to the API server. It
+// is a no-op when the network client is not configured.
+func (r *GatewayNetworkReconciler) updateStatus(ctx context.Context, id, desired string) error {
+	if r.networks == nil {
+		return nil
+	}
+	_, err := r.networks.UpdateGatewayNetwork(ctx, &pb.UpdateGatewayNetworkRequest{
+		Id:     id,
+		Status: &desired,
+	})
+	return err
 }

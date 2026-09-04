@@ -178,7 +178,7 @@ func main() {
 		log.Printf("WARN ManagedDatabase watch disabled: both Kubernetes typed and dynamic clients are required")
 	}
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler()
-	networkReconciler := reconciler.NewGatewayNetworkReconciler()
+	networkReconciler := reconciler.NewGatewayNetworkReconciler(conn)
 
 	manifestsDir := os.Getenv("GATEWAY_MANIFESTS_DIR")
 	if manifestsDir == "" {
