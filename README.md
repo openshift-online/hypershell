@@ -4,7 +4,7 @@ HyperShell provisions and manages [OpenShell](https://github.com/NVIDIA/OpenShel
 
 ## Architecture atlas
 
-Open the [hosted HyperShell architecture atlas](https://openshift-online.github.io/hypershell/) or the local [static architecture atlas](docs/architecture/index.html) for rendered diagrams covering the platform topology, API server, control plane, tenant Gateway workload, clients and SDKs, data, ingress, identity, web console, observability, delivery, and domain model. Each page includes its Mermaid source and repository specification citations.
+Open the [hosted HyperShell architecture atlas](https://openshift-online.github.io/hypershell/) or read the [architecture atlas build instructions](docs/architecture/README.md) for rendered diagrams covering the platform topology, API server, control plane, tenant Gateway workload, clients and SDKs, data, ingress, identity, web console, observability, delivery, and domain model. Each page includes its Mermaid source and repository specification citations.
 
 ## Kubernetes Prerequisites
 
