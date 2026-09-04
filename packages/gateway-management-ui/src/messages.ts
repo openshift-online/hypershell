@@ -140,7 +140,7 @@ export const messages = defineMessages({
   connectionSandboxConnectDescription: {
     id: "app.gateway.connection.sandboxConnect.description",
     defaultMessage:
-      "Already have a sandbox from an earlier session? Run this to reattach.",
+      "Disconnecting does not stop the sandbox process. Connect attaches to the same process instance and replays recent output.",
     description: "Supporting text for the connect-to-sandbox connection step.",
   },
   connectionSandboxConnectTitle: {

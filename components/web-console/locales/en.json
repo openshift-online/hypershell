@@ -132,8 +132,8 @@
     "description": "Accessible label for copying the consolidated one-time setup script."
   },
   "app.gateway.connection.editEditor": {
-    "defaultMessage": "Editor (editable)",
-    "description": "Accessible label for the inline-editable editor name in the connect-sandbox command."
+    "defaultMessage": "Editor",
+    "description": "Accessible label for the editor selector in the connect-sandbox command."
   },
   "app.gateway.connection.editExistingSandboxName": {
     "defaultMessage": "Existing sandbox name (editable)",
@@ -196,7 +196,7 @@
     "description": "Title for the create-sandbox connection step."
   },
   "app.gateway.connection.sandboxConnect.description": {
-    "defaultMessage": "Already have a sandbox from an earlier session? Run this to reattach.",
+    "defaultMessage": "Disconnecting does not stop the sandbox process. Connect attaches to the same process instance and replays recent output.",
     "description": "Supporting text for the connect-to-sandbox connection step."
   },
   "app.gateway.connection.sandboxConnect.title": {
