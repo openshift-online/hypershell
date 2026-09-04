@@ -180,7 +180,6 @@ describe("gateway connections", () => {
     expect(cmd).toContain("-- claude --bare --model claude-opus-5");
   });
 
-<<<<<<< HEAD
   it("quotes sandbox names that contain shell metacharacters", () => {
     const cmd = buildSandboxCreateCommand("my sandbox");
     expect(cmd).toContain("--name 'my sandbox'");
@@ -199,29 +198,20 @@ describe("gateway connections", () => {
   });
 
   it("builds a sandbox connect command with the default name", () => {
-=======
-  it("builds a sandbox connect command with defaults", () => {
->>>>>>> b61d600 (feat(web-console): Adding an info alert for OpenShell connect)
     expect(buildSandboxConnectCommand()).toBe(
-      `openshell sandbox connect ${sandboxName} \\\n  --editor cursor`,
+      `openshell sandbox connect ${sandboxName}`,
     );
   });
 
   it("substitutes a custom name into the sandbox connect command", () => {
     expect(buildSandboxConnectCommand("demo")).toBe(
-      "openshell sandbox connect demo \\\n  --editor cursor",
-    );
-  });
-
-  it("substitutes a custom editor into the sandbox connect command", () => {
-    expect(buildSandboxConnectCommand("demo", "vscode")).toBe(
-      "openshell sandbox connect demo \\\n  --editor vscode",
+      "openshell sandbox connect demo",
     );
   });
 
   it("quotes shell-unsafe names in the sandbox connect command", () => {
     expect(buildSandboxConnectCommand("my $(sandbox)")).toBe(
-      `openshell sandbox connect 'my $(sandbox)' \\\n  --editor cursor`,
+      `openshell sandbox connect 'my $(sandbox)'`,
     );
   });
 
