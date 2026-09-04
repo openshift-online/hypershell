@@ -70,7 +70,7 @@ describe("GatewayConnectionSteps", () => {
     const { container } = renderSteps(readyGateway);
 
     await waitFor(() => {
-      expect(container.querySelectorAll(".shiki").length).toBe(4);
+      expect(container.querySelectorAll(".shiki").length).toBe(3);
     });
   });
 
