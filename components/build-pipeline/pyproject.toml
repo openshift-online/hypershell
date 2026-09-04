@@ -11,8 +11,10 @@ dependencies = [
     "langchain-core>=0.3",
     "langchain-google-vertexai>=2.0",
     # ChatAnthropicVertex (Claude on Vertex, the default provider) wraps
-    # anthropic.AnthropicVertex; the [vertex] extra pulls google-auth.
-    "anthropic[vertex]>=0.39",
+    # anthropic.AnthropicVertex; the [vertex] extra pulls google-auth. Cap to
+    # <1 because langchain-google-vertexai requires anthropic<1.0.0 (the 1.x
+    # SDK dropped `temperature` from messages.create, which LC always sends).
+    "anthropic[vertex]>=0.60,<1",
 ]
 
 [project.optional-dependencies]
