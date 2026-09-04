@@ -68,7 +68,14 @@ def run_llm_step(
 
     out = LLMOutcome()
     for _ in range(max_iters):
-        ai = llm.invoke(messages)
+        try:
+            ai = llm.invoke(messages)
+        except Exception as exc:
+            # Turn an API/transport error (auth, model-not-found, rate limit,
+            # timeout) into a recorded step failure so the engine reports and
+            # retries/escalates it instead of crashing the run with a traceback.
+            out.error = f"model call failed: {type(exc).__name__}: {str(exc)[:500]}"
+            return out
         usage = getattr(ai, "usage_metadata", None) or {}
         out.input_tokens += int(usage.get("input_tokens", 0) or 0)
         out.output_tokens += int(usage.get("output_tokens", 0) or 0)
