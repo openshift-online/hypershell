@@ -83,6 +83,11 @@ type oidcConfig struct {
 
 const pending = "<PENDING>"
 
+// Keep in sync with:
+//   packages/gateway-management-ui/src/gateways/gateway-connections.ts (sandboxResourceDefaults)
+//   specs/web-console/architecture.spec.md § Create a sandbox
+const sandboxDriverConfig = `{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}`
+
 func printConnectionInstructions(w io.Writer, body []byte) error {
 	var gw gatewayResponse
 	if err := json.Unmarshal(body, &gw); err != nil {
@@ -163,7 +168,7 @@ func buildConnectionScript(name, endpoint string, oidc oidcConfig) string {
 		"openshell inference set --provider " + providerName + " --model " + model,
 		"",
 		"# 4. Create a sandbox",
-		`DRIVER_CONFIG='{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}'`,
+		"DRIVER_CONFIG='" + sandboxDriverConfig + "'",
 		"",
 		"openshell sandbox create \\",
 		"  --name " + sandboxName + " \\",

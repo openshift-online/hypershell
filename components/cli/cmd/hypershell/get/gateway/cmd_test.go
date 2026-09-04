@@ -33,6 +33,25 @@ func TestPrintConnectionInstructions_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestBuildConnectionScript_IncludesDriverConfig(t *testing.T) {
+	out := buildConnectionScript("gw", "https://gw.test:443", oidcConfig{
+		Issuer:   "https://issuer.test",
+		ClientID: "cli",
+		Audience: "aud",
+	})
+	if !strings.Contains(out, "DRIVER_CONFIG='"+sandboxDriverConfig+"'") {
+		t.Errorf("expected DRIVER_CONFIG variable with resource defaults, got:\n%s", out)
+	}
+	if !strings.Contains(out, `--driver-config-json "$DRIVER_CONFIG"`) {
+		t.Errorf("expected --driver-config-json flag referencing $DRIVER_CONFIG, got:\n%s", out)
+	}
+	for _, want := range []string{`"cpu":"100m"`, `"cpu":"500m"`, `"memory":"512Mi"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in driver config, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestPrintConnectionInstructions_PendingWhenEmpty(t *testing.T) {
 	body := []byte(`{"name":"mygw","phase":"ready"}`)
 	var buf bytes.Buffer

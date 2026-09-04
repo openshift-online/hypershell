@@ -83,6 +83,14 @@ export const sandboxName = "mysand";
 /** Claude model the sandbox runs, shared by the inference and sandbox commands. */
 export const claudeModel = "claude-haiku-4-5";
 
+// Sandbox resource defaults -- keep in sync with:
+//   components/cli/cmd/hypershell/get/gateway/cmd.go (sandboxDriverConfig)
+//   specs/web-console/architecture.spec.md § Create a sandbox
+export const sandboxResourceDefaults = {
+  requests: { cpu: "100m", memory: "512Mi" },
+  limits: { cpu: "500m", memory: "512Mi" },
+} as const;
+
 /**
  * Primary "add a provider" command. Pulls credentials from Application Default
  * Credentials (`--from-gcloud-adc`) and reads the project id from the shell, so
@@ -133,10 +141,7 @@ export function buildSandboxCreateCommand(
     kubernetes: {
       containers: {
         agent: {
-          resources: {
-            requests: { cpu: "100m", memory: "512Mi" },
-            limits: { cpu: "500m", memory: "512Mi" },
-          },
+          resources: sandboxResourceDefaults,
         },
       },
     },
@@ -146,7 +151,7 @@ export function buildSandboxCreateCommand(
 
   const command = [
     "openshell sandbox create",
-    `--name ${name}`,
+    `--name ${shellArgument(name)}`,
     '--driver-config-json "$DRIVER_CONFIG"',
     "--env=ANTHROPIC_BASE_URL=https://inference.local",
     "--env=ANTHROPIC_API_KEY=unused",

@@ -10,6 +10,7 @@ import {
   gatewayStatusAppearance,
   isGatewayReadyToConnect,
   sandboxName,
+  sandboxResourceDefaults,
   vertexProviderName,
   type GatewayConnection,
 } from "./gateway-connections";
@@ -176,6 +177,23 @@ describe("gateway connections", () => {
     const cmd = buildSandboxCreateCommand("mysand", "claude-opus-5");
     expect(cmd).toContain("--no-auto-providers");
     expect(cmd).toContain("-- claude --bare --model claude-opus-5");
+  });
+
+  it("quotes sandbox names that contain shell metacharacters", () => {
+    const cmd = buildSandboxCreateCommand("my sandbox");
+    expect(cmd).toContain("--name 'my sandbox'");
+  });
+
+  it("embeds resource defaults from the shared sandboxResourceDefaults constant", () => {
+    const cmd = buildSandboxCreateCommand();
+    expect(cmd).toContain(`"cpu":"${sandboxResourceDefaults.requests.cpu}"`);
+    expect(cmd).toContain(
+      `"memory":"${sandboxResourceDefaults.requests.memory}"`,
+    );
+    expect(cmd).toContain(`"cpu":"${sandboxResourceDefaults.limits.cpu}"`);
+    expect(cmd).toContain(
+      `"memory":"${sandboxResourceDefaults.limits.memory}"`,
+    );
   });
 
   it("combines login, provider, and inference into one setup script when ready", () => {
