@@ -1,0 +1,99 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  labels:
+    app.kubernetes.io/name: hypershell
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-openshift-ingress
+  labels:
+    app.kubernetes.io/name: hypershell
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["hypershell-api-server", "hypershell-web-console", "hypershell-keycloak"]
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          network.openshift.io/policy-group: ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-db-access
+  labels:
+    app.kubernetes.io/name: hypershell
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: hypershell-db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchExpressions:
+          - key: app
+            operator: In
+            values: ["hypershell-api-server", "hypershell-controller"]
+    ports:
+    - port: 5432
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cnpg-operator-status
+  labels:
+    app.kubernetes.io/name: hypershell
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: hypershell-db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: cnpg-system
+    ports:
+    - port: 8000
+      protocol: TCP
+    - port: 9187
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cnpg-intra-cluster
+  labels:
+    app.kubernetes.io/name: hypershell
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: hypershell-db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cnpg.io/cluster: hypershell-db
+    ports:
+    - port: 5432
+      protocol: TCP
+    - port: 8000
+      protocol: TCP

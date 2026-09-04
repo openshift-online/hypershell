@@ -1,0 +1,75 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--enable-jwt=true"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--enable-authz=true"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwk-cert-url=$(JWK_CERT_URL)"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-api-server
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api-server
+                env:
+                  - name: API_ENV
+                    value: "development_oidc"
+                  - name: JWK_CERT_URL
+                    valueFrom:
+                      secretKeyRef:
+                        name: hypershell-api-config
+                        key: api-service.jwkCertUrl
+                  - name: RBAC_ENFORCE
+                    value: "true"
+                  - name: RBAC_SERVICE_ACCOUNTS
+                    value: "service-account-hypershell-control-plane"
+
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: controller
+                env:
+                  - name: OIDC_ISSUER
+                    valueFrom:
+                      secretKeyRef:
+                        name: hypershell-api-config
+                        key: api-service.issuerUrl
+                  - name: OIDC_CLIENT_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: hypershell-api-config
+                        key: api-service.clientId
+                  - name: OIDC_CLIENT_SECRET
+                    valueFrom:
+                      secretKeyRef:
+                        name: hypershell-api-config
+                        key: api-service.clientSecret

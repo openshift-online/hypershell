@@ -1,0 +1,9 @@
+patches:
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+    path: db-volume-patch.yaml
+  - target:
+      kind: Deployment
+      name: hypershell-controller
+    path: db-volume-patch.yaml

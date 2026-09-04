@@ -1,0 +1,66 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../wrapper
+  - cnpg.yaml
+
+components:
+  - ../../components/jwt-enforce
+
+replicas:
+  - name: hypershell-api-server
+    count: 3
+  - name: hypershell-web-console
+    count: 3
+  - name: hypershell-controller
+    count: 1
+
+patches:
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-api-server
+      spec:
+        template:
+          spec:
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchExpressions:
+                      - key: app.kubernetes.io/name
+                        operator: In
+                        values:
+                        - hypershell-api-server
+                    topologyKey: topology.kubernetes.io/zone
+
+  - target:
+      kind: Deployment
+      name: hypershell-web-console
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-web-console
+      spec:
+        template:
+          spec:
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchExpressions:
+                      - key: app.kubernetes.io/name
+                        operator: In
+                        values:
+                        - hypershell-web-console
+                    topologyKey: topology.kubernetes.io/zone
