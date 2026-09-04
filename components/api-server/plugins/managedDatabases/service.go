@@ -19,6 +19,10 @@ const (
 	providerExternal   = "external"
 )
 
+// externalSecretPrefix is the reserved prefix for admin connection Secrets and
+// is a security boundary: it prevents an API-level reference from naming an
+// arbitrary Secret. The same value is enforced by the control plane
+// (gateway/external_db.go). See naming-multitenancy.spec.md.
 const externalSecretPrefix = "hypershell-managed-db-"
 
 type ManagedDatabaseService interface {

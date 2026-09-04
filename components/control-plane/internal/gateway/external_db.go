@@ -65,6 +65,10 @@ type externalAdminParams struct {
 	sslrootcert string // optional; enables verify-full when sslmode=verify-full
 }
 
+// externalSecretPrefix is the reserved prefix for admin connection Secrets and
+// is a security boundary: it prevents an API-level reference from naming an
+// arbitrary Secret. The same value is enforced by the API server
+// (plugins/managedDatabases/service.go). See naming-multitenancy.spec.md.
 const externalSecretPrefix = "hypershell-managed-db-"
 
 // Closed-vocabulary status strings for the external DB probe and reconciler.
@@ -172,7 +176,7 @@ func (p *externalAdminParams) dsn() string {
 func openAdminConn(ctx context.Context, params *externalAdminParams) (*sql.DB, error) {
 	db, err := sql.Open("postgres", params.dsn())
 	if err != nil {
-		return nil, fmt.Errorf("open admin connection: driver init failed")
+		return nil, fmt.Errorf("open admin connection: %w", err)
 	}
 	db.SetMaxOpenConns(1)
 	if err := db.PingContext(ctx); err != nil {
