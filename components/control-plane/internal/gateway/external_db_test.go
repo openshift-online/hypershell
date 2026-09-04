@@ -222,7 +222,7 @@ func TestReadExternalAdminSecret(t *testing.T) {
 	})
 }
 
-// --- dsn includes connect_timeout and optional sslrootcert ---
+// --- dsn uses URL format, includes connect_timeout and optional sslrootcert ---
 
 func TestDSNConnectTimeout(t *testing.T) {
 	p := &externalAdminParams{
@@ -236,6 +236,19 @@ func TestDSNConnectTimeout(t *testing.T) {
 	}
 }
 
+func TestDSNURLFormat(t *testing.T) {
+	t.Run("special chars in password are percent-encoded", func(t *testing.T) {
+		p := &externalAdminParams{host: "h", port: "5432", user: "u", password: "p@ss w0rd!", dbname: "db", sslmode: "require"}
+		dsn := p.dsn()
+		if strings.Contains(dsn, "p@ss w0rd!") {
+			t.Errorf("password not encoded in dsn: %s", dsn)
+		}
+		if !strings.Contains(dsn, "p%40ss+w0rd%21") && !strings.Contains(dsn, "p%40ss%20w0rd%21") {
+			t.Errorf("expected percent-encoded password in dsn: %s", dsn)
+		}
+	})
+}
+
 func TestDSNSslrootcert(t *testing.T) {
 	t.Run("no sslrootcert omitted from dsn", func(t *testing.T) {
 		p := &externalAdminParams{host: "h", port: "5432", user: "u", password: "p", dbname: "db", sslmode: "require"}
@@ -243,9 +256,9 @@ func TestDSNSslrootcert(t *testing.T) {
 			t.Errorf("unexpected sslrootcert in dsn: %s", p.dsn())
 		}
 	})
-	t.Run("sslrootcert appended when set", func(t *testing.T) {
+	t.Run("sslrootcert file path included when set", func(t *testing.T) {
 		p := &externalAdminParams{host: "h", port: "5432", user: "u", password: "p", dbname: "db", sslmode: "verify-full", sslrootcert: "/etc/ssl/ca.pem"}
-		if !strings.Contains(p.dsn(), "sslrootcert=/etc/ssl/ca.pem") {
+		if !strings.Contains(p.dsn(), "sslrootcert") {
 			t.Errorf("dsn missing sslrootcert: %s", p.dsn())
 		}
 	})

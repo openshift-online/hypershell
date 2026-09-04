@@ -253,7 +253,7 @@ The Secret SHALL contain:
 | `password` | yes | Admin role password |
 | `dbname` | no | Maintenance/admin database to connect to (default `postgres`) |
 | `sslmode` | no | Admin connection TLS mode (default `require`) |
-| `sslrootcert` | no | PEM CA bundle for the server (enables `verify-full`) |
+| `sslrootcert` | no | Absolute file-system path to a PEM CA bundle mounted in the control-plane pod (e.g. via a volume from a ConfigMap or Secret); passed verbatim as the `sslrootcert` DSN parameter (`lib/pq` expects a path, not inline PEM) |
 
 Admin credentials SHALL NEVER appear in logs, error strings, telemetry, or API
 responses.

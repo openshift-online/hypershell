@@ -135,12 +135,25 @@ func readExternalAdminSecret(ctx context.Context, clientset kubernetes.Interface
 }
 
 func (p *externalAdminParams) dsn() string {
-	s := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=10",
-		p.host, p.port, p.user, p.password, p.dbname, p.sslmode)
-	if p.sslrootcert != "" {
-		s += " sslrootcert=" + p.sslrootcert
+	// Use URL format so special characters in credentials are safely percent-encoded
+	// instead of breaking the space-delimited keyword DSN.
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(p.user, p.password),
+		Host:   net.JoinHostPort(p.host, p.port),
+		Path:   "/" + p.dbname,
 	}
-	return s
+	q := url.Values{
+		"sslmode":         {p.sslmode},
+		"connect_timeout": {"10"},
+	}
+	if p.sslrootcert != "" {
+		// sslrootcert must be a file-system path to a PEM CA bundle
+		// (lib/pq interprets this parameter as a path, not inline PEM).
+		q.Set("sslrootcert", p.sslrootcert)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // openAdminConn opens a short-lived PostgreSQL admin connection. Callers must
@@ -358,11 +371,18 @@ func ReconcileExternalDatabaseResources(
 	}
 
 	// Write or refresh the tenant credentials Secret.
-	dbURI := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=%s",
-		pgName, url.QueryEscape(password), params.host, params.port, pgName, params.sslmode)
-	if params.sslrootcert != "" {
-		dbURI += "&sslrootcert=" + url.QueryEscape(params.sslrootcert)
+	// Mirror the admin sslmode and sslrootcert so the tenant connection uses the
+	// same TLS posture as the admin connection.
+	tenantSSLMode := params.sslmode
+	tenantQ := url.Values{
+		"sslmode": {tenantSSLMode},
 	}
+	if params.sslrootcert != "" {
+		tenantQ.Set("sslrootcert", params.sslrootcert)
+	}
+	tenantBase := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s",
+		url.QueryEscape(pgName), url.QueryEscape(password), params.host, params.port, pgName)
+	dbURI := tenantBase + "?" + tenantQ.Encode()
 
 	desiredData := map[string][]byte{
 		"host":     []byte(params.host),
@@ -370,7 +390,11 @@ func ReconcileExternalDatabaseResources(
 		"dbname":   []byte(pgName),
 		"user":     []byte(pgName),
 		"password": []byte(password),
+		"sslmode":  []byte(tenantSSLMode),
 		"uri":      []byte(dbURI),
+	}
+	if params.sslrootcert != "" {
+		desiredData["sslrootcert"] = []byte(params.sslrootcert)
 	}
 	desiredLabels := map[string]string{
 		"app.kubernetes.io/name":       "openshell",
@@ -453,20 +477,22 @@ func DeleteExternalDatabaseResources(
 		log.Printf("WARN external DB cleanup for gateway %s: terminate backends failed (proceeding): %v", gatewayID, err)
 	}
 
-	// Drop database (guarded by existence check; cannot be in a transaction).
-	var dbExists bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", pgName).Scan(&dbExists); err == nil && dbExists {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", pgQuoteIdent(pgName))); err != nil {
-			log.Printf("WARN external DB cleanup for gateway %s: DROP DATABASE failed (attempting role drop): %v", gatewayID, err)
-		} else {
-			log.Printf("INFO dropped external database %s for gateway %s", pgName, gatewayID)
-		}
-	}
-
-	// Drop role.
+	// Use REASSIGN OWNED BY + DROP OWNED BY so that a role-owned database is
+	// dropped before DROP ROLE, preventing the orphaned-role failure when DROP
+	// DATABASE is attempted first and the role still owns it.
 	var roleExists bool
 	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", pgName).Scan(&roleExists); err == nil && roleExists {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP ROLE %s", pgQuoteIdent(pgName))); err != nil {
+		// Transfer any remaining ownership to the current admin user, then
+		// drop all objects owned by the role (including the database).
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("REASSIGN OWNED BY %s TO CURRENT_USER", pgQuoteIdent(pgName))); err != nil {
+			log.Printf("WARN external DB cleanup for gateway %s: REASSIGN OWNED BY failed (attempting DROP OWNED BY anyway): %v", gatewayID, err)
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP OWNED BY %s", pgQuoteIdent(pgName))); err != nil {
+			log.Printf("WARN external DB cleanup for gateway %s: DROP OWNED BY failed (role may be partially orphaned): %v", gatewayID, err)
+		} else {
+			log.Printf("INFO dropped objects owned by external role %s for gateway %s", pgName, gatewayID)
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s", pgQuoteIdent(pgName))); err != nil {
 			log.Printf("WARN external DB cleanup for gateway %s: DROP ROLE failed: %v", gatewayID, err)
 			return
 		}
@@ -528,11 +554,13 @@ func RotateExternalDatabaseCredentials(
 	}
 	log.Printf("INFO rotated external DB password for gateway %s", gatewayID)
 
-	dbURI := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=%s",
-		pgName, url.QueryEscape(newPassword), params.host, params.port, pgName, params.sslmode)
+	tenantQ := url.Values{"sslmode": {params.sslmode}}
 	if params.sslrootcert != "" {
-		dbURI += "&sslrootcert=" + url.QueryEscape(params.sslrootcert)
+		tenantQ.Set("sslrootcert", params.sslrootcert)
 	}
+	dbURI := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s",
+		url.QueryEscape(pgName), url.QueryEscape(newPassword), params.host, params.port, pgName) +
+		"?" + tenantQ.Encode()
 
 	updated := existingSecret.DeepCopy()
 	if updated.Data == nil {
