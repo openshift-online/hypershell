@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-04 (scoped analysis of the CP-OBS-07 reconcile-queue metric changes; the last full-corpus analysis remains 2026-08-31)
+**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; the last full-corpus analysis remains 2026-08-31)
 **Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console and OpenShift Development
-**Codebase commit**: `9c01984` (CP-OBS-RQ-W1 complete)
+**Codebase commit**: `bd02232` (CP-OBS-RQ-W1 review fixes complete)
 
 ### Coverage Summary
 
@@ -531,6 +531,9 @@ The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HY
 and ready-to-worker wait time through OTel. It keeps one ready time for
 coalesced work. It moves the retry ready time to the end of scheduled backoff.
 The queue does not allocate its telemetry state when metric export is disabled.
+One locked worker-claim boundary removes a key from ready depth and stops its
+queue-wait time. The eligibility time keeps scheduled retry backoff out of both
+metrics, including after a dirty add.
 Focused repeat tests, race tests, the complete control-plane tests, build, vet,
 lint, alignment, and review checks pass.
 
@@ -807,6 +810,7 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-09-04 | `bd02232` | Reanalyzed CP-OBS-RQ-W1 after review fixes | 5/5 scoped fields present | Defined one locked worker-claim boundary for depth and wait, kept dirty adds in backoff out of ready depth, and made the design rationale apply to each shared reconcile queue. The full-corpus percentage is unchanged. |
 | 2026-09-04 | `9c01984` | Completed CP-OBS-RQ-W1 reconcile-queue metrics | 5/5 scoped fields present | Added ready queue depth and ready-to-worker wait metrics with one bounded resource-kind attribute. Coalesced work produces one wait observation, and scheduled retry backoff is excluded. |
 | 2026-09-04 | `e61bdac` | Planned the CP-OBS-07 reconcile-queue metric delta | 0/5 scoped fields present | Found two missing instruments and three missing behavior checks. Planned one control-plane wave for queue depth, queue wait, bounded labels, coalescing, and retry-backoff exclusion. |
 | 2026-09-03 | `b97a99d` | Reconciled the CP-OBS-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
