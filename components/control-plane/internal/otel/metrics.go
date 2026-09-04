@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -93,7 +94,7 @@ func RegisterReconcileQueueDepth(kind string, depth func() int64) (func() error,
 		reconcileQueueDepth,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("register reconcile queue depth callback: %w", err)
 	}
 	return registration.Unregister, nil
 }
