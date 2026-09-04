@@ -200,6 +200,43 @@ func TestReconcileQueue_ExcludesRetryBackoffFromWait(t *testing.T) {
 	}
 }
 
+func TestReconcileQueue_DepthExcludesRetryBackoffAfterDirtyAdd(t *testing.T) {
+	const backoff = 100 * time.Millisecond
+	waits := &durationRecorder{}
+	h := &recordingHandler{failUntil: 1}
+	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](backoff, backoff)
+	q := newReconcileQueue(context.Background(), "Gateway", h,
+		withWorkers[string](1),
+		withRateLimiter[string](limiter),
+		withQueueWaitRecorder[string](waits.record),
+	)
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})
+	waitForCount(t, h, 1)
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		q.mu.Lock()
+		_, backingOff := q.notBefore["gw-1"]
+		q.mu.Unlock()
+		if backingOff {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("gateway did not enter retry backoff")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// A live update makes client-go mark the key as ready while its retry delay
+	// is active. The metric must still exclude it until the delay ends.
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v2"})
+	if got := q.readyDepth(); got != 0 {
+		t.Fatalf("ready depth during retry backoff = %d, want 0", got)
+	}
+}
+
 // A reconcile that fails transiently must be retried until it succeeds, then stop
 // -- this is the durable recovery the gateway watch stream cannot provide itself.
 func TestReconcileQueue_RetriesUntilSuccess(t *testing.T) {

@@ -260,7 +260,7 @@ func newReconcileQueue[T any](baseCtx context.Context, kind string, handler Hand
 	}
 	if cpotel.MetricsEnabled() {
 		unregister, err := cpotel.RegisterReconcileQueueDepth(q.kind, func() int64 {
-			return int64(q.queue.Len())
+			return q.readyDepth()
 		})
 		if err != nil {
 			log.Printf("WARN register %s reconcile queue depth metric: %v", q.kind, err)
@@ -393,6 +393,22 @@ func (q *reconcileQueue[T]) markReadyLocked(id string) {
 		readyAt = notBefore
 	}
 	q.readyAt[id] = readyAt
+}
+
+// readyDepth returns the number of keys that are eligible for a worker. A key
+// with a future ready time is in scheduled retry backoff and is not ready.
+func (q *reconcileQueue[T]) readyDepth() int64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	now := q.now()
+	var depth int64
+	for _, readyAt := range q.readyAt {
+		if !readyAt.After(now) {
+			depth++
+		}
+	}
+	return depth
 }
 
 // knownKeys returns a snapshot of the payloads the queue is currently tracking
