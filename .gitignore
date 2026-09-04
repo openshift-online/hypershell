@@ -60,3 +60,12 @@ loop.txt
 
 # JetBrains IDE project files
 .idea/
+
+# Python (components/build-pipeline)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+# build-pipeline run outputs
+.build-pipeline/

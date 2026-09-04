@@ -1,0 +1,33 @@
+# Default profile: mechanical/tool-only steps run cheap, reasoning steps run deep.
+# Prices are illustrative USD-per-million-tokens for local cost estimates only;
+# adjust to your actual Vertex pricing. Model/region/project come from the
+# environment (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, ADC) unless set here.
+name = "tiered"
+
+[tiers.small]
+provider = "vertex"
+model = "gemini-2.5-flash"
+[tiers.small.params]
+temperature = 0
+price_in_per_m = 0.30
+price_out_per_m = 2.50
+
+[tiers.standard]
+provider = "vertex"
+model = "gemini-2.5-flash"
+[tiers.standard.params]
+temperature = 0
+price_in_per_m = 0.30
+price_out_per_m = 2.50
+
+[tiers.deep]
+provider = "vertex"
+model = "gemini-2.5-pro"
+[tiers.deep.params]
+temperature = 0
+price_in_per_m = 1.25
+price_out_per_m = 10.00
+
+[overrides]
+# Override a step's tier by id, e.g. run gap analysis on the mid tier:
+# gap-analysis = "standard"

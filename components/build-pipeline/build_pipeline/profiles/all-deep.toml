@@ -1,0 +1,28 @@
+# All non-tool-only steps run on the deep model. Upper bound for quality/cost.
+name = "all-deep"
+
+[tiers.small]
+provider = "vertex"
+model = "gemini-2.5-pro"
+[tiers.small.params]
+temperature = 0
+price_in_per_m = 1.25
+price_out_per_m = 10.00
+
+[tiers.standard]
+provider = "vertex"
+model = "gemini-2.5-pro"
+[tiers.standard.params]
+temperature = 0
+price_in_per_m = 1.25
+price_out_per_m = 10.00
+
+[tiers.deep]
+provider = "vertex"
+model = "gemini-2.5-pro"
+[tiers.deep.params]
+temperature = 0
+price_in_per_m = 1.25
+price_out_per_m = 10.00
+
+[overrides]
