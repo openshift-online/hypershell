@@ -197,21 +197,27 @@ describe("gateway connections", () => {
     );
   });
 
-  it("builds a sandbox connect command with the default name", () => {
+  it("builds a sandbox connect command with defaults", () => {
     expect(buildSandboxConnectCommand()).toBe(
-      `openshell sandbox connect ${sandboxName}`,
+      `openshell sandbox connect ${sandboxName} \\\n  --editor cursor`,
     );
   });
 
   it("substitutes a custom name into the sandbox connect command", () => {
     expect(buildSandboxConnectCommand("demo")).toBe(
-      "openshell sandbox connect demo",
+      "openshell sandbox connect demo \\\n  --editor cursor",
+    );
+  });
+
+  it("substitutes a custom editor into the sandbox connect command", () => {
+    expect(buildSandboxConnectCommand("demo", "vscode")).toBe(
+      "openshell sandbox connect demo \\\n  --editor vscode",
     );
   });
 
   it("quotes shell-unsafe names in the sandbox connect command", () => {
     expect(buildSandboxConnectCommand("my $(sandbox)")).toBe(
-      `openshell sandbox connect 'my $(sandbox)'`,
+      `openshell sandbox connect 'my $(sandbox)' \\\n  --editor cursor`,
     );
   });
 

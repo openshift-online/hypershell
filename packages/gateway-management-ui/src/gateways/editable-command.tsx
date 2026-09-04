@@ -105,22 +105,44 @@ function EditableField({
   );
 }
 
-/**
- * A copyable command block whose marked value slots are editable in place.
- *
- * `templateCommand` carries the edit markers and is highlighted once; `copyText`
- * is the same command with the operator's current values resolved and drives
- * both the copy button and (identically) a whole-block text selection. Editing a
- * field calls `onFieldChange(marker, value)`; a marker used twice in the command
- * (the mirrored provider name) is kept in lockstep because both slots read the
- * same entry in `values`.
- */
+function SelectField({
+  colorClassName,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  colorClassName: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: readonly string[];
+  value: string;
+}) {
+  return (
+    <select
+      aria-label={label}
+      className={[styles.selectField, colorClassName].filter(Boolean).join(" ")}
+      onChange={(event) => {
+        onChange(event.target.value);
+      }}
+      value={value}
+    >
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function EditableCommand({
   copyAriaLabel,
   copyText,
   labels,
   markers,
   onFieldChange,
+  selectOptions,
   templateCommand,
   values,
 }: {
@@ -129,6 +151,7 @@ export function EditableCommand({
   labels: Record<string, string>;
   markers: readonly string[];
   onFieldChange: (marker: string, value: string) => void;
+  selectOptions?: Record<string, readonly string[]>;
   templateCommand: string;
   values: Record<string, string>;
 }) {
@@ -183,12 +206,32 @@ export function EditableCommand({
         <div className={styles.highlighted}>
           <pre className="shiki">
             <code>
-              {parts.map((part, index) =>
-                part.kind === "text" ? (
-                  <span className={part.className} key={index}>
-                    {part.value}
-                  </span>
-                ) : (
+              {parts.map((part, index) => {
+                if (part.kind === "text") {
+                  return (
+                    <span className={part.className} key={index}>
+                      {part.value}
+                    </span>
+                  );
+                }
+
+                const options = selectOptions?.[part.marker];
+                if (options) {
+                  return (
+                    <SelectField
+                      colorClassName={part.className}
+                      key={index}
+                      label={labels[part.marker] ?? ""}
+                      onChange={(value) => {
+                        onFieldChange(part.marker, value);
+                      }}
+                      options={options}
+                      value={values[part.marker] ?? ""}
+                    />
+                  );
+                }
+
+                return (
                   <EditableField
                     colorClassName={part.className}
                     key={index}
@@ -198,8 +241,8 @@ export function EditableCommand({
                     }}
                     value={values[part.marker] ?? ""}
                   />
-                ),
-              )}
+                );
+              })}
             </code>
           </pre>
         </div>

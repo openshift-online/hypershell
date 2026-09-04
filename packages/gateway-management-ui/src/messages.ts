@@ -215,7 +215,8 @@ export const messages = defineMessages({
   copySandboxConnectCommand: {
     id: "app.gateway.connection.copySandboxConnectCommand",
     defaultMessage: "Copy the connect-sandbox command",
-    description: "Accessible label for copying the connect-sandbox command.",
+    description:
+      "Accessible label for the button that copies the sandbox connect command.",
   },
   copySetupCommand: {
     id: "app.gateway.connection.copySetupCommand",

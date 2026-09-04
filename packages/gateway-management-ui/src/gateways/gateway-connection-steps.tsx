@@ -16,10 +16,12 @@ import {
   buildSandboxCreateCommand,
   buildSetupScript,
   claudeModel,
+  defaultEditor,
   type GatewayConnection,
   installDocsUrl,
   sandboxConnectDocsUrl,
   sandboxName as defaultSandboxName,
+  validEditors,
   vertexProviderName,
 } from "./gateway-connections";
 import styles from "./gateway-connection-steps.module.css";
@@ -32,9 +34,10 @@ import styles from "./gateway-connection-steps.module.css";
 const providerMarker = "OSPROVIDERNAMEZ";
 const modelMarker = "OSMODELNAMEZ";
 const sandboxMarker = "OSSANDBOXNAMEZ";
+const editorMarker = "OSEDITORNAMEZ";
 const setupMarkers = [providerMarker, modelMarker];
 const sandboxMarkers = [sandboxMarker, modelMarker];
-const sandboxConnectMarkers = [sandboxMarker];
+const sandboxConnectMarkers = [sandboxMarker, editorMarker];
 
 function ConnectionStep({
   children,
@@ -65,6 +68,8 @@ export function GatewayConnectionSteps({
   const [providerName, setProviderName] = useState(vertexProviderName);
   const [model, setModel] = useState(claudeModel);
   const [sandboxName, setSandboxName] = useState(defaultSandboxName);
+  const [editor, setEditor] = useState(defaultEditor);
+
   // Marker form drives the (stable) highlight; the resolved form drives copy and
   // matches a whole-block text selection exactly.
   const setupTemplate = buildSetupScript(gateway, {
@@ -198,8 +203,9 @@ export function GatewayConnectionSteps({
         </Alert>
         <EditableCommand
           copyAriaLabel={intl.formatMessage(messages.copySandboxConnectCommand)}
-          copyText={buildSandboxConnectCommand(sandboxName)}
+          copyText={buildSandboxConnectCommand(sandboxName, editor)}
           labels={{
+            [editorMarker]: intl.formatMessage(messages.editEditor),
             [sandboxMarker]: intl.formatMessage(
               messages.editExistingSandboxName,
             ),
@@ -208,10 +214,16 @@ export function GatewayConnectionSteps({
           onFieldChange={(marker, value) => {
             if (marker === sandboxMarker) {
               setSandboxName(value);
+            } else if (marker === editorMarker) {
+              setEditor(value);
             }
           }}
-          templateCommand={buildSandboxConnectCommand(sandboxMarker)}
-          values={{ [sandboxMarker]: sandboxName }}
+          selectOptions={{ [editorMarker]: validEditors }}
+          templateCommand={buildSandboxConnectCommand(
+            sandboxMarker,
+            editorMarker,
+          )}
+          values={{ [editorMarker]: editor, [sandboxMarker]: sandboxName }}
         />
       </ConnectionStep>
     </ol>

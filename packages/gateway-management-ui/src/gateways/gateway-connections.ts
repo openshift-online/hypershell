@@ -168,8 +168,14 @@ export function buildSandboxCreateCommand(
 export const validEditors = ["cursor", "vscode"] as const;
 export const defaultEditor = "cursor";
 
-export function buildSandboxConnectCommand(name: string = sandboxName): string {
-  return `openshell sandbox connect ${shellArgument(name)}`;
+export function buildSandboxConnectCommand(
+  name: string = sandboxName,
+  editor: string = defaultEditor,
+): string {
+  return [
+    `openshell sandbox connect ${shellArgument(name)}`,
+    `--editor ${shellArgument(editor)}`,
+  ].join(" \\\n  ");
 }
 
 /**
