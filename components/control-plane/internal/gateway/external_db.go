@@ -38,11 +38,11 @@ func (r *externalDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.In
 	return nil
 }
 
-func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, gatewayID string) {
+func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error {
 	if gatewayID == "" {
-		return
+		return nil
 	}
-	DeleteExternalDatabaseResources(ctx, clientset, r.cfg, gatewayID)
+	return DeleteExternalDatabaseResources(ctx, clientset, r.cfg, gatewayID)
 }
 
 // externalAdminParams holds the admin connection parameters read from the
@@ -439,27 +439,26 @@ func ReconcileExternalDatabaseResources(
 
 // DeleteExternalDatabaseResources terminates active connections, drops the
 // gateway's database and role on the external server. Idempotent: absent
-// objects are treated as success.
+// objects are treated as success. Returns a non-nil error when an operation
+// fails so callers can arrange a retry.
 func DeleteExternalDatabaseResources(
 	ctx context.Context,
 	clientset kubernetes.Interface,
 	cfg ExternalDBConfig,
 	gatewayID string,
-) {
+) error {
 	if cfg.SecretName == "" || gatewayID == "" {
-		return
+		return nil
 	}
 
 	params, _, err := readExternalAdminSecret(ctx, clientset, cfg.Namespace, cfg.SecretName)
 	if err != nil {
-		log.Printf("WARN external DB cleanup for gateway %s: cannot read admin secret (resources may require manual cleanup): %v", gatewayID, err)
-		return
+		return fmt.Errorf("external DB cleanup for gateway %s: cannot read admin secret: %w", gatewayID, err)
 	}
 
 	db, err := openAdminConn(ctx, params)
 	if err != nil {
-		log.Printf("WARN external DB cleanup for gateway %s: cannot connect to server (resources may require manual cleanup)", gatewayID)
-		return
+		return fmt.Errorf("external DB cleanup for gateway %s: cannot connect to server (credentials redacted)", gatewayID)
 	}
 	defer func() {
 		if cerr := db.Close(); cerr != nil {
@@ -477,27 +476,25 @@ func DeleteExternalDatabaseResources(
 		log.Printf("WARN external DB cleanup for gateway %s: terminate backends failed (proceeding): %v", gatewayID, err)
 	}
 
-	// Use REASSIGN OWNED BY + DROP OWNED BY so that a role-owned database is
-	// dropped before DROP ROLE, preventing the orphaned-role failure when DROP
-	// DATABASE is attempted first and the role still owns it.
+	// Drop the gateway database. This is a cluster-level operation and must
+	// come before DROP ROLE because the role owns the database.
+	var dbExists bool
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", pgName).Scan(&dbExists); err == nil && dbExists {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", pgQuoteIdent(pgName))); err != nil {
+			return fmt.Errorf("external DB cleanup for gateway %s: DROP DATABASE failed: %w", gatewayID, err)
+		}
+		log.Printf("INFO dropped external database %s for gateway %s", pgName, gatewayID)
+	}
+
+	// Drop role (safe once the database it owned is gone).
 	var roleExists bool
 	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", pgName).Scan(&roleExists); err == nil && roleExists {
-		// Transfer any remaining ownership to the current admin user, then
-		// drop all objects owned by the role (including the database).
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("REASSIGN OWNED BY %s TO CURRENT_USER", pgQuoteIdent(pgName))); err != nil {
-			log.Printf("WARN external DB cleanup for gateway %s: REASSIGN OWNED BY failed (attempting DROP OWNED BY anyway): %v", gatewayID, err)
-		}
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP OWNED BY %s", pgQuoteIdent(pgName))); err != nil {
-			log.Printf("WARN external DB cleanup for gateway %s: DROP OWNED BY failed (role may be partially orphaned): %v", gatewayID, err)
-		} else {
-			log.Printf("INFO dropped objects owned by external role %s for gateway %s", pgName, gatewayID)
-		}
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s", pgQuoteIdent(pgName))); err != nil {
-			log.Printf("WARN external DB cleanup for gateway %s: DROP ROLE failed: %v", gatewayID, err)
-			return
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP ROLE %s", pgQuoteIdent(pgName))); err != nil {
+			return fmt.Errorf("external DB cleanup for gateway %s: DROP ROLE failed: %w", gatewayID, err)
 		}
 		log.Printf("INFO dropped external role %s for gateway %s", pgName, gatewayID)
 	}
+	return nil
 }
 
 // RotateExternalDatabaseCredentials generates a new password, applies it to

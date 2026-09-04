@@ -23,7 +23,8 @@ func (r *deploymentDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.
 	return reconcileDeploymentDatabaseCredentials(ctx, clientset, r.dbNamespace, tenantNamespace)
 }
 
-func (r *deploymentDatabaseReconciler) Delete(_ context.Context, _ dynamic.Interface, _ kubernetes.Interface, _ string) {
+func (r *deploymentDatabaseReconciler) Delete(_ context.Context, _ dynamic.Interface, _ kubernetes.Interface, _ string) error {
+	return nil
 }
 
 const deploymentDatabaseName = `openshell-gateway-db`

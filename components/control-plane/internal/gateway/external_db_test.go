@@ -263,3 +263,36 @@ func TestDSNSslrootcert(t *testing.T) {
 		}
 	})
 }
+
+// --- DeleteExternalDatabaseResources early-exit paths ---
+
+func TestDeleteExternalDatabaseResourcesEarlyExit(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty gatewayID returns nil without connecting", func(t *testing.T) {
+		client := k8sfake.NewSimpleClientset()
+		cfg := ExternalDBConfig{SecretName: "hypershell-managed-db-kind", Namespace: "hypershell-system"}
+		err := DeleteExternalDatabaseResources(ctx, client, cfg, "")
+		if err != nil {
+			t.Errorf("expected nil for empty gatewayID, got %v", err)
+		}
+	})
+
+	t.Run("empty SecretName returns nil without connecting", func(t *testing.T) {
+		client := k8sfake.NewSimpleClientset()
+		cfg := ExternalDBConfig{SecretName: "", Namespace: "hypershell-system"}
+		err := DeleteExternalDatabaseResources(ctx, client, cfg, "gw-abc123")
+		if err != nil {
+			t.Errorf("expected nil for empty SecretName, got %v", err)
+		}
+	})
+
+	t.Run("missing secret returns error", func(t *testing.T) {
+		client := k8sfake.NewSimpleClientset()
+		cfg := ExternalDBConfig{SecretName: "hypershell-managed-db-kind", Namespace: "hypershell-system"}
+		err := DeleteExternalDatabaseResources(ctx, client, cfg, "gw-abc123")
+		if err == nil {
+			t.Error("expected error when secret is missing, got nil")
+		}
+	})
+}

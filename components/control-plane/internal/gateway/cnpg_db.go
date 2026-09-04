@@ -35,15 +35,16 @@ func (r *cnpgDatabaseReconciler) Reconcile(ctx context.Context, dynamicClient dy
 	return nil
 }
 
-func (r *cnpgDatabaseReconciler) Delete(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, gatewayID string) {
+func (r *cnpgDatabaseReconciler) Delete(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error {
 	if gatewayID == "" {
-		return
+		return nil
 	}
 	if r.cnpg.ClusterNamespace == "" {
 		log.Printf("WARN gateway %s: CNPG cluster namespace unknown; Database, DatabaseRole, and password Secret were not deleted and may require manual cleanup", gatewayID)
-		return
+		return nil
 	}
 	deleteCNPGResources(ctx, dynamicClient, clientset, gatewayID, r.cnpg)
+	return nil
 }
 
 func cnpgResourceName(gatewayID string) string {
