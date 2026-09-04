@@ -1,32 +1,34 @@
-# Default profile: mechanical/tool-only steps run cheap, reasoning steps run deep.
-# Prices are illustrative USD-per-million-tokens for local cost estimates only;
-# adjust to your actual Vertex pricing. Model/region/project come from the
-# environment (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, ADC) unless set here.
 name = "tiered"
+# Anthropic Claude via Vertex AI Model Garden (provider "anthropic-vertex").
+# GCP project and region are read from the environment
+# (ANTHROPIC_VERTEX_PROJECT_ID / CLOUD_ML_REGION, or GOOGLE_CLOUD_PROJECT /
+# GOOGLE_CLOUD_LOCATION); add project=/location= under a tier's params to pin
+# them. Model ids must be enabled in your Vertex project. The price_*_per_m
+# values are USD per million tokens for local cost estimates only.
 
 [tiers.small]
-provider = "vertex"
-model = "gemini-2.5-flash"
+provider = "anthropic-vertex"
+model = "claude-haiku-4-5@20251001"
 [tiers.small.params]
 temperature = 0
-price_in_per_m = 0.30
-price_out_per_m = 2.50
+price_in_per_m = 1.00
+price_out_per_m = 5.00
 
 [tiers.standard]
-provider = "vertex"
-model = "gemini-2.5-flash"
+provider = "anthropic-vertex"
+model = "claude-sonnet-4-5@20250929"
 [tiers.standard.params]
 temperature = 0
-price_in_per_m = 0.30
-price_out_per_m = 2.50
+price_in_per_m = 3.00
+price_out_per_m = 15.00
 
 [tiers.deep]
-provider = "vertex"
-model = "gemini-2.5-pro"
+provider = "anthropic-vertex"
+model = "claude-opus-4-1@20250805"
 [tiers.deep.params]
 temperature = 0
-price_in_per_m = 1.25
-price_out_per_m = 10.00
+price_in_per_m = 15.00
+price_out_per_m = 75.00
 
 [overrides]
 # Override a step's tier by id, e.g. run gap analysis on the mid tier:

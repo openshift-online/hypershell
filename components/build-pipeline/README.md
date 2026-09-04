@@ -47,16 +47,24 @@ build-pipeline profiles tiered      # resolved model per step under 'tiered'
 build-pipeline run --dry-run        # plan the whole chain; resolve models; call nothing
 ```
 
-## Local run with a Vertex key (a normal day)
+## Local run with Claude on Vertex (a normal day)
 
-You have a Vertex AI service-account key locally. Point Application Default
-Credentials at it and set your project/region:
+The default profiles use Anthropic Claude via Vertex AI Model Garden. Provide
+GCP credentials (Application Default Credentials) and your project/region --
+build-pipeline reads the same variables your Claude Code setup already exports:
 
 ```bash
+# credentials: a key file via ADC, or: gcloud auth application-default login
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/vertex-key.json
-export GOOGLE_CLOUD_PROJECT=my-gcp-project
-export GOOGLE_CLOUD_LOCATION=us-central1
+export ANTHROPIC_VERTEX_PROJECT_ID=hypershell-976970   # or GOOGLE_CLOUD_PROJECT
+export CLOUD_ML_REGION=global                           # or GOOGLE_CLOUD_LOCATION
 ```
+
+LangChain's Vertex integration does not itself read `ANTHROPIC_VERTEX_PROJECT_ID`
+/ `CLOUD_ML_REGION`; build-pipeline reads them and passes project/region to the
+model explicitly. `CLAUDE_CODE_USE_VERTEX` is a Claude Code variable and is not
+used here. Adjust the `claude-...@date` model ids in the profiles to models
+enabled in your Vertex project.
 
 Then, from the repo root, a typical loop:
 
@@ -103,8 +111,9 @@ profile binds each tier (`small`/`standard`/`deep`) to a concrete model and may
 override a step's tier by id. Add a profile by dropping in a new `.toml` and
 selecting it with `--profile <name-or-path>` -- no code change (AB-03/AB-11).
 The `price_*_per_m` params are for local cost estimates only; set them to your
-actual Vertex pricing. Provider is pluggable (`vertex` today; `openai` and
-`anthropic` via the optional extras).
+actual pricing. Provider is pluggable: `anthropic-vertex` (Claude via Vertex,
+the default) and `vertex` (Gemini) both ship in `langchain-google-vertexai`;
+`openai` and `anthropic` are available via the optional extras.
 
 ## Tests
 

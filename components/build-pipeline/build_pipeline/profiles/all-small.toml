@@ -1,28 +1,28 @@
-# All non-tool-only steps run on the small/cheap model. Baseline for cost.
 name = "all-small"
+# Every non-tool-only step on the small/cheap Claude model (Vertex). Cost baseline.
 
 [tiers.small]
-provider = "vertex"
-model = "gemini-2.5-flash"
+provider = "anthropic-vertex"
+model = "claude-haiku-4-5@20251001"
 [tiers.small.params]
 temperature = 0
-price_in_per_m = 0.30
-price_out_per_m = 2.50
+price_in_per_m = 1.00
+price_out_per_m = 5.00
 
 [tiers.standard]
-provider = "vertex"
-model = "gemini-2.5-flash"
+provider = "anthropic-vertex"
+model = "claude-haiku-4-5@20251001"
 [tiers.standard.params]
 temperature = 0
-price_in_per_m = 0.30
-price_out_per_m = 2.50
+price_in_per_m = 1.00
+price_out_per_m = 5.00
 
 [tiers.deep]
-provider = "vertex"
-model = "gemini-2.5-flash"
+provider = "anthropic-vertex"
+model = "claude-haiku-4-5@20251001"
 [tiers.deep.params]
 temperature = 0
-price_in_per_m = 0.30
-price_out_per_m = 2.50
+price_in_per_m = 1.00
+price_out_per_m = 5.00
 
 [overrides]

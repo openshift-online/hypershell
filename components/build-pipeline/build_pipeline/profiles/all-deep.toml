@@ -1,28 +1,28 @@
-# All non-tool-only steps run on the deep model. Upper bound for quality/cost.
 name = "all-deep"
+# Every non-tool-only step on the deep Claude model (Vertex). Quality/cost ceiling.
 
 [tiers.small]
-provider = "vertex"
-model = "gemini-2.5-pro"
+provider = "anthropic-vertex"
+model = "claude-opus-4-1@20250805"
 [tiers.small.params]
 temperature = 0
-price_in_per_m = 1.25
-price_out_per_m = 10.00
+price_in_per_m = 15.00
+price_out_per_m = 75.00
 
 [tiers.standard]
-provider = "vertex"
-model = "gemini-2.5-pro"
+provider = "anthropic-vertex"
+model = "claude-opus-4-1@20250805"
 [tiers.standard.params]
 temperature = 0
-price_in_per_m = 1.25
-price_out_per_m = 10.00
+price_in_per_m = 15.00
+price_out_per_m = 75.00
 
 [tiers.deep]
-provider = "vertex"
-model = "gemini-2.5-pro"
+provider = "anthropic-vertex"
+model = "claude-opus-4-1@20250805"
 [tiers.deep.params]
 temperature = 0
-price_in_per_m = 1.25
-price_out_per_m = 10.00
+price_in_per_m = 15.00
+price_out_per_m = 75.00
 
 [overrides]

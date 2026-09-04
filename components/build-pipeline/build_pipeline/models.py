@@ -28,6 +28,31 @@ def build_chat_model(binding: ModelBinding | None):
         from langchain_google_vertexai import ChatVertexAI
 
         return ChatVertexAI(model=binding.model, **kwargs)
+    if provider in ("anthropic-vertex", "anthropic_vertex", "vertex-anthropic", "claude-vertex"):
+        # Claude via Vertex AI Model Garden. LangChain does NOT read
+        # ANTHROPIC_VERTEX_PROJECT_ID / CLOUD_ML_REGION, so resolve them here:
+        # profile params win, then those env vars, then the GOOGLE_* fallbacks.
+        import os
+
+        from langchain_google_vertexai.model_garden import ChatAnthropicVertex
+
+        project = (
+            kwargs.pop("project", None)
+            or os.getenv("ANTHROPIC_VERTEX_PROJECT_ID")
+            or os.getenv("GOOGLE_CLOUD_PROJECT")
+        )
+        location = (
+            kwargs.pop("location", None)
+            or os.getenv("CLOUD_ML_REGION")
+            or os.getenv("GOOGLE_CLOUD_LOCATION")
+            or "us-central1"
+        )
+        if not project:
+            raise ValueError(
+                "anthropic-vertex needs a GCP project: set ANTHROPIC_VERTEX_PROJECT_ID "
+                "or GOOGLE_CLOUD_PROJECT, or add project=... to the profile tier params"
+            )
+        return ChatAnthropicVertex(model=binding.model, project=project, location=location, **kwargs)
     if provider == "openai":
         from langchain_openai import ChatOpenAI
 
@@ -37,7 +62,8 @@ def build_chat_model(binding: ModelBinding | None):
 
         return ChatAnthropic(model=binding.model, **kwargs)
     raise ValueError(
-        f"unknown provider {binding.provider!r}; supported: vertex, openai, anthropic"
+        f"unknown provider {binding.provider!r}; supported: vertex, anthropic-vertex, "
+        "openai, anthropic"
     )
 
 
