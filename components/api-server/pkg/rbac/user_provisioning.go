@@ -19,6 +19,9 @@ type contextKey string
 const ContextUserIDKey contextKey = "rbac_user_id"
 const ContextJWTRolesKey contextKey = "rbac_jwt_roles"
 
+// HypershellAdminRole is the Keycloak realm role that grants dashboard-operator access.
+const HypershellAdminRole = "hypershell-admins"
+
 type UserProvisioner interface {
 	UpsertFromJWT(ctx context.Context, payload *auth.Payload) (userID string, err error)
 }
@@ -107,6 +110,27 @@ func GetUserIDFromContext(ctx context.Context) string {
 		return ""
 	}
 	return v.(string)
+}
+
+func GetJWTRolesFromContext(ctx context.Context) []string {
+	v := ctx.Value(ContextJWTRolesKey)
+	if v == nil {
+		return nil
+	}
+	roles, ok := v.([]string)
+	if !ok {
+		return nil
+	}
+	return roles
+}
+
+func HasHypershellAdminRole(jwtRoles []string) bool {
+	for _, role := range jwtRoles {
+		if role == HypershellAdminRole {
+			return true
+		}
+	}
+	return false
 }
 
 func HasPlatformAdminRole(ctx context.Context, userID string) bool {

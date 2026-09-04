@@ -179,7 +179,7 @@ The API server exposes Prometheus metrics on its metrics port (default `:8080/me
 
 | Metric | Type | Description |
 |---|---|---|
-| `hypershell_gateways_total{phase="Running"|"Provisioning"|"Degraded"|"Failed"}` | Gauge | Number of gateways by phase. Queried live from the database on each scrape. |
+| `hypershell_gateways_total{phase="Pending"|"Provisioning"|"Running"|"Degraded"|"Failed"}` | Gauge | Number of gateways by phase. Queried live from the database on each scrape. |
 
 The control plane also exports `gateway.provision.duration` through OTLP. This histogram measures the time in seconds from Gateway creation to its first successful `Running` phase. A standard Prometheus conversion exposes it as `gateway_provision_duration_seconds`.
 

@@ -1,5 +1,6 @@
 import { GatewayMetricsDashboard } from "@openshift-online/hypershell-gateway-management-ui";
 
+import { RequireDashboardAdmin } from "../features/dashboard/require-dashboard-admin";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(
@@ -8,5 +9,9 @@ export const meta = createPageMeta(
 );
 
 export default function MetricsRoute() {
-  return <GatewayMetricsDashboard />;
+  return (
+    <RequireDashboardAdmin>
+      <GatewayMetricsDashboard />
+    </RequireDashboardAdmin>
+  );
 }

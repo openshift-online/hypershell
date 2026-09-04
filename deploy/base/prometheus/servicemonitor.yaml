@@ -5,6 +5,7 @@ metadata:
   namespace: hypershell-system
   labels:
     app: hypershell-api-server
+    hypershell.redhat.io/prometheus-scrape: "true"
 spec:
   selector:
     matchLabels:

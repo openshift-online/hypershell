@@ -18,6 +18,8 @@ components/**
 packages/**
 !packages/gateway-management-ui/
 !packages/gateway-management-ui/**
+!packages/operational-dashboard-ui/
+!packages/operational-dashboard-ui/**
 !components/web-console/
 !components/web-console/**
 !scripts/bootstrap_pnpm.sh

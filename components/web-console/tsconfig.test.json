@@ -6,6 +6,7 @@
   },
   "include": [
     "app/**/*",
+    "shared/**/*",
     ".storybook/**/*",
     "e2e/**/*",
     "e2e-live/**/*",

@@ -26,6 +26,7 @@ jobs:
       cli: ${{ steps.detect.outputs.cli }}
       control_plane: ${{ steps.detect.outputs.control_plane }}
       gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
       pr_test: ${{ steps.detect.outputs.pr_test }}
       sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
       web_console: ${{ steps.detect.outputs.web_console }}
@@ -189,6 +190,25 @@ jobs:
       - name: Run gateway management UI package quality gates
         run: pnpm --filter @openshift-online/hypershell-gateway-management-ui check
 
+  lint-operational-dashboard-ui:
+    name: Operational dashboard UI package quality gates
+    needs: detect-changes
+    if: needs.detect-changes.outputs.operational_dashboard_ui == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run operational dashboard UI package quality gates
+        run: pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check
+
   lint-pr-test:
     name: PR test script validation
     needs: detect-changes
@@ -254,6 +274,7 @@ jobs:
       - lint-cli
       - lint-control-plane
       - lint-gateway-management-ui
+      - lint-operational-dashboard-ui
       - lint-pr-test
       - lint-sdk-typescript
       - lint-web-console
@@ -266,11 +287,12 @@ jobs:
           CLI_RESULT: ${{ needs.lint-cli.result }}
           CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
           GATEWAY_MANAGEMENT_UI_RESULT: ${{ needs.lint-gateway-management-ui.result }}
+          OPERATIONAL_DASHBOARD_UI_RESULT: ${{ needs.lint-operational-dashboard-ui.result }}
           PR_TEST_RESULT: ${{ needs.lint-pr-test.result }}
           SDK_TYPESCRIPT_RESULT: ${{ needs.lint-sdk-typescript.result }}
           WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
         run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CLI_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
+          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CLI_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${OPERATIONAL_DASHBOARD_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more lint jobs failed or were cancelled."
               exit 1

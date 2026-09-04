@@ -2,18 +2,18 @@
   "name": "@openshift-online/hypershell-domain-probes",
   "version": "0.0.0",
   "private": true,
-  "description": "Typed domain-probe contracts and fan-out delivery for HyperShell web runtimes",
+  "description": "Typed domain-probe contracts and fan-out delivery for HyperShell web runtimes. Monorepo consumers resolve types from src/ so typecheck works without a prior build; published artifacts ship dist/ only (see files).",
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./fan-out": {
-      "types": "./dist/fan-out.d.ts",
+      "types": "./src/fan-out.ts",
       "import": "./dist/fan-out.js",
       "default": "./dist/fan-out.js"
     }

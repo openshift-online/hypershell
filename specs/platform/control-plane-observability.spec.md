@@ -205,6 +205,8 @@ The control plane SHALL export OpenTelemetry metrics for reconciliation and watc
 
 The control plane SHALL record one `gateway.provision.duration` observation only after the Gateway phase update to `Running` succeeds. The initial reconcile path SHALL record a direct transition to `Running`. The health reconcile path SHALL record a delayed transition from `Provisioning` to `Running`. It SHALL NOT record a later recovery from `Degraded` to `Running` as a new provision. The duration SHALL use the `created_at` and `updated_at` values in the stored Gateway that the API server returns. It SHALL ignore missing, invalid, or reversed timestamps. The metric SHALL NOT contain a Gateway identifier. Its explicit bucket boundaries SHALL cover 1 second through 15 minutes.
 
+When exported to Prometheus, the histogram SHALL appear as `gateway_provision_duration_seconds` with standard `_bucket`, `_count`, and `_sum` suffixes. The operational dashboard provision-time feature (`platform/gateway-provision-time.spec.md`) consumes that series through the web-console BFF.
+
 Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT prevent adding one later.
 
 **Verification:** Trigger reconciliations and watch reconnections; confirm the duration histogram records reconcile latency, the error counter increments on failure, and the reconnect counter increments on watch stream reconnection, all labeled by resource kind.

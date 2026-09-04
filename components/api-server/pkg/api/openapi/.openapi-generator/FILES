@@ -41,6 +41,8 @@ docs/Role.md
 docs/RoleBinding.md
 docs/RoleBindingList.md
 docs/RoleList.md
+docs/User.md
+docs/UserList.md
 git_push.sh
 go.mod
 go.sum
@@ -78,6 +80,8 @@ model_role.go
 model_role_binding.go
 model_role_binding_list.go
 model_role_list.go
+model_user.go
+model_user_list.go
 response.go
 test/api_default_test.go
 utils.go

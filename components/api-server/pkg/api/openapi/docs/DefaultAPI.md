@@ -27,6 +27,7 @@ Method | HTTP request | Description
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
+[**GetUser**](DefaultAPI.md#GetUser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
 [**ListGatewayNetworks**](DefaultAPI.md#ListGatewayNetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
 [**ListGatewayReleases**](DefaultAPI.md#ListGatewayReleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
@@ -35,6 +36,7 @@ Method | HTTP request | Description
 [**ListManagedDatabases**](DefaultAPI.md#ListManagedDatabases) | **Get** /api/hypershell/v1/managed_databases | Returns a list of managedDatabases
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
+[**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateGatewayNetwork**](DefaultAPI.md#UpdateGatewayNetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
@@ -1571,6 +1573,74 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## GetUser
+
+> User GetUser(ctx, id).Execute()
+
+Get a registered user by ID
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetUser(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetUser``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetUser`: User
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetUser`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetUserRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**User**](User.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## ListGatewayNetworks
 
 > GatewayNetworkList ListGatewayNetworks(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -2140,6 +2210,78 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**RoleList**](RoleList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## ListUsers
+
+> UserList ListUsers(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+List registered users
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListUsers(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListUsers``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListUsers`: UserList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListUsers`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListUsersRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
+### Return type
+
+[**UserList**](UserList.md)
 
 ### Authorization
 

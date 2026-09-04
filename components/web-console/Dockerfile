@@ -20,6 +20,7 @@ WORKDIR /app
 COPY --chown=${CONTAINER_DEFAULT_USER} package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript/package.json components/sdk-typescript/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui/package.json packages/gateway-management-ui/package.json
+COPY --chown=${CONTAINER_DEFAULT_USER} packages/operational-dashboard-ui/package.json packages/operational-dashboard-ui/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/package.json components/web-console/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/bff/package.json components/web-console/bff/package.json
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console/domain-probes/package.json components/web-console/domain-probes/package.json
@@ -28,6 +29,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY --chown=${CONTAINER_DEFAULT_USER} components/sdk-typescript components/sdk-typescript
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui packages/gateway-management-ui
+COPY --chown=${CONTAINER_DEFAULT_USER} packages/operational-dashboard-ui packages/operational-dashboard-ui
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console components/web-console
 COPY --chown=${CONTAINER_DEFAULT_USER} images/brand images/brand
 
@@ -55,4 +57,4 @@ COPY --from=build /tmp/web-console/ ./
 
 EXPOSE 8080
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/bff/src/index.js"]

@@ -1,18 +1,23 @@
-export interface GatewayPhaseCounts {
-  Running: number;
-  Provisioning: number;
-  Degraded: number;
-  Failed: number;
-}
+import {
+  gatewayCanonicalPhaseStrings,
+  type GatewayCanonicalPhase,
+} from "../gateways/gateway-data";
 
-export const gatewayPhases = [
-  "Running",
-  "Provisioning",
-  "Degraded",
-  "Failed",
-] as const satisfies readonly (keyof GatewayPhaseCounts)[];
+export type GatewayPhaseCounts = Record<GatewayCanonicalPhase, number>;
+
+export const gatewayPhases = gatewayCanonicalPhaseStrings;
 
 export const gatewayMetricsQueryKey = ["gateways", "metrics"] as const;
+
+export function emptyGatewayPhaseCounts(): GatewayPhaseCounts {
+  return {
+    Pending: 0,
+    Provisioning: 0,
+    Running: 0,
+    Degraded: 0,
+    Failed: 0,
+  };
+}
 
 export async function fetchGatewayMetrics(
   signal?: AbortSignal,
@@ -27,10 +32,9 @@ export async function fetchGatewayMetrics(
     );
   }
   const body = (await response.json()) as { counts: Record<string, number> };
-  return {
-    Running: body.counts.Running ?? 0,
-    Provisioning: body.counts.Provisioning ?? 0,
-    Degraded: body.counts.Degraded ?? 0,
-    Failed: body.counts.Failed ?? 0,
-  };
+  const counts = emptyGatewayPhaseCounts();
+  for (const phase of gatewayPhases) {
+    counts[phase] = body.counts[phase] ?? 0;
+  }
+  return counts;
 }

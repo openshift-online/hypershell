@@ -95,6 +95,8 @@ patches:
                     value: "hypershell-api-server.hypershell-system.svc.cluster.local:9000"
                   - name: HYPERSHELL_API_SERVER_URL
                     value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
+                  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                    value: "http://otel-collector.hypershell-system.svc.cluster.local:4317"
             dnsConfig:
               options:
                 - name: use-vc
@@ -127,6 +129,16 @@ patches:
                       secretKeyRef:
                         name: hypershell-oidc-session
                         key: session-secret
+                  - name: PROMETHEUS_URL
+                    value: "http://prometheus-operated.hypershell-system.svc.cluster.local:9090"
+  # --- Prometheus: emptyDir storage for Kind (no PVC required) ---
+  - target:
+      kind: Prometheus
+      name: prometheus
+      namespace: hypershell-system
+    patch: |
+      - op: remove
+        path: /spec/storage
   # --- API server: enable JWT + JWK cert URL + bypass paths ---
   # Appending --enable-jwt=true is index-independent: --enable-jwt is a pflag
   # BoolVar, and repeated single-value flags are last-value-wins, so the

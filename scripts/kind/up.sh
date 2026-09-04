@@ -428,17 +428,6 @@ api_server_otel_endpoint_set() {
   tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
 }
 
-controller_otel_endpoint_set() {
-  local names
-  if ! names=$(kube get deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
-    -o jsonpath='{.spec.template.spec.containers[?(@.name=="controller")].env[*].name}' \
-    2>&1); then
-    error "verifying OTLP endpoint removal: ${names}"
-    exit 1
-  fi
-  tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
-}
-
 if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   header "Jaeger"
   info "Deploying Jaeger..."
@@ -459,10 +448,9 @@ if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
     OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317" \
     OTEL_METRICS_EXPORTER="none"
-  info "Patching controller with OTEL_EXPORTER_OTLP_ENDPOINT..."
-  kube set env deployment/hypershell-controller -c controller -n "${KIND_NAMESPACE}" \
-    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317" \
-    OTEL_METRICS_EXPORTER="none"
+  # Control-plane metrics export to the in-cluster OTel Collector (kind
+  # kustomization) so Prometheus can serve gateway provision duration. Jaeger is
+  # trace-only; do not point the controller at Jaeger here.
   info "Waiting for Jaeger..."
   kube wait --for=condition=available deployment/jaeger -n "${KIND_NAMESPACE}" --timeout=120s
   success "Jaeger ready"
@@ -500,14 +488,8 @@ else
       exit 1
     fi
   fi
-  if deployment_exists hypershell-controller; then
-    kube set env deployment/hypershell-controller -c controller -n "${KIND_NAMESPACE}" \
-      OTEL_EXPORTER_OTLP_ENDPOINT- OTEL_METRICS_EXPORTER-
-    if controller_otel_endpoint_set; then
-      error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
-      exit 1
-    fi
-  fi
+  # Control-plane metrics export to the in-cluster OTel Collector is configured
+  # by deploy/kind/kustomization.yaml and must remain when tracing is off.
   echo ""
 fi
 

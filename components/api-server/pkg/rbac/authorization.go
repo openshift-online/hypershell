@@ -80,8 +80,9 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 
 		resource, resourceID := extractResourceInfo(r)
 		gatewayID := extractGatewayID(r, resource)
+		jwtRoles := GetJWTRolesFromContext(r.Context())
 
-		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings) {
+		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
 			if resource == "service_accounts" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
@@ -134,7 +135,19 @@ func hasPlatformAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
+func hasUsersInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
+	return hasPlatformAdmin(bindings) || HasHypershellAdminRole(jwtRoles)
+}
+
 func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
+	resource, resourceID = extractResourceInfoFromRoute(r)
+	if resource != "" {
+		return resource, resourceID
+	}
+	return extractResourceInfoFromPath(r.URL.Path)
+}
+
+func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID string) {
 	route := mux.CurrentRoute(r)
 	if route == nil {
 		return "", ""
@@ -166,18 +179,71 @@ func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
 	return resource, ""
 }
 
+func extractResourceInfoFromPath(path string) (resource string, resourceID string) {
+	const prefix = "/api/hypershell/v1/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", ""
+	}
+
+	remainder := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+	if remainder == "" {
+		return "", ""
+	}
+
+	parts := strings.Split(remainder, "/")
+	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/service_accounts") {
+		for i, part := range parts {
+			if part == "service_accounts" && i+1 < len(parts) {
+				return "service_accounts", parts[i+1]
+			}
+		}
+	}
+
+	resource = parts[0]
+	if len(parts) > 1 {
+		resourceID = parts[1]
+	}
+	return resource, resourceID
+}
+
 func extractGatewayID(r *http.Request, resource string) string {
 	if resource == "service_accounts" {
-		return mux.Vars(r)["gateway_id"]
+		if gatewayID := mux.Vars(r)["gateway_id"]; gatewayID != "" {
+			return gatewayID
+		}
+		_, gatewayID := extractGatewayIDFromPath(r.URL.Path)
+		return gatewayID
 	}
 	if resource == "gateways" {
 		vars := mux.Vars(r)
-		return vars["id"]
+		if gatewayID := vars["id"]; gatewayID != "" {
+			return gatewayID
+		}
+		_, gatewayID := extractGatewayIDFromPath(r.URL.Path)
+		return gatewayID
 	}
 	return ""
 }
 
-func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary) bool {
+func extractGatewayIDFromPath(path string) (resource string, gatewayID string) {
+	const prefix = "/api/hypershell/v1/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", ""
+	}
+
+	remainder := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+	parts := strings.Split(remainder, "/")
+	if len(parts) >= 2 && parts[0] == "gateways" {
+		return "gateways", parts[1]
+	}
+	return "", ""
+}
+
+func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string) bool {
+	if resource == "users" {
+		return hasUsersInventoryAccess(bindings, jwtRoles)
+	}
+
 	if resource == "gateways" && method == http.MethodPost && resourceID == "" {
 		return hasGatewayCreator(bindings)
 	}
