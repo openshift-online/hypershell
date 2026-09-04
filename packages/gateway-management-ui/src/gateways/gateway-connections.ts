@@ -116,6 +116,15 @@ export function buildInferenceSetCommand(
   return `openshell inference set --provider ${providerName} --model ${model}`;
 }
 
+/**
+ * Builds a complete shell script for creating an OpenShell sandbox with resource limits.
+ * Returns a multi-line string containing:
+ * 1. DRIVER_CONFIG variable assignment with JSON resource specification
+ * 2. openshell sandbox create command referencing $DRIVER_CONFIG
+ *
+ * The DRIVER_CONFIG variable is extracted into a shell variable for readability,
+ * avoiding an unwieldy inline JSON argument in the command itself.
+ */
 export function buildSandboxCreateCommand(
   name: string = sandboxName,
   model: string = claudeModel,
