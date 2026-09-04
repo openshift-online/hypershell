@@ -19,6 +19,9 @@ node_modules/
 .npm/
 .react-router/
 build/
+# The generic build/ ignore above also matches the specs/tooling/build spec
+# directory; keep that tracked (it holds specs, not build output).
+!specs/tooling/build/
 coverage/
 dist/
 playwright-report/

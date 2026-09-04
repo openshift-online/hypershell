@@ -22,6 +22,10 @@ Cross-cutting engineering constraints by component.
 
 UI standards cover accessible, usable, trustworthy, resilient, and verifiable web interfaces in `standards/ui/`.
 
+### [Tooling](tooling/)
+
+Developer and build tooling. Covers the agentic build chain that executes the `full-stack-pipeline` workflow as a typed step graph under configurable per-step models.
+
 ## Spec Registry
 
 Machine-readable index for autonomous reconciliation (`/reconcile` skill).
@@ -65,3 +69,4 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/ui/hexagonal-architecture.spec.md` | standards | UI application ports, adapters, composition | WEB, BFF, SDK | foundations |
 | `standards/ui/domain-observability.spec.md` | standards | Domain probes, fan-out telemetry | WEB, BFF | hexagonal-architecture, trust-performance, security |
 | `standards/ui/verification.spec.md` | standards | UI verification | WEB | foundations, brand-color, interaction, patternfly, accessibility, content-localization, trust-performance, hexagonal-architecture, domain-observability |
+| `tooling/build/agentic-build-chain.spec.md` | tooling | Build step graph, model profiles, acceptance gates, run metrics | build-pipeline | full-stack-pipeline skill, e2e-testing, api-server-observability, control-plane-observability |
