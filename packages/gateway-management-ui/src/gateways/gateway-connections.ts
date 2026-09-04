@@ -77,6 +77,9 @@ export const vertexProviderName = "my-gcp";
 export const installDocsUrl =
   "https://docs.nvidia.com/openshell/about/installation";
 
+export const sandboxConnectDocsUrl =
+  "https://nvidia-openshell.mintlify.app/reference/cli-sandbox#openshell-sandbox-connect";
+
 /** Default sandbox name shown in the copyable create-sandbox command. */
 export const sandboxName = "mysand";
 
@@ -162,8 +165,21 @@ export function buildSandboxCreateCommand(
   return `${variable}\n\n${command}`;
 }
 
+<<<<<<< HEAD
 export function buildSandboxConnectCommand(name: string = sandboxName): string {
   return `openshell sandbox connect ${shellArgument(name)}`;
+=======
+export const defaultEditor = "cursor";
+
+export function buildSandboxConnectCommand(
+  name: string = sandboxName,
+  editor: string = defaultEditor,
+): string {
+  return [
+    `openshell sandbox connect ${shellArgument(name)}`,
+    `--editor ${shellArgument(editor)}`,
+  ].join(" \\\n  ");
+>>>>>>> b61d600 (feat(web-console): Adding an info alert for OpenShell connect)
 }
 
 /**

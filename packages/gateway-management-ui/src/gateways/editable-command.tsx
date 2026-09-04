@@ -88,8 +88,6 @@ function EditableField({
       contentEditable="plaintext-only"
       onInput={handleInput}
       onKeyDown={(event) => {
-        // The command is a single logical line per field; a newline would break
-        // both the layout and the shell command, so swallow Enter.
         if (event.key === "Enter") {
           event.preventDefault();
         }

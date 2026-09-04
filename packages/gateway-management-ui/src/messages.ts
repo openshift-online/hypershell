@@ -255,6 +255,45 @@ export const messages = defineMessages({
     description:
       "Accessible label for the inline-editable provider name in the setup command.",
   },
+<<<<<<< HEAD
+=======
+  connectionEditorOptions: {
+    id: "app.gateway.connection.editorOptions",
+    defaultMessage:
+      "Supported interactive editors are {vscode} and {cursor}.",
+    description:
+      "Info note listing the supported editor values for the connect-sandbox command. {vscode} and {cursor} are code-formatted editor names.",
+  },
+  connectionEditorOptionsLink: {
+    id: "app.gateway.connection.editorOptionsLink",
+    defaultMessage: "OpenShell connect documentation",
+    description:
+      "Link text pointing to the OpenShell sandbox connect CLI documentation.",
+  },
+  connectionEditorOptionsLinkNewTab: {
+    id: "app.gateway.connection.editorOptionsLinkNewTab",
+    defaultMessage: "Sandbox connect reference (opens in a new tab)",
+    description:
+      "Accessible name for the sandbox connect docs link, including that it opens in a new tab.",
+  },
+  connectionEditorOptionsTitle: {
+    id: "app.gateway.connection.editorOptionsTitle",
+    defaultMessage: "Editor options",
+    description: "Title for the editor options info alert.",
+  },
+  editEditor: {
+    id: "app.gateway.connection.editEditor",
+    defaultMessage: "Editor (editable)",
+    description:
+      "Accessible label for the inline-editable editor name in the connect-sandbox command.",
+  },
+  editExistingSandboxName: {
+    id: "app.gateway.connection.editExistingSandboxName",
+    defaultMessage: "Existing sandbox name (editable)",
+    description:
+      "Accessible label for the inline-editable sandbox name in the connect-sandbox command.",
+  },
+>>>>>>> b61d600 (feat(web-console): Adding an info alert for OpenShell connect)
   editSandboxName: {
     id: "app.gateway.connection.editSandboxName",
     defaultMessage: "Sandbox name (editable)",
