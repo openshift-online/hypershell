@@ -12,12 +12,16 @@ import { useIntl } from "react-intl";
 import { messages } from "../messages";
 import { EditableCommand } from "./editable-command";
 import {
+  buildSandboxConnectCommand,
   buildSandboxCreateCommand,
   buildSetupScript,
   claudeModel,
+  defaultEditor,
   type GatewayConnection,
   installDocsUrl,
+  sandboxConnectDocsUrl,
   sandboxName as defaultSandboxName,
+  validEditors,
   vertexProviderName,
 } from "./gateway-connections";
 import styles from "./gateway-connection-steps.module.css";
@@ -30,8 +34,10 @@ import styles from "./gateway-connection-steps.module.css";
 const providerMarker = "OSPROVIDERNAMEZ";
 const modelMarker = "OSMODELNAMEZ";
 const sandboxMarker = "OSSANDBOXNAMEZ";
+const editorMarker = "OSEDITORNAMEZ";
 const setupMarkers = [providerMarker, modelMarker];
 const sandboxMarkers = [sandboxMarker, modelMarker];
+const sandboxConnectMarkers = [sandboxMarker, editorMarker];
 
 function ConnectionStep({
   children,
@@ -62,6 +68,7 @@ export function GatewayConnectionSteps({
   const [providerName, setProviderName] = useState(vertexProviderName);
   const [model, setModel] = useState(claudeModel);
   const [sandboxName, setSandboxName] = useState(defaultSandboxName);
+  const [editor, setEditor] = useState(defaultEditor);
 
   // Marker form drives the (stable) highlight; the resolved form drives copy and
   // matches a whole-block text selection exactly.
@@ -159,6 +166,64 @@ export function GatewayConnectionSteps({
             modelMarker,
           )}
           values={{ [modelMarker]: model, [sandboxMarker]: sandboxName }}
+        />
+      </ConnectionStep>
+
+      <ConnectionStep
+        description={intl.formatMessage(
+          messages.connectionSandboxConnectDescription,
+        )}
+        title={intl.formatMessage(messages.connectionSandboxConnectTitle)}
+      >
+        <Alert
+          actionLinks={
+            <AlertActionLink
+              aria-label={intl.formatMessage(
+                messages.connectionEditorOptionsLinkNewTab,
+              )}
+              component="a"
+              href={sandboxConnectDocsUrl}
+              icon={<ExternalLinkAltIcon aria-hidden />}
+              iconPosition="end"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {intl.formatMessage(messages.connectionEditorOptionsLink)}
+            </AlertActionLink>
+          }
+          className={styles.prereqAlert}
+          component="h3"
+          isInline
+          title={intl.formatMessage(messages.connectionEditorOptionsTitle)}
+          variant="info"
+        >
+          {intl.formatMessage(messages.connectionEditorOptions, {
+            code: (chunks) => <code>{chunks}</code>,
+          })}
+        </Alert>
+        <EditableCommand
+          copyAriaLabel={intl.formatMessage(messages.copySandboxConnectCommand)}
+          copyText={buildSandboxConnectCommand(sandboxName, editor)}
+          labels={{
+            [editorMarker]: intl.formatMessage(messages.editEditor),
+            [sandboxMarker]: intl.formatMessage(
+              messages.editExistingSandboxName,
+            ),
+          }}
+          markers={sandboxConnectMarkers}
+          onFieldChange={(marker, value) => {
+            if (marker === sandboxMarker) {
+              setSandboxName(value);
+            } else if (marker === editorMarker) {
+              setEditor(value);
+            }
+          }}
+          selectOptions={{ [editorMarker]: validEditors }}
+          templateCommand={buildSandboxConnectCommand(
+            sandboxMarker,
+            editorMarker,
+          )}
+          values={{ [editorMarker]: editor, [sandboxMarker]: sandboxName }}
         />
       </ConnectionStep>
     </ol>

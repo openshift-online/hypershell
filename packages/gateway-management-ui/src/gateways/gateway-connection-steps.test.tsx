@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { GatewayConnectionSteps } from "./gateway-connection-steps";
 import {
+  buildSandboxConnectCommand,
   buildSandboxCreateCommand,
   type GatewayConnection,
   installDocsUrl,
@@ -32,7 +33,7 @@ function renderSteps(gateway: GatewayConnection) {
 }
 
 describe("GatewayConnectionSteps", () => {
-  it("renders the setup and sandbox steps", () => {
+  it("renders the setup, sandbox create, and sandbox connect steps", () => {
     renderSteps(readyGateway);
 
     expect(
@@ -40,6 +41,9 @@ describe("GatewayConnectionSteps", () => {
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", { name: "Create a sandbox" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Connect to a sandbox" }),
     ).toBeTruthy();
   });
 
@@ -62,11 +66,11 @@ describe("GatewayConnectionSteps", () => {
     expect(link.textContent).toContain("Install the OpenShell CLI");
   });
 
-  it("highlights both command blocks with Shiki once they resolve", async () => {
+  it("highlights all command blocks with Shiki once they resolve", async () => {
     const { container } = renderSteps(readyGateway);
 
     await waitFor(() => {
-      expect(container.querySelectorAll(".shiki").length).toBe(2);
+      expect(container.querySelectorAll(".shiki").length).toBe(3);
     });
   });
 
@@ -88,7 +92,7 @@ describe("GatewayConnectionSteps", () => {
     const { container } = renderSteps(readyGateway);
 
     await waitFor(() => {
-      expect(container.querySelectorAll(".shiki").length).toBe(2);
+      expect(container.querySelectorAll(".shiki").length).toBe(3);
     });
 
     const providerFields = screen.getAllByRole("textbox", {
@@ -131,6 +135,48 @@ describe("GatewayConnectionSteps", () => {
 
     expect(await navigator.clipboard.readText()).toBe(
       buildSandboxCreateCommand("scratch"),
+    );
+  });
+
+  it("copies the raw sandbox connect command", async () => {
+    const user = userEvent.setup();
+    renderSteps(readyGateway);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Copy the connect-sandbox command",
+      }),
+    );
+
+    expect(await navigator.clipboard.readText()).toBe(
+      buildSandboxConnectCommand(),
+    );
+  });
+
+  it("mirrors an edited sandbox name into both create and connect commands", async () => {
+    const user = userEvent.setup();
+    renderSteps(readyGateway);
+
+    const createField = await screen.findByRole("textbox", {
+      name: "Sandbox name (editable)",
+    });
+    createField.textContent = "scratch";
+    fireEvent.input(createField);
+
+    await user.click(
+      screen.getByRole("button", { name: "Copy the create-sandbox command" }),
+    );
+    expect(await navigator.clipboard.readText()).toBe(
+      buildSandboxCreateCommand("scratch"),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Copy the connect-sandbox command",
+      }),
+    );
+    expect(await navigator.clipboard.readText()).toBe(
+      buildSandboxConnectCommand("scratch"),
     );
   });
 

@@ -77,6 +77,9 @@ export const vertexProviderName = "my-gcp";
 export const installDocsUrl =
   "https://docs.nvidia.com/openshell/about/installation";
 
+export const sandboxConnectDocsUrl =
+  "https://docs.nvidia.com/openshell/sandboxes/manage-sandboxes#connect-to-a-sandbox";
+
 /** Default sandbox name shown in the copyable create-sandbox command. */
 export const sandboxName = "mysand";
 
@@ -160,6 +163,19 @@ export function buildSandboxCreateCommand(
   ].join(" \\\n  ");
 
   return `${variable}\n\n${command}`;
+}
+
+export const validEditors = ["cursor", "vscode"] as const;
+export const defaultEditor = "cursor";
+
+export function buildSandboxConnectCommand(
+  name: string = sandboxName,
+  editor: string = defaultEditor,
+): string {
+  return [
+    `openshell sandbox connect ${shellArgument(name)}`,
+    `--editor ${shellArgument(editor)}`,
+  ].join(" \\\n  ");
 }
 
 /**

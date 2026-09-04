@@ -82,6 +82,30 @@ export const messages = defineMessages({
     defaultMessage: "Region: {region}",
     description: "Region context that distinguishes a managed cluster option.",
   },
+  connectionEditorOptions: {
+    id: "app.gateway.connection.editorOptions",
+    defaultMessage:
+      "Supported interactive editors are <code>vscode</code> and <code>cursor</code>.",
+    description:
+      "Info note listing the supported editor values for the connect-sandbox command. Editor names are wrapped in <code> tags.",
+  },
+  connectionEditorOptionsLink: {
+    id: "app.gateway.connection.editorOptionsLink",
+    defaultMessage: "OpenShell connect documentation",
+    description:
+      "Link text pointing to the OpenShell sandbox connect CLI documentation.",
+  },
+  connectionEditorOptionsLinkNewTab: {
+    id: "app.gateway.connection.editorOptionsLinkNewTab",
+    defaultMessage: "Sandbox connect reference (opens in a new tab)",
+    description:
+      "Accessible name for the sandbox connect docs link, including that it opens in a new tab.",
+  },
+  connectionEditorOptionsTitle: {
+    id: "app.gateway.connection.editorOptionsTitle",
+    defaultMessage: "Editor options",
+    description: "Title for the editor options info alert.",
+  },
   connectionInstallLink: {
     id: "app.gateway.connection.installLink",
     defaultMessage: "Install the OpenShell CLI",
@@ -112,6 +136,17 @@ export const messages = defineMessages({
       "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
+  },
+  connectionSandboxConnectDescription: {
+    id: "app.gateway.connection.sandboxConnect.description",
+    defaultMessage:
+      "Disconnecting does not stop the sandbox process. Connect attaches to the same process instance and replays recent output.",
+    description: "Supporting text for the connect-to-sandbox connection step.",
+  },
+  connectionSandboxConnectTitle: {
+    id: "app.gateway.connection.sandboxConnect.title",
+    defaultMessage: "Connect to a sandbox",
+    description: "Title for the connect-to-sandbox connection step.",
   },
   connectionSandboxDescription: {
     id: "app.gateway.connection.sandbox.description",
@@ -177,6 +212,12 @@ export const messages = defineMessages({
     defaultMessage: "Copy the create-sandbox command",
     description: "Accessible label for copying the create-sandbox command.",
   },
+  copySandboxConnectCommand: {
+    id: "app.gateway.connection.copySandboxConnectCommand",
+    defaultMessage: "Copy the connect-sandbox command",
+    description:
+      "Accessible label for the button that copies the sandbox connect command.",
+  },
   copySetupCommand: {
     id: "app.gateway.connection.copySetupCommand",
     defaultMessage: "Copy the one-time setup commands",
@@ -220,6 +261,18 @@ export const messages = defineMessages({
     id: "app.gateway.detailsTab",
     defaultMessage: "Details",
     description: "Label for the gateway detail Details tab.",
+  },
+  editEditor: {
+    id: "app.gateway.connection.editEditor",
+    defaultMessage: "Editor",
+    description:
+      "Accessible label for the editor selector in the connect-sandbox command.",
+  },
+  editExistingSandboxName: {
+    id: "app.gateway.connection.editExistingSandboxName",
+    defaultMessage: "Existing sandbox name (editable)",
+    description:
+      "Accessible label for the inline-editable sandbox name in the connect-sandbox command.",
   },
   editModel: {
     id: "app.gateway.connection.editModel",

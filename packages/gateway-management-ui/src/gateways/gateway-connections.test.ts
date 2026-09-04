@@ -4,6 +4,7 @@ import {
   buildGatewayAddCommand,
   buildInferenceSetCommand,
   buildProviderCreateCommand,
+  buildSandboxConnectCommand,
   buildSandboxCreateCommand,
   buildSetupScript,
   claudeModel,
@@ -193,6 +194,30 @@ describe("gateway connections", () => {
     expect(cmd).toContain(`"cpu":"${sandboxResourceDefaults.limits.cpu}"`);
     expect(cmd).toContain(
       `"memory":"${sandboxResourceDefaults.limits.memory}"`,
+    );
+  });
+
+  it("builds a sandbox connect command with defaults", () => {
+    expect(buildSandboxConnectCommand()).toBe(
+      `openshell sandbox connect ${sandboxName} \\\n  --editor cursor`,
+    );
+  });
+
+  it("substitutes a custom name into the sandbox connect command", () => {
+    expect(buildSandboxConnectCommand("demo")).toBe(
+      "openshell sandbox connect demo \\\n  --editor cursor",
+    );
+  });
+
+  it("substitutes a custom editor into the sandbox connect command", () => {
+    expect(buildSandboxConnectCommand("demo", "vscode")).toBe(
+      "openshell sandbox connect demo \\\n  --editor vscode",
+    );
+  });
+
+  it("quotes shell-unsafe names in the sandbox connect command", () => {
+    expect(buildSandboxConnectCommand("my $(sandbox)")).toBe(
+      `openshell sandbox connect 'my $(sandbox)' \\\n  --editor cursor`,
     );
   });
 

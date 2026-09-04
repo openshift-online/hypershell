@@ -494,13 +494,15 @@ The selected tab SHALL use the validated `tab` search parameter per `WEB-DATA-02
 
 The `Details` tab SHALL contain the existing gateway description list (status, cluster, endpoint, CLI connection command, namespace, release identifier, and managed-database identifier), using the same values, loading, unavailable, and placement-resolution behavior required elsewhere in this specification.
 
-The `Connection` tab SHALL guide the user through three ordered steps using an accessible ordered structure with a visible label and description for each step:
+The `Connection` tab SHALL guide the user through four ordered steps using an accessible ordered structure with a visible label and description for each step:
 
 1. **Log in to the gateway.** The step SHALL present the `openshell gateway add` command produced from the authorized gateway response as a read-only PatternFly Clipboard Copy value, using the same command construction, shell-argument encoding, and missing-value handling required by `WEB-UI-03`. When required connection values are absent, the step SHALL explain that login is unavailable rather than present an incomplete command.
 
 2. **Add a Claude on Vertex AI provider.** The step SHALL present, as its primary read-only Clipboard Copy value, one `openshell provider create` command for the `google-vertex-ai` provider that reads credentials and configuration from the user's own environment rather than requiring hand-edited secrets. An expandable details disclosure SHALL document the Application Default Credentials prerequisite, the environment variables the command reads, the command that routes a Claude model through the provider, and the sandbox routing caveats, including reaching Vertex through `inference.local` and not setting `CLAUDE_CODE_USE_VERTEX` inside the sandbox. The step SHALL NOT display, request, or persist Google Cloud credentials, service-account keys, project identifiers, or access tokens in the browser.
 
 3. **Create a sandbox.** The step SHALL present an `openshell sandbox create` command that names a sandbox, specifies CPU and memory resource requests and limits via a `--driver-config-json` flag, attaches the provider from step 2, and launches the agent, as a read-only Clipboard Copy value. The default resource values SHALL be CPU requests `100m`, CPU limits `500m`, memory requests `512Mi`, and memory limits `512Mi`.
+
+4. **Connect to a sandbox.** The step SHALL present an `openshell sandbox connect` command that references the sandbox name from step 3 and an `--editor` flag. The sandbox name field SHALL share state with the create step so both commands stay in sync. The editor field SHALL be a constrained inline selector defaulting to `cursor`, offering only the supported values (`cursor`, `vscode`). An adjacent info alert SHALL document the supported values and link to the sandbox connect documentation on the canonical docs host.
 
 The `Connection` tab SHALL also contain a secondary `Create or manage service accounts` link with its introductory content, before the walkthrough. The link SHALL set `tab=service-accounts`. It SHALL not start a create operation.
 
@@ -521,7 +523,7 @@ Every Clipboard Copy control SHALL have a localized accessible name and visible 
 - GIVEN an authenticated user opens a gateway detail page
 - WHEN the page renders
 - THEN the `Connection` tab SHALL be selected
-- AND the three ordered connection steps SHALL be visible
+- AND the four ordered connection steps SHALL be visible
 - AND the `Service accounts` tab SHALL be available
 - AND the operational description list SHALL be available under the `Details` tab
 
