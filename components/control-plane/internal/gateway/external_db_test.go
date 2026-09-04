@@ -222,7 +222,7 @@ func TestReadExternalAdminSecret(t *testing.T) {
 	})
 }
 
-// --- dsn includes connect_timeout ---
+// --- dsn includes connect_timeout and optional sslrootcert ---
 
 func TestDSNConnectTimeout(t *testing.T) {
 	p := &externalAdminParams{
@@ -234,4 +234,19 @@ func TestDSNConnectTimeout(t *testing.T) {
 	if !strings.Contains(dsn, "connect_timeout=10") {
 		t.Errorf("dsn does not contain connect_timeout=10: %s", dsn)
 	}
+}
+
+func TestDSNSslrootcert(t *testing.T) {
+	t.Run("no sslrootcert omitted from dsn", func(t *testing.T) {
+		p := &externalAdminParams{host: "h", port: "5432", user: "u", password: "p", dbname: "db", sslmode: "require"}
+		if strings.Contains(p.dsn(), "sslrootcert") {
+			t.Errorf("unexpected sslrootcert in dsn: %s", p.dsn())
+		}
+	})
+	t.Run("sslrootcert appended when set", func(t *testing.T) {
+		p := &externalAdminParams{host: "h", port: "5432", user: "u", password: "p", dbname: "db", sslmode: "verify-full", sslrootcert: "/etc/ssl/ca.pem"}
+		if !strings.Contains(p.dsn(), "sslrootcert=/etc/ssl/ca.pem") {
+			t.Errorf("dsn missing sslrootcert: %s", p.dsn())
+		}
+	})
 }

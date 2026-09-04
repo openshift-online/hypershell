@@ -48,12 +48,13 @@ func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Inter
 // externalAdminParams holds the admin connection parameters read from the
 // connection Secret. It is only ever alive for the duration of one reconcile.
 type externalAdminParams struct {
-	host     string
-	port     string
-	user     string
-	password string
-	dbname   string
-	sslmode  string
+	host        string
+	port        string
+	user        string
+	password    string
+	dbname      string
+	sslmode     string
+	sslrootcert string // optional; enables verify-full when sslmode=verify-full
 }
 
 const externalSecretPrefix = "hypershell-managed-db-"
@@ -118,20 +119,28 @@ func readExternalAdminSecret(ctx context.Context, clientset kubernetes.Interface
 	if sslmode == "" {
 		sslmode = "require"
 	}
+	if sslmode == "disable" {
+		log.Printf("WARN external DB secret %s: sslmode=disable is insecure; use require or verify-full for production", secretName)
+	}
 
 	return &externalAdminParams{
-		host:     get("host"),
-		port:     get("port"),
-		user:     get("user"),
-		password: get("password"),
-		dbname:   dbname,
-		sslmode:  sslmode,
+		host:        get("host"),
+		port:        get("port"),
+		user:        get("user"),
+		password:    get("password"),
+		dbname:      dbname,
+		sslmode:     sslmode,
+		sslrootcert: get("sslrootcert"),
 	}, "", nil
 }
 
 func (p *externalAdminParams) dsn() string {
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=10",
+	s := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=10",
 		p.host, p.port, p.user, p.password, p.dbname, p.sslmode)
+	if p.sslrootcert != "" {
+		s += " sslrootcert=" + p.sslrootcert
+	}
+	return s
 }
 
 // openAdminConn opens a short-lived PostgreSQL admin connection. Callers must
@@ -349,9 +358,11 @@ func ReconcileExternalDatabaseResources(
 	}
 
 	// Write or refresh the tenant credentials Secret.
-	sslmode := params.sslmode
 	dbURI := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=%s",
-		pgName, url.QueryEscape(password), params.host, params.port, pgName, sslmode)
+		pgName, url.QueryEscape(password), params.host, params.port, pgName, params.sslmode)
+	if params.sslrootcert != "" {
+		dbURI += "&sslrootcert=" + url.QueryEscape(params.sslrootcert)
+	}
 
 	desiredData := map[string][]byte{
 		"host":     []byte(params.host),
@@ -517,9 +528,11 @@ func RotateExternalDatabaseCredentials(
 	}
 	log.Printf("INFO rotated external DB password for gateway %s", gatewayID)
 
-	sslmode := params.sslmode
 	dbURI := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=%s",
-		pgName, url.QueryEscape(newPassword), params.host, params.port, pgName, sslmode)
+		pgName, url.QueryEscape(newPassword), params.host, params.port, pgName, params.sslmode)
+	if params.sslrootcert != "" {
+		dbURI += "&sslrootcert=" + url.QueryEscape(params.sslrootcert)
+	}
 
 	updated := existingSecret.DeepCopy()
 	if updated.Data == nil {

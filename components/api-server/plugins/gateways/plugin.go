@@ -92,7 +92,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				case ProviderDeployment:
 					placement = NewDeploymentPlacement(&dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
 				case ProviderCNPG:
-					placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc})
+					placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc, provider: ProviderCNPG})
 				case ProviderExternal:
 					placement = NewExternalPlacement(&dbLookupAdapter{svc: mdSvc, provider: ProviderExternal})
 				}

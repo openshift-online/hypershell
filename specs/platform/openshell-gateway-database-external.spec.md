@@ -641,8 +641,13 @@ The parent spec's credential-security requirements apply unchanged, plus:
   persisted by HyperShell beyond the referenced Secret.
 - Per-gateway passwords SHALL be generated with `crypto/rand` (32-byte hex),
   create-or-skip on re-reconciliation, and never logged.
-- The connection to the external server SHALL always be TLS-encrypted (minimum
-  `sslmode=require`); `sslmode=disable` SHALL NOT be used for external servers.
+- The connection to the external server SHOULD always be TLS-encrypted (minimum
+  `sslmode=require`). `sslmode=disable` is insecure and SHOULD NOT be used in
+  production. The control plane emits a WARN log when `sslmode=disable` is read from
+  the admin Secret so operators see the misconfiguration without the reconciler
+  failing. Development and CI environments that use a local PostgreSQL server without
+  TLS may set `sslmode=disable`; this is explicitly not recommended for any external
+  server reachable from outside the cluster.
 
 ---
 
