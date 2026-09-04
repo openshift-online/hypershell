@@ -125,7 +125,7 @@
   },
   "app.gateway.connection.copySandboxConnectCommand": {
     "defaultMessage": "Copy the connect-sandbox command",
-    "description": "Accessible label for copying the connect-sandbox command."
+    "description": "Accessible label for the button that copies the sandbox connect command."
   },
   "app.gateway.connection.copySetupCommand": {
     "defaultMessage": "Copy the one-time setup commands",
