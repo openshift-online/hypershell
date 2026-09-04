@@ -205,7 +205,7 @@ EOF
     ) &
     API_PF_PID=$!
 
-    track_swap "${COMPONENT}"
+    track_swap "${COMPONENT}" "hot-reload"
 
     _cleaned=false
     cleanup_hot_reload() {
@@ -305,7 +305,7 @@ EOF
   # `rollout status` requires updated replicas to actually become available, so
   # it fails (rather than passing trivially) if no pods come up.
   kube rollout status "deployment/${DEPLOYMENT}" -n "${KIND_NAMESPACE}" --timeout=120s
-  track_swap "${COMPONENT}"
+  track_swap "${COMPONENT}" "${LOCAL_IMAGE}"
   success "${COMPONENT} swapped to local build."
 }
 

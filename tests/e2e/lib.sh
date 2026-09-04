@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # lib.sh - shared e2e test utilities.
 #
-# Provides pass/fail tracking, colored output, retry helpers, and common
-# environment defaults. Sourced by e2e-openshell.sh.
+# Provides pass/fail tracking, colored output, retry helpers, driver
+# selection, and common environment defaults. Sourced by e2e-openshell.sh
+# and e2e-performance.sh.
 
 set -euo pipefail
 
@@ -203,7 +204,8 @@ e2e_list_available_drivers() {
   fi
 }
 
-# Print available drivers and exit 1. Used when E2E_INFRA_DRIVER is unset or unknown.
+# Print available drivers and exit 1. Used when E2E_INFRA_DRIVER names a
+# missing driver file.
 e2e_die_unknown_driver() {
   local reason="$1"
   red "ERROR: ${reason}"
@@ -211,6 +213,32 @@ e2e_die_unknown_driver() {
   echo "Available drivers:"
   e2e_list_available_drivers | while read -r d; do echo "  - $d"; done
   exit 1
+}
+
+# Detects OpenShift by checking whether the current KUBECONFIG context serves
+# the route.openshift.io API group, an API only OpenShift clusters expose.
+# Any other cluster is assumed to be Kind. Prints the driver name to stdout.
+e2e_detect_infra_driver() {
+  local api_versions
+  if ! api_versions=$(kubectl api-versions 2>&1); then
+    red "ERROR: 'kubectl api-versions' failed against the current KUBECONFIG context" >&2
+    red "$api_versions" >&2
+    exit 1
+  fi
+  if echo "$api_versions" | grep -q '^route\.openshift\.io/'; then
+    echo "openshift"
+  else
+    echo "kind"
+  fi
+}
+
+# Auto-detect E2E_INFRA_DRIVER from the current KUBECONFIG context when unset.
+# An explicit E2E_INFRA_DRIVER value is left unchanged.
+e2e_select_infra_driver() {
+  if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
+    E2E_INFRA_DRIVER="$(e2e_detect_infra_driver)"
+    dim "  Detected infra driver: ${E2E_INFRA_DRIVER} (from KUBECONFIG context; set E2E_INFRA_DRIVER to override)"
+  fi
 }
 
 # First item id from a HyperShell list JSON on stdin. Optional name match.

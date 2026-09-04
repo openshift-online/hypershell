@@ -2249,7 +2249,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	parentRef := map[string]interface{}{
 		"name":        gwName,
 		"namespace":   gwNS,
-		"sectionName": "grpc",
+		"sectionName": sharedGatewayListenerName(),
 	}
 
 	grpcRoute := &unstructured.Unstructured{

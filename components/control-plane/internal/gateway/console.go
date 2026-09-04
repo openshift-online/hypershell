@@ -241,10 +241,13 @@ func routeConditionState(conditions []interface{}, condType string) (isTrue bool
 	return false, ""
 }
 
-// consoleListenerName returns the sectionName of the shared Gateway HTTP
-// listener that console HTTPRoutes attach to (GATEWAY_API_HTTP_LISTENER_NAME,
-// default "https").
-func consoleListenerName() string {
+// sharedGatewayListenerName returns the sectionName of the shared Gateway
+// listener that both the gateway's GRPCRoute and the per-gateway console's
+// HTTPRoute attach to (GATEWAY_API_HTTP_LISTENER_NAME, default "https"). Both
+// route kinds must resolve to the same listener, so this is the single source
+// of truth for both call sites -- a mismatch here reproduces as GRPCRoute or
+// HTTPRoute status NoMatchingParent even when the Gateway itself is Programmed.
+func sharedGatewayListenerName() string {
 	if n := os.Getenv("GATEWAY_API_HTTP_LISTENER_NAME"); n != "" {
 		return n
 	}
@@ -749,7 +752,7 @@ func buildConsoleHTTPRoute(namespace, host string) *unstructured.Unstructured {
 	parentRef := map[string]interface{}{
 		"name":        gatewayIngressName(),
 		"namespace":   gatewayIngressNamespace(),
-		"sectionName": consoleListenerName(),
+		"sectionName": sharedGatewayListenerName(),
 	}
 	return &unstructured.Unstructured{
 		Object: map[string]interface{}{

@@ -130,7 +130,7 @@ help:
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
-	@echo "    e2e-performance          Run the performance harness (requires a running cluster)"
+	@echo "    e2e-performance          Run the performance harness (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    e2e-performance-report   Tabulate recent local performance runs"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
@@ -521,8 +521,9 @@ generate-sdk-go:
 # E2E Tests
 # ============================================================================
 
-# Default driver is kind; honor E2E_INFRA_DRIVER=openshift make e2e on the CLI.
-E2E_INFRA_DRIVER ?= kind
+# Driver is auto-detected from the current KUBECONFIG context
+# (route.openshift.io => openshift, otherwise kind). Set E2E_INFRA_DRIVER
+# on the command line to override.
 
 .PHONY: e2e
 e2e:
@@ -536,10 +537,9 @@ e2e:
 .PHONY: e2e-performance
 e2e-performance:
 	@echo ""
-	@echo "==> Running E2E performance harness ($(E2E_INFRA_DRIVER))"
+	@echo "==> Running E2E performance harness"
 	@echo ""
-	@E2E_INFRA_DRIVER=$(E2E_INFRA_DRIVER) \
-		bash tests/e2e/e2e-performance.sh
+	@bash tests/e2e/e2e-performance.sh
 
 .PHONY: e2e-performance-report
 e2e-performance-report:

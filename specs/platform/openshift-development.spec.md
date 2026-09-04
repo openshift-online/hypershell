@@ -194,15 +194,36 @@ Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
 developer needs for a working gateway -- a ManagedCluster, a
 GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
 OIDC values for the environment, so that one command produces a working gateway and
-the OpenShift workflow matches the Kind workflow. When the CloudNativePG operator
-is not on the cluster, `make openshift-up` already falls back to the bundled
-PostgreSQL Deployment for the API server; seeding SHALL create the ManagedDatabase
-with `provider=deployment` in that case, not `provider=cnpg`. When CNPG is
-present, seeding MAY use `provider=cnpg`. The OpenShift overlay SHALL set
-`GATEWAY_API_HTTP_LISTENER_NAME=grpc` so console HTTPRoutes attach to the shared
-Gateway listener of that name. The default `https` sectionName SHALL NOT be used
-on this overlay: the shared Gateway has no `https` listener, and that mismatch
-reports `NoMatchingParent` and does not self-heal.
+the OpenShift workflow matches the Kind workflow.
+
+The platform's own database provider (CNPG `Cluster` vs. the bundled PostgreSQL
+Deployment) SHALL be selectable with `DATABASE_PROVIDER=cnpg|deployment`, mirroring
+`make kind-up`. When unset, `make openshift-up` SHALL auto-detect: CNPG if the
+CloudNativePG operator is on the cluster, the bundled Deployment otherwise.
+Seeding SHALL create the ManagedDatabase with `provider=deployment` when the
+bundled Deployment is what's actually running, and `provider=cnpg` when CNPG is.
+Both providers persist their connection info in a Secret of the same name
+(`hypershell-db-app`) with different, incompatible key shapes (deployment:
+`user`/`password`/`host`/`port`/`dbname`; CNPG: `username`/`password`,
+auto-generated only if that Secret does not already exist). When the effective
+provider for a run differs from what is actually deployed in the namespace group
+(detected directly from live cluster state, not from `DATABASE_PROVIDER`),
+`make openshift-up` SHALL cut over automatically: delete the outgoing provider's
+resources (its Secret, and its Deployment/Service or its CNPG `Cluster`/PVCs) before
+applying the target provider, and restart `hypershell-api-server` and
+`hypershell-controller` afterward so they pick up the new connection info. This
+cutover is destructive to the outgoing provider's data, acceptable because this
+namespace group is ephemeral dev/e2e infrastructure, not production.
+
+The OpenShift overlay SHALL derive `GATEWAY_API_HTTP_LISTENER_NAME` from the
+shared Gateway's actual listener (preferring one literally named `grpc` for
+single-hub clusters, otherwise the listener that supplied `GATEWAY_API_BASE_DOMAIN`)
+rather than hardcoding a static name, so console HTTPRoutes and gateway GRPCRoutes
+attach to a listener that actually exists. A multi-hub shared Gateway names each
+listener after its hub (e.g. `grpc-hyp4`, `grpc-hyp5`), not literally `grpc`; a
+static `grpc` default, or the `https` default `sharedGatewayListenerName()` falls
+back to when the override is unset, both reproduce as GRPCRoute or HTTPRoute status
+`NoMatchingParent` that does not self-heal on such a cluster.
 
 The `make openshift-down` command SHALL delete the applied manifests and SHALL
 remove every project in the environment namespace group: the platform project

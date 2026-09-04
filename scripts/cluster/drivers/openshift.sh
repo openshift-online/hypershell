@@ -25,7 +25,7 @@ require_openshift_cluster() {
     error "Log in with 'oc login' (or set KUBECONFIG) and retry. 'make openshift-up' does not create a cluster."
     exit 1
   fi
-  if ! oc_cli api-resources --api-group=route.openshift.io --no-headers 2>/dev/null | grep -q .; then
+  if ! api_group_available route.openshift.io; then
     error "The current kubeconfig context is not an OpenShift cluster (route.openshift.io is missing)."
     error "Provide an OpenShift cluster target before running 'make openshift-up'."
     exit 1
@@ -216,16 +216,30 @@ ensure_namespace_group() {
 discover_gateway_base_domain() {
   local gw_name="$1"
   local gw_ns="$2"
-  local host=""
+  local host="" name=""
   host="$(oc_cli get "gateway.gateway.networking.k8s.io/${gw_name}" -n "${gw_ns}" \
     -o jsonpath='{.spec.listeners[?(@.name=="grpc")].hostname}' 2>/dev/null || true)"
-  if [[ -z "${host}" ]]; then
+  if [[ -n "${host}" ]]; then
+    name="grpc"
+  else
+    # No listener is literally named "grpc" -- a multi-hub shared Gateway
+    # names each listener after its hub (e.g. grpc-hyp4, grpc-hyp5), so fall
+    # back to the first listener and use ITS name, not the literal "grpc".
+    # GATEWAY_API_HTTP_LISTENER_NAME must match whichever listener supplied
+    # the hostname below, or GRPCRoutes fail sectionName resolution
+    # (NoMatchingParent) even though the domain looks right.
     host="$(oc_cli get "gateway.gateway.networking.k8s.io/${gw_name}" -n "${gw_ns}" \
       -o jsonpath='{.spec.listeners[0].hostname}' 2>/dev/null || true)"
+    name="$(oc_cli get "gateway.gateway.networking.k8s.io/${gw_name}" -n "${gw_ns}" \
+      -o jsonpath='{.spec.listeners[0].name}' 2>/dev/null || true)"
   fi
   if [[ -z "${host}" ]]; then
     error "Shared Gateway '${gw_ns}/${gw_name}' has no listener hostname."
     error "The gateway wildcard hostname is the base domain; 'make openshift-up' does not take GATEWAY_API_BASE_DOMAIN."
+    exit 1
+  fi
+  if [[ -z "${name}" ]]; then
+    error "Shared Gateway '${gw_ns}/${gw_name}' listener has no name."
     exit 1
   fi
   GATEWAY_API_BASE_DOMAIN="$(gateway_base_domain_from_hostname "${host}")"
@@ -233,6 +247,7 @@ discover_gateway_base_domain() {
     error "Could not derive a base domain from Gateway listener hostname '${host}'."
     exit 1
   fi
+  GATEWAY_API_HTTP_LISTENER_NAME="${name}"
 }
 
 check_infrastructure() {
@@ -263,7 +278,7 @@ check_infrastructure() {
   fi
   discover_gateway_base_domain "${gw_name}" "${gw_ns}"
   success "Shared Gateway ${gw_ns}/${gw_name} (GatewayClass ${gw_class}) is ready"
-  info "Gateway base domain: ${GATEWAY_API_BASE_DOMAIN} (from ${gw_ns}/${gw_name} listener)"
+  info "Gateway base domain: ${GATEWAY_API_BASE_DOMAIN} (from ${gw_ns}/${gw_name} listener '${GATEWAY_API_HTTP_LISTENER_NAME}')"
 }
 
 warn_skipped_cluster_rbac() {
@@ -505,6 +520,8 @@ patches:
                     value: "${GATEWAY_API_GATEWAY_NAMESPACE}"
                   - name: GATEWAY_API_BASE_DOMAIN
                     value: "${GATEWAY_API_BASE_DOMAIN}"
+                  - name: GATEWAY_API_HTTP_LISTENER_NAME
+                    value: "${GATEWAY_API_HTTP_LISTENER_NAME}"
                   - name: GATEWAY_OIDC_ISSUER_URL
                     value: "https://keycloak.pending.invalid/realms/hypershell"
 EOF
@@ -531,11 +548,122 @@ EOF
 }
 
 api_group_available() {
-  oc_cli api-resources --api-group="$1" --no-headers 2>/dev/null | grep -q .
+  # Capture into a variable rather than piping into `grep -q`: under
+  # pipefail, grep -q exits the instant it sees a match, and if oc
+  # api-resources is still writing more output at that moment it gets
+  # SIGPIPE'd and the pipeline reports a spurious non-zero (141) status --
+  # a real, observed race that intermittently (and cluster-dependently)
+  # makes an installed API group look unavailable.
+  local out
+  out="$(oc_cli api-resources --api-group="$1" --no-headers 2>/dev/null)"
+  [[ -n "${out}" ]]
 }
 
 cnpg_available() {
   api_group_available postgresql.cnpg.io
+}
+
+# effective_database_provider - the DB provider this run of openshift-up will
+# deploy: DATABASE_PROVIDER if explicitly set (validated against what the
+# cluster can actually run), otherwise auto-detected from CNPG operator
+# availability. This is "what should run"; cutover_database_provider
+# reconciles live cluster state toward it.
+effective_database_provider() {
+  case "${DATABASE_PROVIDER:-}" in
+    cnpg)
+      if ! cnpg_available; then
+        error "DATABASE_PROVIDER=cnpg requested but the CNPG operator (postgresql.cnpg.io) is not installed on this cluster."
+        exit 1
+      fi
+      printf 'cnpg'
+      ;;
+    deployment)
+      printf 'deployment'
+      ;;
+    "")
+      if cnpg_available; then printf 'cnpg'; else printf 'deployment'; fi
+      ;;
+    *)
+      error "Unknown DATABASE_PROVIDER '${DATABASE_PROVIDER}': expected 'cnpg' or 'deployment'."
+      exit 1
+      ;;
+  esac
+}
+
+# database_provider_key - the Secret key that proves hypershell-db-app was
+# shaped for the given provider (deployment: user; CNPG: username).
+database_provider_key() {
+  case "$1" in
+    cnpg) printf 'username' ;;
+    deployment) printf 'user' ;;
+  esac
+}
+
+# secret_shaped_for_provider - true if hypershell-db-app either does not exist
+# yet (the target provider will create its own) or already carries the key
+# that provider's connection info requires.
+secret_shaped_for_provider() {
+  local provider="$1" key
+  key="$(database_provider_key "${provider}")"
+  if ! oc_cli get secret hypershell-db-app -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
+    return 0
+  fi
+  local val
+  val="$(oc_cli get secret hypershell-db-app -n "${OPENSHIFT_NAMESPACE}" \
+    -o jsonpath="{.data.${key}}" 2>/dev/null || true)"
+  [[ -n "${val}" ]]
+}
+
+DATABASE_PROVIDER_CUTOVER_PERFORMED=""
+
+# cutover_database_provider - reconcile live database resources toward the
+# target provider, rather than trusting a single "current provider" read: a
+# prior interrupted or pre-fix run can leave BOTH a CNPG Cluster and the
+# bundled Deployment present at once (e.g. a Cluster created after CNPG
+# detection flipped true, sitting alongside a Deployment an earlier run never
+# tore down), which a first-match "current" check would misreport as already
+# matching the target and skip entirely. Instead: remove whichever provider's
+# resources are NOT the target, unconditionally, and separately validate the
+# shared hypershell-db-app Secret is actually shaped for the target -- it is
+# not safe to infer the Secret's shape from which provider's resources exist,
+# since either can adopt a Secret the other left behind. Both providers reuse
+# that Secret name with incompatible key shapes (deployment:
+# user/password/host/port/dbname; CNPG: username/password, auto-generated
+# only if the Secret doesn't already exist) -- an unnoticed mismatch leaves
+# the primary instance stuck in CreateContainerConfigError waiting on a key
+# that will never appear.
+# DESTRUCTIVE: deletes the outgoing provider's database and its data. This
+# namespace group is ephemeral dev/e2e infrastructure, not production.
+cutover_database_provider() {
+  local target="$1"
+  local changed=""
+
+  if [[ "${target}" != "cnpg" ]] \
+    && oc_cli get cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
+    warn "Removing CNPG database in ${OPENSHIFT_NAMESPACE} (target provider: ${target}); its data will be lost."
+    oc_cli delete cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" --wait=true --timeout=120s 2>/dev/null || true
+    oc_cli delete pvc -n "${OPENSHIFT_NAMESPACE}" -l cnpg.io/cluster=hypershell-db --ignore-not-found=true
+    changed=true
+  fi
+
+  if [[ "${target}" != "deployment" ]] \
+    && oc_cli get deployment hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
+    warn "Removing bundled PostgreSQL Deployment in ${OPENSHIFT_NAMESPACE} (target provider: ${target}); its data will be lost."
+    oc_cli delete deployment hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
+    oc_cli delete service hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
+    changed=true
+  fi
+
+  if ! secret_shaped_for_provider "${target}"; then
+    warn "hypershell-db-app in ${OPENSHIFT_NAMESPACE} is not shaped for ${target}; clearing it so ${target} can create its own."
+    oc_cli delete secret hypershell-db-app -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
+    changed=true
+  fi
+
+  if [[ -n "${changed}" ]]; then
+    DATABASE_PROVIDER_CUTOVER_PERFORMED=true
+    success "Database provider reconciled to ${target} in ${OPENSHIFT_NAMESPACE}"
+  fi
 }
 
 apply_rendered_overlay() {
@@ -603,7 +731,7 @@ configure_postgres_fallback_ssl() {
 
 developer_omit_kinds() {
   local kinds="ClusterRole,ClusterRoleBinding"
-  if ! cnpg_available; then
+  if [[ "$(effective_database_provider)" != "cnpg" ]]; then
     kinds+=",Cluster"
   fi
   if ! api_group_available cert-manager.io; then
@@ -626,7 +754,7 @@ apply_overlay() {
 
   info "Applying HyperShell in project ${OPENSHIFT_NAMESPACE}..."
   use_project "${OPENSHIFT_NAMESPACE}"
-  if ! cnpg_available; then
+  if [[ "$(effective_database_provider)" != "cnpg" ]]; then
     apply_postgres_fallback
   fi
   if ! rendered="$(render_openshift_manifests \
@@ -636,7 +764,7 @@ apply_overlay() {
     exit 1
   fi
   apply_rendered_overlay "${rendered}"
-  if ! cnpg_available; then
+  if [[ "$(effective_database_provider)" != "cnpg" ]]; then
     configure_postgres_fallback_ssl
   fi
 
@@ -761,6 +889,21 @@ wait_for_deployments() {
   wait_for_named_rollout hypershell-api-server "${OPENSHIFT_NAMESPACE}"
   wait_for_named_rollout hypershell-controller "${OPENSHIFT_NAMESPACE}"
   wait_for_named_rollout hypershell-web-console "${OPENSHIFT_NAMESPACE}"
+}
+
+# restart_after_database_cutover - api-server and controller mount
+# hypershell-db-app and read it at process start, so if cutover_database_provider
+# recreated that Secret with a different shape, a pod that was already running
+# against the old provider keeps its stale connection until restarted --
+# reapplying the (unchanged) Deployment spec does not trigger a new rollout.
+# No-op unless a cutover actually happened this run.
+restart_after_database_cutover() {
+  [[ -n "${DATABASE_PROVIDER_CUTOVER_PERFORMED}" ]] || return 0
+  info "Restarting api-server and controller to pick up the cut-over database..."
+  oc_cli rollout restart deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}"
+  oc_cli rollout restart deployment/hypershell-controller -n "${OPENSHIFT_NAMESPACE}"
+  wait_for_named_rollout hypershell-api-server "${OPENSHIFT_NAMESPACE}"
+  wait_for_named_rollout hypershell-controller "${OPENSHIFT_NAMESPACE}"
 }
 
 # Talk to OpenShift Routes from the developer machine. The API server image has
@@ -932,10 +1075,8 @@ seed_via_api() {
   fi
 
   if [[ -z "${seed_failed}" ]]; then
-    local db_provider="cnpg"
-    if ! cnpg_available; then
-      db_provider="deployment"
-    fi
+    local db_provider
+    db_provider="$(effective_database_provider)"
     raw="$(api_exec GET /api/hypershell/v1/managed_databases)"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
@@ -1039,10 +1180,12 @@ cluster_up() {
   ensure_namespace_group
   create_bootstrap_secrets
   apply_cluster_rbac
+  cutover_database_provider "$(effective_database_provider)"
   apply_overlay
   restore_swaps_after_reconcile
   configure_oidc_from_routes
   wait_for_deployments
+  restart_after_database_cutover
   add_keycloak_redirect_uri || true
   if skip_seed; then
     info "SKIP_SEED=true - skipping platform seeding"

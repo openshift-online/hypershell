@@ -334,6 +334,14 @@ EOF
   rm -rf "${_kustomize_dir}"
 fi
 
+# The apply above re-renders every Deployment from the overlay baseline,
+# which resets any previously swapped component's image. Restore swapped
+# images immediately, the same apply-then-restore sequencing the OpenShift
+# driver uses (restore_swaps_after_reconcile in
+# scripts/cluster/drivers/openshift.sh), so `kind-up` and `openshift-up`
+# preserve swap state the same way.
+restore_swaps_after_reconcile
+
 if [[ "${DB_PROVIDER}" == "deployment" ]]; then
   info "Waiting for PostgreSQL deployment..."
   kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
@@ -568,8 +576,8 @@ if ! is_swapped control-plane; then
   kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 fi
 
-if is_swapped web-console; then
-  warn "Web console is swapped -- scaling to zero (runs locally via npm)"
+if is_swapped web-console && [[ "$(swap_image web-console)" == "hot-reload" ]]; then
+  warn "Web console is swapped (hot reload) -- scaling to zero (runs locally via npm)"
   kube scale deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --replicas=0
 fi
 

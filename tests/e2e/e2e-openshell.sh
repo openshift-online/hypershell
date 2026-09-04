@@ -47,28 +47,7 @@ DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
 # --- Driver selection and validation ---
 
 e2e_validate_mode
-
-# Detects OpenShift by checking whether the current KUBECONFIG context serves
-# the route.openshift.io API group, an API only OpenShift clusters expose.
-# Any other cluster is assumed to be Kind.
-detect_infra_driver() {
-  local api_versions
-  if ! api_versions=$(kubectl api-versions 2>&1); then
-    red "ERROR: 'kubectl api-versions' failed against the current KUBECONFIG context" >&2
-    red "$api_versions" >&2
-    exit 1
-  fi
-  if echo "$api_versions" | grep -q '^route\.openshift\.io/'; then
-    echo "openshift"
-  else
-    echo "kind"
-  fi
-}
-
-if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
-  E2E_INFRA_DRIVER="$(detect_infra_driver)"
-  dim "  Detected infra driver: ${E2E_INFRA_DRIVER} (from KUBECONFIG context; set E2E_INFRA_DRIVER to override)"
-fi
+e2e_select_infra_driver
 
 DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"
 if [[ ! -f "$DRIVER_FILE" ]]; then
