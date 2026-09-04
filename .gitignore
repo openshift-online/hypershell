@@ -19,6 +19,9 @@ node_modules/
 .npm/
 .react-router/
 build/
+# The generic build/ ignore above also matches the specs/tooling/build spec
+# directory; keep that tracked (it holds specs, not build output).
+!specs/tooling/build/
 coverage/
 dist/
 playwright-report/
@@ -57,3 +60,12 @@ loop.txt
 
 # JetBrains IDE project files
 .idea/
+
+# Python (components/build-pipeline)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+# build-pipeline run outputs
+.build-pipeline/

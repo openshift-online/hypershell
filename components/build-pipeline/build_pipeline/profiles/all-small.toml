@@ -1,0 +1,28 @@
+name = "all-small"
+# Every non-tool-only step on the small/cheap Claude model (Vertex). Cost baseline.
+
+[tiers.small]
+provider = "anthropic-vertex"
+model = "claude-haiku-4-5@20251001"
+[tiers.small.params]
+temperature = 0
+price_in_per_m = 1.00
+price_out_per_m = 5.00
+
+[tiers.standard]
+provider = "anthropic-vertex"
+model = "claude-haiku-4-5@20251001"
+[tiers.standard.params]
+temperature = 0
+price_in_per_m = 1.00
+price_out_per_m = 5.00
+
+[tiers.deep]
+provider = "anthropic-vertex"
+model = "claude-haiku-4-5@20251001"
+[tiers.deep.params]
+temperature = 0
+price_in_per_m = 1.00
+price_out_per_m = 5.00
+
+[overrides]
