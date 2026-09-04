@@ -84,8 +84,9 @@ type oidcConfig struct {
 const pending = "<PENDING>"
 
 // Keep in sync with:
-//   packages/gateway-management-ui/src/gateways/gateway-connections.ts (sandboxResourceDefaults)
-//   specs/web-console/architecture.spec.md § Create a sandbox
+//
+//	packages/gateway-management-ui/src/gateways/gateway-connections.ts (sandboxResourceDefaults)
+//	specs/web-console/architecture.spec.md § Create a sandbox
 const sandboxDriverConfig = `{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}`
 
 func printConnectionInstructions(w io.Writer, body []byte) error {
