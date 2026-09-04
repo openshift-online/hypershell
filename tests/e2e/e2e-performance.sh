@@ -6,10 +6,14 @@
 # functional gate. Reuses the e2e driver interface: no kubectl/oc/kind
 # commands appear in this file.
 #
+# The infrastructure driver is auto-detected from the current KUBECONFIG
+# context, the same as e2e-openshell.sh. Set E2E_INFRA_DRIVER to override.
+#
 # Usage:
-#   E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-performance.sh
+#   bash tests/e2e/e2e-performance.sh
 #   make e2e-performance
-#   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift make e2e-performance
+#   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift \
+#     make e2e-performance   # override detection
 #
 # See specs/platform/e2e-testing.spec.md "Performance Testing".
 set -euo pipefail
@@ -50,9 +54,7 @@ E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
 # --- Driver selection ---
 
-if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
-  e2e_die_unknown_driver "E2E_INFRA_DRIVER is not set."
-fi
+e2e_select_infra_driver
 
 DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"
 if [[ ! -f "$DRIVER_FILE" ]]; then
@@ -678,6 +680,9 @@ bold "Performance summary"
 sep
 perf_print_summary
 
+# Reached the summary without a fatal abort; print_results (lib.sh) notes when
+# this was never set, which does not apply to this script's own cleanup path.
+E2E_COMPLETED=1
 print_results
 
 if [[ "${PERF_RUN_RESULT}" != "pass" ]]; then

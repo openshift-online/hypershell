@@ -326,12 +326,100 @@ else
   fail_u "SIGINT was swallowed (rc=${signal_rc}, cleanup=$([[ -f "$signal_cleanup" ]] && echo yes || echo no), continued=$([[ -f "$signal_continued" ]] && echo yes || echo no))"
 fi
 
-# --- Driver-not-set message (harness + suite share e2e_die_unknown_driver) ---
+# --- Driver listing + auto-detection (shared by e2e and e2e-performance) ---
 
 if e2e_list_available_drivers | grep -qx kind; then
   pass_u "kind driver is listed"
 else
   fail_u "kind driver should be listed in tests/e2e/drivers"
+fi
+
+_fake_kubectl_versions=""
+_fake_kubectl_rc=0
+kubectl() {
+  if [[ "$*" == "api-versions" ]]; then
+    printf '%s\n' "${_fake_kubectl_versions}"
+    return "${_fake_kubectl_rc}"
+  fi
+  return 1
+}
+
+_fake_kubectl_versions=$'apps/v1\nroute.openshift.io/v1'
+if [[ "$(e2e_detect_infra_driver)" == "openshift" ]]; then
+  pass_u "route.openshift.io auto-detects the openshift driver"
+else
+  fail_u "route.openshift.io should auto-detect openshift"
+fi
+
+_fake_kubectl_versions=$'apps/v1\nv1'
+if [[ "$(e2e_detect_infra_driver)" == "kind" ]]; then
+  pass_u "clusters without route.openshift.io auto-detect kind"
+else
+  fail_u "clusters without route.openshift.io should auto-detect kind"
+fi
+
+_fake_kubectl_rc=1
+_fake_kubectl_versions="The connection to the server was refused"
+if (e2e_detect_infra_driver) &>/dev/null; then
+  fail_u "detect should fail when kubectl api-versions fails"
+else
+  pass_u "detect fails when kubectl cannot reach the cluster"
+fi
+_fake_kubectl_rc=0
+
+_saved_driver="${E2E_INFRA_DRIVER:-}"
+E2E_INFRA_DRIVER=kind
+_fake_kubectl_versions=$'route.openshift.io/v1'
+e2e_select_infra_driver >/dev/null
+if [[ "$E2E_INFRA_DRIVER" == "kind" ]]; then
+  pass_u "explicit E2E_INFRA_DRIVER overrides auto-detection"
+else
+  fail_u "explicit E2E_INFRA_DRIVER was overwritten: ${E2E_INFRA_DRIVER}"
+fi
+
+unset E2E_INFRA_DRIVER
+e2e_select_infra_driver >/dev/null
+if [[ "$E2E_INFRA_DRIVER" == "openshift" ]]; then
+  pass_u "unset E2E_INFRA_DRIVER auto-detects from KUBECONFIG"
+else
+  fail_u "unset E2E_INFRA_DRIVER did not auto-detect openshift: ${E2E_INFRA_DRIVER:-<empty>}"
+fi
+if [[ -n "$_saved_driver" ]]; then
+  E2E_INFRA_DRIVER="$_saved_driver"
+else
+  unset E2E_INFRA_DRIVER
+fi
+unset _saved_driver
+unset -f kubectl
+unset _fake_kubectl_versions _fake_kubectl_rc
+
+if grep -q 'e2e_select_infra_driver' "${SCRIPT_DIR}/../e2e-performance.sh" \
+  && grep -q 'e2e_select_infra_driver' "${SCRIPT_DIR}/../e2e-openshell.sh"; then
+  pass_u "e2e and e2e-performance share e2e_select_infra_driver"
+else
+  fail_u "e2e-performance.sh or e2e-openshell.sh does not call e2e_select_infra_driver"
+fi
+
+if grep -q 'E2E_INFRA_DRIVER is not set' "${SCRIPT_DIR}/../e2e-performance.sh"; then
+  fail_u "e2e-performance.sh still requires E2E_INFRA_DRIVER to be set"
+else
+  pass_u "e2e-performance.sh no longer requires E2E_INFRA_DRIVER to be set"
+fi
+
+makefile="${SCRIPT_DIR}/../../../Makefile"
+if grep -q 'E2E_INFRA_DRIVER ?=' "$makefile" \
+  || grep -q 'E2E_INFRA_DRIVER=\$(E2E_INFRA_DRIVER)' "$makefile"; then
+  fail_u "Makefile still forces E2E_INFRA_DRIVER for e2e-performance"
+else
+  pass_u "make e2e-performance does not force E2E_INFRA_DRIVER"
+fi
+
+help_out="$(make -s -C "${SCRIPT_DIR}/../../.." help)"
+if echo "$help_out" | grep -q 'E2E_PERF_GATEWAY_COUNT' \
+  && echo "$help_out" | grep -q 'E2E_PERF_BATCH_SIZE'; then
+  pass_u "make help lists E2E_PERF_GATEWAY_COUNT and E2E_PERF_BATCH_SIZE"
+else
+  fail_u "make help missing E2E_PERF_GATEWAY_COUNT or E2E_PERF_BATCH_SIZE"
 fi
 
 # --- Harness is infra-agnostic ---

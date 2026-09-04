@@ -256,12 +256,36 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_up does not honor SKIP_SEED'
 fi
-if grep -A8 'db_provider="cnpg"' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cnpg_available' \
+if grep -B2 'db_provider="\$(effective_database_provider)"' "${SCRIPT_DIR}/drivers/openshift.sh" >/dev/null \
   && grep -A20 'Creating ManagedDatabase' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'provider='; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift seed still hardcodes ManagedDatabase provider=cnpg'
+fi
+if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cutover_database_provider'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_up does not reconcile the database provider on cutover'
+fi
+if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'restart_after_database_cutover'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_up does not restart components after a database cutover'
+fi
+if grep -A20 '^effective_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'DATABASE_PROVIDER'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift effective_database_provider does not honor DATABASE_PROVIDER override'
+fi
+if grep -A25 '^cutover_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete secret hypershell-db-app'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cutover_database_provider does not clear the provider-shaped Secret'
 fi
 if grep -A30 '^wait_for_deployments()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'is_openshift_swapped'; then
   FAIL=$((FAIL + 1))

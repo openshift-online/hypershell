@@ -32,12 +32,17 @@ echo ""
 header "Component Swap Status"
 if [[ -f "${SWAP_FILE}" ]] && [[ -s "${SWAP_FILE}" ]]; then
   info "Swapped components:"
-  while IFS= read -r comp; do
-    info "  - ${comp} (local build)"
+  while IFS=$'\t' read -r comp image; do
+    [[ -n "${comp}" ]] || continue
+    if [[ "${image}" == "hot-reload" ]]; then
+      info "  - ${comp} (hot reload via npm)"
+    else
+      info "  - ${comp} (working-tree ${image})"
+    fi
   done < "${SWAP_FILE}"
   info "Baseline components:"
   for comp in api-server control-plane web-console; do
-    if ! grep -q "^${comp}$" "${SWAP_FILE}" 2>/dev/null; then
+    if ! is_swapped "${comp}"; then
       info "  - ${comp} (registry image)"
     fi
   done

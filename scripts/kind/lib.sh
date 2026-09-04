@@ -82,25 +82,101 @@ kube() {
 }
 
 # --- Swap tracking (.kind-swaps) ---
+# Format matches the OpenShift driver's per-namespace ledger
+# (openshift_swap_file in scripts/cluster/lib.sh): one "component<TAB>image"
+# line per swapped component, so both drivers can record and restore the
+# exact working-tree image identity, not just the fact that a swap happened.
+# The web console's hot-reload mode (KIND_HOT_RELOAD=true, the default) has no
+# image of its own -- it redirects the Service to a host-run dev server -- so
+# it is tracked with the sentinel image "hot-reload".
 
 SWAP_FILE=".kind-swaps"
 
 track_swap() {
   local component="$1"
-  grep -q "^${component}$" "${SWAP_FILE}" 2>/dev/null || echo "${component}" >> "${SWAP_FILE}"
+  local image="$2"
+  touch "${SWAP_FILE}"
+  if grep -q "^${component}[[:space:]]" "${SWAP_FILE}" 2>/dev/null; then
+    local tmp
+    tmp="$(mktemp)"
+    sed "/^${component}[[:space:]]/d" "${SWAP_FILE}" > "${tmp}"
+    mv "${tmp}" "${SWAP_FILE}"
+  fi
+  printf '%s\t%s\n' "${component}" "${image}" >> "${SWAP_FILE}"
 }
 
 clear_swap() {
   local component="$1"
   if [[ -f "${SWAP_FILE}" ]]; then
-    sed -i.bak "/^${component}$/d" "${SWAP_FILE}" 2>/dev/null
-    rm -f "${SWAP_FILE}.bak"
+    local tmp
+    tmp="$(mktemp)"
+    sed "/^${component}[[:space:]]/d" "${SWAP_FILE}" > "${tmp}"
+    mv "${tmp}" "${SWAP_FILE}"
+    [[ -s "${SWAP_FILE}" ]] || rm -f "${SWAP_FILE}"
   fi
 }
 
 is_swapped() {
   local component="$1"
-  grep -q "^${component}$" "${SWAP_FILE}" 2>/dev/null
+  [[ -f "${SWAP_FILE}" ]] && grep -q "^${component}[[:space:]]" "${SWAP_FILE}" 2>/dev/null
+}
+
+swap_image() {
+  local component="$1"
+  [[ -f "${SWAP_FILE}" ]] || return 0
+  awk -F '\t' -v c="${component}" '$1 == c { print $2; exit }' "${SWAP_FILE}"
+}
+
+# Deployment/container mapping for the three swappable components, kept local
+# to Kind's swap ledger so restore_swaps_after_reconcile does not need to pull
+# in scripts/cluster/lib.sh's component_spec (which also carries build/push
+# fields Kind's restore path does not need).
+kind_swap_deployment() {
+  case "$1" in
+    api-server) printf 'hypershell-api-server' ;;
+    control-plane) printf 'hypershell-controller' ;;
+    web-console) printf 'hypershell-web-console' ;;
+  esac
+}
+
+kind_swap_containers() {
+  case "$1" in
+    api-server) printf 'api-server migrate' ;;
+    control-plane) printf 'controller' ;;
+    web-console) printf 'web-console' ;;
+  esac
+}
+
+# Mirrors the OpenShift driver's restore_swaps_after_reconcile
+# (scripts/cluster/drivers/openshift.sh): `kind-up` re-applies the full
+# manifest set on every run, which resets any swapped Deployment's image back
+# to the overlay baseline. Call this right after that apply so a swapped
+# component's working-tree image is restored immediately, the same
+# apply-then-restore sequencing OpenShift uses. Hot-reload web console has no
+# image to restore -- its Service/EndpointSlice redirect is handled by the
+# scale-to-zero guard in up.sh -- so it is skipped here.
+restore_swaps_after_reconcile() {
+  local component image deployment containers args c
+  for component in api-server control-plane web-console; do
+    is_swapped "${component}" || continue
+    image="$(swap_image "${component}")"
+    if [[ -z "${image}" ]]; then
+      warn "Swap state for ${component} is empty; clearing stale entry"
+      clear_swap "${component}"
+      continue
+    fi
+    if [[ "${component}" == "web-console" && "${image}" == "hot-reload" ]]; then
+      continue
+    fi
+    info "Preserving ${component} working-tree image ${image}"
+    deployment="$(kind_swap_deployment "${component}")"
+    containers="$(kind_swap_containers "${component}")"
+    args=()
+    for c in ${containers}; do
+      args+=("${c}=${image}")
+    done
+    kube set image "deployment/${deployment}" "${args[@]}" -n "${KIND_NAMESPACE}"
+  done
 }
 
 # --- DNS (CoreDNS container) ---
