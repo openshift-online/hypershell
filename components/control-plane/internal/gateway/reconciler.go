@@ -232,8 +232,13 @@ func DeleteGatewayResources(
 	}
 
 	if dbReconciler, err := newDatabaseReconciler(opts); err == nil {
-		if delErr := dbReconciler.Delete(ctx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
-			return fmt.Errorf("external database cleanup for gateway %s: %w", opts.GatewayID, delErr)
+		cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cleanupCancel()
+		if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
+			// Log at ERROR so operators are alerted, but do not return: an unreachable
+			// or decommissioned external server must not strand gateway finalization
+			// and block the in-cluster RBAC cleanup below.
+			log.Printf("ERROR gateway %s: database cleanup failed; orphaned database/role may require manual cleanup (see operator runbook): %v", opts.GatewayID, delErr)
 		}
 	} else {
 		log.Printf("WARN gateway %s: cannot construct database reconciler for delete: %v", opts.GatewayID, err)

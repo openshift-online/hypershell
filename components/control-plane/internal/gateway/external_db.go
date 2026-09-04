@@ -237,16 +237,18 @@ func ProbeExternalServer(ctx context.Context, clientset kubernetes.Interface, cf
 		}
 	}()
 
-	var rolcreatedb, rolcreaterole bool
-	row := db.QueryRowContext(ctx, "SELECT rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user")
-	if err := row.Scan(&rolcreatedb, &rolcreaterole); err != nil {
+	var rolsuper, rolcreatedb, rolcreaterole bool
+	row := db.QueryRowContext(ctx, "SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user")
+	if err := row.Scan(&rolsuper, &rolcreatedb, &rolcreaterole); err != nil {
 		log.Printf("INFO external DB probe %s: %s (query error redacted)", cfg.SecretName, ExternalDBStatusUnreachable)
 		return ExternalDBStatusUnreachable
 	}
 
-	if !rolcreatedb || !rolcreaterole {
-		log.Printf("INFO external DB probe %s: %s (rolcreatedb=%v rolcreaterole=%v)",
-			cfg.SecretName, ExternalDBStatusInsufficientPrivilege, rolcreatedb, rolcreaterole)
+	// Superusers have implicit CREATE DATABASE / CREATE ROLE privileges regardless
+	// of rolcreatedb/rolcreaterole, so short-circuit on rolsuper.
+	if !rolsuper && (!rolcreatedb || !rolcreaterole) {
+		log.Printf("INFO external DB probe %s: %s (rolsuper=%v rolcreatedb=%v rolcreaterole=%v)",
+			cfg.SecretName, ExternalDBStatusInsufficientPrivilege, rolsuper, rolcreatedb, rolcreaterole)
 		return ExternalDBStatusInsufficientPrivilege
 	}
 
