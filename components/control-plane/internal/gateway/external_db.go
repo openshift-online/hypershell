@@ -39,7 +39,15 @@ func (r *externalDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.In
 }
 
 func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error {
-	if gatewayID == "" {
+	if gatewayID == "" || r.cfg.SecretName == "" {
+		return nil
+	}
+	// Pre-check: if the admin secret is missing or invalid, cleanup is terminal.
+	// Retrying without operator action (fixing or removing the Secret) will not help,
+	// so we log at ERROR and return nil to let in-cluster RBAC cleanup proceed.
+	// Connection/DDL failures are transient and are returned for reconcile retry.
+	if _, _, err := readExternalAdminSecret(ctx, clientset, r.cfg.Namespace, r.cfg.SecretName); err != nil {
+		log.Printf("ERROR gateway %s: database cleanup cannot proceed (admin secret unreadable; orphaned database/role may require manual cleanup): %v", gatewayID, err)
 		return nil
 	}
 	return DeleteExternalDatabaseResources(ctx, clientset, r.cfg, gatewayID)
@@ -342,6 +350,10 @@ func ReconcileExternalDatabaseResources(
 		}
 		log.Printf("INFO updated external DB role password for gateway %s (Secret was absent)", gatewayID)
 	}
+	// Out-of-band password drift (Secret exists but server-side role password was changed
+	// externally) is not reconciled: use credential rotation via the rotate annotation
+	// to force re-sync. Continuous drift detection would require a round-trip login on
+	// every reconcile, which is too expensive for a shared server.
 
 	// Database: create if absent.
 	var dbExists bool

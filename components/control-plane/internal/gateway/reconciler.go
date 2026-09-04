@@ -235,10 +235,10 @@ func DeleteGatewayResources(
 		cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cleanupCancel()
 		if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
-			// Log at ERROR so operators are alerted, but do not return: an unreachable
-			// or decommissioned external server must not strand gateway finalization
-			// and block the in-cluster RBAC cleanup below.
-			log.Printf("ERROR gateway %s: database cleanup failed; orphaned database/role may require manual cleanup (see operator runbook): %v", opts.GatewayID, delErr)
+			// Transient error (server unreachable, DDL failure): return so the
+			// delete-reconcile retries. Terminal errors (admin secret unreadable)
+			// are handled inside Delete and return nil; in-cluster cleanup still runs.
+			return fmt.Errorf("database cleanup for gateway %s: %w", opts.GatewayID, delErr)
 		}
 	} else {
 		log.Printf("WARN gateway %s: cannot construct database reconciler for delete: %v", opts.GatewayID, err)
