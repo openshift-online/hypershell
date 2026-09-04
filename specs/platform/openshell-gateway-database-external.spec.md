@@ -70,6 +70,13 @@ responsibility, out-of-band, before an `external` ManagedDatabase is created:
    to alter server-level configuration.
 4. **An admin credential Secret** (the "connection Secret") in a control-plane
    readable location (see Requirement: External Connection Secret).
+5. **Server-side log verbosity restricted.** `CREATE ROLE` and `ALTER ROLE`
+   statements carry the plaintext password in the statement text (the PostgreSQL
+   wire protocol has no separate credential-binding channel for these statements).
+   Operators MUST set `log_statement` to `'mod'` or lower, or enable server-side
+   log redaction, on any external server used with this provider. HyperShell
+   redacts credentials in its own application logs and error messages; server-side
+   redaction is the operator's responsibility.
 
 There is **no CNPG operator prerequisite** and **no in-cluster Postgres workload**
 in external mode.
