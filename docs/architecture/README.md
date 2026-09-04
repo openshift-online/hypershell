@@ -1,14 +1,12 @@
 # HyperShell architecture atlas
 
-This directory contains the source and generated static architecture pages for
-HyperShell. Start with [`index.html`](./index.html), then use the navigation on
-each page to move between the platform topology, management plane, tenant
-runtime, data, ingress, identity, web console, observability, delivery, and
-domain-model views.
+This directory contains the canonical Markdown and Mermaid sources for the
+HyperShell architecture site. The generated HTML is intentionally not checked
+in: CI builds it into `dist/architecture` and deploys that artifact to GitHub
+Pages.
 
-The canonical Markdown and Mermaid sources are in [`source/`](./source/).
-The checked-in HTML pages are the current rendered baseline; CI rebuilds the
-site into `dist/architecture` for GitHub Pages.
+Start with the [source atlas](./source/index.md), or build the complete site
+locally to view the rendered diagrams.
 
 ## Rendering approach
 
@@ -26,25 +24,25 @@ This keeps the pages usable as ordinary static files: they do not need a
 JavaScript runtime, a Mermaid server, or the HyperShell application to render.
 To revise a drawing, copy its source into the
 [Craft Mermaid editor](https://agents.craft.do/mermaid/editor), update the
-source and rendered SVG together, and preserve the source citation.
+source, rebuild the site, and preserve the source citation.
 
 ## Page catalog
 
-| Page | Scope |
+| Source | Scope |
 | --- | --- |
-| [`index.html`](./index.html) | End-to-end map and catalog |
-| [`platform-topology.html`](./platform-topology.html) | Global Hub, Cloud Hubs, and ManagedClusters |
-| [`api-server.html`](./api-server.html) | REST/gRPC API, Kind plugins, and persistence |
-| [`control-plane.html`](./control-plane.html) | Watcher, reconcilers, and multi-cluster clients |
-| [`gateway-workload.html`](./gateway-workload.html) | Gateway namespace, Supervisor, Sandboxes, and policy |
-| [`client-surfaces.html`](./client-surfaces.html) | CLI, Go SDK, TypeScript SDK, and web API surfaces |
-| [`data-plane.html`](./data-plane.html) | CNPG and standalone PostgreSQL modes |
-| [`ingress.html`](./ingress.html) | Gateway API and OpenShift Route exposure modes |
-| [`identity.html`](./identity.html) | Keycloak federation, OIDC, and service accounts |
-| [`web-console.html`](./web-console.html) | React host, reusable UI package, BFF, and trust boundary |
-| [`observability.html`](./observability.html) | Traces, metrics, probes, and dashboard aggregation |
-| [`delivery.html`](./delivery.html) | Terraform, Tekton, ArgoCD, and tenant reconciliation |
-| [`domain-model.html`](./domain-model.html) | HyperShell resource relationships |
+| [`source/index.md`](./source/index.md) | End-to-end map and catalog |
+| [`source/platform-topology.md`](./source/platform-topology.md) | Global Hub, Cloud Hubs, and ManagedClusters |
+| [`source/api-server.md`](./source/api-server.md) | REST/gRPC API, Kind plugins, and persistence |
+| [`source/control-plane.md`](./source/control-plane.md) | Watcher, reconcilers, and multi-cluster clients |
+| [`source/gateway-workload.md`](./source/gateway-workload.md) | Gateway namespace, Supervisor, Sandboxes, and policy |
+| [`source/client-surfaces.md`](./source/client-surfaces.md) | CLI, Go SDK, TypeScript SDK, and web API surfaces |
+| [`source/data-plane.md`](./source/data-plane.md) | CNPG and standalone PostgreSQL modes |
+| [`source/ingress.md`](./source/ingress.md) | Gateway API and OpenShift Route exposure modes |
+| [`source/identity.md`](./source/identity.md) | Keycloak federation, OIDC, and service accounts |
+| [`source/web-console.md`](./source/web-console.md) | React host, reusable UI package, BFF, and trust boundary |
+| [`source/observability.md`](./source/observability.md) | Traces, metrics, probes, and dashboard aggregation |
+| [`source/delivery.md`](./source/delivery.md) | Terraform, Tekton, ArgoCD, and tenant reconciliation |
+| [`source/domain-model.md`](./source/domain-model.md) | HyperShell resource relationships |
 
 ## Build locally
 
