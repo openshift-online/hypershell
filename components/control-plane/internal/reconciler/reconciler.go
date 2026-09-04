@@ -181,6 +181,8 @@ func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher
 		err = r.handleCNPGDatabase(ctx, event, db)
 	case "deployment":
 		err = r.handleDeploymentDatabase(ctx, event, db)
+	case "external":
+		err = r.handleExternalDatabase(ctx, event, db)
 	default:
 		log.Printf("WARN ManagedDatabase %s has unsupported provider %q, skipping", event.ResourceID, db.Provider)
 		return nil
@@ -301,6 +303,34 @@ func (r *ManagedDatabaseReconciler) handleDeploymentDatabase(ctx context.Context
 
 	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, reconcileStatus, "Ready")
 	log.Printf("INFO ManagedDatabase %s deployment database provisioned in namespace %s", event.ResourceID, db.Namespace)
+	return nil
+}
+
+func (r *ManagedDatabaseReconciler) handleExternalDatabase(ctx context.Context, event watcher.Event[*pb.ManagedDatabase], db *pb.ManagedDatabase) error {
+	if event.Type == watcher.EventDeleted {
+		// External databases are not provisioned by HyperShell; only the per-gateway
+		// DDL objects (roles and databases) are cleaned up by the gateway reconciler
+		// when each gateway is deleted. The ManagedDatabase itself is register-only.
+		log.Printf("INFO ManagedDatabase %s (external) deleted, no control-plane resources to clean up", event.ResourceID)
+		return nil
+	}
+
+	log.Printf("INFO reconciling ManagedDatabase %s name=%s provider=external (event=%d)",
+		event.ResourceID, db.Name, event.Type)
+
+	if db.GetConnectionSecret() == "" {
+		newStatus := gateway.ExternalDBStatusSecretInvalid
+		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), newStatus)
+		log.Printf("WARN ManagedDatabase %s has no connection_secret; cannot probe external server", event.ResourceID)
+		return nil
+	}
+
+	cfg := gateway.ExternalDBConfig{
+		SecretName: db.GetConnectionSecret(),
+		Namespace:  r.controlPlaneNamespace,
+	}
+	newStatus := gateway.ProbeExternalServer(ctx, r.clientset, cfg)
+	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), newStatus)
 	return nil
 }
 
@@ -1305,6 +1335,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				CNPG:                  deleteDBConfig.CNPG,
 				DatabaseProvider:      deleteDBConfig.Provider,
 				DeploymentDBNamespace: deleteDBConfig.SourceNamespace,
+				ExternalDB:            deleteDBConfig.ExternalDB,
 				ControlPlaneNamespace: r.controlPlaneNamespace,
 				KeycloakClient:        r.keycloakClient,
 				GatewayID:             event.ResourceID,
@@ -1492,6 +1523,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		DatabaseProvider:      dbConfig.Provider,
 		CNPG:                  dbConfig.CNPG,
 		DeploymentDBNamespace: dbConfig.SourceNamespace,
+		ExternalDB:            dbConfig.ExternalDB,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
 		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
@@ -2076,6 +2108,7 @@ type databaseConfig struct {
 	Provider        string
 	CNPG            gateway.CNPGConfig
 	SourceNamespace string
+	ExternalDB      gateway.ExternalDBConfig
 }
 
 func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (databaseConfig, error) {
@@ -2110,6 +2143,14 @@ func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Ga
 		return databaseConfig{
 			Provider:        "deployment",
 			SourceNamespace: db.Namespace,
+		}, nil
+	case "external":
+		return databaseConfig{
+			Provider: "external",
+			ExternalDB: gateway.ExternalDBConfig{
+				SecretName: db.GetConnectionSecret(),
+				Namespace:  r.controlPlaneNamespace,
+			},
 		}, nil
 	default:
 		return databaseConfig{}, fmt.Errorf("ManagedDatabase %s has unsupported provider %q", gw.DatabaseId, db.Provider)

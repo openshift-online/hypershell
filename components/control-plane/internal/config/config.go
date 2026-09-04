@@ -16,9 +16,12 @@ import (
 // requires the CNPG operator CRDs to be installed; see
 // gateway.RequireCNPGAPI, which the control-plane entrypoint uses to fail
 // startup cleanly when they are not.
+// DatabaseProviderExternal selects an externally-managed PostgreSQL server;
+// the control plane issues DDL in-process and requires no CNPG operator.
 const (
 	DatabaseProviderDeployment = "deployment"
 	DatabaseProviderCNPG       = "cnpg"
+	DatabaseProviderExternal   = "external"
 )
 
 type Config struct {
@@ -90,9 +93,11 @@ func resolveDatabaseProvider(raw string) (string, error) {
 		return DatabaseProviderDeployment, nil
 	case DatabaseProviderCNPG:
 		return DatabaseProviderCNPG, nil
+	case DatabaseProviderExternal:
+		return DatabaseProviderExternal, nil
 	default:
-		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q or %q (unset defaults to %q)",
-			raw, DatabaseProviderCNPG, DatabaseProviderDeployment, DatabaseProviderDeployment)
+		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q, %q, or %q (unset defaults to %q)",
+			raw, DatabaseProviderCNPG, DatabaseProviderDeployment, DatabaseProviderExternal, DatabaseProviderDeployment)
 	}
 }
 

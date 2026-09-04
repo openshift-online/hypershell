@@ -2,6 +2,7 @@ package managedDatabases
 
 import (
 	"context"
+	"strings"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -15,7 +16,10 @@ const managedDatabasesLockType db.LockType = "managed_databases"
 const (
 	providerCNPG       = "cnpg"
 	providerDeployment = "deployment"
+	providerExternal   = "external"
 )
+
+const externalSecretPrefix = "hypershell-managed-db-"
 
 type ManagedDatabaseService interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
@@ -95,16 +99,37 @@ func (s *sqlManagedDatabaseService) ListDeleted(ctx context.Context, offset, lim
 }
 
 func isSupportedProvider(provider string) bool {
-	return provider == providerCNPG || provider == providerDeployment
+	return provider == providerCNPG || provider == providerDeployment || provider == providerExternal
 }
 
 func unsupportedProviderError(provider string) *errors.ServiceError {
-	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\" and \"deployment\"", provider)
+	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\", \"deployment\", and \"external\"", provider)
+}
+
+// validateExternalConnectionSecret checks the connection_secret reference
+// format for external ManagedDatabases: no namespace slash, reserved prefix,
+// and a non-empty value.
+func validateExternalConnectionSecret(secret *string) *errors.ServiceError {
+	if secret == nil || *secret == "" {
+		return errors.Validation("connection_secret is required for provider \"external\"")
+	}
+	if strings.Contains(*secret, "/") {
+		return errors.Validation("connection_secret must be a plain Secret name without a namespace prefix (no \"/\")")
+	}
+	if !strings.HasPrefix(*secret, externalSecretPrefix) {
+		return errors.Validation("connection_secret must begin with the reserved prefix %q", externalSecretPrefix)
+	}
+	return nil
 }
 
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {
 	if !isSupportedProvider(managedDatabase.Provider) {
 		return nil, unsupportedProviderError(managedDatabase.Provider)
+	}
+	if managedDatabase.Provider == providerExternal {
+		if svcErr := validateExternalConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
+			return nil, svcErr
+		}
 	}
 
 	managedDatabase, err := s.managedDatabaseDao.Create(ctx, managedDatabase)
@@ -140,6 +165,11 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 	}
 	if isSupportedProvider(persisted.Provider) && managedDatabase.Provider != persisted.Provider {
 		return nil, errors.Validation("provider cannot be changed from %q to %q", persisted.Provider, managedDatabase.Provider)
+	}
+	if managedDatabase.Provider == providerExternal {
+		if svcErr := validateExternalConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
+			return nil, svcErr
+		}
 	}
 
 	managedDatabase, err = s.managedDatabaseDao.Replace(ctx, managedDatabase)
