@@ -163,7 +163,7 @@ export function buildSandboxCreateCommand(
 }
 
 export function buildSandboxConnectCommand(name: string = sandboxName): string {
-  return `openshell sandbox connect --name ${shellArgument(name)}`;
+  return `openshell sandbox connect ${shellArgument(name)}`;
 }
 
 /**

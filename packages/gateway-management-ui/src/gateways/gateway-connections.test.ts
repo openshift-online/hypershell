@@ -199,19 +199,19 @@ describe("gateway connections", () => {
 
   it("builds a sandbox connect command with the default name", () => {
     expect(buildSandboxConnectCommand()).toBe(
-      `openshell sandbox connect --name ${sandboxName}`,
+      `openshell sandbox connect ${sandboxName}`,
     );
   });
 
   it("substitutes a custom name into the sandbox connect command", () => {
     expect(buildSandboxConnectCommand("demo")).toBe(
-      "openshell sandbox connect --name demo",
+      "openshell sandbox connect demo",
     );
   });
 
   it("quotes shell-unsafe names in the sandbox connect command", () => {
     expect(buildSandboxConnectCommand("my $(sandbox)")).toBe(
-      `openshell sandbox connect --name 'my $(sandbox)'`,
+      `openshell sandbox connect 'my $(sandbox)'`,
     );
   });
 
