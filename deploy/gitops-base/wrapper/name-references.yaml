@@ -1,0 +1,22 @@
+nameReference:
+  - kind: Issuer
+    group: cert-manager.io
+    fieldSpecs:
+      - path: spec/issuerRef/name
+        kind: Certificate
+  - kind: ClusterIssuer
+    group: cert-manager.io
+    fieldSpecs:
+      - path: spec/issuerRef/name
+        kind: Certificate
+  - kind: Service
+    fieldSpecs:
+      - path: spec/to/name
+        kind: Route
+  - kind: ClusterRole
+    group: rbac.authorization.k8s.io
+    fieldSpecs:
+      - path: roleRef/name
+        kind: ClusterRoleBinding
+      - path: roleRef/name
+        kind: RoleBinding

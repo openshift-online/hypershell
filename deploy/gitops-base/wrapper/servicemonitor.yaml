@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hypershell-metrics
+  labels:
+    app.kubernetes.io/name: hypershell
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hypershell
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+    - port: metrics
+      path: /metrics
+      interval: 15s

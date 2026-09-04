@@ -1,0 +1,20 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: hypershell-db
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 50Gi
+  bootstrap:
+    initdb:
+      database: hypershell
+      owner: hypershell
+  postgresql:
+    parameters:
+      shared_buffers: "512MB"
+      max_connections: "200"
+  affinity:
+    podAntiAffinityType: preferred

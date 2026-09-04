@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-console-to-api
+  labels:
+    app.kubernetes.io/name: hypershell
+spec:
+  podSelector:
+    matchLabels:
+      app: hypershell-api-server
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: hypershell-web-console
+    ports:
+    - port: 8000
+      protocol: TCP
