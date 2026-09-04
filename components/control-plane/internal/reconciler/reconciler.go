@@ -1441,8 +1441,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ExternalDns:    externalDns,
 	}
 
-	if gw.Image != nil && *gw.Image != "" {
-		gwConfig.Image = *gw.Image
+	// Database-backed gateway version selection: a release_id takes precedence
+	// over a direct image, and an empty result lets the manifest layer apply the
+	// platform default. See specs/platform/gateway-version-selection.spec.md.
+	image, err := r.selectGatewayImage(ctx, gw)
+	if err != nil {
+		reconcileErr = fmt.Errorf("select image for gateway %s: %w", gw.Name, err)
+		return reconcileErr
+	}
+	if image != "" {
+		gwConfig.Image = image
 	}
 
 	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
@@ -2076,6 +2084,45 @@ type databaseConfig struct {
 	Provider        string
 	CNPG            gateway.CNPGConfig
 	SourceNamespace string
+}
+
+// selectGatewayImage applies database-backed gateway version selection: a
+// non-empty release_id is authoritative and resolves to its GatewayRelease
+// image; a direct image is the fallback; and an empty result signals the
+// manifest layer to apply the platform default. See
+// specs/platform/gateway-version-selection.spec.md.
+func (r *GatewayReconciler) selectGatewayImage(ctx context.Context, gw *pb.Gateway) (string, error) {
+	if gw.ReleaseId != "" {
+		return r.resolveReleaseImage(ctx, gw)
+	}
+	if gw.Image != nil && *gw.Image != "" {
+		return *gw.Image, nil
+	}
+	return "", nil
+}
+
+// resolveReleaseImage resolves a Gateway's release_id to the image published by
+// its referenced GatewayRelease (database-backed version selection). A
+// release_id that cannot be resolved to a release with a non-empty image is a
+// reconcile failure, not a silent fallback to a default or empty image: the
+// error is returned so the reconcile is retried.
+// See specs/platform/gateway-version-selection.spec.md.
+func (r *GatewayReconciler) resolveReleaseImage(ctx context.Context, gw *pb.Gateway) (string, error) {
+	client := pb.NewGatewayReleaseServiceClient(r.grpcConn)
+	resp, err := client.GetGatewayRelease(ctx, &pb.GetGatewayReleaseRequest{Id: gw.ReleaseId})
+	if err != nil {
+		return "", fmt.Errorf("resolve GatewayRelease %s: %w", gw.ReleaseId, err)
+	}
+
+	rel := resp.GatewayRelease
+	if rel == nil {
+		return "", fmt.Errorf("gateway configuration error: GatewayRelease %s returned empty payload", gw.ReleaseId)
+	}
+	if rel.Image == "" {
+		return "", fmt.Errorf("GatewayRelease %s has no image", gw.ReleaseId)
+	}
+
+	return rel.Image, nil
 }
 
 func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (databaseConfig, error) {
