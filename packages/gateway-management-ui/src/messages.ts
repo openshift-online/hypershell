@@ -237,6 +237,12 @@ export const messages = defineMessages({
     defaultMessage: "Details",
     description: "Label for the gateway detail Details tab.",
   },
+  editExistingSandboxName: {
+    id: "app.gateway.connection.editExistingSandboxName",
+    defaultMessage: "Existing sandbox name (editable)",
+    description:
+      "Accessible label for the inline-editable sandbox name in the connect-sandbox command.",
+  },
   editModel: {
     id: "app.gateway.connection.editModel",
     defaultMessage: "Model (editable)",

@@ -162,9 +162,7 @@ export function buildSandboxCreateCommand(
   return `${variable}\n\n${command}`;
 }
 
-export function buildSandboxConnectCommand(
-  name: string = sandboxName,
-): string {
+export function buildSandboxConnectCommand(name: string = sandboxName): string {
   return `openshell sandbox connect --name ${shellArgument(name)}`;
 }
 

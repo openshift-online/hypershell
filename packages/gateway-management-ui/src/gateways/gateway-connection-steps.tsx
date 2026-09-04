@@ -174,7 +174,9 @@ export function GatewayConnectionSteps({
           copyAriaLabel={intl.formatMessage(messages.copySandboxConnectCommand)}
           copyText={buildSandboxConnectCommand(sandboxName)}
           labels={{
-            [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
+            [sandboxMarker]: intl.formatMessage(
+              messages.editExistingSandboxName,
+            ),
           }}
           markers={sandboxConnectMarkers}
           onFieldChange={(marker, value) => {
