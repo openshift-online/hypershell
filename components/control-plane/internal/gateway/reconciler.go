@@ -233,7 +233,7 @@ func DeleteGatewayResources(
 
 	if dbReconciler, err := newDatabaseReconciler(opts); err == nil {
 		if delErr := dbReconciler.Delete(ctx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
-			log.Printf("WARN gateway %s: external database cleanup failed (resources may require manual cleanup; see operator runbook): %v", opts.GatewayID, delErr)
+			return fmt.Errorf("external database cleanup for gateway %s: %w", opts.GatewayID, delErr)
 		}
 	} else {
 		log.Printf("WARN gateway %s: cannot construct database reconciler for delete: %v", opts.GatewayID, err)

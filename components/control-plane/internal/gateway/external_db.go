@@ -480,7 +480,7 @@ func DeleteExternalDatabaseResources(
 	// come before DROP ROLE because the role owns the database.
 	var dbExists bool
 	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", pgName).Scan(&dbExists); err == nil && dbExists {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", pgQuoteIdent(pgName))); err != nil {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", pgQuoteIdent(pgName))); err != nil {
 			return fmt.Errorf("external DB cleanup for gateway %s: DROP DATABASE failed: %w", gatewayID, err)
 		}
 		log.Printf("INFO dropped external database %s for gateway %s", pgName, gatewayID)

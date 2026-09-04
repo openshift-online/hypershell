@@ -10,9 +10,9 @@ import (
 
 // DatabaseReconciler is implemented by each database provider (cnpg, deployment, external).
 // Reconcile provisions or updates database resources for a gateway tenant namespace.
-// Delete removes out-of-namespace database resources. For providers that issue
-// network calls (external), a non-nil error means cleanup did not complete and the
-// caller should arrange retry. CNPG and deployment providers always return nil.
+// Delete removes out-of-namespace database resources. A non-nil error from Delete is
+// propagated by the caller so the delete-reconcile loop retries until cleanup succeeds.
+// CNPG and deployment providers always return nil.
 type DatabaseReconciler interface {
 	Reconcile(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, tenantNamespace, gatewayID, rotateAnnotation string) error
 	Delete(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error
