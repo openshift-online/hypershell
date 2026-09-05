@@ -41,11 +41,17 @@ import (
 // two generic management labels, they are indistinguishable from another
 // HyperShell's namespaces on a shared cluster, so claiming them is unsafe. Those
 // require manual cleanup.
-func BackfillInstanceLabels(ctx context.Context, client kubernetes.Interface, gwClient pb.GatewayServiceClient, instance string) (int, error) {
+func BackfillInstanceLabels(ctx context.Context, client kubernetes.Interface, gwClient pb.GatewayServiceClient, instance, clusterID string) (int, error) {
 	if instance == "" {
 		return 0, fmt.Errorf("refusing to backfill instance labels without a control-plane instance identity")
 	}
-	gateways, err := listAllGateways(ctx, gwClient)
+	// Scope the listing to this cluster's gateways (clusterID from
+	// HYPERSHELL_CLUSTER_ID; empty in single-cluster mode lists all). Unlike the
+	// namespace reaper -- which lists unfiltered because a superset only ever
+	// protects namespaces -- backfill WRITES this instance's label, so on a
+	// co-located cluster an unscoped list could stamp another instance's
+	// not-yet-labeled namespace. Filtering keeps a spoke to its own gateways.
+	gateways, err := listAllGateways(ctx, gwClient, clusterID)
 	if err != nil {
 		// A partial inventory would silently skip namespaces that need the label,
 		// leaving them to leak; fail so the caller can log and retry on the next
@@ -86,9 +92,9 @@ func BackfillInstanceLabels(ctx context.Context, client kubernetes.Interface, gw
 // but never aborts controller startup, because the periodic GC sweep still
 // functions for already-labeled namespaces and the backfill is retried on the
 // next restart.
-func RunInstanceLabelBackfill(ctx context.Context, client kubernetes.Interface, conn *grpc.ClientConn, instance string) {
+func RunInstanceLabelBackfill(ctx context.Context, client kubernetes.Interface, conn *grpc.ClientConn, instance, clusterID string) {
 	gwClient := pb.NewGatewayServiceClient(conn)
-	labeled, err := BackfillInstanceLabels(ctx, client, gwClient, instance)
+	labeled, err := BackfillInstanceLabels(ctx, client, gwClient, instance, clusterID)
 	if err != nil {
 		log.Printf("WARN instance-label backfill completed with errors (labeled=%d): %v", labeled, err)
 		return

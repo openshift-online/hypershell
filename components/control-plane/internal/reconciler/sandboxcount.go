@@ -53,6 +53,14 @@ type SandboxCountReconciler struct {
 	grpcConn       *grpc.ClientConn
 	resyncInterval time.Duration
 
+	// clusterID scopes the self-heal's gateway enumeration to this managed
+	// cluster. The self-heal writes an absolute count (including zero) for every
+	// gateway it enumerates, reconciling against pods it observes LOCALLY; an
+	// unfiltered enumeration would make a spoke SET a foreign cluster's gateway
+	// count to zero because it observes none of that cluster's pods. Empty
+	// enumerates all gateways (single-cluster default).
+	clusterID string
+
 	// adjust, set, and namespaces are the seams to the API server, overridable in
 	// tests so the reconciliation logic can be exercised without a live gRPC
 	// server. adjust applies a relative delta; set writes an absolute count; and
@@ -88,7 +96,7 @@ type SandboxCountReconciler struct {
 
 // NewSandboxCountReconciler builds a SandboxCountReconciler, applying the default
 // resync interval for any non-positive value.
-func NewSandboxCountReconciler(client kubernetes.Interface, grpcConn *grpc.ClientConn, resyncInterval time.Duration) *SandboxCountReconciler {
+func NewSandboxCountReconciler(client kubernetes.Interface, grpcConn *grpc.ClientConn, resyncInterval time.Duration, clusterID string) *SandboxCountReconciler {
 	if resyncInterval <= 0 {
 		resyncInterval = defaultSandboxCountResyncInterval
 	}
@@ -96,6 +104,7 @@ func NewSandboxCountReconciler(client kubernetes.Interface, grpcConn *grpc.Clien
 		client:         client,
 		grpcConn:       grpcConn,
 		resyncInterval: resyncInterval,
+		clusterID:      clusterID,
 		baseCtx:        context.Background(),
 		nsLocks:        make(map[string]*sync.Mutex),
 	}
@@ -353,7 +362,7 @@ func (r *SandboxCountReconciler) grpcSet(ctx context.Context, namespace string, 
 // must converge back to zero and which therefore have no pods in the cache.
 func (r *SandboxCountReconciler) grpcGatewayNamespaces(ctx context.Context) ([]string, error) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
-	gateways, err := listAllGateways(ctx, client)
+	gateways, err := listAllGateways(ctx, client, r.clusterID)
 	if err != nil {
 		return nil, err
 	}

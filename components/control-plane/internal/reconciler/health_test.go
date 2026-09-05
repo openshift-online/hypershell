@@ -526,8 +526,9 @@ func (f *fakeGatewayClient) UpdateGateway(ctx context.Context, in *pb.UpdateGate
 }
 
 func TestListAllGateways_Pagination(t *testing.T) {
-	// 250 gateways distributed across 3 pages (100, 100, 50).
-	total := 250
+	// 1200 gateways distributed across 3 pages (500, 500, 200) at the shared
+	// helper's gatewayListPageSize.
+	total := 1200
 	allGWs := make([]*pb.Gateway, total)
 	for i := 0; i < total; i++ {
 		allGWs[i] = &pb.Gateway{
@@ -558,8 +559,7 @@ func TestListAllGateways_Pagination(t *testing.T) {
 		},
 	}
 
-	h := &GatewayHealthReconciler{}
-	got, err := h.listAllGateways(context.Background(), client)
+	got, err := listAllGateways(context.Background(), client, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -605,8 +605,7 @@ func TestListAllGateways_SinglePage(t *testing.T) {
 		},
 	}
 
-	h := &GatewayHealthReconciler{}
-	got, err := h.listAllGateways(context.Background(), client)
+	got, err := listAllGateways(context.Background(), client, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -615,6 +614,41 @@ func TestListAllGateways_SinglePage(t *testing.T) {
 	}
 	if callCount != 1 {
 		t.Fatalf("expected 1 call, got %d", callCount)
+	}
+}
+
+func TestListAllGateways_ClusterIDFilter(t *testing.T) {
+	// A non-empty clusterID must be sent as the request's optional cluster_id so
+	// the api-server scopes the listing server-side (the pull-model boundary); an
+	// empty clusterID must send nil so the single-cluster default lists all.
+	tests := []struct {
+		name      string
+		clusterID string
+		wantSet   bool
+	}{
+		{name: "scoped", clusterID: "2abc", wantSet: true},
+		{name: "unscoped", clusterID: "", wantSet: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotClusterID *string
+			client := &fakeGatewayClient{
+				listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+					gotClusterID = in.ClusterId
+					return &pb.ListGatewaysResponse{Metadata: &pb.ListMeta{Total: 0}}, nil
+				},
+			}
+			if _, err := listAllGateways(context.Background(), client, tc.clusterID); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantSet {
+				if gotClusterID == nil || *gotClusterID != tc.clusterID {
+					t.Fatalf("cluster_id = %v, want %q", gotClusterID, tc.clusterID)
+				}
+			} else if gotClusterID != nil {
+				t.Fatalf("cluster_id = %q, want unset", *gotClusterID)
+			}
+		})
 	}
 }
 
@@ -630,8 +664,7 @@ func TestListAllGateways_Empty(t *testing.T) {
 		},
 	}
 
-	h := &GatewayHealthReconciler{}
-	got, err := h.listAllGateways(context.Background(), client)
+	got, err := listAllGateways(context.Background(), client, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
