@@ -320,7 +320,7 @@ func ReconcileExternalDatabaseResources(
 	// Open admin connection and issue idempotent DDL.
 	db, err := openAdminConn(ctx, params)
 	if err != nil {
-		return fmt.Errorf("connect to external server: connection failed (credentials redacted)")
+		return fmt.Errorf("connect to external server (%s): connection failed (credentials redacted)", mapConnErrorToStatus(err))
 	}
 	defer func() {
 		if cerr := db.Close(); cerr != nil {
@@ -479,7 +479,10 @@ func DeleteExternalDatabaseResources(
 
 	db, err := openAdminConn(ctx, params)
 	if err != nil {
-		return fmt.Errorf("external DB cleanup for gateway %s: cannot connect to server (credentials redacted)", gatewayID)
+		// Transient: connection error will be retried by the reconcile loop.
+		// If the external server is permanently decommissioned, remove admin
+		// Secret %q to make cleanup terminal and unblock gateway finalization.
+		return fmt.Errorf("external DB cleanup for gateway %s (%s): cannot connect to server (credentials redacted) - to unblock finalization on a decommissioned server, remove admin Secret %q", gatewayID, mapConnErrorToStatus(err), cfg.SecretName)
 	}
 	defer func() {
 		if cerr := db.Close(); cerr != nil {
@@ -557,7 +560,7 @@ func RotateExternalDatabaseCredentials(
 
 	db, err := openAdminConn(ctx, params)
 	if err != nil {
-		return fmt.Errorf("connect to external server for rotation: connection failed (credentials redacted)")
+		return fmt.Errorf("connect to external server for rotation (%s): connection failed (credentials redacted)", mapConnErrorToStatus(err))
 	}
 	defer func() {
 		if cerr := db.Close(); cerr != nil {

@@ -33,10 +33,5 @@
     "filename": "specs/platform/global-architecture.spec.md",
     "line": 1190,
     "rationale": "Example directory names 'vteam-stage'/'vteam-uat' in a GitOps directory-tree illustration reference real external cluster environments; they are example paths, not the discouraged term."
-  },
-  {
-    "filename": "CLAUDE.md",
-    "line": 201,
-    "rationale": "The em dash appears inside a convention rule that documents the character itself as a forbidden term; it must be shown literally to be unambiguous."
   }
 ]
