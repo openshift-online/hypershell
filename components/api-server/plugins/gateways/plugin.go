@@ -32,7 +32,8 @@ type ServiceLocator struct {
 }
 
 type dbLookupAdapter struct {
-	svc managedDatabases.ManagedDatabaseService
+	svc      managedDatabases.ManagedDatabaseService
+	provider string // when non-empty, FindSole filters to this provider
 }
 
 func (a *dbLookupAdapter) FindSole(ctx context.Context) (string, error) {
@@ -40,8 +41,14 @@ func (a *dbLookupAdapter) FindSole(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(all) == 1 {
-		return all[0].ID, nil
+	var matches []*managedDatabases.ManagedDatabase
+	for _, db := range all {
+		if a.provider == "" || db.Provider == a.provider {
+			matches = append(matches, db)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0].ID, nil
 	}
 	return "", nil
 }
@@ -79,11 +86,15 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 	return ServiceLocator{
 		gateway: func() GatewayService {
 			var placement PlacementResolver
-			if mdSvc := managedDatabases.Service(&env.Services); mdSvc != nil {
-				if databaseProvider == ProviderDeployment {
+			mdSvc := managedDatabases.Service(&env.Services)
+			if mdSvc != nil {
+				switch databaseProvider {
+				case ProviderDeployment:
 					placement = NewDeploymentPlacement(&dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
-				} else {
-					placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc})
+				case ProviderCNPG:
+					placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc, provider: ProviderCNPG})
+				case ProviderExternal:
+					placement = NewExternalPlacement(&dbLookupAdapter{svc: mdSvc, provider: ProviderExternal})
 				}
 			}
 

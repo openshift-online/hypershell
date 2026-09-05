@@ -63,6 +63,15 @@ type CNPGConfig struct {
 	ClusterNamespace string
 }
 
+// ExternalDBConfig carries the admin connection Secret reference for an
+// external ManagedDatabase. The SecretName must satisfy the
+// hypershell-managed-db- prefix rule; the control plane reads the Secret
+// only from its own instance namespace (Namespace).
+type ExternalDBConfig struct {
+	SecretName string
+	Namespace  string
+}
+
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
 // It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
 // reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror,
@@ -166,13 +175,15 @@ type ReconcileOpts struct {
 	HasCertManager bool
 	HasGatewayAPI  bool
 	HasCNPG        bool
-	// DatabaseProvider is the ManagedDatabase provider ("cnpg" or "deployment").
+	// DatabaseProvider is the ManagedDatabase provider ("cnpg", "deployment", or "external").
 	DatabaseProvider string
 	CNPG             CNPGConfig
 	// DeploymentDBNamespace is the namespace where the Deployment-managed
 	// database lives. Used when DatabaseProvider is "deployment" to copy
 	// credentials into the tenant namespace.
 	DeploymentDBNamespace string
+	// ExternalDB carries the admin Secret reference for the external provider.
+	ExternalDB            ExternalDBConfig
 	ControlPlaneNamespace string
 	Images                ImageDefaults
 	// SkipNetworkPolicies disables creation of the per-tenant gateway

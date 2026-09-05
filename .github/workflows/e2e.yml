@@ -349,7 +349,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        database-provider: [deployment, cnpg]
+        database-provider: [deployment, cnpg, external]
     # This job now also absorbs the Konflux build wait that plan-images used to
     # hold: kind-up runs first and overlaps the remote build, the
     # wait-on-check-action steps then block for whatever build time is left (up

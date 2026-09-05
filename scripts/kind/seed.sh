@@ -12,9 +12,9 @@
 # SKIP_SEED=true on kind-up and runs `make kind-seed` after the swap.
 #
 # Environment:
-#   DATABASE_PROVIDER   cnpg | deployment (default: deployment). Must match the
-#                       provider kind-up provisioned infrastructure for.
-#   SEED_STRICT         when "true", a seeding failure exits non-zero instead of
+#   DATABASE_PROVIDER   cnpg | deployment | external (default: deployment). Must
+#                       match the provider kind-up provisioned infrastructure for.
+#   KIND_SEED_STRICT    when "true", a seeding failure exits non-zero instead of
 #                       only warning. CI sets this so a contract regression fails
 #                       the job at the seed step with the real HTTP error, rather
 #                       than surfacing later as a confusing discovery failure.
@@ -29,8 +29,8 @@ require_cluster
 
 # DATABASE_PROVIDER unset/empty means "deployment" (mirrors up.sh).
 DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
-if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" ]]; then
-  error "DATABASE_PROVIDER must be 'cnpg' or 'deployment', got '${DB_PROVIDER}'"
+if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" && "${DB_PROVIDER}" != "external" ]]; then
+  error "DATABASE_PROVIDER must be 'cnpg', 'deployment', or 'external', got '${DB_PROVIDER}'"
   exit 1
 fi
 
@@ -166,8 +166,12 @@ if [[ -z "${seed_failed}" ]]; then
 
   if [[ -z "${CLUSTER_ID}" ]]; then
     info "Creating ManagedCluster..."
-    MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
-      "{\"name\":\"local-kind\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
+    _mc_body="{\"name\":\"local-kind\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\""
+    if [[ "${DB_PROVIDER}" == "external" ]]; then
+      _mc_body="${_mc_body},\"region\":\"kind-local\""
+    fi
+    _mc_body="${_mc_body}}"
+    MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" "${_mc_body}")
     MC_HTTP=$(echo "${MC_RAW}" | tail -1)
     MC_RESP=$(echo "${MC_RAW}" | sed '$d')
     CLUSTER_ID=$(extract_id "${MC_RESP}")
@@ -232,8 +236,13 @@ if [[ -z "${seed_failed}" ]]; then
 
     if [[ -z "${DATABASE_ID}" ]]; then
       info "Creating ManagedDatabase (provider=${DB_PROVIDER})..."
-      MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-        "{\"name\":\"openshell-db\",\"provider\":\"${DB_PROVIDER}\"}")
+      if [[ "${DB_PROVIDER}" == "external" ]]; then
+        MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
+          "{\"name\":\"openshell-db\",\"provider\":\"external\",\"connection_secret\":\"hypershell-managed-db-kind\",\"region\":\"kind-local\"}")
+      else
+        MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
+          "{\"name\":\"openshell-db\",\"provider\":\"${DB_PROVIDER}\"}")
+      fi
       MD_HTTP=$(echo "${MD_RAW}" | tail -1)
       MD_RESP=$(echo "${MD_RAW}" | sed '$d')
 
@@ -274,9 +283,16 @@ if [[ -z "${seed_failed}" ]]; then
     OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    # Always send database_id; deployment mode uses the empty placeholder.
+    # For external mode, send database_id="" so server-side placement resolves it:
+    # externalPlacement.Resolve selects the sole provider=external ManagedDatabase
+    # (no region matching - the single registered external DB is always used).
+    # For other modes, deployment uses "" (auto) and cnpg uses the actual DATABASE_ID.
+    _gw_database_id="${DATABASE_ID}"
+    if [[ "${DB_PROVIDER}" == "external" ]]; then
+      _gw_database_id=""
+    fi
     GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
-    GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
+    GW_BODY="${GW_BODY},\"database_id\":\"${_gw_database_id}\""
     GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")

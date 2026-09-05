@@ -21,7 +21,7 @@ import (
 )
 
 func TestNewManagedDatabaseReconcilerWithoutKubernetesClient(t *testing.T) {
-	r := NewManagedDatabaseReconciler(nil, nil, nil, "")
+	r := NewManagedDatabaseReconciler(nil, nil, nil, "hypershell")
 	if r.hasCNPG {
 		t.Fatal("hasCNPG = true without a Kubernetes client, want false")
 	}

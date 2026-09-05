@@ -94,6 +94,28 @@ func NewDeploymentPlacement(dbs DatabaseCreator) PlacementResolver {
 	return &deploymentPlacement{dbs: dbs}
 }
 
+type externalPlacement struct {
+	dbs DatabaseLookup
+}
+
+func NewExternalPlacement(dbs DatabaseLookup) PlacementResolver {
+	return &externalPlacement{dbs: dbs}
+}
+
+func (p *externalPlacement) Resolve(ctx context.Context, gw *Gateway) error {
+	gw.DatabaseId = ""
+
+	dbID, err := p.dbs.FindSole(ctx)
+	if err != nil {
+		return newPlacementDependencyError("resolve external database", err)
+	}
+	if dbID == "" {
+		return newPlacementValidationError("no external ManagedDatabase found, or more than one exists; register exactly one external ManagedDatabase before creating gateways")
+	}
+	gw.DatabaseId = dbID
+	return nil
+}
+
 func (p *deploymentPlacement) Resolve(ctx context.Context, gw *Gateway) error {
 	// A deployment database is dedicated to exactly one gateway. Ignore any
 	// client-provided database_id and always create the server-owned resource.
