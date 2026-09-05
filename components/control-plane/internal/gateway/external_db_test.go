@@ -100,6 +100,8 @@ func TestMapConnErrorToStatus(t *testing.T) {
 		{name: "ssl error", err: errors.New("ssl SYSCALL error"), want: ExternalDBStatusTLSFailed},
 		{name: "pq auth 28P01", err: &pq.Error{Code: "28P01"}, want: ExternalDBStatusAuthFailed},
 		{name: "pq auth 28000", err: &pq.Error{Code: "28000"}, want: ExternalDBStatusAuthFailed},
+		// pq.Error with SSL in message must still be auth_failed (typed check beats string match)
+		{name: "pq auth 28P01 with ssl message", err: &pq.Error{Code: "28P01", Message: "SSL connection required"}, want: ExternalDBStatusAuthFailed},
 		{name: "password authentication failed", err: errors.New("password authentication failed for user foo"), want: ExternalDBStatusAuthFailed},
 		{name: "net.Error timeout", err: &fakeNetError{timeout: true}, want: ExternalDBStatusUnreachable},
 		{name: "unknown", err: errors.New("some unexpected error"), want: ExternalDBStatusUnreachable},

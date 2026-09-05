@@ -206,20 +206,22 @@ func mapConnErrorToStatus(err error) string {
 		strings.Contains(lower, "network") {
 		return ExternalDBStatusUnreachable
 	}
-	// TLS failures
-	if strings.Contains(lower, "tls") ||
-		strings.Contains(lower, "certificate") ||
-		strings.Contains(lower, "x509") ||
-		strings.Contains(lower, "ssl") {
-		return ExternalDBStatusTLSFailed
-	}
-	// Auth failures - prefer typed SQLSTATE check over string matching.
+	// Auth failures: typed SQLSTATE check runs before TLS string matching so that
+	// a pq.Error with code 28P01/28000 is always classified auth_failed even when
+	// its message incidentally contains "ssl" (e.g. SSL-wrapped auth rejections).
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {
 		switch pqErr.Code {
 		case "28P01", "28000": // invalid_password, invalid_authorization_specification
 			return ExternalDBStatusAuthFailed
 		}
+	}
+	// TLS failures
+	if strings.Contains(lower, "tls") ||
+		strings.Contains(lower, "certificate") ||
+		strings.Contains(lower, "x509") ||
+		strings.Contains(lower, "ssl") {
+		return ExternalDBStatusTLSFailed
 	}
 	if strings.Contains(lower, "password authentication failed") ||
 		strings.Contains(lower, "28p01") ||

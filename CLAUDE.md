@@ -122,6 +122,7 @@ Cross-cutting rules that apply across ALL components.
 - **PatternFly 6 for web UI**: Reuse PatternFly and canonical shared components; do not create duplicate UI components
 - **Narrow hexagonal UI boundary**: Put application workflows and external effects behind application-owned ports; keep React, TanStack Query, Fastify, generated SDKs, and infrastructure outside
 - **Domain probes for UI observability**: Publish typed workflow and dependency facts through a fan-out port; no raw console or direct telemetry calls in production browser/BFF code
+- **No em dashes**: Use hyphens (`-`) instead of em dashes (`—` U+2014) in all text files; the pre-commit hook rejects them
 
 Component-specific conventions:
 - Control Plane: [conventions](specs/standards/control-plane/conventions.spec.md)
