@@ -47,6 +47,8 @@ func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Inter
 	// so we log at ERROR and return nil to let in-cluster RBAC cleanup proceed.
 	// Connection/DDL failures are transient and are returned for reconcile retry.
 	if _, _, err := readExternalAdminSecret(ctx, clientset, r.cfg.Namespace, r.cfg.SecretName); err != nil {
+		// TODO(v2): surface orphaned tenant DB as a metric or durable status field
+		// so operators can find and reclaim them without scanning logs.
 		log.Printf("ERROR gateway %s: database cleanup cannot proceed (admin secret unreadable; orphaned database/role may require manual cleanup): %v", gatewayID, err)
 		return nil
 	}
@@ -233,7 +235,9 @@ func mapConnErrorToStatus(err error) string {
 		strings.Contains(lower, "28000") {
 		return ExternalDBStatusAuthFailed
 	}
-	// Privilege (this is checked post-connect, not here)
+	// Unclassified errors: deliberately collapsed to unreachable. This is a
+	// status label only; no control-flow branch depends on the value, so a
+	// misclassification has low impact.
 	return ExternalDBStatusUnreachable
 }
 
