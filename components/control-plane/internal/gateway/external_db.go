@@ -173,6 +173,8 @@ func (p *externalAdminParams) dsn() string {
 
 // openAdminConn opens a short-lived PostgreSQL admin connection. Callers must
 // close it. Credentials must not appear in error messages.
+// PingContext errors are returned unwrapped so callers can errors.As them for
+// typed classification (*pq.Error / net.Error) via mapConnErrorToStatus.
 func openAdminConn(ctx context.Context, params *externalAdminParams) (*sql.DB, error) {
 	db, err := sql.Open("postgres", params.dsn())
 	if err != nil {
@@ -394,15 +396,15 @@ func ReconcileExternalDatabaseResources(
 	}
 
 	// Write or refresh the tenant credentials Secret.
-	// Mirror the admin sslmode and sslrootcert so the tenant connection uses the
-	// same TLS posture as the admin connection.
+	// Tenant TLS: use the admin sslmode but cap at "require" when the admin uses
+	// "verify-full". The admin sslrootcert is a filesystem path local to the
+	// control-plane pod; the gateway workload runs in a different pod and has no
+	// CA bundle at that path. Delivering the CA as PEM content is planned for v2.
 	tenantSSLMode := params.sslmode
-	tenantQ := url.Values{
-		"sslmode": {tenantSSLMode},
+	if tenantSSLMode == "verify-full" {
+		tenantSSLMode = "require"
 	}
-	if params.sslrootcert != "" {
-		tenantQ.Set("sslrootcert", params.sslrootcert)
-	}
+	tenantQ := url.Values{"sslmode": {tenantSSLMode}}
 	tenantBase := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s",
 		url.QueryEscape(pgName), url.QueryEscape(password), params.host, params.port, pgName)
 	dbURI := tenantBase + "?" + tenantQ.Encode()
@@ -415,9 +417,6 @@ func ReconcileExternalDatabaseResources(
 		"password": []byte(password),
 		"sslmode":  []byte(tenantSSLMode),
 		"uri":      []byte(dbURI),
-	}
-	if params.sslrootcert != "" {
-		desiredData["sslrootcert"] = []byte(params.sslrootcert)
 	}
 	desiredLabels := map[string]string{
 		"app.kubernetes.io/name":       "openshell",
@@ -577,10 +576,13 @@ func RotateExternalDatabaseCredentials(
 	}
 	log.Printf("INFO rotated external DB password for gateway %s", gatewayID)
 
-	tenantQ := url.Values{"sslmode": {params.sslmode}}
-	if params.sslrootcert != "" {
-		tenantQ.Set("sslrootcert", params.sslrootcert)
+	// Cap tenant sslmode at "require": sslrootcert is a control-plane filesystem
+	// path the gateway pod cannot access (see ReconcileExternalDatabaseResources).
+	tenantSSLMode := params.sslmode
+	if tenantSSLMode == "verify-full" {
+		tenantSSLMode = "require"
 	}
+	tenantQ := url.Values{"sslmode": {tenantSSLMode}}
 	dbURI := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s",
 		url.QueryEscape(pgName), url.QueryEscape(newPassword), params.host, params.port, pgName) +
 		"?" + tenantQ.Encode()
