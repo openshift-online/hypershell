@@ -197,7 +197,8 @@ func mapConnErrorToStatus(err error) string {
 	msg := err.Error()
 	lower := strings.ToLower(msg)
 
-	// Network-level failures
+	// Network-level failures: typed check first, then best-effort string matching
+	// for errors the driver returns as unwrapped plain strings.
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return ExternalDBStatusUnreachable
@@ -218,7 +219,9 @@ func mapConnErrorToStatus(err error) string {
 			return ExternalDBStatusAuthFailed
 		}
 	}
-	// TLS failures
+	// TLS/auth best-effort string matching: only reached for unwrapped driver errors
+	// where the typed checks above did not match. Result is a status label only
+	// (no control-flow branch on it), so a misclassification has low impact.
 	if strings.Contains(lower, "tls") ||
 		strings.Contains(lower, "certificate") ||
 		strings.Contains(lower, "x509") ||

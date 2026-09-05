@@ -94,7 +94,7 @@ In both modes, the ManagedDatabase namespace is derived from the ManagedDatabase
 
 The Gateway create contract keeps `cluster_id` and `database_id`. The API server stores `cluster_id` but SHALL NOT resolve, validate, or use it for database placement in any mode. The `database_id` value is server-owned in every mode. Clients send an empty string, and the API server SHALL ignore and replace any non-empty value. Omitting the property is invalid. The server-side `database_id` placement strategy depends on `DATABASE_PROVIDER`:
 
-**CNPG mode (`cnpgPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and queries all ManagedDatabases. If exactly one ManagedDatabase exists, the API server assigns its ID. If zero or more than one exist, the API server rejects the request.
+**CNPG mode (`cnpgPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and queries all ManagedDatabases with `provider=cnpg`. If exactly one such ManagedDatabase exists, the API server assigns its ID. If zero or more than one exist, the API server rejects the request.
 
 **Deployment mode (`deploymentPlacement`):** For every Gateway creation, the API server ignores the requested `database_id`, creates a new ManagedDatabase (provider=deployment) for that gateway, and assigns its ID. No existing ManagedDatabase is necessary. A caller cannot select a database that another gateway uses.
 
