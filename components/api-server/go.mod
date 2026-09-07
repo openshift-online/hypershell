@@ -27,7 +27,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
-	gopkg.in/resty.v1 v1.12.0
+	gopkg.in/resty.v2 v2.17.2
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.31.1
 )
