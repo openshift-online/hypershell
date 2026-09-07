@@ -49,8 +49,8 @@ github.com/go-openapi/testify/enable/yaml/v2 v2.4.2 h1:5zRca5jw7lzVREKCZVNBpysDN
 github.com/go-openapi/testify/enable/yaml/v2 v2.4.2/go.mod h1:XVevPw5hUXuV+5AkI1u1PeAm27EQVrhXTTCPAF85LmE=
 github.com/go-openapi/testify/v2 v2.4.2 h1:tiByHpvE9uHrrKjOszax7ZvKB7QOgizBWGBLuq0ePx4=
 github.com/go-openapi/testify/v2 v2.4.2/go.mod h1:SgsVHtfooshd0tublTtJ50FPKhujf47YRqauXXOUxfw=
-github.com/golang-jwt/jwt/v4 v4.5.0 h1:7cYmW1XlMY7h7ii7UhUyChSgS5wUJEnm9uZVTGqOWzg=
-github.com/golang-jwt/jwt/v4 v4.5.0/go.mod h1:m21LjoU+eqJr34lmDMbreY2eSTRJ1cv77w39/MY0Ch0=
+github.com/golang-jwt/jwt/v4 v4.5.2 h1:YtQM7lnr8iZ+j5q71MGKkNw9Mn7AjHM68uc9g5fXeUI=
+github.com/golang-jwt/jwt/v4 v4.5.2/go.mod h1:m21LjoU+eqJr34lmDMbreY2eSTRJ1cv77w39/MY0Ch0=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
 github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=
 github.com/google/gnostic-models v0.7.1 h1:SisTfuFKJSKM5CPZkffwi6coztzzeYUhc3v4yxLWH8c=
