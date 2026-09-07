@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/golang/glog"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
