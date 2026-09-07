@@ -377,12 +377,28 @@ func OptionalClusterID(clusterID string) *string {
 	return &clusterID
 }
 
+// gatewayWorkerCount clamps a configured gateway reconcile worker count to a
+// positive value. Configuration validation already keeps the value positive, so
+// this is defense in depth: a non-positive count (from a caller or a future
+// config path) would otherwise leave the pool with no workers and stall gateway
+// reconciliation entirely, so it falls back to the built-in default instead.
+func gatewayWorkerCount(configured int) int {
+	if configured < 1 {
+		return gatewayReconcileWorkers
+	}
+	return configured
+}
+
 // WatchGateways streams gateway events and drives them through a per-resource
 // reconcile queue. When clusterID is non-empty the watch and its seed lists are
 // scoped server-side to gateways with that cluster_id, so a managed-cluster
 // spoke only ever reconciles its own gateways (the pull model); empty watches
-// every gateway.
-func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Gateway], clusterID string) error {
+// every gateway. workers bounds how many distinct gateways reconcile
+// concurrently (see gateway-reconcile-concurrency.spec.md); a value below 1
+// falls back to the queue's built-in default so the pool always has at least
+// one worker.
+func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Gateway], clusterID string, workers int) error {
+	workers = gatewayWorkerCount(workers)
 	client := pb.NewGatewayServiceClient(conn)
 	// Gateway reconciliation is driven through a per-resource reconcile queue rather
 	// than invoked inline: the watch stream does not replay state on reconnect, so a
@@ -393,7 +409,8 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 	// lifetime context so recovery survives a stream reconnect.
 	rq := newReconcileQueue(ctx, "Gateway", handler,
 		withRetryTransform(clearGatewayPhaseForRetry),
-		withVersion(gatewayEventVersion))
+		withVersion(gatewayEventVersion),
+		withWorkers[*pb.Gateway](workers))
 	defer rq.stop()
 	return watchLoop(ctx, "Gateway", func(ctx context.Context) error {
 		// Derive a cancelable child before creating the stream so either the

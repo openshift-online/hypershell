@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -718,7 +719,7 @@ func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	watchErr := make(chan error, 1)
 	go func() {
-		watchErr <- watcher.WatchGateways(ctx, grpcConn, r, "")
+		watchErr <- watcher.WatchGateways(ctx, grpcConn, r, "", config.DefaultGatewayReconcileWorkers)
 	}()
 
 	deadline := time.NewTimer(8 * time.Second)

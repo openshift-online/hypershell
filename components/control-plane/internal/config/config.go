@@ -21,6 +21,13 @@ const (
 	DatabaseProviderCNPG       = "cnpg"
 )
 
+// DefaultGatewayReconcileWorkers is the fallback size of the gateway reconcile
+// worker pool when GATEWAY_RECONCILE_WORKERS is unset or invalid. It matches the
+// control plane's historical hardcoded pool size, so an unset variable preserves
+// today's cross-gateway provisioning concurrency. See
+// specs/platform/gateway-reconcile-concurrency.spec.md.
+const DefaultGatewayReconcileWorkers = 4
+
 type Config struct {
 	GRPCServerAddr string
 	APIServerURL   string
@@ -48,6 +55,15 @@ type Config struct {
 	// NamespaceGCGracePeriod is how long a namespace must remain orphaned before
 	// it is reaped.
 	NamespaceGCGracePeriod time.Duration
+
+	// GatewayReconcileWorkers bounds how many distinct gateways the control
+	// plane provisions concurrently: the size of the gateway reconcile queue
+	// worker pool. Work for a single gateway is always serialized; this only
+	// caps cross-gateway parallelism, so raising it lets a larger create burst
+	// provision at once instead of queueing, while the pool stays a bounded
+	// throttle. Resolved from GATEWAY_RECONCILE_WORKERS by Load, always >= 1.
+	// See specs/platform/gateway-reconcile-concurrency.spec.md.
+	GatewayReconcileWorkers int
 
 	// DatabaseProvider is the control-plane-wide default ManagedDatabase
 	// provider, resolved from DATABASE_PROVIDER by resolveDatabaseProvider.
@@ -77,6 +93,8 @@ func Load() (*Config, error) {
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),
 		NamespaceGCInterval:    getEnvDuration("GATEWAY_NAMESPACE_GC_INTERVAL", 5*time.Minute),
 		NamespaceGCGracePeriod: getEnvDuration("GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 10*time.Minute),
+
+		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
 
 		DatabaseProvider: databaseProvider,
 	}
@@ -120,6 +138,29 @@ func getEnvBool(key string, fallback bool) bool {
 	parsed, err := strconv.ParseBool(v)
 	if err != nil {
 		log.Printf("WARN invalid bool for %s=%q, using default %v: %v", key, v, fallback, err)
+		return fallback
+	}
+	return parsed
+}
+
+// getEnvInt reads an integer environment variable. It falls back to fallback
+// when the variable is unset, is not a valid integer, or is below min. min is
+// the smallest accepted value (for a worker pool, 1, so the resolved count never
+// disables reconciliation). Invalid or out-of-range input logs a warning and
+// uses the default rather than failing startup, matching getEnvBool and
+// getEnvDuration; a mistuned throttle should not take the control plane down.
+func getEnvInt(key string, fallback, min int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("WARN invalid int for %s=%q, using default %d: %v", key, v, fallback, err)
+		return fallback
+	}
+	if parsed < min {
+		log.Printf("WARN %s=%d is below the minimum %d, using default %d", key, parsed, min, fallback)
 		return fallback
 	}
 	return parsed

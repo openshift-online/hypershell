@@ -286,7 +286,7 @@ func main() {
 		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
 	})
 	supervise("Gateway watch", func(ctx context.Context) error {
-		return watcher.WatchGateways(ctx, conn, gatewayReconciler, cfg.ClusterID)
+		return watcher.WatchGateways(ctx, conn, gatewayReconciler, cfg.ClusterID, cfg.GatewayReconcileWorkers)
 	})
 	supervise("GatewayNetwork watch", func(ctx context.Context) error {
 		return watcher.WatchGatewayNetworks(ctx, conn, networkReconciler)

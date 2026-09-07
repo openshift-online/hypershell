@@ -203,7 +203,10 @@ func withQueueWaitRecorder[T any](record func(time.Duration)) queueOption[T] {
 	return func(q *reconcileQueue[T]) { q.recordQueueWait = record }
 }
 
-// withWorkers overrides the worker count (used by tests).
+// withWorkers sets the worker-pool size. WatchGateways uses it to apply the
+// configured GATEWAY_RECONCILE_WORKERS count (clamped to a positive value by the
+// caller); tests also use it to pin concurrency, including 0 to build a queue
+// that does not auto-drain.
 func withWorkers[T any](n int) queueOption[T] {
 	return func(q *reconcileQueue[T]) { q.workers = n }
 }

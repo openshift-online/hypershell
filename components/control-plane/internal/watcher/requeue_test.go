@@ -1049,3 +1049,26 @@ func TestReconcileQueue_DuplicateDeleteRetainsPayload(t *testing.T) {
 		t.Fatalf("reprocessed delete saw %q, want the duplicate's full payload %q", got, "del-second")
 	}
 }
+
+// gatewayWorkerCount clamps a non-positive configured count to the default so the
+// gateway reconcile pool always has at least one worker (CP-CONC-03), and honors
+// any positive value (CP-CONC-01).
+func TestGatewayWorkerCount(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured int
+		want       int
+	}{
+		{name: "positive value honored", configured: 8, want: 8},
+		{name: "one honored", configured: 1, want: 1},
+		{name: "default when zero", configured: 0, want: gatewayReconcileWorkers},
+		{name: "default when negative", configured: -5, want: gatewayReconcileWorkers},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := gatewayWorkerCount(tt.configured); got != tt.want {
+				t.Fatalf("gatewayWorkerCount(%d) = %d, want %d", tt.configured, got, tt.want)
+			}
+		})
+	}
+}
