@@ -8,7 +8,7 @@ require (
 	github.com/go-gormigrate/gormigrate/v2 v2.1.6
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/golang/glog v1.2.5
-	github.com/gorilla/mux v1.7.3
+	github.com/gorilla/mux v1.8.1
 	github.com/onsi/gomega v1.27.1
 	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260819203335-5798cb607fcb
 	github.com/prometheus/client_golang v1.16.0
