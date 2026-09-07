@@ -30,9 +30,9 @@
     "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.test.json --noEmit"
   },
   "devDependencies": {
-    "@eslint/js": "9.39.5",
+    "@eslint/js": "10.0.1",
     "@vitest/coverage-v8": "4.1.10",
-    "eslint": "9.39.5",
+    "eslint": "10.9.0",
     "globals": "16.5.0",
     "prettier": "3.9.6",
     "typescript": "6.0.3",
