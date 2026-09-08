@@ -6,10 +6,8 @@ on:
       - main
     paths:
       - '.github/workflows/architecture-site.yml'
-      - 'docs/architecture/**'
-      - 'specs/**'
-      - 'components/**/CLAUDE.md'
-      - 'packages/**/README.md'
+      - 'docs/architecture/source/**'
+      - 'docs/architecture/assets/**'
       - 'tools/architecture-site/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -18,10 +16,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/architecture-site.yml'
-      - 'docs/architecture/**'
-      - 'specs/**'
-      - 'components/**/CLAUDE.md'
-      - 'packages/**/README.md'
+      - 'docs/architecture/source/**'
+      - 'docs/architecture/assets/**'
       - 'tools/architecture-site/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -33,8 +29,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: architecture-pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

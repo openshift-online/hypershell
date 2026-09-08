@@ -1,63 +1,63 @@
 # Domain model
 
-The API models fleets, placements, releases, databases, gateways, networks, and gateway-scoped automation identities as first-class resources.
+The API models top-level placement, release, database, gateway, network, and gateway-scoped automation resources. Tenancy is enforced through platform-level and per-gateway RBAC rather than resource grouping.
 
-Authoritative source: specs/platform/data-model.spec.md
+Authoritative source: specs/platform/data-model.spec.md; specs/security/rbac-enforcement.spec.md
 
-### Current API relationships. Fleet is the present organizational scope; the specification notes a future simplification to top-level resources.
+### Current API relationships. Resources are top-level; placement, release, and database references converge on Gateway, while service accounts are scoped to one Gateway.
 
 ```mermaid
 erDiagram
-  Fleet ||--o{ ManagedCluster : owns
-  Fleet ||--o{ ManagedDatabase : owns
-  Fleet ||--o{ GatewayRelease : owns
-  Fleet ||--o{ Gateway : owns
-  Fleet ||--o{ GatewayNetwork : owns
   ManagedCluster ||--o{ Gateway : hosts
-  ManagedDatabase ||--o{ Gateway : backs
-  GatewayRelease ||--o{ Gateway : deploys
+  GatewayRelease ||--o{ Gateway : deployed_as
+  ManagedDatabase ||--o{ Gateway : backed_by
   Gateway ||--o{ OpenShellGatewayServiceAccount : authorizes
-  GatewayNetwork }o--|| Gateway : hub
-  Fleet {
-    string id PK
-    string name
-    string status
-  }
+  Gateway ||--o| GatewayNetwork : hub_gateway
   ManagedCluster {
     string id PK
+    string name
     string provider
     string region
-    string kubeconfig_secret
+    string status
   }
   ManagedDatabase {
     string id PK
+    string name
     string provider
-    string namespace
+    string region
+    string engine
     string status
   }
   GatewayRelease {
     string id PK
+    string name
     string image
     string rollout_strategy
+    string status
   }
   Gateway {
     string id PK
-    string namespace
+    string name
     string cluster_id FK
-    string database_id FK
     string release_id FK
+    string database_id FK
+    string namespace
     string phase
-    string route_address
-  }
-  GatewayNetwork {
-    string id PK
-    string topology
-    string tunnel_mode
+    string status
   }
   OpenShellGatewayServiceAccount {
     string id PK
     string gateway_id FK
     string role
+    string status
+    string created_by_user_id FK
+  }
+  GatewayNetwork {
+    string id PK
+    string name
+    string topology
+    string tunnel_mode
+    string hub_gateway_id FK
     string status
   }
 ```

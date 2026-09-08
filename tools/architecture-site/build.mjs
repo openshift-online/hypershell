@@ -77,7 +77,7 @@ function renderMarkdown(page) {
   return marked.parse(page.body, { renderer });
 }
 
-function navigation(current) {
+function navigation() {
   return pages.map((file) => {
     const slug = pageSlug(file);
     const page = pageByFile.get(file);
@@ -108,7 +108,7 @@ function pageDocument(page) {
   <p class="eyebrow">HyperShell architecture atlas</p>
   <h1>${escapeHtml(page.title)}</h1>
   <p class="lede">${escapeHtml(page.lede)}</p>
-  <nav class="page-nav" aria-label="Architecture pages">${navigation(page.file)}</nav>
+  <nav class="page-nav" aria-label="Architecture pages">${navigation()}</nav>
 </div></header>
 <main>${breadcrumb}${source}${renderMarkdown(page)}</main>
 <footer class="site-footer"><div class="site-footer-inner">Diagrams are rendered as inline SVG with <a href="https://github.com/lukilabs/beautiful-mermaid" rel="noreferrer">beautiful-mermaid</a>, the open-source renderer behind Craft's <a href="https://agents.craft.do/mermaid" rel="noreferrer">Mermaid renderer</a>. Mermaid source is included on every page for review and editing.</div></footer>
