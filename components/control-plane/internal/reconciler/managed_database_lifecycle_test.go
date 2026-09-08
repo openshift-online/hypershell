@@ -76,7 +76,7 @@ func TestManagedDatabaseDeleteNilTombstoneUsesLastSeenAndRetainsOnFailure(t *tes
 }
 
 func TestManagedDatabaseReconcilerNilClientsReturnsError(t *testing.T) {
-	r := NewManagedDatabaseReconciler(nil, nil, nil, "")
+	r := NewManagedDatabaseReconciler(nil, nil, nil, "hypershell")
 	err := r.Handle(context.Background(), watcher.Event[*pb.ManagedDatabase]{Type: watcher.EventDeleted, ResourceID: "db-1", Resource: &pb.ManagedDatabase{Namespace: "must-not-guess", Provider: "deployment"}})
 	if err == nil {
 		t.Fatal("want nil client error")

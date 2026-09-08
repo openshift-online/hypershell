@@ -16,6 +16,10 @@ message ManagedDatabase {
   optional string engine = 6;
   optional string engine_version = 7;
   optional string instance_class = 8;
+  // For provider "external": the NAMESPACE holding the admin credentials
+  // Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+  // "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+  // always named "hypershell-managed-db-credentials".
   optional string connection_secret = 9;
   optional string status = 10;
   string namespace = 11;
@@ -30,6 +34,10 @@ message CreateManagedDatabaseRequest {
   optional string engine = 5;
   optional string engine_version = 6;
   optional string instance_class = 7;
+  // For provider "external": the NAMESPACE holding the admin credentials
+  // Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+  // "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+  // always named "hypershell-managed-db-credentials".
   optional string connection_secret = 8;
   optional string status = 9;
 }
@@ -56,6 +64,10 @@ message UpdateManagedDatabaseRequest {
   optional string engine = 6;
   optional string engine_version = 7;
   optional string instance_class = 8;
+  // For provider "external": the NAMESPACE holding the admin credentials
+  // Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+  // "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+  // always named "hypershell-managed-db-credentials".
   optional string connection_secret = 9;
   optional string status = 10;
 }

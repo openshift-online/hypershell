@@ -2390,6 +2390,11 @@ components:
           instance_class:
             type: string
           connection_secret:
+            description: "For provider \"external\": the NAMESPACE holding the admin\
+              \ credentials Secret, not a Secret name. Must be a bare namespace name\
+              \ (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123\
+              \ label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\"\
+              . Ignored by other providers."
             type: string
           status:
             type: string
@@ -2483,6 +2488,11 @@ components:
         instance_class:
           type: string
         connection_secret:
+          description: "For provider \"external\": the NAMESPACE holding the admin\
+            \ credentials Secret, not a Secret name. Must be a bare namespace name\
+            \ (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123\
+            \ label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\"\
+            . Ignored by other providers."
           type: string
         status:
           type: string

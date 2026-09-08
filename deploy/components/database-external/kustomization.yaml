@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - hypershell-db-secret.yaml
+
+patches:
+  # Remove the CNPG Cluster - the external PostgreSQL server replaces it.
+  - target:
+      group: postgresql.cnpg.io
+      version: v1
+      kind: Cluster
+      name: hypershell-db
+    patch: |
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: hypershell-db
+  # The external stand-in server does not terminate TLS; switch sslmode from
+  # require to disable in both the migrate init container and the api-server
+  # container. DATABASE_PROVIDER=external is NOT patched here - it is applied
+  # via kubectl set env after the initial deployment readiness wait in up.sh,
+  # so the baseline image can start cleanly before the PR image is swapped in.
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: not-used
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: migrate
+                env:
+                  - name: DB_SSLMODE
+                    value: disable
+            containers:
+              - name: api-server
+                env:
+                  - name: DB_SSLMODE
+                    value: disable

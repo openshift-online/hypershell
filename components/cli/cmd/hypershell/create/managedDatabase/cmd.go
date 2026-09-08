@@ -40,7 +40,7 @@ var Cmd = &cobra.Command{
 
 func init() {
 	fs := Cmd.Flags()
-	fs.StringVar(&args.connectionSecret, "connection-secret", "", "connection_secret value.")
+	fs.StringVar(&args.connectionSecret, "connection-secret", "", "For provider \"external\": the NAMESPACE holding the admin credentials Secret. Must be a bare namespace name prefixed with \"hypershell-managed-db-\"; the Secret inside it is always named \"hypershell-managed-db-credentials\".")
 	fs.StringVar(&args.engine, "engine", "", "engine value.")
 	fs.StringVar(&args.engineVersion, "engine-version", "", "engine_version value.")
 	fs.StringVar(&args.instanceClass, "instance-class", "", "instance_class value.")

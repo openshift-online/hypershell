@@ -14,6 +14,13 @@ type DatabaseLookup interface {
 	FindSole(ctx context.Context) (databaseID string, err error)
 }
 
+// DatabaseSelector resolves placement when more than one candidate
+// ManagedDatabase is allowed to exist. FindOldest returns the earliest-created
+// candidate, or "" when none exist.
+type DatabaseSelector interface {
+	FindOldest(ctx context.Context) (databaseID string, err error)
+}
+
 type DatabaseCreator interface {
 	CreateForGateway(ctx context.Context, gatewayName string) (databaseID string, err error)
 }
@@ -92,6 +99,36 @@ type deploymentPlacement struct {
 
 func NewDeploymentPlacement(dbs DatabaseCreator) PlacementResolver {
 	return &deploymentPlacement{dbs: dbs}
+}
+
+// externalPlacement assigns every new gateway to the first-created external
+// ManagedDatabase. More than one registration is not an error: an operator may
+// register a second external server ahead of a migration without intending to
+// move where new gateways land. Only the empty result is rejected.
+//
+// Selection happens at gateway creation only. Once assigned, database_id is
+// fixed for the gateway's lifetime, so a later registration never relocates an
+// existing gateway.
+type externalPlacement struct {
+	dbs DatabaseSelector
+}
+
+func NewExternalPlacement(dbs DatabaseSelector) PlacementResolver {
+	return &externalPlacement{dbs: dbs}
+}
+
+func (p *externalPlacement) Resolve(ctx context.Context, gw *Gateway) error {
+	gw.DatabaseId = ""
+
+	dbID, err := p.dbs.FindOldest(ctx)
+	if err != nil {
+		return newPlacementDependencyError("resolve external database", err)
+	}
+	if dbID == "" {
+		return newPlacementValidationError("no external ManagedDatabase is registered; register one before creating gateways")
+	}
+	gw.DatabaseId = dbID
+	return nil
 }
 
 func (p *deploymentPlacement) Resolve(ctx context.Context, gw *Gateway) error {

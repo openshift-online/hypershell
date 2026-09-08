@@ -16,7 +16,7 @@ Name | Type | Description | Notes
 **Engine** | Pointer to **string** |  | [optional] 
 **EngineVersion** | Pointer to **string** |  | [optional] 
 **InstanceClass** | Pointer to **string** |  | [optional] 
-**ConnectionSecret** | Pointer to **string** |  | [optional] 
+**ConnectionSecret** | Pointer to **string** | For provider \&quot;external\&quot;: the NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \&quot;/\&quot;) prefixed with \&quot;hypershell-managed-db-\&quot; and a valid DNS-1123 label. The Secret inside it always has the fixed name \&quot;hypershell-managed-db-credentials\&quot;. Ignored by other providers. | [optional] 
 **Status** | Pointer to **string** |  | [optional] 
 
 ## Methods

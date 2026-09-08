@@ -92,7 +92,7 @@ retry_until() {
 # --- Environment defaults ---
 
 : "${E2E_NAMESPACE:=openshell-e2e}"
-: "${E2E_GATEWAY_NAME:=e2e-gw}"
+: "${E2E_GATEWAY_NAME:=e2e-gw-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 : "${E2E_MODE:=long}"
 : "${E2E_SANDBOX_TIMEOUT:=120}"
 : "${E2E_PROVISION_TIMEOUT:=180}"

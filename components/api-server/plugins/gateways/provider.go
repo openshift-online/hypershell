@@ -7,25 +7,32 @@ import "fmt"
 // auto-creates a dedicated deployment-backed ManagedDatabase per gateway
 // (deploymentPlacement) and needs no CNPG APIs. ProviderCNPG selects
 // CNPG-backed placement (cnpgPlacement) and resolves database_id against the
-// sole existing ManagedDatabase.
+// sole existing ManagedDatabase with provider "cnpg". ProviderExternal selects
+// external-server placement (externalPlacement): database_id is resolved to the
+// first-created ManagedDatabase with provider "external". Several external
+// ManagedDatabases may be registered; create-gateway is rejected only when none
+// are.
 const (
 	ProviderDeployment = "deployment"
 	ProviderCNPG       = "cnpg"
+	ProviderExternal   = "external"
 )
 
 // resolveDatabaseProvider validates a raw DATABASE_PROVIDER environment
 // value read at gateway-service construction time (server startup). Unset or
-// empty resolves to ProviderDeployment; any value other than "deployment" or
-// "cnpg" is a startup configuration error, never an implicit fallback to
-// "cnpg".
+// empty resolves to ProviderDeployment; any value other than "deployment",
+// "cnpg", or "external" is a startup configuration error, never an implicit
+// fallback.
 func resolveDatabaseProvider(raw string) (string, error) {
 	switch raw {
 	case "", ProviderDeployment:
 		return ProviderDeployment, nil
 	case ProviderCNPG:
 		return ProviderCNPG, nil
+	case ProviderExternal:
+		return ProviderExternal, nil
 	default:
-		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q or %q (unset defaults to %q)",
-			raw, ProviderCNPG, ProviderDeployment, ProviderDeployment)
+		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q, %q, or %q (unset defaults to %q)",
+			raw, ProviderCNPG, ProviderDeployment, ProviderExternal, ProviderDeployment)
 	}
 }

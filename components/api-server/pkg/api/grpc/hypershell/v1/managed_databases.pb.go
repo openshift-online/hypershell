@@ -22,17 +22,21 @@ const (
 )
 
 type ManagedDatabase struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Metadata         *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Provider         string                 `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Engine           *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
-	EngineVersion    *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
-	InstanceClass    *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
-	ConnectionSecret *string                `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
-	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	Namespace        string                 `protobuf:"bytes,11,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Metadata      *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Provider      string                 `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
+	Region        *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Engine        *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
+	EngineVersion *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
+	InstanceClass *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
+	// For provider "external": the NAMESPACE holding the admin credentials
+	// Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+	// "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+	// always named "hypershell-managed-db-credentials".
+	ConnectionSecret *string `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
+	Status           *string `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	Namespace        string  `protobuf:"bytes,11,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -138,15 +142,19 @@ func (x *ManagedDatabase) GetNamespace() string {
 }
 
 type CreateManagedDatabaseRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Provider         string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,4,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Engine           *string                `protobuf:"bytes,5,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
-	EngineVersion    *string                `protobuf:"bytes,6,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
-	InstanceClass    *string                `protobuf:"bytes,7,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
-	ConnectionSecret *string                `protobuf:"bytes,8,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
-	Status           *string                `protobuf:"bytes,9,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Provider      string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	Region        *string                `protobuf:"bytes,4,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Engine        *string                `protobuf:"bytes,5,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
+	EngineVersion *string                `protobuf:"bytes,6,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
+	InstanceClass *string                `protobuf:"bytes,7,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
+	// For provider "external": the NAMESPACE holding the admin credentials
+	// Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+	// "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+	// always named "hypershell-managed-db-credentials".
+	ConnectionSecret *string `protobuf:"bytes,8,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
+	Status           *string `protobuf:"bytes,9,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -370,16 +378,20 @@ func (x *GetManagedDatabaseResponse) GetManagedDatabase() *ManagedDatabase {
 }
 
 type UpdateManagedDatabaseRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name             *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	Provider         *string                `protobuf:"bytes,4,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Engine           *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
-	EngineVersion    *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
-	InstanceClass    *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
-	ConnectionSecret *string                `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
-	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Provider      *string                `protobuf:"bytes,4,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
+	Region        *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Engine        *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
+	EngineVersion *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
+	InstanceClass *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
+	// For provider "external": the NAMESPACE holding the admin credentials
+	// Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+	// "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+	// always named "hypershell-managed-db-credentials".
+	ConnectionSecret *string `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
+	Status           *string `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }

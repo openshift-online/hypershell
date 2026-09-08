@@ -2,6 +2,8 @@ package managedDatabases
 
 import (
 	"context"
+	"regexp"
+	"strings"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -15,7 +17,33 @@ const managedDatabasesLockType db.LockType = "managed_databases"
 const (
 	providerCNPG       = "cnpg"
 	providerDeployment = "deployment"
+	providerExternal   = "external"
 )
+
+// externalCredentialsNamespacePrefix is the reserved prefix for the namespace
+// holding an external server's admin credentials. ManagedDatabase.connection_secret
+// names that NAMESPACE, not a Secret: the credentials are provisioned out-of-band,
+// normally before HyperShell is installed, so they must not depend on the control
+// plane instance namespace existing.
+//
+// The prefix is a security boundary, not a convention. Combined with the fixed
+// Secret name below it bounds what the control plane can be made to read to a
+// single deliberately-named Secret inside deliberately-created namespaces,
+// preventing an API-level reference from pointing the reconciler at an unrelated
+// Secret such as hypershell-db-app. The same values are enforced by the control
+// plane (gateway/external_db.go). See naming-multitenancy.spec.md §6.2.
+const externalCredentialsNamespacePrefix = "hypershell-managed-db-"
+
+// externalCredentialsSecretName is the fixed name of the Secret read inside a
+// hypershell-managed-db-<name> namespace. It is not configurable.
+const externalCredentialsSecretName = "hypershell-managed-db-credentials"
+
+// dns1123LabelMaxLength is the Kubernetes limit for a namespace name. Namespace
+// names are DNS-1123 labels, not subdomains, so dots are not permitted.
+const dns1123LabelMaxLength = 63
+
+// dns1123LabelPattern matches a valid DNS-1123 label (a valid namespace name).
+var dns1123LabelPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 type ManagedDatabaseService interface {
 	Get(ctx context.Context, id string) (*ManagedDatabase, *errors.ServiceError)
@@ -95,16 +123,46 @@ func (s *sqlManagedDatabaseService) ListDeleted(ctx context.Context, offset, lim
 }
 
 func isSupportedProvider(provider string) bool {
-	return provider == providerCNPG || provider == providerDeployment
+	return provider == providerCNPG || provider == providerDeployment || provider == providerExternal
 }
 
 func unsupportedProviderError(provider string) *errors.ServiceError {
-	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\" and \"deployment\"", provider)
+	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\", \"deployment\", and \"external\"", provider)
+}
+
+// validateExternalConnectionSecret checks the connection_secret reference for
+// external ManagedDatabases. The value names the NAMESPACE holding the admin
+// credentials Secret, so it must be a bare namespace name (no "/"), carry the
+// reserved prefix, and be a valid DNS-1123 label. The Secret inside it always
+// has the fixed name externalCredentialsSecretName.
+func validateExternalConnectionSecret(secret *string) *errors.ServiceError {
+	if secret == nil || *secret == "" {
+		return errors.Validation("connection_secret is required for provider \"external\": it names the namespace holding the %q Secret", externalCredentialsSecretName)
+	}
+	value := *secret
+	if strings.Contains(value, "/") {
+		return errors.Validation("connection_secret must be a bare namespace name without a \"/\": it names the namespace holding the %q Secret, not the Secret itself", externalCredentialsSecretName)
+	}
+	if !strings.HasPrefix(value, externalCredentialsNamespacePrefix) {
+		return errors.Validation("connection_secret namespace %q must begin with the reserved prefix %q", value, externalCredentialsNamespacePrefix)
+	}
+	if len(value) > dns1123LabelMaxLength {
+		return errors.Validation("connection_secret namespace %q is %d characters; a namespace name may be at most %d", value, len(value), dns1123LabelMaxLength)
+	}
+	if !dns1123LabelPattern.MatchString(value) {
+		return errors.Validation("connection_secret namespace %q is not a valid DNS-1123 label: use lowercase alphanumerics and '-', starting and ending with an alphanumeric", value)
+	}
+	return nil
 }
 
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {
 	if !isSupportedProvider(managedDatabase.Provider) {
 		return nil, unsupportedProviderError(managedDatabase.Provider)
+	}
+	if managedDatabase.Provider == providerExternal {
+		if svcErr := validateExternalConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
+			return nil, svcErr
+		}
 	}
 
 	managedDatabase.CaptureTraceContext(ctx)
@@ -141,6 +199,11 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 	}
 	if isSupportedProvider(persisted.Provider) && managedDatabase.Provider != persisted.Provider {
 		return nil, errors.Validation("provider cannot be changed from %q to %q", persisted.Provider, managedDatabase.Provider)
+	}
+	if managedDatabase.Provider == providerExternal {
+		if svcErr := validateExternalConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
+			return nil, svcErr
+		}
 	}
 
 	managedDatabase.CaptureTraceContext(ctx)

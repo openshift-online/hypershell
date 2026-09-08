@@ -16,9 +16,12 @@ import (
 // requires the CNPG operator CRDs to be installed; see
 // gateway.RequireCNPGAPI, which the control-plane entrypoint uses to fail
 // startup cleanly when they are not.
+// DatabaseProviderExternal selects an externally-managed PostgreSQL server;
+// the control plane issues DDL in-process and requires no CNPG operator.
 const (
 	DatabaseProviderDeployment = "deployment"
 	DatabaseProviderCNPG       = "cnpg"
+	DatabaseProviderExternal   = "external"
 )
 
 // DefaultGatewayReconcileWorkers is the fallback size of the gateway reconcile
@@ -67,9 +70,9 @@ type Config struct {
 
 	// DatabaseProvider is the control-plane-wide default ManagedDatabase
 	// provider, resolved from DATABASE_PROVIDER by resolveDatabaseProvider.
-	// It is always either DatabaseProviderDeployment or DatabaseProviderCNPG;
-	// Load returns an error for any other DATABASE_PROVIDER value instead of
-	// silently falling back to CNPG. Existing ManagedDatabase resources keep
+	// It is always one of DatabaseProviderDeployment, DatabaseProviderCNPG or
+	// DatabaseProviderExternal; Load returns an error for any other
+	// DATABASE_PROVIDER value instead of silently falling back. Existing ManagedDatabase resources keep
 	// reconciling per their own Provider field regardless of this default
 	// (see internal/reconciler.ManagedDatabaseReconciler), so gateways backed
 	// by CNPG remain compatible even when this default is "deployment".
@@ -107,19 +110,21 @@ func Load() (*Config, error) {
 }
 
 // resolveDatabaseProvider validates a raw DATABASE_PROVIDER value into one of
-// the two supported providers. Unset or empty means DatabaseProviderDeployment
+// the three supported providers. Unset or empty means DatabaseProviderDeployment
 // (deployment-backed ManagedDatabase placement is the default and requires no
-// CNPG APIs); any value other than "deployment" or "cnpg" is a startup
-// configuration error rather than a silent fallback to CNPG.
+// CNPG APIs); any value other than "deployment", "cnpg" or "external" is a
+// startup configuration error rather than a silent fallback.
 func resolveDatabaseProvider(raw string) (string, error) {
 	switch raw {
 	case "", DatabaseProviderDeployment:
 		return DatabaseProviderDeployment, nil
 	case DatabaseProviderCNPG:
 		return DatabaseProviderCNPG, nil
+	case DatabaseProviderExternal:
+		return DatabaseProviderExternal, nil
 	default:
-		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q or %q (unset defaults to %q)",
-			raw, DatabaseProviderCNPG, DatabaseProviderDeployment, DatabaseProviderDeployment)
+		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q, %q, or %q (unset defaults to %q)",
+			raw, DatabaseProviderCNPG, DatabaseProviderDeployment, DatabaseProviderExternal, DatabaseProviderDeployment)
 	}
 }
 

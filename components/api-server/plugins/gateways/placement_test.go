@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
+	"github.com/openshift-online/rh-trex-ai/pkg/api"
 )
 
 type fakeDatabaseLookup struct {
@@ -16,6 +20,20 @@ func (f *fakeDatabaseLookup) FindSole(ctx context.Context) (string, error) {
 		return "", f.soleErr
 	}
 	return f.sole, nil
+}
+
+type fakeDatabaseSelector struct {
+	oldest    string
+	oldestErr error
+	calls     int
+}
+
+func (f *fakeDatabaseSelector) FindOldest(ctx context.Context) (string, error) {
+	f.calls++
+	if f.oldestErr != nil {
+		return "", f.oldestErr
+	}
+	return f.oldest, nil
 }
 
 type fakePlacementResolver struct {
@@ -159,6 +177,133 @@ func TestGatewayServiceMapsPlacementErrors(t *testing.T) {
 		_, svcErr := svc.Create(context.Background(), &Gateway{DatabaseId: "client-value"})
 		if svcErr == nil || svcErr.HttpCode != 500 {
 			t.Fatalf("Create() error = %#v, want HTTP 500", svcErr)
+		}
+	})
+}
+
+// --- external placement: oldest-wins ---
+
+// External placement owns database_id like every other mode: a caller-supplied
+// value is discarded and replaced with the server-side selection.
+func TestExternalPlacementIgnoresExplicitDatabaseID(t *testing.T) {
+	dbs := &fakeDatabaseSelector{oldest: "oldest-db-id"}
+	placement := NewExternalPlacement(dbs)
+
+	gw := &Gateway{Name: "gw1", DatabaseId: "client-supplied-db-id"}
+	if err := placement.Resolve(context.Background(), gw); err != nil {
+		t.Fatalf("Resolve() unexpected error: %v", err)
+	}
+	if gw.DatabaseId != "oldest-db-id" {
+		t.Fatalf("DatabaseId = %q, want the server-selected ID", gw.DatabaseId)
+	}
+}
+
+// More than one registered external ManagedDatabase is NOT an error: placement
+// picks the first-created one rather than rejecting the gateway creation.
+func TestExternalPlacementAcceptsMultipleDatabases(t *testing.T) {
+	dbs := &fakeDatabaseSelector{oldest: "first-created"}
+	placement := NewExternalPlacement(dbs)
+
+	gw := &Gateway{Name: "gw1"}
+	if err := placement.Resolve(context.Background(), gw); err != nil {
+		t.Fatalf("Resolve() unexpected error: %v", err)
+	}
+	if gw.DatabaseId != "first-created" {
+		t.Fatalf("DatabaseId = %q, want %q", gw.DatabaseId, "first-created")
+	}
+	if dbs.calls != 1 {
+		t.Fatalf("FindOldest called %d times, want 1", dbs.calls)
+	}
+}
+
+// Zero registered external ManagedDatabases is still rejected, as a validation
+// error so the API returns 400 rather than 500.
+func TestExternalPlacementRejectsWhenNoneRegistered(t *testing.T) {
+	placement := NewExternalPlacement(&fakeDatabaseSelector{oldest: ""})
+
+	err := placement.Resolve(context.Background(), &Gateway{Name: "gw1"})
+	if err == nil {
+		t.Fatal("Resolve() = nil, want an error when no external ManagedDatabase is registered")
+	}
+	if !IsPlacementValidationError(err) {
+		t.Fatalf("Resolve() error = %v, want validation classification", err)
+	}
+}
+
+func TestExternalPlacementLookupFailureIsDependencyError(t *testing.T) {
+	placement := NewExternalPlacement(&fakeDatabaseSelector{oldestErr: errors.New("database unavailable")})
+
+	err := placement.Resolve(context.Background(), &Gateway{Name: "gw1"})
+	if err == nil {
+		t.Fatal("Resolve() = nil, want lookup error")
+	}
+	if IsPlacementValidationError(err) {
+		t.Fatalf("Resolve() error = %v, want dependency classification", err)
+	}
+}
+
+// --- pickOldestManagedDatabase ---
+
+func mdb(id, provider string, createdAt time.Time) *managedDatabases.ManagedDatabase {
+	return &managedDatabases.ManagedDatabase{
+		Meta:     api.Meta{ID: id, CreatedAt: createdAt},
+		Provider: provider,
+	}
+}
+
+func TestPickOldestManagedDatabase(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := t0.Add(time.Hour)
+	t2 := t0.Add(2 * time.Hour)
+
+	t.Run("empty list returns empty", func(t *testing.T) {
+		if got := pickOldestManagedDatabase(nil, ProviderExternal); got != "" {
+			t.Fatalf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("single candidate", func(t *testing.T) {
+		list := managedDatabases.ManagedDatabaseList{mdb("a", ProviderExternal, t1)}
+		if got := pickOldestManagedDatabase(list, ProviderExternal); got != "a" {
+			t.Fatalf("got %q, want %q", got, "a")
+		}
+	})
+
+	t.Run("picks earliest created regardless of list order", func(t *testing.T) {
+		list := managedDatabases.ManagedDatabaseList{
+			mdb("newest", ProviderExternal, t2),
+			mdb("oldest", ProviderExternal, t0),
+			mdb("middle", ProviderExternal, t1),
+		}
+		if got := pickOldestManagedDatabase(list, ProviderExternal); got != "oldest" {
+			t.Fatalf("got %q, want %q", got, "oldest")
+		}
+	})
+
+	t.Run("ties broken by ID ascending", func(t *testing.T) {
+		list := managedDatabases.ManagedDatabaseList{
+			mdb("bbb", ProviderExternal, t0),
+			mdb("aaa", ProviderExternal, t0),
+		}
+		if got := pickOldestManagedDatabase(list, ProviderExternal); got != "aaa" {
+			t.Fatalf("got %q, want %q", got, "aaa")
+		}
+	})
+
+	t.Run("filters by provider", func(t *testing.T) {
+		list := managedDatabases.ManagedDatabaseList{
+			mdb("cnpg-older", ProviderCNPG, t0),
+			mdb("external-newer", ProviderExternal, t2),
+		}
+		if got := pickOldestManagedDatabase(list, ProviderExternal); got != "external-newer" {
+			t.Fatalf("got %q, want %q", got, "external-newer")
+		}
+	})
+
+	t.Run("no candidate of the requested provider", func(t *testing.T) {
+		list := managedDatabases.ManagedDatabaseList{mdb("c", ProviderCNPG, t0)}
+		if got := pickOldestManagedDatabase(list, ProviderExternal); got != "" {
+			t.Fatalf("got %q, want empty", got)
 		}
 	})
 }
