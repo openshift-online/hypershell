@@ -668,7 +668,7 @@ function SummaryInventoryStatusCounts({
         <FlexItem>
           <SummaryGatewayStatusCount
             count={warning}
-            statusLabel={intl.formatMessage(messages.gatewayStatusDegraded)}
+            statusLabel={intl.formatMessage(messages.inventoryStatusWarning)}
             variant="warning"
           />
         </FlexItem>

@@ -71,6 +71,10 @@
     "defaultMessage": "Unknown",
     "description": "Display label for inventory status bucket key unknown."
   },
+  "app.dashboard.inventoryStatus.warning": {
+    "defaultMessage": "Warning",
+    "description": "Summary label for inventory items in a non-failed exception state (for example degraded or pending)."
+  },
   "app.dashboard.lastRefreshed": {
     "defaultMessage": "Last refreshed: {timestamp}",
     "description": "Timestamp shown when operational dashboard metrics were last loaded successfully."

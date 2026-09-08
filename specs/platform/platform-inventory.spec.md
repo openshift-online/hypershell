@@ -7,7 +7,7 @@
 
 ## Purpose
 
-Expose **platform inventory counts** — totals and breakdowns for HyperShell infrastructure resources registered in the API server — on the operational dashboard so administrators can assess platform footprint at a glance.
+Expose **platform inventory counts** - totals and breakdowns for HyperShell infrastructure resources registered in the API server - on the operational dashboard so administrators can assess platform footprint at a glance.
 
 Version 1 sources inventory from existing paginated List APIs:
 
@@ -156,10 +156,10 @@ Metrics SHALL NOT include `trend`, `unit`, `total`, or gateway-style `status` bu
 
 `OperationalMetric` SHALL gain optional fields:
 
-- `inventoryStatus?: Record<string, number>` — per-status bucket counts keyed by PI-04 bucket keys (for example `Ready`, `unknown`)
-- `inventoryProviders?: Record<string, number>` — per-provider bucket counts keyed by PI-04 bucket keys (for example `aws`, `kind`, `unknown`)
-- `inventoryRegions?: Record<string, number>` — per-placement bucket counts keyed as `{region} ({provider})` using PI-04 bucket keys (for example `us-east-1 (aws)`, `unknown (openshift)`)
-- `createdLast30Days?: string` — managed clusters created within the PI-02 lookback window
+- `inventoryStatus?: Record<string, number>` - per-status bucket counts keyed by PI-04 bucket keys (for example `Ready`, `unknown`)
+- `inventoryProviders?: Record<string, number>` - per-provider bucket counts keyed by PI-04 bucket keys (for example `aws`, `kind`, `unknown`)
+- `inventoryRegions?: Record<string, number>` - per-placement bucket counts keyed as `{region} ({provider})` using PI-04 bucket keys (for example `us-east-1 (aws)`, `unknown (openshift)`)
+- `createdLast30Days?: string` - managed clusters created within the PI-02 lookback window
 
 Inventory presentation code SHALL read status breakdowns from `inventoryStatus`, not from `OperationalMetric.status`.
 

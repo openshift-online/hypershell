@@ -649,12 +649,12 @@ Adding the two-column region donut to the default layout SHALL bump the layout p
 
 The widget catalog SHALL register optional inventory detail widgets defined in `platform/platform-inventory.spec.md` (PI-07):
 
-- `managed-cluster-providers` — provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-20)
-- `managed-cluster-regions` — placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-20)
-- `managed-clusters` — large number tile for total managed clusters
-- `managed-cluster-status` — status donut driven by `managed-clusters.inventoryStatus`
-- `managed-databases` — large number tile for total managed databases
-- `managed-database-status` — status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-20)
+- `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-20)
+- `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-20)
+- `managed-clusters` - large number tile for total managed clusters
+- `managed-cluster-status` - status donut driven by `managed-clusters.inventoryStatus`
+- `managed-databases` - large number tile for total managed databases
+- `managed-database-status` - status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-20)
 
 These optional widget types SHALL be available in the add-widgets drawer. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-20).
 

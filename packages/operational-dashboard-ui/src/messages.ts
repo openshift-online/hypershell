@@ -73,6 +73,12 @@ export const messages = defineMessages({
     defaultMessage: "Unknown",
     description: "Display label for inventory status bucket key unknown.",
   },
+  inventoryStatusWarning: {
+    id: "app.dashboard.inventoryStatus.warning",
+    defaultMessage: "Warning",
+    description:
+      "Summary label for inventory items in a non-failed exception state (for example degraded or pending).",
+  },
   inventorySummaryAriaLabel: {
     id: "app.dashboard.summary.inventoryAriaLabel",
     defaultMessage: "Platform inventory metrics",
