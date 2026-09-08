@@ -1734,7 +1734,20 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
-		r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed))
+		// A generated-configuration validation failure is non-recoverable until the
+		// declared config changes: settle to Failed with a human-readable reason so
+		// an operator sees why, and log with the gateway name and namespace. Because
+		// the gate runs before any config-derived write, a Running gateway keeps
+		// serving its last-good configuration. See
+		// specs/platform/generated-gateway-config-validation.spec.md.
+		var renderErr *gateway.RenderedConfigValidationError
+		if errors.As(err, &renderErr) {
+			reason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
+			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason)
+			log.Printf("ERROR gateway %s generated configuration invalid in namespace %s: %v", gw.Name, namespace, renderErr.Err)
+		} else {
+			r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed))
+		}
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}

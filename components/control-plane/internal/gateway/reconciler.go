@@ -117,6 +117,22 @@ func ReconcileGateway(
 
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
+	// Validate the fully rendered configuration artifact before any config-derived
+	// resource is written. nsConfig.Gateway is final here: the ingress-hostname SAN
+	// injection and the Keycloak client reconcile (which may set OIDC) have already
+	// run, so this validates exactly the gateway.toml deployGateway would ship.
+	// Gating before the first write means an invalid render never writes the
+	// ConfigMap and never rolls the workload, so a Running gateway keeps serving its
+	// last-good configuration. See
+	// specs/platform/generated-gateway-config-validation.spec.md.
+	renderedTOML, err := RenderGatewayConfigTOML(manifests, nsConfig, images)
+	if err != nil {
+		return &RenderedConfigValidationError{Err: fmt.Errorf("render gateway configuration: %w", err)}
+	}
+	if err := ValidateRenderedGatewayConfig(renderedTOML, nsConfig.Gateway); err != nil {
+		return &RenderedConfigValidationError{Err: err}
+	}
+
 	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, images, opts, hasTrustedCA); err != nil {
 		return fmt.Errorf("deploy gateway in %s: %w", nsConfig.Name, err)
 	}

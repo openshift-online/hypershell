@@ -114,6 +114,45 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 	return result, nil
 }
 
+// RenderGatewayConfigTOML reproduces the gateway.toml artifact deployGateway
+// will write for this gateway, without touching the cluster, so it can be
+// validated before any resource is applied. It renders the openshell-gateway-config
+// ConfigMap through the exact ApplyManifestToNamespace + ApplyConfigOverrides
+// path deployGateway uses, so the validated artifact is the one that would be
+// deployed. See specs/platform/generated-gateway-config-validation.spec.md.
+func RenderGatewayConfigTOML(manifests map[string][]*unstructured.Unstructured, nsConfig NamespaceConfig, images ImageDefaults) (string, error) {
+	resources, ok := manifests["configmap.yaml"]
+	if !ok {
+		return "", fmt.Errorf("configmap.yaml manifest not found")
+	}
+
+	for _, manifest := range resources {
+		if manifest.GetKind() != "ConfigMap" || manifest.GetName() != "openshell-gateway-config" {
+			continue
+		}
+
+		obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, nsConfig.Gateway, images)
+		if err != nil {
+			return "", fmt.Errorf("render config manifest substitutions: %w", err)
+		}
+		if err := ApplyConfigOverrides(obj, nsConfig.Gateway, nsConfig.Name); err != nil {
+			return "", fmt.Errorf("render config overrides: %w", err)
+		}
+
+		data, found, err := unstructured.NestedMap(obj.Object, "data")
+		if err != nil || !found {
+			return "", fmt.Errorf("rendered configmap has no data")
+		}
+		toml, ok := data["gateway.toml"].(string)
+		if !ok {
+			return "", fmt.Errorf("rendered configmap has no gateway.toml")
+		}
+		return toml, nil
+	}
+
+	return "", fmt.Errorf("openshell-gateway-config ConfigMap not found in configmap.yaml")
+}
+
 func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, tenantNamespace ...string) error {
 	kind := obj.GetKind()
 

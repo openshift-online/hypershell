@@ -108,6 +108,23 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 ## Gap Table
 
+### generated-gateway-config-validation.spec.md (HYPERSHELL-179)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CGV-1 | Validate the rendered configuration before rollout | Present | Render the gateway.toml artifact and validate well-formedness + OIDC structural coherence, distinct from the input-field check | `components/control-plane/internal/gateway/manifests.go` (`RenderGatewayConfigTOML`), `internal/gateway/validation.go` (`ValidateRenderedGatewayConfig`) | CGV-W1 |
+| CGV-2 | A validation failure blocks rollout without disrupting a running gateway | Present | Gate placed before `deployGateway`, so no ConfigMap is written and the workload is never rolled onto an invalid artifact | `components/control-plane/internal/gateway/reconciler.go` (`ReconcileGateway`) | CGV-W1 |
+| CGV-3 | Validation failures are observable (`Failed` + reason + log) | Present | Typed `RenderedConfigValidationError` surfaces `PhaseFailed` with a human-readable reason and a name+namespace log line | `components/control-plane/internal/reconciler/reconciler.go`, `internal/gateway/validation.go` | CGV-W1 |
+| CGV-4 | Validation is idempotent and self-correcting | Present | Up-front gate leaves no partial artifacts; a corrected config renders valid and rolls out on the next reconcile | `components/control-plane/internal/gateway/reconciler.go` | CGV-W1 |
+
+**Scoped coverage:** 4 of 4 requirements present. Reuses the canonical `Failed` phase (no new vocabulary). This scoped run does not change the full-corpus coverage table.
+
+**Direction checks:**
+
+- Spec to code: rendered-artifact validation, up-front gating, `Failed`+reason observability, and idempotency are all implemented.
+- Code to spec: the new TOML-parse + OIDC-coherence check is confined to the generated artifact; input validation (`ValidateGatewayConfig`) is unchanged.
+- OpenAPI to spec: no public API field or route added; validation is control-plane-internal and reuses the existing `phase`/`status` fields.
+
 ### control-plane-observability.spec.md (CP-OBS-07 reconcile-queue metric delta)
 
 | # | Requirement | Status | Gap | Code Location | Wave |
@@ -691,6 +708,27 @@ The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HY
 ---
 
 ## Wave Plan
+
+### CGV-W1: Generated gateway configuration validation ✅
+
+**Scope:** CGV-1 through CGV-4 (HYPERSHELL-179) | **Status:** Complete
+
+1. Add `github.com/pelletier/go-toml/v2` as a direct control-plane dependency (already an indirect dep in the repo root).
+2. Render the gateway.toml artifact up front via the same `ApplyManifestToNamespace` + `ApplyConfigOverrides` path `deployGateway` uses (`RenderGatewayConfigTOML`).
+3. Validate the rendered artifact for well-formed TOML and OIDC structural coherence (`ValidateRenderedGatewayConfig`), distinct from the existing input-field validation.
+4. Gate before `deployGateway` so an invalid render writes no ConfigMap and never rolls the workload; a `Running` gateway keeps its last-good config.
+5. Surface failures as `PhaseFailed` with a human-readable reason and a name+namespace log line via a typed `RenderedConfigValidationError` detected with `errors.As`.
+6. Add unit tests for the validator, the renderer against the real base ConfigMap, and the error-unwrap contract; run build, vet, and the full control-plane test suite.
+
+**CGV-W1 summary:** The control plane now validates the fully rendered
+`gateway.toml` artifact before writing any config-derived resource. Well-formedness
+is checked by parsing the artifact, and OIDC coherence is checked structurally
+(section present with an issuer, unauthenticated access disabled). Because the gate
+runs before `deployGateway`, an invalid render writes no ConfigMap and never rolls
+the workload, so a running gateway keeps serving its last-good configuration; the
+failure settles the gateway to the canonical `Failed` phase with a human-readable
+reason and a name+namespace log line, reusing the existing phase vocabulary. Build,
+vet, and the complete control-plane test suite pass.
 
 ### CP-OBS-RQ-W1: Reconcile queue metrics ✅
 
