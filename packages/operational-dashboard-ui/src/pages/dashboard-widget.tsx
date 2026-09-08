@@ -682,5 +682,5 @@ export function SystemSummaryCard({
 }
 
 export function SectionTitleCard({ title }: Readonly<{ title: string }>) {
-  return <p className="hypershell-dashboard-section-title">{title}</p>;
+  return <h2 className="hypershell-dashboard-section-title">{title}</h2>;
 }

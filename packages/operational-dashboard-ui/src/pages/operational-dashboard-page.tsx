@@ -234,9 +234,17 @@ function createWidgetMapping(
           className: "hypershell-dashboard-title-widget__body",
         },
       },
-      renderWidget: (widgetId) => (
-        <SectionTitleCard title={findLayoutItemTitle(template, widgetId)} />
-      ),
+      renderWidget: (widgetId) => {
+        const resolvedTitle = findLayoutItemTitle(template, widgetId);
+
+        return (
+          <SectionTitleCard
+            title={
+              resolvedTitle || intl.formatMessage(messages.sectionTitleDefault)
+            }
+          />
+        );
+      },
     },
     "usage-summary": {
       defaults: {
