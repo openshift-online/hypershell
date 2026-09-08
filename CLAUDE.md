@@ -19,6 +19,7 @@ checks manually with `make check`.
 - `components/api-server/` - Go REST + gRPC API microservice (rh-trex-ai framework), PostgreSQL-backed
 - `components/control-plane/` - Go service, watches API server via gRPC and reconciles gateway resources into K8s
 - `packages/gateway-management-ui/` - Private reusable React package containing canonical gateway management workflows
+- `packages/operational-dashboard-ui/` - Private reusable React package containing the operational metrics dashboard
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
 - `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
@@ -99,6 +100,7 @@ cd components/control-plane && go vet ./...    # Vet
 # All Components
 make build-all                                 # Build all container images
 pnpm --filter @openshift-online/hypershell-gateway-management-ui check  # Verify reusable gateway UI
+pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check  # Verify operational dashboard UI
 make kind-up                                   # Start local Kind cluster
 make kind-down                                 # Destroy Kind cluster
 make kind-status                               # Show cluster status

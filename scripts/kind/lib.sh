@@ -196,8 +196,8 @@ patch_cluster_coredns() {
   local gw_ip="$1"
   local existing
   existing=$(kube get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' 2>/dev/null || true)
-  if echo "${existing}" | grep -q "hypershell.localhost"; then
-    info "Cluster CoreDNS already patched for hypershell.localhost"
+  if echo "${existing}" | grep -q "${gw_ip} keycloak.hypershell.localhost"; then
+    info "Cluster CoreDNS already points hypershell.localhost at ${gw_ip}"
     return
   fi
   # All *.hypershell.localhost hosts (including keycloak) resolve to the gateway
@@ -207,7 +207,10 @@ patch_cluster_coredns() {
   # OIDC tokens against the canonical issuer (https://keycloak.hypershell.localhost)
   # exactly as the host does, trusting the self-signed CA via the
   # gateway-trusted-ca ConfigMap (SSL_CERT_FILE).
-  info "Patching cluster CoreDNS: *.hypershell.localhost -> ${gw_ip} (gateway LB)..."
+  #
+  # cloud-provider-kind can assign a new LB IP when the cluster or CPK restarts.
+  # Refresh the hosts block when the IP drifts so in-cluster OIDC discovery does
+  # not keep pointing at an unreachable address from a previous gateway.
   local hosts_block
   hosts_block="hypershell.localhost:53 {
     hosts {
@@ -219,8 +222,14 @@ patch_cluster_coredns() {
     }
   }"
   local patched
-  patched="${hosts_block}
+  if echo "${existing}" | grep -q "hypershell.localhost:53"; then
+    warn "Refreshing cluster CoreDNS hypershell.localhost mapping -> ${gw_ip}"
+    patched=$(echo "${existing}" | sed -E "s/([[:space:]]*)[0-9.]+ (keycloak|api|console|health)\\.hypershell\\.localhost/\\1${gw_ip} \\2.hypershell.localhost/g")
+  else
+    info "Patching cluster CoreDNS: *.hypershell.localhost -> ${gw_ip} (gateway LB)..."
+    patched="${hosts_block}
 ${existing}"
+  fi
   kube create configmap coredns -n kube-system \
     --from-literal="Corefile=${patched}" \
     --dry-run=client -o yaml | kube apply -f -

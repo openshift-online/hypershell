@@ -1,0 +1,135 @@
+.hypershell-dashboard-metric-card {
+  --pf-v6-c-content--MarginBottom: 0;
+}
+
+.hypershell-dashboard-metric-card .pf-v6-c-stack {
+  --pf-v6-c-stack--m-gutter--Gap: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-sparkline-chart {
+  width: 100%;
+}
+
+.hypershell-dashboard-sparkline-chart__plot {
+  height: 36px;
+}
+
+.hypershell-dashboard-sparkline-chart__caption {
+  display: block;
+  line-height: 1.2;
+  margin-block-start: var(--pf-t--global--spacer--xs);
+  text-align: center;
+}
+
+.hypershell-dashboard-utilization-chart {
+  padding-inline-start: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-utilization-chart__label {
+  min-width: 0;
+}
+
+.hypershell-dashboard-utilization-chart__donut {
+  flex-shrink: 0;
+}
+
+.hypershell-dashboard-status-donut-card {
+  --pf-v6-c-content--MarginBottom: 0;
+}
+
+.hypershell-dashboard-status-donut-card .pf-v6-c-stack {
+  --pf-v6-c-stack--m-gutter--Gap: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-status-donut-card--compact {
+  --pf-v6-c-card__body--PaddingBlockEnd: var(--pf-t--global--spacer--sm);
+  --pf-v6-c-card__body--PaddingBlockStart: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-status-donut-chart--compact {
+  margin-block-start: calc(-1 * var(--pf-t--global--spacer--xs));
+}
+
+.hypershell-dashboard-status-donut-chart {
+  min-width: 0;
+  --hypershell-gateway-status-degraded-color: var(
+    --pf-t--global--icon--color--status--warning--default
+  );
+  --hypershell-gateway-status-failed-color: var(
+    --pf-t--global--icon--color--status--danger--default
+  );
+  --hypershell-gateway-status-provisioning-color: var(
+    --pf-t--global--icon--color--status--info--default
+  );
+  /* Chart green-100 reads better on large donut slices than success icon green. */
+  --hypershell-gateway-status-healthy-color: #63993d;
+  /*
+   * ChartDonut title, subtitle, and legend use chart label tokens that fall back
+   * to dark gray. Re-map them to global text tokens so dark mode stays readable.
+   */
+  --pf-v6-chart-donut--label--subtitle--Fill: var(
+    --pf-t--global--text--color--subtle
+  );
+  --pf-v6-chart-donut--label--title--Fill: var(
+    --pf-t--global--text--color--regular
+  );
+  --pf-v6-chart-global--label--Fill: var(--pf-t--global--text--color--regular);
+}
+
+.hypershell-dashboard-summary-trend {
+  --pf-v6-c-button--PaddingBlock: 0;
+  --pf-v6-c-button--PaddingInline: 0;
+  min-height: auto;
+}
+
+.hypershell-dashboard-summary-trend--increase {
+  color: var(--pf-t--global--icon--color--status--success--default);
+}
+
+.hypershell-dashboard-summary-trend--decrease {
+  color: var(--pf-t--global--icon--color--status--danger--default);
+}
+
+.hypershell-dashboard-summary-gateway-value {
+  --pf-v6-c-stack--m-gutter--Gap: var(--pf-t--global--spacer--xs);
+}
+
+.hypershell-dashboard-summary-gateway-status {
+  flex-wrap: nowrap;
+}
+
+.hypershell-dashboard-summary-gateway-status__divider {
+  align-self: stretch;
+  height: auto;
+}
+
+.hypershell-dashboard-summary-gateway-status__icon {
+  --pf-v6-c-button--PaddingBlock: 0;
+  --pf-v6-c-button--PaddingInline: 0;
+  display: inline-flex;
+  min-height: auto;
+  vertical-align: middle;
+}
+
+.hypershell-dashboard-provision-time-card {
+  --pf-v6-c-content--MarginBottom: 0;
+}
+
+.hypershell-dashboard-provision-time {
+  --pf-v6-c-stack--m-gutter--Gap: var(--pf-t--global--spacer--sm);
+}
+
+/*
+ * Widgetized dashboard summary cards apply display:grid to description lists.
+ * Restore the default horizontal description-list layout here.
+ */
+.hypershell-dashboard-provision-time .pf-v6-c-description-list,
+.hypershell-dashboard-provision-time .pf-v6-c-description-list > .pf-v6-c-card {
+  display: block;
+}
+
+.hypershell-dashboard-provision-time__note {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm);
+  margin-block-end: 0;
+}

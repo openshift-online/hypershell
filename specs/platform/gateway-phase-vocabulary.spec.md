@@ -56,6 +56,10 @@ The shared definition SHALL expose, at minimum: the canonical phase constants,
 the ordered set of all canonical phases, and a predicate that reports whether an
 arbitrary string is a valid canonical phase (case-sensitive).
 
+The canonical Go package is `components/api-server/pkg/gatewayhealth`. The web
+console mirrors the same vocabulary via `gatewayCanonicalPhaseStrings` in
+`@openshift-online/hypershell-gateway-management-ui`.
+
 #### Scenario: Control plane and API server agree on the vocabulary
 
 - GIVEN the control plane writes a Gateway `phase`
@@ -93,10 +97,11 @@ caller that does not set it is unaffected.
 
 ### Requirement: Phase Metric Covers the Full Canonical Set
 
-The API server's per-phase gateway gauge SHALL pre-seed and report every
-canonical phase, so graphs never omit a phase. The set of phases the metric
-reports SHALL be derived from the shared vocabulary rather than an independent
-hardcoded list.
+The API server's per-phase gateway gauge and the BFF metrics proxy SHALL
+pre-seed and report every canonical phase on every scrape/response, so graphs
+never omit a phase. The set of phases the metric reports SHALL be derived from
+the shared vocabulary rather than an independent hardcoded list, defaulting absent
+phases to zero.
 
 #### Scenario: Every canonical phase appears in the metric
 
@@ -124,9 +129,12 @@ the fully-healthy case, rather than duplicating string literals.
 The web console SHALL recognize the canonical phase set as its source of truth
 for classifying a gateway as recoverable (keep polling), healthy, or terminally
 failed, so its polling and ready-to-connect decisions stay consistent with the
-phases the control plane actually emits. The console MAY additionally tolerate
-broader status descriptors, but its canonical phase classification SHALL match
-this vocabulary.
+phases the control plane actually emits. The console SHALL derive gateway
+polling, metrics, and display-status classification from the same canonical
+phase set as the Go package, via `gatewayCanonicalPhases` /
+`gatewayCanonicalPhaseStrings` in `gateway-management-ui`. The console MAY
+additionally tolerate broader status descriptors, but its canonical phase
+classification SHALL match this vocabulary.
 
 #### Scenario: Recoverable phase keeps polling
 
@@ -140,3 +148,14 @@ this vocabulary.
 - GIVEN a Gateway displayed with the canonical `Failed` phase
 - WHEN the console evaluates whether to poll for status
 - THEN it SHALL treat the gateway as terminally failed and stop polling
+
+#### Scenario: New phase surfaces in metrics dashboard
+
+- GIVEN the canonical vocabulary includes `Pending`
+- WHEN the BFF returns Prometheus phase counts including `Pending`
+- THEN the `GatewayMetricsDashboard` SHALL render a card for that phase
+
+## Cross-References
+
+- [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) - behavioral health semantics
+- [`gateway-metrics-dashboard.spec.md`](./gateway-metrics-dashboard.spec.md) - Prometheus metrics pipeline

@@ -57,6 +57,20 @@
       ".github/workflows/lint.yml"
     ]
   },
+  "operational_dashboard_ui": {
+    "directory": "packages/operational-dashboard-ui",
+    "lint_job": "lint-operational-dashboard-ui",
+    "paths": [
+      "packages/operational-dashboard-ui/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/lint.yml"
+    ]
+  },
   "e2e": {
     "directory": "tests/e2e",
     "paths": [
@@ -112,6 +126,7 @@
     "paths": [
       "components/web-console/**",
       "packages/gateway-management-ui/**",
+      "packages/operational-dashboard-ui/**",
       "components/sdk-typescript/**",
       "package.json",
       "pnpm-lock.yaml",

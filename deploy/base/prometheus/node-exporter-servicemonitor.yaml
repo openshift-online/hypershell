@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-exporter
+  namespace: hypershell-system
+  labels:
+    app: node-exporter
+    hypershell.redhat.io/prometheus-scrape: "true"
+spec:
+  jobLabel: app
+  selector:
+    matchLabels:
+      app: node-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: http
+      interval: 30s

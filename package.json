@@ -8,8 +8,8 @@
     "pnpm": ">=11.15.1"
   },
   "scripts": {
-    "build:web": "pnpm --filter @openshift-online/hypershell-sdk build && pnpm --filter @openshift-online/hypershell-domain-probes build && pnpm --filter @openshift-online/hypershell-gateway-management-ui build && pnpm --filter @openshift-online/hypershell-web-console build && pnpm --filter @openshift-online/hypershell-web-console-bff build",
-    "check:web": "pnpm --filter @openshift-online/hypershell-sdk check && pnpm --filter @openshift-online/hypershell-sdk build && pnpm --filter @openshift-online/hypershell-domain-probes check && pnpm --filter @openshift-online/hypershell-domain-probes build && pnpm --filter @openshift-online/hypershell-gateway-management-ui check && pnpm --filter @openshift-online/hypershell-web-console check && pnpm --filter @openshift-online/hypershell-web-console-bff check",
+    "build:web": "pnpm --filter @openshift-online/hypershell-sdk build && pnpm --filter @openshift-online/hypershell-domain-probes build && pnpm --filter @openshift-online/hypershell-gateway-management-ui build && pnpm --filter @openshift-online/hypershell-operational-dashboard-ui build && pnpm --filter @openshift-online/hypershell-web-console build && pnpm --filter @openshift-online/hypershell-web-console-bff build",
+    "check:web": "pnpm --filter @openshift-online/hypershell-sdk check && pnpm --filter @openshift-online/hypershell-sdk build && pnpm --filter @openshift-online/hypershell-domain-probes check && pnpm --filter @openshift-online/hypershell-domain-probes build && pnpm --filter @openshift-online/hypershell-gateway-management-ui check && pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check && pnpm --filter @openshift-online/hypershell-web-console check && pnpm --filter @openshift-online/hypershell-web-console-bff check",
     "dev": "pnpm --filter @openshift-online/hypershell-web-console dev",
     "dev:bff": "pnpm --filter @openshift-online/hypershell-web-console-bff dev",
     "test:e2e": "pnpm --filter @openshift-online/hypershell-web-console test:e2e",

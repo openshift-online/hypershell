@@ -36,6 +36,7 @@ describe("session adapter", () => {
     );
     expect(session).toEqual({
       authenticated: true,
+      authEnabled: true,
       expiresAt: 1_723_401_600,
       roles: ["hypershell-admins"],
       user: {
@@ -55,7 +56,11 @@ describe("session adapter", () => {
     const session =
       await createSessionAdapter(fetchImplementation).getSession();
 
-    expect(session).toEqual({ authenticated: false, roles: [] });
+    expect(session).toEqual({
+      authenticated: false,
+      authEnabled: true,
+      roles: [],
+    });
   });
 
   it("treats an absent endpoint (no-auth mode) as no session", async () => {
@@ -66,7 +71,11 @@ describe("session adapter", () => {
     const session =
       await createSessionAdapter(fetchImplementation).getSession();
 
-    expect(session).toEqual({ authenticated: false, roles: [] });
+    expect(session).toEqual({
+      authenticated: false,
+      authEnabled: false,
+      roles: [],
+    });
   });
 
   it("treats a network failure as no session", async () => {
@@ -77,6 +86,10 @@ describe("session adapter", () => {
     const session =
       await createSessionAdapter(fetchImplementation).getSession();
 
-    expect(session).toEqual({ authenticated: false, roles: [] });
+    expect(session).toEqual({
+      authenticated: false,
+      authEnabled: false,
+      roles: [],
+    });
   });
 });

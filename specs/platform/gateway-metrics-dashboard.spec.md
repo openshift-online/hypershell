@@ -5,17 +5,23 @@
 
 ## Purpose
 
-Expose the live count of Gateway instances by phase  -  Running, Provisioning, Degraded, and Failed  -  as a built-in dashboard in the HyperShell web console, so operators can assess fleet health at a glance without leaving the product UI or querying Prometheus directly. The metric is collected by a custom Prometheus Collector in the API server that queries the database on each scrape; it is scraped by a Prometheus instance deployed alongside the platform; and it is surfaced in the web console through a BFF proxy route that shields the browser from direct Prometheus access.
+Expose the live count of Gateway instances by phase - Pending, Provisioning, Running, Degraded, and Failed - as a Prometheus metric and a reusable React component, so operators can assess fleet-wide gateway health without querying Prometheus directly. The metric is collected by a custom Prometheus Collector in the API server that queries the database on each scrape; it is scraped by a Prometheus instance deployed alongside the platform; and it is surfaced to browser code through a BFF proxy route that shields the browser from direct Prometheus access.
 
-This specification covers the full vertical slice: the API server metric, the Prometheus deployment and scrape configuration, the BFF metrics route, the shared dashboard component, the SPA route and navigation, and the Kubernetes manifests required to deploy and operate the pipeline on any cluster.
+This specification covers the metrics pipeline end to end: the API server collector, Prometheus deployment and scrape configuration, the BFF metrics route, the `GatewayMetricsDashboard` shared component, the `/metrics` SPA route, and the Kubernetes manifests required to deploy and operate the pipeline on any cluster.
+
+### Relationship to the operational dashboard
+
+The widgetized **operational dashboard** at `/dashboard` is specified separately in `web-console/operational-dashboard.spec.md`. That surface loads RBAC-scoped gateway counts from the HyperShell REST API and uses display-status buckets (`healthy`, `provisioning`, `degraded`, `failed`). It does **not** consume `GET /api/metrics/gateways` or `hypershell_gateways_total`.
+
+`GatewayMetricsDashboard` remains the canonical component for Prometheus-sourced phase counts. Hosts MAY embed it on any route; the `/dashboard` route is owned by the operational dashboard spec and renders `OperationalDashboardPage` instead. The web console exposes Prometheus phase counts at `/metrics`.
 
 ## Requirements
 
 ### Requirement: DASH-01 -- Gateway Phase Metric
 
-The API server SHALL expose a custom Prometheus Collector named `hypershell_gateways_total` with a `phase` label that reports the current count of Gateway instances in each of the four known phases: `Running`, `Provisioning`, `Degraded`, and `Failed`.
+The API server SHALL expose a custom Prometheus Collector named `hypershell_gateways_total` with a `phase` label that reports the current count of Gateway instances in each known lifecycle phase. The canonical phase vocabulary SHALL be owned by `components/api-server/pkg/gatewayhealth` (single source of truth shared with the control plane); the web console mirrors it via `gatewayCanonicalPhaseStrings` in `@openshift-online/hypershell-gateway-management-ui`. See `platform/gateway-phase-vocabulary.spec.md`. The BFF metrics route and this collector SHALL emit every phase in that vocabulary on every scrape/response, even when a phase count is zero.
 
-The Collector SHALL query the database once per scrape via `CountByPhase`  -  a single `SELECT phase, count(*) FROM gateways GROUP BY phase`  -  and emit one `GaugeValue` sample per phase. All four phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
+The Collector SHALL query the database once per scrape via `CountByPhase`  -  a single `SELECT phase, count(*) FROM gateways GROUP BY phase`  -  and emit one `GaugeValue` sample per phase. All five canonical phases SHALL be emitted on every scrape, even when a phase count is zero, so Prometheus never observes a gap in the series.
 
 When the database query fails, the Collector SHALL emit a `prometheus.NewInvalidMetric` so the scrape registers as failed and the error is surfaced to Prometheus rather than silently dropped.
 
@@ -25,7 +31,7 @@ The Collector SHALL be registered exactly once using `sync.Once`; subsequent cal
 
 - GIVEN the API server is running with a reachable database
 - WHEN Prometheus scrapes `GET :4433/metrics`
-- THEN the response SHALL contain `hypershell_gateways_total{phase="Running"}`, `hypershell_gateways_total{phase="Provisioning"}`, `hypershell_gateways_total{phase="Degraded"}`, and `hypershell_gateways_total{phase="Failed"}`
+- THEN the response SHALL contain `hypershell_gateways_total{phase="Pending"}`, `hypershell_gateways_total{phase="Provisioning"}`, `hypershell_gateways_total{phase="Running"}`, `hypershell_gateways_total{phase="Degraded"}`, and `hypershell_gateways_total{phase="Failed"}`
 - AND each value SHALL equal the current count of Gateways in that phase
 
 #### Scenario: Zero-count phases still appear
@@ -120,7 +126,7 @@ The named port `metrics` on the `hypershell-api-server` Service SHALL map to por
 
 The web-console BFF SHALL expose `GET /api/metrics/gateways` as a same-origin proxy route that queries Prometheus and returns the `hypershell_gateways_total` phase counts as JSON. The browser SHALL never contact Prometheus directly.
 
-The BFF SHALL accept a `PROMETHEUS_URL` environment variable (validated as an HTTP or HTTPS origin, no credentials, no path) defaulting to `http://127.0.0.1:9090`. The route SHALL query `GET {PROMETHEUS_URL}/api/v1/query?query=hypershell_gateways_total` with a 10-second timeout.
+The BFF SHALL accept a `PROMETHEUS_URL` environment variable (validated as an HTTP or HTTPS origin, no credentials, no path) defaulting to `http://127.0.0.1:9090`. The BFF SHALL accept a `PROMETHEUS_QUERY_TIMEOUT_MS` environment variable (integer milliseconds, 100–120000) defaulting to `10000`. Every `/api/metrics/*` route SHALL query `GET {PROMETHEUS_URL}/api/v1/query` with the configured timeout.
 
 The response SHALL be `{ "counts": { "Running": N, "Provisioning": N, "Degraded": N, "Failed": N } }` where each value is an integer. Phases absent from the Prometheus response SHALL NOT be omitted from the JSON; the client is responsible for defaulting absent phases to zero.
 
@@ -128,7 +134,9 @@ When Prometheus is unreachable or returns a non-`200` status, or when the Promet
 
 The `/api/metrics/gateways` route SHALL be exempt from the general `/api/*` proxy handler: it does not forward to the API server, it does not require or forward a bearer token, and it does not require a Prometheus authentication header in its current form.
 
-When OIDC is enabled, the route SHALL still require a valid session (the existing session-enforcement hook applies to all non-exempt paths). When OIDC is disabled, no session is required.
+When OIDC is enabled, the route SHALL require **dashboard-operator authorization** matching `web-console/operational-dashboard.spec.md` OP-DASH-04 (`hypershell-admins` or `platform:admin`). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled, no session or role is required.
+
+Fleet-wide phase counts from Prometheus are intentionally **not** filtered by per-gateway RoleBindings; this route is restricted to dashboard administrators who are authorized to view platform-wide operational data. Per-user gateway visibility for the operational dashboard gateway-status widget remains on the RBAC-scoped HyperShell REST list API (`operational-dashboard.spec.md` OP-DASH-06).
 
 #### Scenario: Successful metrics fetch
 
@@ -138,7 +146,7 @@ When OIDC is enabled, the route SHALL still require a valid session (the existin
 
 #### Scenario: Prometheus unreachable
 
-- GIVEN the BFF cannot connect to Prometheus within 10 seconds
+- GIVEN the BFF cannot connect to Prometheus within the configured query timeout
 - WHEN the SPA calls `GET /api/metrics/gateways`
 - THEN the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`
 - AND no Prometheus error detail SHALL appear in the response body
@@ -149,11 +157,24 @@ When OIDC is enabled, the route SHALL still require a valid session (the existin
 - WHEN the BFF processes the response
 - THEN the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`
 
+#### Scenario: Authenticated non-admin is rejected
+
+- GIVEN OIDC is enabled and the caller has only `hypershell-users`
+- WHEN the SPA calls `GET /api/metrics/gateways`
+- THEN the BFF SHALL respond with HTTP `403`
+
+#### Scenario: Dashboard administrator can fetch gateway phase counts
+
+- GIVEN OIDC is enabled and the caller has `hypershell-admins` or `platform:admin`
+- AND Prometheus returns successful `hypershell_gateways_total` samples
+- WHEN the SPA calls `GET /api/metrics/gateways`
+- THEN the BFF SHALL respond with HTTP `200`
+
 ---
 
 ### Requirement: DASH-06 -- Dashboard Component
 
-The `gateway-management-ui` shared library SHALL export a `GatewayMetricsDashboard` React component that renders the `hypershell_gateways_total` phase counts as four PatternFly `Card` components inside a `Gallery`.
+The `gateway-management-ui` shared library SHALL export a `GatewayMetricsDashboard` React component that renders the `hypershell_gateways_total` phase counts as five PatternFly `Card` components inside a `Gallery`.
 
 Each card SHALL display the phase name (localized via `react-intl`) in the PatternFly semantic status color for that phase, the numeric count in a large heading, and a pluralized gateway count label. The phase-to-color mapping SHALL be:
 
@@ -166,11 +187,11 @@ Each card SHALL display the phase name (localized via `react-intl`) in the Patte
 
 The component SHALL use TanStack Query with `queryKey: ["gateways", "metrics"]` and SHALL refetch every `30_000` ms to stay aligned with the Prometheus scrape interval.
 
-While loading, the component SHALL render a PatternFly `Spinner` with a localized `aria-label`. When the query has errored or produced no data, the component SHALL render a PatternFly `EmptyState` with a localized error title and recovery guidance. When data is available, the component SHALL render all four phase cards, defaulting absent phases from the API response to `0`.
+While loading, the component SHALL render a PatternFly `Spinner` with a localized `aria-label`. When the query has errored or produced no data, the component SHALL render a PatternFly `EmptyState` with a localized error title and recovery guidance. When data is available, the component SHALL render all five phase cards, defaulting absent phases from the API response to `0`.
 
 All user-visible strings SHALL be declared with `defineMessages` and rendered through `FormattedMessage` or `intl.formatMessage`. No literal string SHALL appear in JSX.
 
-#### Scenario: Dashboard renders all four phase cards
+#### Scenario: Dashboard renders all five phase cards
 
 - GIVEN `GET /api/metrics/gateways` returns `{ counts: { Running: 5, Provisioning: 2, Degraded: 1, Failed: 0 } }`
 - WHEN `GatewayMetricsDashboard` mounts
@@ -200,36 +221,28 @@ All user-visible strings SHALL be declared with `defineMessages` and rendered th
 
 ---
 
-### Requirement: DASH-07 -- Dashboard SPA Route and Navigation
+### Requirement: DASH-07 -- BFF Metrics Route Registration
 
-The web console SPA SHALL expose the dashboard at the `/dashboard` route. The route SHALL be included in the React Router route tree under the authenticated application layout.
+The BFF SHALL recognise `/dashboard` and `/metrics` as valid SPA shell routes (returning `index.html` for direct navigation and refresh) alongside `/`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
 
-The application shell SHALL include a persistent sidebar navigation (`PageSidebar` / `Nav`) with links to both the Gateways list (`/`) and the Dashboard (`/dashboard`). The active link SHALL be highlighted based on the current `pathname`. All navigation labels SHALL be localized via `react-intl`.
+When OIDC is enabled, browser navigations to `/metrics` SHALL require dashboard-operator authorization (OP-DASH-04). Non-admin users SHALL be redirected to `/`. The SPA route module for `/metrics` SHALL wrap `GatewayMetricsDashboard` in the same `RequireDashboardAdmin` guard used by `/dashboard`.
 
-The BFF SHALL recognise `/dashboard` as a valid application route (returning `index.html` for direct navigation and browser refresh) alongside the existing `/`, `/login`, `/gateways/new`, and `/gateways/:gatewayId` routes.
+The `route-contract.json` file SHALL declare `"dashboard": "dashboard"` and `"metrics": "metrics"` so the BFF and SPA share a single source of truth for each path.
 
-The `route-contract.json` file SHALL declare `"dashboard": "dashboard"` so the BFF and SPA share a single source of truth for the path.
+Which React component renders at `/dashboard` is defined by `web-console/operational-dashboard.spec.md` (currently `OperationalDashboardPage`). This spec requires `GatewayMetricsDashboard` at `/metrics`.
 
-#### Scenario: Direct navigation to /dashboard
+#### Scenario: Direct navigation to /dashboard serves the SPA shell
 
 - GIVEN a user navigates directly to `https://console.hypershell.localhost/dashboard`
 - WHEN the BFF handles the `GET /dashboard` request
 - THEN it SHALL respond with `index.html` and HTTP `200`
+
+#### Scenario: Direct navigation to /metrics serves GatewayMetricsDashboard
+
+- GIVEN a user navigates directly to `https://console.hypershell.localhost/metrics`
+- WHEN the BFF handles the `GET /metrics` request
+- THEN it SHALL respond with `index.html` and HTTP `200`
 - AND the SPA SHALL render `GatewayMetricsDashboard`
-
-#### Scenario: Dashboard link is active on the dashboard page
-
-- GIVEN the current pathname is `/dashboard`
-- WHEN the application shell renders the sidebar
-- THEN the Dashboard nav item SHALL be marked active
-- AND the Gateways nav item SHALL NOT be marked active
-
-#### Scenario: Gateways link is active on the home page
-
-- GIVEN the current pathname is `/`
-- WHEN the application shell renders the sidebar
-- THEN the Gateways nav item SHALL be marked active
-- AND the Dashboard nav item SHALL NOT be marked active
 
 ---
 
@@ -244,4 +257,4 @@ This patch SHALL live in `deploy/kind/kustomization.yaml` alongside the existing
 - GIVEN the Kind cluster is running with `make kind-up`
 - WHEN the BFF handles `GET /api/metrics/gateways`
 - THEN it SHALL forward the query to `http://prometheus-operated.hypershell-system.svc.cluster.local:9090`
-- AND the dashboard SHALL display live gateway phase counts
+- AND `GET /api/metrics/gateways` SHALL return live phase counts from Prometheus

@@ -62,7 +62,7 @@ esac
 restore_web_console_from_overlay() {
   local out applied=false f
   out="$(mktemp -d)"
-  if kustomize build "${REPO_ROOT}/deploy/kind" -o "${out}" 2>/dev/null; then
+  if kustomize build --load-restrictor=LoadRestrictionsNone "${REPO_ROOT}/deploy/kind" -o "${out}" 2>/dev/null; then
     for f in "${out}"/*hypershell-web-console*.yaml; do
       [[ -e "${f}" ]] || continue
       kube apply -f "${f}" && applied=true
@@ -256,16 +256,26 @@ EOF
     (cd "${REPO_ROOT}" && \
       info "Installing workspace dependencies (pnpm install)..." && \
       pnpm install --frozen-lockfile --reporter=append-only && \
-      info "Building workspace dependencies (sdk → domain-probes → gateway-management-ui)..." && \
+      info "Building workspace dependencies (sdk → domain-probes → gateway-management-ui → operational-dashboard-ui)..." && \
       pnpm --filter @openshift-online/hypershell-sdk build && \
       pnpm --filter @openshift-online/hypershell-domain-probes build && \
       pnpm --filter @openshift-online/hypershell-gateway-management-ui build && \
+      pnpm --filter @openshift-online/hypershell-operational-dashboard-ui build && \
       info "Starting dev server (first run optimizes dependencies, up to ~1 min with no output; Ctrl+C to stop and revert)..." && \
       DEV_SERVER_HOST=0.0.0.0 pnpm --filter @openshift-online/hypershell-web-console dev) || true
     exit 0
   fi
 
   header "Swap ${COMPONENT} (up)"
+
+  if [[ "${COMPONENT}" == "web-console" ]]; then
+    # A prior hot-reload session leaves a hand-written EndpointSlice and may
+    # strip the Service selector. Remove those before deploying the in-cluster
+    # image or the gateway load-balances to a dead host:5173 backend (503).
+    kube delete endpointslices "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
+    kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
+    restore_web_console_from_overlay || true
+  fi
 
   info "Building ${COMPONENT} from working tree..."
   ${CONTAINER_ENGINE} build -t "${LOCAL_IMAGE}" \
@@ -320,6 +330,7 @@ swap_down() {
   info "Reverting ${COMPONENT} to baseline image..."
 
   if [[ "${COMPONENT}" == "web-console" ]]; then
+    kube delete endpointslices "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
     kube delete endpoints "${DEPLOYMENT}" -n "${KIND_NAMESPACE}" 2>/dev/null || true
     restore_web_console_from_overlay
   else

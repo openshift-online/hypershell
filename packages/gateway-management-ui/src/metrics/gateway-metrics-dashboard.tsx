@@ -41,6 +41,11 @@ const messages = defineMessages({
     defaultMessage: "Loading metrics",
     description: "Accessible label for the metrics loading spinner.",
   },
+  phasePending: {
+    id: "app.metrics.phase.pending",
+    defaultMessage: "Pending",
+    description: "Label for the Pending gateway phase metric card.",
+  },
   phaseRunning: {
     id: "app.metrics.phase.running",
     defaultMessage: "Running",
@@ -69,6 +74,7 @@ const messages = defineMessages({
 });
 
 const phaseMessageKey = {
+  Pending: messages.phasePending,
   Running: messages.phaseRunning,
   Provisioning: messages.phaseProvisioning,
   Degraded: messages.phaseDegraded,
@@ -76,6 +82,7 @@ const phaseMessageKey = {
 } as const satisfies Record<keyof GatewayPhaseCounts, { id: string }>;
 
 const phaseColor: Record<keyof GatewayPhaseCounts, string> = {
+  Pending: "var(--pf-t--global--color--status--info--default)",
   Running: "var(--pf-t--global--color--status--success--default)",
   Provisioning: "var(--pf-t--global--color--status--info--default)",
   Degraded: "var(--pf-t--global--color--status--warning--default)",
