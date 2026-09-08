@@ -16,13 +16,13 @@ This specification defines how the originating trace context flows from the API 
 
 ### Requirement: RTC-01 -- Originating Trace Context Persistence
 
-The API server SHALL capture the W3C Trace Context (`traceparent` header value, and `tracestate` when present) from the inbound request context on every create and update write, and SHALL persist both values on the resource row in PostgreSQL. The trace context SHALL be stored as plain text columns (`traceparent` and `tracestate`) on the shared `api.Meta` base, so every resource type inherits the field without per-plugin schema changes.
+The API server SHALL capture the W3C Trace Context (`traceparent` header value, and `tracestate` when present) from the inbound request context on every create and update write, and SHALL persist both values on the resource row in PostgreSQL. The trace context SHALL be stored as plain text columns (`traceparent` and `tracestate`) via a shared embeddable struct, so every resource type inherits the same fields with a uniform column layout rather than a bespoke per-plugin field definition.
 
-Because the `api.Meta` base struct is defined in the upstream `rh-trex-ai` framework and cannot be modified in-tree, the trace context columns SHALL be added via a local embeddable struct (for example `TraceMeta`) that each resource model embeds alongside `api.Meta`. A single gormigrate migration SHALL add the columns to all resource tables.
+Because the `api.Meta` base struct is defined in the upstream `rh-trex-ai` framework and cannot be modified in-tree, the trace context columns SHALL be added via a local embeddable struct (for example `TraceMeta`) that each resource model embeds alongside `api.Meta`, so every resource type inherits the fields without a per-plugin struct definition. Each resource plugin SHALL register its own gormigrate migration (`migrationAddTraceContext`) that adds the columns to that plugin's table, keeping schema ownership with the plugin that owns the resource. The migration IDs SHALL be unique across plugins so there is no gormigrate collision.
 
 The `traceparent` column SHALL store the W3C Trace Context `traceparent` header value (for example `00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`). The `tracestate` column SHALL store the W3C `tracestate` header value when present, or be empty when absent. Both columns SHALL be nullable: a resource created before this change, or created when telemetry is disabled, SHALL have NULL trace context and that is a valid state.
 
-The trace context SHALL be captured from the active span context at the point of persistence (not from the raw HTTP header), so it reflects the actual span that performed the write. On an update, the stored trace context SHALL be overwritten with the new request's context, so the trace context always points to the most recent mutation.
+The trace context SHALL be captured from the active span context at the point of persistence (not from the raw HTTP header), so it reflects the actual span that performed the write. On an update, the stored trace context SHALL be overwritten with the new request's context, so the trace context always points to the most recent mutation. When the updating request has no active span (telemetry disabled), the overwrite SHALL clear the stored trace context to NULL rather than preserve a stale value: the columns must always describe the most recent mutation, and that mutation had no traceable origin.
 
 **Verification:** Create a resource via the API with a valid inbound `traceparent`; confirm the database row stores the `traceparent` and `tracestate` values. Update the resource with a different request trace; confirm the stored values are overwritten.
 
@@ -47,6 +47,14 @@ The trace context SHALL be captured from the active span context at the point of
 - WHEN a client creates a resource
 - THEN the `traceparent` and `tracestate` columns SHALL be NULL
 - AND the resource SHALL be created normally
+
+#### Scenario: Update with telemetry disabled clears stale trace context
+
+- GIVEN a resource with a stored `traceparent` from an earlier traced mutation
+- AND the OTel SDK is not initialized on the request that performs the update
+- WHEN a client updates the resource
+- THEN the stored `traceparent` and `tracestate` SHALL be overwritten with NULL
+- AND the previous trace context SHALL not be retained, because it no longer describes the most recent mutation
 
 ### Requirement: RTC-02 -- Trace Context on gRPC Watch Messages
 

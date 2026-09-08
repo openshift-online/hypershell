@@ -19,6 +19,12 @@ type TraceMeta struct {
 // CaptureTraceContext extracts the active span's W3C traceparent and
 // tracestate from ctx and stores them. When no valid span is active (OTel
 // disabled or no sampled span), the fields are left nil.
+//
+// On an update path this is deliberate: the DAO persists via gorm Save, which
+// writes nil pointers as NULL, so an update performed with telemetry disabled
+// overwrites any previously-stored trace context to NULL. That is the intended
+// overwrite-on-update semantics (RTC-01) - the columns always describe the most
+// recent mutation, and a mutation with no active span has no traceable origin.
 func (t *TraceMeta) CaptureTraceContext(ctx context.Context) {
 	sc := trace.SpanFromContext(ctx).SpanContext()
 	if !sc.IsValid() {
