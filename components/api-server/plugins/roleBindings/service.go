@@ -106,12 +106,15 @@ func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string,
 			jwtRoleSet[r] = true
 		}
 	}
-	// Default roles are always treated as present regardless of JWT content.
-	// They must be in JWTSyncedRoles to participate in the sync lifecycle
-	// (deduplication, removal on revocation).
-	for _, r := range s.defaultRoles {
-		if roles.JWTSyncedRoles[r] {
-			jwtRoleSet[r] = true
+	// Default roles bootstrap users whose JWT carries NO realm roles at all.
+	// Users who already have Keycloak realm-role assignments (even non-synced
+	// ones) are managed entirely through Keycloak; applying defaults to them
+	// would grant capabilities that Keycloak intentionally withheld.
+	if len(jwtRoles) == 0 {
+		for _, r := range s.defaultRoles {
+			if roles.JWTSyncedRoles[r] {
+				jwtRoleSet[r] = true
+			}
 		}
 	}
 
