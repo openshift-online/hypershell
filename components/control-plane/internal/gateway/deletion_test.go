@@ -89,3 +89,22 @@ func TestCredentialRBACDeletePropagatesFailure(t *testing.T) {
 		t.Fatal("partial failure skipped independent cleanup")
 	}
 }
+
+func TestCredentialDriverReconcileRetriesUnusedRBACCleanup(t *testing.T) {
+	client := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	blocked := true
+	client.PrependReactor("delete", "roles", func(kubetesting.Action) (bool, runtime.Object, error) {
+		if blocked {
+			return true, nil, errors.New("forbidden")
+		}
+		return false, nil, nil
+	})
+	config := NamespaceConfig{Name: "credentials", Gateway: GatewayConfig{CredentialDriver: &CredentialDriverConfig{Type: "vault"}}}
+	if err := reconcileCredentialDriverResources(context.Background(), client, nil, config); err == nil {
+		t.Fatal("credential driver change ignored stale secret access")
+	}
+	blocked = false
+	if err := reconcileCredentialDriverResources(context.Background(), client, nil, config); err != nil {
+		t.Fatalf("credential driver cleanup did not recover: %v", err)
+	}
+}

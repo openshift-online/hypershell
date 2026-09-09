@@ -1391,7 +1391,9 @@ func reconcileCredentialDriverResources(
 			return fmt.Errorf("reconcile credential secrets RBAC: %w", err)
 		}
 	} else {
-		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
+		if err := deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name); err != nil {
+			return fmt.Errorf("remove unused credential secrets RBAC: %w", err)
+		}
 	}
 	return nil
 }
