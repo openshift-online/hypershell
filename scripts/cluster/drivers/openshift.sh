@@ -189,6 +189,18 @@ ensure_namespace_group() {
   local platform_env keycloak_env env_id
   platform_env=""
   keycloak_env=""
+  # Snapshot ownership BEFORE ensure_project stamps labels onto an unlabeled
+  # project. cutover_database_provider is destructive; it may only delete
+  # provider stacks in a namespace that was already a HyperShell environment,
+  # not one this run just claimed.
+  OPENSHIFT_DB_CUTOVER_ALLOWED=false
+  if namespace_exists "${OPENSHIFT_NAMESPACE}"; then
+    if namespace_is_owned "${OPENSHIFT_NAMESPACE}"; then
+      OPENSHIFT_DB_CUTOVER_ALLOWED=true
+    elif [[ -n "$(env_id_from_workloads "${OPENSHIFT_NAMESPACE}")" ]]; then
+      OPENSHIFT_DB_CUTOVER_ALLOWED=true
+    fi
+  fi
   if namespace_exists "${OPENSHIFT_NAMESPACE}" && namespace_is_owned "${OPENSHIFT_NAMESPACE}"; then
     platform_env="$(refuse_foreign_namespace "${OPENSHIFT_NAMESPACE}")"
   fi
@@ -634,9 +646,22 @@ DATABASE_PROVIDER_CUTOVER_PERFORMED=""
 # that will never appear.
 # DESTRUCTIVE: deletes the outgoing provider's database and its data. This
 # namespace group is ephemeral dev/e2e infrastructure, not production.
+# Destructive deletes require OPENSHIFT_DB_CUTOVER_ALLOWED=true, set by
+# ensure_namespace_group only when the platform namespace was already a
+# HyperShell environment (owned, or HyperShell workload labels) before this
+# run stamped labels onto it.
+require_db_cutover_allowed() {
+  if [[ "${OPENSHIFT_DB_CUTOVER_ALLOWED:-}" == "true" ]]; then
+    return 0
+  fi
+  error "cutover_database_provider: refusing to delete database resources in '${OPENSHIFT_NAMESPACE}'; it was not already a HyperShell environment (${OWNED_LABEL}=true, or HyperShell workload labels). A mis-pointed openshift-up must not destroy coincidental hypershell-db data."
+  return 1
+}
+
 cutover_database_provider() {
   local target="$1"
   local changed=""
+  local remove_cnpg="" remove_deploy="" clear_secret=""
 
   if [[ -z "${target}" ]]; then
     error "cutover_database_provider: empty target; refusing to reconcile (would delete both provider stacks)."
@@ -652,21 +677,34 @@ cutover_database_provider() {
 
   if [[ "${target}" != "cnpg" ]] \
     && oc_cli get cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
+    remove_cnpg=true
+  fi
+  if [[ "${target}" != "deployment" ]] \
+    && oc_cli get deployment hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
+    remove_deploy=true
+  fi
+  if ! secret_shaped_for_provider "${target}"; then
+    clear_secret=true
+  fi
+  if [[ -n "${remove_cnpg}${remove_deploy}${clear_secret}" ]]; then
+    require_db_cutover_allowed || return 1
+  fi
+
+  if [[ -n "${remove_cnpg}" ]]; then
     warn "Removing CNPG database in ${OPENSHIFT_NAMESPACE} (target provider: ${target}); its data will be lost."
     oc_cli delete cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" --wait=true --timeout=120s 2>/dev/null || true
     oc_cli delete pvc -n "${OPENSHIFT_NAMESPACE}" -l cnpg.io/cluster=hypershell-db --ignore-not-found=true
     changed=true
   fi
 
-  if [[ "${target}" != "deployment" ]] \
-    && oc_cli get deployment hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
+  if [[ -n "${remove_deploy}" ]]; then
     warn "Removing bundled PostgreSQL Deployment in ${OPENSHIFT_NAMESPACE} (target provider: ${target}); its data will be lost."
     oc_cli delete deployment hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
     oc_cli delete service hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
     changed=true
   fi
 
-  if ! secret_shaped_for_provider "${target}"; then
+  if [[ -n "${clear_secret}" ]]; then
     warn "hypershell-db-app in ${OPENSHIFT_NAMESPACE} is not shaped for ${target}; clearing it so ${target} can create its own."
     oc_cli delete secret hypershell-db-app -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
     changed=true
