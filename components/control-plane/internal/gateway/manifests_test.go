@@ -1,11 +1,46 @@
 package gateway
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+func TestCredentialDriverSelectionRemainsInGatewayTableWithOIDC(t *testing.T) {
+	data, err := os.ReadFile("../../manifests/gateway/configmap.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, driver := range []*CredentialDriverConfig{
+		{Type: "kubernetes-secrets"},
+		{Type: "vault", Vault: &VaultCredentialConfig{Address: "https://vault.example", Role: "gateway"}},
+	} {
+		t.Run(driver.Type, func(t *testing.T) {
+			lines := strings.Split(string(data), "\n")
+			lines = append(lines, "\n    [openshell.gateway.oidc]\n    issuer = \"https://issuer.example\"\n    audience = \"gateway\"")
+			output := applyCredentialDriverToml(lines, driver, "tenant")
+			table := ""
+			selections := 0
+			for _, line := range strings.Split(strings.Join(output, "\n"), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "[") {
+					table = line
+				}
+				if strings.HasPrefix(line, "credential_drivers =") {
+					selections++
+					if table != "[openshell.gateway]" {
+						t.Fatalf("credential driver selection belongs to %s, want gateway table", table)
+					}
+				}
+			}
+			if selections != 1 {
+				t.Fatalf("got %d credential driver selections, want one", selections)
+			}
+		})
+	}
+}
 
 func TestApplyCredentialDriverToml_KubernetesSecrets(t *testing.T) {
 	lines := []string{

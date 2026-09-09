@@ -241,6 +241,9 @@ func applyCredentialDriverToml(lines []string, driver *CredentialDriverConfig, t
 		}
 		if !skip {
 			result = append(result, line)
+			if strings.TrimSpace(line) == "[openshell.gateway]" {
+				result = append(result, fmt.Sprintf("    credential_drivers = [\"%s\"]", tomlEscapeString(driver.Type)))
+			}
 		}
 	}
 
@@ -250,8 +253,6 @@ func applyCredentialDriverToml(lines []string, driver *CredentialDriverConfig, t
 		if driver.KubernetesSecrets != nil && driver.KubernetesSecrets.Namespace != "" {
 			ns = driver.KubernetesSecrets.Namespace
 		}
-		result = append(result, "")
-		result = append(result, "    credential_drivers = [\"kubernetes-secrets\"]")
 		result = append(result, "")
 		result = append(result, "    [openshell.credential_drivers.kubernetes-secrets]")
 		if ns != "" {
@@ -275,8 +276,6 @@ func applyCredentialDriverToml(lines []string, driver *CredentialDriverConfig, t
 		if timeoutSecs == 0 {
 			timeoutSecs = 30
 		}
-		result = append(result, "")
-		result = append(result, "    credential_drivers = [\"vault\"]")
 		result = append(result, "")
 		result = append(result, "    [openshell.credential_drivers.vault]")
 		result = append(result, fmt.Sprintf("    address = \"%s\"", tomlEscapeString(v.Address)))
