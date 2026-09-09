@@ -28,7 +28,7 @@ type UserProvisioner interface {
 func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSyncer) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			payload, err := auth.GetAuthPayload(r)
+				payload, err := auth.GetAuthPayload(r)
 			if err != nil {
 				next.ServeHTTP(w, r)
 				return
@@ -51,10 +51,13 @@ func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSynce
 			jwtRoles := extractJWTRoles(r)
 			if len(jwtRoles) > 0 {
 				ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
-				if syncer != nil {
-					if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
-						glog.Warningf("JWT role sync failed for %q: %v", payload.Username, syncErr)
-					}
+			}
+			// Always sync even when jwtRoles is empty: SyncJWTRoles applies
+			// configured default roles (e.g. gateway:creator) so that users with
+			// no Keycloak realm roles still receive their initial bindings.
+			if syncer != nil {
+				if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
+					glog.Warningf("JWT role sync failed for %q: %v", payload.Username, syncErr)
 				}
 			}
 

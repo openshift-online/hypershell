@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -37,6 +38,11 @@ func NewRoleBindingService(
 	events services.EventService,
 	defaultRoles []string,
 ) RoleBindingService {
+	for _, r := range defaultRoles {
+		if !roles.JWTSyncedRoles[r] {
+			glog.Warningf("RBAC_DEFAULT_ROLES: role %q is not in JWTSyncedRoles and will be ignored; add it to JWTSyncedRoles to make it sync-eligible", r)
+		}
+	}
 	return &sqlRoleBindingService{
 		lockFactory:  lockFactory,
 		rbDao:        rbDao,

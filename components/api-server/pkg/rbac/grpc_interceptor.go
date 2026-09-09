@@ -198,13 +198,16 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 
 	ctx = context.WithValue(ctx, ContextUserIDKey, userID)
 
+	jwtRoles := extractJWTRolesFromContext(ctx)
+	if len(jwtRoles) > 0 {
+		ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
+	}
+	// Always sync even when jwtRoles is empty: SyncJWTRoles applies
+	// configured default roles (e.g. gateway:creator) so that users with
+	// no Keycloak realm roles still receive their initial bindings.
 	if syncer != nil {
-		jwtRoles := extractJWTRolesFromContext(ctx)
-		if len(jwtRoles) > 0 {
-			ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
-			if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
-				glog.Warningf("gRPC JWT role sync failed for %q: %v", username, syncErr)
-			}
+		if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
+			glog.Warningf("gRPC JWT role sync failed for %q: %v", username, syncErr)
 		}
 	}
 

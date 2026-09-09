@@ -3,6 +3,7 @@ package roleBindings_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -59,11 +60,19 @@ func TestRoleBindingCreate_GatewayOwner(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
+	userService := users.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
 	roleService := roles.Service(&environments.Environment().Services)
+
 	ownerRole, svcErr := roleService.GetByName(context.Background(), roles.RoleGatewayOwner)
 	Expect(svcErr).NotTo(HaveOccurred())
 
 	gatewayID := "gw-test-create"
+
+	// Provision the account as gateway:owner so the HTTP create passes validation.
+	callerID, userErr := userService.UpsertByUsername(context.Background(), strings.ToLower(account.Username), nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+	Expect(rbService.CreateGatewayOwnerBinding(context.Background(), callerID, gatewayID)).To(Succeed())
 
 	rbInput := openapi.RoleBinding{
 		RoleId:    ownerRole.ID,
@@ -105,13 +114,23 @@ func TestRoleBindingDelete(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
+	userService := users.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
 	roleService := roles.Service(&environments.Environment().Services)
+
 	viewerRole, svcErr := roleService.GetByName(context.Background(), roles.RoleGatewayViewer)
 	Expect(svcErr).NotTo(HaveOccurred())
 
 	gatewayID := "gw-test-delete"
-	rbService := roleBindings.Service(&environments.Environment().Services)
-	rb, createErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+
+	// Provision the account as gateway:owner so the HTTP delete passes validation.
+	callerID, userErr := userService.UpsertByUsername(context.Background(), strings.ToLower(account.Username), nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+	Expect(rbService.CreateGatewayOwnerBinding(context.Background(), callerID, gatewayID)).To(Succeed())
+
+	// Create a viewer binding to delete (bypassing HTTP so no owner check needed for setup).
+	ownerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, callerID)
+	rb, createErr := rbService.Create(ownerCtx, &roleBindings.RoleBinding{
 		RoleID:    viewerRole.ID,
 		Scope:     roleBindings.ScopeGateway,
 		GatewayID: &gatewayID,
@@ -315,6 +334,41 @@ func TestGrantValidation_CrossGatewayEscalation(t *testing.T) {
 	})
 	Expect(crossGWErr).To(HaveOccurred())
 	Expect(crossGWErr.HttpCode).To(Equal(http.StatusForbidden))
+}
+
+// TestUserProvisioningMiddleware_DefaultRoleAssignedWithNoJWTRoles drives the
+// real HTTP middleware path with a token that carries no realm_access roles and
+// asserts that the user receives a gateway:creator binding. This is the exact
+// scenario RBAC_ENFORCE=true must handle: a brand-new user with no Keycloak roles.
+func TestUserProvisioningMiddleware_DefaultRoleAssignedWithNoJWTRoles(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	// NewRandAccount creates a JWT with no realm_access claims.
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	// GET /roles is RBAC-exempt so it succeeds regardless of bindings,
+	// but it still runs UserProvisioningMiddleware on the apiV1Router.
+	_, resp, err := client.DefaultAPI.ListRoles(ctx).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	// The JWT helper lowercases the username; UpsertByUsername is idempotent.
+	userService := users.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userID, userErr := userService.UpsertByUsername(context.Background(), strings.ToLower(account.Username), nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+	Expect(findErr).NotTo(HaveOccurred())
+
+	found := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleGatewayCreator && b.Scope == roleBindings.ScopeGlobal {
+			found = true
+		}
+	}
+	Expect(found).To(BeTrue(), "expected gateway:creator binding after first authenticated request with no JWT roles")
 }
 
 // TestSyncJWTRoles_DefaultRoleAssigned verifies that a newly provisioned user
