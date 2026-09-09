@@ -54,16 +54,16 @@ type GatewayHealthReconciler struct {
 	// clusterID scopes the health sweep to this managed cluster's gateways. When
 	// non-empty the fleet list is filtered server-side so a spoke never stamps
 	// (Degraded/Running) a gateway owned by another cluster. Empty sweeps all.
-	clusterID           string
-	interval            time.Duration
-	exposure            exposure.Port
+	clusterID              string
+	interval               time.Duration
+	exposure               exposure.Port
 	routeReadyTimeout      time.Duration
 	deploymentReadyTimeout time.Duration
-	keycloakConfig      *gateway.KeycloakConfig
-	isOpenShift         bool
-	hasGatewayAPI       bool
-	ingressMode         string
-	skipNetworkPolicies bool
+	keycloakConfig         *gateway.KeycloakConfig
+	isOpenShift            bool
+	hasGatewayAPI          bool
+	ingressMode            string
+	skipNetworkPolicies    bool
 
 	// consoleClientChecker is a single, long-lived Keycloak client reused across
 	// every tick's residual-absence checks. Constructed once (when Keycloak is
@@ -97,11 +97,11 @@ type GatewayHealthReconciler struct {
 	// settled gateway keeps being re-verified forever at that low cadence, because
 	// elapsed wall-clock time is not proof that a stale provisioning pass cannot
 	// still resurrect resources (see routeVerifyInterval).
-	mu                       sync.Mutex
-	routeNotReadySince       map[string]time.Time
-	deploymentNotReadySince  map[string]time.Time
-	routeTornDown            map[string]bool
-	routeVerifiedAt          map[string]time.Time
+	mu                      sync.Mutex
+	routeNotReadySince      map[string]time.Time
+	deploymentNotReadySince map[string]time.Time
+	routeTornDown           map[string]bool
+	routeVerifiedAt         map[string]time.Time
 }
 
 func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID string) *GatewayHealthReconciler {
@@ -122,22 +122,22 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
 	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 	return &GatewayHealthReconciler{
-		clientset:            clientset,
-		dynamicClient:        dynamicClient,
-		grpcConn:             grpcConn,
-		clusterID:            clusterID,
-		interval:             defaultHealthInterval,
-		exposure:             exposurePort,
-		routeReadyTimeout:      routeReadyTimeout(),
-		deploymentReadyTimeout: deploymentReadyTimeout(),
-		keycloakConfig:         keycloakConfig,
-		consoleClientChecker: consoleClientChecker,
-		isOpenShift:          isOpenShift,
-		hasGatewayAPI:        hasGatewayAPI,
-		ingressMode:          ingressMode,
-		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
-		now:                   time.Now,
-		deploymentReadinessFn: gateway.DeploymentReadiness,
+		clientset:               clientset,
+		dynamicClient:           dynamicClient,
+		grpcConn:                grpcConn,
+		clusterID:               clusterID,
+		interval:                defaultHealthInterval,
+		exposure:                exposurePort,
+		routeReadyTimeout:       routeReadyTimeout(),
+		deploymentReadyTimeout:  deploymentReadyTimeout(),
+		keycloakConfig:          keycloakConfig,
+		consoleClientChecker:    consoleClientChecker,
+		isOpenShift:             isOpenShift,
+		hasGatewayAPI:           hasGatewayAPI,
+		ingressMode:             ingressMode,
+		skipNetworkPolicies:     os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
+		now:                     time.Now,
+		deploymentReadinessFn:   gateway.DeploymentReadiness,
 		routeNotReadySince:      make(map[string]time.Time),
 		deploymentNotReadySince: make(map[string]time.Time),
 		routeTornDown:           make(map[string]bool),
