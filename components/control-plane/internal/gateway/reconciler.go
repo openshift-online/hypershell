@@ -94,7 +94,9 @@ func ReconcileGateway(
 		if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
 			return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
 		}
-		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
+		if err := deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name); err != nil {
+			return fmt.Errorf("remove unused credential RBAC in %s: %w", nsConfig.Name, err)
+		}
 	} else {
 		if err := reconcileCredentialDriverResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
 			return fmt.Errorf("reconcile credential driver resources in %s: %w", nsConfig.Name, err)
