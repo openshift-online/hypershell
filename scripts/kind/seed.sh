@@ -12,7 +12,7 @@
 # SKIP_SEED=true on kind-up and runs `make kind-seed` after the swap.
 #
 # Environment:
-#   DATABASE_PROVIDER   cnpg | deployment | external (default: deployment). Must
+#   DATABASE_PROVIDER   cnpg | deployment | external (default: external). Must
 #                       match the provider kind-up provisioned infrastructure for.
 #   KIND_SEED_STRICT    when "true", a seeding failure exits non-zero instead of
 #                       only warning. CI sets this so a contract regression fails
@@ -27,8 +27,8 @@ source "${SCRIPT_DIR}/lib.sh"
 
 require_cluster
 
-# DATABASE_PROVIDER unset/empty means "deployment" (mirrors up.sh).
-DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+# DATABASE_PROVIDER unset/empty means "external" (mirrors up.sh).
+DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" && "${DB_PROVIDER}" != "external" ]]; then
   error "DATABASE_PROVIDER must be 'cnpg', 'deployment', or 'external', got '${DB_PROVIDER}'"
   exit 1

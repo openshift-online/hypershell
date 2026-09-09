@@ -26,7 +26,7 @@
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
 #   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 90)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
-#   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: deployment)
+#   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 set -euo pipefail
@@ -38,12 +38,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 # --- Database provider selection ---
+# external = stand-in server in a separate namespace simulating a cloud-managed
+#            external DB (default: unset/empty DATABASE_PROVIDER means external)
 # deployment = plain Kubernetes Deployment + PVC + Service (no CNPG operator,
-#              default: unset/empty DATABASE_PROVIDER means deployment, see
-#              specs/platform/openshell-gateway-database.spec.md)
+#              see specs/platform/openshell-gateway-database.spec.md)
 # cnpg = CloudNativePG operator (CRDs: Cluster, Database, DatabaseRole)
-# external = pre-existing server outside the cluster; no in-cluster DB workload
-DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 
 # --- Driver selection and validation ---
 

@@ -174,13 +174,13 @@ fi
 echo ""
 
 # --- Database provider selection ---
-# DATABASE_PROVIDER unset or empty means "deployment" (see
-# specs/platform/openshell-gateway-database.spec.md): a standalone
-# PostgreSQL Deployment per gateway that needs no operator, matching the
-# control-plane and API-server default. "cnpg" opts into CNPG-backed
-# placement and requires the CNPG operator; any other value is rejected
-# below rather than silently selected as one provider or the other.
-DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+# DATABASE_PROVIDER unset or empty means "external": a standalone PostgreSQL
+# Deployment in a separate namespace that simulates a cloud-managed external
+# server, exercising the external-provider code path by default. "deployment"
+# opts into an in-namespace Deployment (no operator required). "cnpg" opts into
+# CNPG-backed placement and requires the CNPG operator; any other value is
+# rejected below rather than silently selected as one provider or the other.
+DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" && "${DB_PROVIDER}" != "external" ]]; then
   error "DATABASE_PROVIDER must be 'cnpg', 'deployment', or 'external', got '${DB_PROVIDER}'"
   exit 1
@@ -383,13 +383,12 @@ header "Deploying Components"
 
 # Both provider modes need the running containers to select the same
 # DATABASE_PROVIDER this script provisioned infrastructure for.
-# DATABASE_PROVIDER unset/empty now defaults to "deployment" (see above),
-# so the "cnpg" branch must opt back in explicitly via the JSON6902 patch
-# below rather than relying on an implicit default that no longer selects
-# it. The "deployment" branch keeps using the existing database-deployment
-# component, which also swaps the CNPG Cluster used for the frameworks own
-# metadata storage (not the tenant/gateway ManagedDatabase) for a static
-# Deployment.
+# DATABASE_PROVIDER unset/empty now defaults to "external" (see above),
+# so both "cnpg" and "deployment" must opt in explicitly via their patches
+# rather than relying on an implicit default that no longer selects them.
+# The "deployment" branch uses the database-deployment component, which also
+# swaps the CNPG Cluster used for the framework's own metadata storage (not
+# the tenant/gateway ManagedDatabase) for a static Deployment.
 _db_overlay_extra=$'\ncomponents:\n  - ../components/database-deployment'
 if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
   _db_overlay_extra=$'\npatches:\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-api-server\n      namespace: hypershell-system\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-controller\n      namespace: hypershell-system'

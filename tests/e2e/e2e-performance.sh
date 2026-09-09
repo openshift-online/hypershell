@@ -45,7 +45,7 @@ if [[ "${E2E_PERF_CHECKPOINT}" != "1" ]]; then
   E2E_PERF_BATCH_SIZE="${E2E_PERF_GATEWAY_COUNT}"
 fi
 
-DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
 # --- Driver selection ---
