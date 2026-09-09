@@ -258,23 +258,30 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	var desiredPhase, desiredStatus string
 	switch {
 	case !ready:
-		// The Deployment has not been created yet; the provisioning path still
-		// owns this gateway. Leave its phase untouched.
 		if reason == "deployment not found" {
 			return
 		}
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), reason
+		if phase == string(gatewayhealth.PhaseProvisioning) {
+			since := h.markDeploymentNotReady(gatewayID)
+			if h.now().Sub(since) >= h.deploymentReadyTimeout {
+				h.clearDeploymentTimer(gatewayID)
+				desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), fmt.Sprintf("deployment not ready after %s: %s", h.deploymentReadyTimeout, reason)
+			} else {
+				desiredPhase, desiredStatus = string(gatewayhealth.PhaseProvisioning), reason
+			}
+		} else {
+			h.clearDeploymentTimer(gatewayID)
+			desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), reason
+		}
 	case h.exposure != nil && isRoutedGateway(gw):
-		// Deployment is Ready; a routed gateway additionally requires its external
-		// exposure to be observed Ready before it can be Running.
+		h.clearDeploymentTimer(gatewayID)
 		desiredPhase, desiredStatus = h.evaluateRouteReadiness(ctx, gatewayID, namespace, phase)
 		if desiredPhase == "" {
-			// Transient error observing the exposure; leave the phase untouched
-			// rather than flap the gateway.
 			return
 		}
 	default:
+		h.clearDeploymentTimer(gatewayID)
 		h.clearRouteTimer(gatewayID)
 		desiredPhase, desiredStatus = string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
 	}
