@@ -94,6 +94,9 @@ class RunStore:
     def has_artifact(self, run_id: str, name: str) -> bool:
         return self.artifact_path(run_id, name).exists()
 
+    def stream_path(self, run_id: str) -> Path:
+        return self._dir(run_id) / "stream.jsonl"
+
     def finish(self, rec: RunRecord, status: str) -> None:
         rec.status = status
         rec.finished_at = _now()

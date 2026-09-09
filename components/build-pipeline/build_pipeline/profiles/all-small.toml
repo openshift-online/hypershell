@@ -1,10 +1,12 @@
 name = "all-small"
 # Every non-tool-only step on the small/cheap Claude model (Vertex). Cost baseline.
+# Location pinned to us-east5.
 
 [tiers.small]
 provider = "anthropic-vertex"
 model = "claude-haiku-4-5@20251001"
 [tiers.small.params]
+location = "us-east5"
 temperature = 0
 price_in_per_m = 1.00
 price_out_per_m = 5.00
@@ -13,6 +15,7 @@ price_out_per_m = 5.00
 provider = "anthropic-vertex"
 model = "claude-haiku-4-5@20251001"
 [tiers.standard.params]
+location = "us-east5"
 temperature = 0
 price_in_per_m = 1.00
 price_out_per_m = 5.00
@@ -21,6 +24,7 @@ price_out_per_m = 5.00
 provider = "anthropic-vertex"
 model = "claude-haiku-4-5@20251001"
 [tiers.deep.params]
+location = "us-east5"
 temperature = 0
 price_in_per_m = 1.00
 price_out_per_m = 5.00

@@ -67,6 +67,71 @@ def build_chat_model(binding: ModelBinding | None):
     )
 
 
+def check_credentials(binding: ModelBinding) -> str | None:
+    """Return None if credentials for this binding appear present; an error
+    string if something is clearly missing. Makes no API calls."""
+    import os
+    from pathlib import Path
+
+    provider = binding.provider.lower()
+
+    def _adc_missing() -> bool:
+        adc = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+        return not adc.exists()
+
+    if provider in ("anthropic-vertex", "anthropic_vertex", "vertex-anthropic", "claude-vertex"):
+        project = (
+            binding.params.get("project")
+            or os.getenv("ANTHROPIC_VERTEX_PROJECT_ID")
+            or os.getenv("GOOGLE_CLOUD_PROJECT")
+        )
+        if not project:
+            return (
+                "anthropic-vertex requires a GCP project: set ANTHROPIC_VERTEX_PROJECT_ID "
+                "or GOOGLE_CLOUD_PROJECT, or add project=... to the profile tier params\n"
+                "  sandbox alternative: set ANTHROPIC_BASE_URL=https://inference.local "
+                "and use --profile sandbox"
+            )
+        key_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if key_file and not Path(key_file).exists():
+            return f"GOOGLE_APPLICATION_CREDENTIALS={key_file!r} does not exist"
+        if not key_file and _adc_missing():
+            return (
+                "no GCP credentials found: run 'gcloud auth application-default login' "
+                "or set GOOGLE_APPLICATION_CREDENTIALS\n"
+                "  sandbox alternative: set ANTHROPIC_BASE_URL=https://inference.local "
+                "and use --profile sandbox"
+            )
+        return None
+
+    if provider in ("vertex", "vertexai", "google-vertex", "google_vertexai"):
+        key_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if key_file and not Path(key_file).exists():
+            return f"GOOGLE_APPLICATION_CREDENTIALS={key_file!r} does not exist"
+        if not key_file and _adc_missing():
+            return (
+                "no GCP credentials found: run 'gcloud auth application-default login' "
+                "or set GOOGLE_APPLICATION_CREDENTIALS"
+            )
+        return None
+
+    if provider == "anthropic":
+        if not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("ANTHROPIC_BASE_URL"):
+            return (
+                "anthropic provider requires ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL; "
+                "for the HyperShell inference router: "
+                "export ANTHROPIC_BASE_URL=https://inference.local"
+            )
+        return None
+
+    if provider == "openai":
+        if not os.getenv("OPENAI_API_KEY"):
+            return "openai provider requires OPENAI_API_KEY"
+        return None
+
+    return None  # unknown provider: let it fail at call time
+
+
 def estimate_cost(binding: ModelBinding | None, input_tokens: int, output_tokens: int) -> float:
     """Estimate USD cost from token counts and per-million prices in params."""
     if binding is None:

@@ -127,6 +127,15 @@ help:
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
 	@echo ""
+	@echo "  Build Pipeline (agentic)"
+	@echo "    build-pipeline-install   Create venv and install build-pipeline (idempotent)"
+	@echo "    build-pipeline-list      List steps, classes, tiers, and gates"
+	@echo "    build-pipeline-profiles  List available profiles"
+	@echo "    build-pipeline-dry-run   Plan the full chain without calling any model (PROFILE=tiered)"
+	@echo "    build-pipeline-run       Run the pipeline (PROFILE=tiered MODE=supervised RUN_ARGS=...)"
+	@echo "    build-pipeline-runs      Show recorded runs and their status"
+	@echo "    build-pipeline-test      Run build-pipeline unit tests (no credentials needed)"
+	@echo ""
 	@echo "  Test & Lint"
 	@echo "    test-all                 Run all test suites"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
@@ -303,6 +312,43 @@ test-all: install-js
 	$(PNPM) --filter @openshift-online/hypershell-gateway-management-ui test:run
 	$(PNPM) --filter @openshift-online/hypershell-web-console test:run
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff test:run
+	$(MAKE) -C components/build-pipeline test
+
+# ============================================================================
+# Build pipeline (agentic) - delegates to components/build-pipeline/Makefile
+# ============================================================================
+
+PROFILE  ?= tiered
+MODE     ?= supervised
+RUN_ARGS ?=
+
+.PHONY: build-pipeline-install
+build-pipeline-install:
+	$(MAKE) -C components/build-pipeline install
+
+.PHONY: build-pipeline-list
+build-pipeline-list:
+	$(MAKE) -C components/build-pipeline list
+
+.PHONY: build-pipeline-profiles
+build-pipeline-profiles:
+	$(MAKE) -C components/build-pipeline profiles
+
+.PHONY: build-pipeline-dry-run
+build-pipeline-dry-run:
+	$(MAKE) -C components/build-pipeline dry-run PROFILE=$(PROFILE)
+
+.PHONY: build-pipeline-run
+build-pipeline-run:
+	$(MAKE) -C components/build-pipeline run PROFILE=$(PROFILE) MODE=$(MODE) RUN_ARGS="$(RUN_ARGS)"
+
+.PHONY: build-pipeline-runs
+build-pipeline-runs:
+	$(MAKE) -C components/build-pipeline runs
+
+.PHONY: build-pipeline-test
+build-pipeline-test:
+	$(MAKE) -C components/build-pipeline test
 
 # ============================================================================
 # Kind cluster lifecycle - shell logic lives in scripts/kind/

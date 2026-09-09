@@ -70,6 +70,7 @@ class Engine:
 
         for step in steps:
             if step.id in done_ids:
+                print(f"  skip     [{step.wave}] {step.id} (already completed)", flush=True)
                 continue  # resume: skip already-completed work (AB-07)
 
             res = self._run_one(step, available)
@@ -119,12 +120,16 @@ class Engine:
         # once approved it completes without invoking an LLM (AB-09).
         if step.human:
             if cfg.mode == "supervised" and not cfg.approve_human:
+                print(f"\n  HUMAN    [{step.wave}] {step.id} -- approval required", flush=True)
+                print("           re-run with --approve-human to continue past this checkpoint", flush=True)
                 res.status = "awaiting-human"
                 res.error = "human approval required; re-run with --approve-human or --mode autonomous"
                 return res
+            print(f"\n  approved [{step.wave}] {step.id}", flush=True)
             res.status = "completed"
             return res
 
+        print(f"\n  running  [{step.wave}] {step.id}  ({step.step_class.value})", flush=True)
         return self._attempt_loop(step, binding, res)
 
     def _attempt_loop(self, step: StepSpec, binding: ModelBinding | None, res: StepResult) -> StepResult:
@@ -142,22 +147,29 @@ class Engine:
                         res.escalated = True
                         res.tier = tier.value
                         res.model = binding.label()
+                print(f"  retry    [{step.wave}] {step.id} attempt {attempt}/{cfg.max_attempts}"
+                      + (f" -> escalated to {binding.label()}" if res.escalated else ""), flush=True)
 
             work_err = self._do_work(step, binding, res)
             if work_err:
+                print(f"  error    [{step.wave}] {step.id}: {work_err[:120]}", flush=True)
                 res.error = work_err
                 continue
 
+            if step.gates:
+                print(f"  gate     [{step.wave}] {step.id} running {len(step.gates)} gate(s)...", flush=True)
             ok, results = gate_runner.run_gates(step.gates, cfg.repo_root, cfg.gate_timeout)
             res.gates = results
             res.gate_passed = ok
             if ok:
+                print(f"  ok       [{step.wave}] {step.id}", flush=True)
                 res.status = "completed"
                 res.error = ""
                 return res
             res.error = "gate failed: " + "; ".join(
                 f"{g.name}(exit={g.exit_code})" for g in results if not g.passed
             )
+            print(f"  FAIL     [{step.wave}] {step.id} gate: {res.error[:120]}", flush=True)
 
         res.status = "failed"  # exhausted retries/escalation (AB-10) -> surface to human
         return res
@@ -185,8 +197,14 @@ class Engine:
         if model is None:
             return "no model resolved for a non-tool-only step"
 
+        model_label = binding.label() if binding else "?"
+        stream_path = cfg.store.stream_path(self._active_run_id)
+        print(f"  invoke   [{step.wave}] {step.id} model={model_label}", flush=True)
         start = time.monotonic()
-        outcome = steps.run_llm_step(step, model, tools.build_tools(cfg.repo_root), cfg.repo_root)
+        outcome = steps.run_llm_step(
+            step, model, tools.build_tools(cfg.repo_root), cfg.repo_root,
+            stream_path=stream_path, model_label=model_label,
+        )
         res.duration_s += round(time.monotonic() - start, 3)
         res.prompt_tokens += outcome.input_tokens
         res.completion_tokens += outcome.output_tokens

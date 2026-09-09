@@ -1,0 +1,35 @@
+name = "sandbox"
+# HyperShell inference router (inference.local). All tiers use Sonnet via the
+# router, which injects Vertex credentials server-side -- no key needed locally.
+#
+# Required:
+#   export ANTHROPIC_BASE_URL=https://inference.local
+#
+# Install the anthropic extra if not already:
+#   pip install -e ".[anthropic]"   (or: make build-pipeline-install)
+
+[tiers.small]
+provider = "anthropic"
+model = "claude-sonnet-4-5"
+[tiers.small.params]
+temperature = 0
+price_in_per_m = 3.00
+price_out_per_m = 15.00
+
+[tiers.standard]
+provider = "anthropic"
+model = "claude-sonnet-4-5"
+[tiers.standard.params]
+temperature = 0
+price_in_per_m = 3.00
+price_out_per_m = 15.00
+
+[tiers.deep]
+provider = "anthropic"
+model = "claude-sonnet-4-5"
+[tiers.deep.params]
+temperature = 0
+price_in_per_m = 3.00
+price_out_per_m = 15.00
+
+[overrides]

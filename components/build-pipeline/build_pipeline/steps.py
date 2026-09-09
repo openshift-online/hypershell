@@ -7,10 +7,20 @@ path (tool-only steps, dry-run, gates) never imports it.
 
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .types import StepSpec
+
+
+def _append_stream(stream_path: Path | None, record: dict) -> None:
+    if stream_path is None:
+        return
+    with stream_path.open("a") as f:
+        f.write(json.dumps(record) + "\n")
 
 
 @dataclass
@@ -59,6 +69,8 @@ def run_llm_step(
     repo_root: Path,
     context: str = "",
     max_iters: int = 16,
+    stream_path: Path | None = None,
+    model_label: str = "",
 ) -> LLMOutcome:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
@@ -67,24 +79,52 @@ def run_llm_step(
     messages = [SystemMessage(_system_prompt(step)), HumanMessage(_task_prompt(step, repo_root, context))]
 
     out = LLMOutcome()
-    for _ in range(max_iters):
+    for turn in range(max_iters):
+        print(f"    turn {turn + 1}/{max_iters} ...", end=" ", flush=True)
+        turn_start = time.monotonic()
+        turn_in = turn_out = 0
+
         try:
             ai = llm.invoke(messages)
         except Exception as exc:
-            # Turn an API/transport error (auth, model-not-found, rate limit,
-            # timeout) into a recorded step failure so the engine reports and
-            # retries/escalates it instead of crashing the run with a traceback.
+            print(f"API error: {type(exc).__name__}", flush=True)
+            _append_stream(stream_path, {
+                "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                "step": step.id, "step_class": step.step_class.value,
+                "model": model_label, "turn": turn + 1,
+                "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                "latency_ms": round((time.monotonic() - turn_start) * 1000),
+            })
             out.error = f"model call failed: {type(exc).__name__}: {str(exc)[:500]}"
             return out
+
         usage = getattr(ai, "usage_metadata", None) or {}
-        out.input_tokens += int(usage.get("input_tokens", 0) or 0)
-        out.output_tokens += int(usage.get("output_tokens", 0) or 0)
+        turn_in = int(usage.get("input_tokens", 0) or 0)
+        turn_out = int(usage.get("output_tokens", 0) or 0)
+        out.input_tokens += turn_in
+        out.output_tokens += turn_out
         messages.append(ai)
 
         calls = getattr(ai, "tool_calls", None) or []
+        tool_names = [c["name"] for c in calls]
+        latency_ms = round((time.monotonic() - turn_start) * 1000)
+
+        _append_stream(stream_path, {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "step": step.id, "step_class": step.step_class.value,
+            "model": model_label, "turn": turn + 1,
+            "tokens": {"in": turn_in, "out": turn_out},
+            "latency_ms": latency_ms,
+            "tools": tool_names,
+            "done": not calls,
+        })
+
         if not calls:
+            print("done", flush=True)
             out.final_text = ai.content if isinstance(ai.content, str) else str(ai.content)
             return out
+
+        print(f"{len(calls)} tool call(s): {', '.join(tool_names)}", flush=True)
         for call in calls:
             out.tool_calls += 1
             fn = tool_by_name.get(call["name"])

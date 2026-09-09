@@ -1,26 +1,31 @@
 name = "all-deep"
-# Every non-tool-only step on the deep Claude model (Vertex). Quality/cost ceiling.
+# Every non-tool-only step on the deepest available Claude model (Vertex).
+# claude-opus-4-6 is the highest-tier model with confirmed OK quota in
+# project hypershell-976970 / us-east5.
 
 [tiers.small]
 provider = "anthropic-vertex"
-model = "claude-opus-4-1@20250805"
+model = "claude-opus-4-6"
 [tiers.small.params]
+location = "us-east5"
 temperature = 0
 price_in_per_m = 15.00
 price_out_per_m = 75.00
 
 [tiers.standard]
 provider = "anthropic-vertex"
-model = "claude-opus-4-1@20250805"
+model = "claude-opus-4-6"
 [tiers.standard.params]
+location = "us-east5"
 temperature = 0
 price_in_per_m = 15.00
 price_out_per_m = 75.00
 
 [tiers.deep]
 provider = "anthropic-vertex"
-model = "claude-opus-4-1@20250805"
+model = "claude-opus-4-6"
 [tiers.deep.params]
+location = "us-east5"
 temperature = 0
 price_in_per_m = 15.00
 price_out_per_m = 75.00

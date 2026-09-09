@@ -114,10 +114,53 @@ def _report(rec) -> None:
           f"time={s['duration_s']}s escalations={s['escalations']}")
 
 
+def _check_credentials(steps, profile) -> bool:
+    """Validate credentials for every unique provider in the selected steps.
+    Prints errors and returns False if anything is missing; True if all clear."""
+    from . import models as _models
+    checked: dict[str, str | None] = {}
+    errors: list[str] = []
+    for step in steps:
+        b = profile.resolve(step)
+        if b is None or b.provider in checked:
+            continue
+        err = _models.check_credentials(b)
+        checked[b.provider] = err
+        if err:
+            errors.append(f"  [{b.provider}:{b.model}]\n    {err.replace(chr(10), chr(10) + '    ')}")
+    if errors:
+        print("credential check failed -- fix before running:", file=sys.stderr)
+        for e in errors:
+            print(e, file=sys.stderr)
+        return False
+    return True
+
+
+def cmd_validate(args) -> int:
+    from . import models as _models
+    profile = load_profile(args.profile)
+    steps = graph.topo_order()
+    checked: set[str] = set()
+    ok = True
+    for step in steps:
+        b = profile.resolve(step)
+        if b is None or b.provider in checked:
+            continue
+        checked.add(b.provider)
+        err = _models.check_credentials(b)
+        status = "ok" if err is None else f"MISSING -- {err}"
+        print(f"  {b.provider:<22} {b.model:<40} {status}")
+        if err:
+            ok = False
+    return 0 if ok else 1
+
+
 def cmd_run(args) -> int:
     repo_root = _repo_root(args.repo_root)
-    engine, store, _ = _build_engine(args, repo_root)
+    engine, store, profile = _build_engine(args, repo_root)
     steps = graph.select(from_=getattr(args, "from"), to=args.to, only=args.only)
+    if not args.dry_run and not _check_credentials(steps, profile):
+        return 1
     rec = store.new_run(load_profile(args.profile).name, args.mode, _git_head(repo_root))
     rec = engine.run(steps, rec, supplied=set(args.supply or []))
     _report(rec)
@@ -220,6 +263,10 @@ def build_parser() -> argparse.ArgumentParser:
     cd = sub.add_parser("check-drift", help="flag skill/graph divergence (heuristic)")
     cd.add_argument("--repo-root", default=None)
     cd.set_defaults(func=cmd_check_drift)
+
+    va = sub.add_parser("validate", help="check that credentials for a profile are present (no API calls)")
+    va.add_argument("--profile", default="tiered")
+    va.set_defaults(func=cmd_validate)
 
     return ap
 
