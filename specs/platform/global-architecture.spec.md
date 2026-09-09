@@ -1249,3 +1249,36 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Terraform for provisioning | IaC for VPC, subnet, and cluster lifecycle; cloud-agnostic |
 | Gateway OIDC clients on ManagedCluster | openshell CLI authenticates against Keycloak where the gateway runs (low latency) |
 | Shared Ingress Gateway for Tenant gRPC | A wildcard DNS record (`*.domain`) can only resolve to a single Load Balancer. A per-tenant gateway model (1 LB per tenant) fundamentally breaks wildcard routing, requiring per-tenant DNS automation and cert management. A shared Gateway allows N tenants to securely share 1 LB, 1 wildcard cert, and 1 static DNS record via `GRPCRoute` attachments. |
+
+### Requirement: Operator-selected gateway server issuer
+
+The control plane SHALL accept `GATEWAY_SERVER_TLS_CLUSTER_ISSUER`. An empty value
+SHALL keep the existing per-gateway server issuer. A configured value SHALL select
+that cert-manager `ClusterIssuer` for the `openshell-server` Certificate. The server
+certificate SHALL retain its service DNS names and the derived or explicit route
+hostname. The selected issuer MUST provide the server CA in `openshell-server-tls`
+as `ca.crt`.
+
+The per-gateway CA, client Certificate, and client authentication configuration
+SHALL remain unchanged. With a server ClusterIssuer configured, the control plane
+SHALL create `openshell-sandbox-tls` for the sandbox driver's single TLS payload.
+That Secret SHALL contain only the server's public CA and the existing client
+certificate and key. It SHALL NOT contain the server private key. It SHALL have
+an owner reference to the source client Secret. Provisioning and health checks
+SHALL reconcile source changes and report incomplete material as an error. Existing
+cert-manager Secrets SHALL NOT be modified by this payload reconciliation.
+
+#### Scenario: Shared server trust with separate client credentials
+
+- GIVEN a server ClusterIssuer is configured
+- WHEN the gateway certificates are issued
+- THEN the sandbox payload trusts the selected server CA
+- AND it retains the per-gateway client certificate and key
+- AND the gateway client authentication CA does not change
+
+#### Scenario: TLS source material changes
+
+- GIVEN a gateway uses the separate sandbox TLS payload
+- WHEN the server CA or client certificate material changes
+- THEN the next health reconciliation updates the payload
+- AND unchanged source material does not cause a Secret update

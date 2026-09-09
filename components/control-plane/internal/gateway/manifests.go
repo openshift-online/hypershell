@@ -117,7 +117,7 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, tenantNamespace ...string) error {
 	kind := obj.GetKind()
 
-	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && (len(config.ServerDnsNames) > 0 || config.CredentialDriver != nil) {
+	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && (len(config.ServerDnsNames) > 0 || config.CredentialDriver != nil || serverTLSClusterIssuer() != "") {
 		data, found, err := unstructured.NestedMap(obj.Object, "data")
 		if err != nil || !found {
 			return fmt.Errorf("configmap data not found")
@@ -137,9 +137,12 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, 
 		}
 		serverSans += "]"
 
+		if serverTLSClusterIssuer() != "" {
+			toml = strings.ReplaceAll(toml, `client_tls_secret_name = "openshell-client-tls"`, `client_tls_secret_name = "openshell-sandbox-tls"`)
+		}
 		lines := strings.Split(toml, "\n")
 		for i, line := range lines {
-			if strings.Contains(line, "server_sans =") {
+			if len(config.ServerDnsNames) > 0 && strings.Contains(line, "server_sans =") {
 				lines[i] = fmt.Sprintf("    server_sans = %s", serverSans)
 				break
 			}

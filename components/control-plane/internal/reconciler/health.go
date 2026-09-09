@@ -233,6 +233,10 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		return
 	}
+	trustErr := gateway.ReconcileSandboxTLS(ctx, h.clientset, namespace)
+	if trustErr != nil {
+		log.Printf("WARN gateway %s sandbox trust reconciliation failed: %v", gatewayID, trustErr)
+	}
 	ready, reason, err := gateway.DeploymentReadiness(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
@@ -241,6 +245,8 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 
 	var desiredPhase, desiredStatus string
 	switch {
+	case trustErr != nil:
+		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), "sandbox server trust is not ready"
 	case !ready:
 		// The Deployment has not been created yet; the provisioning path still
 		// owns this gateway. Leave its phase untouched.

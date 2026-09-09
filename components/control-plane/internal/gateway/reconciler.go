@@ -67,7 +67,7 @@ func ReconcileGateway(
 
 	// When an ingress mode is active the gateway is reachable at an external
 	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
-	// gateway pod terminates TLS with its own per-tenant CA, and both ingress
+	// gateway pod terminates TLS with its configured server certificate, and both ingress
 	// modes carry that TLS through unmodified (Route passthrough / Gateway API
 	// BackendTLSPolicy), so the server certificate must list the external
 	// hostname as a SAN or clients fail verification. The controller derives
@@ -107,6 +107,10 @@ func ReconcileGateway(
 		}
 	} else {
 		return fmt.Errorf("cert-manager is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
+	}
+
+	if err := ReconcileSandboxTLS(ctx, clientset, nsConfig.Name); err != nil {
+		return fmt.Errorf("reconcile sandbox server trust: %w", err)
 	}
 
 	if opts.Keycloak != nil {
@@ -500,7 +504,7 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 }
 
 // readServerTLSCA returns the PEM-encoded ca.crt from the per-namespace
-// openshell-server-tls secret (issued by the openshell-ca-issuer alongside the
+// openshell-server-tls secret (issued by the selected server issuer alongside the
 // gateway server certificate). It returns an empty string when the secret or the
 // ca.crt key is absent; callers that require the CA (Gateway API BackendTLSPolicy,
 // reencrypt Route) treat empty as "not yet available" and retry.
@@ -2120,6 +2124,10 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 		dnsNamesInterface[i] = d
 	}
 
+	serverIssuerName, serverIssuerKind := "openshell-ca-issuer", "Issuer"
+	if issuer := serverTLSClusterIssuer(); issuer != "" {
+		serverIssuerName, serverIssuerKind = issuer, "ClusterIssuer"
+	}
 	serverCert := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "cert-manager.io/v1",
@@ -2138,8 +2146,8 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 				"secretName": "openshell-server-tls",
 				"dnsNames":   dnsNamesInterface,
 				"issuerRef": map[string]interface{}{
-					"name":  "openshell-ca-issuer",
-					"kind":  "Issuer",
+					"name":  serverIssuerName,
+					"kind":  serverIssuerKind,
 					"group": "cert-manager.io",
 				},
 			},
@@ -2154,8 +2162,10 @@ func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.In
 	// verify the gateway's TLS server cert: openshell 0.0.109's Kubernetes driver
 	// mounts this secret into every sandbox and sets OPENSHELL_TLS_CA from its
 	// ca.crt whenever gateway.toml sets client_tls_secret_name. Because it is
-	// issued by the same openshell-ca-issuer as the server cert, its ca.crt
-	// chains to the gateway's server certificate. Without it the sandbox agent
+	// issued by openshell-ca-issuer, its ca.crt trusts the default server issuer.
+	// A configured server ClusterIssuer uses a separate sandbox payload with
+	// that server CA and this unchanged client certificate and key.
+	// Without a server trust payload the sandbox agent
 	// crashloops ("OPENSHELL_TLS_CA is required") and never reaches Ready.
 	clientCert := &unstructured.Unstructured{
 		Object: map[string]interface{}{
