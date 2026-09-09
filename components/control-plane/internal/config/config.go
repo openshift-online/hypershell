@@ -83,6 +83,9 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	if _, _, err := WorkspaceStorage(); err != nil {
+		return nil, err
+	}
 	for _, name := range []string{"DATABASE_MEMORY_REQUEST", "GATEWAY_MEMORY_REQUEST"} {
 		if _, err := MemoryRequest(name); err != nil {
 			return nil, err

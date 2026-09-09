@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	runtimeconfig "github.com/openshift-online/hypershell/components/control-plane/internal/config"
+
 	"log"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -117,7 +119,14 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace str
 func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, tenantNamespace ...string) error {
 	kind := obj.GetKind()
 
-	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" && (len(config.ServerDnsNames) > 0 || config.CredentialDriver != nil || serverTLSClusterIssuer() != "") {
+	if kind == "ConfigMap" && obj.GetName() == "openshell-gateway-config" {
+		storageClass, storageSize, err := runtimeconfig.WorkspaceStorage()
+		if err != nil {
+			return err
+		}
+		if len(config.ServerDnsNames) == 0 && config.CredentialDriver == nil && serverTLSClusterIssuer() == "" && config.OIDC.Issuer == "" && storageClass == "" && storageSize == "" {
+			return nil
+		}
 		data, found, err := unstructured.NestedMap(obj.Object, "data")
 		if err != nil || !found {
 			return fmt.Errorf("configmap data not found")
@@ -141,6 +150,25 @@ func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, 
 			toml = strings.ReplaceAll(toml, `client_tls_secret_name = "openshell-client-tls"`, `client_tls_secret_name = "openshell-sandbox-tls"`)
 		}
 		lines := strings.Split(toml, "\n")
+		if storageClass != "" || storageSize != "" {
+			found := false
+			for i, line := range lines {
+				if strings.TrimSpace(line) != "[openshell.drivers.kubernetes]" {
+					continue
+				}
+				found = true
+				if storageClass != "" {
+					lines[i] += fmt.Sprintf("\n    workspace_storage_class = \"%s\"", tomlEscapeString(storageClass))
+				}
+				if storageSize != "" {
+					lines[i] += fmt.Sprintf("\n    workspace_default_storage_size = \"%s\"", tomlEscapeString(storageSize))
+				}
+				break
+			}
+			if !found {
+				return fmt.Errorf("gateway.toml has no Kubernetes driver table for workspace storage configuration")
+			}
+		}
 		for i, line := range lines {
 			if len(config.ServerDnsNames) > 0 && strings.Contains(line, "server_sans =") {
 				lines[i] = fmt.Sprintf("    server_sans = %s", serverSans)
