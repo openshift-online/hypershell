@@ -19,6 +19,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
@@ -652,6 +653,10 @@ func (r *ManagedDatabaseReconciler) deploymentDatabasePVC(namespace string) *uns
 }
 
 func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Context, db *pb.ManagedDatabase) error {
+	memoryRequest, err := config.MemoryRequest("DATABASE_MEMORY_REQUEST")
+	if err != nil {
+		return err
+	}
 	namespace := db.Namespace
 
 	if err := r.reconcileDeploymentDatabaseNamespace(ctx, namespace); err != nil {
@@ -835,7 +840,7 @@ func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Cont
 								"resources": map[string]interface{}{
 									"requests": map[string]interface{}{
 										"cpu":    "100m",
-										"memory": "256Mi",
+										"memory": memoryRequest,
 									},
 									"limits": map[string]interface{}{
 										"cpu":    "500m",

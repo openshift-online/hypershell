@@ -217,6 +217,7 @@ func TestDeploymentPostgresConfigForImage(t *testing.T) {
 }
 
 func TestReconcileDeploymentDatabaseUsesOpenShellImageAndPostgresSecurityContext(t *testing.T) {
+	t.Setenv("DATABASE_MEMORY_REQUEST", "128Mi")
 	const namespace = "database-ns"
 	t.Setenv("OPENSHELL_DATABASE_IMAGE", "registry.example/postgres:test")
 	t.Setenv("HYPERSHELL_DATABASE_IMAGE", "registry.example/wrong:image")
@@ -235,6 +236,12 @@ func TestReconcileDeploymentDatabaseUsesOpenShellImageAndPostgresSecurityContext
 		context.Background(), "openshell-gateway-db", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get reconciled Deployment: %v", err)
+	}
+
+	requestContainers, _, _ := unstructured.NestedSlice(deployment.Object, "spec", "template", "spec", "containers")
+	request, _, _ := unstructured.NestedString(requestContainers[0].(map[string]interface{}), "resources", "requests", "memory")
+	if request != "128Mi" {
+		t.Fatalf("database memory request = %s", request)
 	}
 	containers, found, err := unstructured.NestedSlice(deployment.Object, "spec", "template", "spec", "containers")
 	if err != nil || !found || len(containers) != 1 {

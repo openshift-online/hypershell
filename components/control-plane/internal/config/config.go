@@ -83,6 +83,11 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	for _, name := range []string{"DATABASE_MEMORY_REQUEST", "GATEWAY_MEMORY_REQUEST"} {
+		if _, err := MemoryRequest(name); err != nil {
+			return nil, err
+		}
+	}
 	databaseProvider, err := resolveDatabaseProvider(os.Getenv("DATABASE_PROVIDER"))
 	if err != nil {
 		return nil, err

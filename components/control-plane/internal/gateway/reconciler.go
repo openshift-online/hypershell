@@ -787,6 +787,9 @@ func deployGateway(
 			}
 
 			if obj.GetKind() == "Deployment" {
+				if err := applyMemoryRequest(obj); err != nil {
+					return err
+				}
 				applyConfigHashAnnotation(ctx, clientset, obj, nsConfig.Name)
 			}
 
