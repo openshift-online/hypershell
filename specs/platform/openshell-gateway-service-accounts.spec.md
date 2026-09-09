@@ -730,7 +730,7 @@ Gateway deletion SHALL revoke every related OpenShellGatewayServiceAccount. It S
 
 Deleting only the gateway client is not sufficient. An issued access token already contains its audience. The gateway does not check whether that audience client still exists.
 
-Service-account client attributes SHALL contain HyperShell resource IDs. Reconciliation SHALL use these IDs to find service-account clients without an OpenShellGatewayServiceAccount or Gateway. It SHALL disable and remove each orphan service-account client.
+Service-account client attributes SHALL contain HyperShell resource IDs. Reconciliation SHALL use these IDs to find orphan service-account clients. Before removal, the local database SHALL contain the referenced OpenShellGatewayServiceAccount or Gateway. A missing local account and gateway SHALL NOT establish ownership: another deployment can use the same Keycloak realm. Reconciliation SHALL leave such clients unchanged. A failed ownership lookup SHALL report an error and SHALL NOT permit deletion. Gateway deletion SHALL remove its clients before removing the local ownership records.
 
 Repeated cleanup SHALL be safe and produce the same Keycloak state. Cleanup SHALL never log a client secret.
 
