@@ -89,18 +89,37 @@ kube() {
 # The web console's hot-reload mode (KIND_HOT_RELOAD=true, the default) has no
 # image of its own -- it redirects the Service to a host-run dev server -- so
 # it is tracked with the sentinel image "hot-reload".
+#
+# Readers also accept a leftover pre-tab line that is just the component name
+# (`^component$`). Those entries cannot restore an image (none was recorded);
+# kind-up warns and leaves the marker so status still reports the component as
+# swapped until the next `swap-component` rewrite.
 
 SWAP_FILE=".kind-swaps"
+
+# _swap_ledger_has / _swap_ledger_delete - match both the current
+# "component<TAB>image" lines and a pre-tab leftover that is only the name.
+_swap_ledger_has() {
+  local component="$1"
+  [[ -f "${SWAP_FILE}" ]] || return 1
+  grep -q "^${component}[[:space:]]" "${SWAP_FILE}" 2>/dev/null \
+    || grep -q "^${component}$" "${SWAP_FILE}" 2>/dev/null
+}
+
+_swap_ledger_delete() {
+  local component="$1"
+  local tmp
+  tmp="$(mktemp)"
+  sed "/^${component}[[:space:]]/d; /^${component}$/d" "${SWAP_FILE}" > "${tmp}"
+  mv "${tmp}" "${SWAP_FILE}"
+}
 
 track_swap() {
   local component="$1"
   local image="$2"
   touch "${SWAP_FILE}"
-  if grep -q "^${component}[[:space:]]" "${SWAP_FILE}" 2>/dev/null; then
-    local tmp
-    tmp="$(mktemp)"
-    sed "/^${component}[[:space:]]/d" "${SWAP_FILE}" > "${tmp}"
-    mv "${tmp}" "${SWAP_FILE}"
+  if _swap_ledger_has "${component}"; then
+    _swap_ledger_delete "${component}"
   fi
   printf '%s\t%s\n' "${component}" "${image}" >> "${SWAP_FILE}"
 }
@@ -108,17 +127,14 @@ track_swap() {
 clear_swap() {
   local component="$1"
   if [[ -f "${SWAP_FILE}" ]]; then
-    local tmp
-    tmp="$(mktemp)"
-    sed "/^${component}[[:space:]]/d" "${SWAP_FILE}" > "${tmp}"
-    mv "${tmp}" "${SWAP_FILE}"
+    _swap_ledger_delete "${component}"
     [[ -s "${SWAP_FILE}" ]] || rm -f "${SWAP_FILE}"
   fi
 }
 
 is_swapped() {
   local component="$1"
-  [[ -f "${SWAP_FILE}" ]] && grep -q "^${component}[[:space:]]" "${SWAP_FILE}" 2>/dev/null
+  _swap_ledger_has "${component}"
 }
 
 swap_image() {
@@ -161,8 +177,7 @@ restore_swaps_after_reconcile() {
     is_swapped "${component}" || continue
     image="$(swap_image "${component}")"
     if [[ -z "${image}" ]]; then
-      warn "Swap state for ${component} is empty; clearing stale entry"
-      clear_swap "${component}"
+      warn "Swap ledger for ${component} has no image (pre-tab .kind-swaps format). Re-run the ${component} swap to record the working-tree image; this kind-up cannot restore it."
       continue
     fi
     if [[ "${component}" == "web-console" && "${image}" == "hot-reload" ]]; then
