@@ -126,6 +126,9 @@ func ReconcileGateway(
 	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, images, opts, hasTrustedCA); err != nil {
 		return fmt.Errorf("deploy gateway in %s: %w", nsConfig.Name, err)
 	}
+	if err := ReconcileSandboxImagePullRoles(ctx, clientset, nsConfig.Name, opts.ControlPlaneNamespace, opts.GatewayID); err != nil {
+		return fmt.Errorf("reconcile sandbox image pull access: %w", err)
+	}
 
 	if opts.IsOpenShift {
 		if err := reconcileOpenShiftSCC(ctx, dynamicClient, nsConfig.Name); err != nil {
@@ -198,6 +201,9 @@ func DeleteGatewayResources(
 	credentialNamespaces ...string,
 ) error {
 	var errs []error
+	if err := DeleteSandboxImagePullRoles(ctx, clientset, namespace, opts.ControlPlaneNamespace, opts.GatewayID); err != nil {
+		errs = append(errs, err)
+	}
 	crbGVR := schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}
 	if err := deleteResourceAndVerify(ctx, dynamicClient.Resource(crbGVR), "openshell-gateway-node-reader-"+namespace); err != nil {
 		errs = append(errs, err)

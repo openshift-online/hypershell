@@ -46,9 +46,10 @@ const routeVerifyInterval = 5 * time.Minute
 // moved to Degraded, and a Degraded gateway whose workload and exposure recover
 // is moved back to Running. See openshell-gateway-health.spec.md.
 type GatewayHealthReconciler struct {
-	clientset     *kubernetes.Clientset
-	dynamicClient dynamic.Interface
-	grpcConn      *grpc.ClientConn
+	controlPlaneNamespace string
+	clientset             *kubernetes.Clientset
+	dynamicClient         dynamic.Interface
+	grpcConn              *grpc.ClientConn
 	// clusterID scopes the health sweep to this managed cluster's gateways. When
 	// non-empty the fleet list is filtered server-side so a spoke never stamps
 	// (Degraded/Running) a gateway owned by another cluster. Empty sweeps all.
@@ -100,7 +101,11 @@ type GatewayHealthReconciler struct {
 	routeVerifiedAt    map[string]time.Time
 }
 
-func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID string) *GatewayHealthReconciler {
+func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID string, controlPlaneNamespace ...string) *GatewayHealthReconciler {
+	instance := ""
+	if len(controlPlaneNamespace) > 0 {
+		instance = controlPlaneNamespace[0]
+	}
 	// Build one long-lived Keycloak client for residual-absence checks so its
 	// token cache survives across ticks (see consoleClientChecker).
 	var consoleClientChecker gateway.ConsoleClientChecker
@@ -118,23 +123,24 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
 	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 	return &GatewayHealthReconciler{
-		clientset:            clientset,
-		dynamicClient:        dynamicClient,
-		grpcConn:             grpcConn,
-		clusterID:            clusterID,
-		interval:             defaultHealthInterval,
-		exposure:             exposurePort,
-		routeReadyTimeout:    routeReadyTimeout(),
-		keycloakConfig:       keycloakConfig,
-		consoleClientChecker: consoleClientChecker,
-		isOpenShift:          isOpenShift,
-		hasGatewayAPI:        hasGatewayAPI,
-		ingressMode:          ingressMode,
-		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
-		now:                  time.Now,
-		routeNotReadySince:   make(map[string]time.Time),
-		routeTornDown:        make(map[string]bool),
-		routeVerifiedAt:      make(map[string]time.Time),
+		controlPlaneNamespace: instance,
+		clientset:             clientset,
+		dynamicClient:         dynamicClient,
+		grpcConn:              grpcConn,
+		clusterID:             clusterID,
+		interval:              defaultHealthInterval,
+		exposure:              exposurePort,
+		routeReadyTimeout:     routeReadyTimeout(),
+		keycloakConfig:        keycloakConfig,
+		consoleClientChecker:  consoleClientChecker,
+		isOpenShift:           isOpenShift,
+		hasGatewayAPI:         hasGatewayAPI,
+		ingressMode:           ingressMode,
+		skipNetworkPolicies:   os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
+		now:                   time.Now,
+		routeNotReadySince:    make(map[string]time.Time),
+		routeTornDown:         make(map[string]bool),
+		routeVerifiedAt:       make(map[string]time.Time),
 	}
 }
 
@@ -237,6 +243,10 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	if trustErr != nil {
 		log.Printf("WARN gateway %s sandbox trust reconciliation failed: %v", gatewayID, trustErr)
 	}
+	imagePullErr := gateway.ReconcileSandboxImagePullRoles(ctx, h.clientset, namespace, h.controlPlaneNamespace, gatewayID)
+	if imagePullErr != nil {
+		log.Printf("WARN gateway %s sandbox image pull access reconciliation failed: %v", gatewayID, imagePullErr)
+	}
 	ready, reason, err := gateway.DeploymentReadiness(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
@@ -245,6 +255,8 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 
 	var desiredPhase, desiredStatus string
 	switch {
+	case imagePullErr != nil:
+		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), "sandbox image pull access is not ready"
 	case trustErr != nil:
 		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), "sandbox server trust is not ready"
 	case !ready:

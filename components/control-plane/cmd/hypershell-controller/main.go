@@ -303,7 +303,7 @@ func main() {
 	// status synchronized with observed workload health (Running <-> Degraded).
 	// It requires an in-cluster Kubernetes client to observe Deployments.
 	if clientset != nil {
-		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, cfg.ClusterID)
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, cfg.ClusterID, cfg.Namespace)
 		supervise("gateway health reconciler", healthReconciler.Run)
 		log.Printf("INFO gateway health reconciler launched")
 	} else {

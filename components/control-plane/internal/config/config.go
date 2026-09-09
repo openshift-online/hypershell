@@ -83,6 +83,9 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	if _, err := SandboxImagePullRoles(); err != nil {
+		return nil, err
+	}
 	if _, _, err := WorkspaceStorage(); err != nil {
 		return nil, err
 	}
