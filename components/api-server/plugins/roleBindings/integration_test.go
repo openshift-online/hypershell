@@ -452,19 +452,18 @@ func TestSyncJWTRoles_DefaultRoleNotRemovedWhenAbsentFromJWT(t *testing.T) {
 	Expect(found).To(BeTrue(), "gateway:creator binding must survive a sync with an empty JWT")
 }
 
-// TestSyncJWTRoles_JWTRolesPreventDefaultAssignment verifies that a user whose JWT
-// carries realm roles (even non-creator ones) does NOT receive the default
-// gateway:creator binding. Only zero-role JWTs trigger the default bootstrap.
-func TestSyncJWTRoles_JWTRolesPreventDefaultAssignment(t *testing.T) {
+// TestSyncJWTRoles_DefaultAndJWTRolesBothApplied verifies that a JWT-carried role
+// (platform:admin) is synced in addition to the default gateway:creator.
+// Default roles are always applied regardless of what the JWT carries.
+func TestSyncJWTRoles_DefaultAndJWTRolesBothApplied(t *testing.T) {
 	test.RegisterIntegration(t)
 
 	rbService := roleBindings.Service(&environments.Environment().Services)
 	userService := users.Service(&environments.Environment().Services)
 
-	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-jwt-no-default", nil, nil)
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-and-jwt", nil, nil)
 	Expect(userErr).NotTo(HaveOccurred())
 
-	// User has platform:admin in their JWT — they have realm roles, so defaults must not apply.
 	syncErr := rbService.SyncJWTRoles(context.Background(), userID, []string{roles.RolePlatformAdmin})
 	Expect(syncErr).NotTo(HaveOccurred())
 
@@ -478,5 +477,5 @@ func TestSyncJWTRoles_JWTRolesPreventDefaultAssignment(t *testing.T) {
 		}
 	}
 	Expect(roleNames[roles.RolePlatformAdmin]).To(BeTrue(), "expected JWT-carried platform:admin binding")
-	Expect(roleNames[roles.RoleGatewayCreator]).To(BeFalse(), "default gateway:creator must not be assigned when JWT carries realm roles")
+	Expect(roleNames[roles.RoleGatewayCreator]).To(BeTrue(), "expected default gateway:creator binding alongside JWT roles")
 }
