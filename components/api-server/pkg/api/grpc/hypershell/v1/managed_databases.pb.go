@@ -290,10 +290,12 @@ func (x *CreateManagedDatabaseResponse) GetManagedDatabase() *ManagedDatabase {
 }
 
 type GetManagedDatabaseRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Internal deletion recovery. Requires an allowlisted control-plane identity.
+	IncludeDeleted bool `protobuf:"varint,2,opt,name=include_deleted,json=includeDeleted,proto3" json:"include_deleted,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetManagedDatabaseRequest) Reset() {
@@ -331,6 +333,13 @@ func (x *GetManagedDatabaseRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+func (x *GetManagedDatabaseRequest) GetIncludeDeleted() bool {
+	if x != nil {
+		return x.IncludeDeleted
+	}
+	return false
 }
 
 type GetManagedDatabaseResponse struct {
@@ -852,9 +861,10 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x12_connection_secretB\t\n" +
 	"\a_statusJ\x04\b\x02\x10\x03R\bfleet_id\"j\n" +
 	"\x1dCreateManagedDatabaseResponse\x12I\n" +
-	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"+\n" +
+	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"T\n" +
 	"\x19GetManagedDatabaseRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"g\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
+	"\x0finclude_deleted\x18\x02 \x01(\bR\x0eincludeDeleted\"g\n" +
 	"\x1aGetManagedDatabaseResponse\x12I\n" +
 	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"\xcc\x03\n" +
 	"\x1cUpdateManagedDatabaseRequest\x12\x0e\n" +

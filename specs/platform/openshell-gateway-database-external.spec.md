@@ -588,21 +588,18 @@ Over an admin connection, the control plane SHALL:
 Cleanup SHALL be idempotent: an already-absent database or role counts as successful
 cleanup, so replaying a delete is safe.
 
-#### Cleanup is best-effort; there is no tombstone or retry queue
+#### Cleanup failures require retry
 
-External-mode cleanup runs **once**, on the delete event. There is no tombstone
-record and no cross-restart retry queue: the gateway is already removed from the API
-server, so no later event re-delivers the work.
+The control plane SHALL propagate external cleanup failures to its retry queue. A
+Gateway with an external reference SHALL retain a pending deletion record across
+control plane restarts. The API SHALL report deletion as requested until database,
+role, credentials, and all other owned resources are removed. The control plane
+SHALL read retained ManagedDatabase configuration for deletion recovery.
 
-Consequently, if the external server is unreachable or the drop otherwise fails, the
-role and database **persist on the server with valid credentials**. The control plane
-SHALL propagate the failure as a contextual error and SHALL log it at error level,
-naming the gateway ID and the ManagedDatabase ID (never the credentials), so the
-orphan is discoverable. Operators recover with the runbook below.
-
-This is a deliberate trade: unconditional, single-shot deletion keeps the delete path
-simple and free of persistent state, at the cost of an operator-visible orphan when
-the external server is down at exactly the wrong moment.
+If the external server is unreachable, the role and database can remain on that
+server. Cleanup SHALL remain pending and SHALL resume when the dependency is
+available. Errors SHALL identify the Gateway and ManagedDatabase without credentials.
+The operator runbook below can assist recovery from a persistent failure.
 
 #### Scenario: Delete external-backed gateway
 
@@ -624,9 +621,8 @@ the external server is down at exactly the wrong moment.
 - WHEN the control plane attempts cleanup
 - THEN it SHALL propagate a contextual error and log the orphaned gateway ID and
   ManagedDatabase ID at error level
-- AND SHALL NOT retry the cleanup on a later event
-- AND the role and database SHALL remain on the external server until an operator
-  removes them
+- AND SHALL retry the cleanup
+- AND deletion status SHALL remain requested until the database and role are absent
 
 #### Scenario: Delete external ManagedDatabase leaves the server untouched
 
@@ -809,9 +805,9 @@ stringData:
 
 ## Operator Runbook: identifying and recovering orphaned objects
 
-Per-gateway cleanup is best-effort and single-shot (see Requirement: Per-Gateway
-Cleanup). If the external server was unreachable when a gateway was deleted, its role
-and database persist with valid credentials. Detect and recover them as follows.
+Per-gateway cleanup retries failures (see Requirement: Per-Gateway Cleanup).
+If the external server remains unreachable, its role and database can persist with
+valid credentials while deletion is pending. Detect and recover them as follows.
 
 1. **Identify orphaned databases** - connect as the admin user and query:
    ```sql
@@ -853,7 +849,7 @@ and database persist with valid credentials. Detect and recover them as follows.
 | Gateway create rejected: no eligible external database | No `external` ManagedDatabase is registered | Register an `external` ManagedDatabase |
 | New gateways land on an unexpected external server | Placement selects the **first-created** `external` ManagedDatabase, not the most recent | Check registration timestamps; delete the older registration once its gateways are gone |
 | Gateway pod cannot connect | TLS mismatch or wrong host in tenant Secret | Verify `sslmode`/CA and `openshell-gateway-db-credentials` |
-| `gw_*` database or role left on the server after gateway deletion | Cleanup ran while the server was unreachable; there is no retry | Follow the Operator Runbook above |
+| `gw_*` database or role left on the server after gateway deletion | Cleanup remains pending because the server is unreachable | Follow the Operator Runbook above |
 
 ---
 
@@ -888,11 +884,10 @@ planning only):
   - `internal/reconciler/reconciler.go` - `ManagedDatabaseReconciler`: `external`
     branch = connectivity/capability check creating no Kubernetes resource;
     `GatewayReconciler`: external per-gateway DDL, tenant credentials Secret,
-    unconditional single-shot deletion.
+    idempotent deletion with retry.
   - The Gateway delete watch event must carry `database_id` alongside the gateway ID.
-  - **Removals:** any external-mode credential-rotation branch, and any use of
-    ManagedDatabase delete tombstones or a retry queue for external per-gateway
-    cleanup. The `ALTER ROLE` in the provisioning repair path is retained.
+  - Retain deleted ManagedDatabase configuration for pending Gateway cleanup.
+    The `ALTER ROLE` in the provisioning repair path is retained.
 - **Related specs (amended alongside this one)**
   - `openshell-gateway-database.spec.md` - external placement description and admin
     workflow row.

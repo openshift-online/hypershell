@@ -390,22 +390,16 @@ func TestDeleteExternalDatabaseResourcesEarlyExit(t *testing.T) {
 	})
 }
 
-// --- single-shot cleanup semantics ---
-
-// Cleanup is unconditional and single-shot: there is no tombstone and no retry
-// queue, so the reconciler must swallow the failure (after logging it) rather
-// than returning an error that would strand gateway finalization on a retry
-// that can never be re-delivered.
-func TestExternalDatabaseReconcilerDeleteNeverReturnsError(t *testing.T) {
+// Cleanup failures must keep the deletion request pending for the retry queue.
+func TestExternalDatabaseReconcilerDeleteReturnsCleanupError(t *testing.T) {
 	ctx := context.Background()
-	client := k8sfake.NewSimpleClientset() // no credentials Secret -> cleanup fails
+	client := k8sfake.NewSimpleClientset()
 	r := &externalDatabaseReconciler{cfg: ExternalDBConfig{
 		CredentialsNamespace: "hypershell-managed-db-kind",
 		ManagedDatabaseID:    "md-1",
 	}}
-
-	if err := r.Delete(ctx, nil, client, "gw-abc123"); err != nil {
-		t.Fatalf("Delete() = %v, want nil (cleanup is best-effort and single-shot)", err)
+	if err := r.Delete(ctx, nil, client, "gw-abc123"); err == nil {
+		t.Fatal("Delete succeeded without the required database credentials")
 	}
 }
 

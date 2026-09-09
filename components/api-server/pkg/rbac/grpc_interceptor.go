@@ -22,6 +22,14 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 		}
 
 		username := auth.GetUsernameFromContext(ctx)
+		// Deletion completion and tombstone reads never use the role fallback.
+		deletedLookup, readsDeleted := req.(interface{ GetIncludeDeleted() bool })
+		if info.FullMethod == "/hypershell.v1.GatewayService/CompleteGatewayDeletion" || (readsDeleted && deletedLookup.GetIncludeDeleted()) {
+			if !isServiceAccount(username, config.ServiceAccounts) {
+				return nil, status.Error(codes.PermissionDenied, "forbidden")
+			}
+			return handler(ctx, req)
+		}
 		if isServiceAccount(username, config.ServiceAccounts) {
 			return handler(ctx, req)
 		}
@@ -67,7 +75,7 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 		}
 
 		username := auth.GetUsernameFromContext(ctx)
-		if isManagedDatabaseTombstoneReplay(ctx, info.FullMethod) {
+		if isManagedDatabaseTombstoneReplay(ctx, info.FullMethod) || isGatewayTombstoneReplay(ctx, info.FullMethod) {
 			// Historical tombstones are control-plane recovery data.
 			// Unlike the ordinary live watch, replay is never available through role
 			// bindings or the no-allowlist fallback.
@@ -230,4 +238,13 @@ func isServiceAccount(username string, serviceAccounts []string) bool {
 		}
 	}
 	return false
+}
+
+func isGatewayTombstoneReplay(ctx context.Context, method string) bool {
+	if method != "/hypershell.v1.GatewayService/WatchGateways" {
+		return false
+	}
+	md, _ := metadata.FromIncomingContext(ctx)
+	values := md.Get("hypershell-gateway-replay")
+	return len(values) == 1 && values[0] == "deleted-v1"
 }

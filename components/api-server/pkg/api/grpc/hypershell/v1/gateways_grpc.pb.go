@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	GatewayService_CompleteGatewayDeletion_FullMethodName  = "/hypershell.v1.GatewayService/CompleteGatewayDeletion"
 	GatewayService_GetGateway_FullMethodName               = "/hypershell.v1.GatewayService/GetGateway"
 	GatewayService_CreateGateway_FullMethodName            = "/hypershell.v1.GatewayService/CreateGateway"
 	GatewayService_UpdateGateway_FullMethodName            = "/hypershell.v1.GatewayService/UpdateGateway"
@@ -33,6 +34,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type GatewayServiceClient interface {
+	CompleteGatewayDeletion(ctx context.Context, in *CompleteGatewayDeletionRequest, opts ...grpc.CallOption) (*CompleteGatewayDeletionResponse, error)
 	GetGateway(ctx context.Context, in *GetGatewayRequest, opts ...grpc.CallOption) (*GetGatewayResponse, error)
 	CreateGateway(ctx context.Context, in *CreateGatewayRequest, opts ...grpc.CallOption) (*CreateGatewayResponse, error)
 	UpdateGateway(ctx context.Context, in *UpdateGatewayRequest, opts ...grpc.CallOption) (*UpdateGatewayResponse, error)
@@ -49,6 +51,16 @@ type gatewayServiceClient struct {
 
 func NewGatewayServiceClient(cc grpc.ClientConnInterface) GatewayServiceClient {
 	return &gatewayServiceClient{cc}
+}
+
+func (c *gatewayServiceClient) CompleteGatewayDeletion(ctx context.Context, in *CompleteGatewayDeletionRequest, opts ...grpc.CallOption) (*CompleteGatewayDeletionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompleteGatewayDeletionResponse)
+	err := c.cc.Invoke(ctx, GatewayService_CompleteGatewayDeletion_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *gatewayServiceClient) GetGateway(ctx context.Context, in *GetGatewayRequest, opts ...grpc.CallOption) (*GetGatewayResponse, error) {
@@ -144,6 +156,7 @@ func (c *gatewayServiceClient) SetActiveSandboxCount(ctx context.Context, in *Se
 // All implementations must embed UnimplementedGatewayServiceServer
 // for forward compatibility.
 type GatewayServiceServer interface {
+	CompleteGatewayDeletion(context.Context, *CompleteGatewayDeletionRequest) (*CompleteGatewayDeletionResponse, error)
 	GetGateway(context.Context, *GetGatewayRequest) (*GetGatewayResponse, error)
 	CreateGateway(context.Context, *CreateGatewayRequest) (*CreateGatewayResponse, error)
 	UpdateGateway(context.Context, *UpdateGatewayRequest) (*UpdateGatewayResponse, error)
@@ -162,6 +175,9 @@ type GatewayServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedGatewayServiceServer struct{}
 
+func (UnimplementedGatewayServiceServer) CompleteGatewayDeletion(context.Context, *CompleteGatewayDeletionRequest) (*CompleteGatewayDeletionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteGatewayDeletion not implemented")
+}
 func (UnimplementedGatewayServiceServer) GetGateway(context.Context, *GetGatewayRequest) (*GetGatewayResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetGateway not implemented")
 }
@@ -205,6 +221,24 @@ func RegisterGatewayServiceServer(s grpc.ServiceRegistrar, srv GatewayServiceSer
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&GatewayService_ServiceDesc, srv)
+}
+
+func _GatewayService_CompleteGatewayDeletion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteGatewayDeletionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServiceServer).CompleteGatewayDeletion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayService_CompleteGatewayDeletion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServiceServer).CompleteGatewayDeletion(ctx, req.(*CompleteGatewayDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _GatewayService_GetGateway_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -351,6 +385,10 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "hypershell.v1.GatewayService",
 	HandlerType: (*GatewayServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CompleteGatewayDeletion",
+			Handler:    _GatewayService_CompleteGatewayDeletion_Handler,
+		},
 		{
 			MethodName: "GetGateway",
 			Handler:    _GatewayService_GetGateway_Handler,

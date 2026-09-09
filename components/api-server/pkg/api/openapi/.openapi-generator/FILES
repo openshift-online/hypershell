@@ -10,6 +10,7 @@ docs/DefaultAPI.md
 docs/Error.md
 docs/Gateway.md
 docs/GatewayCreateRequest.md
+docs/GatewayDeletionStatus.md
 docs/GatewayList.md
 docs/GatewayNetwork.md
 docs/GatewayNetworkList.md
@@ -49,6 +50,7 @@ go.sum
 model_error.go
 model_gateway.go
 model_gateway_create_request.go
+model_gateway_deletion_status.go
 model_gateway_list.go
 model_gateway_network.go
 model_gateway_network_list.go

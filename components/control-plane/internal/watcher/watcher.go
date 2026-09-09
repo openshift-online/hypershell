@@ -434,7 +434,8 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 		// list captures everything before it. A one-shot seed per connect is then
 		// sufficient; no periodic forced resync is needed (which would re-provision
 		// gateways the health reconciler legitimately owns in an active phase).
-		if _, err := stream.Header(); err != nil {
+		header, err := stream.Header()
+		if err != nil {
 			return fmt.Errorf("awaiting gateway watch subscription header: %w", err)
 		}
 		// Drain the watch stream concurrently while seeding. The API server's
@@ -487,7 +488,11 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 		// the seed to the receiver: a Recv error cancels runCtx, aborting the
 		// seed's in-flight RPCs so mutations during the dead window are not
 		// masked by an unchanged stable ID set.
-		if err := seedGateways(runCtx, client, rq, clusterID); err != nil {
+		bootstrapErr := seedGateways(runCtx, client, rq, clusterID)
+		if bootstrapErr == nil && len(header.Get("hypershell-gateway-delete-tombstones")) == 1 && header.Get("hypershell-gateway-delete-tombstones")[0] == "v1" {
+			bootstrapErr = replayDeletedGateways(runCtx, client, rq, clusterID)
+		}
+		if err := bootstrapErr; err != nil {
 			// Distinguish two causes so a genuine seed failure is never masked by
 			// the cancellation we would cause ourselves. If runCtx is already
 			// canceled, the receiver ended first (its Recv error/EOF canceled
@@ -893,5 +898,33 @@ func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context
 		if backoff > maxBackoff {
 			backoff = maxBackoff
 		}
+	}
+}
+
+func replayDeletedGateways(ctx context.Context, client pb.GatewayServiceClient, sink interface{ enqueue(Event[*pb.Gateway]) }, clusterID string) error {
+	replayCtx := metadata.AppendToOutgoingContext(ctx, "hypershell-gateway-replay", "deleted-v1")
+	stream, err := client.WatchGateways(replayCtx, &pb.WatchGatewaysRequest{ClusterId: OptionalClusterID(clusterID)})
+	if err != nil {
+		return fmt.Errorf("start gateway deletion replay: %w", err)
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return err
+	}
+	if values := header.Get("hypershell-gateway-delete-tombstones"); len(values) != 1 || values[0] != "v1" {
+		return fmt.Errorf("gateway deletion replay is unsupported")
+	}
+	for {
+		event, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("receive gateway deletion replay: %w", err)
+		}
+		if event.Type != pb.EventType_EVENT_TYPE_DELETED || event.ResourceId == "" || event.Gateway == nil {
+			return fmt.Errorf("gateway deletion replay returned an invalid event")
+		}
+		sink.enqueue(Event[*pb.Gateway]{Type: EventDeleted, ResourceID: event.ResourceId, Resource: event.Gateway})
 	}
 }

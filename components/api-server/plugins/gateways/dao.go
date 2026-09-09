@@ -16,6 +16,8 @@ import (
 )
 
 type GatewayDao interface {
+	PendingDeletions(ctx context.Context, after, clusterID string, limit int) (GatewayList, error)
+	CompleteDeletion(ctx context.Context, id string) error
 	LockExternalReference(ctx context.Context, owner, reference string) error
 	FindByExternalReference(ctx context.Context, owner, reference string) (*Gateway, error)
 	Get(ctx context.Context, id string) (*Gateway, error)
@@ -94,7 +96,7 @@ func (d *sqlGatewayDao) Replace(ctx context.Context, gateway *Gateway) (*Gateway
 	// AdjustActiveSandboxCount / SetActiveSandboxCount path. Saving it here would
 	// write back the value read into `gateway`, clobbering any concurrent
 	// count adjustment with a stale number.
-	if err := g2.Omit(clause.Associations, "ActiveSandboxCount", "ExternalReference", "ExternalReferenceOwner").Save(gateway).Error; err != nil {
+	if err := g2.Omit(clause.Associations, "ActiveSandboxCount", "ExternalReference", "ExternalReferenceOwner", "DeletionCompletedAt").Save(gateway).Error; err != nil {
 		db.MarkForRollback(ctx, err)
 		return nil, err
 	}
@@ -254,4 +256,19 @@ func (d *sqlGatewayDao) FindByExternalReference(ctx context.Context, owner, refe
 		return nil, err
 	}
 	return &gateway, nil
+}
+
+func (d *sqlGatewayDao) PendingDeletions(ctx context.Context, after, clusterID string, limit int) (GatewayList, error) {
+	query := (*d.sessionFactory).New(ctx).Unscoped().Where("deleted_at IS NOT NULL AND deletion_completed_at IS NULL AND external_reference IS NOT NULL AND id > ?", after)
+	if clusterID != "" {
+		query = query.Where("cluster_id = ?", clusterID)
+	}
+	var gateways GatewayList
+	if err := query.Order("id ASC").Limit(limit).Find(&gateways).Error; err != nil {
+		return nil, err
+	}
+	return gateways, nil
+}
+func (d *sqlGatewayDao) CompleteDeletion(ctx context.Context, id string) error {
+	return (*d.sessionFactory).New(ctx).Unscoped().Model(&Gateway{}).Where("id = ? AND deleted_at IS NOT NULL AND deletion_completed_at IS NULL", id).Update("deletion_completed_at", gorm.Expr("CURRENT_TIMESTAMP")).Error
 }

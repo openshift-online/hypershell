@@ -100,3 +100,15 @@ func (b *{{.Resource.Name}}StatusPatchBuilder) Build() map[string]any {
 	return b.patch
 }
 {{end}}
+
+{{- range .Resource.ListParameters}}
+{{- if eq .Name "external_reference"}}
+type {{$.Resource.Name}}DeletionStatus struct {
+ GatewayID string `json:"gateway_id"`
+ ExternalReference string `json:"external_reference"`
+ State string `json:"state"`
+ DeletionRequestedAt *string `json:"deletion_requested_at,omitempty"`
+ DeletionCompletedAt *string `json:"deletion_completed_at,omitempty"`
+}
+{{- end}}
+{{- end}}

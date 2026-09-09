@@ -97,6 +97,10 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 
 func isExemptEndpoint(r *http.Request) bool {
 	path := r.URL.Path
+	// The handler authorizes this status-only lookup through immutable creator scope.
+	if r.Method == http.MethodGet && path == "/api/hypershell/v1/gateways/deletion" {
+		return true
+	}
 
 	if strings.HasSuffix(path, "/metadata") {
 		return true

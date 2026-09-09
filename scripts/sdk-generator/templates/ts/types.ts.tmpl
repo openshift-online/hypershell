@@ -84,3 +84,15 @@ export class {{.Resource.Name}}StatusPatchBuilder {
   }
 }
 {{end}}
+
+{{- range .Resource.ListParameters}}
+{{- if eq .Name "external_reference"}}
+export interface {{$.Resource.Name}}DeletionStatus {
+ gateway_id: string;
+ external_reference: string;
+ state: 'active' | 'requested' | 'completed';
+ deletion_requested_at?: string;
+ deletion_completed_at?: string;
+}
+{{- end}}
+{{- end}}

@@ -20,6 +20,9 @@ import (
 const gatewaysLockType db.LockType = "gateways"
 
 type GatewayService interface {
+	DeletionStatus(ctx context.Context, reference string) (*Gateway, *errors.ServiceError)
+	PendingDeletions(ctx context.Context, after, clusterID string, limit int) (GatewayList, *errors.ServiceError)
+	CompleteDeletion(ctx context.Context, id string) *errors.ServiceError
 	FindByExternalReference(ctx context.Context, reference string) (*Gateway, *errors.ServiceError)
 	Get(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
 	GetUnscoped(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
@@ -292,4 +295,40 @@ func (s *sqlGatewayService) FindByExternalReference(ctx context.Context, referen
 		return nil, errors.NotFound("Gateway with this external_reference does not exist")
 	}
 	return gateway, nil
+}
+
+// DeletionStatus uses the immutable creator scope even after gateway access is removed.
+func (s *sqlGatewayService) DeletionStatus(ctx context.Context, reference string) (*Gateway, *errors.ServiceError) {
+	if err := validateExternalReference(reference); err != nil {
+		return nil, err
+	}
+	owner := rbac.GetUserIDFromContext(ctx)
+	if owner == "" {
+		return nil, errors.Forbidden("deletion status requires an authenticated caller")
+	}
+	gateway, err := s.gatewayDao.FindByExternalReference(ctx, owner, reference)
+	if err != nil {
+		return nil, services.HandleGetError("Gateway", "external_reference", reference, err)
+	}
+	return gateway, nil
+}
+func (s *sqlGatewayService) PendingDeletions(ctx context.Context, after, clusterID string, limit int) (GatewayList, *errors.ServiceError) {
+	gateways, err := s.gatewayDao.PendingDeletions(ctx, after, clusterID, limit)
+	if err != nil {
+		return nil, errors.GeneralError("cannot load pending gateway deletions: %s", err)
+	}
+	return gateways, nil
+}
+func (s *sqlGatewayService) CompleteDeletion(ctx context.Context, id string) *errors.ServiceError {
+	gateway, err := s.GetUnscoped(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !gateway.DeletedAt.Valid {
+		return errors.Conflict("gateway deletion has not been requested")
+	}
+	if err := s.gatewayDao.CompleteDeletion(ctx, id); err != nil {
+		return errors.GeneralError("cannot complete gateway deletion: %s", err)
+	}
+	return nil
 }

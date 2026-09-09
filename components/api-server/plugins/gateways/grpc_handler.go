@@ -8,6 +8,7 @@ import (
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -288,6 +289,28 @@ func (h *gatewayGRPCHandler) ListGateways(ctx context.Context, req *pb.ListGatew
 }
 
 func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream grpc.ServerStreamingServer[pb.WatchGatewaysResponse]) error {
+	md, _ := metadata.FromIncomingContext(stream.Context())
+	if values := md.Get("hypershell-gateway-replay"); len(values) == 1 && values[0] == "deleted-v1" {
+		if err := stream.SendHeader(metadata.Pairs("hypershell-gateway-delete-tombstones", "v1")); err != nil {
+			return err
+		}
+		after := ""
+		for {
+			gateways, err := h.service.PendingDeletions(stream.Context(), after, req.GetClusterId(), 500)
+			if err != nil {
+				return grpcutil.ServiceErrorToGRPC(err)
+			}
+			for _, gateway := range gateways {
+				if err := stream.Send(&pb.WatchGatewaysResponse{Type: pb.EventType_EVENT_TYPE_DELETED, ResourceId: gateway.ID, Gateway: gatewayToProto(gateway)}); err != nil {
+					return err
+				}
+				after = gateway.ID
+			}
+			if len(gateways) < 500 {
+				return nil
+			}
+		}
+	}
 	broker := h.brokerFunc()
 	if broker == nil {
 		return status.Error(codes.Unavailable, "event broker not available")
@@ -314,7 +337,7 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 	// response header (the control-plane watcher does) knows no event can be missed
 	// once Header() returns, and can then safely LIST to seed its state without a
 	// list-watch gap. Sending an empty header is a no-op for clients that ignore it.
-	if err := stream.SendHeader(nil); err != nil {
+	if err := stream.SendHeader(metadata.Pairs("hypershell-gateway-delete-tombstones", "v1")); err != nil {
 		return status.Errorf(codes.Unavailable, "failed to send watch header: %v", err)
 	}
 
@@ -372,4 +395,14 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 			}
 		}
 	}
+}
+
+func (h *gatewayGRPCHandler) CompleteGatewayDeletion(ctx context.Context, req *pb.CompleteGatewayDeletionRequest) (*pb.CompleteGatewayDeletionResponse, error) {
+	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
+		return nil, err
+	}
+	if err := h.service.CompleteDeletion(ctx, req.Id); err != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(err)
+	}
+	return &pb.CompleteGatewayDeletionResponse{}, nil
 }

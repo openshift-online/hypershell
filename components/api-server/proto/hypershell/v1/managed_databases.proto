@@ -48,6 +48,8 @@ message CreateManagedDatabaseResponse {
 
 message GetManagedDatabaseRequest {
   string id = 1;
+  // Internal deletion recovery. Requires an allowlisted control-plane identity.
+  bool include_deleted = 2;
 }
 
 message GetManagedDatabaseResponse {

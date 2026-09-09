@@ -2,6 +2,8 @@ package gateways
 
 import (
 	"context"
+	"sort"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -104,4 +106,27 @@ func (d *gatewayDaoMock) FindByExternalReference(ctx context.Context, owner, ref
 		}
 	}
 	return nil, gorm.ErrRecordNotFound
+}
+
+func (d *gatewayDaoMock) PendingDeletions(ctx context.Context, after, clusterID string, limit int) (GatewayList, error) {
+	result := GatewayList{}
+	for _, gateway := range d.gateways {
+		if gateway.ID > after && gateway.DeletedAt.Valid && gateway.DeletionCompletedAt == nil && gateway.ExternalReference != nil && (clusterID == "" || gateway.ClusterId == clusterID) {
+			result = append(result, gateway)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+func (d *gatewayDaoMock) CompleteDeletion(ctx context.Context, id string) error {
+	for _, gateway := range d.gateways {
+		if gateway.ID == id && gateway.DeletedAt.Valid && gateway.DeletionCompletedAt == nil {
+			now := time.Now()
+			gateway.DeletionCompletedAt = &now
+		}
+	}
+	return nil
 }

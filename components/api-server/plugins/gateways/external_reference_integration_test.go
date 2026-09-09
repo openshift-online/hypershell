@@ -185,6 +185,7 @@ func referenceClient(t *testing.T, h *test.Helper) *openapi.APIClient {
 	router := mux.NewRouter()
 	router.HandleFunc("/api/hypershell/v1/gateways", handler.Create).Methods(http.MethodPost)
 	router.HandleFunc("/api/hypershell/v1/gateways", handler.List).Methods(http.MethodGet)
+	router.HandleFunc("/api/hypershell/v1/gateways/deletion", handler.DeletionStatus).Methods(http.MethodGet)
 	router.HandleFunc("/api/hypershell/v1/gateways/{id}", handler.Patch).Methods(http.MethodPatch)
 	identity := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), rbac.ContextUserIDKey, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))

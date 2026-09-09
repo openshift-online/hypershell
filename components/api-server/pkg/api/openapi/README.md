@@ -93,6 +93,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteManagedDatabase**](docs/DefaultAPI.md#deletemanageddatabase) | **Delete** /api/hypershell/v1/managed_databases/{id} | Delete a managed database
 *DefaultAPI* | [**DeleteRoleBinding**](docs/DefaultAPI.md#deleterolebinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 *DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
+*DefaultAPI* | [**GetGatewayDeletionStatus**](docs/DefaultAPI.md#getgatewaydeletionstatus) | **Get** /api/hypershell/v1/gateways/deletion | Get deletion status for a reference in the caller scope
 *DefaultAPI* | [**GetGatewayNetwork**](docs/DefaultAPI.md#getgatewaynetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
 *DefaultAPI* | [**GetGatewayRelease**](docs/DefaultAPI.md#getgatewayrelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
 *DefaultAPI* | [**GetGatewayServiceAccount**](docs/DefaultAPI.md#getgatewayserviceaccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
@@ -124,6 +125,7 @@ Class | Method | HTTP request | Description
  - [Error](docs/Error.md)
  - [Gateway](docs/Gateway.md)
  - [GatewayCreateRequest](docs/GatewayCreateRequest.md)
+ - [GatewayDeletionStatus](docs/GatewayDeletionStatus.md)
  - [GatewayList](docs/GatewayList.md)
  - [GatewayNetwork](docs/GatewayNetwork.md)
  - [GatewayNetworkList](docs/GatewayNetworkList.md)

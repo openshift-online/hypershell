@@ -1315,7 +1315,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var deleteErrs []error
 		if gw.DatabaseId != "" {
 			var dbErr error
-			deleteDBConfig, dbErr = r.resolveDatabaseConfig(ctx, gw)
+			deleteDBConfig, dbErr = r.resolveDatabaseConfig(ctx, gw, gw.ExternalReference != nil)
 			if dbErr != nil {
 				// Deletion must be idempotent. When the ManagedDatabase is already
 				// gone (a legitimate delete ordering) there is no DB config left to
@@ -1324,7 +1324,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				// deleteErrs instead would fail the whole delete-reconcile, which the
 				// watcher retries every 30s -- forever, because the ManagedDatabase
 				// never comes back. Any other error still fails so it is retried.
-				if status.Code(dbErr) == codes.NotFound {
+				if status.Code(dbErr) == codes.NotFound && gw.ExternalReference == nil {
 					log.Printf("INFO gateway %s: ManagedDatabase %s already deleted; skipping database cleanup", event.ResourceID, gw.DatabaseId)
 				} else {
 					deleteErrs = append(deleteErrs, fmt.Errorf("resolve database config for deleted gateway %s: %w", event.ResourceID, dbErr))
@@ -1356,11 +1356,25 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				GatewayID:             event.ResourceID,
 				GatewayName:           gw.Name,
 			}
+			if r.keycloakClient != nil {
+				clientID, err := existingGatewayKeycloakClientID(event.ResourceID, gw)
+				if err != nil {
+					deleteErrs = append(deleteErrs, err)
+					opts.KeycloakClient = nil
+				} else {
+					opts.GatewayClientID = clientID
+				}
+			}
+			if gw.GetOidc() != "" && r.keycloakClient == nil {
+				deleteErrs = append(deleteErrs, fmt.Errorf("gateway identity cleanup requires the Keycloak client"))
+			}
 			var credentialNamespaces []string
 			if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
 				if strings.Contains(*gw.CredentialDriver, "kubernetes_secrets") {
 					var credCfg gateway.CredentialDriverConfig
-					if err := json.Unmarshal([]byte(*gw.CredentialDriver), &credCfg); err == nil {
+					if err := json.Unmarshal([]byte(*gw.CredentialDriver), &credCfg); err != nil {
+						deleteErrs = append(deleteErrs, fmt.Errorf("parse gateway credential cleanup config: %w", err))
+					} else {
 						if credCfg.KubernetesSecrets != nil && credCfg.KubernetesSecrets.Namespace != "" {
 							credentialNamespaces = append(credentialNamespaces, credCfg.KubernetesSecrets.Namespace)
 						}
@@ -1380,7 +1394,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway namespace %s: %w", namespace, err))
 			} else if !deleted {
-				gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts)
+				if err := gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts); err != nil {
+					deleteErrs = append(deleteErrs, err)
+				}
 			}
 		}
 
@@ -1392,7 +1408,23 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				log.Printf("INFO deleted deployment ManagedDatabase %s for gateway %s", gw.DatabaseId, event.ResourceID)
 			}
 		}
+
+		if gw.ExternalReference != nil {
+			if namespaceErr != nil {
+				deleteErrs = append(deleteErrs, namespaceErr)
+			} else if err := requireNamespaceAbsent(ctx, r.clientset, namespace); err != nil {
+				deleteErrs = append(deleteErrs, err)
+			}
+			if deleteDBConfig.Provider == "deployment" && deleteDBConfig.SourceNamespace != "" {
+				if err := requireNamespaceAbsent(ctx, r.clientset, deleteDBConfig.SourceNamespace); err != nil {
+					deleteErrs = append(deleteErrs, err)
+				}
+			}
+		}
 		reconcileErr = errors.Join(deleteErrs...)
+		if reconcileErr == nil && gw.ExternalReference != nil {
+			_, reconcileErr = pb.NewGatewayServiceClient(r.grpcConn).CompleteGatewayDeletion(ctx, &pb.CompleteGatewayDeletionRequest{Id: event.ResourceID})
+		}
 		return reconcileErr
 	}
 
@@ -2174,13 +2206,13 @@ func (r *GatewayReconciler) resolveReleaseImage(ctx context.Context, gw *pb.Gate
 	return rel.Image, nil
 }
 
-func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (databaseConfig, error) {
+func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway, includeDeleted ...bool) (databaseConfig, error) {
 	if gw.DatabaseId == "" {
 		return databaseConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the gateway")
 	}
 
 	client := pb.NewManagedDatabaseServiceClient(r.grpcConn)
-	resp, err := client.GetManagedDatabase(ctx, &pb.GetManagedDatabaseRequest{Id: gw.DatabaseId})
+	resp, err := client.GetManagedDatabase(ctx, &pb.GetManagedDatabaseRequest{Id: gw.DatabaseId, IncludeDeleted: len(includeDeleted) > 0 && includeDeleted[0]})
 	if err != nil {
 		return databaseConfig{}, fmt.Errorf("resolve ManagedDatabase %s: %w", gw.DatabaseId, err)
 	}
@@ -2273,4 +2305,18 @@ func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Eve
 
 	log.Printf("INFO reconciling GatewayNetwork %s (event=%d)", event.ResourceID, event.Type)
 	return nil
+}
+
+func requireNamespaceAbsent(ctx context.Context, client kubernetes.Interface, namespace string) error {
+	if namespace == "" {
+		return fmt.Errorf("namespace is required to confirm deletion")
+	}
+	_, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("confirm namespace %s deletion: %w", namespace, err)
+	}
+	return fmt.Errorf("namespace %s deletion is pending", namespace)
 }

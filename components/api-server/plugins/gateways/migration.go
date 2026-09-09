@@ -208,3 +208,15 @@ func migrationAddExternalReference() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddDeletionCompletion() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026090900000002",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS deletion_completed_at TIMESTAMPTZ").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS deletion_completed_at").Error
+		},
+	}
+}

@@ -1,4 +1,31 @@
 paths:
+  /api/hypershell/v1/gateways/deletion:
+    get:
+      operationId: getGatewayDeletionStatus
+      summary: Get deletion status for a reference in the caller scope
+      security:
+        - Bearer: []
+      parameters:
+        - name: external_reference
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      responses:
+        '200':
+          description: Gateway deletion state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayDeletionStatus'
+        '404':
+          description: No reference exists in the caller scope
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
   # NEW ENDPOINT START
   /api/hypershell/v1/gateways:
   # NEW ENDPOINT END
@@ -225,6 +252,23 @@ paths:
       - $ref: '#/components/parameters/id'
 components:
   schemas:
+    GatewayDeletionStatus:
+      type: object
+      required: [gateway_id, external_reference, state]
+      properties:
+        gateway_id:
+          type: string
+        external_reference:
+          type: string
+        state:
+          type: string
+          description: active, requested, or completed
+        deletion_requested_at:
+          type: string
+          format: date-time
+        deletion_completed_at:
+          type: string
+          format: date-time
     # NEW SCHEMA START
     Gateway:
     # NEW SCHEMA END

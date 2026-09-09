@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -40,11 +41,9 @@ func (r *cnpgDatabaseReconciler) Delete(ctx context.Context, dynamicClient dynam
 		return nil
 	}
 	if r.cnpg.ClusterNamespace == "" {
-		log.Printf("WARN gateway %s: CNPG cluster namespace unknown; Database, DatabaseRole, and password Secret were not deleted and may require manual cleanup", gatewayID)
-		return nil
+		return fmt.Errorf("CNPG namespace is required for gateway deletion")
 	}
-	deleteCNPGResources(ctx, dynamicClient, clientset, gatewayID, r.cnpg)
-	return nil
+	return deleteCNPGResources(ctx, dynamicClient, clientset, gatewayID, r.cnpg)
 }
 
 func cnpgResourceName(gatewayID string) string {
@@ -259,51 +258,31 @@ func waitForCNPGDatabase(ctx context.Context, dynamicClient dynamic.Interface, n
 	}
 }
 
-func deleteCNPGResources(
-	ctx context.Context,
-	dynamicClient dynamic.Interface,
-	clientset kubernetes.Interface,
-	gatewayID string,
-	cnpg CNPGConfig,
-) {
-	crName := cnpgResourceName(gatewayID)
-	ns := cnpg.ClusterNamespace
-	log.Printf("INFO deleting CNPG resources for gateway %s: cr=%s namespace=%s", gatewayID, crName, ns)
-
-	databaseGVR := schema.GroupVersionResource{
-		Group:    "postgresql.cnpg.io",
-		Version:  "v1",
-		Resource: "databases",
-	}
-	if err := dynamicClient.Resource(databaseGVR).Namespace(ns).Delete(ctx, crName, metav1.DeleteOptions{}); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete CNPG Database %s: %v", crName, err)
+func deleteCNPGResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, gatewayID string, cnpg CNPGConfig) error {
+	name := cnpgResourceName(gatewayID)
+	var errs []error
+	for _, resource := range []string{"databases", "databaseroles"} {
+		gvr := schema.GroupVersionResource{Group: "postgresql.cnpg.io", Version: "v1", Resource: resource}
+		if err := deleteResourceAndVerify(ctx, dynamicClient.Resource(gvr).Namespace(cnpg.ClusterNamespace), name); err != nil {
+			errs = append(errs, err)
 		}
-	} else {
-		log.Printf("INFO deleted CNPG Database %s from %s", crName, ns)
 	}
-
-	roleGVR := schema.GroupVersionResource{
-		Group:    "postgresql.cnpg.io",
-		Version:  "v1",
-		Resource: "databaseroles",
+	// Keep credentials until the database resources have completed finalization.
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
-	if err := dynamicClient.Resource(roleGVR).Namespace(ns).Delete(ctx, crName, metav1.DeleteOptions{}); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete CNPG DatabaseRole %s: %v", crName, err)
-		}
-	} else {
-		log.Printf("INFO deleted CNPG DatabaseRole %s from %s", crName, ns)
+	secret := name + "-credentials"
+	if err := clientset.CoreV1().Secrets(cnpg.ClusterNamespace).Delete(ctx, secret, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete CNPG credential secret: %w", err)
 	}
-
-	passwordSecretName := crName + "-credentials"
-	if err := clientset.CoreV1().Secrets(ns).Delete(ctx, passwordSecretName, metav1.DeleteOptions{}); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete CNPG password secret %s: %v", passwordSecretName, err)
-		}
-	} else {
-		log.Printf("INFO deleted CNPG password secret %s from %s", passwordSecretName, ns)
+	_, err := clientset.CoreV1().Secrets(cnpg.ClusterNamespace).Get(ctx, secret, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil
 	}
+	if err != nil {
+		return fmt.Errorf("confirm CNPG credential deletion: %w", err)
+	}
+	return fmt.Errorf("CNPG credential deletion is pending")
 }
 
 func rotateCNPGDatabaseCredentials(

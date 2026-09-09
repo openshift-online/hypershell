@@ -167,7 +167,9 @@ func (c *Client) DeleteGatewayServiceAccountClients(ctx context.Context, gateway
 		}
 		var attributes map[string]string
 		if raw := representation["attributes"]; len(raw) != 0 {
-			_ = json.Unmarshal(raw, &attributes)
+			if err := json.Unmarshal(raw, &attributes); err != nil {
+				return errors.New("parse Keycloak client attributes")
+			}
 		}
 		if attributes["hypershell.service-account"] != "true" || attributes["hypershell.gateway-id"] != gatewayID {
 			continue

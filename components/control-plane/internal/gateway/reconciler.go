@@ -191,68 +191,62 @@ func DeleteGatewayResources(
 	opts ReconcileOpts,
 	credentialNamespaces ...string,
 ) error {
-	crbGVR := schema.GroupVersionResource{
-		Group:    "rbac.authorization.k8s.io",
-		Version:  "v1",
-		Resource: "clusterrolebindings",
+	var errs []error
+	crbGVR := schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}
+	if err := deleteResourceAndVerify(ctx, dynamicClient.Resource(crbGVR), "openshell-gateway-node-reader-"+namespace); err != nil {
+		errs = append(errs, err)
 	}
-	crbName := fmt.Sprintf("openshell-gateway-node-reader-%s", namespace)
-	if err := dynamicClient.Resource(crbGVR).Delete(ctx, crbName, metav1.DeleteOptions{}); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete ClusterRoleBinding %s: %v", crbName, err)
+	if opts.KeycloakClient != nil && opts.GatewayID != "" {
+		clientID := opts.GatewayClientID
+		if clientID == "" && opts.GatewayName != "" {
+			clientID = opts.GatewayName + "-" + opts.GatewayID
 		}
-	} else {
-		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
-	}
-
-	if opts.KeycloakClient != nil && opts.GatewayName != "" && opts.GatewayID != "" {
-		kcClientID := fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
-		if err := opts.KeycloakClient.DeleteGatewayServiceAccountClients(ctx, opts.GatewayID); err != nil {
-			// Do not delete the parent clients while an OpenShell gateway service
-			// account may still be enabled. Returning an error makes teardown retry.
-			return fmt.Errorf("delete gateway service-account clients: %w", err)
-		}
-		log.Printf("INFO deleted keycloak service-account clients for gateway %s", opts.GatewayID)
-
-		// The console namespaced resources are swept by label above, but the
-		// console Keycloak client must be deleted explicitly (it lives in the
-		// realm, not the namespace). Best-effort: log the orphan on failure.
-		consoleClientID := kcClientID + "-console"
-		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
-			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+		if clientID == "" {
+			errs = append(errs, fmt.Errorf("gateway identity is required for cleanup"))
+		} else if err := opts.KeycloakClient.DeleteGatewayServiceAccountClients(ctx, opts.GatewayID); err != nil {
+			errs = append(errs, fmt.Errorf("delete gateway service-account clients: %w", err))
 		} else {
-			log.Printf("INFO deleted console client %s", consoleClientID)
-		}
-
-		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
-			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
-		} else {
-			log.Printf("INFO deleted keycloak client %s", kcClientID)
+			if err := opts.KeycloakClient.DeleteConsoleClient(ctx, clientID+"-console"); err != nil {
+				errs = append(errs, fmt.Errorf("delete gateway console client: %w", err))
+			}
+			if err := opts.KeycloakClient.DeleteGatewayClient(ctx, clientID); err != nil {
+				errs = append(errs, fmt.Errorf("delete gateway OIDC client: %w", err))
+			}
 		}
 	}
-
-	if dbReconciler, err := newDatabaseReconciler(opts); err == nil {
-		cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cleanupCancel()
-		if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
-			// Transient error (server unreachable, DDL failure): return so the
-			// delete-reconcile retries. Terminal errors (admin secret unreadable)
-			// are handled inside Delete and return nil; in-cluster cleanup still runs.
-			return fmt.Errorf("database cleanup for gateway %s: %w", opts.GatewayID, delErr)
-		}
+	dbReconciler, err := newDatabaseReconciler(opts)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("resolve database cleanup: %w", err))
 	} else {
-		log.Printf("WARN gateway %s: cannot construct database reconciler for delete: %v", opts.GatewayID, err)
+		cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		if err := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); err != nil {
+			errs = append(errs, fmt.Errorf("delete gateway database: %w", err))
+		}
+		cancel()
 	}
-
-	for _, credNS := range credentialNamespaces {
-		if credNS != "" && credNS != namespace {
-			deleteCredentialSecretsRBAC(ctx, dynamicClient, credNS)
-			log.Printf("INFO cleaned up credential RBAC from namespace %s", credNS)
+	for _, credentialNamespace := range credentialNamespaces {
+		if credentialNamespace != "" && credentialNamespace != namespace {
+			if err := deleteCredentialSecretsRBAC(ctx, dynamicClient, credentialNamespace); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
+	return errors.Join(errs...)
+}
 
-	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
-	return nil
+// deleteResourceAndVerify distinguishes accepted deletion from finalizer completion.
+func deleteResourceAndVerify(ctx context.Context, resource dynamic.ResourceInterface, name string) error {
+	if err := resource.Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete resource %s: %w", name, err)
+	}
+	_, err := resource.Get(ctx, name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("confirm deletion of %s: %w", name, err)
+	}
+	return fmt.Errorf("resource %s deletion is pending", name)
 }
 
 // DeleteLabeledNamespaceResources reclaims this gateway's own in-namespace
@@ -269,15 +263,15 @@ func DeleteGatewayResources(
 // gateway stamps on everything it creates) are deleted, so co-tenant workloads
 // sharing the namespace are never touched: the same no-collateral guarantee that
 // keeps GC from reaping a shared namespace. The namespace itself is never
-// deleted here. It is best-effort - per-resource failures are logged and do not
-// abort the sweep, matching DeleteGatewayResources - and the caller invokes it
-// only when the namespace was left in place.
+// deleted here. The sweep collects failures so the caller can retry. The caller
+// invokes it only when the namespace was left in place.
 func DeleteLabeledNamespaceResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	namespace string,
 	opts ReconcileOpts,
-) {
+) error {
+	var errs []error
 	labelSelector := fmt.Sprintf("%s=%s", ManagedLabel, ManagedLabelValue)
 
 	namespacedResources := []schema.GroupVersionResource{
@@ -322,20 +316,21 @@ func DeleteLabeledNamespaceResources(
 			if k8serrors.IsNotFound(err) {
 				continue
 			}
-			log.Printf("WARN failed to list %s in namespace %s for cleanup: %v", gvr.Resource, namespace, err)
+			errs = append(errs, fmt.Errorf("list %s in %s for cleanup: %w", gvr.Resource, namespace, err))
 			continue
 		}
 		for i := range list.Items {
 			name := list.Items[i].GetName()
 			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 				if !k8serrors.IsNotFound(err) {
-					log.Printf("WARN failed to delete %s %s in namespace %s: %v", gvr.Resource, name, namespace, err)
+					errs = append(errs, fmt.Errorf("delete %s %s in %s: %w", gvr.Resource, name, namespace, err))
 				}
 				continue
 			}
 			log.Printf("INFO deleted %s %s from namespace %s", gvr.Resource, name, namespace)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // DeleteGatewayAPIResources reconciles the desired *absence* of a gateway's
@@ -1392,25 +1387,15 @@ func reconcileCredentialDriverResources(
 	return nil
 }
 
-func deleteCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Interface, namespace string) {
-	roleGVR := schema.GroupVersionResource{
-		Group:    "rbac.authorization.k8s.io",
-		Version:  "v1",
-		Resource: "roles",
+func deleteCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {
+	var errs []error
+	for _, resource := range []string{"rolebindings", "roles"} {
+		gvr := schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: resource}
+		if err := deleteResourceAndVerify(ctx, dynamicClient.Resource(gvr).Namespace(namespace), "openshell-gateway-credential-secrets"); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	roleBindingGVR := schema.GroupVersionResource{
-		Group:    "rbac.authorization.k8s.io",
-		Version:  "v1",
-		Resource: "rolebindings",
-	}
-
-	name := "openshell-gateway-credential-secrets"
-	if err := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete credential secrets RoleBinding in %s: %v", namespace, err)
-	}
-	if err := dynamicClient.Resource(roleGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete credential secrets Role in %s: %v", namespace, err)
-	}
+	return errors.Join(errs...)
 }
 
 func reconcileCredentialSecretsRBAC(

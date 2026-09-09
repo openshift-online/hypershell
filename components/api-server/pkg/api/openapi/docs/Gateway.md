@@ -4,32 +4,32 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** |  | 
-**ClusterId** | **string** |  | 
-**ReleaseId** | **string** |  | 
-**DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored | 
-**Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** |  |
+**ClusterId** | **string** |  |
+**ReleaseId** | **string** |  |
+**DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored |
+**Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly]
 **ExternalReference** | Pointer to **string** | Immutable external resource reference scoped to its authenticated creator | [optional]
-**ExternalDns** | Pointer to **string** |  | [optional] 
-**TlsMode** | Pointer to **string** |  | [optional] 
-**ServiceType** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**Phase** | Pointer to **string** |  | [optional] 
-**Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
-**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
-**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
-**RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
-**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
-**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
-**Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
-**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
-**ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
-**CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
+**ExternalDns** | Pointer to **string** |  | [optional]
+**TlsMode** | Pointer to **string** |  | [optional]
+**ServiceType** | Pointer to **string** |  | [optional]
+**Status** | Pointer to **string** |  | [optional]
+**Phase** | Pointer to **string** |  | [optional]
+**Image** | Pointer to **string** | Container image for the gateway deployment | [optional]
+**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional]
+**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional]
+**RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly]
+**ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly]
+**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly]
+**Route** | Pointer to **string** | JSON-encoded route configuration | [optional]
+**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional]
+**ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly]
+**CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly]
 
 ## Methods
 

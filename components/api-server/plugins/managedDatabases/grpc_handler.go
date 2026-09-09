@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/golang/glog"
+	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -32,7 +33,13 @@ func (h *managedDatabaseGRPCHandler) GetManagedDatabase(ctx context.Context, req
 		return nil, err
 	}
 
-	managedDatabase, svcErr := h.service.Get(ctx, req.Id)
+	var managedDatabase *ManagedDatabase
+	var svcErr *errors.ServiceError
+	if req.IncludeDeleted {
+		managedDatabase, svcErr = h.service.GetUnscoped(ctx, req.Id)
+	} else {
+		managedDatabase, svcErr = h.service.Get(ctx, req.Id)
+	}
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}

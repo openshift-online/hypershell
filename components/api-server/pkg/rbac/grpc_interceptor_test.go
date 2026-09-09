@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
 
@@ -355,5 +356,35 @@ func TestIsGRPCAuthorized_PlatformAdminWithCreatorCanCreate(t *testing.T) {
 
 	if !isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
 		t.Error("platform:admin + gateway:creator should be authorized for Create")
+	}
+}
+
+func TestDeletionControlPlaneOperationsRequireAllowlistedIdentity(t *testing.T) {
+	for _, username := range []string{"", "owner", "control-plane"} {
+		for _, allowlist := range [][]string{nil, {"control-plane"}} {
+			allowed := username == "control-plane" && len(allowlist) > 0
+			ctx := auth.SetUsernameContext(context.WithValue(context.Background(), ContextUserIDKey, "owner-id"), username)
+			lookup := fakeLookup{bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")}}}
+			cfg := AuthzConfig{EnforceRBAC: true, ServiceAccounts: allowlist}
+			for _, operation := range []struct {
+				method  string
+				request interface{}
+			}{
+				{"/hypershell.v1.GatewayService/CompleteGatewayDeletion", &pb.CompleteGatewayDeletionRequest{Id: "gw-1"}},
+				{"/hypershell.v1.ManagedDatabaseService/GetManagedDatabase", &pb.GetManagedDatabaseRequest{Id: "db-1", IncludeDeleted: true}},
+			} {
+				called := false
+				_, err := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "owner-id"}, nil, cfg)(ctx, operation.request, &grpc.UnaryServerInfo{FullMethod: operation.method}, func(context.Context, interface{}) (interface{}, error) { called = true; return nil, nil })
+				if called != allowed || (allowed && err != nil) || (!allowed && status.Code(err) != codes.PermissionDenied) {
+					t.Fatalf("%s user=%q allowlist=%v: called=%v err=%v", operation.method, username, allowlist, called, err)
+				}
+			}
+			replayCtx := metadata.NewIncomingContext(ctx, metadata.Pairs("hypershell-gateway-replay", "deleted-v1"))
+			called := false
+			err := RBACStreamInterceptor(lookup, fakeProvisioner{userID: "owner-id"}, nil, cfg)(nil, &fakeServerStream{ctx: replayCtx}, &grpc.StreamServerInfo{FullMethod: "/hypershell.v1.GatewayService/WatchGateways"}, func(interface{}, grpc.ServerStream) error { called = true; return nil })
+			if called != allowed || (allowed && err != nil) || (!allowed && status.Code(err) != codes.PermissionDenied) {
+				t.Fatalf("replay user=%q allowlist=%v: called=%v err=%v", username, allowlist, called, err)
+			}
+		}
 	}
 }

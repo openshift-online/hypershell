@@ -395,3 +395,29 @@ func (h gatewayHandler) checkReplayAccess(ctx context.Context, userID, gatewayID
 	}
 	return errors.Forbidden("gateway access has been removed")
 }
+
+func (h gatewayHandler) DeletionStatus(w http.ResponseWriter, r *http.Request) {
+	cfg := &handlers.HandlerConfig{
+		Action: func() (interface{}, *errors.ServiceError) {
+			references := r.URL.Query()["external_reference"]
+			if len(references) != 1 {
+				return nil, errors.Validation("supply one external_reference")
+			}
+			gateway, err := h.gateway.DeletionStatus(r.Context(), references[0])
+			if err != nil {
+				return nil, err
+			}
+			result := openapi.GatewayDeletionStatus{GatewayId: gateway.ID, ExternalReference: references[0], State: "active"}
+			if gateway.DeletedAt.Valid {
+				result.State = "requested"
+				result.DeletionRequestedAt = &gateway.DeletedAt.Time
+			}
+			if gateway.DeletionCompletedAt != nil {
+				result.State = "completed"
+				result.DeletionCompletedAt = gateway.DeletionCompletedAt
+			}
+			return result, nil
+		},
+	}
+	handlers.HandleGet(w, r, cfg)
+}

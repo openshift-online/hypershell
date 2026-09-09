@@ -41,24 +41,13 @@ func (r *externalDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.In
 	return nil
 }
 
-// Delete drops the gateway's external database and role. Cleanup is
-// unconditional, single-shot and best-effort: the gateway is already removed
-// from the API server, there is no tombstone and no retry queue, so no later
-// event re-delivers this work.
-//
-// It therefore always returns nil. A failure is logged at ERROR naming the
-// gateway and ManagedDatabase IDs (never credentials) so the orphaned role and
-// database are discoverable; operators reclaim them with the runbook in
-// openshell-gateway-database-external.spec.md § Operator Runbook. Returning an
-// error instead would strand gateway finalization on a retry that never
-// succeeds.
+// Delete returns cleanup failures so the gateway deletion queue can retry.
 func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error {
 	if gatewayID == "" || r.cfg.CredentialsNamespace == "" {
 		return nil
 	}
 	if err := DeleteExternalDatabaseResources(ctx, clientset, r.cfg, gatewayID); err != nil {
-		log.Printf("ERROR gateway %s: external database cleanup failed on ManagedDatabase %s; role and database %q may remain on the external server and require manual removal (see the external database spec's operator runbook): %v",
-			gatewayID, r.cfg.ManagedDatabaseID, externalGatewayDBName(gatewayID), err)
+		return fmt.Errorf("delete external gateway database: %w", err)
 	}
 	return nil
 }
@@ -553,9 +542,8 @@ func ReconcileExternalDatabaseResources(
 // gateway's database and role on the external server. Idempotent: absent
 // objects are treated as success.
 //
-// A non-nil error means the objects may still exist on the server. Deletion is
-// single-shot (see externalDatabaseReconciler.Delete), so the caller logs the
-// failure rather than scheduling a retry.
+// A non-nil error means the objects may still exist on the server. The caller
+// retains the deletion request and retries the cleanup.
 func DeleteExternalDatabaseResources(
 	ctx context.Context,
 	clientset kubernetes.Interface,

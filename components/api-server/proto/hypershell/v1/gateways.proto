@@ -157,7 +157,11 @@ message WatchGatewaysResponse {
   string resource_id = 3;
 }
 
+message CompleteGatewayDeletionRequest { string id = 1; }
+message CompleteGatewayDeletionResponse {}
+
 service GatewayService {
+  rpc CompleteGatewayDeletion(CompleteGatewayDeletionRequest) returns (CompleteGatewayDeletionResponse);
   rpc GetGateway(GetGatewayRequest) returns (GetGatewayResponse);
   rpc CreateGateway(CreateGatewayRequest) returns (CreateGatewayResponse);
   rpc UpdateGateway(UpdateGatewayRequest) returns (UpdateGatewayResponse);

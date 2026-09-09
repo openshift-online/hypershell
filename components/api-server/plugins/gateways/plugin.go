@@ -200,6 +200,7 @@ func init() {
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
+		gatewaysRouter.HandleFunc("/deletion", gatewayHandler.DeletionStatus).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Get).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("", gatewayHandler.Create).Methods(http.MethodPost)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Patch).Methods(http.MethodPatch)
@@ -246,6 +247,7 @@ func init() {
 
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationAddExternalReference())
+	db.RegisterMigration(migrationAddDeletionCompletion())
 	db.RegisterMigration(migrationAddProvisioningFields())
 	db.RegisterMigration(migrationAddSupervisorImage())
 	db.RegisterMigration(migrationAddCredentialDriver())

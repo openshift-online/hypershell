@@ -54,6 +54,14 @@ func (a *{{.Resource.Name}}API) List(ctx context.Context, opts *types.ListOption
 {{- range .Resource.ListParameters}}
 {{- if eq .Name "external_reference"}}
 
+// GetDeletionStatus returns resource cleanup status in the creator's scope.
+func (a *{{$.Resource.Name}}API) GetDeletionStatus(ctx context.Context, reference string) (*types.{{$.Resource.Name}}DeletionStatus, error) {
+ var result types.{{$.Resource.Name}}DeletionStatus
+ path := "/{{$.Resource.PathSegment}}/deletion?external_reference=" + url.QueryEscape(reference)
+ if err := a.client.do(ctx, http.MethodGet, path, nil, http.StatusOK, &result); err != nil { return nil, err }
+ return &result, nil
+}
+
 // FindByExternalReference resolves a reference in the authenticated caller's scope.
 func (a *{{$.Resource.Name}}API) FindByExternalReference(ctx context.Context, reference string) (*types.{{$.Resource.Name}}List, error) {
  var result types.{{$.Resource.Name}}List

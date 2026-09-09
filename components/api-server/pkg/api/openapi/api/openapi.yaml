@@ -17,6 +17,33 @@ tags:
 - description: Default API operations
   name: default
 paths:
+  /api/hypershell/v1/gateways/deletion:
+    get:
+      operationId: getGatewayDeletionStatus
+      parameters:
+      - in: query
+        name: external_reference
+        required: true
+        schema:
+          maxLength: 255
+          minLength: 1
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayDeletionStatus"
+          description: Gateway deletion state
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No reference exists in the caller scope
+      security:
+      - Bearer: []
+      summary: Get deletion status for a reference in the caller scope
   /api/hypershell/v1/metadata:
     get:
       operationId: getMetadata
@@ -3521,6 +3548,32 @@ components:
           href: href
           email: email
           username: username
+    GatewayDeletionStatus:
+      example:
+        deletion_completed_at: 2000-01-23T04:56:07.000+00:00
+        deletion_requested_at: 2000-01-23T04:56:07.000+00:00
+        external_reference: external_reference
+        state: state
+        gateway_id: gateway_id
+      properties:
+        gateway_id:
+          type: string
+        external_reference:
+          type: string
+        state:
+          description: "active, requested, or completed"
+          type: string
+        deletion_requested_at:
+          format: date-time
+          type: string
+        deletion_completed_at:
+          format: date-time
+          type: string
+      required:
+      - external_reference
+      - gateway_id
+      - state
+      type: object
     GatewayCreateRequest:
       example:
         phase: phase
