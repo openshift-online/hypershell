@@ -57,7 +57,8 @@ type GatewayHealthReconciler struct {
 	clusterID           string
 	interval            time.Duration
 	exposure            exposure.Port
-	routeReadyTimeout   time.Duration
+	routeReadyTimeout      time.Duration
+	deploymentReadyTimeout time.Duration
 	keycloakConfig      *gateway.KeycloakConfig
 	isOpenShift         bool
 	hasGatewayAPI       bool
@@ -96,10 +97,11 @@ type GatewayHealthReconciler struct {
 	// settled gateway keeps being re-verified forever at that low cadence, because
 	// elapsed wall-clock time is not proof that a stale provisioning pass cannot
 	// still resurrect resources (see routeVerifyInterval).
-	mu                 sync.Mutex
-	routeNotReadySince map[string]time.Time
-	routeTornDown      map[string]bool
-	routeVerifiedAt    map[string]time.Time
+	mu                       sync.Mutex
+	routeNotReadySince       map[string]time.Time
+	deploymentNotReadySince  map[string]time.Time
+	routeTornDown            map[string]bool
+	routeVerifiedAt          map[string]time.Time
 }
 
 func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID string) *GatewayHealthReconciler {
@@ -126,17 +128,19 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		clusterID:            clusterID,
 		interval:             defaultHealthInterval,
 		exposure:             exposurePort,
-		routeReadyTimeout:    routeReadyTimeout(),
-		keycloakConfig:       keycloakConfig,
+		routeReadyTimeout:      routeReadyTimeout(),
+		deploymentReadyTimeout: deploymentReadyTimeout(),
+		keycloakConfig:         keycloakConfig,
 		consoleClientChecker: consoleClientChecker,
 		isOpenShift:          isOpenShift,
 		hasGatewayAPI:        hasGatewayAPI,
 		ingressMode:          ingressMode,
 		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
 		now:                  time.Now,
-		routeNotReadySince:   make(map[string]time.Time),
-		routeTornDown:        make(map[string]bool),
-		routeVerifiedAt:      make(map[string]time.Time),
+		routeNotReadySince:      make(map[string]time.Time),
+		deploymentNotReadySince: make(map[string]time.Time),
+		routeTornDown:           make(map[string]bool),
+		routeVerifiedAt:         make(map[string]time.Time),
 	}
 }
 
