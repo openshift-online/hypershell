@@ -1344,7 +1344,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if r.keycloakClient != nil {
 				clientID, err := existingGatewayKeycloakClientID(event.ResourceID, gw)
 				if err != nil {
-					deleteErrs = append(deleteErrs, err)
+					// Invalid stored identity never becomes valid on retry, so failing
+					// here would pin the delete tombstone after namespace and database
+					// cleanup. Keycloak is not contacted. Log the failure for operator
+					// recovery instead.
+					log.Printf("ERROR gateway %s stored identity cannot be resolved (%v); skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", event.ResourceID, err)
 				} else {
 					opts.KeycloakClient = r.keycloakClient
 					opts.GatewayClientID = clientID

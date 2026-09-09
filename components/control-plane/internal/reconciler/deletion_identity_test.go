@@ -101,11 +101,14 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 				}
 			} else if tc.invalid {
 				var identityErr *gatewayKeycloakClientIdentityError
-				if !errors.As(err, &identityErr) {
-					t.Fatalf("missing identity validation error: %v", err)
+				if errors.As(err, &identityErr) {
+					t.Fatalf("invalid identity blocked finalization: %v", err)
 				}
 				if requests != 0 {
 					t.Fatal("invalid identity reached Keycloak")
+				}
+				if !strings.Contains(logs.String(), "stored identity cannot be resolved") {
+					t.Fatalf("invalid identity was not reported for operator recovery: %q", logs.String())
 				}
 			} else if want := []string{tc.wantClient + "-console", tc.wantClient}; !reflect.DeepEqual(lookups, want) {
 				t.Fatalf("client lookups = %v, want %v", lookups, want)
