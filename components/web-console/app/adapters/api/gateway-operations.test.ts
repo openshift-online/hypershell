@@ -58,6 +58,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     credential_driver: "",
     database_id: "database-1",
     external_dns: "gateway.example.com",
+    external_reference: "",
     href: "/api/hypershell/v1/gateways/gateway-1",
     id: "gateway-1",
     image: "",

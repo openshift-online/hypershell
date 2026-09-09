@@ -4,22 +4,22 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | **string** |  |
-**ClusterId** | **string** |  |
-**ReleaseId** | **string** |  |
-**DatabaseId** | **string** | Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase |
-**ExternalReference** | Pointer to **string** | Immutable external resource reference scoped to the authenticated caller; repeat creation returns the original gateway | [optional]
-**ExternalDns** | Pointer to **string** |  | [optional]
-**TlsMode** | Pointer to **string** |  | [optional]
-**ServiceType** | Pointer to **string** |  | [optional]
-**Status** | Pointer to **string** |  | [optional]
-**Phase** | Pointer to **string** |  | [optional]
-**Image** | Pointer to **string** | Container image for the gateway deployment | [optional]
-**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional]
-**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional]
-**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional]
-**Route** | Pointer to **string** | JSON-encoded route configuration | [optional]
-**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional]
+**Name** | **string** |  | 
+**ClusterId** | **string** |  | 
+**ReleaseId** | **string** |  | 
+**DatabaseId** | **string** | Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase | 
+**ExternalReference** | Pointer to **string** | Immutable external resource reference scoped to the authenticated caller; repeat creation returns the original gateway | [optional] 
+**ExternalDns** | Pointer to **string** |  | [optional] 
+**TlsMode** | Pointer to **string** |  | [optional] 
+**ServiceType** | Pointer to **string** |  | [optional] 
+**Status** | Pointer to **string** |  | [optional] 
+**Phase** | Pointer to **string** |  | [optional] 
+**Image** | Pointer to **string** | Container image for the gateway deployment | [optional] 
+**SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar | [optional] 
+**ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs | [optional] 
+**Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration | [optional] 
+**Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
+**CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
 
 ## Methods
 

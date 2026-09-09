@@ -4,11 +4,11 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**GatewayId** | **string** |  |
-**ExternalReference** | **string** |  |
-**State** | **string** | active, requested, or completed |
-**DeletionRequestedAt** | Pointer to **time.Time** |  | [optional]
-**DeletionCompletedAt** | Pointer to **time.Time** |  | [optional]
+**GatewayId** | **string** |  | 
+**ExternalReference** | **string** |  | 
+**State** | **string** | active, requested, or completed | 
+**DeletionRequestedAt** | Pointer to **time.Time** |  | [optional] 
+**DeletionCompletedAt** | Pointer to **time.Time** |  | [optional] 
 
 ## Methods
 
