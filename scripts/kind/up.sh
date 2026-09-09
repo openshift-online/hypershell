@@ -402,7 +402,7 @@ elif [[ "${DB_PROVIDER}" == "external" ]]; then
   # control plane. DATABASE_PROVIDER=external is NOT patched here - it is
   # applied via kubectl set env after the initial deployment readiness wait
   # below so the baseline image can start cleanly before the PR image swap.
-  _db_overlay_extra=$'\ncomponents:\n  - ../components/database-external'
+  _db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
 fi
 
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
