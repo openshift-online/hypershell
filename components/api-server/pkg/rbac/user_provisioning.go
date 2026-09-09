@@ -28,7 +28,7 @@ type UserProvisioner interface {
 func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSyncer) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			payload, err := auth.GetAuthPayload(r)
+				payload, err := auth.GetAuthPayload(r)
 			if err != nil {
 				next.ServeHTTP(w, r)
 				return
