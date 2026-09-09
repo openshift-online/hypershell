@@ -10,6 +10,7 @@ import (
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c := &Gateway{}
 	c.Name = gateway.Name
+	c.ExternalReference = gateway.ExternalReference
 	c.ClusterId = gateway.ClusterId
 	c.ReleaseId = gateway.ReleaseId
 	// database_id is assigned by the configured server-side placement strategy.
@@ -37,28 +38,29 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
-		Id:               reference.Id,
-		Kind:             reference.Kind,
-		Href:             reference.Href,
-		CreatedAt:        openapi.PtrTime(gateway.CreatedAt),
-		UpdatedAt:        openapi.PtrTime(gateway.UpdatedAt),
-		Name:             gateway.Name,
-		ClusterId:        gateway.ClusterId,
-		ReleaseId:        gateway.ReleaseId,
-		DatabaseId:       gateway.DatabaseId,
-		Namespace:        gateway.Namespace,
-		ExternalDns:      gateway.ExternalDns,
-		TlsMode:          gateway.TlsMode,
-		ServiceType:      gateway.ServiceType,
-		Status:           gateway.Status,
-		Phase:            gateway.Phase,
-		Image:            gateway.Image,
-		SupervisorImage:  gateway.SupervisorImage,
-		RouteAddress:     gateway.RouteAddress,
-		ConsoleAddress:   gateway.ConsoleAddress,
-		Oidc:             gateway.Oidc,
-		Route:            gateway.Route,
-		CredentialDriver: gateway.CredentialDriver,
+		Id:                reference.Id,
+		Kind:              reference.Kind,
+		Href:              reference.Href,
+		CreatedAt:         openapi.PtrTime(gateway.CreatedAt),
+		UpdatedAt:         openapi.PtrTime(gateway.UpdatedAt),
+		Name:              gateway.Name,
+		ExternalReference: gateway.ExternalReference,
+		ClusterId:         gateway.ClusterId,
+		ReleaseId:         gateway.ReleaseId,
+		DatabaseId:        gateway.DatabaseId,
+		Namespace:         gateway.Namespace,
+		ExternalDns:       gateway.ExternalDns,
+		TlsMode:           gateway.TlsMode,
+		ServiceType:       gateway.ServiceType,
+		Status:            gateway.Status,
+		Phase:             gateway.Phase,
+		Image:             gateway.Image,
+		SupervisorImage:   gateway.SupervisorImage,
+		RouteAddress:      gateway.RouteAddress,
+		ConsoleAddress:    gateway.ConsoleAddress,
+		Oidc:              gateway.Oidc,
+		Route:             gateway.Route,
+		CredentialDriver:  gateway.CredentialDriver,
 		ActiveSandboxCount: func() *int32 {
 			if gateway.ActiveSandboxCount != nil {
 				return openapi.PtrInt32(int32(*gateway.ActiveSandboxCount))

@@ -14,6 +14,7 @@ Name | Type | Description | Notes
 **ReleaseId** | **string** |  | 
 **DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored | 
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
+**ExternalReference** | Pointer to **string** | Immutable external resource reference scoped to its authenticated creator | [optional]
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -273,6 +274,31 @@ and a boolean to check if the value has been set.
 
 SetNamespace sets Namespace field to given value.
 
+
+### GetExternalReference
+
+`func (o *Gateway) GetExternalReference() string`
+
+GetExternalReference returns the ExternalReference field if non-nil, zero value otherwise.
+
+### GetExternalReferenceOk
+
+`func (o *Gateway) GetExternalReferenceOk() (*string, bool)`
+
+GetExternalReferenceOk returns a tuple with the ExternalReference field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetExternalReference
+
+`func (o *Gateway) SetExternalReference(v string)`
+
+SetExternalReference sets ExternalReference field to given value.
+
+### HasExternalReference
+
+`func (o *Gateway) HasExternalReference() bool`
+
+HasExternalReference returns a boolean if a field has been set.
 
 ### GetExternalDns
 

@@ -8,6 +8,7 @@ Name | Type | Description | Notes
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
 **DatabaseId** | **string** | Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase | 
+**ExternalReference** | Pointer to **string** | Immutable external resource reference scoped to the authenticated caller; repeat creation returns the original gateway | [optional]
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -118,6 +119,31 @@ and a boolean to check if the value has been set.
 
 SetDatabaseId sets DatabaseId field to given value.
 
+
+### GetExternalReference
+
+`func (o *GatewayCreateRequest) GetExternalReference() string`
+
+GetExternalReference returns the ExternalReference field if non-nil, zero value otherwise.
+
+### GetExternalReferenceOk
+
+`func (o *GatewayCreateRequest) GetExternalReferenceOk() (*string, bool)`
+
+GetExternalReferenceOk returns a tuple with the ExternalReference field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetExternalReference
+
+`func (o *GatewayCreateRequest) SetExternalReference(v string)`
+
+SetExternalReference sets ExternalReference field to given value.
+
+### HasExternalReference
+
+`func (o *GatewayCreateRequest) HasExternalReference() bool`
+
+HasExternalReference returns a boolean if a field has been set.
 
 ### GetExternalDns
 

@@ -25,12 +25,14 @@ type GatewayCreateRequest struct {
 	ClusterId string `json:"cluster_id"`
 	ReleaseId string `json:"release_id"`
 	// Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
-	DatabaseId  string  `json:"database_id"`
-	ExternalDns *string `json:"external_dns,omitempty"`
-	TlsMode     *string `json:"tls_mode,omitempty"`
-	ServiceType *string `json:"service_type,omitempty"`
-	Status      *string `json:"status,omitempty"`
-	Phase       *string `json:"phase,omitempty"`
+	DatabaseId string `json:"database_id"`
+	// Immutable external resource reference scoped to the authenticated caller; repeat creation returns the original gateway
+	ExternalReference *string `json:"external_reference,omitempty"`
+	ExternalDns       *string `json:"external_dns,omitempty"`
+	TlsMode           *string `json:"tls_mode,omitempty"`
+	ServiceType       *string `json:"service_type,omitempty"`
+	Status            *string `json:"status,omitempty"`
+	Phase             *string `json:"phase,omitempty"`
 	// Container image for the gateway deployment
 	Image *string `json:"image,omitempty"`
 	// Container image for the supervisor sidecar
@@ -162,6 +164,38 @@ func (o *GatewayCreateRequest) GetDatabaseIdOk() (*string, bool) {
 // SetDatabaseId sets field value
 func (o *GatewayCreateRequest) SetDatabaseId(v string) {
 	o.DatabaseId = v
+}
+
+// GetExternalReference returns the ExternalReference field value if set, zero value otherwise.
+func (o *GatewayCreateRequest) GetExternalReference() string {
+	if o == nil || IsNil(o.ExternalReference) {
+		var ret string
+		return ret
+	}
+	return *o.ExternalReference
+}
+
+// GetExternalReferenceOk returns a tuple with the ExternalReference field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayCreateRequest) GetExternalReferenceOk() (*string, bool) {
+	if o == nil || IsNil(o.ExternalReference) {
+		return nil, false
+	}
+	return o.ExternalReference, true
+}
+
+// HasExternalReference returns a boolean if a field has been set.
+func (o *GatewayCreateRequest) HasExternalReference() bool {
+	if o != nil && !IsNil(o.ExternalReference) {
+		return true
+	}
+
+	return false
+}
+
+// SetExternalReference gets a reference to the given string and assigns it to the ExternalReference field.
+func (o *GatewayCreateRequest) SetExternalReference(v string) {
+	o.ExternalReference = &v
 }
 
 // GetExternalDns returns the ExternalDns field value if set, zero value otherwise.
@@ -530,6 +564,9 @@ func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
 	toSerialize["database_id"] = o.DatabaseId
+	if !IsNil(o.ExternalReference) {
+		toSerialize["external_reference"] = o.ExternalReference
+	}
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
 	}

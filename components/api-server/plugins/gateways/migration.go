@@ -186,3 +186,25 @@ func migrationDropFleetsTable() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddExternalReference() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026090900000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE gateways
+    ADD COLUMN IF NOT EXISTS external_reference TEXT,
+    ADD COLUMN IF NOT EXISTS external_reference_owner TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS gateways_external_reference_owner_key
+    ON gateways (external_reference_owner, external_reference)
+    WHERE external_reference IS NOT NULL;
+    ALTER TABLE gateways ADD CONSTRAINT gateways_external_reference_scope
+    CHECK ((external_reference IS NULL AND external_reference_owner IS NULL) OR
+     (external_reference IS NOT NULL AND length(external_reference) BETWEEN 1 AND 255 AND external_reference_owner IS NOT NULL AND external_reference_owner <> ''));`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE gateways DROP CONSTRAINT IF EXISTS gateways_external_reference_scope;
+    DROP INDEX IF EXISTS gateways_external_reference_owner_key;
+    ALTER TABLE gateways DROP COLUMN IF EXISTS external_reference, DROP COLUMN IF EXISTS external_reference_owner;`).Error
+		},
+	}
+}

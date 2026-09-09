@@ -33,12 +33,14 @@ type Gateway struct {
 	// Server-assigned ManagedDatabase identifier; client-supplied values are ignored
 	DatabaseId string `json:"database_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
-	Namespace   string  `json:"namespace"`
-	ExternalDns *string `json:"external_dns,omitempty"`
-	TlsMode     *string `json:"tls_mode,omitempty"`
-	ServiceType *string `json:"service_type,omitempty"`
-	Status      *string `json:"status,omitempty"`
-	Phase       *string `json:"phase,omitempty"`
+	Namespace string `json:"namespace"`
+	// Immutable external resource reference scoped to its authenticated creator
+	ExternalReference *string `json:"external_reference,omitempty"`
+	ExternalDns       *string `json:"external_dns,omitempty"`
+	TlsMode           *string `json:"tls_mode,omitempty"`
+	ServiceType       *string `json:"service_type,omitempty"`
+	Status            *string `json:"status,omitempty"`
+	Phase             *string `json:"phase,omitempty"`
 	// Container image for the gateway deployment
 	Image *string `json:"image,omitempty"`
 	// Container image for the supervisor sidecar
@@ -363,6 +365,38 @@ func (o *Gateway) GetNamespaceOk() (*string, bool) {
 // SetNamespace sets field value
 func (o *Gateway) SetNamespace(v string) {
 	o.Namespace = v
+}
+
+// GetExternalReference returns the ExternalReference field value if set, zero value otherwise.
+func (o *Gateway) GetExternalReference() string {
+	if o == nil || IsNil(o.ExternalReference) {
+		var ret string
+		return ret
+	}
+	return *o.ExternalReference
+}
+
+// GetExternalReferenceOk returns a tuple with the ExternalReference field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetExternalReferenceOk() (*string, bool) {
+	if o == nil || IsNil(o.ExternalReference) {
+		return nil, false
+	}
+	return o.ExternalReference, true
+}
+
+// HasExternalReference returns a boolean if a field has been set.
+func (o *Gateway) HasExternalReference() bool {
+	if o != nil && !IsNil(o.ExternalReference) {
+		return true
+	}
+
+	return false
+}
+
+// SetExternalReference gets a reference to the given string and assigns it to the ExternalReference field.
+func (o *Gateway) SetExternalReference(v string) {
+	o.ExternalReference = &v
 }
 
 // GetExternalDns returns the ExternalDns field value if set, zero value otherwise.
@@ -875,6 +909,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	toSerialize["release_id"] = o.ReleaseId
 	toSerialize["database_id"] = o.DatabaseId
 	toSerialize["namespace"] = o.Namespace
+	if !IsNil(o.ExternalReference) {
+		toSerialize["external_reference"] = o.ExternalReference
+	}
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
 	}

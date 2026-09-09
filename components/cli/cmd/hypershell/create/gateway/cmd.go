@@ -16,20 +16,21 @@ import (
 )
 
 var args struct {
-	clusterId       string
-	databaseId      string
-	externalDns     string
-	image           string
-	name            string
-	phase           string
-	releaseId       string
-	route           string
-	serverDnsNames  string
-	serviceType     string
-	status          string
-	supervisorImage string
-	tlsMode         string
-	bodyFile        string
+	clusterId         string
+	databaseId        string
+	externalDns       string
+	externalReference string
+	image             string
+	name              string
+	phase             string
+	releaseId         string
+	route             string
+	serverDnsNames    string
+	serviceType       string
+	status            string
+	supervisorImage   string
+	tlsMode           string
+	bodyFile          string
 }
 
 var Cmd = &cobra.Command{
@@ -48,6 +49,7 @@ func init() {
 	fs.StringVar(&args.clusterId, "cluster-id", "", "cluster_id value.")
 	fs.StringVar(&args.databaseId, "database-id", "", "database_id value.")
 	fs.StringVar(&args.externalDns, "external-dns", "", "external_dns value.")
+	fs.StringVar(&args.externalReference, "external-reference", "", "Stable reference scoped to the authenticated caller. Repeated creation returns the original gateway.")
 	fs.StringVar(&args.image, "image", "", "image value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.phase, "phase", "", "phase value.")
@@ -87,6 +89,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 		if args.databaseId != "" {
 			request["database_id"] = args.databaseId
+		}
+		if args.externalReference != "" {
+			request["external_reference"] = args.externalReference
 		}
 		if args.externalDns != "" {
 			request["external_dns"] = args.externalDns

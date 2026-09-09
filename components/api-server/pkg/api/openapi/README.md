@@ -78,7 +78,7 @@ All URIs are relative to *http://localhost:8000*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
-*DefaultAPI* | [**CreateGateway**](docs/DefaultAPI.md#creategateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
+*DefaultAPI* | [**CreateGateway**](docs/DefaultAPI.md#creategateway) | **Post** /api/hypershell/v1/gateways | Create a gateway or return the gateway for the caller and external reference
 *DefaultAPI* | [**CreateGatewayNetwork**](docs/DefaultAPI.md#creategatewaynetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
 *DefaultAPI* | [**CreateGatewayRelease**](docs/DefaultAPI.md#creategatewayrelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
 *DefaultAPI* | [**CreateGatewayServiceAccount**](docs/DefaultAPI.md#creategatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account

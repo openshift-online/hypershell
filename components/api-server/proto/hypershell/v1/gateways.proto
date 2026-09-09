@@ -29,6 +29,8 @@ message Gateway {
   optional string credential_driver = 20;
   optional int32 active_sandbox_count = 21;
   optional string console_address = 22;
+  // Immutable caller-scoped resource reference, assigned through the REST API.
+  optional string external_reference = 23;
 }
 
 message CreateGatewayRequest {

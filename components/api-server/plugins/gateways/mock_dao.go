@@ -95,3 +95,13 @@ func (d *gatewayDaoMock) findByNamespace(namespace string) *Gateway {
 	}
 	return nil
 }
+
+func (d *gatewayDaoMock) LockExternalReference(context.Context, string, string) error { return nil }
+func (d *gatewayDaoMock) FindByExternalReference(ctx context.Context, owner, reference string) (*Gateway, error) {
+	for _, gateway := range d.gateways {
+		if gateway.ExternalReference != nil && gateway.ExternalReferenceOwner != nil && *gateway.ExternalReference == reference && *gateway.ExternalReferenceOwner == owner {
+			return gateway, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}

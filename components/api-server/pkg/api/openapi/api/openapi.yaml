@@ -908,6 +908,14 @@ paths:
         schema:
           type: string
         style: form
+      - description: Exact reference lookup scoped to the authenticated creator. Normal
+          gateway access checks apply.
+        in: query
+        name: external_reference
+        schema:
+          maxLength: 255
+          minLength: 1
+          type: string
       responses:
         "200":
           content:
@@ -937,6 +945,9 @@ paths:
       - Bearer: []
       summary: Returns a list of gateways
     post:
+      description: Repeated calls with the same external_reference return the original
+        gateway without updates. A deleted reference returns 409. Omit the field for
+        independent creation.
       operationId: createGateway
       requestBody:
         content:
@@ -984,7 +995,8 @@ paths:
           description: An unexpected error occurred creating the gateway
       security:
       - Bearer: []
-      summary: Create a new gateway
+      summary: Create a gateway or return the gateway for the caller and external
+        reference
   /api/hypershell/v1/gateways/{id}:
     delete:
       operationId: deleteGateway
@@ -2613,6 +2625,12 @@ components:
               identifier
             readOnly: true
             type: string
+          external_reference:
+            description: Immutable external resource reference scoped to its authenticated
+              creator
+            maxLength: 255
+            minLength: 1
+            type: string
           external_dns:
             type: string
           tls_mode:
@@ -2680,6 +2698,7 @@ components:
         credential_driver: credential_driver
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
+        external_reference: external_reference
         id: id
         href: href
         external_dns: external_dns
@@ -2726,6 +2745,7 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          external_reference: external_reference
           id: id
           href: href
           external_dns: external_dns
@@ -2753,6 +2773,7 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          external_reference: external_reference
           id: id
           href: href
           external_dns: external_dns
@@ -3517,6 +3538,7 @@ components:
         route: route
         database_id: database_id
         name: name
+        external_reference: external_reference
         external_dns: external_dns
         status: status
       properties:
@@ -3529,6 +3551,12 @@ components:
         database_id:
           description: Required placement placeholder; the API server ignores its
             value and assigns the ManagedDatabase
+          type: string
+        external_reference:
+          description: Immutable external resource reference scoped to the authenticated
+            caller; repeat creation returns the original gateway
+          maxLength: 255
+          minLength: 1
           type: string
         external_dns:
           type: string

@@ -110,6 +110,9 @@ func (a *dbCreatorAdapter) CreateForGateway(ctx context.Context, gatewayName str
 }
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
+	if _, wrapped := env.Database.SessionFactory.(*gatewaySessionFactory); !wrapped {
+		env.Database.SessionFactory = &gatewaySessionFactory{SessionFactory: env.Database.SessionFactory}
+	}
 	dao := NewGatewayDao(&env.Database.SessionFactory)
 	RegisterGatewayMetrics(dao)
 
@@ -242,6 +245,7 @@ func init() {
 	presenters.RegisterKind(&Gateway{}, "Gateway")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddExternalReference())
 	db.RegisterMigration(migrationAddProvisioningFields())
 	db.RegisterMigration(migrationAddSupervisorImage())
 	db.RegisterMigration(migrationAddCredentialDriver())

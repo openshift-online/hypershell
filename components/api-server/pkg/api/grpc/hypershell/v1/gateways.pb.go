@@ -43,8 +43,10 @@ type Gateway struct {
 	CredentialDriver   *string                `protobuf:"bytes,20,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
 	ActiveSandboxCount *int32                 `protobuf:"varint,21,opt,name=active_sandbox_count,json=activeSandboxCount,proto3,oneof" json:"active_sandbox_count,omitempty"`
 	ConsoleAddress     *string                `protobuf:"bytes,22,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Immutable caller-scoped resource reference, assigned through the REST API.
+	ExternalReference *string `protobuf:"bytes,23,opt,name=external_reference,json=externalReference,proto3,oneof" json:"external_reference,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -213,6 +215,13 @@ func (x *Gateway) GetActiveSandboxCount() int32 {
 func (x *Gateway) GetConsoleAddress() string {
 	if x != nil && x.ConsoleAddress != nil {
 		return *x.ConsoleAddress
+	}
+	return ""
+}
+
+func (x *Gateway) GetExternalReference() string {
+	if x != nil && x.ExternalReference != nil {
+		return *x.ExternalReference
 	}
 	return ""
 }
@@ -1241,7 +1250,7 @@ var File_hypershell_v1_gateways_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
-	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xc3\a\n" +
+	"\x1chypershell/v1/gateways.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\x8e\b\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1267,7 +1276,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11credential_driver\x18\x14 \x01(\tH\n" +
 	"R\x10credentialDriver\x88\x01\x01\x125\n" +
 	"\x14active_sandbox_count\x18\x15 \x01(\x05H\vR\x12activeSandboxCount\x88\x01\x01\x12,\n" +
-	"\x0fconsole_address\x18\x16 \x01(\tH\fR\x0econsoleAddress\x88\x01\x01B\x0f\n" +
+	"\x0fconsole_address\x18\x16 \x01(\tH\fR\x0econsoleAddress\x88\x01\x01\x122\n" +
+	"\x12external_reference\x18\x17 \x01(\tH\rR\x11externalReference\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1280,7 +1290,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x17\n" +
 	"\x15_active_sandbox_countB\x12\n" +
-	"\x10_console_addressJ\x04\b\x03\x10\x04R\bfleet_id\"\xa8\x05\n" +
+	"\x10_console_addressB\x15\n" +
+	"\x13_external_referenceJ\x04\b\x03\x10\x04R\bfleet_id\"\xa8\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +

@@ -51,6 +51,19 @@ func (a *{{.Resource.Name}}API) List(ctx context.Context, opts *types.ListOption
 	return &result, nil
 }
 
+{{- range .Resource.ListParameters}}
+{{- if eq .Name "external_reference"}}
+
+// FindByExternalReference resolves a reference in the authenticated caller's scope.
+func (a *{{$.Resource.Name}}API) FindByExternalReference(ctx context.Context, reference string) (*types.{{$.Resource.Name}}List, error) {
+ var result types.{{$.Resource.Name}}List
+ path := "/{{$.Resource.PathSegment}}?external_reference=" + url.QueryEscape(reference)
+ if err := a.client.do(ctx, http.MethodGet, path, nil, http.StatusOK, &result); err != nil { return nil, err }
+ return &result, nil
+}
+{{- end}}
+{{- end}}
+
 {{- if .Resource.HasPatch}}
 
 func (a *{{.Resource.Name}}API) Update(ctx context.Context, id string, patch map[string]any) (*types.{{.Resource.Name}}, error) {

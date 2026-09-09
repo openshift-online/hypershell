@@ -69,3 +69,20 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 		}
 	}
 }
+
+func TestGatewayReferenceLookupFollowsOpenAPIOperation(t *testing.T) {
+	spec, err := parseSpec(filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml"), "/api/hypershell/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, resource := range spec.Resources {
+		if resource.Name != "Gateway" {
+			continue
+		}
+		if len(resource.ListParameters) != 1 || resource.ListParameters[0].Name != "external_reference" {
+			t.Fatalf("gateway list parameters = %#v", resource.ListParameters)
+		}
+		return
+	}
+	t.Fatal("gateway resource is missing")
+}

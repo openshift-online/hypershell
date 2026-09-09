@@ -23,6 +23,16 @@ export class {{.Resource.Name}}API {
     return sdkFetch<{{.Resource.Name}}List>(this.config, 'GET', `/{{.Resource.PathSegment}}${qs}`, undefined, opts);
   }
 
+{{- range .Resource.ListParameters}}
+{{- if eq .Name "external_reference"}}
+
+  async findByExternalReference(reference: string, opts?: RequestOptions): Promise<{{$.Resource.Name}}List> {
+    const query = new URLSearchParams({ external_reference: reference });
+    return sdkFetch<{{$.Resource.Name}}List>(this.config, 'GET', `/{{$.Resource.PathSegment}}?${query}`, undefined, opts);
+  }
+{{- end}}
+{{- end}}
+
 {{- if .Resource.HasPatch}}
 
   async update(id: string, patch: {{.Resource.Name}}PatchRequest, opts?: RequestOptions): Promise<{{.Resource.Name}}> {

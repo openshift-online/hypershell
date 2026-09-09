@@ -4,7 +4,7 @@ All URIs are relative to *http://localhost:8000*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
+[**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a gateway or return the gateway for the caller and external reference
 [**CreateGatewayNetwork**](DefaultAPI.md#CreateGatewayNetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
 [**CreateGatewayRelease**](DefaultAPI.md#CreateGatewayRelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
@@ -50,7 +50,9 @@ Method | HTTP request | Description
 
 > Gateway CreateGateway(ctx).GatewayCreateRequest(gatewayCreateRequest).Execute()
 
-Create a new gateway
+Create a gateway or return the gateway for the caller and external reference
+
+
 
 ### Example
 
@@ -1867,7 +1869,7 @@ Name | Type | Description  | Notes
 
 ## ListGateways
 
-> GatewayList ListGateways(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+> GatewayList ListGateways(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).ExternalReference(externalReference).Execute()
 
 Returns a list of gateways
 
@@ -1889,10 +1891,11 @@ func main() {
 	search := "search_example" // string | Specifies the search criteria (optional)
 	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
 	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+	externalReference := "externalReference_example" // string | Exact reference lookup scoped to the authenticated creator. Normal gateway access checks apply. (optional)
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.ListGateways(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	resp, r, err := apiClient.DefaultAPI.ListGateways(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).ExternalReference(externalReference).Execute()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListGateways``: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
@@ -1918,6 +1921,7 @@ Name | Type | Description  | Notes
  **search** | **string** | Specifies the search criteria | 
  **orderBy** | **string** | Specifies the order by criteria | 
  **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+ **externalReference** | **string** | Exact reference lookup scoped to the authenticated creator. Normal gateway access checks apply. |
 
 ### Return type
 

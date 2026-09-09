@@ -39,7 +39,9 @@ func (r ApiCreateGatewayRequest) Execute() (*Gateway, *http.Response, error) {
 }
 
 /*
-CreateGateway Create a new gateway
+CreateGateway Create a gateway or return the gateway for the caller and external reference
+
+Repeated calls with the same external_reference return the original gateway without updates. A deleted reference returns 409. Omit the field for independent creation.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiCreateGatewayRequest
@@ -3960,13 +3962,14 @@ func (a *DefaultAPIService) ListGatewayServiceAccountsExecute(r ApiListGatewaySe
 }
 
 type ApiListGatewaysRequest struct {
-	ctx        context.Context
-	ApiService *DefaultAPIService
-	page       *int32
-	size       *int32
-	search     *string
-	orderBy    *string
-	fields     *string
+	ctx               context.Context
+	ApiService        *DefaultAPIService
+	page              *int32
+	size              *int32
+	search            *string
+	orderBy           *string
+	fields            *string
+	externalReference *string
 }
 
 // Page number of record list when record list exceeds specified page size
@@ -3996,6 +3999,12 @@ func (r ApiListGatewaysRequest) OrderBy(orderBy string) ApiListGatewaysRequest {
 // Supplies a comma-separated list of fields to be returned
 func (r ApiListGatewaysRequest) Fields(fields string) ApiListGatewaysRequest {
 	r.fields = &fields
+	return r
+}
+
+// Exact reference lookup scoped to the authenticated creator. Normal gateway access checks apply.
+func (r ApiListGatewaysRequest) ExternalReference(externalReference string) ApiListGatewaysRequest {
+	r.externalReference = &externalReference
 	return r
 }
 
@@ -4058,6 +4067,9 @@ func (a *DefaultAPIService) ListGatewaysExecute(r ApiListGatewaysRequest) (*Gate
 	}
 	if r.fields != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "fields", r.fields, "form", "")
+	}
+	if r.externalReference != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "external_reference", r.externalReference, "", "")
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}

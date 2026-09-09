@@ -15,25 +15,28 @@ const gatewayNamespacePrefix = "openshell-"
 type Gateway struct {
 	api.Meta
 	hypershellapi.TraceMeta
-	Name               string  `json:"name"`
-	ClusterId          string  `json:"cluster_id"`
-	ReleaseId          string  `json:"release_id"`
-	DatabaseId         string  `json:"database_id"`
-	Namespace          string  `json:"namespace"`
-	ExternalDns        *string `json:"external_dns"`
-	TlsMode            *string `json:"tls_mode"`
-	ServiceType        *string `json:"service_type"`
-	Status             *string `json:"status"`
-	Phase              *string `json:"phase"`
-	Image              *string `json:"image"`
-	SupervisorImage    *string `json:"supervisor_image"`
-	ServerDnsNames     *string `json:"server_dns_names" gorm:"type:jsonb"`
-	RouteAddress       *string `json:"route_address"`
-	ConsoleAddress     *string `json:"console_address"`
-	Oidc               *string `json:"oidc" gorm:"type:jsonb"`
-	Route              *string `json:"route" gorm:"type:jsonb"`
-	CredentialDriver   *string `json:"credential_driver" gorm:"type:jsonb"`
-	ActiveSandboxCount *int    `json:"active_sandbox_count"`
+	ExternalReference      *string `json:"external_reference,omitempty"`
+	ExternalReferenceOwner *string `json:"-"`
+	replayed               bool    `gorm:"-"`
+	Name                   string  `json:"name"`
+	ClusterId              string  `json:"cluster_id"`
+	ReleaseId              string  `json:"release_id"`
+	DatabaseId             string  `json:"database_id"`
+	Namespace              string  `json:"namespace"`
+	ExternalDns            *string `json:"external_dns"`
+	TlsMode                *string `json:"tls_mode"`
+	ServiceType            *string `json:"service_type"`
+	Status                 *string `json:"status"`
+	Phase                  *string `json:"phase"`
+	Image                  *string `json:"image"`
+	SupervisorImage        *string `json:"supervisor_image"`
+	ServerDnsNames         *string `json:"server_dns_names" gorm:"type:jsonb"`
+	RouteAddress           *string `json:"route_address"`
+	ConsoleAddress         *string `json:"console_address"`
+	Oidc                   *string `json:"oidc" gorm:"type:jsonb"`
+	Route                  *string `json:"route" gorm:"type:jsonb"`
+	CredentialDriver       *string `json:"credential_driver" gorm:"type:jsonb"`
+	ActiveSandboxCount     *int    `json:"active_sandbox_count"`
 }
 
 type GatewayList []*Gateway

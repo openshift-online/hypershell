@@ -2,6 +2,11 @@ package gateways
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
+
+	"github.com/openshift-online/rh-trex-ai/pkg/db/db_context"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -11,6 +16,8 @@ import (
 )
 
 type GatewayDao interface {
+	LockExternalReference(ctx context.Context, owner, reference string) error
+	FindByExternalReference(ctx context.Context, owner, reference string) (*Gateway, error)
 	Get(ctx context.Context, id string) (*Gateway, error)
 	GetUnscoped(ctx context.Context, id string) (*Gateway, error)
 	Create(ctx context.Context, gateway *Gateway) (*Gateway, error)
@@ -87,7 +94,7 @@ func (d *sqlGatewayDao) Replace(ctx context.Context, gateway *Gateway) (*Gateway
 	// AdjustActiveSandboxCount / SetActiveSandboxCount path. Saving it here would
 	// write back the value read into `gateway`, clobbering any concurrent
 	// count adjustment with a stale number.
-	if err := g2.Omit(clause.Associations, "ActiveSandboxCount").Save(gateway).Error; err != nil {
+	if err := g2.Omit(clause.Associations, "ActiveSandboxCount", "ExternalReference", "ExternalReferenceOwner").Save(gateway).Error; err != nil {
 		db.MarkForRollback(ctx, err)
 		return nil, err
 	}
@@ -229,4 +236,22 @@ func (d *sqlGatewayDao) CountByPhase(ctx context.Context) (map[string]int64, err
 		counts[r.Phase] = r.Count
 	}
 	return counts, nil
+}
+
+// LockExternalReference holds the lock until the request transaction commits.
+// A lock released at service return would allow another request to miss the row.
+func (d *sqlGatewayDao) LockExternalReference(ctx context.Context, owner, reference string) error {
+	if _, ok := db_context.Transaction(ctx); !ok {
+		return fmt.Errorf("external reference requires a request transaction")
+	}
+	key := sha256.Sum256([]byte("gateway-reference\x00" + owner + "\x00" + reference))
+	return (*d.sessionFactory).New(ctx).Exec("SELECT pg_advisory_xact_lock(?)", int64(binary.BigEndian.Uint64(key[:8]))).Error
+}
+func (d *sqlGatewayDao) FindByExternalReference(ctx context.Context, owner, reference string) (*Gateway, error) {
+	var gateway Gateway
+	err := (*d.sessionFactory).New(ctx).Unscoped().Where("external_reference_owner = ? AND external_reference = ?", owner, reference).Take(&gateway).Error
+	if err != nil {
+		return nil, err
+	}
+	return &gateway, nil
 }

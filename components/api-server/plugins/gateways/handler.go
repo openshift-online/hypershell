@@ -14,6 +14,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/pkg/handlers"
 	"github.com/openshift-online/rh-trex-ai/pkg/services"
@@ -71,17 +72,29 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
+			if gatewayModel.ExternalReference != nil {
+				ctx = context.WithValue(ctx, atomicCreationKey{}, true)
+			}
 			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
 				return nil, phaseErr
 			}
+			if gatewayModel.ExternalReference != nil && h.ownerBinding == nil {
+				return nil, errors.GeneralError("gateway owner binding is unavailable")
+			}
 			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
 			if err != nil {
+				db.MarkForRollback(ctx, err)
 				return nil, err
 			}
 
 			userID := rbac.GetUserIDFromContext(ctx)
-			if userID != "" && h.ownerBinding != nil {
+			if gatewayModel.replayed {
+				if accessErr := h.checkReplayAccess(ctx, userID, gatewayModel.ID); accessErr != nil {
+					return nil, accessErr
+				}
+			} else if userID != "" && h.ownerBinding != nil {
 				if bindErr := h.ownerBinding.CreateOwnerBinding(ctx, userID, gatewayModel.ID); bindErr != nil {
+					db.MarkForRollback(ctx, bindErr)
 					return nil, errors.GeneralError("failed to create owner binding: %s", bindErr)
 				}
 			}
@@ -192,6 +205,24 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
 			listArgs := services.NewListArguments(r.URL.Query())
+			if reference, present := r.URL.Query()["external_reference"]; present {
+				if len(reference) != 1 {
+					return nil, errors.Validation("supply one external_reference")
+				}
+				gateway, lookupErr := h.gateway.FindByExternalReference(ctx, reference[0])
+				if lookupErr != nil && lookupErr.HttpCode != http.StatusNotFound {
+					return nil, lookupErr
+				}
+				filter := "id = ''"
+				if gateway != nil {
+					filter = visibilitySearchFilter([]string{gateway.ID})
+				}
+				if listArgs.Search != "" {
+					listArgs.Search = "(" + listArgs.Search + ") and " + filter
+				} else {
+					listArgs.Search = filter
+				}
+			}
 
 			userID := rbac.GetUserIDFromContext(ctx)
 			hasPlatformAdmin := rbac.HasPlatformAdminRole(ctx, userID)
@@ -343,4 +374,24 @@ func (h gatewayHandler) MetricsGateways(w http.ResponseWriter, r *http.Request) 
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"counts": counts}); err != nil {
 		glog.Errorf("Failed to encode gateway metrics response: %v", err)
 	}
+}
+
+// A replay must not restore an owner binding that an administrator removed.
+func (h gatewayHandler) checkReplayAccess(ctx context.Context, userID, gatewayID string) *errors.ServiceError {
+	if rbac.HasPlatformAdminRole(ctx, userID) {
+		return nil
+	}
+	if h.visibilityFilter == nil {
+		return errors.Forbidden("gateway access is unavailable")
+	}
+	ids, err := h.visibilityFilter.AccessibleGatewayIDs(ctx, userID)
+	if err != nil {
+		return errors.GeneralError("cannot check gateway access: %s", err)
+	}
+	for _, id := range ids {
+		if id == gatewayID {
+			return nil
+		}
+	}
+	return errors.Forbidden("gateway access has been removed")
 }

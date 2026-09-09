@@ -434,6 +434,14 @@ func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.Re
 		Fields: fields, RequiredFields: required, PatchFields: patchFields,
 		StatusPatchFields: statusPatchFields, HasStatusPatch: len(statusPatchFields) > 0,
 	}
+	if list := operationAt(document, collection.Path, "GET"); list != nil {
+		for _, parameter := range list.Parameters {
+			if parameter.In == "query" && parameter.Name == "external_reference" {
+				resource.ListParameters = append(resource.ListParameters, Field{Name: parameter.Name})
+			}
+		}
+	}
+
 	for _, view := range document.ResourceViews {
 		if view.SchemaRef != schema.Ref {
 			continue

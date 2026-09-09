@@ -38,9 +38,17 @@ paths:
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/orderBy'
         - $ref: '#/components/parameters/fields'
+        - name: external_reference
+          in: query
+          description: Exact reference lookup scoped to the authenticated creator. Normal gateway access checks apply.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
     post:
       operationId: createGateway
-      summary: Create a new gateway
+      summary: Create a gateway or return the gateway for the caller and external reference
+      description: Repeated calls with the same external_reference return the original gateway without updates. A deleted reference returns 409. Omit the field for independent creation.
       security:
         - Bearer: []
       requestBody:
@@ -243,6 +251,11 @@ components:
               type: string
               readOnly: true
               description: API-assigned Kubernetes namespace derived from the Gateway identifier
+            external_reference:
+              type: string
+              minLength: 1
+              maxLength: 255
+              description: Immutable external resource reference scoped to its authenticated creator
             external_dns:
               type: string
             tls_mode:
@@ -308,6 +321,11 @@ components:
         database_id:
           type: string
           description: Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
+        external_reference:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Immutable external resource reference scoped to the authenticated caller; repeat creation returns the original gateway
         external_dns:
           type: string
         tls_mode:

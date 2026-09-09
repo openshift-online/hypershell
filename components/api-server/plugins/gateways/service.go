@@ -2,7 +2,13 @@ package gateways
 
 import (
 	"context"
+	stderrors "errors"
 	"net/http"
+	"strings"
+	"unicode"
+
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"gorm.io/gorm"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -14,6 +20,7 @@ import (
 const gatewaysLockType db.LockType = "gateways"
 
 type GatewayService interface {
+	FindByExternalReference(ctx context.Context, reference string) (*Gateway, *errors.ServiceError)
 	Get(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
 	GetUnscoped(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
 	Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError)
@@ -99,6 +106,33 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
+	gateway.ExternalReferenceOwner = nil
+	if gateway.ExternalReference != nil {
+		ctx = context.WithValue(ctx, atomicCreationKey{}, true)
+		if err := validateExternalReference(*gateway.ExternalReference); err != nil {
+			return nil, err
+		}
+		owner := rbac.GetUserIDFromContext(ctx)
+		if owner == "" {
+			return nil, errors.Forbidden("external_reference requires an authenticated caller")
+		}
+		gateway.ExternalReferenceOwner = &owner
+		if err := s.gatewayDao.LockExternalReference(ctx, owner, *gateway.ExternalReference); err != nil {
+			return nil, errors.GeneralError("cannot lock gateway reference: %s", err)
+		}
+		existing, err := s.gatewayDao.FindByExternalReference(ctx, owner, *gateway.ExternalReference)
+		if err == nil {
+			if existing.DeletedAt.Valid {
+				return nil, errors.Conflict("external_reference belongs to a deleted gateway; use a new reference")
+			}
+			copy := *existing
+			copy.replayed = true
+			return &copy, nil
+		}
+		if !stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.GeneralError("cannot find gateway reference: %s", err)
+		}
+	}
 	// database_id is server-owned. Clear any value that reached the business
 	// layer from an API client before selecting the configured placement strategy.
 	gateway.DatabaseId = ""
@@ -126,6 +160,7 @@ func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gate
 		EventType: api.CreateEventType,
 	})
 	if evErr != nil {
+		db.MarkForRollback(ctx, evErr)
 		return nil, services.HandleCreateError("Gateway", evErr)
 	}
 
@@ -233,4 +268,28 @@ func (s *sqlGatewayService) CountByPhase(ctx context.Context) (map[string]int64,
 		return nil, errors.GeneralError("Unable to count gateways by phase: %s", err)
 	}
 	return counts, nil
+}
+
+func validateExternalReference(reference string) *errors.ServiceError {
+	if len(reference) == 0 || len(reference) > 255 || strings.TrimSpace(reference) != reference || strings.IndexFunc(reference, unicode.IsControl) >= 0 {
+		return errors.Validation("external_reference must contain 1 to 255 bytes without control characters or surrounding whitespace")
+	}
+	return nil
+}
+func (s *sqlGatewayService) FindByExternalReference(ctx context.Context, reference string) (*Gateway, *errors.ServiceError) {
+	if err := validateExternalReference(reference); err != nil {
+		return nil, err
+	}
+	owner := rbac.GetUserIDFromContext(ctx)
+	if owner == "" {
+		return nil, errors.Forbidden("external_reference requires an authenticated caller")
+	}
+	gateway, err := s.gatewayDao.FindByExternalReference(ctx, owner, reference)
+	if err != nil {
+		return nil, services.HandleGetError("Gateway", "external_reference", reference, err)
+	}
+	if gateway.DeletedAt.Valid {
+		return nil, errors.NotFound("Gateway with this external_reference does not exist")
+	}
+	return gateway, nil
 }
