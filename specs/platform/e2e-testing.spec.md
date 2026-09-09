@@ -377,13 +377,18 @@ The e2e test suite SHALL validate both garbage-collection paths described in
    the control plane to remove the gateway record and reap its managed namespace
    (`DeleteManagedNamespace`; this path does not emit the periodic GC Event).
 
-#### Periodic orphan namespace GC (Kind e2e)
+#### Periodic orphan namespace GC
 
 To exercise the periodic path without waiting for production defaults (5m sweep /
-10m grace), the Kind overlay SHALL patch the control-plane deployment with
+10m grace), a long-mode run SHALL call `configure_namespace_gc_timing` once,
+before any gateway is created, which patches the control-plane deployment with
 `GATEWAY_NAMESPACE_GC_INTERVAL` and `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` set to
 short Go duration strings (for example `30s`; any positive value accepted by
-`time.ParseDuration` is valid). Immediately after gateway provisioning succeeds,
+`time.ParseDuration` is valid). The suite SHALL call `restore_namespace_gc_timing`
+from its cleanup path so the deployment's production defaults are always restored,
+pass or fail. No deploy overlay SHALL bake in shortened e2e timing.
+
+Immediately after gateway provisioning succeeds,
 the suite SHALL seed a synthetic orphaned managed namespace (`openshell-e2e-orphan-*`)
 labeled with the three required ownership labels (`hypershell.redhat.io/managed=true`,
 `app.kubernetes.io/managed-by=hypershell-control-plane`, and
@@ -420,8 +425,9 @@ removal of the in-namespace sandbox resources (see
 
 #### Scenario: Periodic orphan namespace garbage collected
 
-- GIVEN the Kind overlay has shortened `GATEWAY_NAMESPACE_GC_INTERVAL` and
-  `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` (for example `30s`)
+- GIVEN the suite has called `configure_namespace_gc_timing`, which shortened
+  `GATEWAY_NAMESPACE_GC_INTERVAL` and `GATEWAY_NAMESPACE_GC_GRACE_PERIOD`
+  (for example `30s`)
 - AND a synthetic managed namespace was seeded after gateway provisioning with
   this instance's three ownership labels, a gateway-style name, and a backdated
   `hypershell.redhat.io/gc-eligible-since`
@@ -619,7 +625,8 @@ The `deploy/` directory SHALL use a kustomize base/overlay structure to support 
 - GIVEN `deploy/kind/kustomization.yaml` references `../base` as a resource
 - WHEN `kustomize build deploy/kind/` is executed
 - THEN the output SHALL include all base resources (namespace, postgres, api-server, controller, controller-rbac, web-console)
-- AND Kind-specific resources: networking Gateway with `gatewayClassName: cloud-provider-kind`, cert-manager certificates for `*.hypershell.localhost` and `*.gw.localhost`, HTTPRoutes for component services, CoreDNS Corefile, OIDC secrets, and Kustomize patches for OIDC configuration (JWT flags, Keycloak hostname, control-plane and web-console OIDC env vars) and shortened namespace GC timing (`GATEWAY_NAMESPACE_GC_INTERVAL` and `GATEWAY_NAMESPACE_GC_GRACE_PERIOD`, for example `30s`, so e2e can exercise the periodic reaper)
+- AND Kind-specific resources: networking Gateway with `gatewayClassName: cloud-provider-kind`, cert-manager certificates for `*.hypershell.localhost` and `*.gw.localhost`, HTTPRoutes for component services, CoreDNS Corefile, OIDC secrets, and Kustomize patches for OIDC configuration (JWT flags, Keycloak hostname, control-plane and web-console OIDC env vars)
+- AND the Kind overlay SHALL NOT patch `GATEWAY_NAMESPACE_GC_INTERVAL` or `GATEWAY_NAMESPACE_GC_GRACE_PERIOD`; long-mode e2e applies those via `configure_namespace_gc_timing` and restores them via `restore_namespace_gc_timing`
 
 #### Scenario: OpenShift Overlay
 

@@ -87,7 +87,7 @@ fi
 # --- Cleanup trap ---
 
 cleanup() {
-  restore_namespace_gc_timing
+  restore_namespace_gc_timing || true
   if [[ -n "${SB_CREATE_PID:-}" ]]; then
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true

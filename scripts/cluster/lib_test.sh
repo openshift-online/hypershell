@@ -269,6 +269,25 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_up does not reconcile the database provider on cutover'
 fi
+if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'TARGET_DB_PROVIDER="\$(effective_database_provider)"' \
+  && grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cutover_database_provider "\${TARGET_DB_PROVIDER}"'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_up still passes effective_database_provider via command substitution in argument position'
+fi
+if grep -A20 '^effective_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'exit 1'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift effective_database_provider still uses exit 1 (ineffective inside command substitution)'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A25 '^cutover_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'empty target'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cutover_database_provider does not guard against an empty target'
+fi
 if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'restart_after_database_cutover'; then
   PASS=$((PASS + 1))
 else
@@ -281,7 +300,7 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift effective_database_provider does not honor DATABASE_PROVIDER override'
 fi
-if grep -A25 '^cutover_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete secret hypershell-db-app'; then
+if grep -A45 '^cutover_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete secret hypershell-db-app'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))

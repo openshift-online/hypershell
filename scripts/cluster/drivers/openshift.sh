@@ -573,7 +573,7 @@ effective_database_provider() {
     cnpg)
       if ! cnpg_available; then
         error "DATABASE_PROVIDER=cnpg requested but the CNPG operator (postgresql.cnpg.io) is not installed on this cluster."
-        exit 1
+        return 1
       fi
       printf 'cnpg'
       ;;
@@ -585,7 +585,7 @@ effective_database_provider() {
       ;;
     *)
       error "Unknown DATABASE_PROVIDER '${DATABASE_PROVIDER}': expected 'cnpg' or 'deployment'."
-      exit 1
+      return 1
       ;;
   esac
 }
@@ -637,6 +637,18 @@ DATABASE_PROVIDER_CUTOVER_PERFORMED=""
 cutover_database_provider() {
   local target="$1"
   local changed=""
+
+  if [[ -z "${target}" ]]; then
+    error "cutover_database_provider: empty target; refusing to reconcile (would delete both provider stacks)."
+    return 1
+  fi
+  case "${target}" in
+    cnpg|deployment) ;;
+    *)
+      error "cutover_database_provider: unknown target '${target}' (expected 'cnpg' or 'deployment')."
+      return 1
+      ;;
+  esac
 
   if [[ "${target}" != "cnpg" ]] \
     && oc_cli get cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
@@ -731,7 +743,9 @@ configure_postgres_fallback_ssl() {
 
 developer_omit_kinds() {
   local kinds="ClusterRole,ClusterRoleBinding"
-  if [[ "$(effective_database_provider)" != "cnpg" ]]; then
+  local provider
+  provider="$(effective_database_provider)"
+  if [[ "${provider}" != "cnpg" ]]; then
     kinds+=",Cluster"
   fi
   if ! api_group_available cert-manager.io; then
@@ -742,7 +756,8 @@ developer_omit_kinds() {
 
 apply_overlay() {
   header "Deploying Components"
-  local rendered omit_kinds
+  local rendered omit_kinds db_provider
+  db_provider="$(effective_database_provider)"
   omit_kinds="$(developer_omit_kinds)"
 
   info "Applying Keycloak in project ${OPENSHIFT_KEYCLOAK_NAMESPACE}..."
@@ -754,7 +769,7 @@ apply_overlay() {
 
   info "Applying HyperShell in project ${OPENSHIFT_NAMESPACE}..."
   use_project "${OPENSHIFT_NAMESPACE}"
-  if [[ "$(effective_database_provider)" != "cnpg" ]]; then
+  if [[ "${db_provider}" != "cnpg" ]]; then
     apply_postgres_fallback
   fi
   if ! rendered="$(render_openshift_manifests \
@@ -764,7 +779,7 @@ apply_overlay() {
     exit 1
   fi
   apply_rendered_overlay "${rendered}"
-  if [[ "$(effective_database_provider)" != "cnpg" ]]; then
+  if [[ "${db_provider}" != "cnpg" ]]; then
     configure_postgres_fallback_ssl
   fi
 
@@ -1180,7 +1195,8 @@ cluster_up() {
   ensure_namespace_group
   create_bootstrap_secrets
   apply_cluster_rbac
-  cutover_database_provider "$(effective_database_provider)"
+  TARGET_DB_PROVIDER="$(effective_database_provider)"
+  cutover_database_provider "${TARGET_DB_PROVIDER}"
   apply_overlay
   restore_swaps_after_reconcile
   configure_oidc_from_routes

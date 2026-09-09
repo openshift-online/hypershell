@@ -144,6 +144,10 @@ perf_cleanup() {
   # strand live Gateway records. Worker cancellation happens before temp state
   # is removed so no process can recreate a record beneath us.
   trap '' INT TERM
+  # Runs on every exit path -- a fatal abort included -- so the summary
+  # always prints, and print_results itself notes when E2E_COMPLETED was
+  # never set (i.e. the run aborted before reaching the results section).
+  print_results
   perf_cancel_all
 
   # Harvest namespace ownership before removing worker state. Completed batch
@@ -680,10 +684,9 @@ bold "Performance summary"
 sep
 perf_print_summary
 
-# Reached the summary without a fatal abort; print_results (lib.sh) notes when
-# this was never set, which does not apply to this script's own cleanup path.
+# Reached the summary without a fatal abort; cleanup's EXIT trap prints
+# the results (see perf_cleanup()), so print_results itself is not called here.
 E2E_COMPLETED=1
-print_results
 
 if [[ "${PERF_RUN_RESULT}" != "pass" ]]; then
   exit 1
