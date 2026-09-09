@@ -94,6 +94,32 @@ discover_api_host() {
   fi
 }
 
+# discover_console_host - find the HyperShell web console (BFF) base URL.
+# The console Route hostname is cluster-generated and unrelated to the API
+# Route hostname, so it must be discovered independently rather than derived
+# by string substitution on discover_api_host's result.
+discover_console_host() {
+  _DISCOVER_CONSOLE_HOST=""
+  _openshift_require_config || return 1
+
+  local host code
+  host=$(oc get route hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" \
+    -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -z "$host" ]]; then
+    red "  HyperShell web console Route 'hypershell-web-console' not found in ${OPENSHIFT_NAMESPACE}"
+    return 1
+  fi
+
+  _DISCOVER_CONSOLE_HOST="https://${host}"
+  code=$(_driver_curl --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+    "${_DISCOVER_CONSOLE_HOST}/auth/session" 2>/dev/null || true)
+  if [[ -z "$code" || "$code" == "000" ]]; then
+    red "  HyperShell web console Route ${_DISCOVER_CONSOLE_HOST} returned no HTTP response"
+    _DISCOVER_CONSOLE_HOST=""
+    return 1
+  fi
+}
+
 discover_gateway_endpoint() {
   _DISCOVER_GW_ENDPOINT=""
   local gw_name="${1:?gateway name required}"
@@ -168,4 +194,16 @@ acquire_oidc_token() {
   _openshift_configure_oidc || return 1
   _openshift_configure_tls || return 1
   _driver_acquire_oidc_token "$@"
+}
+
+# configure_namespace_gc_timing / restore_namespace_gc_timing - resolve the
+# OpenShift namespace, then delegate to the shared implementation in kind.sh.
+configure_namespace_gc_timing() {
+  _openshift_require_config || return 1
+  _patch_namespace_gc_timing oc "${OPENSHIFT_NAMESPACE}"
+}
+
+restore_namespace_gc_timing() {
+  _openshift_require_config || return 1
+  _restore_namespace_gc_timing oc "${OPENSHIFT_NAMESPACE}"
 }

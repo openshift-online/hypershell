@@ -1830,12 +1830,17 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		}
 	}
 
-	log.Printf("INFO using Gateway %s/%s for tenant %s", gwNS, gwName, namespace)
+	listenerName := sharedGatewayListenerName()
+	if os.Getenv("GATEWAY_API_HTTP_LISTENER_NAME") == "" {
+		log.Printf("INFO using Gateway %s/%s listener %s for tenant %s (GATEWAY_API_HTTP_LISTENER_NAME unset; a NoMatchingParent GRPCRoute will not self-heal)", gwNS, gwName, listenerName, namespace)
+	} else {
+		log.Printf("INFO using Gateway %s/%s listener %s for tenant %s", gwNS, gwName, listenerName, namespace)
+	}
 
 	parentRef := map[string]interface{}{
 		"name":        gwName,
 		"namespace":   gwNS,
-		"sectionName": "grpc",
+		"sectionName": listenerName,
 	}
 
 	grpcRoute := &unstructured.Unstructured{

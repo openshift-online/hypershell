@@ -364,6 +364,7 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 				)
 				if update == nil {
 					t.Fatal("observedGatewayHealthUpdate() = nil, want phase-only promotion")
+					return
 				}
 				if update.Phase == nil || update.GetPhase() != "Running" {
 					t.Fatalf("phase = %v, want Running", update.Phase)

@@ -6,10 +6,14 @@
 # functional gate. Reuses the e2e driver interface: no kubectl/oc/kind
 # commands appear in this file.
 #
+# The infrastructure driver is auto-detected from the current KUBECONFIG
+# context, the same as e2e-openshell.sh. Set E2E_INFRA_DRIVER to override.
+#
 # Usage:
-#   E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-performance.sh
+#   bash tests/e2e/e2e-performance.sh
 #   make e2e-performance
-#   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift make e2e-performance
+#   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift \
+#     make e2e-performance   # override detection
 #
 # See specs/platform/e2e-testing.spec.md "Performance Testing".
 set -euo pipefail
@@ -50,9 +54,7 @@ E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
 # --- Driver selection ---
 
-if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
-  e2e_die_unknown_driver "E2E_INFRA_DRIVER is not set."
-fi
+e2e_select_infra_driver
 
 DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"
 if [[ ! -f "$DRIVER_FILE" ]]; then
@@ -142,6 +144,10 @@ perf_cleanup() {
   # strand live Gateway records. Worker cancellation happens before temp state
   # is removed so no process can recreate a record beneath us.
   trap '' INT TERM
+  # Runs on every exit path -- a fatal abort included -- so the summary
+  # always prints, and print_results itself notes when E2E_COMPLETED was
+  # never set (i.e. the run aborted before reaching the results section).
+  print_results
   perf_cancel_all
 
   # Harvest namespace ownership before removing worker state. Completed batch
@@ -678,7 +684,9 @@ bold "Performance summary"
 sep
 perf_print_summary
 
-print_results
+# Reached the summary without a fatal abort; cleanup's EXIT trap prints
+# the results (see perf_cleanup()), so print_results itself is not called here.
+E2E_COMPLETED=1
 
 if [[ "${PERF_RUN_RESULT}" != "pass" ]]; then
   exit 1
