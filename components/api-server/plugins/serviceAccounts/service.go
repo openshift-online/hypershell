@@ -671,6 +671,17 @@ func (s *service) cleanupOrphanedClients(ctx context.Context) error {
 			cleanupErrors = append(cleanupErrors, getErr)
 			continue
 		}
+		if orphaned {
+			// A shared realm can contain clients owned by another HyperShell
+			// database. Missing local records do not establish ownership. Require
+			// a local gateway before removing an account with no local record.
+			if _, gatewayErr := s.gateways.Get(ctx, client.GatewayID); gatewayErr != nil {
+				if gatewayErr.HttpCode != http.StatusNotFound {
+					cleanupErrors = append(cleanupErrors, errors.New("check orphan client gateway ownership"))
+				}
+				continue
+			}
+		}
 		if account != nil {
 			if account.KeycloakClientUUID != "" && account.KeycloakClientUUID != client.UUID {
 				orphaned = true
