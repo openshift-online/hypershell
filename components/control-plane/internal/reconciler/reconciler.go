@@ -1338,9 +1338,20 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				DeploymentDBNamespace: deleteDBConfig.SourceNamespace,
 				ExternalDB:            deleteDBConfig.ExternalDB,
 				ControlPlaneNamespace: r.controlPlaneNamespace,
-				KeycloakClient:        r.keycloakClient,
 				GatewayID:             event.ResourceID,
 				GatewayName:           gw.Name,
+			}
+			if r.keycloakClient != nil {
+				clientID, err := existingGatewayKeycloakClientID(event.ResourceID, gw)
+				if err != nil {
+					deleteErrs = append(deleteErrs, err)
+				} else {
+					opts.KeycloakClient = r.keycloakClient
+					opts.GatewayClientID = clientID
+				}
+			}
+			if gw.GetOidc() != "" && r.keycloakClient == nil {
+				deleteErrs = append(deleteErrs, fmt.Errorf("gateway identity cleanup requires the Keycloak client"))
 			}
 			var credentialNamespaces []string
 			if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {

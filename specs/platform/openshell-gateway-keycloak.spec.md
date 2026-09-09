@@ -701,3 +701,20 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 - [Keycloak Protocol Mappers](https://www.keycloak.org/docs/latest/server_admin/#_protocol-mappers) -- audience, sub, and client-role mapper types
 - [PKCE (RFC 7636)](https://datatracker.ietf.org/doc/html/rfc7636) -- S256 challenge method for public clients
 - [Multi-Gateway OIDC Isolation](https://gist.github.com/jhjaggars/e17c2b094008c14682e3b448eca405eb) -- scale testing and isolation verification for per-gateway Keycloak provisioning
+
+### Requirement: Gateway deletion uses the recorded identity
+
+Gateway deletion SHALL use the same validated OIDC client identity as gateway
+reconciliation. A gateway rename SHALL NOT change the client selected for
+removal. Existing records with only an audience SHALL retain that identity.
+Records without either stored identity field SHALL use the existing
+name-and-gateway-ID fallback. Invalid or conflicting stored identities SHALL
+return an error before any Keycloak client cleanup request.
+
+#### Scenario: Delete a renamed gateway
+
+- GIVEN a gateway was created with a stored OIDC client identity
+- AND its display name changed
+- WHEN the gateway is deleted
+- THEN cleanup selects the stored gateway client and its console client
+- AND cleanup does not select clients from the new display name

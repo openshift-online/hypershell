@@ -219,6 +219,8 @@ type ReconcileOpts struct {
 	UpdateOIDC func(ctx context.Context, oidcJSON string) error
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string
+	// GatewayClientID is the validated identity recorded during provisioning.
+	GatewayClientID string
 	// KeycloakClient is a Keycloak Admin REST API client for cleanup operations.
 	// Used during gateway deletion to remove the Keycloak OIDC client.
 	KeycloakClient KeycloakClientAPI
