@@ -121,6 +121,17 @@ non-empty `.status.addresses`.
 - AND it SHALL set the `phase` to `Degraded`
 - AND it SHALL record the reason in `status`
 
+### Requirement: Deployment Readiness Grace Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `GATEWAY_DEPLOYMENT_READY_TIMEOUT` | `10m` | Grace window a Provisioning gateway's Deployment may remain not-Ready before the control plane transitions the `phase` to `Degraded`. A gateway that had already reached `Running` and then loses Deployment readiness is moved to `Degraded` immediately, with no grace. |
+
+The grace window governs only the `Provisioning -> Degraded` transition for a
+Deployment that never becomes Ready; it is not a hard deadline that stops
+observation. The control plane SHALL keep observing the Deployment after the
+window elapses, so a gateway that eventually becomes ready returns to `Running`.
+
 #### Scenario: Provisioning fails to apply
 
 - GIVEN a Gateway being reconciled

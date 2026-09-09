@@ -30,6 +30,8 @@ const defaultHealthInterval = 30 * time.Second
 // specs/platform/openshell-gateway-routing.spec.md § Gateway Exposure Configuration.
 const defaultRouteReadyTimeout = 10 * time.Minute
 
+const defaultDeploymentReadyTimeout = 10 * time.Minute
+
 // routeVerifyInterval is the minimum time between residual route/console
 // absence re-checks for a settled (torn-down, addressless) gateway.
 //
@@ -52,15 +54,16 @@ type GatewayHealthReconciler struct {
 	// clusterID scopes the health sweep to this managed cluster's gateways. When
 	// non-empty the fleet list is filtered server-side so a spoke never stamps
 	// (Degraded/Running) a gateway owned by another cluster. Empty sweeps all.
-	clusterID           string
-	interval            time.Duration
-	exposure            exposure.Port
-	routeReadyTimeout   time.Duration
-	keycloakConfig      *gateway.KeycloakConfig
-	isOpenShift         bool
-	hasGatewayAPI       bool
-	ingressMode         string
-	skipNetworkPolicies bool
+	clusterID              string
+	interval               time.Duration
+	exposure               exposure.Port
+	routeReadyTimeout      time.Duration
+	deploymentReadyTimeout time.Duration
+	keycloakConfig         *gateway.KeycloakConfig
+	isOpenShift            bool
+	hasGatewayAPI          bool
+	ingressMode            string
+	skipNetworkPolicies    bool
 
 	// consoleClientChecker is a single, long-lived Keycloak client reused across
 	// every tick's residual-absence checks. Constructed once (when Keycloak is
@@ -71,8 +74,8 @@ type GatewayHealthReconciler struct {
 	// client needs no additional synchronization.
 	consoleClientChecker gateway.ConsoleClientChecker
 
-	// now is the clock, overridable in tests.
-	now func() time.Time
+	now                   func() time.Time
+	deploymentReadinessFn func(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (bool, string, error)
 
 	// routeNotReadySince records, per gateway, when its Deployment first became
 	// Ready while its external exposure was not, so the route-readiness grace
@@ -94,10 +97,11 @@ type GatewayHealthReconciler struct {
 	// settled gateway keeps being re-verified forever at that low cadence, because
 	// elapsed wall-clock time is not proof that a stale provisioning pass cannot
 	// still resurrect resources (see routeVerifyInterval).
-	mu                 sync.Mutex
-	routeNotReadySince map[string]time.Time
-	routeTornDown      map[string]bool
-	routeVerifiedAt    map[string]time.Time
+	mu                      sync.Mutex
+	routeNotReadySince      map[string]time.Time
+	deploymentNotReadySince map[string]time.Time
+	routeTornDown           map[string]bool
+	routeVerifiedAt         map[string]time.Time
 }
 
 func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID string) *GatewayHealthReconciler {
@@ -118,23 +122,26 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
 	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 	return &GatewayHealthReconciler{
-		clientset:            clientset,
-		dynamicClient:        dynamicClient,
-		grpcConn:             grpcConn,
-		clusterID:            clusterID,
-		interval:             defaultHealthInterval,
-		exposure:             exposurePort,
-		routeReadyTimeout:    routeReadyTimeout(),
-		keycloakConfig:       keycloakConfig,
-		consoleClientChecker: consoleClientChecker,
-		isOpenShift:          isOpenShift,
-		hasGatewayAPI:        hasGatewayAPI,
-		ingressMode:          ingressMode,
-		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
-		now:                  time.Now,
-		routeNotReadySince:   make(map[string]time.Time),
-		routeTornDown:        make(map[string]bool),
-		routeVerifiedAt:      make(map[string]time.Time),
+		clientset:               clientset,
+		dynamicClient:           dynamicClient,
+		grpcConn:                grpcConn,
+		clusterID:               clusterID,
+		interval:                defaultHealthInterval,
+		exposure:                exposurePort,
+		routeReadyTimeout:       routeReadyTimeout(),
+		deploymentReadyTimeout:  deploymentReadyTimeout(),
+		keycloakConfig:          keycloakConfig,
+		consoleClientChecker:    consoleClientChecker,
+		isOpenShift:             isOpenShift,
+		hasGatewayAPI:           hasGatewayAPI,
+		ingressMode:             ingressMode,
+		skipNetworkPolicies:     os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
+		now:                     time.Now,
+		deploymentReadinessFn:   gateway.DeploymentReadiness,
+		routeNotReadySince:      make(map[string]time.Time),
+		deploymentNotReadySince: make(map[string]time.Time),
+		routeTornDown:           make(map[string]bool),
+		routeVerifiedAt:         make(map[string]time.Time),
 	}
 }
 
@@ -148,6 +155,16 @@ func routeReadyTimeout() time.Duration {
 		log.Printf("WARN invalid GATEWAY_ROUTE_READY_TIMEOUT %q; using default %s", v, defaultRouteReadyTimeout)
 	}
 	return defaultRouteReadyTimeout
+}
+
+func deploymentReadyTimeout() time.Duration {
+	if v := os.Getenv("GATEWAY_DEPLOYMENT_READY_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		log.Printf("WARN invalid GATEWAY_DEPLOYMENT_READY_TIMEOUT %q; using default %s", v, defaultDeploymentReadyTimeout)
+	}
+	return defaultDeploymentReadyTimeout
 }
 
 // Run drives the health reconciliation loop until the context is cancelled.
@@ -233,7 +250,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		return
 	}
-	ready, reason, err := gateway.DeploymentReadiness(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
+	ready, reason, err := h.deploymentReadinessFn(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		return
@@ -242,23 +259,30 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	var desiredPhase, desiredStatus string
 	switch {
 	case !ready:
-		// The Deployment has not been created yet; the provisioning path still
-		// owns this gateway. Leave its phase untouched.
 		if reason == "deployment not found" {
 			return
 		}
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), reason
+		if phase == string(gatewayhealth.PhaseProvisioning) {
+			since := h.markDeploymentNotReady(gatewayID)
+			if h.now().Sub(since) >= h.deploymentReadyTimeout {
+				h.clearDeploymentTimer(gatewayID)
+				desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), fmt.Sprintf("deployment not ready after %s: %s", h.deploymentReadyTimeout, reason)
+			} else {
+				desiredPhase, desiredStatus = string(gatewayhealth.PhaseProvisioning), reason
+			}
+		} else {
+			h.clearDeploymentTimer(gatewayID)
+			desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), reason
+		}
 	case h.exposure != nil && isRoutedGateway(gw):
-		// Deployment is Ready; a routed gateway additionally requires its external
-		// exposure to be observed Ready before it can be Running.
+		h.clearDeploymentTimer(gatewayID)
 		desiredPhase, desiredStatus = h.evaluateRouteReadiness(ctx, gatewayID, namespace, phase)
 		if desiredPhase == "" {
-			// Transient error observing the exposure; leave the phase untouched
-			// rather than flap the gateway.
 			return
 		}
 	default:
+		h.clearDeploymentTimer(gatewayID)
 		h.clearRouteTimer(gatewayID)
 		desiredPhase, desiredStatus = string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
 	}
@@ -574,4 +598,21 @@ func (h *GatewayHealthReconciler) clearRouteTimer(gatewayID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.routeNotReadySince, gatewayID)
+}
+
+func (h *GatewayHealthReconciler) markDeploymentNotReady(gatewayID string) time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if t, ok := h.deploymentNotReadySince[gatewayID]; ok {
+		return t
+	}
+	t := h.now()
+	h.deploymentNotReadySince[gatewayID] = t
+	return t
+}
+
+func (h *GatewayHealthReconciler) clearDeploymentTimer(gatewayID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.deploymentNotReadySince, gatewayID)
 }
