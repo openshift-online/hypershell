@@ -300,7 +300,7 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift effective_database_provider does not honor DATABASE_PROVIDER override'
 fi
-if grep -A45 '^cutover_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete secret hypershell-db-app'; then
+if awk '/^cutover_database_provider\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete secret hypershell-db-app'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
