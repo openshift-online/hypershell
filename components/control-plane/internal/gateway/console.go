@@ -419,7 +419,11 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	// observed Ready (and retracts it if the pod later goes unready), gating the
 	// button on a servable console. See openshell-gateway-console.spec.md.
 
-	log.Printf("INFO console reconciled in namespace %s (host=%s)", namespace, host)
+	if ingressMode == IngressModeGatewayAPI {
+		log.Printf("INFO console reconciled in namespace %s (host=%s listener=%s)", namespace, host, sharedGatewayListenerName())
+	} else {
+		log.Printf("INFO console reconciled in namespace %s (host=%s)", namespace, host)
+	}
 	return nil
 }
 

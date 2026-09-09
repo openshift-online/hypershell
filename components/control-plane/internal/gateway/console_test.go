@@ -490,6 +490,21 @@ func TestReconcileConsoleExposureSelectsOneMode(t *testing.T) {
 	}
 }
 
+func TestSharedGatewayListenerName(t *testing.T) {
+	t.Run("defaults to https when GATEWAY_API_HTTP_LISTENER_NAME is unset", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_HTTP_LISTENER_NAME", "")
+		if got := sharedGatewayListenerName(); got != "https" {
+			t.Fatalf("got %q, want https", got)
+		}
+	})
+	t.Run("uses GATEWAY_API_HTTP_LISTENER_NAME when set", func(t *testing.T) {
+		t.Setenv("GATEWAY_API_HTTP_LISTENER_NAME", "grpc-hyp4")
+		if got := sharedGatewayListenerName(); got != "grpc-hyp4" {
+			t.Fatalf("got %q, want grpc-hyp4", got)
+		}
+	})
+}
+
 func TestDeleteConsoleExposuresDeletesBothKinds(t *testing.T) {
 	const namespace = "openshell-abc"
 	client := newConsoleRouteDynamicClient(
