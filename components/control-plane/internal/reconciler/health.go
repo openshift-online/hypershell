@@ -591,3 +591,20 @@ func (h *GatewayHealthReconciler) clearRouteTimer(gatewayID string) {
 	defer h.mu.Unlock()
 	delete(h.routeNotReadySince, gatewayID)
 }
+
+func (h *GatewayHealthReconciler) markDeploymentNotReady(gatewayID string) time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if t, ok := h.deploymentNotReadySince[gatewayID]; ok {
+		return t
+	}
+	t := h.now()
+	h.deploymentNotReadySince[gatewayID] = t
+	return t
+}
+
+func (h *GatewayHealthReconciler) clearDeploymentTimer(gatewayID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.deploymentNotReadySince, gatewayID)
+}
