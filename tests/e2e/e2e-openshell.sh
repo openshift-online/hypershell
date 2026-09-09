@@ -854,7 +854,8 @@ meta = {
     'gateway_port': 0,
     'auth_mode': 'oidc',
     'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
-    'oidc_client_id': os.environ['OIDC_CLIENT_ID_EFFECTIVE']
+    'oidc_client_id': os.environ['OIDC_CLIENT_ID_EFFECTIVE'],
+    'gateway_insecure': bool(os.environ.get('OPENSHELL_GATEWAY_INSECURE', ''))
 }
 with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
@@ -1214,7 +1215,8 @@ meta = {
     'gateway_port': 0,
     'auth_mode': 'oidc',
     'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
-    'oidc_client_id': os.environ['DEV_OIDC_CLIENT_ID_EFFECTIVE']
+    'oidc_client_id': os.environ['DEV_OIDC_CLIENT_ID_EFFECTIVE'],
+    'gateway_insecure': bool(os.environ.get('OPENSHELL_GATEWAY_INSECURE', ''))
 }
 with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
@@ -1351,11 +1353,11 @@ except Exception:
   fi
   fi
 
-  # ── negative assertion: openshell-user may NOT create a gateway ──
-  # gateway:viewer lacks the platform-scoped gateway:creator role, so
-  # POST /gateways MUST be rejected with 403 (rbac-enforcement.spec.md scenario
-  # "User without creator role cannot create gateways"). SUCCESS here would mean
-  # RBAC is NOT enforced.
+  # ── positive assertion: authenticated user receives gateway:creator by default ──
+  # RBAC_DEFAULT_ROLES defaults to gateway:creator, so every authenticated user
+  # is a creator. A developer with openshell-user Keycloak roles still gets the
+  # platform default binding and therefore can create gateways. This verifies
+  # that the default-role bootstrap fires correctly (HYPERSHELL-262).
   DEV_GW_CREATE_NAME="e2e-dev-gw-$(date +%s | tail -c5)"
   DEV_GW_BODY=$(GW_NAME="$DEV_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
@@ -1376,8 +1378,8 @@ body = {
 }
 print(json.dumps(body))
 ")
-  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 403"
-  dim "  Expecting 403 Forbidden (developer lacks gateway:creator)..."
+  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 201 (gateway:creator by default)"
+  dim "  Expecting 201 Created (developer receives gateway:creator via RBAC_DEFAULT_ROLES)..."
 
   DEV_GW_RESP_FILE=$(mktemp)
   DEV_GW_STATUS=$(_driver_curl -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
@@ -1387,19 +1389,18 @@ print(json.dumps(body))
     -d "${DEV_GW_BODY}" 2>/dev/null || true)
   DEV_GW_RESP=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_GW_RESP_FILE}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
 
-  if [[ "$DEV_GW_STATUS" == "403" ]]; then
-    pass "Developer user: gateway create correctly denied (403 Forbidden)"
-  elif [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
-    fail_test "Developer user: RBAC not enforced -- non-creator created a gateway (HTTP ${DEV_GW_STATUS})"
-    # A gateway was wrongly created; the creator auto-owns it, so delete it as the
-    # developer to avoid leaking test state.
-    DEV_BAD_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-    if [[ -n "$DEV_BAD_GW_ID" ]]; then
-      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_BAD_GW_ID}" \
+  if [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
+    pass "Developer user: gateway create allowed (gateway:creator default binding active)"
+    DEV_DEFAULT_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+    if [[ -n "$DEV_DEFAULT_GW_ID" ]]; then
+      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_DEFAULT_GW_ID}" \
         -H "Authorization: Bearer ${DEV_TOKEN}" &>/dev/null || true
     fi
+  elif [[ "$DEV_GW_STATUS" == "403" ]]; then
+    fail_test "Developer user: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
+    dim "    ${DEV_GW_RESP:0:200}"
   else
-    fail_test "Developer user: gateway create did not return 403 (got HTTP ${DEV_GW_STATUS:-none})"
+    fail_test "Developer user: unexpected HTTP ${DEV_GW_STATUS:-none} on gateway create"
     dim "    ${DEV_GW_RESP:0:200}"
   fi
   rm -f "${DEV_GW_RESP_FILE}" 2>/dev/null || true
@@ -1506,7 +1507,10 @@ print('true' if has_owner else 'false')
   fi
   rm -f "${PADMIN_DELETE_FILE}" 2>/dev/null || true
 
-  # ── negative assertion: platform:admin cannot create gateways without gateway:creator ──
+  # ── positive assertion: platform:admin also receives gateway:creator by default ──
+  # RBAC_DEFAULT_ROLES applies to all authenticated users including platform:admin.
+  # They can create gateways via the default binding even without explicit
+  # gateway:creator in their Keycloak realm roles (HYPERSHELL-262).
   PADMIN_GW_CREATE_NAME="e2e-padmin-gw-$(date +%s | tail -c5)"
   PADMIN_GW_BODY=$(GW_NAME="$PADMIN_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
@@ -1527,8 +1531,8 @@ body = {
 }
 print(json.dumps(body))
 ")
-  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 403"
-  dim "  Expecting 403 Forbidden (platform:admin lacks gateway:creator)..."
+  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 201 (gateway:creator by default)"
+  dim "  Expecting 201 Created (platform:admin receives gateway:creator via RBAC_DEFAULT_ROLES)..."
 
   PADMIN_CREATE_FILE=$(mktemp)
   PADMIN_CREATE_STATUS=$(_driver_curl -o "${PADMIN_CREATE_FILE}" -w '%{http_code}' \
@@ -1538,18 +1542,18 @@ print(json.dumps(body))
     -d "${PADMIN_GW_BODY}" 2>/dev/null || true)
   PADMIN_CREATE_RESP=$(cat "${PADMIN_CREATE_FILE}" 2>/dev/null || true)
 
-  if [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
-    pass "Platform admin: gateway create correctly denied (403 Forbidden)"
-  elif [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
-    fail_test "Platform admin: RBAC not enforced -- platform:admin created gateway without gateway:creator (HTTP ${PADMIN_CREATE_STATUS})"
-    # Clean up wrongly created gateway
-    PADMIN_BAD_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-    if [[ -n "$PADMIN_BAD_GW_ID" ]]; then
-      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_BAD_GW_ID}" \
+  if [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
+    pass "Platform admin: gateway create allowed (gateway:creator default binding active)"
+    PADMIN_DEFAULT_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+    if [[ -n "$PADMIN_DEFAULT_GW_ID" ]]; then
+      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_DEFAULT_GW_ID}" \
         -H "Authorization: Bearer ${PADMIN_TOKEN}" &>/dev/null || true
     fi
+  elif [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
+    fail_test "Platform admin: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
+    dim "    ${PADMIN_CREATE_RESP:0:200}"
   else
-    fail_test "Platform admin: gateway create did not return 403 (got HTTP ${PADMIN_CREATE_STATUS:-none})"
+    fail_test "Platform admin: unexpected HTTP ${PADMIN_CREATE_STATUS:-none} on gateway create"
     dim "    ${PADMIN_CREATE_RESP:0:200}"
   fi
   rm -f "${PADMIN_CREATE_FILE}" 2>/dev/null || true
