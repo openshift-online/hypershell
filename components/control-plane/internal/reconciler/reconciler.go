@@ -724,7 +724,7 @@ func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Cont
 								"image":           dbImage,
 								"imagePullPolicy": "IfNotPresent",
 								"command":         []interface{}{`/bin/sh`, `-ec`},
-								"args":            []interface{}{`mkdir -p /work/postgresql && chmod 3775 /work/postgresql`},
+								"args":            []interface{}{`mkdir -p /work/postgresql && chmod 3775 /work/postgresql && cp /etc/passwd /work/passwd && if ! whoami >/dev/null 2>&1; then printf "runtime:x:%s:%s:Runtime user:/tmp:/sbin/nologin\n" "$(id -u)" "$(id -g)" >> /work/passwd; fi`},
 								"securityContext": map[string]interface{}{
 									"allowPrivilegeEscalation": false,
 									"runAsNonRoot":             true,
@@ -816,6 +816,8 @@ func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Cont
 									"periodSeconds":       int64(10),
 								},
 								"volumeMounts": []interface{}{
+									// The image must resolve an arbitrary OpenShift UID without writing to its root filesystem.
+									map[string]interface{}{"name": "postgres-run", "mountPath": "/etc/passwd", "subPath": "passwd", "readOnly": true},
 									map[string]interface{}{
 										"name":      "db-data",
 										"mountPath": postgresConfig.dataPath,
