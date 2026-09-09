@@ -103,15 +103,17 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
 | `gateway:owner` | per gateway | DB (app logic) | Full CRUD on one gateway; can grant `gateway:owner` and `gateway:viewer` to others |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
+| `managed-cluster-registrar` | global | Keycloak JWT | Allows a spoke control-plane service account to call `POST /managed-clusters/registration`; grants no gateway permissions |
 
 ### Permission Matrix
 
-| Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts |
-|------|----------|-------------|-------------|-------------------|-----------------|
-| `platform:admin` | view all, delete any | view all + delete any | -- | -- | None without a gateway binding |
-| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways | Through the resulting owner binding |
-| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. |
-| `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. |
+| Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts | ManagedCluster Registration |
+|------|----------|-------------|-------------|-------------------|-----------------|-----------------|
+| `platform:admin` | view all, delete any | view all + delete any | -- | -- | None without a gateway binding | -- |
+| `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways | Through the resulting owner binding | -- |
+| `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
+| `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
+| `managed-cluster-registrar` | none | none | none | none | none | `POST /registration` (register + heartbeat loop) |
 
 ### OpenShell Role Bridge
 
@@ -551,9 +553,46 @@ Coordinate the SSO role mapping and the `RBAC_DEFAULT_ROLES` setting together, a
 call out these prerequisites in the release notes for the version that makes the overlay
 default enforce RBAC.
 
+### Requirement: Managed Cluster Self-Registration RBAC
+
+The `POST /api/hypershell/v1/managed-clusters/registration` endpoint SHALL require the
+`managed-cluster-registrar` role in the caller's JWT `realm_access.roles` claim. The
+existing RBAC middleware enforces this check before any database operation. No new RBAC
+machinery is needed beyond registering `managed-cluster-registrar` in the role table and
+adding a policy check on the `/registration` route.
+
+Assigning `managed-cluster-registrar` to a spoke service account is a Keycloak admin
+function performed out-of-band before the spoke is deployed. Keycloak is the trusted
+source of truth; the API server does not re-verify role assignment beyond reading the
+JWT claim.
+
+The `managed-cluster-registrar` role is orthogonal to all gateway roles. A spoke service
+account holding it has no gateway permissions unless separately granted.
+
+#### Scenario: Spoke with role can self-register
+
+- GIVEN a spoke service account with `managed-cluster-registrar` assigned in Keycloak
+- WHEN it calls `POST /managed-clusters/registration`
+- THEN the request is authorized and proceeds to the handler
+- AND a `ManagedCluster` record is created (or the existing one is returned)
+
+#### Scenario: Spoke without role is rejected
+
+- GIVEN a spoke service account without `managed-cluster-registrar` in Keycloak
+- WHEN it calls `POST /managed-clusters/registration`
+- THEN the RBAC middleware returns 403 Forbidden
+- AND no `ManagedCluster` record is created or modified
+
+#### Scenario: managed-cluster-registrar grants no gateway access
+
+- GIVEN a spoke service account with only `managed-cluster-registrar`
+- WHEN it calls `GET /api/hypershell/v1/gateways`
+- THEN the response is 200 with an empty items array (no gateway bindings exist)
+
 ### Requirement: Integration Test Coverage
 
-Integration tests SHALL exercise RBAC enforcement with the new four-role model.
+Integration tests SHALL exercise RBAC enforcement with the new five-role model, including
+`managed-cluster-registrar` grant and deny scenarios.
 
 ---
 
@@ -580,6 +619,8 @@ Integration tests SHALL exercise RBAC enforcement with the new four-role model.
 | `platform:admin` orthogonal to `gateway:creator` | A platform admin may or may not create gateways. Roles compose: `platform:admin` + `gateway:creator` allows both operational oversight and resource creation. |
 | JWT roles synced to DB on every request | DB is the projection, Keycloak is the authority. Revocations in Keycloak take effect immediately. Existing per-gateway bindings are unaffected by platform role changes. |
 | Service accounts treated identically to users | Control plane gets `gateway:creator` in Keycloak, provisions like any user. No special bypass logic needed. |
+| `managed-cluster-registrar` is separate from gateway roles | A spoke service account only needs fleet membership rights, not gateway creation rights. Keeping the roles separate limits blast radius if a spoke credential is compromised. |
+| Role assigned by admin, not auto-granted | Provides a human control point for fleet membership. A new spoke cannot join the fleet without an explicit Keycloak admin action. |
 | Gateway owners can grant co-owners | No hierarchy restriction. Team leads assign `gateway:creator` to team members or invite them as owners/viewers per gateway. Simple mental model. |
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
 | `gateway:creator` via default roles or Keycloak | By default (`RBAC_DEFAULT_ROLES=gateway:creator`), all authenticated users receive `gateway:creator` on every request. Set `RBAC_DEFAULT_ROLES=` to restrict assignment to Keycloak administrators only. The default cannot be self-assigned via the API; it is applied by the server on the provisioning path. |
