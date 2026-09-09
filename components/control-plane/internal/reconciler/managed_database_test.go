@@ -21,7 +21,7 @@ import (
 )
 
 func TestNewManagedDatabaseReconcilerWithoutKubernetesClient(t *testing.T) {
-	r := NewManagedDatabaseReconciler(nil, nil, nil, "hypershell")
+	r := NewManagedDatabaseReconciler(nil, nil, nil, "hypershell", "")
 	if r.hasCNPG {
 		t.Fatal("hasCNPG = true without a Kubernetes client, want false")
 	}
@@ -380,5 +380,28 @@ func TestDeleteGatewayDeploymentDatabase(t *testing.T) {
 	err := deleteGatewayDeploymentDatabase(context.Background(), unavailable, "db-1")
 	if err == nil || !errors.Is(err, unavailable.err) {
 		t.Fatalf("error = %v, want wrapped unavailable error", err)
+	}
+}
+
+func TestDatabaseStorageClassOnlyAffectsNewPVCs(t *testing.T) {
+	r := NewManagedDatabaseReconciler(nil, nil, nil, "hypershell", "")
+	existing := r.deploymentDatabasePVC("database-ns")
+	if _, found, err := unstructured.NestedString(existing.Object, "spec", "storageClassName"); err != nil || found {
+		t.Fatalf("default class must be omitted: found=%v err=%v", found, err)
+	}
+	if err := unstructured.SetNestedField(existing.Object, "existing-class", "spec", "storageClassName"); err != nil {
+		t.Fatal(err)
+	}
+	r.databaseStorageClass = "new-class"
+	desired := r.deploymentDatabasePVC("database-ns")
+	if got, _, _ := unstructured.NestedString(desired.Object, "spec", "storageClassName"); got != "new-class" {
+		t.Fatalf("new PVC class = %q", got)
+	}
+	merged, err := convergeDeploymentDatabasePVC(existing, desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := unstructured.NestedString(merged.Object, "spec", "storageClassName"); got != "existing-class" {
+		t.Fatalf("existing PVC class changed to %q", got)
 	}
 }

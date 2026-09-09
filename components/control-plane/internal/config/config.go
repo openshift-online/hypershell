@@ -76,7 +76,10 @@ type Config struct {
 	// reconciling per their own Provider field regardless of this default
 	// (see internal/reconciler.ManagedDatabaseReconciler), so gateways backed
 	// by CNPG remain compatible even when this default is "deployment".
-	DatabaseProvider string
+	// DatabaseStorageClass selects the class for new deployment database PVCs.
+	// Empty uses the cluster default. Existing PVCs keep their class.
+	DatabaseStorageClass string
+	DatabaseProvider     string
 }
 
 func Load() (*Config, error) {
@@ -99,7 +102,8 @@ func Load() (*Config, error) {
 
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
 
-		DatabaseProvider: databaseProvider,
+		DatabaseProvider:     databaseProvider,
+		DatabaseStorageClass: strings.TrimSpace(os.Getenv("DATABASE_STORAGE_CLASS")),
 	}
 
 	if cfg.GRPCServerAddr == "" {

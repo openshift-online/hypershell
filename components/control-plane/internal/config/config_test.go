@@ -163,3 +163,17 @@ func TestResolveDatabaseProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDatabaseStorageClass(t *testing.T) {
+	t.Setenv("DATABASE_PROVIDER", "deployment")
+	for _, value := range []string{"", "fast-ssd"} {
+		t.Setenv("DATABASE_STORAGE_CLASS", value)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.DatabaseStorageClass != value {
+			t.Fatalf("storage class = %q, want %q", cfg.DatabaseStorageClass, value)
+		}
+	}
+}

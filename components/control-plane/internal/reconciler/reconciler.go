@@ -81,6 +81,7 @@ type ManagedDatabaseReconciler struct {
 	hasCNPG               bool
 	isOpenShift           bool
 	controlPlaneNamespace string
+	databaseStorageClass  string
 	lastSeen              map[string]*pb.ManagedDatabase
 }
 
@@ -89,6 +90,7 @@ func NewManagedDatabaseReconciler(
 	clientset kubernetes.Interface,
 	grpcConn *grpc.ClientConn,
 	controlPlaneNamespace string,
+	databaseStorageClass string,
 ) *ManagedDatabaseReconciler {
 	hasCNPG := false
 	isOpenShift := false
@@ -110,6 +112,7 @@ func NewManagedDatabaseReconciler(
 		hasCNPG:               hasCNPG,
 		isOpenShift:           isOpenShift,
 		controlPlaneNamespace: controlPlaneNamespace,
+		databaseStorageClass:  databaseStorageClass,
 	}
 }
 
@@ -616,24 +619,7 @@ func deploymentPostgresConfigForImage(image string) deploymentPostgresImageConfi
 	}
 }
 
-func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Context, db *pb.ManagedDatabase) error {
-	namespace := db.Namespace
-
-	if err := r.reconcileDeploymentDatabaseNamespace(ctx, namespace); err != nil {
-		return err
-	}
-
-	credentialsName := "openshell-db-credentials"
-	if err := r.reconcileDeploymentDatabaseCredentials(ctx, namespace, credentialsName); err != nil {
-		return err
-	}
-
-	dbImage := os.Getenv("OPENSHELL_DATABASE_IMAGE")
-	if dbImage == "" {
-		dbImage = "postgres:18"
-	}
-	postgresConfig := deploymentPostgresConfigForImage(dbImage)
-
+func (r *ManagedDatabaseReconciler) deploymentDatabasePVC(namespace string) *unstructured.Unstructured {
 	pvc := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "v1",
@@ -658,6 +644,32 @@ func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Cont
 			},
 		},
 	}
+
+	if r.databaseStorageClass != "" {
+		pvc.Object["spec"].(map[string]interface{})["storageClassName"] = r.databaseStorageClass
+	}
+	return pvc
+}
+
+func (r *ManagedDatabaseReconciler) reconcileDeploymentDatabase(ctx context.Context, db *pb.ManagedDatabase) error {
+	namespace := db.Namespace
+
+	if err := r.reconcileDeploymentDatabaseNamespace(ctx, namespace); err != nil {
+		return err
+	}
+
+	credentialsName := "openshell-db-credentials"
+	if err := r.reconcileDeploymentDatabaseCredentials(ctx, namespace, credentialsName); err != nil {
+		return err
+	}
+
+	dbImage := os.Getenv("OPENSHELL_DATABASE_IMAGE")
+	if dbImage == "" {
+		dbImage = "postgres:18"
+	}
+	postgresConfig := deploymentPostgresConfigForImage(dbImage)
+
+	pvc := r.deploymentDatabasePVC(namespace)
 
 	deployment := &unstructured.Unstructured{
 		Object: map[string]interface{}{

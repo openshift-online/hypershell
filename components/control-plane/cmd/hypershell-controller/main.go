@@ -178,7 +178,7 @@ func main() {
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
 	var databaseReconciler watcher.Handler[*pb.ManagedDatabase]
 	if managedDatabaseWatchEligible(clientset, dynamicClient) {
-		databaseReconciler = reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn, cfg.Namespace)
+		databaseReconciler = reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn, cfg.Namespace, cfg.DatabaseStorageClass)
 	} else {
 		log.Printf("WARN ManagedDatabase watch disabled: both Kubernetes typed and dynamic clients are required")
 	}
