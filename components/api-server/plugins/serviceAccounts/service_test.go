@@ -575,6 +575,9 @@ func TestOrphanCleanupRequiresLocalResourceOwnership(t *testing.T) {
 			if (err != nil) != test.wantError {
 				t.Fatalf("ReconcileOnce() error = %v, wantError %v", err, test.wantError)
 			}
+			if test.wantError && !strings.Contains(err.Error(), "database unavailable") {
+				t.Fatalf("ReconcileOnce() error = %v, want wrapped ownership lookup cause", err)
+			}
 			if len(kc.deletedUUIDs) != 0 || kc.disableCalls != 0 || kc.deleteManagedCalls != 0 {
 				t.Fatal("cleanup changed a client without local ownership evidence")
 			}

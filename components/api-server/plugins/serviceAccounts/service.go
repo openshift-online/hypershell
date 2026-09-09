@@ -677,7 +677,7 @@ func (s *service) cleanupOrphanedClients(ctx context.Context) error {
 			// a local gateway before removing an account with no local record.
 			if _, gatewayErr := s.gateways.Get(ctx, client.GatewayID); gatewayErr != nil {
 				if gatewayErr.HttpCode != http.StatusNotFound {
-					cleanupErrors = append(cleanupErrors, errors.New("check orphan client gateway ownership"))
+					cleanupErrors = append(cleanupErrors, fmt.Errorf("check orphan client gateway ownership for gateway %s: %w", client.GatewayID, gatewayErr))
 				}
 				continue
 			}

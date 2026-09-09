@@ -3,9 +3,10 @@ package gateway
 import (
 	"context"
 	"errors"
+	"testing"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
-	"testing"
 )
 
 type deletionKeycloak struct {
