@@ -38,6 +38,9 @@ import {
 import { TrendSparklineChart } from "../dashboard/trend-sparkline-chart";
 import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-status-counts";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
+import { InventoryStatusChart } from "../dashboard/inventory-status-chart";
+import { ManagedClusterProvidersChart } from "../dashboard/managed-cluster-providers-chart";
+import { ManagedClusterRegionsChart } from "../dashboard/managed-cluster-regions-chart";
 import { NodeStatusChart } from "../dashboard/node-status-chart";
 import { PodCapacityChart } from "../dashboard/pod-capacity-chart";
 import { ProvisionTimeChart } from "../dashboard/provision-time-chart";
@@ -113,7 +116,7 @@ export function GatewayStatusCard({
   const trendTitle = intl.formatMessage(messages.provisionedGateways);
 
   return (
-    <WidgetContent>
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--default">
       <Content className="hypershell-dashboard-status-donut-card">
         <Stack hasGutter>
           <StackItem>
@@ -137,6 +140,62 @@ export function NodeStatusCard({
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <Content className="hypershell-dashboard-status-donut-card">
         <NodeStatusChart metric={metric} />
+      </Content>
+    </WidgetContent>
+  );
+}
+
+export function ManagedClusterProvidersCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  return (
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card">
+        <ManagedClusterProvidersChart metric={metric} />
+      </Content>
+    </WidgetContent>
+  );
+}
+
+export function ManagedClusterRegionsCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  return (
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card">
+        <ManagedClusterRegionsChart metric={metric} />
+      </Content>
+    </WidgetContent>
+  );
+}
+
+export function ManagedClusterStatusCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  return (
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card">
+        <InventoryStatusChart
+          ariaDescMessage={messages.managedClusterStatusAriaDesc}
+          ariaTitleMessage={messages.managedClusterStatusChartTitle}
+          metric={metric}
+        />
+      </Content>
+    </WidgetContent>
+  );
+}
+
+export function ManagedDatabaseStatusCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  return (
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card">
+        <InventoryStatusChart
+          ariaDescMessage={messages.managedDatabaseStatusAriaDesc}
+          ariaTitleMessage={messages.managedDatabaseStatusChartTitle}
+          metric={metric}
+        />
       </Content>
     </WidgetContent>
   );
@@ -170,8 +229,8 @@ export function UtilizationCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
   return (
-    <WidgetContent>
-      <Content>
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card">
         <Stack hasGutter>
           {isUtilizationMetric(metric) ? (
             <StackItem>
@@ -527,6 +586,116 @@ function SummaryGatewayValue({
   );
 }
 
+interface InventoryExceptionCounts {
+  danger: number;
+  warning: number;
+}
+
+function getInventoryExceptionCounts(
+  inventoryStatus: Record<string, number> | undefined,
+): InventoryExceptionCounts | undefined {
+  if (inventoryStatus === undefined) {
+    return undefined;
+  }
+
+  let danger = 0;
+  let warning = 0;
+
+  for (const [label, count] of Object.entries(inventoryStatus)) {
+    if (count <= 0) {
+      continue;
+    }
+
+    if (/fail/i.test(label)) {
+      danger += count;
+      continue;
+    }
+
+    if (/degrad/i.test(label) || /pending/i.test(label)) {
+      warning += count;
+    }
+  }
+
+  if (danger === 0 && warning === 0) {
+    return undefined;
+  }
+
+  return { danger, warning };
+}
+
+function SummaryInventoryStatusCounts({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const intl = useIntl();
+  const exceptionCounts = getInventoryExceptionCounts(metric.inventoryStatus);
+
+  if (exceptionCounts === undefined) {
+    return null;
+  }
+
+  const { danger, warning } = exceptionCounts;
+
+  if (danger === 0 && warning === 0) {
+    return null;
+  }
+
+  return (
+    <Flex
+      alignItems={{ default: "alignItemsCenter" }}
+      className="hypershell-dashboard-summary-gateway-status"
+      direction={{ default: "row" }}
+      flexWrap={{ default: "nowrap" }}
+      spaceItems={{ default: "spaceItemsSm" }}
+    >
+      {danger > 0 ? (
+        <FlexItem>
+          <SummaryGatewayStatusCount
+            count={danger}
+            statusLabel={intl.formatMessage(messages.gatewayStatusFailed)}
+            variant="danger"
+          />
+        </FlexItem>
+      ) : null}
+      {danger > 0 && warning > 0 ? (
+        <FlexItem>
+          <Divider
+            className="hypershell-dashboard-summary-gateway-status__divider"
+            orientation={{ default: "vertical" }}
+          />
+        </FlexItem>
+      ) : null}
+      {warning > 0 ? (
+        <FlexItem>
+          <SummaryGatewayStatusCount
+            count={warning}
+            statusLabel={intl.formatMessage(messages.inventoryStatusWarning)}
+            variant="warning"
+          />
+        </FlexItem>
+      ) : null}
+    </Flex>
+  );
+}
+
+function SummaryInventoryValue({
+  metric,
+}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  if (!metric) {
+    return <SummaryUnavailableValue />;
+  }
+
+  return (
+    <Stack hasGutter className="hypershell-dashboard-summary-gateway-value">
+      <StackItem>
+        <SummaryMetricValue metric={metric} />
+      </StackItem>
+      <StackItem>
+        <SummaryInventoryStatusCounts metric={metric} />
+      </StackItem>
+    </Stack>
+  );
+}
+
 function SummaryPodFailedCount({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
@@ -674,6 +843,61 @@ export function SystemSummaryCard({
               metric={metrics.find((metric) => metric.id === "provision-time")}
               valueKey="mean"
             />
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+      </DescriptionList>
+    </WidgetContent>
+  );
+}
+
+export function InventorySummaryCard({
+  metrics,
+}: Readonly<{ metrics: readonly OperationalMetric[] }>) {
+  const intl = useIntl();
+  const managedClusters = metrics.find(
+    (metric) => metric.id === "managed-clusters",
+  );
+  const managedDatabases = metrics.find(
+    (metric) => metric.id === "managed-databases",
+  );
+
+  return (
+    <WidgetContent>
+      <DescriptionList
+        isHorizontal
+        aria-label={intl.formatMessage(messages.inventorySummaryAriaLabel)}
+      >
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.managedClustersSummary} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            <SummaryInventoryValue metric={managedClusters} />
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.managedClustersCreatedLast30Days} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            {managedClusters?.createdLast30Days !== undefined ? (
+              <SummaryMetricValue
+                metric={{
+                  id: "managed-clusters-created-last-30-days",
+                  value: managedClusters.createdLast30Days,
+                }}
+              />
+            ) : (
+              <SummaryUnavailableValue />
+            )}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.managedDatabasesSummary} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            <SummaryInventoryValue metric={managedDatabases} />
           </DescriptionListDescription>
         </DescriptionListGroup>
       </DescriptionList>

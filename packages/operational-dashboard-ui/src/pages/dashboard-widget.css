@@ -68,7 +68,7 @@
 }
 
 .hypershell-dashboard-utilization-chart {
-  padding-inline-start: var(--pf-t--global--spacer--sm);
+  padding-inline-start: 0;
 }
 
 .hypershell-dashboard-utilization-chart__label {
@@ -90,6 +90,11 @@
 .hypershell-dashboard-status-donut-card--compact {
   --pf-v6-c-card__body--PaddingBlockEnd: var(--pf-t--global--spacer--sm);
   --pf-v6-c-card__body--PaddingBlockStart: var(--pf-t--global--spacer--sm);
+  --pf-v6-c-card__body--PaddingInlineStart: var(--pf-t--global--spacer--xs);
+}
+
+.hypershell-dashboard-status-donut-card--default {
+  --pf-v6-c-card__body--PaddingInlineStart: var(--pf-t--global--spacer--sm);
 }
 
 .hypershell-dashboard-status-donut-chart--compact {

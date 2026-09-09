@@ -309,6 +309,39 @@ func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *testing.T) {
+	ownerOnly := []BindingSummary{
+		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
+	}
+	if isAuthorized(http.MethodGet, "managed_clusters", "", "", ownerOnly, nil) {
+		t.Error("gateway:owner must not list managed_clusters")
+	}
+	if isAuthorized(http.MethodGet, "managed_databases", "", "", ownerOnly, nil) {
+		t.Error("gateway:owner must not list managed_databases")
+	}
+
+	creatorOnly := []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}
+	if !isAuthorized(http.MethodGet, "managed_clusters", "", "", creatorOnly, nil) {
+		t.Error("gateway:creator should list managed_clusters")
+	}
+	if !isAuthorized(http.MethodGet, "managed_databases", "", "", creatorOnly, nil) {
+		t.Error("gateway:creator should list managed_databases")
+	}
+
+	if !isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role should list managed_clusters")
+	}
+
+	platformAdmin := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
+	if !isAuthorized(http.MethodGet, "managed_clusters", "", "", platformAdmin, nil) {
+		t.Error("platform:admin should list managed_clusters")
+	}
+
+	if isAuthorized(http.MethodGet, "managed_clusters", "cluster-1", "cluster-1", platformAdmin, nil) {
+		t.Error("platform:admin without gateway:creator must not get managed cluster by id")
+	}
+}
+
 func TestExtractResourceInfoFromPath_Users(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/user-1", nil)
 	resource, resourceID := extractResourceInfo(request)

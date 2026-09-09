@@ -68,6 +68,27 @@ export const messages = defineMessages({
     defaultMessage: "Gateway status",
     description: "Title for the gateway status dashboard widget.",
   },
+  inventoryStatusUnknown: {
+    id: "app.dashboard.inventoryStatus.unknown",
+    defaultMessage: "Unknown",
+    description: "Display label for inventory status bucket key unknown.",
+  },
+  inventoryStatusWarning: {
+    id: "app.dashboard.inventoryStatus.warning",
+    defaultMessage: "Warning",
+    description:
+      "Summary label for inventory items in a non-failed exception state (for example degraded or pending).",
+  },
+  inventorySummaryAriaLabel: {
+    id: "app.dashboard.summary.inventoryAriaLabel",
+    defaultMessage: "Platform inventory metrics",
+    description: "Accessible label for the platform inventory summary widget.",
+  },
+  inventorySummaryWidget: {
+    id: "app.dashboard.widget.inventorySummary",
+    defaultMessage: "Inventory summary",
+    description: "Title for the platform inventory summary dashboard widget.",
+  },
   lastRefreshed: {
     id: "app.dashboard.lastRefreshed",
     defaultMessage: "Last refreshed: {timestamp}",
@@ -92,6 +113,68 @@ export const messages = defineMessages({
     defaultMessage: "Loading operational dashboard metrics",
     description:
       "Accessible status shown while operational dashboard metrics load.",
+  },
+  managedClusterProvidersAriaDesc: {
+    id: "app.dashboard.managedClusterProviders.ariaDesc",
+    defaultMessage: "Managed cluster count by provider",
+    description:
+      "Accessible description for the managed cluster provider donut chart.",
+  },
+  managedClusterProvidersChartTitle: {
+    id: "app.dashboard.managedClusterProviders.chartTitle",
+    defaultMessage: "Managed cluster providers chart",
+    description:
+      "Accessible title for the managed cluster provider donut chart.",
+  },
+  managedClusterRegionsAriaDesc: {
+    id: "app.dashboard.managedClusterRegions.ariaDesc",
+    defaultMessage: "Managed cluster count by region and provider",
+    description:
+      "Accessible description for the managed cluster placement donut chart.",
+  },
+  managedClusterRegionsChartTitle: {
+    id: "app.dashboard.managedClusterRegions.chartTitle",
+    defaultMessage: "Managed cluster regions chart",
+    description: "Accessible title for the managed cluster region donut chart.",
+  },
+  managedClustersCreatedLast30Days: {
+    id: "app.dashboard.summary.managedClustersCreatedLast30Days",
+    defaultMessage: "Clusters created (30 days)",
+    description:
+      "Summary label for managed clusters created within the lookback window.",
+  },
+  managedClustersSummary: {
+    id: "app.dashboard.summary.managedClusters",
+    defaultMessage: "Clusters",
+    description: "Summary label for total managed clusters.",
+  },
+  managedClusterStatusAriaDesc: {
+    id: "app.dashboard.managedClusterStatus.ariaDesc",
+    defaultMessage: "Managed cluster count by status",
+    description:
+      "Accessible description for the managed cluster status donut chart.",
+  },
+  managedClusterStatusChartTitle: {
+    id: "app.dashboard.managedClusterStatus.chartTitle",
+    defaultMessage: "Managed cluster status chart",
+    description: "Accessible title for the managed cluster status donut chart.",
+  },
+  managedDatabasesSummary: {
+    id: "app.dashboard.summary.managedDatabases",
+    defaultMessage: "Databases",
+    description: "Summary label for total managed databases.",
+  },
+  managedDatabaseStatusAriaDesc: {
+    id: "app.dashboard.managedDatabaseStatus.ariaDesc",
+    defaultMessage: "Managed database count by status",
+    description:
+      "Accessible description for the managed database status donut chart.",
+  },
+  managedDatabaseStatusChartTitle: {
+    id: "app.dashboard.managedDatabaseStatus.chartTitle",
+    defaultMessage: "Managed database status chart",
+    description:
+      "Accessible title for the managed database status donut chart.",
   },
   memory: {
     id: "app.dashboard.summary.memory",
@@ -314,6 +397,11 @@ export const messages = defineMessages({
     defaultMessage: "Platform adoption",
     description: "Section title above platform adoption widgets.",
   },
+  sectionTitlePlatformInventory: {
+    id: "app.dashboard.sectionTitle.platformInventory",
+    defaultMessage: "Platform inventory",
+    description: "Section title above platform inventory widgets.",
+  },
   statusDonutDataLabel: {
     id: "app.dashboard.statusDonut.dataLabel",
     defaultMessage: "{status}: {count}",
@@ -423,6 +511,38 @@ export const messages = defineMessages({
     id: "app.dashboard.widget.cpu",
     defaultMessage: "CPU",
     description: "Title for the CPU utilization dashboard widget.",
+  },
+  widgetManagedClusterProviders: {
+    id: "app.dashboard.widget.managedClusterProviders",
+    defaultMessage: "Cluster providers",
+    description:
+      "Title for the managed cluster provider breakdown dashboard widget.",
+  },
+  widgetManagedClusterRegions: {
+    id: "app.dashboard.widget.managedClusterRegions",
+    defaultMessage: "Cluster regions",
+    description:
+      "Title for the managed cluster region breakdown dashboard widget.",
+  },
+  widgetManagedClusters: {
+    id: "app.dashboard.widget.managedClusters",
+    defaultMessage: "Clusters",
+    description: "Title for the managed clusters count dashboard widget.",
+  },
+  widgetManagedClusterStatus: {
+    id: "app.dashboard.widget.managedClusterStatus",
+    defaultMessage: "Cluster status",
+    description: "Title for the managed cluster status dashboard widget.",
+  },
+  widgetManagedDatabases: {
+    id: "app.dashboard.widget.managedDatabases",
+    defaultMessage: "Databases",
+    description: "Title for the managed databases count dashboard widget.",
+  },
+  widgetManagedDatabaseStatus: {
+    id: "app.dashboard.widget.managedDatabaseStatus",
+    defaultMessage: "Database status",
+    description: "Title for the managed database status dashboard widget.",
   },
   widgetMemory: {
     id: "app.dashboard.widget.memory",

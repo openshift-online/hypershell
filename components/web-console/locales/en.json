@@ -67,6 +67,14 @@
     "defaultMessage": "Provisioning",
     "description": "Legend label for provisioning gateways."
   },
+  "app.dashboard.inventoryStatus.unknown": {
+    "defaultMessage": "Unknown",
+    "description": "Display label for inventory status bucket key unknown."
+  },
+  "app.dashboard.inventoryStatus.warning": {
+    "defaultMessage": "Warning",
+    "description": "Summary label for inventory items in a non-failed exception state (for example degraded or pending)."
+  },
   "app.dashboard.lastRefreshed": {
     "defaultMessage": "Last refreshed: {timestamp}",
     "description": "Timestamp shown when operational dashboard metrics were last loaded successfully."
@@ -82,6 +90,38 @@
   "app.dashboard.loading": {
     "defaultMessage": "Loading operational dashboard metrics",
     "description": "Accessible status shown while operational dashboard metrics load."
+  },
+  "app.dashboard.managedClusterProviders.ariaDesc": {
+    "defaultMessage": "Managed cluster count by provider",
+    "description": "Accessible description for the managed cluster provider donut chart."
+  },
+  "app.dashboard.managedClusterProviders.chartTitle": {
+    "defaultMessage": "Managed cluster providers chart",
+    "description": "Accessible title for the managed cluster provider donut chart."
+  },
+  "app.dashboard.managedClusterRegions.ariaDesc": {
+    "defaultMessage": "Managed cluster count by region and provider",
+    "description": "Accessible description for the managed cluster placement donut chart."
+  },
+  "app.dashboard.managedClusterRegions.chartTitle": {
+    "defaultMessage": "Managed cluster regions chart",
+    "description": "Accessible title for the managed cluster region donut chart."
+  },
+  "app.dashboard.managedClusterStatus.ariaDesc": {
+    "defaultMessage": "Managed cluster count by status",
+    "description": "Accessible description for the managed cluster status donut chart."
+  },
+  "app.dashboard.managedClusterStatus.chartTitle": {
+    "defaultMessage": "Managed cluster status chart",
+    "description": "Accessible title for the managed cluster status donut chart."
+  },
+  "app.dashboard.managedDatabaseStatus.ariaDesc": {
+    "defaultMessage": "Managed database count by status",
+    "description": "Accessible description for the managed database status donut chart."
+  },
+  "app.dashboard.managedDatabaseStatus.chartTitle": {
+    "defaultMessage": "Managed database status chart",
+    "description": "Accessible title for the managed database status donut chart."
   },
   "app.dashboard.metric.value": {
     "defaultMessage": "{value} {label}",
@@ -203,6 +243,10 @@
     "defaultMessage": "Platform adoption",
     "description": "Section title above platform adoption widgets."
   },
+  "app.dashboard.sectionTitle.platformInventory": {
+    "defaultMessage": "Platform inventory",
+    "description": "Section title above platform inventory widgets."
+  },
   "app.dashboard.statusDonut.dataLabel": {
     "defaultMessage": "{status}: {count}",
     "description": "Data label for a status donut chart segment."
@@ -218,6 +262,22 @@
   "app.dashboard.summary.gateways": {
     "defaultMessage": "Gateways",
     "description": "Summary label for provisioned gateways."
+  },
+  "app.dashboard.summary.inventoryAriaLabel": {
+    "defaultMessage": "Platform inventory metrics",
+    "description": "Accessible label for the platform inventory summary widget."
+  },
+  "app.dashboard.summary.managedClusters": {
+    "defaultMessage": "Clusters",
+    "description": "Summary label for total managed clusters."
+  },
+  "app.dashboard.summary.managedClustersCreatedLast30Days": {
+    "defaultMessage": "Clusters created (30 days)",
+    "description": "Summary label for managed clusters created within the lookback window."
+  },
+  "app.dashboard.summary.managedDatabases": {
+    "defaultMessage": "Databases",
+    "description": "Summary label for total managed databases."
   },
   "app.dashboard.summary.memory": {
     "defaultMessage": "Memory",
@@ -314,6 +374,34 @@
   "app.dashboard.widget.gatewayStatus": {
     "defaultMessage": "Gateway status",
     "description": "Title for the gateway status dashboard widget."
+  },
+  "app.dashboard.widget.inventorySummary": {
+    "defaultMessage": "Inventory summary",
+    "description": "Title for the platform inventory summary dashboard widget."
+  },
+  "app.dashboard.widget.managedClusterProviders": {
+    "defaultMessage": "Cluster providers",
+    "description": "Title for the managed cluster provider breakdown dashboard widget."
+  },
+  "app.dashboard.widget.managedClusterRegions": {
+    "defaultMessage": "Cluster regions",
+    "description": "Title for the managed cluster region breakdown dashboard widget."
+  },
+  "app.dashboard.widget.managedClusterStatus": {
+    "defaultMessage": "Cluster status",
+    "description": "Title for the managed cluster status dashboard widget."
+  },
+  "app.dashboard.widget.managedClusters": {
+    "defaultMessage": "Clusters",
+    "description": "Title for the managed clusters count dashboard widget."
+  },
+  "app.dashboard.widget.managedDatabaseStatus": {
+    "defaultMessage": "Database status",
+    "description": "Title for the managed database status dashboard widget."
+  },
+  "app.dashboard.widget.managedDatabases": {
+    "defaultMessage": "Databases",
+    "description": "Title for the managed databases count dashboard widget."
   },
   "app.dashboard.widget.memory": {
     "defaultMessage": "Memory",

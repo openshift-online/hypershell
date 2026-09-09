@@ -68,6 +68,34 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         unit: "minutes",
         value: "5.25",
       }),
+      Object.freeze({
+        createdLast30Days: "2",
+        id: "managed-clusters",
+        inventoryProviders: Object.freeze({
+          aws: 5,
+          gcp: 2,
+          ibm: 1,
+        }),
+        inventoryRegions: Object.freeze({
+          "eu-west-1 (aws)": 1,
+          "eu-west-1 (gcp)": 2,
+          "us-east-1 (aws)": 4,
+          "us-east-1 (ibm)": 1,
+        }),
+        inventoryStatus: Object.freeze({
+          Ready: 6,
+          unknown: 2,
+        }),
+        value: "8",
+      }),
+      Object.freeze({
+        id: "managed-databases",
+        inventoryStatus: Object.freeze({
+          Ready: 2,
+          unknown: 1,
+        }),
+        value: "3",
+      }),
     ]),
     lastSuccessfulRefresh: new Date("2026-08-25T10:55:00.000Z"),
   });

@@ -18,6 +18,7 @@ import {
 import {
   ClusterIcon,
   CubesIcon,
+  DatabaseIcon,
   HourglassHalfIcon,
   UsersIcon,
   MicrochipIcon,
@@ -44,6 +45,7 @@ import {
   DASHBOARD_COLUMN_COUNT,
   GATEWAY_STATUS_WIDGET_HEIGHT,
   NODE_STATUS_WIDGET_HEIGHT,
+  INVENTORY_SUMMARY_WIDGET_HEIGHT,
   localizeDashboardLayoutTemplate,
   PROVISION_TIME_WIDGET_HEIGHT,
   SECTION_TITLE_WIDGET_TYPE,
@@ -63,6 +65,11 @@ import { ResourceRefreshButton } from "../shared/resource-refresh-button";
 import "./dashboard-widget.css";
 import {
   GatewayStatusCard,
+  InventorySummaryCard,
+  ManagedClusterProvidersCard,
+  ManagedClusterRegionsCard,
+  ManagedClusterStatusCard,
+  ManagedDatabaseStatusCard,
   MetricCard,
   NodeStatusCard,
   PodCapacityCard,
@@ -75,7 +82,7 @@ import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v23";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v28";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -174,6 +181,9 @@ function createWidgetMapping(
       | "node-status"
       | "pod-capacity"
       | "provision-time"
+      | "inventory-providers"
+      | "inventory-regions"
+      | "inventory-status"
       | "utilization",
   ) => {
     const metric = metricById.get(metricId);
@@ -212,6 +222,22 @@ function createWidgetMapping(
 
     if (metricType === "provision-time") {
       return <ProvisionTimeCard metric={metric} />;
+    }
+
+    if (metricType === "inventory-status") {
+      if (metricId === "managed-clusters") {
+        return <ManagedClusterStatusCard metric={metric} />;
+      }
+
+      return <ManagedDatabaseStatusCard metric={metric} />;
+    }
+
+    if (metricType === "inventory-providers") {
+      return <ManagedClusterProvidersCard metric={metric} />;
+    }
+
+    if (metricType === "inventory-regions") {
+      return <ManagedClusterRegionsCard metric={metric} />;
     }
 
     return <UtilizationChart metric={metric} />;
@@ -383,6 +409,123 @@ function createWidgetMapping(
       },
       renderWidget: () =>
         renderMetric("nodes", "", messages.nodes, "node-status"),
+    },
+    "inventory-summary": {
+      defaults: {
+        h: INVENTORY_SUMMARY_WIDGET_HEIGHT,
+        maxH: INVENTORY_SUMMARY_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <DatabaseIcon />,
+        title: intl.formatMessage(messages.inventorySummaryWidget),
+      },
+      renderWidget: () => <InventorySummaryCard metrics={metrics.metrics} />,
+    },
+    "managed-cluster-providers": {
+      defaults: {
+        h: NODE_STATUS_WIDGET_HEIGHT,
+        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <ClusterIcon />,
+        title: intl.formatMessage(messages.widgetManagedClusterProviders),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "managed-clusters",
+          "",
+          messages.widgetManagedClusterProviders,
+          "inventory-providers",
+        ),
+    },
+    "managed-cluster-regions": {
+      defaults: {
+        h: NODE_STATUS_WIDGET_HEIGHT,
+        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 2,
+      },
+      config: {
+        icon: <ClusterIcon />,
+        title: intl.formatMessage(messages.widgetManagedClusterRegions),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "managed-clusters",
+          "",
+          messages.widgetManagedClusterRegions,
+          "inventory-regions",
+        ),
+    },
+    "managed-clusters": {
+      defaults: METRIC_WIDGET_DEFAULTS,
+      config: {
+        icon: <ClusterIcon />,
+        title: intl.formatMessage(messages.widgetManagedClusters),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "managed-clusters",
+          "",
+          messages.widgetManagedClusters,
+          "metric",
+        ),
+    },
+    "managed-cluster-status": {
+      defaults: {
+        h: NODE_STATUS_WIDGET_HEIGHT,
+        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <ClusterIcon />,
+        title: intl.formatMessage(messages.widgetManagedClusterStatus),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "managed-clusters",
+          "",
+          messages.widgetManagedClusterStatus,
+          "inventory-status",
+        ),
+    },
+    "managed-databases": {
+      defaults: METRIC_WIDGET_DEFAULTS,
+      config: {
+        icon: <DatabaseIcon />,
+        title: intl.formatMessage(messages.widgetManagedDatabases),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "managed-databases",
+          "",
+          messages.widgetManagedDatabases,
+          "metric",
+        ),
+    },
+    "managed-database-status": {
+      defaults: {
+        h: NODE_STATUS_WIDGET_HEIGHT,
+        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <DatabaseIcon />,
+        title: intl.formatMessage(messages.widgetManagedDatabaseStatus),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "managed-databases",
+          "",
+          messages.widgetManagedDatabaseStatus,
+          "inventory-status",
+        ),
     },
   };
 }

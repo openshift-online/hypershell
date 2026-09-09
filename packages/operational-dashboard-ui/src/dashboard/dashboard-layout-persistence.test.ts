@@ -14,14 +14,18 @@ describe("dashboard layout persistence", () => {
       "section-title",
       "usage-summary",
       "gateway-status",
-      "provision-time",
       "provisioned-sandboxes",
       "registered-users",
       "system-summary",
       "memory",
+      "provision-time",
       "cpu",
       "pods",
       "nodes",
+      "inventory-summary",
+      "managed-cluster-providers",
+      "managed-cluster-regions",
+      "managed-database-status",
     ]);
   });
 
@@ -74,6 +78,6 @@ describe("dashboard layout persistence", () => {
 
     expect(
       sanitized.xl.filter((item) => item.widgetType === "section-title"),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 });

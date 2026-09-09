@@ -11,6 +11,13 @@ import type {
 } from "@openshift-online/hypershell-operational-dashboard-ui";
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 
+import {
+  aggregateManagedClusterList,
+  aggregateManagedDatabaseList,
+  buildManagedClustersMetric,
+  buildManagedDatabasesMetric,
+} from "./platform-inventory-aggregation";
+
 type DashboardApiFactory = (correlationId: string) => SDKClient;
 
 const gatewayListPageSize = 100;
@@ -328,6 +335,22 @@ async function fetchRegisteredUsersMetric(
   ];
 }
 
+async function fetchPlatformInventoryMetrics(
+  context: DashboardInvocationContext,
+  apiFactory: DashboardApiFactory,
+): Promise<OperationalMetric[]> {
+  const client = apiFactory(context.correlationId);
+  const [clusterAggregate, databaseAggregate] = await Promise.all([
+    aggregateManagedClusterList(client, context.signal),
+    aggregateManagedDatabaseList(client, context.signal),
+  ]);
+
+  return [
+    buildManagedClustersMetric(clusterAggregate),
+    buildManagedDatabasesMetric(databaseAggregate),
+  ];
+}
+
 interface MetricSourceDefinition {
   fetch: (
     context: DashboardInvocationContext,
@@ -344,6 +367,10 @@ const metricSources: readonly MetricSourceDefinition[] = [
   {
     id: "registered-users",
     fetch: fetchRegisteredUsersMetric,
+  },
+  {
+    id: "platform-inventory",
+    fetch: fetchPlatformInventoryMetrics,
   },
   {
     id: "cluster-memory",

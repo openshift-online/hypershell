@@ -7,7 +7,7 @@
 
 Provide a widgetized operational dashboard in the HyperShell web console where administrators can assess fleet health at a glance. The dashboard composes summary and detail widgets in a customizable grid layout. Live data is loaded through a narrow application port (`DashboardControlPlane`) implemented by the web-console host; widgets without a connected source remain on the page and render a localized unavailable state rather than being hidden.
 
-This specification covers the reusable `operational-dashboard-ui` package, the host adapter that aggregates gateway list data, admin-only access controls, SPA and BFF route surfaces, layout persistence, and the widget catalog. It does **not** cover the Prometheus metrics pipeline (`hypershell_gateways_total`, BFF `GET /api/metrics/gateways`, or `GatewayMetricsDashboard`); those are defined in `platform/gateway-metrics-dashboard.spec.md`.
+This specification covers the reusable `operational-dashboard-ui` package, the host adapter that aggregates gateway list data, admin-only access controls, SPA and BFF route surfaces, layout persistence, and the widget catalog. Platform inventory metrics (managed clusters and managed databases) are defined in `platform/platform-inventory.spec.md`. It does **not** cover the Prometheus metrics pipeline (`hypershell_gateways_total`, BFF `GET /api/metrics/gateways`, or `GatewayMetricsDashboard`); those are defined in `platform/gateway-metrics-dashboard.spec.md`.
 
 ### Relationship to gateway metrics
 
@@ -218,6 +218,8 @@ Version 1 of the operational dashboard SHALL distinguish **connected** metrics (
 | `cpu` | Yes | BFF `GET /api/metrics/cluster-cpu` (Prometheus node-exporter); see `platform/cluster-cpu.spec.md` |
 | `pods` | Yes | BFF `GET /api/metrics/cluster-pods` (Prometheus kube-state-metrics); see `platform/cluster-pods.spec.md` |
 | `provision-time` | Yes | BFF `GET /api/metrics/gateway-provision-duration` (Prometheus control-plane histogram); see `platform/gateway-provision-time.spec.md` |
+| `managed-clusters` | Yes | Paginated `GET /api/hypershell/v1/managed_clusters`; see `platform/platform-inventory.spec.md` |
+| `managed-databases` | Yes | Paginated `GET /api/hypershell/v1/managed_databases`; see `platform/platform-inventory.spec.md` |
 
 Widgets for placeholder metrics SHALL remain in the default layout and in the add-widgets drawer. When a metric ID is missing from the adapter response - whether because the metric is not yet connected or because its data source failed (OP-DASH-19) - the widget body SHALL render a localized "Metric unavailable" empty state (title and recovery guidance) instead of failing the entire dashboard.
 
@@ -290,6 +292,7 @@ The host `DashboardControlPlane` adapter SHALL load operational metrics from ind
 | BFF `GET /api/metrics/cluster-cpu` | `cpu` |
 | BFF `GET /api/metrics/cluster-pods` | `pods` |
 | BFF `GET /api/metrics/cluster-nodes` | `nodes` |
+| Paginated managed cluster and managed database lists (`GET /api/hypershell/v1/managed_clusters`, `GET /api/hypershell/v1/managed_databases`) | `managed-clusters`, `managed-databases` |
 
 The adapter SHALL fetch these sources concurrently. When a source fails (network error, non-success HTTP status, inconsistent pagination, or other adapter validation error for that source), the adapter SHALL:
 
@@ -326,6 +329,15 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 - AND gateway, sandbox, and provision-time widgets or summary rows SHALL render the localized metric-unavailable state
 - AND a warning `Alert` SHALL explain that some metrics could not be loaded
 
+#### Scenario: Platform inventory failure does not hide other metrics
+
+- GIVEN every other metric source succeeds
+- AND the managed cluster or managed database list request fails
+- WHEN the operator opens `/dashboard`
+- THEN gateway, sandbox, registered-user, and cluster metric widgets SHALL display loaded values
+- AND inventory widgets and summary rows SHALL render the localized metric-unavailable state
+- AND a warning `Alert` SHALL explain that some metrics could not be loaded
+
 #### Scenario: No qualifying provision-time samples omit only provision time
 
 - GIVEN the gateway list succeeds but contains no qualifying `Running` gateway duration samples
@@ -353,9 +365,10 @@ The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these
 | `section-title` | `section-title#hub-cluster` | Full width, hub cluster header row |
 | `system-summary` | `system-summary#1` | Column 0, hub cluster |
 | `memory` | `memory#1` | Column 1, hub cluster |
+| `provision-time` | `provision-time#1` | Column 1, hub cluster second row (below memory) |
 | `cpu` | `cpu#1` | Column 2, hub cluster |
 | `pods` | `pods#1` | Column 3, hub cluster |
-| `nodes` | `nodes#1` | Column 1, hub cluster second row |
+| `nodes` | `nodes#1` | Column 2, hub cluster second row (below cpu) |
 
 On `sm`, widgets SHALL stack in section order: platform adoption title, adoption metrics, hub cluster title, then hub cluster metrics.
 
@@ -395,6 +408,8 @@ When persistence fails (for example, storage quota exceeded), the dashboard SHAL
 ### Requirement: OP-DASH-12 -- Gateway Status Widget
 
 The `gateway-status` widget SHALL render a `GatewayStatusChart` donut using the shared `StatusDonutChart` primitive (`@patternfly/react-charts/victory` `ChartDonut`), driven by the `provisioned-gateways` metric's `status` and `value` fields.
+
+The default layout template SHALL place `gateway-status` at `GATEWAY_STATUS_WIDGET_HEIGHT`, equal to `USAGE_SUMMARY_WIDGET_HEIGHT` in the platform adoption section.
 
 The chart SHALL:
 
@@ -597,3 +612,59 @@ The host mock adapter (`createMockDashboardControlPlane`) MAY introduce an artif
 - GIVEN `mockOperationalDashboardMetrics` is supplied to `OperationalDashboardPage`
 - WHEN the default Storybook story renders
 - THEN all default-layout widgets SHALL mount without calling the HyperShell API
+
+---
+
+### Requirement: OP-DASH-20 -- Platform Inventory Summary
+
+The operational dashboard SHALL include an `inventory-summary` widget that renders platform inventory totals and top dimensions from the `managed-clusters` and `managed-databases` metrics defined in `platform/platform-inventory.spec.md` (PI-05, PI-06).
+
+The default layout template SHALL add a **Platform inventory** section below the hub cluster section:
+
+| Widget type | Layout item `i` | Default position (4-column) |
+| --- | --- | --- |
+| `inventory-summary` | `inventory-summary#1` | Column 0, platform inventory section |
+| `managed-cluster-providers` | `managed-cluster-providers#1` | Column 1, platform inventory section |
+| `managed-cluster-regions` | `managed-cluster-regions#1` | Columns 2–3 (two columns wide), platform inventory section |
+| `managed-database-status` | `managed-database-status#1` | Column 1, platform inventory second row |
+
+`localizeDashboardLayoutTemplate` SHALL resolve `section-title#platform-inventory` through `SECTION_TITLE_MESSAGE_BY_ID` with message ID `app.dashboard.sectionTitle.platformInventory`.
+
+The inventory summary widget SHALL use the same `DescriptionList` summary presentation stack as `usage-summary` and `system-summary` (OP-DASH-13). It SHALL NOT render trend sparklines.
+
+The `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` widgets SHALL use the shared `StatusDonutChart` stack (OP-DASH-16) with labels from `inventoryProviders`, `inventoryRegions`, and `inventoryStatus` keys respectively.
+
+Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`.
+
+#### Scenario: Default layout includes inventory summary
+
+- GIVEN the default layout template is active
+- WHEN the dashboard grid renders on a four-column breakpoint
+- THEN a localized **Platform inventory** section title SHALL appear below the hub cluster widgets
+- AND the inventory summary card SHALL list managed cluster and managed database totals
+
+---
+
+### Requirement: OP-DASH-21 -- Optional Platform Inventory Widgets
+
+The widget catalog SHALL register optional inventory detail widgets defined in `platform/platform-inventory.spec.md` (PI-07):
+
+- `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-20)
+- `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-20)
+- `managed-clusters` - large number tile for total managed clusters
+- `managed-cluster-status` - status donut driven by `managed-clusters.inventoryStatus`
+- `managed-databases` - large number tile for total managed databases
+- `managed-database-status` - status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-20)
+
+These optional widget types SHALL be available in the add-widgets drawer. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-20).
+
+Status donut widgets SHALL reuse the shared `StatusDonutChart` stack (OP-DASH-16) with inventory-specific bucket labels from `inventoryStatus` keys. They SHALL NOT reuse gateway display-status colors or vocabulary.
+
+A separate `/dashboard/inventory` route SHALL NOT be added in version 1.
+
+#### Scenario: Operator adds managed cluster status donut
+
+- GIVEN the default layout is active and inventory metrics are connected
+- WHEN the operator adds `managed-cluster-status` from the widget drawer
+- THEN the grid SHALL render a status donut for managed cluster inventory
+- AND the widget SHALL omit a trend sparkline
