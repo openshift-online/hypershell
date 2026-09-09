@@ -35,22 +35,25 @@ func NewRoleBindingService(
 	rbDao RoleBindingDao,
 	roleDao roles.RoleDao,
 	events services.EventService,
+	defaultRoles []string,
 ) RoleBindingService {
 	return &sqlRoleBindingService{
-		lockFactory: lockFactory,
-		rbDao:       rbDao,
-		roleDao:     roleDao,
-		events:      events,
+		lockFactory:  lockFactory,
+		rbDao:        rbDao,
+		roleDao:      roleDao,
+		events:       events,
+		defaultRoles: defaultRoles,
 	}
 }
 
 var _ RoleBindingService = &sqlRoleBindingService{}
 
 type sqlRoleBindingService struct {
-	lockFactory db.LockFactory
-	rbDao       RoleBindingDao
-	roleDao     roles.RoleDao
-	events      services.EventService
+	lockFactory  db.LockFactory
+	rbDao        RoleBindingDao
+	roleDao      roles.RoleDao
+	events       services.EventService
+	defaultRoles []string
 }
 
 func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error {
@@ -93,6 +96,14 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error {
 	jwtRoleSet := make(map[string]bool)
 	for _, r := range jwtRoles {
+		if roles.JWTSyncedRoles[r] {
+			jwtRoleSet[r] = true
+		}
+	}
+	// Default roles are always treated as present regardless of JWT content.
+	// They must be in JWTSyncedRoles to participate in the sync lifecycle
+	// (deduplication, removal on revocation).
+	for _, r := range s.defaultRoles {
 		if roles.JWTSyncedRoles[r] {
 			jwtRoleSet[r] = true
 		}

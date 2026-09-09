@@ -316,3 +316,111 @@ func TestGrantValidation_CrossGatewayEscalation(t *testing.T) {
 	Expect(crossGWErr).To(HaveOccurred())
 	Expect(crossGWErr.HttpCode).To(Equal(http.StatusForbidden))
 }
+
+// TestSyncJWTRoles_DefaultRoleAssigned verifies that a newly provisioned user
+// receives a gateway:creator binding even when the JWT carries no roles.
+func TestSyncJWTRoles_DefaultRoleAssigned(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-new", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+
+	syncErr := rbService.SyncJWTRoles(context.Background(), userID, nil)
+	Expect(syncErr).NotTo(HaveOccurred())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+	Expect(findErr).NotTo(HaveOccurred())
+
+	found := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleGatewayCreator && b.Scope == roleBindings.ScopeGlobal {
+			found = true
+		}
+	}
+	Expect(found).To(BeTrue(), "expected gateway:creator global binding after sync with empty JWT")
+}
+
+// TestSyncJWTRoles_DefaultRoleIsIdempotent verifies that calling SyncJWTRoles
+// twice does not create duplicate gateway:creator bindings.
+func TestSyncJWTRoles_DefaultRoleIsIdempotent(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-idempotent", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+
+	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
+	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+	Expect(findErr).NotTo(HaveOccurred())
+
+	creatorCount := 0
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleGatewayCreator && b.Scope == roleBindings.ScopeGlobal {
+			creatorCount++
+		}
+	}
+	Expect(creatorCount).To(Equal(1), "expected exactly one gateway:creator binding after two syncs")
+}
+
+// TestSyncJWTRoles_DefaultRoleNotRemovedWhenAbsentFromJWT verifies that a user's
+// gateway:creator binding is retained across syncs even when the JWT never carries it.
+func TestSyncJWTRoles_DefaultRoleNotRemovedWhenAbsentFromJWT(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-persist", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+
+	// First sync assigns the default.
+	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
+
+	// Second sync with still-empty JWT must not revoke it.
+	Expect(rbService.SyncJWTRoles(context.Background(), userID, nil)).To(Succeed())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+	Expect(findErr).NotTo(HaveOccurred())
+
+	found := false
+	for _, b := range bindings {
+		if b.RoleName == roles.RoleGatewayCreator && b.Scope == roleBindings.ScopeGlobal {
+			found = true
+		}
+	}
+	Expect(found).To(BeTrue(), "gateway:creator binding must survive a sync with an empty JWT")
+}
+
+// TestSyncJWTRoles_JWTRoleAddedAlongsideDefault verifies that a JWT-carried role
+// (platform:admin) is synced in addition to the default gateway:creator.
+func TestSyncJWTRoles_JWTRoleAddedAlongsideDefault(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	userID, userErr := userService.UpsertByUsername(context.Background(), "sync-default-plus-jwt", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+
+	syncErr := rbService.SyncJWTRoles(context.Background(), userID, []string{roles.RolePlatformAdmin})
+	Expect(syncErr).NotTo(HaveOccurred())
+
+	bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+	Expect(findErr).NotTo(HaveOccurred())
+
+	roleNames := make(map[string]bool)
+	for _, b := range bindings {
+		if b.Scope == roleBindings.ScopeGlobal {
+			roleNames[b.RoleName] = true
+		}
+	}
+	Expect(roleNames[roles.RoleGatewayCreator]).To(BeTrue(), "expected default gateway:creator binding")
+	Expect(roleNames[roles.RolePlatformAdmin]).To(BeTrue(), "expected JWT-carried platform:admin binding")
+}
