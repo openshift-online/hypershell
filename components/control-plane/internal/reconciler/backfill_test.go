@@ -72,7 +72,7 @@ func TestBackfillInstanceLabels(t *testing.T) {
 			gatewayWithNamespace("id-empty", ""),
 		})
 
-		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell")
+		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "")
 		if err != nil {
 			t.Fatalf("BackfillInstanceLabels() error = %v", err)
 		}
@@ -104,7 +104,7 @@ func TestBackfillInstanceLabels(t *testing.T) {
 				return nil, fmt.Errorf("boom")
 			},
 		}
-		if _, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell"); err == nil {
+		if _, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", ""); err == nil {
 			t.Fatalf("BackfillInstanceLabels() error = nil, want list failure")
 		}
 		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-a", metav1.GetOptions{})
@@ -133,7 +133,7 @@ func TestBackfillInstanceLabels(t *testing.T) {
 			gatewayWithNamespace("id-b", "openshell-b"),
 		})
 
-		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell")
+		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "")
 		if err == nil {
 			t.Fatalf("BackfillInstanceLabels() error = nil, want a collected per-namespace error")
 		}
@@ -152,8 +152,25 @@ func TestBackfillInstanceLabels(t *testing.T) {
 	t.Run("refuses an empty instance identity", func(t *testing.T) {
 		client := fake.NewSimpleClientset()
 		gwClient := singlePageGatewayClient(nil)
-		if _, err := BackfillInstanceLabels(ctx, client, gwClient, ""); err == nil {
+		if _, err := BackfillInstanceLabels(ctx, client, gwClient, "", ""); err == nil {
 			t.Fatalf("BackfillInstanceLabels() error = nil, want empty instance error")
+		}
+	})
+
+	t.Run("scopes the gateway listing to this cluster", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		var gotClusterID *string
+		gwClient := &fakeGatewayClient{
+			listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+				gotClusterID = in.ClusterId
+				return &pb.ListGatewaysResponse{Metadata: &pb.ListMeta{Total: 0}}, nil
+			},
+		}
+		if _, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "mc1"); err != nil {
+			t.Fatalf("BackfillInstanceLabels() error = %v", err)
+		}
+		if gotClusterID == nil || *gotClusterID != "mc1" {
+			t.Fatalf("cluster_id = %v, want \"mc1\" (backfill must scope to its own cluster)", gotClusterID)
 		}
 	})
 }

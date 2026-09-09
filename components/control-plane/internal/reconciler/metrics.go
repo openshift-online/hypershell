@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 )
 
@@ -47,7 +48,7 @@ func forgetGatewayProvisionObservation(gatewayID string) {
 // the stored phase for a normal event. The retry adapter supplies the phase that
 // it cleared when it bypasses the phase gate.
 func suppressGatewayProvisionObservation(gatewayID, previousPhase string) {
-	if previousPhase == gatewayPhaseRunning || previousPhase == gatewayPhaseDegraded {
+	if previousPhase == string(gatewayhealth.PhaseRunning) || previousPhase == string(gatewayhealth.PhaseDegraded) {
 		claimGatewayProvisionObservation(gatewayID)
 	}
 }
@@ -78,5 +79,5 @@ func gatewayProvisionDuration(gw *pb.Gateway) (time.Duration, bool) {
 // gateway can stay in Provisioning after the first reconcile while its route
 // becomes ready. A Running gateway that fails moves through Degraded instead.
 func isGatewayProvisionCompletion(currentPhase, desiredPhase string) bool {
-	return currentPhase == gatewayPhaseProvisioning && desiredPhase == gatewayPhaseRunning
+	return currentPhase == string(gatewayhealth.PhaseProvisioning) && desiredPhase == string(gatewayhealth.PhaseRunning)
 }

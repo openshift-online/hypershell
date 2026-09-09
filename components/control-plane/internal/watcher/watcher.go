@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
@@ -365,7 +366,40 @@ func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Gateway]) error {
+// OptionalClusterID maps a control-plane cluster identity to the proto optional
+// cluster_id field: an empty identity becomes nil (no server-side filter, the
+// single-cluster default), a non-empty one is sent so the api-server scopes the
+// list/watch to that cluster. Exported and shared: the reconciler's list helper
+// uses it too, so the mapping stays single-sourced.
+func OptionalClusterID(clusterID string) *string {
+	if clusterID == "" {
+		return nil
+	}
+	return &clusterID
+}
+
+// gatewayWorkerCount clamps a configured gateway reconcile worker count to a
+// positive value. Configuration validation already keeps the value positive, so
+// this is defense in depth: a non-positive count (from a caller or a future
+// config path) would otherwise leave the pool with no workers and stall gateway
+// reconciliation entirely, so it falls back to the built-in default instead.
+func gatewayWorkerCount(configured int) int {
+	if configured < 1 {
+		return gatewayReconcileWorkers
+	}
+	return configured
+}
+
+// WatchGateways streams gateway events and drives them through a per-resource
+// reconcile queue. When clusterID is non-empty the watch and its seed lists are
+// scoped server-side to gateways with that cluster_id, so a managed-cluster
+// spoke only ever reconciles its own gateways (the pull model); empty watches
+// every gateway. workers bounds how many distinct gateways reconcile
+// concurrently (see gateway-reconcile-concurrency.spec.md); a value below 1
+// falls back to the queue's built-in default so the pool always has at least
+// one worker.
+func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.Gateway], clusterID string, workers int) error {
+	workers = gatewayWorkerCount(workers)
 	client := pb.NewGatewayServiceClient(conn)
 	// Gateway reconciliation is driven through a per-resource reconcile queue rather
 	// than invoked inline: the watch stream does not replay state on reconnect, so a
@@ -376,7 +410,8 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 	// lifetime context so recovery survives a stream reconnect.
 	rq := newReconcileQueue(ctx, "Gateway", handler,
 		withRetryTransform(clearGatewayPhaseForRetry),
-		withVersion(gatewayEventVersion))
+		withVersion(gatewayEventVersion),
+		withWorkers[*pb.Gateway](workers))
 	defer rq.stop()
 	return watchLoop(ctx, "Gateway", func(ctx context.Context) error {
 		// Derive a cancelable child before creating the stream so either the
@@ -385,7 +420,7 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 		runCtx, runCancel := context.WithCancel(ctx)
 		defer runCancel()
 
-		stream, err := client.WatchGateways(runCtx, &pb.WatchGatewaysRequest{})
+		stream, err := client.WatchGateways(runCtx, &pb.WatchGatewaysRequest{ClusterId: OptionalClusterID(clusterID)})
 		if err != nil {
 			return fmt.Errorf("starting gateway watch: %w", err)
 		}
@@ -452,7 +487,7 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 		// the seed to the receiver: a Recv error cancels runCtx, aborting the
 		// seed's in-flight RPCs so mutations during the dead window are not
 		// masked by an unchanged stable ID set.
-		if err := seedGateways(runCtx, client, rq); err != nil {
+		if err := seedGateways(runCtx, client, rq, clusterID); err != nil {
 			// Distinguish two causes so a genuine seed failure is never masked by
 			// the cancellation we would cause ourselves. If runCtx is already
 			// canceled, the receiver ended first (its Recv error/EOF canceled
@@ -577,8 +612,8 @@ var _ gatewaySeedSink = (*reconcileQueue[*pb.Gateway])(nil)
 // NamespaceGCReconciler, which rechecks liveness before it deletes -- safer than
 // synthesizing a delete here. Absence is only trusted after a successful list:
 // any page error aborts before pruning.
-func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gatewaySeedSink) error {
-	inventory, err := listGatewaysStable(ctx, client)
+func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gatewaySeedSink, clusterID string) error {
+	inventory, err := listGatewaysStable(ctx, client, clusterID)
 	if err != nil {
 		return err
 	}
@@ -671,11 +706,11 @@ func enqueueSeed(sink gatewaySeedSink, gw *pb.Gateway) (forced bool) {
 // stream that never reconnects would never reseed to correct it. The error aborts
 // this connect attempt so watchLoop backs off and retries the whole seed on a
 // fresh stream.
-func listGatewaysStable(ctx context.Context, client pb.GatewayServiceClient) (map[string]*pb.Gateway, error) {
+func listGatewaysStable(ctx context.Context, client pb.GatewayServiceClient, clusterID string) (map[string]*pb.Gateway, error) {
 	const maxSeedListPasses = 5
 	var prevIDs map[string]struct{}
 	for pass := 1; pass <= maxSeedListPasses; pass++ {
-		current, err := listGatewaysOnce(ctx, client)
+		current, err := listGatewaysOnce(ctx, client, clusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -694,10 +729,10 @@ func listGatewaysStable(ctx context.Context, client pb.GatewayServiceClient) (ma
 // listGatewaysOnce performs a single paginated pass over the gateway inventory,
 // returning it keyed by ID (which also dedupes an item a concurrent create caused
 // to appear on two pages).
-func listGatewaysOnce(ctx context.Context, client pb.GatewayServiceClient) (map[string]*pb.Gateway, error) {
+func listGatewaysOnce(ctx context.Context, client pb.GatewayServiceClient, clusterID string) (map[string]*pb.Gateway, error) {
 	inventory := make(map[string]*pb.Gateway)
 	for page := int32(1); ; page++ {
-		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{Page: page, Size: gatewaySeedPageSize})
+		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{Page: page, Size: gatewaySeedPageSize, ClusterId: OptionalClusterID(clusterID)})
 		if err != nil {
 			return nil, fmt.Errorf("listing gateways to seed reconcile queue: %w", err)
 		}
@@ -739,7 +774,7 @@ func sameIDSet(a, b map[string]struct{}) bool {
 // gateways are not re-provisioned on every reconnect.
 func forceSeedRecovery(gw *pb.Gateway) bool {
 	switch gw.GetPhase() {
-	case "Provisioning", "Degraded":
+	case string(gatewayhealth.PhaseProvisioning), string(gatewayhealth.PhaseDegraded):
 		return true
 	default:
 		return false

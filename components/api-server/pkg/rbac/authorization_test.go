@@ -45,7 +45,7 @@ func TestIsAuthorized_GatewayCreatorCanCreateGateways(t *testing.T) {
 		{RoleName: "gateway:creator", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodPost, "gateways", "", "", bindings) {
+	if !isAuthorized(http.MethodPost, "gateways", "", "", bindings, nil) {
 		t.Error("gateway:creator should be authorized for POST /gateways")
 	}
 }
@@ -55,7 +55,7 @@ func TestIsAuthorized_GatewayCreatorCannotGetGatewayWithoutBinding(t *testing.T)
 		{RoleName: "gateway:creator", Scope: "global"},
 	}
 
-	if isAuthorized(http.MethodGet, "gateways", "gw-1", "gw-1", bindings) {
+	if isAuthorized(http.MethodGet, "gateways", "gw-1", "gw-1", bindings, nil) {
 		t.Error("gateway:creator without per-gateway binding should not GET a specific gateway")
 	}
 }
@@ -66,7 +66,7 @@ func TestIsAuthorized_GatewayOwnerCanReadOwnGateway(t *testing.T) {
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: &gwID},
 	}
 
-	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings) {
+	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("gateway:owner should be authorized for GET on owned gateway")
 	}
 }
@@ -77,7 +77,7 @@ func TestIsAuthorized_GatewayOwnerCanDeleteOwnGateway(t *testing.T) {
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: &gwID},
 	}
 
-	if !isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings) {
+	if !isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("gateway:owner should be authorized for DELETE on owned gateway")
 	}
 }
@@ -89,7 +89,7 @@ func TestIsAuthorized_GatewayOwnerCannotAccessOtherGateway(t *testing.T) {
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: &gwA},
 	}
 
-	if isAuthorized(http.MethodGet, "gateways", gwB, gwB, bindings) {
+	if isAuthorized(http.MethodGet, "gateways", gwB, gwB, bindings, nil) {
 		t.Error("gateway:owner must not access another gateway")
 	}
 }
@@ -100,7 +100,7 @@ func TestIsAuthorized_GatewayViewerCanReadOwnGateway(t *testing.T) {
 		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: &gwID},
 	}
 
-	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings) {
+	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("gateway:viewer should be authorized for GET on own gateway")
 	}
 }
@@ -111,10 +111,10 @@ func TestIsAuthorized_GatewayViewerCannotMutateGateway(t *testing.T) {
 		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: &gwID},
 	}
 
-	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings) {
+	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("gateway:viewer must not PATCH a gateway")
 	}
-	if isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings) {
+	if isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("gateway:viewer must not DELETE a gateway")
 	}
 }
@@ -125,7 +125,7 @@ func TestIsAuthorized_NonCreatorCannotCreateGateways(t *testing.T) {
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: &gwID},
 	}
 
-	if isAuthorized(http.MethodPost, "gateways", "", "", bindings) {
+	if isAuthorized(http.MethodPost, "gateways", "", "", bindings, nil) {
 		t.Error("gateway:owner without gateway:creator must not POST /gateways")
 	}
 }
@@ -135,7 +135,7 @@ func TestIsAuthorized_RoleBindingsRequireAnyBinding(t *testing.T) {
 		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")},
 	}
 
-	if !isAuthorized(http.MethodGet, "role_bindings", "", "", bindings) {
+	if !isAuthorized(http.MethodGet, "role_bindings", "", "", bindings, nil) {
 		t.Error("any binding should authorize role_bindings access")
 	}
 }
@@ -143,7 +143,7 @@ func TestIsAuthorized_RoleBindingsRequireAnyBinding(t *testing.T) {
 func TestIsAuthorized_NoBindingsDenied(t *testing.T) {
 	bindings := []BindingSummary{}
 
-	if isAuthorized(http.MethodGet, "gateways", "", "", bindings) {
+	if isAuthorized(http.MethodGet, "gateways", "", "", bindings, nil) {
 		t.Error("empty bindings must be denied")
 	}
 }
@@ -153,7 +153,7 @@ func TestIsAuthorized_GatewayViewerCannotAccessGatewayReleases(t *testing.T) {
 		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")},
 	}
 
-	if isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings) {
+	if isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
 		t.Error("gateway:viewer must not access gateway_releases")
 	}
 }
@@ -163,7 +163,7 @@ func TestIsAuthorized_GatewayOwnerCannotAccessManagedClusters(t *testing.T) {
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
 	}
 
-	if isAuthorized(http.MethodGet, "managed_clusters", "", "", bindings) {
+	if isAuthorized(http.MethodGet, "managed_clusters", "", "", bindings, nil) {
 		t.Error("gateway:owner must not access managed_clusters without gateway:creator")
 	}
 }
@@ -173,7 +173,7 @@ func TestIsAuthorized_GatewayCreatorCanAccessGatewayReleases(t *testing.T) {
 		{RoleName: "gateway:creator", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings) {
+	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
 		t.Error("gateway:creator should access gateway_releases")
 	}
 }
@@ -188,7 +188,7 @@ func TestIsAuthorized_PlatformAdminCanListAllGateways(t *testing.T) {
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodGet, "gateways", "", "", bindings) {
+	if !isAuthorized(http.MethodGet, "gateways", "", "", bindings, nil) {
 		t.Error("platform:admin should be authorized to list all gateways")
 	}
 }
@@ -199,7 +199,7 @@ func TestIsAuthorized_PlatformAdminCanReadAnyGateway(t *testing.T) {
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings) {
+	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("platform:admin should be authorized to read any gateway")
 	}
 }
@@ -210,7 +210,7 @@ func TestIsAuthorized_PlatformAdminCanDeleteAnyGateway(t *testing.T) {
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings) {
+	if !isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("platform:admin should be authorized to delete any gateway")
 	}
 }
@@ -221,7 +221,7 @@ func TestIsAuthorized_PlatformAdminCannotModifyGateway(t *testing.T) {
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings) {
+	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("platform:admin must not be able to PATCH gateways without gateway:owner")
 	}
 }
@@ -231,7 +231,7 @@ func TestIsAuthorized_PlatformAdminCannotCreateGateways(t *testing.T) {
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if isAuthorized(http.MethodPost, "gateways", "", "", bindings) {
+	if isAuthorized(http.MethodPost, "gateways", "", "", bindings, nil) {
 		t.Error("platform:admin must not be able to create gateways without gateway:creator")
 	}
 }
@@ -242,7 +242,7 @@ func TestIsAuthorized_PlatformAdminWithGatewayCreatorCanCreate(t *testing.T) {
 		{RoleName: "gateway:creator", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodPost, "gateways", "", "", bindings) {
+	if !isAuthorized(http.MethodPost, "gateways", "", "", bindings, nil) {
 		t.Error("platform:admin + gateway:creator should be able to create gateways")
 	}
 }
@@ -254,7 +254,7 @@ func TestIsAuthorized_PlatformAdminWithOwnershipCanModify(t *testing.T) {
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: &gwID},
 	}
 
-	if !isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings) {
+	if !isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil) {
 		t.Error("platform:admin + gateway:owner should be able to modify owned gateway")
 	}
 }
@@ -264,7 +264,7 @@ func TestIsAuthorized_PlatformAdminCanAccessRoleBindings(t *testing.T) {
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if !isAuthorized(http.MethodGet, "role_bindings", "", "", bindings) {
+	if !isAuthorized(http.MethodGet, "role_bindings", "", "", bindings, nil) {
 		t.Error("platform:admin should be able to access role_bindings")
 	}
 }
@@ -275,17 +275,45 @@ func TestServiceAccountAuthorizationRequiresExactGatewayBinding(t *testing.T) {
 	for _, role := range []string{"gateway:owner", "gateway:viewer"} {
 		bindings := []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: &gatewayID}}
 		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
-			if !isAuthorized(method, "service_accounts", "sa-1", gatewayID, bindings) {
+			if !isAuthorized(method, "service_accounts", "sa-1", gatewayID, bindings, nil) {
 				t.Errorf("%s should authorize %s on the bound gateway", role, method)
 			}
-			if isAuthorized(method, "service_accounts", "sa-1", otherGatewayID, bindings) {
+			if isAuthorized(method, "service_accounts", "sa-1", otherGatewayID, bindings, nil) {
 				t.Errorf("%s must not authorize %s on another gateway", role, method)
 			}
 		}
 	}
 	platformOnly := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
-	if isAuthorized(http.MethodGet, "service_accounts", "sa-1", gatewayID, platformOnly) {
+	if isAuthorized(http.MethodGet, "service_accounts", "sa-1", gatewayID, platformOnly, nil) {
 		t.Error("platform:admin without an exact gateway binding must be denied")
+	}
+}
+
+func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
+	creatorOnly := []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}
+	if isAuthorized(http.MethodGet, "users", "", "", creatorOnly, nil) {
+		t.Error("gateway:creator without platform:admin must not list users")
+	}
+
+	platformAdmin := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
+	if !isAuthorized(http.MethodGet, "users", "", "", platformAdmin, nil) {
+		t.Error("platform:admin should list users")
+	}
+
+	if !isAuthorized(http.MethodGet, "users", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role should list users")
+	}
+
+	if isAuthorized(http.MethodGet, "users", "user-1", "user-1", creatorOnly, nil) {
+		t.Error("gateway:creator must not get user by id")
+	}
+}
+
+func TestExtractResourceInfoFromPath_Users(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/user-1", nil)
+	resource, resourceID := extractResourceInfo(request)
+	if resource != "users" || resourceID != "user-1" {
+		t.Fatalf("resource = %q, id = %q", resource, resourceID)
 	}
 }
 
@@ -370,5 +398,47 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 	}
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+}
+
+func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
+	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+
+	router := mux.NewRouter()
+	router.Handle("/api/hypershell/v1/users", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("denied request reached the handler")
+	}))).Methods(http.MethodGet)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "creator-user"}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+}
+
+func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
+	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+
+	router := mux.NewRouter()
+	router.Handle("/api/hypershell/v1/users/{id}", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("denied request reached the handler")
+	}))).Methods(http.MethodGet)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/user-1", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "creator-user"}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", recorder.Code)
 	}
 }

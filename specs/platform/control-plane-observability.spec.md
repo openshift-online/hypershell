@@ -8,7 +8,7 @@
 
 Give the HyperShell control plane distributed tracing and reconcile-level metrics through OpenTelemetry (OTel), so an operator can observe reconcile latency, gRPC watch health, Kubernetes API calls, and failures across the fleet. This specification is the control-plane counterpart to `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `web-console/tracing.spec.md` (HYPERSHELL-27): the API server already produces server spans for inbound HTTP and gRPC requests, and this specification makes the control plane produce spans for the asynchronous reconciliation work that follows.
 
-Correlating a reconcile trace back to the originating user request is intentionally deferred to a follow-up story, because reconciliation is asynchronous: the API writes desired state to PostgreSQL and returns; the control plane observes the change later via a watch stream, possibly after resync, batching, or retries. That correlation is tracked separately.
+Correlating a reconcile trace back to the originating user request is defined by `platform/reconcile-trace-correlation.spec.md`, which adds span links from the reconcile root span to the originating request trace. That specification extends this one and `platform/api-server-observability.spec.md`.
 
 This specification covers the control plane component only. API server instrumentation is defined by `platform/api-server-observability.spec.md`. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
 
@@ -218,6 +218,8 @@ the queue wait duration.
 
 The control plane SHALL record one `gateway.provision.duration` observation only after the Gateway phase update to `Running` succeeds. The initial reconcile path SHALL record a direct transition to `Running`. The health reconcile path SHALL record a delayed transition from `Provisioning` to `Running`. It SHALL NOT record a later recovery from `Degraded` to `Running` as a new provision. The duration SHALL use the `created_at` and `updated_at` values in the stored Gateway that the API server returns. It SHALL ignore missing, invalid, or reversed timestamps. The metric SHALL NOT contain a Gateway identifier. Its explicit bucket boundaries SHALL cover 1 second through 15 minutes.
 
+When exported to Prometheus, the histogram SHALL appear as `gateway_provision_duration_seconds` with standard `_bucket`, `_count`, and `_sum` suffixes. The operational dashboard provision-time feature (`platform/gateway-provision-time.spec.md`) consumes that series through the web-console BFF.
+
 Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT prevent adding one later.
 
 **Verification:** Trigger reconciliations and watch reconnections; confirm the duration histogram records reconcile latency, the error counter increments on failure, and the reconnect counter increments on watch stream reconnection, all labeled by resource kind.
@@ -307,7 +309,7 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 | Resource ID as a span attribute, not a span name | Enables per-trace debugging without inflating the span-name namespace |
 | Queue depth and wait use the shared reconcile queue | One bounded resource-kind label covers each shared reconcile queue without resource identifiers |
 | OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
-| Reconcile-trace to request-trace correlation deferred | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) deserves its own story |
+| Reconcile-trace to request-trace correlation via span links | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) is defined in `platform/reconcile-trace-correlation.spec.md` |
 
 ## Primary Basis
 

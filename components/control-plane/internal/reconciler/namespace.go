@@ -114,7 +114,7 @@ func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
 }
 
 func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "namespace-gc", "reconcile")
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "namespace-gc", "reconcile", "")
 	var tickErr error
 	defer func() { endSpan(tickErr) }()
 
@@ -180,7 +180,7 @@ func (r *NamespaceGCReconciler) grpcLiveNamespaces(ctx context.Context) (map[str
 	listCtx, cancel := context.WithTimeout(ctx, gatewayListTimeout)
 	defer cancel()
 	client := pb.NewGatewayServiceClient(r.grpcConn)
-	gateways, err := listAllGateways(listCtx, client)
+	gateways, err := listAllGateways(listCtx, client, "")
 	if err != nil {
 		return nil, fmt.Errorf("list gateways: %w", err)
 	}

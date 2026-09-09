@@ -13,7 +13,7 @@
     "dev": "tsx watch src/index.ts",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0",
-    "start": "node dist/index.js",
+    "start": "node dist/bff/src/index.js",
     "test:run": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.test.json --noEmit"
   },

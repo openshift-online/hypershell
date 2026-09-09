@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
@@ -63,7 +64,7 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 		r.mu.Unlock()
 	}()
 
-	_, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String())
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling ManagedCluster %s (event=%d)", event.ResourceID, event.Type)
@@ -148,7 +149,7 @@ func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Ev
 }
 
 func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) (reconcileErr error) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedDatabase", event.Type.String())
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedDatabase", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	defer func() { endSpan(reconcileErr) }()
 
 	if r.clientset == nil || r.dynamicClient == nil {
@@ -181,6 +182,8 @@ func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher
 		err = r.handleCNPGDatabase(ctx, event, db)
 	case "deployment":
 		err = r.handleDeploymentDatabase(ctx, event, db)
+	case "external":
+		err = r.handleExternalDatabase(ctx, event, db)
 	default:
 		log.Printf("WARN ManagedDatabase %s has unsupported provider %q, skipping", event.ResourceID, db.Provider)
 		return nil
@@ -301,6 +304,34 @@ func (r *ManagedDatabaseReconciler) handleDeploymentDatabase(ctx context.Context
 
 	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, reconcileStatus, "Ready")
 	log.Printf("INFO ManagedDatabase %s deployment database provisioned in namespace %s", event.ResourceID, db.Namespace)
+	return nil
+}
+
+func (r *ManagedDatabaseReconciler) handleExternalDatabase(ctx context.Context, event watcher.Event[*pb.ManagedDatabase], db *pb.ManagedDatabase) error {
+	if event.Type == watcher.EventDeleted {
+		// External databases are not provisioned by HyperShell; only the per-gateway
+		// DDL objects (roles and databases) are cleaned up by the gateway reconciler
+		// when each gateway is deleted. The ManagedDatabase itself is register-only.
+		log.Printf("INFO ManagedDatabase %s (external) deleted, no control-plane resources to clean up", event.ResourceID)
+		return nil
+	}
+
+	log.Printf("INFO reconciling ManagedDatabase %s name=%s provider=external (event=%d)",
+		event.ResourceID, db.Name, event.Type)
+
+	if db.GetConnectionSecret() == "" {
+		newStatus := gateway.ExternalDBStatusSecretInvalid
+		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), newStatus)
+		log.Printf("WARN ManagedDatabase %s has no connection_secret; cannot probe external server", event.ResourceID)
+		return nil
+	}
+
+	cfg := gateway.ExternalDBConfig{
+		CredentialsNamespace: db.GetConnectionSecret(),
+		ManagedDatabaseID:    event.ResourceID,
+	}
+	newStatus := gateway.ProbeExternalServer(ctx, r.clientset, cfg)
+	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), newStatus)
 	return nil
 }
 
@@ -1151,7 +1182,7 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 		r.mu.Unlock()
 	}()
 
-	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String())
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling GatewayRelease %s (event=%d)", event.ResourceID, event.Type)
@@ -1258,7 +1289,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
 
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String())
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String(), gw.GetMetadata().GetTraceparent())
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error
@@ -1305,6 +1336,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				CNPG:                  deleteDBConfig.CNPG,
 				DatabaseProvider:      deleteDBConfig.Provider,
 				DeploymentDBNamespace: deleteDBConfig.SourceNamespace,
+				ExternalDB:            deleteDBConfig.ExternalDB,
 				ControlPlaneNamespace: r.controlPlaneNamespace,
 				KeycloakClient:        r.keycloakClient,
 				GatewayID:             event.ResourceID,
@@ -1364,7 +1396,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// gated. In particular, controller startup seeds existing Running gateways;
 	// reconciling before the return below lets newly introduced client settings
 	// converge without forcing a full gateway rollout.
-	if gw.Phase != nil && (*gw.Phase == gatewayPhaseRunning || *gw.Phase == gatewayPhaseProvisioning || *gw.Phase == gatewayPhaseDegraded) {
+	if gw.Phase != nil && (*gw.Phase == string(gatewayhealth.PhaseRunning) || *gw.Phase == string(gatewayhealth.PhaseProvisioning) || *gw.Phase == string(gatewayhealth.PhaseDegraded)) {
 		if err := r.reconcileExistingGatewayKeycloakClient(ctx, event.ResourceID, gw); err != nil {
 			var identityErr *gatewayKeycloakClientIdentityError
 			if errors.As(err, &identityErr) {
@@ -1441,8 +1473,16 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ExternalDns:    externalDns,
 	}
 
-	if gw.Image != nil && *gw.Image != "" {
-		gwConfig.Image = *gw.Image
+	// Database-backed gateway version selection: a release_id takes precedence
+	// over a direct image, and an empty result lets the manifest layer apply the
+	// platform default. See specs/platform/gateway-version-selection.spec.md.
+	image, err := r.selectGatewayImage(ctx, gw)
+	if err != nil {
+		reconcileErr = fmt.Errorf("select image for gateway %s: %w", gw.Name, err)
+		return reconcileErr
+	}
+	if image != "" {
+		gwConfig.Image = image
 	}
 
 	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
@@ -1492,6 +1532,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		DatabaseProvider:      dbConfig.Provider,
 		CNPG:                  dbConfig.CNPG,
 		DeploymentDBNamespace: dbConfig.SourceNamespace,
+		ExternalDB:            dbConfig.ExternalDB,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
 		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
@@ -1504,10 +1545,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
 	}
 
-	r.updateGatewayPhase(ctx, event.ResourceID, gatewayPhaseProvisioning)
+	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
-		r.updateGatewayPhase(ctx, event.ResourceID, gatewayPhaseFailed)
+		r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed))
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}
@@ -1517,7 +1558,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Deployment never becomes ready, set Degraded and record why.
 	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
 	if !ready {
-		r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseDegraded, reason)
+		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseDegraded), reason)
 		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
 		return nil
 	}
@@ -1537,17 +1578,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
 			// The observation guard rejects work that started in Running or Degraded.
-			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseRunning, gatewayStatusHealthy); runningGateway != nil {
+			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 				observeGatewayProvisionDuration(ctx, runningGateway)
 			}
 			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
 		} else {
-			r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseProvisioning, "Deployment ready; awaiting route readiness")
+			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning), "Deployment ready; awaiting route readiness")
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
 	} else {
 		// The observation guard rejects work that started in Running or Degraded.
-		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, gatewayPhaseRunning, gatewayStatusHealthy); runningGateway != nil {
+		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 			observeGatewayProvisionDuration(ctx, runningGateway)
 		}
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
@@ -1888,12 +1929,13 @@ const gatewayListPageSize = 500
 // gateway. The list endpoint is server-side paginated (default page size 20),
 // so callers that must reason about the whole fleet (the namespace reaper and
 // the health reconciler) cannot rely on a single unpaged request.
-func listAllGateways(ctx context.Context, client pb.GatewayServiceClient) ([]*pb.Gateway, error) {
+func listAllGateways(ctx context.Context, client pb.GatewayServiceClient, clusterID string) ([]*pb.Gateway, error) {
 	var all []*pb.Gateway
 	for page := int32(1); ; page++ {
 		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{
-			Page: page,
-			Size: gatewayListPageSize,
+			Page:      page,
+			Size:      gatewayListPageSize,
+			ClusterId: watcher.OptionalClusterID(clusterID),
 		})
 		if err != nil {
 			return nil, err
@@ -2076,6 +2118,46 @@ type databaseConfig struct {
 	Provider        string
 	CNPG            gateway.CNPGConfig
 	SourceNamespace string
+	ExternalDB      gateway.ExternalDBConfig
+}
+
+// selectGatewayImage applies database-backed gateway version selection: a
+// non-empty release_id is authoritative and resolves to its GatewayRelease
+// image; a direct image is the fallback; and an empty result signals the
+// manifest layer to apply the platform default. See
+// specs/platform/gateway-version-selection.spec.md.
+func (r *GatewayReconciler) selectGatewayImage(ctx context.Context, gw *pb.Gateway) (string, error) {
+	if gw.ReleaseId != "" {
+		return r.resolveReleaseImage(ctx, gw)
+	}
+	if gw.Image != nil && *gw.Image != "" {
+		return *gw.Image, nil
+	}
+	return "", nil
+}
+
+// resolveReleaseImage resolves a Gateway's release_id to the image published by
+// its referenced GatewayRelease (database-backed version selection). A
+// release_id that cannot be resolved to a release with a non-empty image is a
+// reconcile failure, not a silent fallback to a default or empty image: the
+// error is returned so the reconcile is retried.
+// See specs/platform/gateway-version-selection.spec.md.
+func (r *GatewayReconciler) resolveReleaseImage(ctx context.Context, gw *pb.Gateway) (string, error) {
+	client := pb.NewGatewayReleaseServiceClient(r.grpcConn)
+	resp, err := client.GetGatewayRelease(ctx, &pb.GetGatewayReleaseRequest{Id: gw.ReleaseId})
+	if err != nil {
+		return "", fmt.Errorf("resolve GatewayRelease %s: %w", gw.ReleaseId, err)
+	}
+
+	rel := resp.GatewayRelease
+	if rel == nil {
+		return "", fmt.Errorf("gateway configuration error: GatewayRelease %s returned empty payload", gw.ReleaseId)
+	}
+	if rel.Image == "" {
+		return "", fmt.Errorf("GatewayRelease %s has no image", gw.ReleaseId)
+	}
+
+	return rel.Image, nil
 }
 
 func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (databaseConfig, error) {
@@ -2110,6 +2192,14 @@ func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Ga
 		return databaseConfig{
 			Provider:        "deployment",
 			SourceNamespace: db.Namespace,
+		}, nil
+	case "external":
+		return databaseConfig{
+			Provider: "external",
+			ExternalDB: gateway.ExternalDBConfig{
+				CredentialsNamespace: db.GetConnectionSecret(),
+				ManagedDatabaseID:    gw.DatabaseId,
+			},
 		}, nil
 	default:
 		return databaseConfig{}, fmt.Errorf("ManagedDatabase %s has unsupported provider %q", gw.DatabaseId, db.Provider)
@@ -2164,7 +2254,7 @@ func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Eve
 		r.mu.Unlock()
 	}()
 
-	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String())
+	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	defer func() { endSpan(nil) }()
 
 	log.Printf("INFO reconciling GatewayNetwork %s (event=%d)", event.ResourceID, event.Type)

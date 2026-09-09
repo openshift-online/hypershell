@@ -95,4 +95,5 @@ func init() {
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationAddNamespace())
 	db.RegisterMigration(migrationDropFleetId())
+	db.RegisterMigration(migrationAddTraceContext())
 }

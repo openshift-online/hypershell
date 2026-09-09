@@ -7,6 +7,26 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
 )
 
+func migrationAddTraceContext() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026082500000006",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE managed_databases
+					ADD COLUMN IF NOT EXISTS traceparent TEXT,
+					ADD COLUMN IF NOT EXISTS tracestate TEXT
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE managed_databases
+					DROP COLUMN IF EXISTS traceparent,
+					DROP COLUMN IF EXISTS tracestate
+			`).Error
+		},
+	}
+}
+
 func migration() *gormigrate.Migration {
 	type ManagedDatabase struct {
 		db.Model

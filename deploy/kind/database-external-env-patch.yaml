@@ -1,0 +1,11 @@
+# JSON6902 patch adding DATABASE_PROVIDER=external to a Deployment container env.
+# Referenced twice (once per target Deployment: hypershell-api-server and
+# hypershell-controller) from the Kind up.sh-generated overlay when
+# DATABASE_PROVIDER=external is selected. The external provider registers a
+# pre-existing PostgreSQL server and issues per-gateway DDL in-process; no
+# CNPG operator or per-gateway Deployment database is required.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: DATABASE_PROVIDER
+    value: external

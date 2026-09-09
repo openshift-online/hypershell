@@ -141,6 +141,8 @@ kind: Service
 metadata:
   name: hypershell-api-server
   namespace: hypershell-system
+  labels:
+    app: hypershell-api-server
 spec:
   selector:
     app: hypershell-api-server

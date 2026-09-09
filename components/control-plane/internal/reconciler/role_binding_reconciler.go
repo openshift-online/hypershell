@@ -63,7 +63,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		return nil
 	}
 
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "RoleBinding", event.Type.String())
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "RoleBinding", event.Type.String(), rb.GetMetadata().GetTraceparent())
 	var reconcileErr error
 	defer func() { endSpan(reconcileErr) }()
 

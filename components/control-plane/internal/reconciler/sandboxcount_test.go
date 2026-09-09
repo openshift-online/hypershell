@@ -65,7 +65,7 @@ func (rec *seamRecorder) adjust(ns string, delta int) int {
 // no gRPC connection, following the namespace_test.go convention of exercising
 // the pure sub-methods directly.
 func newTestSandboxCount(rec *seamRecorder) *SandboxCountReconciler {
-	r := NewSandboxCountReconciler(fake.NewSimpleClientset(), nil, time.Minute)
+	r := NewSandboxCountReconciler(fake.NewSimpleClientset(), nil, time.Minute, "")
 	r.adjust = func(ctx context.Context, ns string, delta int) error {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()

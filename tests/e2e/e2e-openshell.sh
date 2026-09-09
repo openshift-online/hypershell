@@ -19,14 +19,14 @@
 # Environment variables:
 #   E2E_INFRA_DRIVER      Infra driver override: kind, openshift (default: auto-detected)
 #   E2E_NAMESPACE          Namespace for e2e resources (default: openshell-e2e)
-#   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw)
+#   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw-<random8hex>, unique per run)
 #   E2E_MODE               Run depth: long (default, every step) or short (essential steps)
 #   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
 #   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 90)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
-#   DATABASE_PROVIDER      Database provider: deployment or cnpg (default: deployment)
+#   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 set -euo pipefail
@@ -38,11 +38,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 # --- Database provider selection ---
+# external = stand-in server in a separate namespace simulating a cloud-managed
+#            external DB (default: unset/empty DATABASE_PROVIDER means external)
 # deployment = plain Kubernetes Deployment + PVC + Service (no CNPG operator,
-#              default: unset/empty DATABASE_PROVIDER means deployment, see
-#              specs/platform/openshell-gateway-database.spec.md)
+#              see specs/platform/openshell-gateway-database.spec.md)
 # cnpg = CloudNativePG operator (CRDs: Cluster, Database, DatabaseRole)
-DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 
 # --- Driver selection and validation ---
 
@@ -274,7 +275,7 @@ if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
     fail_test "CloudNativePG CRDs not found"
   fi
 else
-  dim "  CNPG checks skipped (DATABASE_PROVIDER=deployment)"
+  dim "  CNPG checks skipped (DATABASE_PROVIDER=${DB_PROVIDER})"
 fi
 
 show_cmd "$CLI get deployment agent-sandbox-controller -n agent-sandbox-system"
@@ -642,6 +643,10 @@ if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
   else
     fail_test "Client TLS secret not found"
   fi
+elif [[ "${DB_PROVIDER}" == "external" ]]; then
+  # External provider: no in-cluster database workload. The sole check is the
+  # gateway-namespace credentials secret, verified below for all providers.
+  dim "  External database: no in-cluster DB deployment to verify"
 else
   # Deployment provider: verify DB Deployment readiness and credentials secret
   show_cmd "$CLI get deployment openshell-gateway-db -n ${DB_GW_NAMESPACE}"

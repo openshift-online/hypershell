@@ -8,11 +8,13 @@ import (
 func roleBindingToProto(rb *RoleBinding, roleName string, username string) *pb.RoleBinding {
 	p := &pb.RoleBinding{
 		Metadata: &pb.ObjectReference{
-			Id:        rb.ID,
-			CreatedAt: timestamppb.New(rb.CreatedAt),
-			UpdatedAt: timestamppb.New(rb.UpdatedAt),
-			Kind:      "RoleBinding",
-			Href:      "/api/hypershell/v1/role_bindings/" + rb.ID,
+			Id:          rb.ID,
+			CreatedAt:   timestamppb.New(rb.CreatedAt),
+			UpdatedAt:   timestamppb.New(rb.UpdatedAt),
+			Kind:        "RoleBinding",
+			Href:        "/api/hypershell/v1/role_bindings/" + rb.ID,
+			Traceparent: rb.Traceparent,
+			Tracestate:  rb.Tracestate,
 		},
 		RoleId:   rb.RoleID,
 		Scope:    rb.Scope,

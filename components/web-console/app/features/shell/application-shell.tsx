@@ -20,11 +20,16 @@ import {
   GatewayUiProvider,
   type GatewayUiNavigation,
 } from "@openshift-online/hypershell-gateway-management-ui";
+import {
+  DashboardUiProvider,
+  type DashboardUiNavigation,
+} from "@openshift-online/hypershell-operational-dashboard-ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
+import { dashboardOperations } from "../../composition/dashboard-composition";
 import { gatewayOperations } from "../../composition/gateway-composition";
 import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
@@ -43,6 +48,13 @@ export function ApplicationShell() {
       createHref: "/gateways/new",
       detailHref: (gatewayId) => `/gateways/${encodeURIComponent(gatewayId)}`,
       navigate: (href, options) => navigate(href, options),
+    }),
+    [navigate],
+  );
+  const dashboardNavigation = useMemo<DashboardUiNavigation>(
+    () => ({
+      collectionHref: "/",
+      navigate: (href) => navigate(href),
     }),
     [navigate],
   );
@@ -131,19 +143,24 @@ export function ApplicationShell() {
   }
 
   return (
-    <GatewayUiProvider
-      gateways={gatewayOperations}
-      navigation={gatewayNavigation}
+    <DashboardUiProvider
+      dashboard={dashboardOperations}
+      navigation={dashboardNavigation}
     >
-      <Page
-        breadcrumb={breadcrumb}
-        isContentFilled
-        mainContainerId="main-content"
-        masthead={masthead}
-        skipToContent={skipToContent}
+      <GatewayUiProvider
+        gateways={gatewayOperations}
+        navigation={gatewayNavigation}
       >
-        <Outlet />
-      </Page>
-    </GatewayUiProvider>
+        <Page
+          breadcrumb={breadcrumb}
+          isContentFilled
+          mainContainerId="main-content"
+          masthead={masthead}
+          skipToContent={skipToContent}
+        >
+          <Outlet />
+        </Page>
+      </GatewayUiProvider>
+    </DashboardUiProvider>
   );
 }

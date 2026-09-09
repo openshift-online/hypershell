@@ -136,6 +136,16 @@ function SelectField({
   );
 }
 
+/**
+ * A copyable command block whose marked value slots are editable in place.
+ *
+ * `templateCommand` carries the edit markers and is highlighted once; `copyText`
+ * is the same command with the operator's current values resolved and drives
+ * both the copy button and (identically) a whole-block text selection. Editing a
+ * field calls `onFieldChange(marker, value)`; a marker used twice in the command
+ * (the mirrored provider name) is kept in lockstep because both slots read the
+ * same entry in `values`.
+ */
 export function EditableCommand({
   copyAriaLabel,
   copyText,

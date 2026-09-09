@@ -66,7 +66,7 @@ describe("GatewayConnectionSteps", () => {
     expect(link.textContent).toContain("Install the OpenShell CLI");
   });
 
-  it("highlights all command blocks with Shiki once they resolve", async () => {
+  it("highlights both command blocks with Shiki once they resolve", async () => {
     const { container } = renderSteps(readyGateway);
 
     await waitFor(() => {

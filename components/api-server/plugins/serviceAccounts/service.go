@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -956,7 +957,7 @@ func (s *service) readyGateway(ctx context.Context, gatewayID string) (*gateways
 	if problem != nil {
 		return nil, GatewayOIDC{}, problem
 	}
-	if gateway.Phase == nil || !strings.EqualFold(*gateway.Phase, "Running") || gateway.Status == nil || !strings.EqualFold(*gateway.Status, "Healthy") {
+	if gateway.Phase == nil || !strings.EqualFold(*gateway.Phase, string(gatewayhealth.PhaseRunning)) || gateway.Status == nil || !strings.EqualFold(*gateway.Status, gatewayhealth.StatusHealthy) {
 		return nil, GatewayOIDC{}, &APIError{Status: http.StatusConflict, Code: "gateway_not_ready", Message: "The gateway is not ready for service-account provisioning"}
 	}
 	return gateway, oidc, nil

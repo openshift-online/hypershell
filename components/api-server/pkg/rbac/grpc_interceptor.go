@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -210,46 +209,6 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 	}
 
 	return ctx
-}
-
-func extractJWTRolesFromContext(ctx context.Context) []string {
-	token, err := auth.TokenFromContext(ctx)
-	if err != nil {
-		return nil
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil
-	}
-
-	realmAccess, ok := claims["realm_access"]
-	if !ok {
-		return nil
-	}
-
-	raMap, ok := realmAccess.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	rolesRaw, ok := raMap["roles"]
-	if !ok {
-		return nil
-	}
-
-	rolesSlice, ok := rolesRaw.([]interface{})
-	if !ok {
-		return nil
-	}
-
-	result := make([]string, 0, len(rolesSlice))
-	for _, r := range rolesSlice {
-		if s, ok := r.(string); ok {
-			result = append(result, s)
-		}
-	}
-	return result
 }
 
 type wrappedServerStream struct {

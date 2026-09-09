@@ -22,20 +22,21 @@ var _ MappedNullable = &ManagedDatabase{}
 
 // ManagedDatabase struct for ManagedDatabase
 type ManagedDatabase struct {
-	Id               *string    `json:"id,omitempty"`
-	Kind             *string    `json:"kind,omitempty"`
-	Href             *string    `json:"href,omitempty"`
-	CreatedAt        *time.Time `json:"created_at,omitempty"`
-	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
-	Name             string     `json:"name"`
-	Provider         string     `json:"provider"`
-	Namespace        *string    `json:"namespace,omitempty"`
-	Region           *string    `json:"region,omitempty"`
-	Engine           *string    `json:"engine,omitempty"`
-	EngineVersion    *string    `json:"engine_version,omitempty"`
-	InstanceClass    *string    `json:"instance_class,omitempty"`
-	ConnectionSecret *string    `json:"connection_secret,omitempty"`
-	Status           *string    `json:"status,omitempty"`
+	Id            *string    `json:"id,omitempty"`
+	Kind          *string    `json:"kind,omitempty"`
+	Href          *string    `json:"href,omitempty"`
+	CreatedAt     *time.Time `json:"created_at,omitempty"`
+	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
+	Name          string     `json:"name"`
+	Provider      string     `json:"provider"`
+	Namespace     *string    `json:"namespace,omitempty"`
+	Region        *string    `json:"region,omitempty"`
+	Engine        *string    `json:"engine,omitempty"`
+	EngineVersion *string    `json:"engine_version,omitempty"`
+	InstanceClass *string    `json:"instance_class,omitempty"`
+	// For provider \"external\": the NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123 label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\". Ignored by other providers.
+	ConnectionSecret *string `json:"connection_secret,omitempty"`
+	Status           *string `json:"status,omitempty"`
 }
 
 type _ManagedDatabase ManagedDatabase

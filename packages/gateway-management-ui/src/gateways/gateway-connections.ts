@@ -1,3 +1,5 @@
+import { gatewayCanonicalPhases } from "./gateway-data";
+
 export interface GatewayConnection {
   activeSandboxCount?: number;
   clusterId?: string;
@@ -27,10 +29,8 @@ export interface GatewayConnection {
  * Only When Ready.
  */
 export function isGatewayReadyToConnect(gateway: GatewayConnection): boolean {
-  return (
-    gateway.phase?.trim().toLocaleLowerCase() === "running" &&
-    Boolean(gateway.endpoint)
-  );
+  const phase = gateway.phase?.trim().toLocaleLowerCase();
+  return phase === gatewayCanonicalPhases.running && Boolean(gateway.endpoint);
 }
 
 const safeShellArgument = /^[A-Za-z0-9_./:@%+=,-]+$/;
