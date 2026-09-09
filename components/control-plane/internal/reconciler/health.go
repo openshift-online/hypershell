@@ -30,6 +30,8 @@ const defaultHealthInterval = 30 * time.Second
 // specs/platform/openshell-gateway-routing.spec.md § Gateway Exposure Configuration.
 const defaultRouteReadyTimeout = 10 * time.Minute
 
+const defaultDeploymentReadyTimeout = 10 * time.Minute
+
 // routeVerifyInterval is the minimum time between residual route/console
 // absence re-checks for a settled (torn-down, addressless) gateway.
 //
@@ -148,6 +150,16 @@ func routeReadyTimeout() time.Duration {
 		log.Printf("WARN invalid GATEWAY_ROUTE_READY_TIMEOUT %q; using default %s", v, defaultRouteReadyTimeout)
 	}
 	return defaultRouteReadyTimeout
+}
+
+func deploymentReadyTimeout() time.Duration {
+	if v := os.Getenv("GATEWAY_DEPLOYMENT_READY_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		log.Printf("WARN invalid GATEWAY_DEPLOYMENT_READY_TIMEOUT %q; using default %s", v, defaultDeploymentReadyTimeout)
+	}
+	return defaultDeploymentReadyTimeout
 }
 
 // Run drives the health reconciliation loop until the context is cancelled.
