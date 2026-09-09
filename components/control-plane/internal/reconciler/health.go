@@ -74,8 +74,8 @@ type GatewayHealthReconciler struct {
 	// client needs no additional synchronization.
 	consoleClientChecker gateway.ConsoleClientChecker
 
-	// now is the clock, overridable in tests.
-	now func() time.Time
+	now                   func() time.Time
+	deploymentReadinessFn func(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (bool, string, error)
 
 	// routeNotReadySince records, per gateway, when its Deployment first became
 	// Ready while its external exposure was not, so the route-readiness grace
@@ -136,7 +136,8 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		hasGatewayAPI:        hasGatewayAPI,
 		ingressMode:          ingressMode,
 		skipNetworkPolicies:  os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
-		now:                  time.Now,
+		now:                   time.Now,
+		deploymentReadinessFn: gateway.DeploymentReadiness,
 		routeNotReadySince:      make(map[string]time.Time),
 		deploymentNotReadySince: make(map[string]time.Time),
 		routeTornDown:           make(map[string]bool),
@@ -249,7 +250,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		return
 	}
-	ready, reason, err := gateway.DeploymentReadiness(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
+	ready, reason, err := h.deploymentReadinessFn(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
 		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
 		return

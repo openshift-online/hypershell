@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
@@ -36,10 +37,12 @@ func (f fakeExposure) ObserveReadiness(context.Context, exposure.Request) (expos
 
 func newHealthRec(exp exposure.Port, now func() time.Time, timeout time.Duration) *GatewayHealthReconciler {
 	return &GatewayHealthReconciler{
-		exposure:           exp,
-		routeReadyTimeout:  timeout,
-		now:                now,
-		routeNotReadySince: make(map[string]time.Time),
+		exposure:                exp,
+		routeReadyTimeout:       timeout,
+		deploymentReadyTimeout:  timeout,
+		now:                     now,
+		routeNotReadySince:      make(map[string]time.Time),
+		deploymentNotReadySince: make(map[string]time.Time),
 	}
 }
 
@@ -674,5 +677,97 @@ func TestListAllGateways_Empty(t *testing.T) {
 	}
 	if callCount != 1 {
 		t.Fatalf("expected 1 call, got %d", callCount)
+	}
+}
+
+func fakeDeploymentReadiness(ready bool, reason string) func(context.Context, kubernetes.Interface, string, string) (bool, string, error) {
+	return func(context.Context, kubernetes.Interface, string, string) (bool, string, error) {
+		return ready, reason, nil
+	}
+}
+
+func newHealthRecForDeploymentTest(now func() time.Time, timeout time.Duration, readyFn func(context.Context, kubernetes.Interface, string, string) (bool, string, error)) *GatewayHealthReconciler {
+	h := newHealthRec(nil, now, timeout)
+	h.deploymentReadinessFn = readyFn
+	h.routeTornDown = map[string]bool{"gw-1": true}
+	h.routeVerifiedAt = map[string]time.Time{"gw-1": now()}
+	return h
+}
+
+func TestReconcileGatewayHealth_ProvisioningDeploymentNotReadyWithinGraceStaysProvisioning(t *testing.T) {
+	var gotPhase string
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, req *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if req.Phase != nil {
+			gotPhase = *req.Phase
+		}
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	phase := "Provisioning"
+	gw := &pb.Gateway{
+		Metadata:  &pb.ObjectReference{Id: "gw-1"},
+		Phase:     &phase,
+		Namespace: "openshell-abc",
+	}
+
+	h := newHealthRecForDeploymentTest(fixedClock(time.Unix(1000, 0)), 10*time.Minute, fakeDeploymentReadiness(false, "0/1 replicas ready"))
+	h.reconcileGatewayHealth(context.Background(), client, gw)
+
+	if gotPhase != "Provisioning" {
+		t.Fatalf("got phase %q, want Provisioning (within grace window)", gotPhase)
+	}
+}
+
+func TestReconcileGatewayHealth_ProvisioningDeploymentNotReadyBeyondGraceBecomesDegraded(t *testing.T) {
+	var gotPhase string
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, req *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if req.Phase != nil {
+			gotPhase = *req.Phase
+		}
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	phase := "Provisioning"
+	gw := &pb.Gateway{
+		Metadata:  &pb.ObjectReference{Id: "gw-1"},
+		Phase:     &phase,
+		Namespace: "openshell-abc",
+	}
+
+	cur := time.Unix(1000, 0)
+	h := newHealthRecForDeploymentTest(func() time.Time { return cur }, 10*time.Minute, fakeDeploymentReadiness(false, "0/1 replicas ready"))
+
+	h.reconcileGatewayHealth(context.Background(), client, gw)
+
+	cur = cur.Add(11 * time.Minute)
+	h.routeVerifiedAt["gw-1"] = cur
+	h.reconcileGatewayHealth(context.Background(), client, gw)
+
+	if gotPhase != "Degraded" {
+		t.Fatalf("got phase %q, want Degraded after grace window expired", gotPhase)
+	}
+}
+
+func TestReconcileGatewayHealth_RunningLosesDeploymentReadinessBecomesDegradedImmediately(t *testing.T) {
+	var gotPhase string
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, req *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if req.Phase != nil {
+			gotPhase = *req.Phase
+		}
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	phase := "Running"
+	gw := &pb.Gateway{
+		Metadata:  &pb.ObjectReference{Id: "gw-1"},
+		Phase:     &phase,
+		Namespace: "openshell-abc",
+	}
+
+	h := newHealthRecForDeploymentTest(fixedClock(time.Unix(1000, 0)), 10*time.Minute, fakeDeploymentReadiness(false, "0/1 replicas ready"))
+	h.reconcileGatewayHealth(context.Background(), client, gw)
+
+	if gotPhase != "Degraded" {
+		t.Fatalf("got phase %q, want Degraded immediately (no grace for Running)", gotPhase)
 	}
 }
