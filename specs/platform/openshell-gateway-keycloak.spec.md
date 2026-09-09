@@ -709,7 +709,11 @@ reconciliation. A gateway rename SHALL NOT change the client selected for
 removal. Existing records with only an audience SHALL retain that identity.
 Records without either stored identity field SHALL use the existing
 name-and-gateway-ID fallback. Invalid or conflicting stored identities SHALL
-return an error before any Keycloak client cleanup request.
+return an error before any Keycloak client cleanup request. A missing Keycloak
+provisioner SHALL NOT block gateway finalization: deletion SHALL log the
+recorded client identity for operator recovery and SHALL continue namespace and
+database cleanup. Re-enabling the provisioner does not replay a completed
+delete; leftover realm clients are removed from that log.
 
 #### Scenario: Delete a renamed gateway
 
@@ -718,3 +722,12 @@ return an error before any Keycloak client cleanup request.
 - WHEN the gateway is deleted
 - THEN cleanup selects the stored gateway client and its console client
 - AND cleanup does not select clients from the new display name
+
+#### Scenario: Delete after Keycloak is deconfigured
+
+- GIVEN a gateway has a stored OIDC identity
+- AND the control plane Keycloak client is not configured
+- WHEN the gateway is deleted
+- THEN cleanup SHALL NOT request Keycloak
+- AND cleanup SHALL log the recorded client identity for operator recovery
+- AND cleanup SHALL continue remaining gateway resource deletion

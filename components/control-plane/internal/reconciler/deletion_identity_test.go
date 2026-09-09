@@ -1,8 +1,10 @@
 package reconciler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -34,6 +36,10 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 		{name: "missing provisioner", oidc: `{"client_id":"original-gateway-id"}`, noKeycloak: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			prior := log.Writer()
+			log.SetOutput(&logs)
+			t.Cleanup(func() { log.SetOutput(prior) })
 			var lookups []string
 			requests := 0
 			identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,8 +89,15 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 				if requests != 0 {
 					t.Fatal("unconfigured Keycloak received a request")
 				}
-				if got := strings.Contains(err.Error(), "gateway identity cleanup requires the Keycloak client"); got != (tc.oidc != "") {
-					t.Fatalf("unexpected missing provisioner status: %v", err)
+				reported := strings.Contains(logs.String(), "identity cleanup requires the Keycloak client")
+				if reported != (tc.oidc != "") {
+					t.Fatalf("unexpected missing provisioner report: logs=%q err=%v", logs.String(), err)
+				}
+				if strings.Contains(err.Error(), "identity cleanup requires the Keycloak client") {
+					t.Fatalf("missing provisioner blocked finalization: %v", err)
+				}
+				if tc.oidc != "" && !strings.Contains(logs.String(), "original-gateway-id") {
+					t.Fatalf("missing provisioner log omitted client identity: %q", logs.String())
 				}
 			} else if tc.invalid {
 				var identityErr *gatewayKeycloakClientIdentityError

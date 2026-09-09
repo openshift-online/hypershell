@@ -1351,7 +1351,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				}
 			}
 			if gw.GetOidc() != "" && r.keycloakClient == nil {
-				deleteErrs = append(deleteErrs, fmt.Errorf("gateway identity cleanup requires the Keycloak client"))
+				// A deconfigured provisioner never comes back, so failing here would
+				// pin the delete tombstone after namespace and database cleanup.
+				// Log the recorded identity for operator recovery instead.
+				clientID, idErr := existingGatewayKeycloakClientID(event.ResourceID, gw)
+				if idErr != nil {
+					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; stored identity cannot be resolved (%v); Keycloak clients may remain for operator recovery", event.ResourceID, idErr)
+				} else {
+					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; leaving Keycloak clients %q and %q for operator recovery", event.ResourceID, clientID, clientID+"-console")
+				}
 			}
 			var credentialNamespaces []string
 			if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
