@@ -19,16 +19,18 @@ sharing one.
 1. Inspect the component's language, module files, build commands, generated artifacts,
    and dependencies on other components.
 2. Update `.github/component-paths.json`. Register the component's own paths plus any
-   shared contracts or upstream paths that can affect it. Set `directory` and `lint_job`;
-   `make check` rejects missing or stale component registrations.
+   shared contracts or upstream paths that can affect it. Set `directory` and `lint_job`
+   (if it has a lint job), and set `unit_tested: true` if it has a unit-test job in
+   `unit-tests.yml`; `make check` rejects missing or stale component registrations for
+   both, including a `unit_tested: true` component missing its `unit-tests.yml` wiring.
 3. Wire the component through `.github/workflows/checks.yml`'s change detection and lint
    job. Add a detector output to its own `detect-changes` job, then add the component's
    lint job with `needs: detect-changes` gated on
    `needs.detect-changes.outputs.<component> == 'true'`. The workflow needs no separate
-   summary job for this: `checks.yml` has one rollup gate job, `checks-gate` (`CI Gate`),
-   that runs `if: always()`, reads every job's rolled-up `result`, and is the required
-   branch-protection check. A skipped component job is acceptable and still passes the
-   gate. `make check` enforces this wiring end to end.
+   summary job for this: `checks.yml` has one rollup gate job, `checks-gate` (`Checks CI
+   Gate`), that runs `if: always()`, reads every job's rolled-up `result`, and is the
+   required branch-protection check. A skipped component job is acceptable and still
+   passes the gate. `make check` enforces this wiring end to end.
 4. Update `.github/workflows/unit-tests.yml` the same way when the component has unit
    tests: add its `workflow_call` input (and the `with:` pass-through in
    `.github/workflows/tests.yml`'s own `detect-changes` job) and gate the job on
@@ -38,13 +40,19 @@ sharing one.
    edges, not by in-workflow poller jobs: unit and e2e are reusable workflows (`on:
    workflow_call`) with no event triggers of their own. `unit` depends only on
    `detect-changes`, and `e2e` joins on it (`needs: [detect-changes, unit]`) so the
-   expensive Kind run is gated behind the cheap unit stage. `tests.yml`'s `tests-gate` job
-   (`CI Gate`) rolls both stages' results into the other required branch-protection check.
-   Both `checks.yml`'s and `tests.yml`'s gate jobs are named plain `CI Gate` rather than
-   `Checks CI Gate` / `Tests CI Gate`, since the workflow run they belong to already
-   disambiguates them. Do not add `pull_request`/`push` triggers to a stage workflow (that
-   would double every run) and do not add a job that polls for a preceding stage's gate, or
-   for the separate `checks.yml` workflow.
+   expensive Kind run is gated behind the cheap unit stage. GitHub Actions skips a job by
+   default if any needed job failed *or was skipped*, so `e2e` also carries an explicit
+   `if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result
+   != 'failure' }}` -- without it, a change touching only e2e-owned paths (every `unit`
+   job path-filtered away, so the `unit` caller job itself resolves to `skipped`) would
+   silently skip `e2e` too. `tests.yml`'s `tests-gate` job (`Tests CI Gate`) rolls both
+   stages' results into the other required branch-protection check. The two gate jobs are
+   named distinctly (`Checks CI Gate` / `Tests CI Gate`) rather than both plain `CI Gate`:
+   this repo's branch protection is a ruleset whose `required_status_checks` match by
+   `(context name, integration_id)` only, not by workflow file, so identically-named gates
+   from the two workflows would be indistinguishable to it. Do not add `pull_request`/
+   `push` triggers to a stage workflow (that would double every run) and do not add a job
+   that polls for a preceding stage's gate, or for the separate `checks.yml` workflow.
 5. Add or update a generated-code drift check as a job in `.github/workflows/checks.yml`,
    gated on `needs.detect-changes.outputs.<component>` for the component(s) whose paths
    affect the generator (e.g. `needs.detect-changes.outputs.sdk_go == 'true' ||

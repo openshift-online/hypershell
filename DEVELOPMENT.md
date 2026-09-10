@@ -615,39 +615,48 @@ policy (`make check`, unconditional), and OpenAPI SDK drift (gated on the
 sdk_go/sdk_typescript detection outputs) - all sharing that workflow's single
 `detect-changes` pass instead of each re-detecting changes on their own
 trigger the way the old standalone `repository-policy.yml` and
-`sdk-drift-check.yml` did. Its `checks-gate` job (`CI Gate`) runs with
-`if: always()`, reads every other job's rolled-up result, and fails unless
-`detect-changes` succeeded and no job failed or was cancelled (a
+`sdk-drift-check.yml` did. Its `checks-gate` job (`Checks CI Gate`) runs
+with `if: always()`, reads every other job's rolled-up result, and fails
+unless `detect-changes` succeeded and no job failed or was cancelled (a
 path-filtered skip still passes the gate).
 
 `.github/workflows/tests.yml` detects changed components once (its
 `detect-changes` job) and calls unit and e2e as reusable workflows, passing
 the detection results in as inputs and wiring the stages with native
 `needs:` edges: `unit` depends only on `detect-changes`, and `e2e` joins on
-`unit` (`needs: [detect-changes, unit]`). e2e is the expensive stage - it
-provisions Kind and runs the full test matrix - so gating it behind the
-cheap unit stage means Kind is never created for a SHA whose unit tests
-failed, and such a failure shows up as a clean red `CI Gate` check instead
-of a misleading e2e environment failure. Nothing sits polling for a
-preceding gate. `.github/workflows/unit-tests.yml` runs the same suites as
-`make unit-test-all`, split into per-component jobs that only run when their
-inputs changed.
+`unit` (`needs: [detect-changes, unit]`). GitHub Actions skips a job by
+default if any needed job failed *or was skipped*, so `e2e` also carries an
+explicit `if: ${{ !cancelled() && needs.detect-changes.result == 'success'
+&& needs.unit.result != 'failure' }}` - without it, a PR touching only
+e2e-owned paths (every `unit` job path-filtered away, so the `unit` caller
+job itself resolves to `skipped`) would silently skip `e2e` too. e2e is the
+expensive stage - it provisions Kind and runs the full test matrix - so
+gating it behind the cheap unit stage means Kind is never created for a SHA
+whose unit tests failed, and such a failure shows up as a clean red `Tests
+CI Gate` check instead of a misleading e2e environment failure. Nothing
+sits polling for a preceding gate. `.github/workflows/unit-tests.yml` runs
+the same suites as `make unit-test-all`, split into per-component jobs that
+only run when their inputs changed.
 
-`.github/workflows/tests.yml`'s `tests-gate` job (`CI Gate`) covers the
-`unit` and `e2e` stages together, since they're both "running the code"
+`.github/workflows/tests.yml`'s `tests-gate` job (`Tests CI Gate`) covers
+the `unit` and `e2e` stages together, since they're both "running the code"
 stages as opposed to `checks.yml`'s static checks. Each stage's jobs appear
 as `Unit / <job>` and `E2E / <job>` checks, so there is no single check
 named just `Unit`/`E2E`; the gate rolls both up into one always-present
 required check the same way `checks.yml`'s gate does.
 
-Both gate jobs are named plain `CI Gate` rather than `Checks CI Gate` /
-`Tests CI Gate`, since the workflow run they belong to already disambiguates
-them in the PR checks list and the branch-protection required-checks
-picker. Mark both `checks.yml`'s and `tests.yml`'s `CI Gate` as required
-checks in branch protection. Note the trade-off of running the two workflows
-concurrently: a lint/policy/drift failure in `checks.yml` no longer blocks
-`tests.yml`'s e2e stage from spinning up Kind - only a unit-test failure
-does.
+The two gate jobs are named distinctly (`Checks CI Gate`, `Tests CI Gate`)
+rather than both plain `CI Gate`: this repo's branch protection is a
+ruleset whose `required_status_checks` match by `(context name,
+integration_id)` only, not by workflow file, and both workflows' checks
+share the same "GitHub Actions" integration_id - identically-named gates
+from the two workflows would be indistinguishable to the ruleset, and
+either one succeeding could satisfy the requirement while the other
+silently failed. Mark both `Checks CI Gate` and `Tests CI Gate` as required
+checks in branch protection. Note the trade-off of running the two
+workflows concurrently: a lint/policy/drift failure in `checks.yml` no
+longer blocks `tests.yml`'s e2e stage from spinning up Kind - only a
+unit-test failure does.
 
 ### E2E tests
 
