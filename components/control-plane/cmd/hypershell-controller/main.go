@@ -245,7 +245,7 @@ func main() {
 	// release reconciler can hold the same instance.
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
-	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue)
+	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue, cfg.ClusterID)
 
 	watchCount := 4 // managed clusters, gateway releases, gateways, networks
 	if databaseReconciler != nil {

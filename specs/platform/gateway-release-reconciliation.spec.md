@@ -32,6 +32,14 @@ server" responsibilities for the release resource specifically.
   defined by the release-rollout and canary specs. This spec only guarantees that
   a release change causes the referencing Gateways to be re-reconciled; the
   resulting deploy behavior is owned by those specs.
+- **Known limitation (out of scope here):** effective-image change detection is
+  anchored to a control-plane-local baseline of the last observed image per
+  release, and the release watch has no startup seed. A release image edited while
+  the control plane is down is therefore not re-observed on restart, so already
+  running referencing Gateways are not fanned out until the release changes again.
+  Closing this restart-window gap (durable/generation-anchored change detection or
+  a periodic release resync) is owned by the control-plane world-synchronization
+  and reconciliation-contract specs.
 
 ## Domain Vocabulary
 
@@ -109,6 +117,13 @@ desired version. Propagation SHALL be limited to Gateways that reference the
 release by `release_id`; Gateways that pin an explicit `image` and do not
 reference the release SHALL NOT be disturbed.
 
+The fan-out's Gateway listing SHALL be scoped to the control plane's own managed
+cluster: on a managed-cluster spoke (a non-empty cluster identity, the pull model)
+the release watch runs on every control plane, so the listing SHALL apply the
+server-side cluster filter and SHALL NOT match, or request reconciliation of,
+Gateways owned by another cluster. In single-cluster mode (empty cluster identity)
+no cluster filter is applied and the whole fleet is eligible.
+
 #### Scenario: Image change fans out to referencing gateways
 
 - GIVEN a valid `GatewayRelease` `r1` referenced by Gateways `g1` and `g2` via
@@ -124,6 +139,16 @@ reference the release SHALL NOT be disturbed.
 - WHEN `r1` is updated to a malformed image
 - THEN the release status settles to `Invalid`
 - AND `g1` is not driven toward the invalid image
+
+#### Scenario: Fan-out on a spoke is scoped to its own cluster
+
+- GIVEN a managed-cluster spoke with cluster identity `spoke-a`
+- AND a `GatewayRelease` `r1` referenced by Gateway `g1` on `spoke-a` and by
+  Gateway `g2` on another cluster
+- WHEN `r1`'s image changes and the spoke reconciles it
+- THEN the control plane lists Gateways scoped to `spoke-a`
+- AND it requests reconciliation of `g1`
+- AND it does not match or request reconciliation of `g2`
 
 #### Scenario: No image change does not fan out
 

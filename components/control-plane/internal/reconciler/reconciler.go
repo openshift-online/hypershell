@@ -1167,10 +1167,6 @@ func cnpgClusterGVR() schema.GroupVersionResource {
 const (
 	releaseStatusAvailable = "Available"
 	releaseStatusInvalid   = "Invalid"
-	// releaseFanOutPageSize is the page size used when listing gateways to find
-	// the ones that reference a changed release. It matches the other reconcilers'
-	// list page size so a typical fleet is covered in a single request.
-	releaseFanOutPageSize = 500
 )
 
 // gatewayEnqueuer requests a gateway be re-reconciled through the shared gateway
@@ -1192,8 +1188,7 @@ type gatewayEnqueuer interface {
 // owned by sibling specs; this reconciler only guarantees the referencing
 // gateways are re-reconciled.
 type GatewayReleaseReconciler struct {
-	mu     sync.Mutex
-	active map[string]struct{}
+	mu sync.Mutex
 	// lastImage records the last validated image observed per release ID so an
 	// update that does not change the effective image does not fan out, and so the
 	// first observation of a release (e.g. on controller start or a fresh create)
@@ -1204,6 +1199,12 @@ type GatewayReleaseReconciler struct {
 	gateways pb.GatewayServiceClient
 	releases pb.GatewayReleaseServiceClient
 	gwQueue  gatewayEnqueuer
+	// clusterID scopes the release fan-out's gateway listing to this control
+	// plane's own cluster. On a managed-cluster spoke (non-empty) the GatewayRelease
+	// watch runs on every control plane, so an unscoped list would match and force
+	// foreign gateways into the local reconcile queue, breaking pull-model
+	// isolation; empty means single-cluster (no server-side filter).
+	clusterID string
 }
 
 // NewGatewayReleaseReconciler builds the release reconciler. conn is the API
@@ -1211,12 +1212,14 @@ type GatewayReleaseReconciler struct {
 // gateways; gwQueue is the shared gateway reconcile queue used to propagate image
 // changes. Either dependency may be nil (e.g. when the controller runs without a
 // Kubernetes client), in which case propagation is skipped but validation and
-// status write-back still run.
-func NewGatewayReleaseReconciler(conn *grpc.ClientConn, gwQueue gatewayEnqueuer) *GatewayReleaseReconciler {
+// status write-back still run. clusterID is this control plane's managed-cluster
+// identity (empty in single-cluster mode); it scopes the fan-out's gateway
+// listing so a spoke never force-reconciles another cluster's gateways.
+func NewGatewayReleaseReconciler(conn *grpc.ClientConn, gwQueue gatewayEnqueuer, clusterID string) *GatewayReleaseReconciler {
 	r := &GatewayReleaseReconciler{
-		active:    make(map[string]struct{}),
 		lastImage: make(map[string]string),
 		gwQueue:   gwQueue,
+		clusterID: clusterID,
 	}
 	if conn != nil {
 		r.gateways = pb.NewGatewayServiceClient(conn)
@@ -1226,19 +1229,10 @@ func NewGatewayReleaseReconciler(conn *grpc.ClientConn, gwQueue gatewayEnqueuer)
 }
 
 func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Event[*pb.GatewayRelease]) error {
-	r.mu.Lock()
-	if _, ok := r.active[event.ResourceID]; ok {
-		r.mu.Unlock()
-		return nil
-	}
-	r.active[event.ResourceID] = struct{}{}
-	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		delete(r.active, event.ResourceID)
-		r.mu.Unlock()
-	}()
-
+	// Per-release serialization is owned by the reconcile queue that drives this
+	// handler (WatchGatewayReleases), so no in-handler active-set guard is needed;
+	// adding one back would risk returning nil (success) on a spurious skip and
+	// masking a dropped reconcile from the queue's retry/backoff.
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	var reconcileErr error
 	defer func() { endSpan(reconcileErr) }()
@@ -1343,28 +1337,23 @@ func (r *GatewayReleaseReconciler) propagateToGateways(ctx context.Context, rele
 }
 
 // listGatewaysForRelease returns every gateway whose release_id references the
-// given release, paginating through the API server.
+// given release. It reuses listAllGateways so the listing is scoped to this
+// control plane's cluster (via r.clusterID): on a managed-cluster spoke this
+// prevents matching and force-enqueuing gateways owned by other clusters, which
+// would violate pull-model isolation. Filtering by release_id is done
+// client-side; a server-side filter is a scale follow-up.
 func (r *GatewayReleaseReconciler) listGatewaysForRelease(ctx context.Context, releaseID string) ([]*pb.Gateway, error) {
+	all, err := listAllGateways(ctx, r.gateways, r.clusterID)
+	if err != nil {
+		return nil, err
+	}
 	var matching []*pb.Gateway
-	for page := int32(1); ; page++ {
-		resp, err := r.gateways.ListGateways(ctx, &pb.ListGatewaysRequest{
-			Page: page,
-			Size: releaseFanOutPageSize,
-		})
-		if err != nil {
-			return nil, err
-		}
-		items := resp.GetItems()
-		for _, gw := range items {
-			if gw.GetReleaseId() == releaseID {
-				matching = append(matching, gw)
-			}
-		}
-		total := int(resp.GetMetadata().GetTotal())
-		if len(items) == 0 || len(items) < releaseFanOutPageSize || (total > 0 && page*releaseFanOutPageSize >= int32(total)) {
-			return matching, nil
+	for _, gw := range all {
+		if gw.GetReleaseId() == releaseID {
+			matching = append(matching, gw)
 		}
 	}
+	return matching, nil
 }
 
 func (r *GatewayReleaseReconciler) lastImageFor(id string) (string, bool) {

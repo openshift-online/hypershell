@@ -26,14 +26,18 @@ func (f *fakeReleaseClient) UpdateGatewayRelease(ctx context.Context, in *pb.Upd
 	return &pb.UpdateGatewayReleaseResponse{}, nil
 }
 
-// fakeReleaseGatewayClient serves a fixed gateway inventory to ListGateways.
+// fakeReleaseGatewayClient serves a fixed gateway inventory to ListGateways and
+// records the ClusterId filter each call carried so tests can assert the fan-out
+// is cluster-scoped.
 type fakeReleaseGatewayClient struct {
 	pb.GatewayServiceClient
-	gateways []*pb.Gateway
-	listErr  error
+	gateways      []*pb.Gateway
+	listErr       error
+	gotClusterIDs []*string
 }
 
 func (f *fakeReleaseGatewayClient) ListGateways(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+	f.gotClusterIDs = append(f.gotClusterIDs, in.ClusterId)
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -54,7 +58,6 @@ func (r *recordingEnqueuer) EnqueueForced(ev watcher.Event[*pb.Gateway]) {
 
 func newTestReleaseReconciler(gw pb.GatewayServiceClient, rel pb.GatewayReleaseServiceClient, q gatewayEnqueuer) *GatewayReleaseReconciler {
 	return &GatewayReleaseReconciler{
-		active:    make(map[string]struct{}),
 		lastImage: make(map[string]string),
 		gateways:  gw,
 		releases:  rel,
@@ -197,6 +200,62 @@ func TestGatewayRelease_ImageChangeFansOutToReferencingGatewaysOnly(t *testing.T
 	}
 	if !got["g1"] || !got["g2"] || got["g3"] {
 		t.Fatalf("fan-out targeted wrong gateways: %v", q.enqueued)
+	}
+}
+
+// On a managed-cluster spoke (clusterID set) the release fan-out MUST scope its
+// gateway listing server-side to its own cluster; otherwise it would match and
+// force-enqueue gateways owned by other clusters, breaking pull-model isolation.
+func TestGatewayRelease_FanOutIsClusterScoped(t *testing.T) {
+	rel := &fakeReleaseClient{}
+	gw := &fakeReleaseGatewayClient{gateways: []*pb.Gateway{gatewayWithRelease("g1", "r1")}}
+	q := &recordingEnqueuer{}
+	r := newTestReleaseReconciler(gw, rel, q)
+	r.clusterID = "spoke-a"
+
+	// Baseline, then an image change to trigger the fan-out list.
+	if err := r.Handle(context.Background(), releaseEvent(watcher.EventCreated, "r1", "registry.redhat.io/openshell/gateway:v1", releaseStatusAvailable)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := r.Handle(context.Background(), releaseEvent(watcher.EventUpdated, "r1", "registry.redhat.io/openshell/gateway:v2", releaseStatusAvailable)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(gw.gotClusterIDs) == 0 {
+		t.Fatalf("expected at least one ListGateways call")
+	}
+	for i, got := range gw.gotClusterIDs {
+		if got == nil {
+			t.Fatalf("ListGateways call %d was not cluster-scoped: ClusterId=nil", i)
+		}
+		if *got != "spoke-a" {
+			t.Fatalf("ListGateways call %d scoped to %q, want %q", i, *got, "spoke-a")
+		}
+	}
+}
+
+// In single-cluster mode (empty clusterID) the fan-out list carries no ClusterId
+// filter, so every gateway in the fleet is a candidate.
+func TestGatewayRelease_FanOutSingleClusterHasNoFilter(t *testing.T) {
+	rel := &fakeReleaseClient{}
+	gw := &fakeReleaseGatewayClient{gateways: []*pb.Gateway{gatewayWithRelease("g1", "r1")}}
+	q := &recordingEnqueuer{}
+	r := newTestReleaseReconciler(gw, rel, q)
+
+	if err := r.Handle(context.Background(), releaseEvent(watcher.EventCreated, "r1", "registry.redhat.io/openshell/gateway:v1", releaseStatusAvailable)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := r.Handle(context.Background(), releaseEvent(watcher.EventUpdated, "r1", "registry.redhat.io/openshell/gateway:v2", releaseStatusAvailable)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(gw.gotClusterIDs) == 0 {
+		t.Fatalf("expected at least one ListGateways call")
+	}
+	for i, got := range gw.gotClusterIDs {
+		if got != nil {
+			t.Fatalf("ListGateways call %d carried ClusterId=%q, want nil (single-cluster)", i, *got)
+		}
 	}
 }
 
