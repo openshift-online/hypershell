@@ -40,10 +40,14 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 
 // defaultRolesFromEnv reads RBAC_DEFAULT_ROLES (comma-separated role names).
 // Defaults to gateway:creator so all authenticated users can create gateways.
+// Set RBAC_DEFAULT_ROLES= (explicit empty) to disable defaults entirely.
 func defaultRolesFromEnv() []string {
-	val := os.Getenv("RBAC_DEFAULT_ROLES")
-	if val == "" {
+	val, set := os.LookupEnv("RBAC_DEFAULT_ROLES")
+	if !set {
 		return []string{roles.RoleGatewayCreator}
+	}
+	if val == "" {
+		return nil
 	}
 	var result []string
 	for _, r := range strings.Split(val, ",") {
