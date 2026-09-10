@@ -27,33 +27,53 @@ export OPENSHELL_GATEWAY_INSECURE=true
 #      the connection layer while keeping the SNI as the original hostname, so
 #      the envoy proxy can route by hostname as normal.
 _KINDCCM_PORT="${_KINDCCM_PORT:-}"
+# _KINDCCM_GW_PORT: IPv4-only socat port used exclusively for the openshell CLI
+# gateway endpoint. curl requests use _KINDCCM_PORT directly (--ipv4 already
+# prevents IPv6). The socat forwarder is started lazily by discover_gateway_endpoint.
+_KINDCCM_GW_PORT="${_KINDCCM_GW_PORT:-}"
 _KINDCCM_SOCAT_PID="${_KINDCCM_SOCAT_PID:-}"
 _kind_discover_port() {
   if [[ -z "${_KINDCCM_PORT}" ]]; then
-    local proxy_container raw_port
+    local proxy_container
     proxy_container=$(${CONTAINER_ENGINE:-docker} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
     if [[ -n "$proxy_container" ]]; then
-      raw_port=$(${CONTAINER_ENGINE:-docker} port "${proxy_container}" 443 2>/dev/null \
+      _KINDCCM_PORT=$(${CONTAINER_ENGINE:-docker} port "${proxy_container}" 443 2>/dev/null \
         | head -1 | grep -oE '[0-9]+$' || true)
     fi
-    if [[ -n "${raw_port}" && "${raw_port}" != "443" ]]; then
-      # Docker's IPv6 NAT for the kindccm-gw port is unreliable on some kernels:
-      # IPv6 TCP connections reach the proxy but TLS immediately EOF. The openshell
-      # CLI (Rust/hyper) prefers IPv6 and doesn't fall back after a TLS RST, so it
-      # never succeeds. Work around this by fronting the proxy with a socat forwarder
-      # bound to 127.0.0.1 only (IPv4). DNS for *.localhost returns both ::1 and
-      # 127.0.0.1; with the IPv4-only listener, ::1 gets ECONNREFUSED and hyper
-      # falls back to 127.0.0.1 correctly.
-      local socat_port
-      socat_port=$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)")
-      socat TCP4-LISTEN:"${socat_port}",bind=127.0.0.1,reuseaddr,fork \
-        TCP4:127.0.0.1:"${raw_port}" &>/dev/null &
-      _KINDCCM_SOCAT_PID=$!
-      _KINDCCM_PORT="${socat_port}"
-    else
-      _KINDCCM_PORT="${raw_port}"
-    fi
   fi
+}
+# _kind_gw_port - return an IPv4-only port for the openshell CLI gateway endpoint.
+# The openshell CLI (Rust/hyper) prefers IPv6 for *.gw.localhost and does NOT
+# fall back after a TLS RST (Docker's IPv6 NAT is unreliable on some kernels).
+# We front the envoy port with a socat listener bound to 127.0.0.1 only: ::1
+# then gets ECONNREFUSED and hyper retries on 127.0.0.1. curl is unaffected
+# because it already uses --ipv4. Sets _KINDCCM_GW_PORT.
+_kind_start_gw_socat() {
+  [[ -n "${_KINDCCM_GW_PORT}" ]] && return
+  _kind_discover_port
+  local raw_port="${_KINDCCM_PORT}"
+  # When sudo set up iptables (port 443 redirected), socat isn't needed:
+  # the openshell CLI can reach port 443 directly on IPv4 and IPv6 doesn't
+  # matter because port 443 is forwarded by the kernel.
+  if [[ -z "${raw_port}" || "${raw_port}" == "443" ]]; then
+    _KINDCCM_GW_PORT="${raw_port:-443}"
+    return
+  fi
+  if ! command -v socat &>/dev/null; then
+    # socat unavailable; fall back to the raw port and accept that IPv6 may fail.
+    _KINDCCM_GW_PORT="${raw_port}"
+    return
+  fi
+  local socat_port
+  socat_port=$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)" 2>/dev/null)
+  if [[ -z "${socat_port}" ]]; then
+    _KINDCCM_GW_PORT="${raw_port}"
+    return
+  fi
+  socat TCP4-LISTEN:"${socat_port}",bind=127.0.0.1,reuseaddr,fork \
+    TCP4:127.0.0.1:"${raw_port}" &>/dev/null &
+  _KINDCCM_SOCAT_PID=$!
+  _KINDCCM_GW_PORT="${socat_port}"
 }
 _driver_curl() {
   _kind_discover_port
@@ -151,9 +171,9 @@ discover_gateway_endpoint() {
         -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
-        _kind_discover_port
-        if [[ -n "${_KINDCCM_PORT}" && "${_KINDCCM_PORT}" != "443" ]]; then
-          _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_PORT}"
+        _kind_start_gw_socat
+        if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
+          _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"
         else
           _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
         fi
