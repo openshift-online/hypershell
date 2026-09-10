@@ -216,6 +216,16 @@ spec:
       port: 8080
       targetPort: 8080
 ---
+# hypershell-e2e client: confidential CI client for the OpenShift pull-request
+# e2e suite (ephemeral-pr-environments.spec.md). Its service account holds
+# platform:admin + gateway:creator so E2E_OIDC_GRANT=client_credentials can
+# obtain admin tokens without a GitHub login (the brokered PR environments
+# have no password grant). Standard token exchange is enabled so the suite
+# can impersonate the seeded developer principal for the developer-tier RBAC
+# areas. Distinct from hypershell-provisioner, which is too privileged
+# (manage-clients / manage-users) for e2e. Its "description" field below is
+# kept short because Keycloak's CLIENT.DESCRIPTION column is VARCHAR(255);
+# exceeding that fails the whole realm import at boot.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -372,7 +382,7 @@ data:
         },
         {
           "clientId": "hypershell-e2e",
-          "description": "Confidential CI client for the OpenShift pull-request e2e suite (ephemeral-pr-environments.spec.md). Its service account holds platform:admin + gateway:creator so E2E_OIDC_GRANT=client_credentials can obtain admin tokens without a GitHub login (the brokered PR environments have no password grant). Standard token exchange is enabled so the suite can impersonate the seeded developer principal for the developer-tier RBAC areas. Distinct from hypershell-provisioner, which is too privileged (manage-clients / manage-users) for e2e.",
+          "description": "Confidential CI client for the OpenShift e2e suite (ephemeral-pr-environments.spec.md)",
           "enabled": true,
           "publicClient": false,
           "serviceAccountsEnabled": true,
