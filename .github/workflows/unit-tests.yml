@@ -1,45 +1,53 @@
-name: Unit Tests
+name: Unit
 
-# Reusable stage of the CI pipeline. Invoked by .github/workflows/ci.yml only
-# after the Lint stage succeeds (parent-level `needs: lint`), so there is no
-# in-workflow wait for lint -- the ordering is a native dependency edge, not a
-# poller. ci.yml owns the triggers, concurrency group, and stage sequencing.
+# Reusable unit-test stage of the CI pipeline. Invoked by .github/workflows/ci.yml,
+# which runs it concurrently with the Lint stage (both gate the E2E stage via
+# `needs: [lint, unit]`), so a lint failure never delays unit tests and vice
+# versa. ci.yml owns the triggers, concurrency group, stage sequencing, and
+# change detection: the per-component flags below arrive as inputs instead of
+# being detected here. This stage has no summary/gate job -- the `CI / Unit`
+# caller job in ci.yml is the aggregate check.
 on:
   workflow_call:
+    inputs:
+      api_server:
+        type: string
+        default: 'false'
+      bash_tests:
+        type: string
+        default: 'false'
+      cli:
+        type: string
+        default: 'false'
+      control_plane:
+        type: string
+        default: 'false'
+      gateway_management_ui:
+        type: string
+        default: 'false'
+      operational_dashboard_ui:
+        type: string
+        default: 'false'
+      sdk_go:
+        type: string
+        default: 'false'
+      sdk_typescript:
+        type: string
+        default: 'false'
+      web_console:
+        type: string
+        default: 'false'
 
 permissions:
   contents: read
 
 jobs:
-  detect-changes:
-    name: Detect changed components
-    runs-on: ubuntu-24.04
-    outputs:
-      api_server: ${{ steps.detect.outputs.api_server }}
-      bash_tests: ${{ steps.detect.outputs.bash_tests }}
-      cli: ${{ steps.detect.outputs.cli }}
-      control_plane: ${{ steps.detect.outputs.control_plane }}
-      gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
-      operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
-      sdk_go: ${{ steps.detect.outputs.sdk_go }}
-      sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
-      web_console: ${{ steps.detect.outputs.web_console }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - name: Detect changed components
-        id: detect
-        run: bash .github/scripts/detect-components.sh
-
   test-frontend:
-    name: Frontend unit tests
-    needs: detect-changes
+    name: Frontend
     if: >-
-      needs.detect-changes.outputs.web_console == 'true' ||
-      needs.detect-changes.outputs.gateway_management_ui == 'true' ||
-      needs.detect-changes.outputs.operational_dashboard_ui == 'true'
+      inputs.web_console == 'true' ||
+      inputs.gateway_management_ui == 'true' ||
+      inputs.operational_dashboard_ui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -57,9 +65,8 @@ jobs:
         run: pnpm run test:web
 
   test-api-server:
-    name: Go unit tests - API server
-    needs: detect-changes
-    if: needs.detect-changes.outputs.api_server == 'true'
+    name: Go - API server
+    if: inputs.api_server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -75,9 +82,8 @@ jobs:
         run: make test
 
   test-control-plane:
-    name: Go unit tests - control plane
-    needs: detect-changes
-    if: needs.detect-changes.outputs.control_plane == 'true'
+    name: Go - control plane
+    if: inputs.control_plane == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -93,12 +99,11 @@ jobs:
         run: go test -count=1 ./...
 
   test-cli:
-    name: Go unit tests - CLI
-    needs: detect-changes
+    name: Go - CLI
     if: >-
-      needs.detect-changes.outputs.cli == 'true' ||
-      needs.detect-changes.outputs.sdk_go == 'true' ||
-      needs.detect-changes.outputs.sdk_typescript == 'true'
+      inputs.cli == 'true' ||
+      inputs.sdk_go == 'true' ||
+      inputs.sdk_typescript == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -113,24 +118,23 @@ jobs:
             scripts/cli-generator/go.sum
             scripts/sdk-generator/go.sum
       - name: Run CLI unit tests
-        if: needs.detect-changes.outputs.cli == 'true'
+        if: inputs.cli == 'true'
         working-directory: components/cli
         run: go test -count=1 ./...
       - name: Run CLI generator unit tests
-        if: needs.detect-changes.outputs.cli == 'true'
+        if: inputs.cli == 'true'
         working-directory: scripts/cli-generator
         run: go test -count=1 ./...
       - name: Run SDK generator unit tests
         if: >-
-          needs.detect-changes.outputs.sdk_go == 'true' ||
-          needs.detect-changes.outputs.sdk_typescript == 'true'
+          inputs.sdk_go == 'true' ||
+          inputs.sdk_typescript == 'true'
         working-directory: scripts/sdk-generator
         run: go test -count=1 ./...
 
   test-bash:
-    name: Shell unit tests
-    needs: detect-changes
-    if: needs.detect-changes.outputs.bash_tests == 'true'
+    name: Shell
+    if: inputs.bash_tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -138,32 +142,3 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run discovered *_test.sh tests
         run: make ci-test
-
-  summary:
-    name: CI gate
-    if: ${{ always() && !cancelled() }}
-    needs:
-      - detect-changes
-      - test-frontend
-      - test-api-server
-      - test-control-plane
-      - test-cli
-      - test-bash
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check unit test results
-        env:
-          DETECTION_RESULT: ${{ needs.detect-changes.result }}
-          FRONTEND_RESULT: ${{ needs.test-frontend.result }}
-          API_SERVER_RESULT: ${{ needs.test-api-server.result }}
-          CONTROL_PLANE_RESULT: ${{ needs.test-control-plane.result }}
-          CLI_RESULT: ${{ needs.test-cli.result }}
-          BASH_RESULT: ${{ needs.test-bash.result }}
-        run: |
-          for result in "${DETECTION_RESULT}" "${FRONTEND_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${CLI_RESULT}" "${BASH_RESULT}"; do
-            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
-              echo "One or more unit test jobs failed or were cancelled."
-              exit 1
-            fi
-          done
-          echo "All relevant unit test jobs passed or were skipped."

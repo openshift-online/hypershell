@@ -603,12 +603,20 @@ Makefile or CI allowlist update is needed.
 
 `.github/workflows/unit-tests.yml` runs the same suites in CI, split into
 per-component jobs that only run when their inputs changed. The
-`.github/workflows/ci.yml` orchestrator calls lint, unit-tests, and e2e as
-reusable workflows chained with native `needs:` edges (lint -> unit-tests ->
-e2e), so unit tests only start once lint succeeds and Kind is only created once
-unit tests succeed - a broken lint or unit test blocks the next stage outright
-rather than spending cluster time on a doomed run, and nothing sits polling for
-a preceding gate.
+`.github/workflows/ci.yml` orchestrator detects changed components once (its
+`detect-changes` job) and calls lint, unit, and e2e as reusable workflows,
+passing the detection results in as inputs and wiring the stages with native
+`needs:` edges. The shape is fan-out then join: lint and unit run concurrently
+(each `needs: detect-changes`), and e2e joins on both (`needs:
+[detect-changes, lint, unit]`). e2e is the expensive stage - it provisions Kind
+and runs the full test matrix - so gating it behind the two cheap stages means
+Kind is never created for a SHA whose lint or unit tests failed, and such
+failures show up as a clean red `CI / Lint` or `CI / Unit` check instead of a
+misleading e2e environment failure. Nothing sits polling for a preceding gate.
+The wall-clock cost is small: Konflux image builds are triggered by the push
+itself and run during lint/unit regardless, so by the time the join clears they
+are mostly done. The `CI / Lint`, `CI / Unit`, and `CI / E2E` caller jobs are
+the aggregate checks to mark required in branch protection.
 
 ### E2E tests
 

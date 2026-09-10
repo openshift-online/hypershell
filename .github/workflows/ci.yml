@@ -1,12 +1,29 @@
 name: CI
 
-# Single orchestrator for the lint -> unit-tests -> e2e pipeline. Each stage is
-# a reusable workflow (on: workflow_call) called in sequence with native
-# `needs:` gating, so a later stage never starts until the earlier one
-# succeeds. This replaces the previous cross-workflow `wait-on-check-action`
-# poller jobs: there is nothing to poll because the dependency edges live in
-# one workflow graph. A failing lint stage short-circuits unit-tests and e2e;
-# a failing unit-tests stage short-circuits e2e -- no wasted Kind run.
+# Single orchestrator for the lint/unit/e2e pipeline. Each stage is a reusable
+# workflow (on: workflow_call) wired with native `needs:` gating -- no
+# cross-workflow `wait-on-check-action` polling.
+#
+# Topology is fan-out then join: lint and unit both run straight after
+# detect-changes (concurrently, so a lint failure never delays unit and vice
+# versa), and e2e joins on BOTH. e2e is the expensive stage -- it provisions
+# Kind and runs the full test matrix -- so gating it behind the cheap tests
+# means we never spend a deploy+test cycle on a SHA that lint or unit already
+# failed, and such failures surface as a clean red Lint/Unit check instead of a
+# misleading e2e "environment did not deploy". The wall-clock cost is small:
+# Konflux image builds are triggered by the push itself and run during lint/unit
+# regardless, so by the time the join clears they are mostly done and e2e's
+# build wait is short.
+#
+# Change detection runs exactly once here (the detect-changes job) and is passed
+# into each stage as inputs; the stage workflows no longer detect internally.
+#
+# Because each stage is a reusable-workflow call, its own job status is the
+# aggregate of every job inside it: the `lint`, `unit`, and `e2e` jobs below
+# surface as the `CI / Lint`, `CI / Unit`, and `CI / E2E` status checks and go
+# green only when their whole stage succeeds (skipped conditional jobs do not
+# fail the stage). Those three are the checks to mark required in branch
+# protection -- there is no separate summary/gate job.
 on:
   pull_request:
   push:
@@ -30,23 +47,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    name: Detect changed components
+    runs-on: ubuntu-24.04
+    outputs:
+      api_server: ${{ steps.detect.outputs.api_server }}
+      bash_tests: ${{ steps.detect.outputs.bash_tests }}
+      cli: ${{ steps.detect.outputs.cli }}
+      control_plane: ${{ steps.detect.outputs.control_plane }}
+      e2e: ${{ steps.detect.outputs.e2e }}
+      gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
+      pr_test: ${{ steps.detect.outputs.pr_test }}
+      sdk_go: ${{ steps.detect.outputs.sdk_go }}
+      sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
+      web_console: ${{ steps.detect.outputs.web_console }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect changed components
+        id: detect
+        run: bash .github/scripts/detect-components.sh
+
   lint:
     name: Lint
+    needs: detect-changes
     uses: ./.github/workflows/lint.yml
     permissions:
       contents: read
+    with:
+      api_server: ${{ needs.detect-changes.outputs.api_server }}
+      cli: ${{ needs.detect-changes.outputs.cli }}
+      control_plane: ${{ needs.detect-changes.outputs.control_plane }}
+      gateway_management_ui: ${{ needs.detect-changes.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ needs.detect-changes.outputs.operational_dashboard_ui }}
+      pr_test: ${{ needs.detect-changes.outputs.pr_test }}
+      sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
+      web_console: ${{ needs.detect-changes.outputs.web_console }}
 
-  unit-tests:
-    name: Unit Tests
-    needs: lint
+  unit:
+    name: Unit
+    needs: detect-changes
     uses: ./.github/workflows/unit-tests.yml
     permissions:
       contents: read
+    with:
+      api_server: ${{ needs.detect-changes.outputs.api_server }}
+      bash_tests: ${{ needs.detect-changes.outputs.bash_tests }}
+      cli: ${{ needs.detect-changes.outputs.cli }}
+      control_plane: ${{ needs.detect-changes.outputs.control_plane }}
+      gateway_management_ui: ${{ needs.detect-changes.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ needs.detect-changes.outputs.operational_dashboard_ui }}
+      sdk_go: ${{ needs.detect-changes.outputs.sdk_go }}
+      sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
+      web_console: ${{ needs.detect-changes.outputs.web_console }}
 
   e2e:
     name: E2E
-    needs: unit-tests
+    needs:
+      - detect-changes
+      - lint
+      - unit
     uses: ./.github/workflows/e2e.yml
     permissions:
       contents: read
       checks: read
+    with:
+      api_server: ${{ needs.detect-changes.outputs.api_server }}
+      control_plane: ${{ needs.detect-changes.outputs.control_plane }}
+      e2e: ${{ needs.detect-changes.outputs.e2e }}
+      pr_test: ${{ needs.detect-changes.outputs.pr_test }}

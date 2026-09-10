@@ -1,42 +1,47 @@
 name: Lint
 
-# Reusable stage of the CI pipeline. Invoked by .github/workflows/ci.yml, which
-# owns the pull_request/push/merge_group/workflow_dispatch triggers, the
-# concurrency group, and the lint -> unit-tests -> e2e ordering. Running only via
-# workflow_call keeps this from also firing as a standalone workflow (which would
-# double every lint run).
+# Reusable lint stage of the CI pipeline. Invoked by .github/workflows/ci.yml,
+# which owns the pull_request/push/merge_group/workflow_dispatch triggers, the
+# concurrency group, the lint -> unit -> e2e ordering, and change detection: the
+# per-component flags below arrive as inputs instead of being detected here.
+# Running only via workflow_call keeps this from also firing as a standalone
+# workflow (which would double every lint run). This stage has no summary/gate
+# job -- the `CI / Lint` caller job in ci.yml is the aggregate check.
 on:
   workflow_call:
+    inputs:
+      api_server:
+        type: string
+        default: 'false'
+      cli:
+        type: string
+        default: 'false'
+      control_plane:
+        type: string
+        default: 'false'
+      gateway_management_ui:
+        type: string
+        default: 'false'
+      operational_dashboard_ui:
+        type: string
+        default: 'false'
+      pr_test:
+        type: string
+        default: 'false'
+      sdk_typescript:
+        type: string
+        default: 'false'
+      web_console:
+        type: string
+        default: 'false'
 
 permissions:
   contents: read
 
 jobs:
-  detect-changes:
-    name: Detect changed components
-    runs-on: ubuntu-24.04
-    outputs:
-      api_server: ${{ steps.detect.outputs.api_server }}
-      cli: ${{ steps.detect.outputs.cli }}
-      control_plane: ${{ steps.detect.outputs.control_plane }}
-      gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
-      operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
-      pr_test: ${{ steps.detect.outputs.pr_test }}
-      sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
-      web_console: ${{ steps.detect.outputs.web_console }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - name: Detect changed components
-        id: detect
-        run: bash .github/scripts/detect-components.sh
-
   lint-api-server:
-    name: Go lint - API server
-    needs: detect-changes
-    if: needs.detect-changes.outputs.api_server == 'true'
+    name: Go - API server
+    if: inputs.api_server == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -77,9 +82,8 @@ jobs:
           args: --timeout=5m
 
   lint-cli:
-    name: Go lint - CLI
-    needs: detect-changes
-    if: needs.detect-changes.outputs.cli == 'true'
+    name: Go - CLI
+    if: inputs.cli == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -111,9 +115,8 @@ jobs:
           args: --timeout=5m
 
   lint-control-plane:
-    name: Go lint - control plane
-    needs: detect-changes
-    if: needs.detect-changes.outputs.control_plane == 'true'
+    name: Go - control plane
+    if: inputs.control_plane == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -145,9 +148,8 @@ jobs:
           args: --timeout=5m
 
   lint-sdk-typescript:
-    name: TypeScript check - SDK
-    needs: detect-changes
-    if: needs.detect-changes.outputs.sdk_typescript == 'true'
+    name: TypeScript - SDK
+    if: inputs.sdk_typescript == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -165,8 +167,7 @@ jobs:
 
   lint-gateway-management-ui:
     name: Gateway management UI package quality gates
-    needs: detect-changes
-    if: needs.detect-changes.outputs.gateway_management_ui == 'true'
+    if: inputs.gateway_management_ui == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -189,8 +190,7 @@ jobs:
 
   lint-operational-dashboard-ui:
     name: Operational dashboard UI package quality gates
-    needs: detect-changes
-    if: needs.detect-changes.outputs.operational_dashboard_ui == 'true'
+    if: inputs.operational_dashboard_ui == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -211,8 +211,7 @@ jobs:
 
   lint-pr-test:
     name: PR test script validation
-    needs: detect-changes
-    if: needs.detect-changes.outputs.pr_test == 'true'
+    if: inputs.pr_test == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -222,8 +221,7 @@ jobs:
 
   lint-web-console:
     name: Web console quality gates
-    needs: detect-changes
-    if: needs.detect-changes.outputs.web_console == 'true'
+    if: inputs.web_console == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -264,38 +262,3 @@ jobs:
           key: ${{ steps.playwright-chromium-cache.outputs.cache-primary-key }}
       - name: Run critical Chromium journey
         run: pnpm test:e2e:chromium
-
-  summary:
-    name: CI gate
-    if: ${{ always() && !cancelled() }}
-    needs:
-      - detect-changes
-      - lint-api-server
-      - lint-cli
-      - lint-control-plane
-      - lint-gateway-management-ui
-      - lint-operational-dashboard-ui
-      - lint-pr-test
-      - lint-sdk-typescript
-      - lint-web-console
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check lint results
-        env:
-          DETECTION_RESULT: ${{ needs.detect-changes.result }}
-          API_SERVER_RESULT: ${{ needs.lint-api-server.result }}
-          CLI_RESULT: ${{ needs.lint-cli.result }}
-          CONTROL_PLANE_RESULT: ${{ needs.lint-control-plane.result }}
-          GATEWAY_MANAGEMENT_UI_RESULT: ${{ needs.lint-gateway-management-ui.result }}
-          OPERATIONAL_DASHBOARD_UI_RESULT: ${{ needs.lint-operational-dashboard-ui.result }}
-          PR_TEST_RESULT: ${{ needs.lint-pr-test.result }}
-          SDK_TYPESCRIPT_RESULT: ${{ needs.lint-sdk-typescript.result }}
-          WEB_CONSOLE_RESULT: ${{ needs.lint-web-console.result }}
-        run: |
-          for result in "${DETECTION_RESULT}" "${API_SERVER_RESULT}" "${CLI_RESULT}" "${CONTROL_PLANE_RESULT}" "${GATEWAY_MANAGEMENT_UI_RESULT}" "${OPERATIONAL_DASHBOARD_UI_RESULT}" "${PR_TEST_RESULT}" "${SDK_TYPESCRIPT_RESULT}" "${WEB_CONSOLE_RESULT}"; do
-            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
-              echo "One or more lint jobs failed or were cancelled."
-              exit 1
-            fi
-          done
-          echo "All relevant lint jobs passed or were skipped."

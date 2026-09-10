@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "components", ROOT / "packages")
 CONFIG_PATH = ROOT / ".github" / "component-paths.json"
+CI_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 LINT_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "lint.yml"
 
 
@@ -23,6 +24,12 @@ def main() -> int:
 
     if not isinstance(config, dict):
         print(f"{CONFIG_PATH.relative_to(ROOT)} must contain a JSON object.")
+        return 1
+
+    try:
+        ci_workflow = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Unable to read {CI_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
         return 1
 
     try:
@@ -84,17 +91,47 @@ def main() -> int:
         if lint_job is None:
             continue
 
-        required_patterns = {
-            "detector output": rf"(?m)^      {re.escape(component)}:.*steps\.detect\.outputs\.{re.escape(component)}.*$",
-            "lint job": rf"(?m)^  {re.escape(lint_job)}:$",
-            "job condition": rf"(?m)^    if:.*needs\.detect-changes\.outputs\.{re.escape(component)}.*$",
-            "summary dependency": rf"(?m)^      - {re.escape(lint_job)}$",
-        }
-        for description, pattern in required_patterns.items():
-            if re.search(pattern, lint_workflow) is None:
+        # Detection runs once in ci.yml and is passed into the reusable lint
+        # stage as an input; the lint jobs gate on `inputs.<component>`. Verify
+        # the whole wiring: detector output and pass-through live in ci.yml, the
+        # input declaration, lint job, and gating condition live in lint.yml.
+        component_checks = (
+            (
+                "detector output",
+                ci_workflow,
+                CI_WORKFLOW_PATH,
+                rf"steps\.detect\.outputs\.{re.escape(component)}\b",
+            ),
+            (
+                "detection input passed to the lint stage",
+                ci_workflow,
+                CI_WORKFLOW_PATH,
+                rf"needs\.detect-changes\.outputs\.{re.escape(component)}\b",
+            ),
+            (
+                "workflow_call input",
+                lint_workflow,
+                LINT_WORKFLOW_PATH,
+                rf"(?m)^      {re.escape(component)}:\s*$",
+            ),
+            (
+                "lint job",
+                lint_workflow,
+                LINT_WORKFLOW_PATH,
+                rf"(?m)^  {re.escape(lint_job)}:$",
+            ),
+            (
+                "job condition",
+                lint_workflow,
+                LINT_WORKFLOW_PATH,
+                rf"inputs\.{re.escape(component)}\b",
+            ),
+        )
+        for description, text, path, pattern in component_checks:
+            if re.search(pattern, text) is None:
                 errors.append(
                     f"{component!r} is missing its {description} in "
-                    f"{LINT_WORKFLOW_PATH.relative_to(ROOT)}"
+                    f"{path.relative_to(ROOT)}"
                 )
 
     for directory in sorted(source_directories - registrations.keys()):

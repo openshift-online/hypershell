@@ -1,15 +1,30 @@
 name: E2E
 
 # Reusable final stage of the CI pipeline. Invoked by .github/workflows/ci.yml
-# only after the Unit Tests stage succeeds (parent-level `needs: unit-tests`),
-# so Kind never spins up against a SHA whose unit tests are failing -- no wasted
-# e2e run, and no in-workflow poller waiting on the unit-test gate. ci.yml owns
-# the triggers, concurrency group, and stage sequencing. The `checks: read`
-# permission and the wait-on-check-action steps below remain: they gate on
-# Konflux image builds, which are an external system this workflow cannot order
-# with `needs:`.
+# only after the Unit stage succeeds (parent-level `needs: unit`), so Kind never
+# spins up against a SHA whose unit tests are failing -- no wasted e2e run, and
+# no in-workflow poller waiting on the unit-test gate. ci.yml owns the triggers,
+# concurrency group, stage sequencing, and change detection: the per-component
+# flags used by plan-images arrive as inputs instead of being detected here.
+# This stage has no summary/gate job -- the `CI / E2E` caller job in ci.yml is
+# the aggregate check. The `checks: read` permission and the wait-on-check-action
+# steps below remain: they gate on Konflux image builds, which are an external
+# system this workflow cannot order with `needs:`.
 on:
   workflow_call:
+    inputs:
+      api_server:
+        type: string
+        default: 'false'
+      control_plane:
+        type: string
+        default: 'false'
+      e2e:
+        type: string
+        default: 'false'
+      pr_test:
+        type: string
+        default: 'false'
 
 permissions:
   contents: read
@@ -37,11 +52,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      - name: Detect changed components
-        id: detect
-        if: github.event_name == 'pull_request'
-        run: bash .github/scripts/detect-components.sh
 
       - name: Detect Konflux components
         id: detect-konflux
@@ -101,10 +111,10 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_SHA: ${{ github.sha }}
-          DETECT_API_SERVER: ${{ steps.detect.outputs.api_server }}
-          DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
-          DETECT_E2E: ${{ steps.detect.outputs.e2e }}
-          DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
+          DETECT_API_SERVER: ${{ inputs.api_server }}
+          DETECT_CONTROL_PLANE: ${{ inputs.control_plane }}
+          DETECT_E2E: ${{ inputs.e2e }}
+          DETECT_PR_TEST: ${{ inputs.pr_test }}
           KONFLUX_API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
           KONFLUX_CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
           KONFLUX_WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
@@ -604,24 +614,3 @@ jobs:
           name: e2e-diagnostics
           path: e2e-diagnostics/
           retention-days: 7
-
-  summary:
-    name: CI gate
-    if: ${{ always() && !cancelled() }}
-    needs:
-      - plan-images
-      - e2e-kind
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check e2e results
-        env:
-          PLAN_RESULT: ${{ needs.plan-images.result }}
-          E2E_KIND_RESULT: ${{ needs.e2e-kind.result }}
-        run: |
-          for result in "${PLAN_RESULT}" "${E2E_KIND_RESULT}"; do
-            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
-              echo "One or more e2e jobs failed or were cancelled."
-              exit 1
-            fi
-          done
-          echo "All e2e jobs passed or were skipped."
