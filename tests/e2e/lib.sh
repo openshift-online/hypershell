@@ -183,6 +183,19 @@ _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${E2E_KC_ADMIN_USER:=admin}"
 : "${E2E_KC_ADMIN_PASSWORD:=admin}"
 
+# Token grant for acquire_oidc_token / acquire_gateway_token_with_role, per
+# ephemeral-pr-environments.spec.md (HYPERSHELL-240). "password" (default) is the
+# Kind and manual OpenShift path: a resource-owner password grant against seeded
+# users. "client_credentials" is the GitHub-brokered pull-request path -- brokered
+# GitHub users have no password grant, so CI authenticates through the confidential
+# hypershell-e2e service-account client (client-credentials for the admin path) and
+# Keycloak token exchange (impersonating the seeded developer principal). CI reads
+# the hypershell-e2e secret from the deployed Keycloak namespace and exports it as
+# E2E_OIDC_SA_CLIENT_SECRET; it never comes from a repo secret.
+: "${E2E_OIDC_GRANT:=password}"
+: "${E2E_OIDC_SA_CLIENT_ID:=hypershell-e2e}"
+: "${E2E_OIDC_SA_CLIENT_SECRET:=}"
+
 # RFC3339 timestamp N minutes in the past (macOS BSD date and GNU date).
 e2e_gc_eligible_since_backdate() {
   local minutes="${1:-3}"

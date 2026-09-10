@@ -44,6 +44,49 @@ spec:
               value: "https://keycloak.hypershell.localhost"
             - name: KC_PROXY_HEADERS
               value: "xforwarded"
+            # GitHub-brokered login for ephemeral pull-request environments
+            # (ephemeral-pr-environments.spec.md). These feed the ${...}
+            # placeholders in the realm import. The Secret is optional and absent
+            # on Kind/local/stage, so the realm resolves its defaults there (IdP
+            # disabled, empty client, e2e client secret "e2e-secret"). The
+            # pull-request workflow creates hypershell-github-oauth in this
+            # namespace before Keycloak's first boot to enable brokering.
+            - name: PR_ENV_GITHUB_IDP_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: idp-enabled
+                  optional: true
+            - name: PR_ENV_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: client-id
+                  optional: true
+            - name: PR_ENV_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: client-secret
+                  optional: true
+            - name: PR_ENV_GITHUB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: org
+                  optional: true
+            - name: PR_ENV_GITHUB_ALLOWLIST
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: allowlist
+                  optional: true
+            - name: HYPERSHELL_E2E_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: e2e-client-secret
+                  optional: true
           ports:
             - containerPort: 8080
               name: http
@@ -267,6 +310,34 @@ data:
           "standardFlowEnabled": false,
           "directAccessGrantsEnabled": false,
           "secret": "provisioner-secret"
+        },
+        {
+          "clientId": "hypershell-e2e",
+          "description": "Confidential CI client for the OpenShift pull-request e2e suite (ephemeral-pr-environments.spec.md). Its service account holds platform:admin + gateway:creator so E2E_OIDC_GRANT=client_credentials can obtain admin tokens without a GitHub login (the brokered PR environments have no password grant). Standard token exchange is enabled so the suite can impersonate the seeded developer principal for the developer-tier RBAC areas. Distinct from hypershell-provisioner, which is too privileged (manage-clients / manage-users) for e2e.",
+          "enabled": true,
+          "publicClient": false,
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "secret": "${HYPERSHELL_E2E_CLIENT_SECRET:e2e-secret}",
+          "attributes": {
+            "standard.token.exchange.enabled": "true"
+          },
+          "defaultClientScopes": ["profile", "roles"],
+          "protocolMappers": [
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "hypershell-frontend",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            }
+          ]
         },
         {
           "clientId": "hypershell-control-plane",
@@ -570,11 +641,52 @@ data:
           "clientRoles": {
             "realm-management": ["manage-clients", "manage-users"]
           }
+        },
+        {
+          "username": "service-account-hypershell-e2e",
+          "enabled": true,
+          "serviceAccountClientId": "hypershell-e2e",
+          "realmRoles": ["platform:admin", "gateway:creator"]
         }
       ],
       "clientScopeMappings": {
         "hypershell-provisioner": [
           { "client": "realm-management", "roles": ["manage-clients", "manage-users"] }
         ]
-      }
+      },
+      "attributes": {
+        "github.org.gate": "${PR_ENV_GITHUB_ORG:openshift-online}",
+        "github.username.allowlist": "${PR_ENV_GITHUB_ALLOWLIST:}"
+      },
+      "identityProviders": [
+        {
+          "alias": "github",
+          "providerId": "github",
+          "enabled": "${PR_ENV_GITHUB_IDP_ENABLED:false}",
+          "trustEmail": true,
+          "storeToken": true,
+          "firstBrokerLoginFlowAlias": "first broker login",
+          "config": {
+            "clientId": "${PR_ENV_GITHUB_CLIENT_ID:}",
+            "clientSecret": "${PR_ENV_GITHUB_CLIENT_SECRET:}",
+            "defaultScope": "read:org user:email",
+            "caseSensitiveOriginalUsername": "false",
+            "syncMode": "FORCE"
+          }
+        }
+      ],
+      "identityProviderMappers": [
+        {
+          "name": "github-grant-platform-admin",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "platform:admin", "syncMode": "FORCE" }
+        },
+        {
+          "name": "github-grant-gateway-creator",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "gateway:creator", "syncMode": "FORCE" }
+        }
+      ]
     }

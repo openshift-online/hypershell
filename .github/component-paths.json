@@ -94,12 +94,17 @@
       "scripts/install-openshell.sh",
       "deploy/base/**",
       "deploy/kind/**",
+      "deploy/openshift/**",
+      "deploy/e2e/**",
       "scripts/kind/**",
+      "scripts/cluster/**",
+      "scripts/ci/**",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/e2e.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/tests.yml"
+      ".github/workflows/tests.yml",
+      ".github/workflows/pr-environment.yml"
     ]
   },
   "pr_test": {
