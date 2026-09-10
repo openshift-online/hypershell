@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hypershell-pr-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/managed-by: hypershell-lifecycle
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pr-env-reaper
+  namespace: hypershell-pr-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/name: pr-env-reaper
+---
+# The reaper needs to list every namespace, read its ownership labels and
+# expires-at annotation, and delete an expired pull-request environment's
+# namespace group and that environment's cluster-scoped RBAC. It is deliberately
+# scoped to namespaces and the two cluster RBAC kinds only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hypershell-pr-env-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/name: pr-env-reaper
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hypershell-pr-env-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/name: pr-env-reaper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hypershell-pr-env-reaper
+subjects:
+  - kind: ServiceAccount
+    name: pr-env-reaper
+    namespace: hypershell-pr-reaper

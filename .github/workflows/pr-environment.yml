@@ -1,0 +1,341 @@
+name: PR Environment
+
+# Ephemeral OpenShift environment for every origin pull request
+# (ephemeral-pr-environments.spec.md, HYPERSHELL-240).
+#
+# Deploys the full stack into a per-PR namespace group on a shared target
+# cluster, keeps it continuously deployed to the PR's head commit, runs the
+# OpenShift e2e suite, and posts a single access comment. The environment lives
+# independently of any CI run (out-of-band reaper, deploy/e2e/reaper) so a
+# developer can use it as a live debug target.
+#
+# Trust boundary: pull_request only (never pull_request_target). Every job is
+# additionally guarded on head.repo == this repo, so a fork PR receives no
+# cluster credentials and gets no environment. The GitHub org gate + allowlist
+# govern interactive LOGIN to an already-deployed origin environment, not deploy.
+#
+# Required configuration (generate these; the names are stable):
+#   secrets.OPENSHIFT_PR_ENV_SERVER_URL       target cluster API URL
+#   secrets.OPENSHIFT_PR_ENV_TOKEN            CI service-account token (oc login)
+#   secrets.PR_ENV_GITHUB_OAUTH_CLIENT_ID     GitHub OAuth App client id
+#   secrets.PR_ENV_GITHUB_OAUTH_CLIENT_SECRET GitHub OAuth App client secret
+#   secrets.PR_ENV_GITHUB_OAUTH_CALLBACK_URL  single stable cluster callback URL
+#   vars.PR_ENV_GITHUB_ORG                    org gate (default openshift-online)
+#   vars.PR_ENV_GITHUB_ALLOWLIST              extra usernames (comma-separated)
+#   vars.PR_ENV_TIMEBOX_DAYS                  timebox in days (default 3)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: write
+
+# Serialize per pull request so two swaps never leave a mixed digest set; a newer
+# run cancels an older in-flight one, keeping the comment SHA honest.
+concurrency:
+  group: pr-env-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
+  BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+
+jobs:
+  # --- Plan which component images this PR's environment should run ----------
+  plan-images:
+    name: Plan component images
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      api_server_image: ${{ steps.plan.outputs.api_server_image }}
+      control_plane_image: ${{ steps.plan.outputs.control_plane_image }}
+      web_console_image: ${{ steps.plan.outputs.web_console_image }}
+      wait_api_server: ${{ steps.plan.outputs.wait_api_server }}
+      wait_control_plane: ${{ steps.plan.outputs.wait_control_plane }}
+      wait_web_console: ${{ steps.plan.outputs.wait_web_console }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Plan images and required Konflux builds
+        id: plan
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
+          baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
+          baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
+
+          # Deploy is unconditional for a PR environment, but only components this
+          # PR actually built get their on-pr image (waited for and swapped by
+          # digest). Patterns MUST mirror each component's pull-request Konflux CEL
+          # trigger, matching the E2E workflow's plan-images job.
+          changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
+          api_konflux=false; cp_konflux=false; wc_konflux=false
+          if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-pull-request\.yaml$' <<<"${changed_files}"; then api_konflux=true; fi
+          if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-pull-request\.yaml$|^Dockerfile$' <<<"${changed_files}"; then cp_konflux=true; fi
+          if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
+
+          tag="on-pr-${PR_HEAD_SHA}"
+          api_img="${baseline_api}"; cp_img="${baseline_cp}"; wc_img="${baseline_wc}"
+          wait_api=false; wait_cp=false; wait_wc=false
+          if [[ "${api_konflux}" == "true" ]]; then api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"; wait_api=true; fi
+          if [[ "${cp_konflux}" == "true" ]]; then cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"; wait_cp=true; fi
+          if [[ "${wc_konflux}" == "true" ]]; then wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"; wait_wc=true; fi
+
+          {
+            echo "api_server_image=${api_img}"
+            echo "control_plane_image=${cp_img}"
+            echo "web_console_image=${wc_img}"
+            echo "wait_api_server=${wait_api}"
+            echo "wait_control_plane=${wait_cp}"
+            echo "wait_web_console=${wait_wc}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # --- Deploy / reconcile the environment and run e2e -----------------------
+  deploy:
+    name: Deploy PR environment
+    needs: plan-images
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_ENV_TIMEBOX_DAYS: ${{ vars.PR_ENV_TIMEBOX_DAYS || '3' }}
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install oc and openshell CLI
+        run: |
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar -xz -C /usr/local/bin oc kubectl
+          oc version --client
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | OPENSHELL_VERSION=v0.0.110 sh
+          openshell --version
+
+      - name: Log in to the target cluster
+        env:
+          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+        run: |
+          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
+            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
+            exit 1
+          fi
+          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+          echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+
+      # Provision the GitHub-broker Secret BEFORE Keycloak's first boot, so the
+      # realm import substitutes it into the GitHub identity provider and the
+      # hypershell-e2e client secret (declarative config-as-data; no post-boot
+      # admin-API mutation). Fail closed if the OAuth config is unset, before any
+      # environment is advertised. The Keycloak namespace is pre-created so the
+      # Secret exists when make openshift-up brings Keycloak up.
+      - name: Provision GitHub OAuth secret (fail closed)
+        env:
+          GITHUB_OAUTH_CLIENT_ID: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_ID }}
+          GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_SECRET }}
+          GITHUB_OAUTH_CALLBACK_URL: ${{ secrets.PR_ENV_GITHUB_OAUTH_CALLBACK_URL }}
+          PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
+          PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
+        run: |
+          missing=()
+          [[ -n "${GITHUB_OAUTH_CLIENT_ID}" ]] || missing+=("PR_ENV_GITHUB_OAUTH_CLIENT_ID")
+          [[ -n "${GITHUB_OAUTH_CLIENT_SECRET}" ]] || missing+=("PR_ENV_GITHUB_OAUTH_CLIENT_SECRET")
+          [[ -n "${GITHUB_OAUTH_CALLBACK_URL}" ]] || missing+=("PR_ENV_GITHUB_OAUTH_CALLBACK_URL")
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::GitHub OAuth configuration is incomplete: ${missing[*]}"
+            exit 1
+          fi
+          kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
+          oc create namespace "${kc_ns}" --dry-run=client -o yaml | oc apply -f - >/dev/null
+          # Per-PR hypershell-e2e client secret; masked so it never lands in logs.
+          e2e_secret="$(openssl rand -hex 24)"
+          echo "::add-mask::${e2e_secret}"
+          oc create secret generic hypershell-github-oauth -n "${kc_ns}" \
+            --from-literal=idp-enabled=true \
+            --from-literal=client-id="${GITHUB_OAUTH_CLIENT_ID}" \
+            --from-literal=client-secret="${GITHUB_OAUTH_CLIENT_SECRET}" \
+            --from-literal=callback-url="${GITHUB_OAUTH_CALLBACK_URL}" \
+            --from-literal=org="${PR_ENV_GITHUB_ORG}" \
+            --from-literal=allowlist="${PR_ENV_GITHUB_ALLOWLIST}" \
+            --from-literal=e2e-client-secret="${e2e_secret}" \
+            --dry-run=client -o yaml | oc apply -f - >/dev/null
+          echo "Provisioned hypershell-github-oauth in ${kc_ns}"
+
+      # Deploy unconditionally (idempotent + reconciling). Defer seeding until the
+      # PR's images are swapped in so the seed exercises this PR's contract.
+      - name: Deploy / reconcile environment (make openshift-up)
+        env:
+          SKIP_SEED: "true"
+        run: make openshift-up
+
+      # Overwrite the opaque environment id with pr-<number> and stamp the
+      # timebox. make openshift-up does neither. Fails the job on any error.
+      - name: Stamp namespace group (identity + timebox)
+        id: stamp
+        run: bash scripts/ci/stamp-pr-env.sh
+
+      - name: Wait for api-server Konflux build
+        if: needs.plan-images.outputs.wait_api_server == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: 'hypershell-api-server-main-on-pull-request$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for control-plane Konflux build
+        if: needs.plan-images.outputs.wait_control_plane == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: 'hypershell-control-plane-main-on-pull-request$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for web-console Konflux build
+        if: needs.plan-images.outputs.wait_web_console == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: 'hypershell-web-console-main-on-pull-request$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Swap PR images by digest
+        env:
+          API_SERVER_IMAGE: ${{ needs.plan-images.outputs.api_server_image }}
+          CONTROL_PLANE_IMAGE: ${{ needs.plan-images.outputs.control_plane_image }}
+          WEB_CONSOLE_IMAGE: ${{ needs.plan-images.outputs.web_console_image }}
+        run: bash scripts/ci/swap-openshift-images-by-digest.sh
+
+      - name: Seed platform resources
+        env:
+          SEED_STRICT: "true"
+        run: make openshift-seed
+
+      # Post/update the access comment now that the environment is ready, so it
+      # survives a failing e2e run and always reflects the deployed head commit.
+      - name: Discover access URLs
+        id: urls
+        run: |
+          kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
+          api_host="$(oc get route hypershell-api -n "${OPENSHIFT_NAMESPACE}" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+          web_host="$(oc get route hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+          {
+            echo "api_url=https://${api_host}"
+            echo "web_url=https://${web_host}"
+            echo "console_url=$(oc whoami --show-console 2>/dev/null || echo '')"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Post / update access comment
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_ENV_UPDATED: ${{ (github.event.action == 'synchronize') && 'true' || 'false' }}
+          PLATFORM_NS: ${{ steps.stamp.outputs.platform_namespace }}
+          KEYCLOAK_NS: ${{ steps.stamp.outputs.keycloak_namespace }}
+          CONSOLE_URL: ${{ steps.urls.outputs.console_url }}
+          API_URL: ${{ steps.urls.outputs.api_url }}
+          WEB_URL: ${{ steps.urls.outputs.web_url }}
+        run: bash scripts/ci/upsert-pr-comment.sh
+
+      - name: Read hypershell-e2e client secret
+        id: e2e-secret
+        run: |
+          secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
+          echo "::add-mask::${secret}"
+          echo "value=${secret}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run OpenShift e2e suite
+        env:
+          E2E_INFRA_DRIVER: openshift
+          E2E_OIDC_GRANT: client_credentials
+          E2E_OIDC_SA_CLIENT_ID: hypershell-e2e
+          E2E_OIDC_SA_CLIENT_SECRET: ${{ steps.e2e-secret.outputs.value }}
+          TERM: dumb
+          NO_COLOR: "1"
+        run: bash tests/e2e/e2e-openshell.sh
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p e2e-diagnostics
+          oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
+          oc get events --sort-by=.lastTimestamp -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/events.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/api-server.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-env-diagnostics-${{ github.event.pull_request.number }}
+          path: e2e-diagnostics/
+          retention-days: 7
+
+  # --- Release the environment on merge/close (timebox is the backstop) -----
+  release:
+    name: Release PR environment
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install oc
+        run: |
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar -xz -C /usr/local/bin oc kubectl
+          oc version --client
+
+      - name: Log in to the target cluster
+        env:
+          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+        run: |
+          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
+            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
+            exit 1
+          fi
+          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+
+      # Primary release path. The out-of-band reaper is the backstop when this
+      # event does not fire. If teardown cannot confirm the release, fail so an
+      # operator frees the environment.
+      - name: Remove environment (make openshift-down)
+        run: make openshift-down
