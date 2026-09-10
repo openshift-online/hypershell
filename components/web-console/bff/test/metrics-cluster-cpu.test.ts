@@ -131,7 +131,7 @@ describe("queryClusterCpu", () => {
     try {
       await expect(
         queryClusterCpu(`http://127.0.0.1:${String(prometheus.port)}`, 5_000),
-      ).rejects.toThrow("No cluster CPU capacity data");
+      ).rejects.toThrow("Prometheus query returned no samples");
     } finally {
       prometheus.close();
     }

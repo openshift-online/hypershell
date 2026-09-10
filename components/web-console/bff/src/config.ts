@@ -64,6 +64,16 @@ const configSchema = z.object({
     .max(120_000)
     .default(10_000),
   PROMETHEUS_URL: httpOrigin.default("http://127.0.0.1:9090"),
+  PROMETHEUS_NAMESPACE: z
+    .string()
+    .trim()
+    .min(1)
+    .max(63)
+    .regex(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/u)
+    .optional(),
+  CLUSTER_PROMETHEUS_URL: httpOrigin.optional(),
+  CLUSTER_PROMETHEUS_TOKEN_FILE: z.string().trim().min(1).optional(),
+  CLUSTER_PROMETHEUS_CA_FILE: z.string().trim().min(1).optional(),
   SESSION_SECRET: z
     .string()
     .regex(/^[0-9a-f]{64}$/iu, "must be a 64-character hex string (32 bytes)")
@@ -102,6 +112,10 @@ export interface ServerConfig {
   port: number;
   prometheusQueryTimeoutMs: number;
   prometheusUrl: string;
+  prometheusNamespace?: string;
+  clusterPrometheusUrl?: string;
+  clusterPrometheusTokenFile?: string;
+  clusterPrometheusCaFile?: string;
   sessionSecret?: Buffer;
   sessionTtlSeconds: number;
   staticRoot: string;
@@ -152,6 +166,16 @@ export function loadConfig(
     );
   }
 
+  if (
+    (result.data.CLUSTER_PROMETHEUS_TOKEN_FILE ||
+      result.data.CLUSTER_PROMETHEUS_CA_FILE) &&
+    !result.data.CLUSTER_PROMETHEUS_URL?.startsWith("https://")
+  ) {
+    throw new Error(
+      "CLUSTER_PROMETHEUS_URL must be HTTPS when metrics credential files are configured",
+    );
+  }
+
   if (result.data.OIDC_ISSUER) {
     const oidcProblems: string[] = [];
     if (!result.data.OIDC_CLIENT_ID) {
@@ -180,6 +204,10 @@ export function loadConfig(
     port: result.data.PORT,
     prometheusQueryTimeoutMs: result.data.PROMETHEUS_QUERY_TIMEOUT_MS,
     prometheusUrl: result.data.PROMETHEUS_URL,
+    prometheusNamespace: result.data.PROMETHEUS_NAMESPACE,
+    clusterPrometheusUrl: result.data.CLUSTER_PROMETHEUS_URL,
+    clusterPrometheusTokenFile: result.data.CLUSTER_PROMETHEUS_TOKEN_FILE,
+    clusterPrometheusCaFile: result.data.CLUSTER_PROMETHEUS_CA_FILE,
     sessionSecret: result.data.SESSION_SECRET
       ? Buffer.from(result.data.SESSION_SECRET, "hex")
       : undefined,

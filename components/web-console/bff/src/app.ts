@@ -465,6 +465,7 @@ export async function buildApp(
         const counts = await queryGatewayPhaseCounts(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
         );
         return { counts };
       } catch (error) {
@@ -481,7 +482,11 @@ export async function buildApp(
     async (request, reply) => {
       try {
         return await queryClusterMemory(
-          config.prometheusUrl,
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
           config.prometheusQueryTimeoutMs,
         );
       } catch (error) {
@@ -498,7 +503,11 @@ export async function buildApp(
     async (request, reply) => {
       try {
         return await queryClusterCpu(
-          config.prometheusUrl,
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
           config.prometheusQueryTimeoutMs,
         );
       } catch (error) {
@@ -515,7 +524,11 @@ export async function buildApp(
     async (request, reply) => {
       try {
         return await queryClusterPods(
-          config.prometheusUrl,
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
           config.prometheusQueryTimeoutMs,
         );
       } catch (error) {
@@ -532,7 +545,11 @@ export async function buildApp(
     async (request, reply) => {
       try {
         return await queryClusterNodes(
-          config.prometheusUrl,
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
           config.prometheusQueryTimeoutMs,
         );
       } catch (error) {
@@ -551,6 +568,7 @@ export async function buildApp(
         return await queryGatewayProvisionDuration(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
         );
       } catch (error) {
         request.log.warn(

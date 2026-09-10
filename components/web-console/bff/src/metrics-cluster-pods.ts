@@ -1,3 +1,5 @@
+import { fetchMetrics, type MetricsSource } from "./metrics-source.js";
+
 export const clusterPodsCapacityPromql =
   'sum(kube_node_status_allocatable{resource="pods"})';
 export const clusterPodsUsedPromql = "count(kube_pod_info)";
@@ -38,13 +40,10 @@ interface PrometheusQueryResponse {
 }
 
 async function queryPrometheusInstant(
-  prometheusUrl: string,
+  prometheusUrl: MetricsSource,
   query: string,
   timeoutMs: number,
 ): Promise<number> {
-  const queryUrl = new URL("/api/v1/query", prometheusUrl);
-  queryUrl.searchParams.set("query", query);
-
   const controller = new AbortController();
   const timeoutReason = new Error("Prometheus query timed out");
   const timeout = setTimeout(() => {
@@ -52,7 +51,11 @@ async function queryPrometheusInstant(
   }, timeoutMs);
 
   try {
-    const response = await fetch(queryUrl, { signal: controller.signal });
+    const response = await fetchMetrics(
+      prometheusUrl,
+      query,
+      controller.signal,
+    );
     if (!response.ok) {
       throw new Error("Prometheus query request failed");
     }
@@ -64,7 +67,7 @@ async function queryPrometheusInstant(
 
     const samples = body.data?.result ?? [];
     if (samples.length === 0) {
-      return 0;
+      throw new Error("Prometheus query returned no samples");
     }
 
     const sample = samples[0];
@@ -85,7 +88,7 @@ async function queryPrometheusInstant(
 }
 
 export async function queryClusterPods(
-  prometheusUrl: string,
+  prometheusUrl: MetricsSource,
   timeoutMs: number,
 ): Promise<ClusterPodsCounts> {
   const [

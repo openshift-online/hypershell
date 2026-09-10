@@ -71,3 +71,32 @@ variants by per-architecture digest (`amd64` and `arm64`). `docker`/`podman`
 `--platform` selects the pin. Its runtime contains the production BFF dependency closure and built assets, runs as a numeric non-root user, writes no files, exposes port 8080, and provides `/health/live` and `/health/ready` probes.
 
 The BFF proxies `/api/*` to the fixed `HYPERSHELL_API_ORIGIN` origin, which defaults to `http://127.0.0.1:8000` for a colocated API. Set that variable to an HTTP(S) origin reachable from the container when the API is deployed separately. Browser cookies and authorization headers are not forwarded; the current product assumption is that all gateway records are visible. `HYPERSHELL_API_TIMEOUT_MS` bounds each upstream request and defaults to 30 seconds.
+
+## Dashboard metrics
+
+The BFF queries Prometheus from the server. The browser does not receive metrics
+credentials. Existing dashboard access rules still apply.
+
+| Variable | Purpose |
+| --- | --- |
+| `PROMETHEUS_URL` | Application metrics endpoint. Defaults to `http://127.0.0.1:9090` for local development. |
+| `PROMETHEUS_NAMESPACE` | Instance namespace for gateway counts and provision duration. Omit only for a dedicated metrics store. |
+| `CLUSTER_PROMETHEUS_URL` | CPU, memory, node, and pod metrics endpoint. Defaults to `PROMETHEUS_URL`. |
+| `CLUSTER_PROMETHEUS_TOKEN_FILE` | File with the bearer token for the cluster endpoint. |
+| `CLUSTER_PROMETHEUS_CA_FILE` | File with the trusted CA bundle for the cluster endpoint. |
+| `PROMETHEUS_QUERY_TIMEOUT_MS` | Timeout for each query. Defaults to 10 seconds. |
+
+On OpenShift, use the application Prometheus endpoint for gateway metrics and
+`https://thanos-querier.openshift-monitoring.svc:9091` for cluster metrics. Give
+the console service account the `cluster-monitoring-metrics-api` Role through
+a RoleBinding in `openshift-monitoring`. Mount a projected service account token
+and a ConfigMap with the injected OpenShift service CA bundle. Set the two file
+variables to these paths. The BFF reads both files for each request to support
+rotation. File credentials require an explicit HTTPS cluster endpoint. TLS
+verification stays enabled, and redirects cannot receive the token.
+
+Cluster charts show the whole cluster. Gateway charts use the configured instance
+namespace. Repeated gateway gauge samples from API replicas do not add to counts.
+The instance filter is fixed by server configuration, not by browser input.
+Query failures return HTTP 502. Provision duration has no data until a gateway
+provision operation supplies observations.
