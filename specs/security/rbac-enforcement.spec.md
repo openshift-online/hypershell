@@ -10,7 +10,7 @@
 ## Purpose
 
 The HyperShell API server SHALL enforce authorization on all API endpoints (HTTP and
-gRPC) using a four-role model backed by Keycloak as the source of truth for platform-wide
+gRPC) using a five-role model backed by Keycloak as the source of truth for platform-wide
 roles and a PostgreSQL-backed RoleBinding model for per-gateway grants.
 
 Keycloak is the authority for identity and platform-wide role assignment. The API server
@@ -49,8 +49,9 @@ User {
 
 ### Role
 
-Built-in roles are seeded at migration time. Four roles cover all required access
-patterns.
+Built-in roles are seeded at migration time. Four roles are DB-backed; one additional
+role (`managed-cluster-registrar`) is seeded for discoverability but enforced via
+JWT-direct check (not a DB-backed RoleBinding).
 
 ```
 Role {
@@ -103,7 +104,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
 | `gateway:owner` | per gateway | DB (app logic) | Full CRUD on one gateway; can grant `gateway:owner` and `gateway:viewer` to others |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
-| `managed-cluster-registrar` | global | Keycloak JWT | Allows a spoke control-plane service account to call `POST /managed-clusters/registration`; grants no gateway permissions |
+| `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a spoke control-plane service account to call `POST /managed-clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 
 ### Permission Matrix
 
@@ -113,7 +114,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:creator` | create + own gateways | full (as owner) | grant owner/viewer on own gateways | `openshell-admin` on own gateways | Through the resulting owner binding | -- |
 | `gateway:owner` | full (one gateway) | full | grant owner/viewer on that gateway | `openshell-admin` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
-| `managed-cluster-registrar` | none | none | none | none | none | `POST /registration` (register + heartbeat loop) |
+| `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding |
 
 ### OpenShell Role Bridge
 
@@ -517,7 +518,18 @@ A database migration SHALL seed the `platform:admin` role record with:
 - `description: "Platform-wide view and delete access for all gateways"`
 - `built_in: true`
 
-This migration SHALL run alongside the existing migrations that seed `gateway:creator`,
+A separate migration SHALL seed the `managed-cluster-registrar` role record with:
+
+- `name: "managed-cluster-registrar"`
+- `display_name: "Managed Cluster Registrar"`
+- `description: "Allows a spoke control-plane service account to self-register via POST /managed-clusters/registration"`
+- `built_in: true`
+
+`managed-cluster-registrar` is seeded for role discoverability (`GET /roles`) only. It is
+NOT added to `JWTSyncedRoles` and has no DB RoleBinding lifecycle; enforcement is
+JWT-direct in `isAuthorized`.
+
+These migrations SHALL run alongside the existing migrations that seed `gateway:creator`,
 `gateway:owner`, and `gateway:viewer` roles.
 
 RoleBindings from JWT claims are synced regardless of whether enforcement is enabled,
@@ -556,24 +568,43 @@ default enforce RBAC.
 ### Requirement: Managed Cluster Self-Registration RBAC
 
 The `POST /api/hypershell/v1/managed-clusters/registration` endpoint SHALL require the
-`managed-cluster-registrar` role in the caller's JWT `realm_access.roles` claim. The
-existing RBAC middleware enforces this check before any database operation. No new RBAC
-machinery is needed beyond registering `managed-cluster-registrar` in the role table and
-adding a policy check on the `/registration` route.
+`managed-cluster-registrar` role in the caller's JWT `realm_access.roles` claim.
+
+**Enforcement mechanism:** `managed-cluster-registrar` is a JWT-direct role -- it is
+checked live from the JWT claim in `isAuthorized`, NOT via the `JWTSyncedRoles` sync
+lifecycle and NOT via a DB-backed RoleBinding lookup. The `isAuthorized` function SHALL
+have a dedicated case:
+
+```
+if resource == "managed_clusters" && resourceID == "registration" && method == POST:
+    return hasJWTRole(jwtRoles, "managed-cluster-registrar")
+```
+
+This case takes precedence over the `hasGatewayCreator` fallback that would otherwise
+allow any user to call the endpoint.
+
+`managed-cluster-registrar` is NOT in `JWTSyncedRoles`. No DB RoleBinding is created for
+it. The role is seeded as a built-in role record (for discoverability via `GET /roles`)
+but has no DB binding lifecycle.
 
 Assigning `managed-cluster-registrar` to a spoke service account is a Keycloak admin
 function performed out-of-band before the spoke is deployed. Keycloak is the trusted
 source of truth; the API server does not re-verify role assignment beyond reading the
 JWT claim.
 
-The `managed-cluster-registrar` role is orthogonal to all gateway roles. A spoke service
-account holding it has no gateway permissions unless separately granted.
+**Interaction with `RBAC_DEFAULT_ROLES`:** In the default configuration
+(`RBAC_DEFAULT_ROLES=gateway:creator`), spoke service accounts also automatically receive
+`gateway:creator` and can create gateways. To isolate spoke credentials to
+registration-only access (no gateway permissions), operators must deploy with
+`RBAC_DEFAULT_ROLES=` (Keycloak-only mode), ensuring only explicitly-configured
+Keycloak roles apply.
 
 #### Scenario: Spoke with role can self-register
 
 - GIVEN a spoke service account with `managed-cluster-registrar` assigned in Keycloak
 - WHEN it calls `POST /managed-clusters/registration`
-- THEN the request is authorized and proceeds to the handler
+- THEN the `isAuthorized` JWT-direct check passes
+- AND the request proceeds to the handler
 - AND a `ManagedCluster` record is created (or the existing one is returned)
 
 #### Scenario: Spoke without role is rejected
@@ -583,16 +614,21 @@ account holding it has no gateway permissions unless separately granted.
 - THEN the RBAC middleware returns 403 Forbidden
 - AND no `ManagedCluster` record is created or modified
 
-#### Scenario: managed-cluster-registrar grants no gateway access
+#### Scenario: managed-cluster-registrar grants no gateway access (Keycloak-only mode)
 
-- GIVEN a spoke service account with only `managed-cluster-registrar`
+- GIVEN `RBAC_DEFAULT_ROLES=` is set (empty)
+- AND a spoke service account has only `managed-cluster-registrar` in Keycloak
 - WHEN it calls `GET /api/hypershell/v1/gateways`
 - THEN the response is 200 with an empty items array (no gateway bindings exist)
+
+Note: in the default configuration (`RBAC_DEFAULT_ROLES=gateway:creator`), the spoke
+also receives `gateway:creator` and gains gateway creation access. See the
+"Interaction with RBAC_DEFAULT_ROLES" note above.
 
 ### Requirement: Integration Test Coverage
 
 Integration tests SHALL exercise RBAC enforcement with the new five-role model, including
-`managed-cluster-registrar` grant and deny scenarios.
+`managed-cluster-registrar` grant and deny scenarios, and the JWT-direct enforcement path.
 
 ---
 
@@ -619,7 +655,8 @@ Integration tests SHALL exercise RBAC enforcement with the new five-role model, 
 | `platform:admin` orthogonal to `gateway:creator` | A platform admin may or may not create gateways. Roles compose: `platform:admin` + `gateway:creator` allows both operational oversight and resource creation. |
 | JWT roles synced to DB on every request | DB is the projection, Keycloak is the authority. Revocations in Keycloak take effect immediately. Existing per-gateway bindings are unaffected by platform role changes. |
 | Service accounts treated identically to users | Control plane gets `gateway:creator` in Keycloak, provisions like any user. No special bypass logic needed. |
-| `managed-cluster-registrar` is separate from gateway roles | A spoke service account only needs fleet membership rights, not gateway creation rights. Keeping the roles separate limits blast radius if a spoke credential is compromised. |
+| `managed-cluster-registrar` is separate from gateway roles | A spoke service account only needs fleet membership rights, not gateway creation rights. Keeping the roles separate limits blast radius if a spoke credential is compromised. Operators who want strict isolation must also set `RBAC_DEFAULT_ROLES=` to disable the universal `gateway:creator` default. |
+| `managed-cluster-registrar` is JWT-direct, not DB-synced | The role is for specific service accounts, not users in general. There is no reason to maintain a DB binding for it. Checking from the live JWT claim in `isAuthorized` is sufficient, consistent with `HypershellAdminRole`, and avoids `JWTSyncedRoles` entanglement. |
 | Role assigned by admin, not auto-granted | Provides a human control point for fleet membership. A new spoke cannot join the fleet without an explicit Keycloak admin action. |
 | Gateway owners can grant co-owners | No hierarchy restriction. Team leads assign `gateway:creator` to team members or invite them as owners/viewers per gateway. Simple mental model. |
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |

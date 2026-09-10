@@ -92,9 +92,13 @@ Gitops configuration required per spoke:
 
 ## RBAC
 
-The `managed-cluster-registrar` role is required on both the initial registration call and every subsequent loop call. The existing RBAC middleware enforces this role from JWT claims. A spoke without the role receives 403 on its first call and cannot start.
+The `managed-cluster-registrar` role is required on both the initial registration call and every subsequent loop call. A spoke without the role receives 403 on its first call and cannot start.
+
+**Enforcement mechanism:** `managed-cluster-registrar` is a JWT-direct role. The `isAuthorized` function in the HTTP authorization middleware has a dedicated case for `POST managed_clusters/registration` that checks the JWT claim directly, bypassing the `hasGatewayCreator` fallback. The role is NOT in `JWTSyncedRoles` and has no DB RoleBinding lifecycle. See `security/rbac-enforcement.spec.md` for the implementation contract.
 
 An administrator assigns `managed-cluster-registrar` to the spoke's OIDC client in Keycloak before the spoke is deployed. This is an explicit, out-of-band admin step -- it is not automated. Keycloak is the trusted source of truth; the API server does not re-verify role assignment beyond reading the JWT claim.
+
+**Note on gateway access:** In the default deployment (`RBAC_DEFAULT_ROLES=gateway:creator`), spoke service accounts also receive `gateway:creator` automatically. To restrict spokes to registration-only access, deploy with `RBAC_DEFAULT_ROLES=` so that no roles are auto-assigned; only the Keycloak-assigned `managed-cluster-registrar` applies.
 
 ---
 
@@ -183,3 +187,4 @@ The control-plane SHALL NOT open the `WatchGateways` gRPC stream until a success
 | `last_seen_at` as passive liveness, not a status field | Keeps the spoke's self-reported liveness separate from the hub reconciler's view of cluster state. The `status` field remains the reconciler's domain. |
 | No active health probing from the hub | Spokes call in; the hub does not need to reach out. Avoids hub-to-spoke credential management and works across network topologies where the hub cannot initiate connections to spokes. |
 | Role assigned by admin, not auto-granted | The `managed-cluster-registrar` role is a privilege gate. A Keycloak admin must explicitly grant it before a spoke can self-register, providing a human control point for fleet membership. |
+| JWT-direct enforcement, not DB-synced | `managed-cluster-registrar` is not in `JWTSyncedRoles` because it should never be auto-assigned (unlike `gateway:creator`) and does not need a DB binding lifecycle. A live JWT claim check in `isAuthorized` is sufficient and avoids polluting the sync table with a role that applies to a narrow class of service accounts. |
