@@ -17,8 +17,8 @@ type ManagedCluster struct {
 	KubeconfigSecret string     `json:"kubeconfig_secret"`
 	Status           *string    `json:"status"`
 	ApiServerUrl     *string    `json:"api_server_url"`
-	OIDCSubject      string     `json:"oidc_subject"`
-	LastSeenAt       *time.Time `json:"last_seen_at"`
+	OIDCSubject      string     `json:"oidc_subject" gorm:"column:oidc_subject"`
+	LastSeenAt       *time.Time `json:"last_seen_at" gorm:"column:last_seen_at"`
 }
 
 type ManagedClusterList []*ManagedCluster
