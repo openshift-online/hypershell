@@ -70,8 +70,8 @@ func main() {
 
 	fmt.Printf("Parsed %d resources from %s\n", len(spec.Resources), *specPath)
 	for _, r := range spec.Resources {
-		fmt.Printf("  %s (%s): %d fields, delete=%v, patch=%v, actions=%v\n",
-			r.Name, r.PathSegment, len(r.Fields), r.HasDelete, r.HasPatch, r.Actions)
+		fmt.Printf("  %s (%s): %d fields, delete=%v, patch=%v, actions=%v, collection_ops=%v\n",
+			r.Name, r.PathSegment, len(r.Fields), r.HasDelete, r.HasPatch, r.Actions, collectionOperationNames(r.CollectionOperations))
 	}
 
 	if *goOut != "" {
@@ -403,6 +403,14 @@ func executeTemplate(tmpl *template.Template, outPath string, data interface{}) 
 	defer f.Close()
 
 	return tmpl.Execute(f, data)
+}
+
+func collectionOperationNames(operations []CollectionOperation) []string {
+	names := make([]string, 0, len(operations))
+	for _, operation := range operations {
+		names = append(names, operation.Name)
+	}
+	return names
 }
 
 func computeSpecHash(specPath string) (string, error) {

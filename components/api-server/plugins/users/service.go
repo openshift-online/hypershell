@@ -2,6 +2,9 @@ package users
 
 import (
 	"context"
+	"time"
+
+	"github.com/golang/glog"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/pkg/services"
@@ -15,6 +18,7 @@ type UserService interface {
 	UpsertByUsername(ctx context.Context, username string, email *string, name *string) (string, error)
 	All(ctx context.Context) (UserList, *errors.ServiceError)
 	FindByIDs(ctx context.Context, ids []string) (UserList, *errors.ServiceError)
+	GetActivityStats(ctx context.Context) (*ActivityStats, *errors.ServiceError)
 }
 
 func NewUserService(userDao UserDao) UserService {
@@ -71,6 +75,9 @@ func (s *sqlUserService) UpsertByUsername(ctx context.Context, username string, 
 	if err != nil {
 		return "", err
 	}
+	if recordErr := s.userDao.RecordLogin(ctx, user.ID, time.Now().UTC()); recordErr != nil {
+		glog.Warningf("record login failed for user %q: %v", user.ID, recordErr)
+	}
 	return user.ID, nil
 }
 
@@ -88,4 +95,12 @@ func (s *sqlUserService) FindByIDs(ctx context.Context, ids []string) (UserList,
 		return nil, errors.GeneralError("Unable to get users: %s", err)
 	}
 	return users, nil
+}
+
+func (s *sqlUserService) GetActivityStats(ctx context.Context) (*ActivityStats, *errors.ServiceError) {
+	stats, err := s.userDao.GetActivityStats(ctx, time.Now().UTC())
+	if err != nil {
+		return nil, errors.GeneralError("Unable to get user activity stats: %s", err)
+	}
+	return stats, nil
 }

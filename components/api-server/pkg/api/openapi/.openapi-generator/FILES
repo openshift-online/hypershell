@@ -42,6 +42,8 @@ docs/RoleBinding.md
 docs/RoleBindingList.md
 docs/RoleList.md
 docs/User.md
+docs/UserActivityStats.md
+docs/UserDailyCount.md
 docs/UserList.md
 git_push.sh
 go.mod
@@ -81,6 +83,8 @@ model_role_binding.go
 model_role_binding_list.go
 model_role_list.go
 model_user.go
+model_user_activity_stats.go
+model_user_daily_count.go
 model_user_list.go
 response.go
 test/api_default_test.go

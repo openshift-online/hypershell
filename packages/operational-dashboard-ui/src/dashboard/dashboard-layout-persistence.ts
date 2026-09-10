@@ -3,6 +3,24 @@ import type {
   Variants,
 } from "@patternfly/widgetized-dashboard";
 
+/** Widget types removed from the catalog; stripped from saved layouts on load. */
+const REMOVED_WIDGET_TYPES = new Set([
+  "managed-clusters",
+  "managed-cluster-status",
+  "managed-databases",
+]);
+
+export function stripRemovedWidgetTypes(
+  template: ExtendedTemplateConfig,
+): ExtendedTemplateConfig {
+  return (Object.keys(template) as Variants[]).reduce((acc, variant) => {
+    acc[variant] = template[variant].filter(
+      (item) => !REMOVED_WIDGET_TYPES.has(item.widgetType),
+    );
+    return acc;
+  }, {} as ExtendedTemplateConfig);
+}
+
 export function getActiveWidgetTypes(
   template: ExtendedTemplateConfig,
 ): string[] {

@@ -46,6 +46,7 @@ func init() {
 
 		usersRouter := apiV1Router.PathPrefix("/users").Subrouter()
 		usersRouter.HandleFunc("", userHandler.List).Methods(http.MethodGet)
+		usersRouter.HandleFunc("/stats", userHandler.Stats).Methods(http.MethodGet)
 		usersRouter.HandleFunc("/{id}", userHandler.Get).Methods(http.MethodGet)
 		usersRouter.Use(authMiddleware.AuthenticateAccountJWT)
 		usersRouter.Use(authzMiddleware.AuthorizeApi)
@@ -57,4 +58,5 @@ func init() {
 	presenters.RegisterKind(&User{}, "User")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(activityStatsMigration())
 }

@@ -1,16 +1,9 @@
-import {
-  Content,
-  DescriptionList,
-  DescriptionListDescription,
-  DescriptionListGroup,
-  DescriptionListTerm,
-  Stack,
-  StackItem,
-} from "@patternfly/react-core";
+import { Content } from "@patternfly/react-core";
 import { useMemo } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import type { OperationalMetric } from "../application/dashboard-types";
+import { DashboardStatPanel } from "./dashboard-stat-panel";
 import { messages } from "../messages";
 import {
   formatProvisionDurationValue,
@@ -40,32 +33,12 @@ export function ProvisionTimeChart({
   } as const;
 
   return (
-    <Stack hasGutter className="hypershell-dashboard-provision-time">
-      <StackItem>
-        <DescriptionList
-          isHorizontal
-          aria-label={intl.formatMessage(messages.provisionTimeStatsAriaLabel)}
-        >
-          {STAT_ROWS.map((row) => (
-            <DescriptionListGroup key={row.key} className="pf-v6-u-pb-sm">
-              <DescriptionListTerm>
-                <FormattedMessage {...row.label} />
-              </DescriptionListTerm>
-              <DescriptionListDescription>
-                {formatProvisionDurationValue(
-                  intl,
-                  statValues[row.key],
-                  metric.unit,
-                )}
-              </DescriptionListDescription>
-            </DescriptionListGroup>
-          ))}
-        </DescriptionList>
-      </StackItem>
-      <StackItem>
+    <DashboardStatPanel
+      ariaLabel={intl.formatMessage(messages.provisionTimeStatsAriaLabel)}
+      footer={
         <Content
           component="p"
-          className="hypershell-dashboard-provision-time__note"
+          className="hypershell-dashboard-stat-panel__footer"
         >
           <FormattedMessage
             {...messages.provisionTimeP95Note}
@@ -75,7 +48,16 @@ export function ProvisionTimeChart({
             }}
           />
         </Content>
-      </StackItem>
-    </Stack>
+      }
+      rows={STAT_ROWS.map((row) => ({
+        id: row.key,
+        label: <FormattedMessage {...row.label} />,
+        value: formatProvisionDurationValue(
+          intl,
+          statValues[row.key],
+          metric.unit,
+        ),
+      }))}
+    />
   );
 }

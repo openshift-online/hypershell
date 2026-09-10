@@ -43,6 +43,7 @@ export function GatewayStatusChart({
           : null
       }
       legendData={legendData}
+      size="compact"
       subTitle={intl.formatMessage(messages.gateways)}
       title={formatOperationalMetricDisplayValue(metric.value, intl)}
     />

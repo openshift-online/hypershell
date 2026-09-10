@@ -62,6 +62,8 @@ paths:
     $ref: 'openapi.roleBindings.yaml#/paths/~1api~1hypershell~1v1~1role_bindings~1{id}'
   /api/hypershell/v1/users:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users'
+  /api/hypershell/v1/users/stats:
+    $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users~1stats'
   /api/hypershell/v1/users/{id}:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users~1{id}'
   # AUTO-ADD NEW PATHS
@@ -170,6 +172,10 @@ components:
       $ref: 'openapi.users.yaml#/components/schemas/User'
     UserList:
       $ref: 'openapi.users.yaml#/components/schemas/UserList'
+    UserActivityStats:
+      $ref: 'openapi.users.yaml#/components/schemas/UserActivityStats'
+    UserDailyCount:
+      $ref: 'openapi.users.yaml#/components/schemas/UserDailyCount'
     # AUTO-ADD NEW SCHEMAS
   parameters:
     id:

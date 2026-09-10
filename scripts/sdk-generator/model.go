@@ -32,6 +32,18 @@ type Resource struct {
 	HasPatch           bool
 	HasStatusPatch     bool
 	Actions            []string
+	CollectionOperations []CollectionOperation
+	ExtraModels        []Model
+}
+
+// CollectionOperation is a non-CRUD operation on a resource collection path,
+// such as GET /users/stats.
+type CollectionOperation struct {
+	Name         string
+	HTTPMethod   string
+	GoHTTPMethod string
+	Path         string
+	ResponseType string
 }
 
 type PathParameter struct {

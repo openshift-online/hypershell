@@ -1,6 +1,30 @@
 import { defineMessages } from "react-intl";
 
 export const messages = defineMessages({
+  activeUsersDaily: {
+    id: "app.dashboard.widget.activeUsersDaily",
+    defaultMessage: "Unique logins per day",
+    description:
+      "Title for the daily unique login sparkline in the users dashboard widget.",
+  },
+  activeUsersDailyTooltip: {
+    id: "app.dashboard.widget.activeUsersDailyTooltip",
+    defaultMessage: "Unique logins",
+    description:
+      "Short metric label for unique login sparkline tooltips in the users widget.",
+  },
+  activeUsersLast7Days: {
+    id: "app.dashboard.widget.activeUsersLast7Days",
+    defaultMessage: "Unique logins (7 days)",
+    description:
+      "Label for distinct users who logged in during the last seven days.",
+  },
+  activeUsersLast30Days: {
+    id: "app.dashboard.widget.activeUsersLast30Days",
+    defaultMessage: "Unique logins (30 days)",
+    description:
+      "Label for distinct users who logged in during the last thirty days.",
+  },
   addWidgets: {
     id: "app.dashboard.addWidgets",
     defaultMessage: "Add widgets",
@@ -147,17 +171,6 @@ export const messages = defineMessages({
     id: "app.dashboard.summary.managedClusters",
     defaultMessage: "Clusters",
     description: "Summary label for total managed clusters.",
-  },
-  managedClusterStatusAriaDesc: {
-    id: "app.dashboard.managedClusterStatus.ariaDesc",
-    defaultMessage: "Managed cluster count by status",
-    description:
-      "Accessible description for the managed cluster status donut chart.",
-  },
-  managedClusterStatusChartTitle: {
-    id: "app.dashboard.managedClusterStatus.chartTitle",
-    defaultMessage: "Managed cluster status chart",
-    description: "Accessible title for the managed cluster status donut chart.",
   },
   managedDatabasesSummary: {
     id: "app.dashboard.summary.managedDatabases",
@@ -367,12 +380,34 @@ export const messages = defineMessages({
   },
   registeredUsers: {
     id: "app.dashboard.widget.registeredUsers",
+    defaultMessage: "Users",
+    description: "Title for the users dashboard widget.",
+  },
+  registeredUsersHeading: {
+    id: "app.dashboard.widget.registeredUsersHeading",
     defaultMessage: "Registered users",
-    description: "Title for the registered users dashboard widget.",
+    description:
+      "Label for the total registered user count in the users widget heading.",
+  },
+  registeredUsersLast7Days: {
+    id: "app.dashboard.widget.registeredUsersLast7Days",
+    defaultMessage: "Added (7 days)",
+    description: "Label for users added in the last seven days.",
+  },
+  registeredUsersLast30Days: {
+    id: "app.dashboard.widget.registeredUsersLast30Days",
+    defaultMessage: "Added (30 days)",
+    description: "Label for users added in the last thirty days.",
+  },
+  registeredUsersStatsAriaLabel: {
+    id: "app.dashboard.widget.registeredUsersStatsAriaLabel",
+    defaultMessage: "User statistics",
+    description:
+      "Accessible label for user statistics in the users dashboard widget.",
   },
   registeredUsersSummary: {
     id: "app.dashboard.summary.registeredUsers",
-    defaultMessage: "Registered users",
+    defaultMessage: "Users",
     description: "Summary label for registered users.",
   },
   resetToDefault: {
@@ -452,6 +487,18 @@ export const messages = defineMessages({
     description:
       "Accessible label for the usage metrics list in the summary widget.",
   },
+  summaryUsersTrendDecrease: {
+    id: "app.dashboard.summary.usersTrendDecrease",
+    defaultMessage: "{percent}% decrease in unique logins per day",
+    description:
+      "Tooltip for the Users row trend indicator when unique logins per day decreased.",
+  },
+  summaryUsersTrendIncrease: {
+    id: "app.dashboard.summary.usersTrendIncrease",
+    defaultMessage: "{percent}% increase in unique logins per day",
+    description:
+      "Tooltip for the Users row trend indicator when unique logins per day increased.",
+  },
   systemSummaryWidget: {
     id: "app.dashboard.widget.systemSummary",
     defaultMessage: "System summary",
@@ -523,21 +570,6 @@ export const messages = defineMessages({
     defaultMessage: "Cluster regions",
     description:
       "Title for the managed cluster region breakdown dashboard widget.",
-  },
-  widgetManagedClusters: {
-    id: "app.dashboard.widget.managedClusters",
-    defaultMessage: "Clusters",
-    description: "Title for the managed clusters count dashboard widget.",
-  },
-  widgetManagedClusterStatus: {
-    id: "app.dashboard.widget.managedClusterStatus",
-    defaultMessage: "Cluster status",
-    description: "Title for the managed cluster status dashboard widget.",
-  },
-  widgetManagedDatabases: {
-    id: "app.dashboard.widget.managedDatabases",
-    defaultMessage: "Databases",
-    description: "Title for the managed databases count dashboard widget.",
   },
   widgetManagedDatabaseStatus: {
     id: "app.dashboard.widget.managedDatabaseStatus",

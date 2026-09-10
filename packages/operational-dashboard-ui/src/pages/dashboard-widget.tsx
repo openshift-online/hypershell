@@ -20,8 +20,6 @@ import {
   CheckCircleIcon,
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
-  TrendDownIcon,
-  TrendUpIcon,
 } from "@patternfly/react-icons";
 import type { PropsWithChildren } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
@@ -29,13 +27,20 @@ import { FormattedMessage, useIntl } from "react-intl";
 import type { OperationalMetric } from "../application/dashboard-types";
 import {
   getMetricTrendChange,
-  type MetricTrendChange,
+  getTrendChange,
 } from "../dashboard/metric-trend-change";
+import {
+  MetricTrendIndicator,
+  type MetricTrendTooltipMessages,
+} from "../dashboard/metric-trend-indicator";
 import {
   formatOperationalMetricDisplayValue,
   isDisplayableOperationalMetricValue,
 } from "../dashboard/operational-metric-display";
-import { TrendSparklineChart } from "../dashboard/trend-sparkline-chart";
+import {
+  TrendSparklineChart,
+  USERS_SPARKLINE_PLOT_HEIGHT,
+} from "../dashboard/trend-sparkline-chart";
 import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-status-counts";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
 import { InventoryStatusChart } from "../dashboard/inventory-status-chart";
@@ -43,6 +48,7 @@ import { ManagedClusterProvidersChart } from "../dashboard/managed-cluster-provi
 import { ManagedClusterRegionsChart } from "../dashboard/managed-cluster-regions-chart";
 import { NodeStatusChart } from "../dashboard/node-status-chart";
 import { PodCapacityChart } from "../dashboard/pod-capacity-chart";
+import { DashboardStatPanel } from "../dashboard/dashboard-stat-panel";
 import { ProvisionTimeChart } from "../dashboard/provision-time-chart";
 import { isPodCapacityMetric } from "../dashboard/pod-capacity-metric";
 import {
@@ -109,6 +115,116 @@ export function MetricCard({
   );
 }
 
+function RegisteredUsersStatValue({
+  metric,
+  value,
+}: Readonly<{
+  metric?: OperationalMetric;
+  value?: string;
+}>) {
+  if (value === undefined) {
+    return <SummaryUnavailableValue />;
+  }
+
+  return (
+    <SummaryMetricValue
+      metric={{
+        id: metric?.id ?? "registered-users-stat",
+        value,
+      }}
+    />
+  );
+}
+
+export function RegisteredUsersCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const intl = useIntl();
+  const displayValue = formatOperationalMetricDisplayValue(metric.value, intl);
+  const metricHeading = isDisplayableOperationalMetricValue(metric.value)
+    ? intl.formatMessage(messages.metricValue, {
+        label: intl.formatMessage(messages.registeredUsersHeading),
+        value: displayValue,
+      })
+    : displayValue;
+  const activeTrendTitle = intl.formatMessage(messages.activeUsersDaily);
+  const activeTrendTooltipLabel = intl.formatMessage(
+    messages.activeUsersDailyTooltip,
+  );
+
+  return (
+    <WidgetContent>
+      <Content className="hypershell-dashboard-metric-card">
+        <DashboardStatPanel
+          ariaLabel={intl.formatMessage(messages.registeredUsersStatsAriaLabel)}
+          columns="two"
+          heading={
+            <Title headingLevel="h3" size="lg">
+              {metricHeading}
+            </Title>
+          }
+          rows={[
+            {
+              id: "added-7-days",
+              label: (
+                <FormattedMessage {...messages.registeredUsersLast7Days} />
+              ),
+              value: (
+                <RegisteredUsersStatValue
+                  metric={metric}
+                  value={metric.createdLast7Days}
+                />
+              ),
+            },
+            {
+              id: "logins-7-days",
+              label: <FormattedMessage {...messages.activeUsersLast7Days} />,
+              value: (
+                <RegisteredUsersStatValue
+                  metric={metric}
+                  value={metric.activeLast7Days}
+                />
+              ),
+            },
+            {
+              id: "added-30-days",
+              label: (
+                <FormattedMessage {...messages.registeredUsersLast30Days} />
+              ),
+              value: (
+                <RegisteredUsersStatValue
+                  metric={metric}
+                  value={metric.createdLast30Days}
+                />
+              ),
+            },
+            {
+              id: "logins-30-days",
+              label: <FormattedMessage {...messages.activeUsersLast30Days} />,
+              value: (
+                <RegisteredUsersStatValue
+                  metric={metric}
+                  value={metric.activeLast30Days}
+                />
+              ),
+            },
+          ]}
+          sparkline={
+            metric.activeTrend
+              ? {
+                  plotHeight: USERS_SPARKLINE_PLOT_HEIGHT,
+                  title: activeTrendTitle,
+                  tooltipLabel: activeTrendTooltipLabel,
+                  trend: metric.activeTrend,
+                }
+              : undefined
+          }
+        />
+      </Content>
+    </WidgetContent>
+  );
+}
+
 export function GatewayStatusCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
@@ -116,18 +232,12 @@ export function GatewayStatusCard({
   const trendTitle = intl.formatMessage(messages.provisionedGateways);
 
   return (
-    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--default">
-      <Content className="hypershell-dashboard-status-donut-card">
-        <Stack hasGutter>
-          <StackItem>
-            <GatewayStatusChart metric={metric} />
-          </StackItem>
-          {metric.trend ? (
-            <StackItem>
-              <TrendSparklineChart trend={metric.trend} title={trendTitle} />
-            </StackItem>
-          ) : null}
-        </Stack>
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card hypershell-dashboard-gateway-status-card">
+        <GatewayStatusChart metric={metric} />
+        {metric.trend ? (
+          <TrendSparklineChart trend={metric.trend} title={trendTitle} />
+        ) : null}
       </Content>
     </WidgetContent>
   );
@@ -164,22 +274,6 @@ export function ManagedClusterRegionsCard({
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <Content className="hypershell-dashboard-status-donut-card">
         <ManagedClusterRegionsChart metric={metric} />
-      </Content>
-    </WidgetContent>
-  );
-}
-
-export function ManagedClusterStatusCard({
-  metric,
-}: Readonly<{ metric: OperationalMetric }>) {
-  return (
-    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
-      <Content className="hypershell-dashboard-status-donut-card">
-        <InventoryStatusChart
-          ariaDescMessage={messages.managedClusterStatusAriaDesc}
-          ariaTitleMessage={messages.managedClusterStatusChartTitle}
-          metric={metric}
-        />
       </Content>
     </WidgetContent>
   );
@@ -240,34 +334,6 @@ export function UtilizationCard({
         </Stack>
       </Content>
     </WidgetContent>
-  );
-}
-
-function SummaryTrendIndicator({
-  trendChange,
-}: Readonly<{ trendChange: MetricTrendChange }>) {
-  const intl = useIntl();
-  const isIncrease = trendChange.direction === "increase";
-  const tooltipContent = intl.formatMessage(
-    isIncrease ? messages.summaryTrendIncrease : messages.summaryTrendDecrease,
-    { percent: trendChange.percent },
-  );
-
-  return (
-    <Tooltip content={tooltipContent} aria="labelledby">
-      <Button
-        aria-label={tooltipContent}
-        className={
-          isIncrease
-            ? "hypershell-dashboard-summary-trend hypershell-dashboard-summary-trend--increase"
-            : "hypershell-dashboard-summary-trend hypershell-dashboard-summary-trend--decrease"
-        }
-        isInline
-        variant="plain"
-      >
-        {isIncrease ? <TrendUpIcon /> : <TrendDownIcon />}
-      </Button>
-    </Tooltip>
   );
 }
 
@@ -432,16 +498,27 @@ function SummaryUnavailableValue() {
   );
 }
 
+const USERS_SUMMARY_TREND_TOOLTIP_MESSAGES: MetricTrendTooltipMessages = {
+  decrease: messages.summaryUsersTrendDecrease,
+  increase: messages.summaryUsersTrendIncrease,
+};
+
 function SummaryMetricValue({
   metric,
-}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  trendChange,
+  trendTooltipMessages,
+}: Readonly<{
+  metric: OperationalMetric | undefined;
+  trendChange?: ReturnType<typeof getMetricTrendChange>;
+  trendTooltipMessages?: MetricTrendTooltipMessages;
+}>) {
   const intl = useIntl();
 
   if (!metric) {
     return <SummaryUnavailableValue />;
   }
 
-  const trendChange = getMetricTrendChange(metric);
+  const resolvedTrendChange = trendChange ?? getMetricTrendChange(metric);
   const displayValue = formatOperationalMetricDisplayValue(metric.value, intl);
 
   return (
@@ -450,9 +527,12 @@ function SummaryMetricValue({
       spaceItems={{ default: "spaceItemsSm" }}
     >
       <FlexItem>{displayValue}</FlexItem>
-      {trendChange ? (
+      {resolvedTrendChange ? (
         <FlexItem>
-          <SummaryTrendIndicator trendChange={trendChange} />
+          <MetricTrendIndicator
+            trendChange={resolvedTrendChange}
+            tooltipMessages={trendTooltipMessages}
+          />
         </FlexItem>
       ) : null}
     </Flex>
@@ -760,24 +840,36 @@ export function UsageSummaryCard({
         isHorizontal
         aria-label={intl.formatMessage(messages.summaryUsageAriaLabel)}
       >
-        {USAGE_SUMMARY_METRIC_IDS.map((metricId) => (
-          <DescriptionListGroup key={metricId}>
-            <DescriptionListTerm>
-              <FormattedMessage {...USAGE_SUMMARY_LABELS[metricId]} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {metricId === "provisioned-gateways" ? (
-                <SummaryGatewayValue
-                  metric={metrics.find((metric) => metric.id === metricId)}
-                />
-              ) : (
-                <SummaryMetricValue
-                  metric={metrics.find((metric) => metric.id === metricId)}
-                />
-              )}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-        ))}
+        {USAGE_SUMMARY_METRIC_IDS.map((metricId) => {
+          const metric = metrics.find((entry) => entry.id === metricId);
+
+          return (
+            <DescriptionListGroup key={metricId}>
+              <DescriptionListTerm>
+                <FormattedMessage {...USAGE_SUMMARY_LABELS[metricId]} />
+              </DescriptionListTerm>
+              <DescriptionListDescription>
+                {metricId === "provisioned-gateways" ? (
+                  <SummaryGatewayValue metric={metric} />
+                ) : (
+                  <SummaryMetricValue
+                    metric={metric}
+                    trendChange={
+                      metricId === "registered-users"
+                        ? getTrendChange(metric?.activeTrend)
+                        : undefined
+                    }
+                    trendTooltipMessages={
+                      metricId === "registered-users"
+                        ? USERS_SUMMARY_TREND_TOOLTIP_MESSAGES
+                        : undefined
+                    }
+                  />
+                )}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+          );
+        })}
       </DescriptionList>
     </WidgetContent>
   );

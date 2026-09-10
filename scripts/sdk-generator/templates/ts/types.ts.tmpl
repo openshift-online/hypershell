@@ -26,6 +26,17 @@ export type {{.Resource.Name}}PatchRequest = {
   {{.Name}}?: {{.TSType}};
 {{- end}}
 };
+{{range .Resource.ExtraModels}}
+{{if .IsEnum}}
+export type {{.Name}} = {{range $index, $value := .EnumValues}}{{if $index}} | {{end}}'{{$value.Value}}'{{end}};
+{{else}}
+export type {{.Name}} = {
+{{- range .Fields}}
+  {{.Name}}{{if not .Required}}?{{end}}: {{.TSType}};
+{{- end}}
+};
+{{end}}
+{{end}}
 {{if .Resource.HasStatusPatch}}
 export type {{.Resource.Name}}StatusPatchRequest = {
 {{- range .Resource.StatusPatchFields}}

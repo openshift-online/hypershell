@@ -2040,6 +2040,27 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Unexpected error occurred
       summary: List registered users
+  /api/hypershell/v1/users/stats:
+    get:
+      operationId: getUserActivityStats
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserActivityStats"
+          description: Registered and active user statistics
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: Get registered user activity statistics
   /api/hypershell/v1/users/{id}:
     get:
       operationId: getUser
@@ -3500,6 +3521,82 @@ components:
           href: href
           email: email
           username: username
+    UserActivityStats:
+      example:
+        registration_daily:
+        - date: 2000-01-23
+          count: 0
+        - date: 2000-01-23
+          count: 0
+        registered_last_30_days: 0
+        active_daily:
+        - date: 2000-01-23
+          count: 0
+        - date: 2000-01-23
+          count: 0
+        total_registered: 0
+        registered_last_7_days: 0
+        active_last_30_days: 0
+        active_last_7_days: 0
+      properties:
+        total_registered:
+          format: int64
+          minimum: 0
+          type: integer
+        registered_last_7_days:
+          format: int64
+          minimum: 0
+          type: integer
+        registered_last_30_days:
+          format: int64
+          minimum: 0
+          type: integer
+        active_last_7_days:
+          format: int64
+          minimum: 0
+          type: integer
+        active_last_30_days:
+          format: int64
+          minimum: 0
+          type: integer
+        registration_daily:
+          description: New registrations per UTC day for the last 30 calendar days
+            (inclusive)
+          items:
+            $ref: "#/components/schemas/UserDailyCount"
+          type: array
+        active_daily:
+          description: Distinct active users per UTC day for the last 30 calendar
+            days (inclusive)
+          items:
+            $ref: "#/components/schemas/UserDailyCount"
+          type: array
+      required:
+      - active_daily
+      - active_last_30_days
+      - active_last_7_days
+      - registered_last_30_days
+      - registered_last_7_days
+      - registration_daily
+      - total_registered
+      type: object
+    UserDailyCount:
+      example:
+        date: 2000-01-23
+        count: 0
+      properties:
+        date:
+          description: UTC calendar day (YYYY-MM-DD)
+          format: date
+          type: string
+        count:
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+      - count
+      - date
+      type: object
     GatewayCreateRequest:
       example:
         phase: phase

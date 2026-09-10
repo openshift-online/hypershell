@@ -23,6 +23,23 @@ paths:
           $ref: 'openapi.yaml#/components/responses/ForbiddenError'
         '500':
           $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/v1/users/stats:
+    get:
+      summary: Get registered user activity statistics
+      operationId: getUserActivityStats
+      responses:
+        '200':
+          description: Registered and active user statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserActivityStats'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
   /api/hypershell/v1/users/{id}:
     get:
       summary: Get a registered user by ID
@@ -74,6 +91,65 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/User'
+    # NEW SCHEMA END
+    # NEW SCHEMA START
+    UserDailyCount:
+      type: object
+      required:
+        - date
+        - count
+      properties:
+        date:
+          type: string
+          format: date
+          description: UTC calendar day (YYYY-MM-DD)
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+    # NEW SCHEMA END
+    # NEW SCHEMA START
+    UserActivityStats:
+      type: object
+      required:
+        - total_registered
+        - registered_last_7_days
+        - registered_last_30_days
+        - active_last_7_days
+        - active_last_30_days
+        - registration_daily
+        - active_daily
+      properties:
+        total_registered:
+          type: integer
+          format: int64
+          minimum: 0
+        registered_last_7_days:
+          type: integer
+          format: int64
+          minimum: 0
+        registered_last_30_days:
+          type: integer
+          format: int64
+          minimum: 0
+        active_last_7_days:
+          type: integer
+          format: int64
+          minimum: 0
+        active_last_30_days:
+          type: integer
+          format: int64
+          minimum: 0
+        registration_daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDailyCount'
+          description: New registrations per UTC day for the last 30 calendar days (inclusive)
+        active_daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDailyCount'
+          description: Distinct active users per UTC day for the last 30 calendar days (inclusive)
     # NEW SCHEMA END
   parameters:
     id:

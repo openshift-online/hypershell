@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	ir "github.com/openshift-online/hypershell/scripts/openapi-ir"
 )
@@ -28,7 +29,7 @@ func parseSpec(specPath, apiPrefix string) (*Spec, error) {
 		if schema.Name == "ObjectReference" {
 			continue
 		}
-		resource, err := projectResource(document, schema, view)
+		resource, err := projectResource(document, schema, view, apiPrefix)
 		if err != nil {
 			return nil, fmt.Errorf("project resource %s: %w", schema.Name, err)
 		}
@@ -424,7 +425,7 @@ func tsPathExpression(path string, scope []PathParameter, item *PathParameter) s
 	return "`" + result + "`"
 }
 
-func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.ResourceView) (Resource, error) {
+func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.ResourceView, apiPrefix string) (Resource, error) {
 	fields, required := projectFields(document, schema.Ref, true)
 	patchFields, _ := projectFieldsByName(document, schema.Name+"PatchRequest", false)
 	statusPatchFields, _ := projectFieldsByName(document, schema.Name+"StatusPatchRequest", false)
@@ -454,7 +455,83 @@ func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.Re
 		}
 	}
 	sort.Strings(resource.Actions)
+	resource.CollectionOperations = projectCollectionOperations(document, collection, schema.Name, apiPrefix)
+	if len(resource.CollectionOperations) > 0 {
+		roots := make([]string, 0, len(resource.CollectionOperations))
+		for _, operation := range resource.CollectionOperations {
+			roots = append(roots, operation.ResponseType)
+		}
+		resource.ExtraModels = projectModels(document, roots)
+	}
 	return resource, nil
+}
+
+func projectCollectionOperations(document *ir.Document, collection *ir.ResourceView, resourceName, apiPrefix string) []CollectionOperation {
+	prefix := strings.TrimSuffix(collection.Path, "/") + "/"
+	operations := make([]CollectionOperation, 0)
+	seen := make(map[string]bool)
+
+	for _, operation := range document.Operations {
+		if !strings.HasPrefix(operation.Path, prefix) {
+			continue
+		}
+		remainder := strings.TrimPrefix(operation.Path, prefix)
+		if remainder == "" || strings.Contains(remainder, "/") || strings.Contains(remainder, "{") {
+			continue
+		}
+		responseType := successSchemaName(document, operation, "200")
+		if responseType == "" || seen[operation.ID] {
+			continue
+		}
+		seen[operation.ID] = true
+		operations = append(operations, CollectionOperation{
+			Name:         collectionOperationMethodName(operation.ID, resourceName),
+			HTTPMethod:   operation.Method,
+			GoHTTPMethod: goHTTPMethodConstant(operation.Method),
+			Path:         relativeAPIPath(operation.Path, apiPrefix),
+			ResponseType: responseType,
+		})
+	}
+	sort.Slice(operations, func(i, j int) bool { return operations[i].Name < operations[j].Name })
+	return operations
+}
+
+func goHTTPMethodConstant(method string) string {
+	switch strings.ToUpper(method) {
+	case "GET":
+		return "Get"
+	case "POST":
+		return "Post"
+	case "PUT":
+		return "Put"
+	case "PATCH":
+		return "Patch"
+	case "DELETE":
+		return "Delete"
+	default:
+		return "Get"
+	}
+}
+
+func collectionOperationMethodName(operationID, resourceName string) string {
+	name := operationID
+	lower := strings.ToLower(operationID)
+	for _, prefix := range []string{"get", "list", "create", "delete", "update", "patch"} {
+		if strings.HasPrefix(lower, prefix) && len(operationID) > len(prefix) {
+			next := operationID[len(prefix):]
+			if next != "" && unicode.IsUpper(rune(next[0])) {
+				name = next
+				break
+			}
+		}
+	}
+	if strings.HasPrefix(name, resourceName) {
+		name = strings.TrimPrefix(name, resourceName)
+	}
+	if name == "" {
+		return lowerFirst(operationID)
+	}
+	return lowerFirst(name)
 }
 
 func projectFieldsByName(document *ir.Document, name string, includeReadOnly bool) ([]Field, []string) {

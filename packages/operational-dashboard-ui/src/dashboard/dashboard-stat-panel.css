@@ -1,0 +1,30 @@
+.hypershell-dashboard-stat-panel {
+  --pf-v6-c-stack--m-gutter--Gap: var(--pf-t--global--spacer--sm);
+}
+
+/*
+ * Single-column horizontal lists only need block display on the list root so
+ * groups stack vertically inside widget tiles. Multi-column lists must keep
+ * PatternFly's grid placement for columnModifier + isFillColumns.
+ */
+.hypershell-dashboard-stat-panel__list--single.pf-v6-c-description-list {
+  display: block;
+}
+
+.hypershell-dashboard-stat-panel__sparkline {
+  margin-block-start: var(--pf-t--global--spacer--xl);
+  padding-top: var(--pf-t--global--spacer--xl);
+  border-top: 1px solid var(--pf-t--global--border--color--200);
+  width: 100%;
+}
+
+.hypershell-dashboard-stat-panel__sparkline-title {
+  margin-block-end: var(--pf-t--global--spacer--xs);
+  text-align: start;
+}
+
+.hypershell-dashboard-stat-panel__footer {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm);
+  margin-block-end: 0;
+}

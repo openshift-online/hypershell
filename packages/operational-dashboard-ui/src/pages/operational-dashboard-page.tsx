@@ -48,6 +48,7 @@ import {
   INVENTORY_SUMMARY_WIDGET_HEIGHT,
   localizeDashboardLayoutTemplate,
   PROVISION_TIME_WIDGET_HEIGHT,
+  REGISTERED_USERS_WIDGET_HEIGHT,
   SECTION_TITLE_WIDGET_TYPE,
   SYSTEM_SUMMARY_WIDGET_HEIGHT,
   TITLE_WIDGET_HEIGHT,
@@ -57,6 +58,7 @@ import {
   getActiveWidgetTypes,
   isValidSavedTemplate,
   sanitizeDashboardTemplate,
+  stripRemovedWidgetTypes,
 } from "../dashboard/dashboard-layout-persistence";
 import { UtilizationChart } from "../dashboard/utilization-chart";
 import { useDashboardUi } from "../dashboard-ui-provider";
@@ -68,9 +70,9 @@ import {
   InventorySummaryCard,
   ManagedClusterProvidersCard,
   ManagedClusterRegionsCard,
-  ManagedClusterStatusCard,
   ManagedDatabaseStatusCard,
   MetricCard,
+  RegisteredUsersCard,
   NodeStatusCard,
   PodCapacityCard,
   ProvisionTimeCard,
@@ -82,7 +84,7 @@ import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v28";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v32";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -115,7 +117,9 @@ function readSavedTemplate(
       return { invalid: false, template: localizedBaseTemplate };
     }
 
-    const parsed = JSON.parse(rawTemplate) as ExtendedTemplateConfig;
+    const parsed = stripRemovedWidgetTypes(
+      JSON.parse(rawTemplate) as ExtendedTemplateConfig,
+    );
     if (!isValidSavedTemplate(parsed, localizedBaseTemplate)) {
       return { invalid: true, template: localizedBaseTemplate };
     }
@@ -177,6 +181,7 @@ function createWidgetMapping(
     titleMessage: (typeof messages)[keyof typeof messages],
     metricType:
       | "metric"
+      | "registered-users"
       | "gateway-status"
       | "node-status"
       | "pod-capacity"
@@ -208,6 +213,10 @@ function createWidgetMapping(
       return <MetricCard metric={metric} subtitle={subtitle} title={title} />;
     }
 
+    if (metricType === "registered-users") {
+      return <RegisteredUsersCard metric={metric} />;
+    }
+
     if (metricType === "gateway-status") {
       return <GatewayStatusCard metric={metric} />;
     }
@@ -225,10 +234,6 @@ function createWidgetMapping(
     }
 
     if (metricType === "inventory-status") {
-      if (metricId === "managed-clusters") {
-        return <ManagedClusterStatusCard metric={metric} />;
-      }
-
       return <ManagedDatabaseStatusCard metric={metric} />;
     }
 
@@ -299,7 +304,12 @@ function createWidgetMapping(
       renderWidget: () => <SystemSummaryCard metrics={metrics.metrics} />,
     },
     "registered-users": {
-      defaults: METRIC_WIDGET_DEFAULTS,
+      defaults: {
+        h: REGISTERED_USERS_WIDGET_HEIGHT,
+        maxH: REGISTERED_USERS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 2,
+      },
       config: {
         icon: <UsersIcon />,
         title: intl.formatMessage(messages.registeredUsers),
@@ -309,7 +319,7 @@ function createWidgetMapping(
           "registered-users",
           "",
           messages.registeredUsers,
-          "metric",
+          "registered-users",
         ),
     },
     "gateway-status": {
@@ -317,7 +327,7 @@ function createWidgetMapping(
         h: GATEWAY_STATUS_WIDGET_HEIGHT,
         maxH: GATEWAY_STATUS_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 2,
+        w: 1,
       },
       config: {
         icon: <ClusterIcon />,
@@ -459,53 +469,6 @@ function createWidgetMapping(
           "",
           messages.widgetManagedClusterRegions,
           "inventory-regions",
-        ),
-    },
-    "managed-clusters": {
-      defaults: METRIC_WIDGET_DEFAULTS,
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusters),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusters,
-          "metric",
-        ),
-    },
-    "managed-cluster-status": {
-      defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusterStatus),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusterStatus,
-          "inventory-status",
-        ),
-    },
-    "managed-databases": {
-      defaults: METRIC_WIDGET_DEFAULTS,
-      config: {
-        icon: <DatabaseIcon />,
-        title: intl.formatMessage(messages.widgetManagedDatabases),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-databases",
-          "",
-          messages.widgetManagedDatabases,
-          "metric",
         ),
     },
     "managed-database-status": {

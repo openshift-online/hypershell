@@ -95,6 +95,16 @@ func (a *{{$.Resource.Name}}API) {{. | title}}(ctx context.Context, id string) (
 	return &result, nil
 }
 {{end}}
+{{- range .Resource.CollectionOperations}}
+
+func (a *{{$.Resource.Name}}API) {{.Name | goName}}(ctx context.Context) (*types.{{.ResponseType}}, error) {
+	var result types.{{.ResponseType}}
+	if err := a.client.do(ctx, http.Method{{.GoHTTPMethod}}, "{{.Path}}", nil, http.StatusOK, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+{{end}}
 
 func (a *{{.Resource.Name}}API) ListAll(ctx context.Context, opts *types.ListOptions) *Iterator[types.{{.Resource.Name}}] {
 	return NewIterator(func(page int) (*types.{{.Resource.Name}}List, error) {

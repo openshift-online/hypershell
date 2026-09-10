@@ -29,7 +29,11 @@ export interface OperationalMetricProvisionDuration {
 }
 
 export interface OperationalMetric {
+  activeLast7Days?: string;
+  activeLast30Days?: string;
+  activeTrend?: OperationalMetricTrend;
   createdLast30Days?: string;
+  createdLast7Days?: string;
   id: string;
   inventoryProviders?: Record<string, number>;
   inventoryRegions?: Record<string, number>;

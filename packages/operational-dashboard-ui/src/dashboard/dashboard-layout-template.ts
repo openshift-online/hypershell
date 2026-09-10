@@ -18,16 +18,25 @@ const SUMMARY_COLUMN_HEIGHT = METRIC_WIDGET_HEIGHT + 2 * METRIC_ROW_STEP;
 const BASE_SUMMARY_WIDGET_HEIGHT = (SUMMARY_COLUMN_HEIGHT - METRIC_ROW_GAP) / 2;
 /** Equal height for usage and system summary widgets in the left column. */
 export const USAGE_SUMMARY_WIDGET_HEIGHT = BASE_SUMMARY_WIDGET_HEIGHT + 1;
-/** Gateway status matches usage summary height in the platform adoption section. */
-export const GATEWAY_STATUS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
+/** Compact donut height; matches pods and nodes status widgets. */
+export const GATEWAY_STATUS_WIDGET_HEIGHT = POD_CAPACITY_WIDGET_HEIGHT;
 /** One row taller than usage summary; fits exception status rows on pods and nodes. */
 export const SYSTEM_SUMMARY_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 1;
 /** Stats list and P95 note. */
 export const PROVISION_TIME_WIDGET_HEIGHT = METRIC_WIDGET_HEIGHT + 1;
+
+export const REGISTERED_USERS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 1;
 const ADOPTION_SECTION_START_Y = TITLE_ROW_OFFSET;
-/** Grid row for the hub cluster section title. */
+/** Grid row for the hub cluster section title (below platform adoption widgets). */
 const HUB_CLUSTER_TITLE_Y =
-  ADOPTION_SECTION_START_Y + GATEWAY_STATUS_WIDGET_HEIGHT + METRIC_ROW_GAP;
+  ADOPTION_SECTION_START_Y +
+  Math.max(
+    USAGE_SUMMARY_WIDGET_HEIGHT,
+    REGISTERED_USERS_WIDGET_HEIGHT,
+    METRIC_WIDGET_HEIGHT,
+    METRIC_ROW_STEP + GATEWAY_STATUS_WIDGET_HEIGHT,
+  ) +
+  METRIC_ROW_GAP;
 /** Grid row where hub-cluster capacity widgets begin (below hub cluster title). */
 export const HUB_CLUSTER_START_Y = HUB_CLUSTER_TITLE_Y + TITLE_ROW_OFFSET;
 /** Grid row for the platform inventory section title. */
@@ -57,9 +66,6 @@ const WIDGET_TITLE_MESSAGES = {
   "registered-users": messages.registeredUsers,
   "managed-cluster-providers": messages.widgetManagedClusterProviders,
   "managed-cluster-regions": messages.widgetManagedClusterRegions,
-  "managed-clusters": messages.widgetManagedClusters,
-  "managed-cluster-status": messages.widgetManagedClusterStatus,
-  "managed-databases": messages.widgetManagedDatabases,
   "managed-database-status": messages.widgetManagedDatabaseStatus,
   "gateway-status": messages.gatewayStatusWidget,
   memory: messages.widgetMemory,
@@ -92,11 +98,11 @@ const fourColumnLayout = [
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: GATEWAY_STATUS_WIDGET_HEIGHT,
-    i: "gateway-status#1",
-    title: "Gateway status",
+    h: REGISTERED_USERS_WIDGET_HEIGHT,
+    i: "registered-users#1",
+    title: "Users",
     w: 2,
-    widgetType: "gateway-status",
+    widgetType: "registered-users",
     x: 1,
     y: ADOPTION_SECTION_START_Y,
   },
@@ -110,11 +116,11 @@ const fourColumnLayout = [
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: METRIC_WIDGET_HEIGHT,
-    i: "registered-users#1",
-    title: "Registered users",
+    h: GATEWAY_STATUS_WIDGET_HEIGHT,
+    i: "gateway-status#1",
+    title: "Gateway status",
     w: 1,
-    widgetType: "registered-users",
+    widgetType: "gateway-status",
     x: 3,
     y: ADOPTION_SECTION_START_Y + METRIC_ROW_STEP,
   },

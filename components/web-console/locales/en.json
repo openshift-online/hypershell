@@ -107,14 +107,6 @@
     "defaultMessage": "Managed cluster regions chart",
     "description": "Accessible title for the managed cluster region donut chart."
   },
-  "app.dashboard.managedClusterStatus.ariaDesc": {
-    "defaultMessage": "Managed cluster count by status",
-    "description": "Accessible description for the managed cluster status donut chart."
-  },
-  "app.dashboard.managedClusterStatus.chartTitle": {
-    "defaultMessage": "Managed cluster status chart",
-    "description": "Accessible title for the managed cluster status donut chart."
-  },
   "app.dashboard.managedDatabaseStatus.ariaDesc": {
     "defaultMessage": "Managed database count by status",
     "description": "Accessible description for the managed database status donut chart."
@@ -300,7 +292,7 @@
     "description": "Deprecated summary label retained for locale extraction."
   },
   "app.dashboard.summary.registeredUsers": {
-    "defaultMessage": "Registered users",
+    "defaultMessage": "Users",
     "description": "Summary label for registered users."
   },
   "app.dashboard.summary.sandboxes": {
@@ -330,6 +322,14 @@
   "app.dashboard.summary.usageAriaLabel": {
     "defaultMessage": "Usage metrics",
     "description": "Accessible label for the usage metrics list in the summary widget."
+  },
+  "app.dashboard.summary.usersTrendDecrease": {
+    "defaultMessage": "{percent}% decrease in unique logins per day",
+    "description": "Tooltip for the Users row trend indicator when unique logins per day decreased."
+  },
+  "app.dashboard.summary.usersTrendIncrease": {
+    "defaultMessage": "{percent}% increase in unique logins per day",
+    "description": "Tooltip for the Users row trend indicator when unique logins per day increased."
   },
   "app.dashboard.title": {
     "defaultMessage": "HyperShell operational dashboard",
@@ -367,6 +367,22 @@
     "defaultMessage": "{percent}% capacity{separator}{value} of {total} {unit}",
     "description": "Tooltip for utilization status in the system summary widget."
   },
+  "app.dashboard.widget.activeUsersDaily": {
+    "defaultMessage": "Unique logins per day",
+    "description": "Title for the daily unique login sparkline in the users dashboard widget."
+  },
+  "app.dashboard.widget.activeUsersDailyTooltip": {
+    "defaultMessage": "Unique logins",
+    "description": "Short metric label for unique login sparkline tooltips in the users widget."
+  },
+  "app.dashboard.widget.activeUsersLast30Days": {
+    "defaultMessage": "Unique logins (30 days)",
+    "description": "Label for distinct users who logged in during the last thirty days."
+  },
+  "app.dashboard.widget.activeUsersLast7Days": {
+    "defaultMessage": "Unique logins (7 days)",
+    "description": "Label for distinct users who logged in during the last seven days."
+  },
   "app.dashboard.widget.cpu": {
     "defaultMessage": "CPU",
     "description": "Title for the CPU utilization dashboard widget."
@@ -387,21 +403,9 @@
     "defaultMessage": "Cluster regions",
     "description": "Title for the managed cluster region breakdown dashboard widget."
   },
-  "app.dashboard.widget.managedClusterStatus": {
-    "defaultMessage": "Cluster status",
-    "description": "Title for the managed cluster status dashboard widget."
-  },
-  "app.dashboard.widget.managedClusters": {
-    "defaultMessage": "Clusters",
-    "description": "Title for the managed clusters count dashboard widget."
-  },
   "app.dashboard.widget.managedDatabaseStatus": {
     "defaultMessage": "Database status",
     "description": "Title for the managed database status dashboard widget."
-  },
-  "app.dashboard.widget.managedDatabases": {
-    "defaultMessage": "Databases",
-    "description": "Title for the managed databases count dashboard widget."
   },
   "app.dashboard.widget.memory": {
     "defaultMessage": "Memory",
@@ -424,8 +428,24 @@
     "description": "Title for the provisioned gateways dashboard widget."
   },
   "app.dashboard.widget.registeredUsers": {
+    "defaultMessage": "Users",
+    "description": "Title for the users dashboard widget."
+  },
+  "app.dashboard.widget.registeredUsersHeading": {
     "defaultMessage": "Registered users",
-    "description": "Title for the registered users dashboard widget."
+    "description": "Label for the total registered user count in the users widget heading."
+  },
+  "app.dashboard.widget.registeredUsersLast30Days": {
+    "defaultMessage": "Added (30 days)",
+    "description": "Label for users added in the last thirty days."
+  },
+  "app.dashboard.widget.registeredUsersLast7Days": {
+    "defaultMessage": "Added (7 days)",
+    "description": "Label for users added in the last seven days."
+  },
+  "app.dashboard.widget.registeredUsersStatsAriaLabel": {
+    "defaultMessage": "User statistics",
+    "description": "Accessible label for user statistics in the users dashboard widget."
   },
   "app.dashboard.widget.sectionTitle": {
     "defaultMessage": "Section title",

@@ -309,6 +309,22 @@ func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_UserActivityStatsRequiresDashboardOperator(t *testing.T) {
+	creatorOnly := []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}
+	if isAuthorized(http.MethodGet, "stats", "", "", creatorOnly, nil) {
+		t.Error("gateway:creator binding must not read user activity stats")
+	}
+
+	platformAdmin := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
+	if !isAuthorized(http.MethodGet, "stats", "", "", platformAdmin, nil) {
+		t.Error("platform:admin should read user activity stats")
+	}
+
+	if !isAuthorized(http.MethodGet, "stats", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role should read user activity stats")
+	}
+}
+
 func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *testing.T) {
 	ownerOnly := []BindingSummary{
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
@@ -346,6 +362,14 @@ func TestExtractResourceInfoFromPath_Users(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/user-1", nil)
 	resource, resourceID := extractResourceInfo(request)
 	if resource != "users" || resourceID != "user-1" {
+		t.Fatalf("resource = %q, id = %q", resource, resourceID)
+	}
+}
+
+func TestExtractResourceInfoFromPath_UserActivityStats(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/stats", nil)
+	resource, resourceID := extractResourceInfoFromPath(request.URL.Path)
+	if resource != "users" || resourceID != "stats" {
 		t.Fatalf("resource = %q, id = %q", resource, resourceID)
 	}
 }
@@ -444,6 +468,28 @@ func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
 	}))).Methods(http.MethodGet)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "creator-user"}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+}
+
+func TestAuthorizeApiDeniesGatewayCreatorBindingOnUsersStats(t *testing.T) {
+	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+
+	router := mux.NewRouter()
+	usersRouter := router.PathPrefix("/api/hypershell/v1/users").Subrouter()
+	usersRouter.Handle("/stats", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("denied request reached the handler")
+	}))).Methods(http.MethodGet)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/stats", nil)
 	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "creator-user"}}
 	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
 	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")

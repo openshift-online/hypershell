@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDashboardControlPlaneAdapter } from "./dashboard-control-plane";
 
 const gatewayListApi = vi.fn();
-const usersListApi = vi.fn();
+const usersActivityStatsApi = vi.fn();
 const managedClustersListApi = vi.fn();
 const managedDatabasesListApi = vi.fn();
 const fetchMock = vi.fn();
@@ -28,7 +28,7 @@ const apiFactory = vi.fn(
         list: managedDatabasesListApi,
       },
       users: {
-        list: usersListApi,
+        activityStats: usersActivityStatsApi,
       },
     }) as unknown as SDKClient,
 );
@@ -114,7 +114,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
   gatewayListApi.mockReset();
-  usersListApi.mockReset();
+  usersActivityStatsApi.mockReset();
   managedClustersListApi.mockReset();
   managedDatabasesListApi.mockReset();
   managedClustersListApi.mockResolvedValue({
@@ -248,6 +248,18 @@ function managedDatabase(
   };
 }
 
+function defaultUserActivityStats(total = 0) {
+  return {
+    active_daily: [],
+    active_last_7_days: 0,
+    active_last_30_days: 0,
+    registered_last_7_days: 0,
+    registered_last_30_days: 0,
+    registration_daily: [],
+    total_registered: total,
+  };
+}
+
 function managedDatabaseList(
   items: ManagedDatabase[],
   total = items.length,
@@ -266,12 +278,20 @@ describe("createDashboardControlPlaneAdapter", () => {
   it("aggregates paginated gateway lists into operational metrics", async () => {
     mockClusterMetricsResponses(254468212736, 236223201280);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 42,
+    usersActivityStatsApi.mockResolvedValueOnce({
+      active_daily: [
+        { count: 2, date: "2026-08-09" },
+        { count: 4, date: "2026-08-10" },
+      ],
+      active_last_7_days: 18,
+      active_last_30_days: 95,
+      registered_last_7_days: 5,
+      registered_last_30_days: 22,
+      registration_daily: [
+        { count: 1, date: "2026-08-09" },
+        { count: 3, date: "2026-08-10" },
+      ],
+      total_registered: 42,
     });
 
     const firstPage = Array.from({ length: 100 }, (_, index) =>
@@ -336,7 +356,26 @@ describe("createDashboardControlPlaneAdapter", () => {
       provisioning: 50,
     });
     expect(sandboxesMetric?.value).toBe("200");
-    expect(registeredUsersMetric?.value).toBe("42");
+    expect(registeredUsersMetric).toEqual({
+      activeLast7Days: "18",
+      activeLast30Days: "95",
+      activeTrend: {
+        points: [
+          { label: "2026-08-09", value: 2 },
+          { label: "2026-08-10", value: 4 },
+        ],
+      },
+      createdLast7Days: "5",
+      createdLast30Days: "22",
+      id: "registered-users",
+      trend: {
+        points: [
+          { label: "2026-08-09", value: 1 },
+          { label: "2026-08-10", value: 3 },
+        ],
+      },
+      value: "42",
+    });
     expect(memoryMetric).toEqual({
       id: "memory",
       total: "237",
@@ -396,22 +435,15 @@ describe("createDashboardControlPlaneAdapter", () => {
       credentials: "same-origin",
       signal: undefined,
     });
-    expect(usersListApi).toHaveBeenCalledWith(
-      { orderBy: "username asc", page: 1, size: 1 },
-      { signal: undefined },
-    );
+    expect(usersActivityStatsApi).toHaveBeenCalledWith({
+      signal: undefined,
+    });
   });
 
   it("maps gateway lifecycle fields into display-status buckets", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
 
     gatewayListApi.mockResolvedValueOnce(
       gatewayList(
@@ -441,13 +473,7 @@ describe("createDashboardControlPlaneAdapter", () => {
   it("treats omitted active_sandbox_count as zero when summing sandboxes", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
 
     gatewayListApi.mockResolvedValueOnce(
       gatewayList(
@@ -472,13 +498,7 @@ describe("createDashboardControlPlaneAdapter", () => {
   it("maps gateway provision duration histogram into average, P50, and P95 minutes", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
 
     gatewayListApi.mockResolvedValueOnce(
       gatewayList(
@@ -555,13 +575,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       return Promise.reject(new Error(`unexpected fetch url: ${url}`));
     });
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
 
     gatewayListApi.mockResolvedValueOnce(
       gatewayList(
@@ -597,13 +611,7 @@ describe("createDashboardControlPlaneAdapter", () => {
   it("omits gateway-derived metrics for inconsistent pagination responses", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 2));
 
     const metrics = await adapter.getOperationalMetrics(context);
@@ -621,13 +629,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     const controller = new AbortController();
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
     await adapter.getOperationalMetrics({
@@ -639,10 +641,9 @@ describe("createDashboardControlPlaneAdapter", () => {
       { orderBy: "name asc", page: 1, size: 100 },
       { signal: controller.signal },
     );
-    expect(usersListApi).toHaveBeenCalledWith(
-      { orderBy: "username asc", page: 1, size: 1 },
-      { signal: controller.signal },
-    );
+    expect(usersActivityStatsApi).toHaveBeenCalledWith({
+      signal: controller.signal,
+    });
     expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-memory", {
       credentials: "same-origin",
       signal: controller.signal,
@@ -708,13 +709,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       }
       return Promise.reject(new Error(`unexpected fetch url: ${url}`));
     });
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
     const metrics = await adapter.getOperationalMetrics(context);
@@ -775,13 +770,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       }
       return Promise.reject(new Error(`unexpected fetch url: ${url}`));
     });
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
     const metrics = await adapter.getOperationalMetrics(context);
@@ -844,13 +833,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       }
       return Promise.reject(new Error(`unexpected fetch url: ${url}`));
     });
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
     const metrics = await adapter.getOperationalMetrics(context);
@@ -905,13 +888,7 @@ describe("createDashboardControlPlaneAdapter", () => {
       }
       return Promise.reject(new Error(`unexpected fetch url: ${url}`));
     });
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([gateway()], 1, 1));
 
     const metrics = await adapter.getOperationalMetrics(context);
@@ -927,7 +904,7 @@ describe("createDashboardControlPlaneAdapter", () => {
 
   it("fails when every metric source is unavailable", async () => {
     fetchMock.mockRejectedValue(new Error("network down"));
-    usersListApi.mockRejectedValueOnce(new Error("users unavailable"));
+    usersActivityStatsApi.mockRejectedValueOnce(new Error("users unavailable"));
     gatewayListApi.mockRejectedValueOnce(new Error("gateways unavailable"));
     managedClustersListApi.mockRejectedValueOnce(
       new Error("managed clusters unavailable"),
@@ -946,13 +923,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     vi.setSystemTime(new Date("2026-09-01T12:00:00.000Z"));
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([], 0, 1));
 
     const firstClusterPage = Array.from({ length: 100 }, (_, index) =>
@@ -1044,13 +1015,7 @@ describe("createDashboardControlPlaneAdapter", () => {
   it("omits platform inventory metrics when managed database pagination is inconsistent", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([], 0, 1));
     managedClustersListApi.mockResolvedValueOnce(managedClusterList([], 0, 1));
     managedDatabasesListApi.mockResolvedValueOnce(
@@ -1075,13 +1040,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     const controller = new AbortController();
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
-    usersListApi.mockResolvedValueOnce({
-      items: [],
-      kind: "UserList",
-      page: 1,
-      size: 1,
-      total: 0,
-    });
+    usersActivityStatsApi.mockResolvedValueOnce(defaultUserActivityStats(0));
     gatewayListApi.mockResolvedValueOnce(gatewayList([], 0, 1));
     managedClustersListApi.mockResolvedValueOnce(managedClusterList([], 0, 1));
     managedDatabasesListApi.mockResolvedValueOnce(

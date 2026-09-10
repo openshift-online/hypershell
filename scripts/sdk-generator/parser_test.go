@@ -69,3 +69,47 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSpecProjectsUserActivityStatsCollectionOperation(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell/v1")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	var resource *Resource
+	for index := range spec.Resources {
+		if spec.Resources[index].Name == "User" {
+			resource = &spec.Resources[index]
+			break
+		}
+	}
+	if resource == nil {
+		t.Fatal("user resource was not projected")
+	}
+	if len(resource.CollectionOperations) != 1 {
+		t.Fatalf("collection operations = %#v, want one activity stats operation", resource.CollectionOperations)
+	}
+
+	operation := resource.CollectionOperations[0]
+	if operation.Name != "activityStats" {
+		t.Fatalf("collection operation name = %q, want activityStats", operation.Name)
+	}
+	if operation.HTTPMethod != "GET" || operation.Path != "/users/stats" {
+		t.Fatalf("collection operation = %#v", operation)
+	}
+	if operation.ResponseType != "UserActivityStats" {
+		t.Fatalf("response type = %q, want UserActivityStats", operation.ResponseType)
+	}
+
+	extraModels := make(map[string]Model, len(resource.ExtraModels))
+	for _, model := range resource.ExtraModels {
+		extraModels[model.Name] = model
+	}
+	if _, ok := extraModels["UserActivityStats"]; !ok {
+		t.Fatal("UserActivityStats model was not projected")
+	}
+	if _, ok := extraModels["UserDailyCount"]; !ok {
+		t.Fatal("UserDailyCount model was not projected from nested stats schema")
+	}
+}

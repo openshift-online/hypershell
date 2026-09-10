@@ -85,3 +85,17 @@ func (h userHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	handlers.HandleGet(w, r, cfg)
 }
+
+func (h userHandler) Stats(w http.ResponseWriter, r *http.Request) {
+	cfg := &handlers.HandlerConfig{
+		Action: func() (interface{}, *errors.ServiceError) {
+			stats, err := h.user.GetActivityStats(r.Context())
+			if err != nil {
+				return nil, err
+			}
+			return PresentActivityStats(stats), nil
+		},
+	}
+
+	handlers.HandleGet(w, r, cfg)
+}

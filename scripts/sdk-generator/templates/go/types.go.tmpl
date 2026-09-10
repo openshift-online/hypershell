@@ -100,3 +100,20 @@ func (b *{{.Resource.Name}}StatusPatchBuilder) Build() map[string]any {
 	return b.patch
 }
 {{end}}
+{{range .Resource.ExtraModels}}{{$model := .}}
+{{if .IsEnum}}
+type {{.Name}} string
+
+const (
+{{- range .EnumValues}}
+	{{.Name}} {{$model.Name}} = "{{.Value}}"
+{{- end}}
+)
+{{else}}
+type {{.Name}} struct {
+{{- range .Fields}}
+	{{.GoName}} {{.GoType}} {{.JSONTag}}
+{{- end}}
+}
+{{end}}
+{{end}}

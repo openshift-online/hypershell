@@ -6,6 +6,7 @@ import {
   getActiveWidgetTypes,
   isValidSavedTemplate,
   sanitizeDashboardTemplate,
+  stripRemovedWidgetTypes,
 } from "./dashboard-layout-persistence";
 
 describe("dashboard layout persistence", () => {
@@ -13,9 +14,9 @@ describe("dashboard layout persistence", () => {
     expect(getActiveWidgetTypes(defaultDashboardLayoutTemplate)).toEqual([
       "section-title",
       "usage-summary",
-      "gateway-status",
-      "provisioned-sandboxes",
       "registered-users",
+      "provisioned-sandboxes",
+      "gateway-status",
       "system-summary",
       "memory",
       "provision-time",
@@ -79,5 +80,28 @@ describe("dashboard layout persistence", () => {
     expect(
       sanitized.xl.filter((item) => item.widgetType === "section-title"),
     ).toHaveLength(3);
+  });
+
+  it("strips retired widget types from saved layouts", () => {
+    const retiredWidget = {
+      h: 3,
+      i: "managed-clusters#1",
+      title: "Clusters",
+      w: 1,
+      widgetType: "managed-clusters",
+      x: 0,
+      y: 99,
+    };
+    const withRetired = {
+      ...defaultDashboardLayoutTemplate,
+      xl: [...defaultDashboardLayoutTemplate.xl, retiredWidget],
+    };
+
+    const stripped = stripRemovedWidgetTypes(withRetired);
+
+    expect(
+      stripped.xl.filter((item) => item.widgetType === "managed-clusters"),
+    ).toHaveLength(0);
+    expect(stripped.xl).toHaveLength(defaultDashboardLayoutTemplate.xl.length);
   });
 });

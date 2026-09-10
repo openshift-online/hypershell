@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OperationalMetric } from "../application/dashboard-types";
-import { getMetricTrendChange } from "./metric-trend-change";
+import { getMetricTrendChange, getTrendChange } from "./metric-trend-change";
 
 function metricWithTrend(values: number[]): OperationalMetric {
   return {
@@ -37,5 +37,21 @@ describe("getMetricTrendChange", () => {
 
   it("returns undefined when the starting trend value is zero", () => {
     expect(getMetricTrendChange(metricWithTrend([0, 50]))).toBeUndefined();
+  });
+});
+
+describe("getTrendChange", () => {
+  it("detects an increase from a trend series", () => {
+    expect(
+      getTrendChange({
+        points: [
+          { label: "2026-08-10", value: 98 },
+          { label: "2026-09-08", value: 190 },
+        ],
+      }),
+    ).toEqual({
+      direction: "increase",
+      percent: 94,
+    });
   });
 });

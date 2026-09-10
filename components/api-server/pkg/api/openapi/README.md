@@ -102,6 +102,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GetRole**](docs/DefaultAPI.md#getrole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 *DefaultAPI* | [**GetRoleBinding**](docs/DefaultAPI.md#getrolebinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 *DefaultAPI* | [**GetUser**](docs/DefaultAPI.md#getuser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
+*DefaultAPI* | [**GetUserActivityStats**](docs/DefaultAPI.md#getuseractivitystats) | **Get** /api/hypershell/v1/users/stats | Get registered user activity statistics
 *DefaultAPI* | [**ListGatewayNetworks**](docs/DefaultAPI.md#listgatewaynetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
 *DefaultAPI* | [**ListGatewayReleases**](docs/DefaultAPI.md#listgatewayreleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 *DefaultAPI* | [**ListGatewayServiceAccounts**](docs/DefaultAPI.md#listgatewayserviceaccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
@@ -156,6 +157,8 @@ Class | Method | HTTP request | Description
  - [RoleBindingList](docs/RoleBindingList.md)
  - [RoleList](docs/RoleList.md)
  - [User](docs/User.md)
+ - [UserActivityStats](docs/UserActivityStats.md)
+ - [UserDailyCount](docs/UserDailyCount.md)
  - [UserList](docs/UserList.md)
 
 

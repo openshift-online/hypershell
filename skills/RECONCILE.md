@@ -48,9 +48,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
-**Spec corpus**: 48 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
-**Codebase commit**: `c9d68e0` (rebased HYPERSHELL-276 initial dashboard data branch; section titles + last-refreshed header; partial metric-source failure; NaN/Infinity display fallback; layout persistence v23)
+**Last analyzed**: 2026-09-09 (scoped reanalysis of HYPERSHELL-278 platform inventory + HYPERSHELL-279 user activity stats and dashboard UI; PI-01..PI-09; RU-09/RU-10; OP-DASH-08/19/20/21; layout persistence v32; the last full-corpus analysis remains 2026-08-31)
+**Spec corpus**: 49 spec files; the coverage table tracks 40 analyzed feature/spec groups after adding Platform Inventory (HYPERSHELL-278)
+**Codebase commit**: `c8ffd54` (HYPERSHELL-279 registered-users stats card + platform inventory widgets; layout v32)
 
 ### Coverage Summary
 
@@ -74,17 +74,18 @@ skills/
 | Platform - OpenShift Development | 1 | 13 | 7 | 2 | 4 | 0 | 54% |
 | Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
 | Platform - Gateway Metrics Dashboard | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
-| Platform - Registered Users | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - Registered Users | 1 | 10 | 10 | 0 | 0 | 0 | 100% |
+| Platform - Platform Inventory | 1 | 9 | 9 | 0 | 0 | 0 | 100% |
 | Platform - Cluster Memory | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Cluster CPU | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Cluster Pods | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Cluster Nodes | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Provision Time | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
-| Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
+| Web Console - Operational Dashboard | 1 | 22 | 22 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **39** | **291** | **248** | **17** | **13** | **5** | **85%** |
+| **TOTAL** | **40** | **304** | **261** | **17** | **13** | **5** | **86%** |
 
 ### Spec Dependency Order
 
@@ -421,19 +422,21 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | OP-DASH-05 | SPA and BFF route surfaces | Present | - | `routes/dashboard.tsx`, `routes/home.tsx`, `route-contract.json` | - |
 | OP-DASH-06 | Gateway list metrics adapter (paginated REST) | Present | - | `app/adapters/api/dashboard-control-plane.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
 | OP-DASH-07 | Gateway display status aggregation | Present | - | `dashboard-control-plane.ts`, `gateway-management-ui/gateway-data.ts:aggregateGatewayDisplayStatusCounts` | - |
-| OP-DASH-08 | Connected vs placeholder metrics | Present | - | `DATA_SOURCES.md`, `dashboard/dashboard-data.ts` | OP-W1 ✅ |
+| OP-DASH-08 | Connected vs placeholder metrics | Present | - | `DATA_SOURCES.md`, `dashboard-control-plane.ts`, `platform-inventory-aggregation.ts` | PI-W1 ✅ |
 | OP-DASH-09 | Metrics refresh policy (15 min + manual refresh, partial failure) | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
-| OP-DASH-10 | Widgetized grid layout | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-template.ts` | - |
-| OP-DASH-11 | Layout persistence (`localStorage` v23) | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-persistence.ts` | - |
+| OP-DASH-10 | Widgetized grid layout | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-template.ts` | PI-W1 ✅ |
+| OP-DASH-11 | Layout persistence (`localStorage` v32) | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-persistence.ts` | PI-W1 ✅, RU-W3 ✅ |
 | OP-DASH-12 | Gateway status donut widget | Present | - | `dashboard/gateway-status-chart.tsx`, `dashboard/status-donut-chart.tsx`, `dashboard-widget.tsx` | - |
-| OP-DASH-13 | Metric, utilization, and summary widgets | Present | - | `dashboard-widget.tsx`, `dashboard/utilization-chart.tsx` | - |
-| OP-DASH-14 | Localization and accessibility | Present | - | `messages.ts`, `web-console/locales/en.json` | - |
-| OP-DASH-15 | Verification fixtures and Storybook | Present | - | `fixtures/`, `operational-dashboard.stories.tsx`, `src/dashboard/*.test.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
-| OP-DASH-16 | Shared status donut + nodes widget | Present | - | `dashboard/status-donut-*.ts(x)`, `dashboard/node-status-*.ts(x)`, `dashboard-layout-template.ts` | - |
+| OP-DASH-13 | Metric, utilization, and summary widgets | Present | - | `dashboard-widget.tsx`, `dashboard/utilization-chart.tsx`, `dashboard-stat-panel.tsx` | RU-W3 ✅ |
+| OP-DASH-14 | Localization and accessibility | Present | - | `messages.ts`, `web-console/locales/en.json` | PI-W1 ✅, RU-W3 ✅ |
+| OP-DASH-15 | Verification fixtures and Storybook | Present | - | `fixtures/`, `operational-dashboard.stories.tsx`, `src/dashboard/*.test.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅, PI-W1 ✅ |
+| OP-DASH-16 | Shared status donut + nodes widget | Present | - | `dashboard/status-donut-*.ts(x)`, `dashboard/node-status-*.ts(x)`, `inventory-status-*.ts(x)`, `dashboard-layout-template.ts` | PI-W1 ✅ |
 | OP-DASH-17 | Pod capacity widget (phase + Unused segments) | Present | - | `dashboard/pod-capacity-*.ts(x)`, `bff/src/metrics-cluster-pods.ts`, `dashboard-control-plane.ts` | - |
 | OP-DASH-18 | Non-displayable metric values (NaN/Infinity fallback) | Present | - | `dashboard-widget.tsx`, `messages.ts` | - |
-| OP-DASH-19 | Independent metric sources and partial failure | Present | - | `dashboard-control-plane.ts`, `dashboard-metric-sources.ts`, `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
+| OP-DASH-19 | Independent metric sources and partial failure | Present | - | `dashboard-control-plane.ts`, `dashboard-metric-sources.ts`, `platform-inventory-aggregation.ts`, `user-activity-stats.ts`, `get-metrics-data.ts` | OP-W2 ✅, PI-W1 ✅, RU-W3 ✅ |
 | OP-DASH-20 | Section title widgets (platform adoption / hub cluster) | Present | - | `dashboard-layout-template.ts`, `dashboard-widget.tsx`, `dashboard-widget.css` | - |
+| OP-DASH-22 | Platform inventory summary section | Present | - | `dashboard-layout-template.ts`, `dashboard-widget.tsx` (`InventorySummaryCard`) | PI-W1 ✅ |
+| OP-DASH-21 | Optional platform inventory widgets | Present | - | `operational-dashboard-page.tsx`, `managed-cluster-*-chart.tsx`, `inventory-status-chart.tsx` | PI-W1 ✅ |
 
 **Scoped analysis notes:**
 
@@ -446,6 +449,8 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 - OP-DASH-20 (2026-09-02): `section-title` widget for platform adoption and hub cluster headers; full-width title rows; headerless/borderless presentation; layout persistence key `hypershell.operational-dashboard.layout.v23`; `sanitizeDashboardTemplate` preserves multiple `section-title` instances; page header consolidates refresh, reset, and add-widgets controls (no separate toolbar).
 - Post-connect polish (2026-09-02, `06d6c56`): removed interim `usesSampleData` info banner and i18n keys; all OP-DASH-08 metrics are connected so the banner is no longer required.
 - OP-W2 (2026-09-03): partial metric-source failure handling - adapter fetches sources independently, page shows warning + metric-unavailable per widget/summary row, refresh merges stale data for failed sources (`dashboard-metric-sources.ts`, `get-metrics-data.ts` `keepPreviousData`).
+- PI-W1 (2026-09-09, `d54c341`/`c8ffd54`): platform inventory section with `inventory-summary`, provider/region/database-status donuts; paginated managed cluster/database aggregation (`platform-inventory-aggregation.ts`); RBAC dashboard-operator List access; layout key v26-v28 then v32 after HYPERSHELL-279 layout polish.
+- RU-W3 (2026-09-09, `ee18d8a`/`c8ffd54`): `GET /users/stats` API + login-day recording; `RegisteredUsersCard` with 7/30-day additions and logins + active sparkline; adapter maps full `UserActivityStats`; layout key v31-v32 for taller two-column registered-users widget.
 
 ### registered-users.spec.md
 
@@ -455,15 +460,45 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | RU-02 | User resource schema (OpenAPI) | Present | - | `openapi.users.yaml`, `plugins/users/presenter.go`, `plugins/users/model.go` | RU-W1 ✅ |
 | RU-03 | User inventory authorization | Present | - | `pkg/rbac/authorization.go`, `pkg/rbac/user_provisioning.go` | RU-W1 ✅ |
 | RU-04 | Paginated List contract | Present | - | `plugins/users/handler.go`, generic list wiring | RU-W1 ✅ |
-| RU-05 | Operational dashboard `registered-users` metric | Present | - | `dashboard-control-plane.ts`, `sdk-typescript` users client | RU-W2 ✅ |
-| RU-06 | UI presentation (Registered users) | Present | - | `operational-dashboard-page.tsx`, `messages.ts`, layout key v14 | RU-W2 ✅ |
-| RU-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | - |
-| RU-08 | Verification (API + adapter tests) | Present | - | `plugins/users/integration_test.go`, `dashboard-control-plane.test.ts` | RU-W1 ✅, RU-W2 ✅ |
+| RU-05 | Operational dashboard `registered-users` metric | Present | - | `user-activity-stats.ts`, `dashboard-control-plane.ts`, `sdk-typescript` users client | RU-W3 ✅ |
+| RU-06 | UI presentation (Registered users) | Present | - | `dashboard-widget.tsx` (`RegisteredUsersCard`), `dashboard-stat-panel.tsx`, `messages.ts` | RU-W3 ✅ |
+| RU-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, `dashboard-control-plane.ts` | - |
+| RU-08 | Verification (API + adapter tests) | Present | - | `plugins/users/integration_test.go`, `stats_test.go`, `dashboard-control-plane.test.ts`, `user-activity-stats.test.ts` | RU-W1 ✅, RU-W3 ✅ |
+| RU-09 | User activity statistics API | Present | - | `plugins/users/stats.go`, `dao.go`, `handler.go`, `openapi.users.yaml` | RU-W3 ✅ |
+| RU-10 | Users widget presentation | Present | - | `dashboard-widget.tsx` (`RegisteredUsersCard`), `dashboard-stat-panel.tsx` | RU-W3 ✅ |
 
 **Scoped analysis notes:**
 
-- Delivered in `eb99f6b`: OpenAPI + List/Get handlers, `platform:admin` binding or `hypershell-admins` JWT authorization, integration tests, and dashboard adapter emitting `registered-users` from `users.list({ page: 1, size: 1 }).total`.
-- `DATA_SOURCES.md` and OP-DASH-08 `registered-users` row updated to connected.
+- RU-W1 (`eb99f6b`): OpenAPI + List/Get handlers, `platform:admin` binding or `hypershell-admins` JWT authorization, integration tests, initial dashboard adapter via `users.list({ page: 1, size: 1 }).total`.
+- RU-W3 (`ee18d8a`/`c8ffd54`): `GET /users/stats` with registration/active histograms; `user_login_days` table + `RecordLogin` on authenticated requests; adapter maps full `UserActivityStats`; `RegisteredUsersCard` shows total, 7/30-day additions, 7/30-day logins, and active sparkline.
+- `DATA_SOURCES.md` and OP-DASH-08 `registered-users` row updated to connected via stats API.
+
+### platform-inventory.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| PI-01 | Inventory resource scope | Present | - | `platform-inventory-aggregation.ts` | PI-W1 ✅ |
+| PI-02 | Paginated list aggregation | Present | - | `platform-inventory-aggregation.ts`, `platform-inventory-aggregation.test.ts` | PI-W1 ✅ |
+| PI-03 | Dashboard-operator authorization | Present | - | `pkg/rbac/authorization.go`, `authorization_test.go` | PI-W1 ✅ |
+| PI-04 | Status and dimension mapping | Present | - | `platform-inventory-aggregation.ts`, `inventory-status-data.ts`, `inventory-dimension-donut-data.ts` | PI-W1 ✅ |
+| PI-05 | Operational dashboard metrics | Present | - | `dashboard-control-plane.ts`, `dashboard-types.ts` | PI-W1 ✅ |
+| PI-06 | Inventory summary card | Present | - | `dashboard-widget.tsx` (`InventorySummaryCard`) | PI-W1 ✅ |
+| PI-07 | Optional inventory detail widgets | Present | - | `operational-dashboard-page.tsx`, `managed-cluster-*-chart.tsx`, `inventory-status-chart.tsx` | PI-W1 ✅ |
+| PI-08 | Refresh and error semantics | Present | - | `dashboard-control-plane.ts`, `dashboard-metric-sources.ts` | PI-W1 ✅ |
+| PI-09 | Documentation and verification | Present | - | `DATA_SOURCES.md`, `dashboard-control-plane.test.ts`, `mock-operational-dashboard-metrics.ts`, `operational-dashboard.stories.tsx` | PI-W1 ✅ |
+
+**Scoped analysis notes:**
+
+- Delivered in `d54c341`/`c8ffd54`: paginated managed cluster/database List aggregation with status/provider/region buckets and 30-day creation window; `platform-inventory` metric source with partial-failure semantics; inventory summary + provider/region/database-status donuts on default layout.
+- RBAC: `hasDashboardInventoryAccess` grants List to dashboard operators and existing `gateway:creator` callers.
+- Status donuts suppress segments when more than five non-zero status buckets (PI-04).
+- No `/dashboard/inventory` route in v1 (PI-07).
+
+**Direction checks:**
+
+- Spec to code: All nine PI requirements are present on branch `HYPERSHELL-279-registrations`.
+- Code to spec: Layout persistence key v32 and bump history documented in OP-DASH-11.
+- OpenAPI to spec: No new public fields beyond existing ManagedCluster/ManagedDatabase List schemas; aggregation is adapter-side.
 
 ### cluster-memory.spec.md
 
@@ -1035,6 +1070,34 @@ label-selected pod informer.
 4. Add adapter unit tests for registered-users mapping; update Storybook fixtures
 5. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
 
+### Wave PI-W1: Platform Inventory Dashboard Integration ✅
+
+**Scope:** PI-01 through PI-09, OP-DASH-08/19/22/21 inventory rows
+**Dependency:** `platform-inventory.spec.md` authored (`a8ce5a5`); managed cluster/database List APIs
+**Status:** Complete (`d54c341`, `c8ffd54`)
+
+1. Add `platform-inventory-aggregation.ts` with paginated List aggregation, bucket rules, and 30-day lookback
+2. Extend RBAC for dashboard-operator List access to `managed_clusters` and `managed_databases`
+3. Wire `platform-inventory` metric source in `dashboard-control-plane.ts` (`managed-clusters`, `managed-databases`)
+4. Add inventory widgets: summary card, provider/region/database-status donuts; register optional widget types
+5. Extend default layout with Platform inventory section; bump layout key through v28 then v32 (registered-users layout polish)
+6. Update `DATA_SOURCES.md`, fixtures, Storybook, adapter unit tests
+7. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console adapter tests (19 pass)
+
+### Wave RU-W3: User Activity Stats and Registered Users Card ✅
+
+**Scope:** RU-05 through RU-10 (updated), OP-DASH-08/19 `registered-users` source
+**Dependency:** `registered-users.spec.md` v2 (`a8ce5a5`); RU-W1 List API
+**Status:** Complete (`ee18d8a`, `c8ffd54`)
+
+1. Add `GET /users/stats` OpenAPI + handler + `user_login_days` migration; record login on authenticated requests
+2. Add `user-activity-stats.ts` adapter helper; switch dashboard adapter from List total to full stats mapping
+3. Add `RegisteredUsersCard` + `DashboardStatPanel` with 7/30-day additions, logins, and active sparkline
+4. Extend `OperationalMetric` with `createdLast7Days`, `activeLast7Days`, `activeTrend`, etc.
+5. Bump layout key for taller two-column registered-users widget (v31-v32)
+6. Add unit tests: `stats_test.go`, `user-activity-stats.test.ts`, extended `dashboard-control-plane.test.ts`
+7. Verify: operational-dashboard-ui check (34 tests pass), web-console adapter tests
+
 ### Wave CM-W1: Prometheus Node Memory Scrape ✅
 
 **Scope:** CM-01 (query target), CM-03, CM-06
@@ -1233,6 +1296,8 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-09-09 | working tree | Spec drift fix: operational-dashboard OP-DASH-19/11/20/22 | 86% (unchanged) | Aligned spec with code: OP-DASH-19 `users/stats` source; OP-DASH-11 layout key v32 with v23-v32 bump table; renamed duplicate OP-DASH-20 platform inventory requirement to OP-DASH-22; updated DATA_SOURCES.md cross-refs. |
+| 2026-09-09 | `c8ffd54` | Scoped reanalysis: HYPERSHELL-278/279 dashboard UI | 86% | Verified PI-01..PI-09 (platform inventory), RU-09/RU-10 (user activity stats), OP-DASH-21/22 (inventory widgets). All 13 new scoped requirements present. Layout persistence v32. operational-dashboard-ui check (34 tests) and web-console adapter tests (19 tests) pass. |
 | 2026-09-07 | working tree | Reconciled gateway-reconcile-concurrency.spec.md (CP-CONC-01..03) | 3/3 scoped requirements present | Made the gateway reconcile worker-pool size deployment configuration via `GATEWAY_RECONCILE_WORKERS` (new `getEnvInt` helper + `Config.GatewayReconcileWorkers`, default 4 = prior hardcoded pool), plumbed config -> `WatchGateways` -> `withWorkers`, clamped non-positive to the default at the watcher boundary (preserving the test-only 0-worker queue pattern), and added config/getEnvInt tests. Per-gateway serialization and bounded throttle already held (existing queue tests). The full-corpus percentage is unchanged. |
 | 2026-09-04 | `bd02232` | Reanalyzed CP-OBS-RQ-W1 after review fixes | 5/5 scoped fields present | Defined one locked worker-claim boundary for depth and wait, kept dirty adds in backoff out of ready depth, and made the design rationale apply to each shared reconcile queue. The full-corpus percentage is unchanged. |
 | 2026-09-04 | `9c01984` | Completed CP-OBS-RQ-W1 reconcile-queue metrics | 5/5 scoped fields present | Added ready queue depth and ready-to-worker wait metrics with one bounded resource-kind attribute. Coalesced work produces one wait observation, and scheduled retry backoff is excluded. |

@@ -1,6 +1,8 @@
 package users
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 
 	"github.com/go-gormigrate/gormigrate/v2"
@@ -22,6 +24,27 @@ func migration() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Migrator().DropTable(&User{})
+		},
+	}
+}
+
+func activityStatsMigration() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026090816000001",
+		Migrate: func(tx *gorm.DB) error {
+			type User struct {
+				LastLoginAt *time.Time
+			}
+			if err := tx.AutoMigrate(&User{}); err != nil {
+				return err
+			}
+			return tx.AutoMigrate(&UserLoginDay{})
+		},
+		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Migrator().DropTable(&UserLoginDay{}); err != nil {
+				return err
+			}
+			return tx.Migrator().DropColumn(&User{}, "last_login_at")
 		},
 	}
 }

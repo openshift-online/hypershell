@@ -1,8 +1,41 @@
-import type { OperationalDashboardMetrics } from "../application/dashboard-types";
+import type {
+  OperationalDashboardMetrics,
+  OperationalMetricTrend,
+} from "../application/dashboard-types";
+
+function createDailyTrend(
+  startDate: string,
+  values: readonly number[],
+): OperationalMetricTrend {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+
+  return Object.freeze({
+    points: Object.freeze(
+      values.map((value, index) => {
+        const date = new Date(start);
+        date.setUTCDate(date.getUTCDate() + index);
+
+        return Object.freeze({
+          label: date.toISOString().slice(0, 10),
+          value,
+        });
+      }),
+    ),
+  });
+}
+
+const mockRegisteredUsersActiveDaily = createDailyTrend(
+  "2026-08-10",
+  [
+    98, 101, 103, 105, 108, 110, 112, 115, 117, 119, 122, 124, 127, 129, 132,
+    134, 137, 139, 142, 145, 148, 151, 154, 158, 162, 166, 171, 176, 182, 190,
+  ],
+);
 
 /**
  * Storybook and local-dev fixture shaped like `createDashboardControlPlaneAdapter`
- * output: instantaneous values only (no trend series in production v1).
+ * output. Most metrics are instantaneous values only; registered-users includes a
+ * 30-day unique-login histogram for the sparkline.
  */
 export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
   Object.freeze({
@@ -22,6 +55,11 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         value: "214",
       }),
       Object.freeze({
+        activeLast7Days: "186",
+        activeLast30Days: "312",
+        activeTrend: mockRegisteredUsersActiveDaily,
+        createdLast7Days: "12",
+        createdLast30Days: "48",
         id: "registered-users",
         value: "450",
       }),

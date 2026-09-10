@@ -28,6 +28,7 @@ Method | HTTP request | Description
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 [**GetUser**](DefaultAPI.md#GetUser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
+[**GetUserActivityStats**](DefaultAPI.md#GetUserActivityStats) | **Get** /api/hypershell/v1/users/stats | Get registered user activity statistics
 [**ListGatewayNetworks**](DefaultAPI.md#ListGatewayNetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
 [**ListGatewayReleases**](DefaultAPI.md#ListGatewayReleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
@@ -1626,6 +1627,65 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**User**](User.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetUserActivityStats
+
+> UserActivityStats GetUserActivityStats(ctx).Execute()
+
+Get registered user activity statistics
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetUserActivityStats(context.Background()).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetUserActivityStats``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetUserActivityStats`: UserActivityStats
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetUserActivityStats`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+This endpoint does not need any parameter.
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetUserActivityStatsRequest struct via the builder pattern
+
+
+### Return type
+
+[**UserActivityStats**](UserActivityStats.md)
 
 ### Authorization
 

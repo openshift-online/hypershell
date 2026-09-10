@@ -17,6 +17,7 @@ import {
   buildManagedClustersMetric,
   buildManagedDatabasesMetric,
 } from "./platform-inventory-aggregation";
+import { userActivityStatsToMetric } from "./user-activity-stats";
 
 type DashboardApiFactory = (correlationId: string) => SDKClient;
 
@@ -322,17 +323,11 @@ async function fetchRegisteredUsersMetric(
   apiFactory: DashboardApiFactory,
 ): Promise<OperationalMetric[]> {
   const client = apiFactory(context.correlationId);
-  const userList = await client.users.list(
-    { orderBy: "username asc", page: 1, size: 1 },
-    { signal: context.signal },
-  );
+  const stats = await client.users.activityStats({
+    signal: context.signal,
+  });
 
-  return [
-    {
-      id: "registered-users",
-      value: String(userList.total),
-    },
-  ];
+  return [userActivityStatsToMetric(stats)];
 }
 
 async function fetchPlatformInventoryMetrics(

@@ -287,7 +287,7 @@ The host `DashboardControlPlane` adapter SHALL load operational metrics from ind
 | Source | Metric IDs affected |
 | --- | --- |
 | Paginated gateway list (`GET /api/hypershell/v1/gateways`) | `provisioned-gateways`, `provisioned-sandboxes`, `provision-time` |
-| Users list (`GET /api/hypershell/v1/users`, `page=1`, `size=1`) | `registered-users` |
+| User activity stats (`GET /api/hypershell/v1/users/stats`) | `registered-users` |
 | BFF `GET /api/metrics/cluster-memory` | `memory` |
 | BFF `GET /api/metrics/cluster-cpu` | `cpu` |
 | BFF `GET /api/metrics/cluster-pods` | `pods` |
@@ -313,7 +313,7 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 
 #### Scenario: Prometheus down does not hide gateway metrics
 
-- GIVEN the gateway list and users list requests succeed
+- GIVEN the gateway list and user activity stats requests succeed
 - AND every BFF cluster-metrics request fails
 - WHEN the operator opens `/dashboard`
 - THEN gateway, sandbox, and registered-user widgets SHALL display loaded values
@@ -359,9 +359,9 @@ The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these
 | --- | --- | --- |
 | `section-title` | `section-title#platform-adoption` | Full width, row 0 (platform adoption header) |
 | `usage-summary` | `usage-summary#1` | Column 0, platform adoption |
-| `gateway-status` | `gateway-status#1` | Columns 1–2, platform adoption, spans two columns |
+| `registered-users` | `registered-users#1` | Columns 1–2, platform adoption, spans two columns |
 | `provisioned-sandboxes` | `provisioned-sandboxes#1` | Column 3, platform adoption |
-| `registered-users` | `registered-users#1` | Column 3, platform adoption second row |
+| `gateway-status` | `gateway-status#1` | Column 3, platform adoption second row |
 | `section-title` | `section-title#hub-cluster` | Full width, hub cluster header row |
 | `system-summary` | `system-summary#1` | Column 0, hub cluster |
 | `memory` | `memory#1` | Column 1, hub cluster |
@@ -389,7 +389,16 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 ### Requirement: OP-DASH-11 -- Layout Persistence
 
-The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v23`.
+The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v32`.
+
+Each default-layout change that would leave saved positions incompatible with the new template SHALL bump the layout persistence key so browsers load the updated default instead of a stale saved grid. Documented bumps:
+
+| Key | Trigger |
+| --- | --- |
+| `v23` | Section title widgets (OP-DASH-20) |
+| `v30` | Platform inventory section and default inventory widgets (OP-DASH-22, OP-DASH-21) |
+| `v31` | Taller `registered-users` widget for activity stats rows (RU-10) |
+| `v32` | `registered-users` spans two columns; `gateway-status` compact single column |
 
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
@@ -409,7 +418,7 @@ When persistence fails (for example, storage quota exceeded), the dashboard SHAL
 
 The `gateway-status` widget SHALL render a `GatewayStatusChart` donut using the shared `StatusDonutChart` primitive (`@patternfly/react-charts/victory` `ChartDonut`), driven by the `provisioned-gateways` metric's `status` and `value` fields.
 
-The default layout template SHALL place `gateway-status` at `GATEWAY_STATUS_WIDGET_HEIGHT`, equal to `USAGE_SUMMARY_WIDGET_HEIGHT` in the platform adoption section.
+The default layout template SHALL place `gateway-status` at `GATEWAY_STATUS_WIDGET_HEIGHT`, equal to `POD_CAPACITY_WIDGET_HEIGHT` (compact status donut) in the platform adoption section.
 
 The chart SHALL:
 
@@ -494,7 +503,7 @@ The `pods` widget SHALL use `PodCapacityChart` (OP-DASH-17), not `UtilizationCha
 
 **Summary widgets:**
 
-- `usage-summary` - horizontal `DescriptionList` for active users, gateways (with exception status counts), and sandboxes
+- `usage-summary` - horizontal `DescriptionList` for registered users (total only, with optional login-activity trend indicator from `activeTrend`), gateways (with exception status counts), and sandboxes
 - `system-summary` - horizontal `DescriptionList` for memory, CPU, pods (with failed pod count when `podPhases.failed` is non-zero), nodes (with exception status counts when `status.failed` is non-zero), and provision duration (average, P50, and P95 rows when `provisionDuration` is present on the `provision-time` metric; see `platform/gateway-provision-time.spec.md` GPT-05)
 
 Trend direction indicators in summary rows SHALL appear only when `getMetricTrendChange` detects at least a 5% change between the first and last trend point.
@@ -615,7 +624,7 @@ The host mock adapter (`createMockDashboardControlPlane`) MAY introduce an artif
 
 ---
 
-### Requirement: OP-DASH-20 -- Platform Inventory Summary
+### Requirement: OP-DASH-22 -- Platform Inventory Summary
 
 The operational dashboard SHALL include an `inventory-summary` widget that renders platform inventory totals and top dimensions from the `managed-clusters` and `managed-databases` metrics defined in `platform/platform-inventory.spec.md` (PI-05, PI-06).
 
@@ -634,7 +643,7 @@ The inventory summary widget SHALL use the same `DescriptionList` summary presen
 
 The `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` widgets SHALL use the shared `StatusDonutChart` stack (OP-DASH-16) with labels from `inventoryProviders`, `inventoryRegions`, and `inventoryStatus` keys respectively.
 
-Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`.
+The default layout changes in this requirement are covered by the layout persistence key bumps documented in OP-DASH-11 (`v30` through `v32`).
 
 #### Scenario: Default layout includes inventory summary
 
@@ -649,14 +658,14 @@ Adding the two-column region donut to the default layout SHALL bump the layout p
 
 The widget catalog SHALL register optional inventory detail widgets defined in `platform/platform-inventory.spec.md` (PI-07):
 
-- `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-20)
-- `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-20)
+- `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-22)
+- `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-22)
 - `managed-clusters` - large number tile for total managed clusters
 - `managed-cluster-status` - status donut driven by `managed-clusters.inventoryStatus`
 - `managed-databases` - large number tile for total managed databases
-- `managed-database-status` - status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-20)
+- `managed-database-status` - status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-22)
 
-These optional widget types SHALL be available in the add-widgets drawer. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-20).
+These optional widget types SHALL be available in the add-widgets drawer. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-22).
 
 Status donut widgets SHALL reuse the shared `StatusDonutChart` stack (OP-DASH-16) with inventory-specific bucket labels from `inventoryStatus` keys. They SHALL NOT reuse gateway display-status colors or vocabulary.
 

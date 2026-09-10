@@ -248,6 +248,10 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		return hasUsersInventoryAccess(bindings, jwtRoles)
 	}
 
+	if resource == "stats" && method == http.MethodGet {
+		return hasUsersInventoryAccess(bindings, jwtRoles)
+	}
+
 	if (resource == "managed_clusters" || resource == "managed_databases") &&
 		method == http.MethodGet && resourceID == "" {
 		return hasDashboardInventoryAccess(bindings, jwtRoles)

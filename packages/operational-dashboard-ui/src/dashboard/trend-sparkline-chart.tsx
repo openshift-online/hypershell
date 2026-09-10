@@ -17,14 +17,19 @@ interface SparklineDatum {
   y: number;
 }
 
-const SPARKLINE_PLOT_HEIGHT = 36;
+export const DEFAULT_SPARKLINE_PLOT_HEIGHT = 36;
+export const USERS_SPARKLINE_PLOT_HEIGHT = 72;
 
 export function TrendSparklineChart({
+  plotHeight = DEFAULT_SPARKLINE_PLOT_HEIGHT,
   trend,
   title,
+  tooltipLabel,
 }: Readonly<{
+  plotHeight?: number;
   trend: OperationalMetricTrend;
   title: string;
+  tooltipLabel?: string;
 }>) {
   const intl = useIntl();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,7 +67,7 @@ export function TrendSparklineChart({
   const formatTooltip = (datum: SparklineDatum) =>
     intl.formatMessage(messages.trendTooltip, {
       date: datum.x,
-      metric: title,
+      metric: tooltipLabel ?? title,
       value: datum.y,
     });
 
@@ -70,7 +75,10 @@ export function TrendSparklineChart({
 
   return (
     <div ref={containerRef} className="hypershell-dashboard-sparkline-chart">
-      <div className="hypershell-dashboard-sparkline-chart__plot">
+      <div
+        className="hypershell-dashboard-sparkline-chart__plot"
+        style={{ height: `${String(plotHeight)}px` }}
+      >
         <ChartGroup
           ariaDesc={title}
           ariaTitle={title}
@@ -80,7 +88,7 @@ export function TrendSparklineChart({
               labels={({ datum }) => formatTooltip(datum as SparklineDatum)}
             />
           }
-          height={SPARKLINE_PLOT_HEIGHT}
+          height={plotHeight}
           padding={{ bottom: 1, left: 2, right: 2, top: 1 }}
           themeColor={ChartThemeColor.blue}
           width={width}
