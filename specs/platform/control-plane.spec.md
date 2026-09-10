@@ -53,6 +53,7 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) | Phase lifecycle, workload-readiness gating, continuous health reconciliation |
 | [`gateway-version-selection.spec.md`](./gateway-version-selection.spec.md) | Database-backed version selection: resolving `release_id` to a GatewayRelease image and its precedence over a direct image |
 | [`gateway-release-reconciliation.spec.md`](./gateway-release-reconciliation.spec.md) | GatewayRelease reconciliation: image validation, deterministic release status, change propagation to referencing gateways |
+| [`gateway-network-reconciliation.spec.md`](./gateway-network-reconciliation.spec.md) | GatewayNetwork reconciliation: topology vocabulary, topology/hub coherence and hub-reference validation, deterministic network status write-back |
 
 ### Config
 
