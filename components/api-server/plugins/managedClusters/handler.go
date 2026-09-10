@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
@@ -15,6 +16,10 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/handlers"
 	"github.com/openshift-online/rh-trex-ai/pkg/services"
 )
+
+// dns1123LabelRE validates K8s DNS label format (RFC 1123): lowercase alphanumeric
+// and hyphens, start/end with alphanumeric, max 63 characters.
+var dns1123LabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
 
 var _ handlers.RestHandler = managedClusterHandler{}
 
@@ -45,6 +50,13 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 
 	if svcErr := handlers.ValidateNotEmpty(&req, "Name", "name")(); svcErr != nil {
 		handlers.HandleError(r.Context(), w, svcErr)
+		return
+	}
+	if !dns1123LabelRE.MatchString(req.Name) {
+		handlers.HandleError(r.Context(), w, errors.MalformedRequest(
+			"name %q is not a valid K8s DNS label: must be lowercase alphanumeric or hyphens, start and end with alphanumeric, max 63 characters",
+			req.Name,
+		))
 		return
 	}
 
