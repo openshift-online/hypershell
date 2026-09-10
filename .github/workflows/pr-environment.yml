@@ -4,10 +4,14 @@ name: PR Environment
 # (ephemeral-pr-environments.spec.md, HYPERSHELL-240).
 #
 # Deploys the full stack into a per-PR namespace group on a shared target
-# cluster, keeps it continuously deployed to the PR's head commit, runs the
-# OpenShift e2e suite, and posts a single access comment. The environment lives
-# independently of any CI run (out-of-band reaper, deploy/e2e/reaper) so a
-# developer can use it as a live debug target.
+# cluster, keeps it continuously deployed to the PR's head commit, and posts a
+# single access comment. The environment lives independently of any CI run
+# (out-of-band reaper, deploy/e2e/reaper) so a developer can use it as a live
+# debug target.
+#
+# The OpenShift e2e suite does NOT run here. It is a separate job (E2E
+# OpenShift in e2e.yml), gated behind this workflow via a workflow_run
+# trigger so a deploy failure and an e2e failure surface as distinct checks.
 #
 # Trust boundary: pull_request only (never pull_request_target). Every job is
 # additionally guarded on head.repo == this repo, so a fork PR receives no
@@ -264,23 +268,6 @@ jobs:
           API_URL: ${{ steps.urls.outputs.api_url }}
           WEB_URL: ${{ steps.urls.outputs.web_url }}
         run: bash scripts/ci/upsert-pr-comment.sh
-
-      - name: Read hypershell-e2e client secret
-        id: e2e-secret
-        run: |
-          secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
-          echo "::add-mask::${secret}"
-          echo "value=${secret}" >> "${GITHUB_OUTPUT}"
-
-      - name: Run OpenShift e2e suite
-        env:
-          E2E_INFRA_DRIVER: openshift
-          E2E_OIDC_GRANT: client_credentials
-          E2E_OIDC_SA_CLIENT_ID: hypershell-e2e
-          E2E_OIDC_SA_CLIENT_SECRET: ${{ steps.e2e-secret.outputs.value }}
-          TERM: dumb
-          NO_COLOR: "1"
-        run: bash tests/e2e/e2e-openshell.sh
 
       - name: Collect diagnostics
         if: failure()

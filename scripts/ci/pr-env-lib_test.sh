@@ -94,10 +94,10 @@ case "${body}" in
   *'abcdef1'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing short SHA' ;;
 esac
-# The CLI template must be redacted, never carry a real token.
+# The CLI template must use --web, never carry a real token.
 case "${body}" in
-  *'--token=<redacted>'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body oc login not redacted' ;;
+  *'--web'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body oc login missing --web' ;;
 esac
 updated_body="$(pr_env_comment_body 232 abcdef1234567 ns ns-keycloak c a w true)"
 case "${updated_body}" in

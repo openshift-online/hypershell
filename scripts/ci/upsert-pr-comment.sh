@@ -4,8 +4,9 @@
 #
 # Keeps exactly one comment current for the pull request by locating the comment
 # carrying the hidden marker and editing it in place, rather than posting a new
-# comment per run. The comment carries only non-secret access facts and a
-# redacted `oc login` template; the credential itself is delivered out of band.
+# comment per run. The comment carries only non-secret access facts and an
+# `oc login --web` template; OpenShift handles token retrieval and refresh
+# interactively, so no credential ever appears in the comment.
 #
 # Requires `gh` (authenticated via GH_TOKEN) and `jq`.
 #
