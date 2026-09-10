@@ -74,11 +74,13 @@ For an added or renamed component, verify all of the following:
   gates its `unit-tests.yml` job on `inputs.<component>`.
 - The lint job uses the component's own toolchain and dependency cache files.
 - Unit tests for the component run in `.github/workflows/unit-tests.yml`. If they connect
-  to a real dependency instead of mocking it (e.g. the API server's tests use a real
-  PostgreSQL via `test.NewHelper`), the job declares a matching `services:` container with
-  the same image, credentials, and port as the component's local dev setup (e.g.
-  `make db/setup`) -- a job with no live dependency will fail with a connection error, not
-  a build error, and can go unnoticed until the job's `if:` first evaluates to true.
+  to a real dependency instead of mocking it, check whether the component's test framework
+  already self-provisions it (e.g. the API server's `rh-trex-ai`-based tests spin up their
+  own PostgreSQL via `testcontainers-go` when `API_ENV=integration_testing` -- Docker on
+  the `ubuntu-24.04` runner is enough, no `services:` block needed) before adding a manual
+  `services:` container; a self-provisioning framework run without the right env var fails
+  as a connection error or an explicit "not implemented for non-integration-test env" panic,
+  not a build error, and can go unnoticed until the job's `if:` first evaluates to true.
 - Committed generated code has a reproducible regeneration command and a drift check job
   in `checks.yml`.
 - `CLAUDE.md` documents any new local development command.

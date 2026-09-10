@@ -74,24 +74,6 @@ jobs:
     if: inputs.api_server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    # rh-trex-ai's test.NewHelper connects to a real PostgreSQL (see
-    # components/api-server/Makefile's db/setup target for the matching local
-    # credentials) rather than mocking the database, so this service must
-    # mirror db/setup's image, user, password, and database name exactly.
-    services:
-      postgres:
-        image: postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: hypershell
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -86,8 +86,8 @@ Support skills available at any point:
 cd components/api-server && make binary        # Build binary
 cd components/api-server && make run           # Migrate + serve (with auth)
 cd components/api-server && make run-no-auth   # Migrate + serve (no auth, dev mode)
-cd components/api-server && make test           # Run tests
-cd components/api-server && make test-integration  # Integration tests
+cd components/api-server && make test           # Go tests (spins up PostgreSQL via testcontainers-go; requires Docker/Podman)
+cd components/api-server && make test-integration  # Same, scoped to ./plugins/...
 cd components/api-server && make generate      # Regenerate OpenAPI client
 cd components/api-server && make proto         # Regenerate gRPC stubs
 cd components/api-server && make db/setup      # Start PostgreSQL

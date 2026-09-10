@@ -589,8 +589,8 @@ make unit-test-all
 Component-scoped runs are also available:
 
 ```bash
-cd components/api-server && make test              # Go unit tests
-cd components/api-server && make test-integration   # Integration tests (requires PostgreSQL)
+cd components/api-server && make test              # Go tests (spins up PostgreSQL via testcontainers-go; requires Docker/Podman)
+cd components/api-server && make test-integration   # Same, scoped to ./plugins/...
 cd components/control-plane && go test ./...        # Go unit tests
 ```
 

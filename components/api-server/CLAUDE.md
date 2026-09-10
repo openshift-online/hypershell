@@ -5,7 +5,7 @@ REST + gRPC API microservice for the HyperShell platform. Built on the [rh-trex-
 ## Quick Reference
 
 ```bash
-make test              # HYPERSHELL_ENV=integration_testing go test -p 1 -v ./...
+make test              # API_ENV=integration_testing go test -p 1 -v ./...
 make binary            # Build binary
 make run               # Migrate + serve (with auth)
 make run-no-auth       # Migrate + serve (no auth, dev mode)
