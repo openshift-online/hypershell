@@ -1,0 +1,202 @@
+name: Unit Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: unit-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wait-for-lint:
+    name: Wait for lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Wait for Lint CI gate
+        if: github.event_name != 'workflow_dispatch'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-regexp: '(^|/)Lint CI gate$'
+          repo-token: ${{ github.token }}
+          wait-interval: 15
+          # Lint CI gate is the summary job, so it does not appear until every
+          # lint job finishes. Discovery must cover the slowest lint job
+          # (web-console static checks plus the Chromium journey).
+          checks-discovery-timeout: 2400
+          allowed-conclusions: success
+      - name: Skip wait on workflow_dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "workflow_dispatch does not wait for Lint."
+
+  detect-changes:
+    name: Detect changed components
+    needs: wait-for-lint
+    runs-on: ubuntu-24.04
+    outputs:
+      api_server: ${{ steps.detect.outputs.api_server }}
+      bash_tests: ${{ steps.detect.outputs.bash_tests }}
+      cli: ${{ steps.detect.outputs.cli }}
+      control_plane: ${{ steps.detect.outputs.control_plane }}
+      gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
+      sdk_go: ${{ steps.detect.outputs.sdk_go }}
+      sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
+      web_console: ${{ steps.detect.outputs.web_console }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect changed components
+        id: detect
+        run: bash .github/scripts/detect-components.sh
+
+  test-frontend:
+    name: Frontend unit tests
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.web_console == 'true' ||
+      needs.detect-changes.outputs.gateway_management_ui == 'true' ||
+      needs.detect-changes.outputs.operational_dashboard_ui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run frontend unit tests
+        run: pnpm run test:web
+
+  test-api-server:
+    name: Go unit tests - API server
+    needs: detect-changes
+    if: needs.detect-changes.outputs.api_server == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/api-server/go.mod
+          cache-dependency-path: components/api-server/go.sum
+      - name: Run API server unit tests
+        working-directory: components/api-server
+        run: make test
+
+  test-control-plane:
+    name: Go unit tests - control plane
+    needs: detect-changes
+    if: needs.detect-changes.outputs.control_plane == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/control-plane/go.mod
+          cache-dependency-path: components/control-plane/go.sum
+      - name: Run control plane unit tests
+        working-directory: components/control-plane
+        run: go test -count=1 ./...
+
+  test-cli:
+    name: Go unit tests - CLI
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.cli == 'true' ||
+      needs.detect-changes.outputs.sdk_go == 'true' ||
+      needs.detect-changes.outputs.sdk_typescript == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/cli/go.mod
+          cache-dependency-path: |
+            components/cli/go.sum
+            scripts/cli-generator/go.sum
+            scripts/sdk-generator/go.sum
+      - name: Run CLI unit tests
+        if: needs.detect-changes.outputs.cli == 'true'
+        working-directory: components/cli
+        run: go test -count=1 ./...
+      - name: Run CLI generator unit tests
+        if: needs.detect-changes.outputs.cli == 'true'
+        working-directory: scripts/cli-generator
+        run: go test -count=1 ./...
+      - name: Run SDK generator unit tests
+        if: >-
+          needs.detect-changes.outputs.sdk_go == 'true' ||
+          needs.detect-changes.outputs.sdk_typescript == 'true'
+        working-directory: scripts/sdk-generator
+        run: go test -count=1 ./...
+
+  test-bash:
+    name: Shell unit tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.bash_tests == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run discovered *_test.sh tests
+        run: make ci-test
+
+  summary:
+    name: Unit Tests CI gate
+    if: ${{ always() && !cancelled() }}
+    needs:
+      - wait-for-lint
+      - detect-changes
+      - test-frontend
+      - test-api-server
+      - test-control-plane
+      - test-cli
+      - test-bash
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check unit test results
+        env:
+          LINT_WAIT_RESULT: ${{ needs.wait-for-lint.result }}
+          DETECTION_RESULT: ${{ needs.detect-changes.result }}
+          FRONTEND_RESULT: ${{ needs.test-frontend.result }}
+          API_SERVER_RESULT: ${{ needs.test-api-server.result }}
+          CONTROL_PLANE_RESULT: ${{ needs.test-control-plane.result }}
+          CLI_RESULT: ${{ needs.test-cli.result }}
+          BASH_RESULT: ${{ needs.test-bash.result }}
+        run: |
+          for result in "${LINT_WAIT_RESULT}" "${DETECTION_RESULT}" "${FRONTEND_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${CLI_RESULT}" "${BASH_RESULT}"; do
+            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
+              echo "One or more unit test jobs failed or were cancelled."
+              exit 1
+            fi
+          done
+          echo "All relevant unit test jobs passed or were skipped."

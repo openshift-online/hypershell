@@ -69,3 +69,37 @@ while IFS= read -r component; do
 
   printf '%s=%s\n' "${component}" "${matched}" >> "${output_file}"
 done < <(jq -r 'keys[]' "${config}")
+
+# Shell unit tests are auto-discovered: any *_test.sh, or any file in the same
+# directory as one. Changing the runner or the unit-test workflow also selects
+# them so CI still exercises the discovery path.
+bash_tests="${all_components_changed}"
+if [[ "${bash_tests}" != true ]]; then
+  for file in "${changed_files[@]}"; do
+    if [[ "${file}" == ".github/workflows/unit-tests.yml" ||
+          "${file}" == "scripts/run-shell-unit-tests.sh" ||
+          "${file}" == ".github/scripts/detect-components.sh" ||
+          "${file}" == "Makefile" ]]; then
+      bash_tests=true
+      break
+    fi
+  done
+fi
+if [[ "${bash_tests}" != true ]]; then
+  while IFS= read -r testfile; do
+    [[ -z "${testfile}" ]] && continue
+    testdir="${testfile%/*}"
+    for file in "${changed_files[@]}"; do
+      if [[ "${file}" == "${testfile}" || "${file}" == "${testdir}/"* ]]; then
+        bash_tests=true
+        break 2
+      fi
+    done
+  done < <(
+    find . -type d \( -name .git -o -name node_modules -o -name vendor \) -prune -o \
+      -type f -name '*_test.sh' -print |
+      sed 's|^\./||' |
+      sort
+  )
+fi
+printf '%s=%s\n' "bash_tests" "${bash_tests}" >> "${output_file}"

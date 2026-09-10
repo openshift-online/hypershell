@@ -17,12 +17,17 @@ Keep required CI coverage complete while running expensive checks only for affec
 3. Update `.github/workflows/lint.yml` with a detector output, component job, and entry
    in the stable `Lint CI gate` summary. A skipped component job is acceptable; detector
    failures, cancellations, and component failures must fail the summary.
-4. Add or update a path-filtered drift workflow when generated output is committed.
+4. Update `.github/workflows/unit-tests.yml` the same way when the component has unit
+   tests. Frontend packages share `test-frontend`; Go modules get their own jobs;
+   `*_test.sh` files are auto-discovered by `make ci-test` and do not need a job
+   allowlist. Unit tests wait for `Lint CI gate`. E2E waits for `Unit Tests CI gate`
+   before creating the Kind cluster.
+5. Add or update a path-filtered drift workflow when generated output is committed.
    Include generator inputs, generated outputs, generator configuration, and the workflow
    itself in its path filters.
-5. Use `pull_request` for PR validation and restrict `push` to `main` to avoid duplicate
+6. Use `pull_request` for PR validation and restrict `push` to `main` to avoid duplicate
    feature-branch runs. Include `merge_group` when the check is required for merge queues.
-6. Pin every action to a full commit SHA, every container image to a digest, and every
+7. Pin every action to a full commit SHA, every container image to a digest, and every
    installed tool to an exact version. Register tools that are not part of a module or
    lockfile in `dependency-age-tools.json`. Run `make check` to enforce immutable pins
    and the minimum dependency age.
@@ -34,6 +39,7 @@ For an added or renamed component, verify all of the following:
 - The detector emits a dedicated output and matches component-local changes.
 - Changes to shared or upstream contracts also select every affected downstream component.
 - The lint workflow uses the component's own toolchain and dependency cache files.
+- Unit tests for the component run in `.github/workflows/unit-tests.yml` after Lint.
 - The summary job declares the component job in `needs` and evaluates its result.
 - Committed generated code has a reproducible regeneration command and drift gate.
 - `CLAUDE.md` documents any new local development command.

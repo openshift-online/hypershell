@@ -133,7 +133,8 @@ help:
 	@echo "    build-web-console        Build web console container image"
 	@echo ""
 	@echo "  Test & Lint"
-	@echo "    test-all                 Run all test suites"
+	@echo "    unit-test-all            Run all unit test suites (Go, frontend, shell)"
+	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
 	@echo "    e2e-performance          Run the performance harness (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    e2e-performance-report   Tabulate recent local performance runs"
@@ -301,13 +302,18 @@ lint: check install-js lint-api-server lint-cli lint-control-plane lint-sdk-type
 # Test targets
 # ============================================================================
 
-.PHONY: test-all
-test-all: install-js
+.PHONY: ci-test
+ci-test:
+	@bash scripts/run-shell-unit-tests.sh
+
+.PHONY: unit-test-all
+unit-test-all: install-js ci-test
 	cd components/api-server && $(MAKE) test
-	$(PNPM) --filter @openshift-online/hypershell-domain-probes test:run
-	$(PNPM) --filter @openshift-online/hypershell-gateway-management-ui test:run
-	$(PNPM) --filter @openshift-online/hypershell-web-console test:run
-	$(PNPM) --filter @openshift-online/hypershell-web-console-bff test:run
+	cd components/control-plane && go test ./...
+	cd components/cli && go test ./...
+	cd scripts/cli-generator && go test ./...
+	cd scripts/sdk-generator && go test ./...
+	$(PNPM) run test:web
 
 # ============================================================================
 # Kind cluster lifecycle - shell logic lives in scripts/kind/

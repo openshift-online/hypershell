@@ -341,10 +341,35 @@ jobs:
           esac
 
 
+  wait-for-unit-tests:
+    name: Wait for unit tests
+    needs: plan-images
+    if: needs.plan-images.outputs.should_run == 'true' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - name: Wait for Unit Tests CI gate
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-regexp: '(^|/)Unit Tests CI gate$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          # Unit Tests CI gate appears only after Lint and the selected unit
+          # test jobs finish. Discovery must cover that whole prefix so Kind
+          # never starts against a failing unit-test SHA.
+          checks-discovery-timeout: 3600
+          allowed-conclusions: success
+
   e2e-kind:
     name: E2E Kind (${{ matrix.database-provider }})
-    needs: plan-images
-    if: needs.plan-images.outputs.should_run == 'true'
+    needs:
+      - plan-images
+      - wait-for-unit-tests
+    if: >-
+      needs.plan-images.outputs.should_run == 'true' &&
+      (needs.wait-for-unit-tests.result == 'success' ||
+       needs.wait-for-unit-tests.result == 'skipped')
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -613,15 +638,17 @@ jobs:
     if: ${{ always() && !cancelled() }}
     needs:
       - plan-images
+      - wait-for-unit-tests
       - e2e-kind
     runs-on: ubuntu-24.04
     steps:
       - name: Check e2e results
         env:
           PLAN_RESULT: ${{ needs.plan-images.result }}
+          UNIT_TEST_WAIT_RESULT: ${{ needs.wait-for-unit-tests.result }}
           E2E_KIND_RESULT: ${{ needs.e2e-kind.result }}
         run: |
-          for result in "${PLAN_RESULT}" "${E2E_KIND_RESULT}"; do
+          for result in "${PLAN_RESULT}" "${UNIT_TEST_WAIT_RESULT}" "${E2E_KIND_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more e2e jobs failed or were cancelled."
               exit 1

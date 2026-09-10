@@ -518,16 +518,48 @@ The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT d
 - WHEN they establish a gateway connection
 - THEN they SHALL NOT set `OPENSHELL_GATEWAY_INSECURE=true`
 
+### Requirement: CI Unit Test Workflow
+
+The system SHALL provide a GitHub Actions workflow at `.github/workflows/unit-tests.yml` that runs unit tests after Lint and before E2E. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile. The Kind e2e job SHALL NOT start until the unit-test summary gate succeeds.
+
+#### Scenario: Unit Tests Wait for Lint
+
+- GIVEN a pull request is opened or updated
+- WHEN the unit-test workflow starts
+- THEN it SHALL wait for the `Lint CI gate` check to conclude successfully before running any unit test job
+- AND a failing or cancelled lint gate SHALL fail the unit-test summary gate
+
+#### Scenario: Path-Filtered Unit Test Jobs
+
+- GIVEN a pull request changes only files for one unit-test group (frontend, a Go module, or shell tests)
+- WHEN the unit-test workflow evaluates change detection
+- THEN only the matching unit-test job SHALL run
+- AND skipped jobs SHALL NOT fail the summary gate
+
+#### Scenario: Shell Unit Tests Auto-Discovered
+
+- GIVEN a new `*_test.sh` file is added next to the script it tests
+- WHEN `make ci-test` or the shell unit-test job runs
+- THEN that file SHALL be discovered and executed without updating a Makefile allowlist or workflow job list
+
+#### Scenario: E2E Waits for Unit Tests
+
+- GIVEN the e2e planner decides the Kind suite should run
+- WHEN the e2e workflow proceeds past image planning
+- THEN it SHALL wait for the `Unit Tests CI gate` check to conclude successfully before creating the Kind cluster
+- AND a failing unit-test gate SHALL fail the e2e summary gate without starting Kind
+
 ### Requirement: CI E2E Workflow
 
-The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). The workflow SHALL gate on Konflux image builds completing and pull those images by digest -- it SHALL NOT rebuild component images itself.
+The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). The workflow SHALL wait for the unit-test summary gate before creating the Kind cluster. The workflow SHALL gate on Konflux image builds completing and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
 #### Scenario: PR Triggers Workflow
 
 - GIVEN a pull request is opened or updated
+- AND the unit-test summary gate has succeeded
 - AND Konflux has built images for changed components
 - WHEN the `e2e` workflow triggers
-- THEN it SHALL: check out the repository, detect which components changed (using `.github/scripts/detect-components.sh`), create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
+- THEN it SHALL: check out the repository, detect which components changed (using `.github/scripts/detect-components.sh`), wait for the `Unit Tests CI gate`, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
 
 #### Scenario: Tests Pass
 
@@ -748,6 +780,8 @@ deploy/
       kustomization.yaml
       gatewayclass.yaml
 .github/workflows/
+  lint.yml                 -- CI lint workflow
+  unit-tests.yml           -- CI unit-test workflow (after lint, before e2e)
   e2e.yml                  -- CI e2e workflow
 ```
 
