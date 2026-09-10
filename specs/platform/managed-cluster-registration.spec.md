@@ -17,7 +17,7 @@ The same endpoint serves as a health ping. The spoke calls it on a loop; registr
 
 ## API
 
-### POST /api/hypershell/v1/managed-clusters/registration
+### POST /api/hypershell/v1/managed_clusters/registration
 
 Idempotent. Creates a `ManagedCluster` record on first call; returns the existing record on subsequent calls from the same OIDC identity. Updates `last_seen_at` on every call.
 
@@ -106,7 +106,7 @@ An administrator assigns `managed-cluster-registrar` to the spoke's OIDC client 
 
 ### Requirement: Idempotent Registration
 
-`POST /managed-clusters/registration` SHALL be idempotent on the `(oidc_subject, name)` key.
+`POST /managed_clusters/registration` SHALL be idempotent on the `(oidc_subject, name)` key.
 
 - On first call: create a `ManagedCluster` record with a new KSUID, set `oidc_subject` from the JWT `sub` claim, set `last_seen_at` to now. Return 201 with `cluster_id`.
 - On subsequent calls with the same subject and name: update `last_seen_at` to now. Return 200 with the existing `cluster_id`.
@@ -117,7 +117,7 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 #### Scenario: First-time registration
 
 - GIVEN a spoke with `managed-cluster-registrar` that has never registered
-- WHEN it calls `POST /managed-clusters/registration` with `name: hyp0-mc1`
+- WHEN it calls `POST /managed_clusters/registration` with `name: hyp0-mc1`
 - THEN a new `ManagedCluster` record is created with a stable KSUID
 - AND `oidc_subject` is set to the JWT `sub` claim
 - AND `last_seen_at` is set to now
@@ -126,7 +126,7 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 #### Scenario: Re-registration is idempotent
 
 - GIVEN a spoke that previously registered and received `cluster_id: X`
-- WHEN it calls `POST /managed-clusters/registration` again with the same `name`
+- WHEN it calls `POST /managed_clusters/registration` again with the same `name`
 - THEN no new record is created
 - AND `last_seen_at` is updated to now
 - AND the response is 200 with `cluster_id: X`
@@ -134,7 +134,7 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 #### Scenario: Name conflict rejected
 
 - GIVEN a spoke already registered as `hyp0-mc1`
-- WHEN it calls `POST /managed-clusters/registration` with `name: hyp0-mc2`
+- WHEN it calls `POST /managed_clusters/registration` with `name: hyp0-mc2`
 - THEN the response is 409 Conflict
 - AND no record is created or modified
 
@@ -145,7 +145,7 @@ The `/registration` endpoint SHALL require the `managed-cluster-registrar` role 
 #### Scenario: Missing role rejected
 
 - GIVEN a spoke service account without `managed-cluster-registrar` in Keycloak
-- WHEN it calls `POST /managed-clusters/registration`
+- WHEN it calls `POST /managed_clusters/registration`
 - THEN the response is 403 Forbidden
 - AND no `ManagedCluster` record is created
 
@@ -166,14 +166,23 @@ Every successful call to `/registration` SHALL update `last_seen_at` on the matc
 
 ### Requirement: Fail-Closed Startup
 
-The control-plane SHALL NOT open the `WatchGateways` gRPC stream until a successful `/registration` response has been received. On registration failure at startup, the control-plane SHALL log the error and exit (or retry with backoff, per operator preference), never proceeding with an unresolved `cluster_id`.
+The control-plane SHALL NOT open the `WatchGateways` gRPC stream until a successful `/registration` response has been received. On registration failure at startup, the control-plane SHALL retry with exponential backoff indefinitely, logging the error on each attempt. It SHALL NOT proceed with an unresolved `cluster_id`.
 
-#### Scenario: Registration failure blocks startup
+The only exception is a non-retryable response (403 Forbidden): if the API server returns 403, the spoke lacks the required Keycloak role and retrying will not help. In this case the control-plane SHALL log the error and exit, surfacing a clear message that `managed-cluster-registrar` must be assigned in Keycloak.
+
+#### Scenario: Transient failure retried with backoff
+
+- GIVEN the API server is temporarily unreachable (network partition, restart)
+- WHEN the spoke attempts to register at startup
+- THEN it SHALL retry with exponential backoff
+- AND it SHALL NOT open `WatchGateways` until registration succeeds
+
+#### Scenario: 403 exits immediately
 
 - GIVEN the API server returns 403 (role not yet assigned in Keycloak)
-- WHEN the spoke attempts to start
-- THEN it SHALL NOT open `WatchGateways`
-- AND it SHALL surface the error in logs before exiting
+- WHEN the spoke attempts to register at startup
+- THEN it SHALL NOT retry
+- AND it SHALL log a clear error identifying the missing `managed-cluster-registrar` role and exit
 
 ---
 
@@ -182,6 +191,8 @@ The control-plane SHALL NOT open the `WatchGateways` gRPC stream until a success
 | Decision | Rationale |
 |----------|-----------|
 | Single `/registration` endpoint for both register and heartbeat | Eliminates a separate heartbeat endpoint. The idempotent registration call already has all the information needed to update `last_seen_at`. Fewer endpoints, simpler RBAC surface. |
+| Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The spoke needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the spoke cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
+| 403 exits immediately; other failures retry with backoff | A 403 means the Keycloak role is absent -- retrying is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |
 | `(oidc_subject, name)` upsert key | `oidc_subject` alone allows a spoke to change its human name between deployments. Requiring both prevents accidental name changes and makes conflicts explicit rather than silent. |
 | 409 on name mismatch | A spoke trying to re-register with a different name is likely a misconfiguration. Fail loudly rather than silently creating a second record. |
 | `last_seen_at` as passive liveness, not a status field | Keeps the spoke's self-reported liveness separate from the hub reconciler's view of cluster state. The `status` field remains the reconciler's domain. |

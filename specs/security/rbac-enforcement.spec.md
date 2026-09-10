@@ -109,7 +109,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
 | `gateway:owner` | per gateway | DB (app logic) | Full CRUD on one gateway; can grant `gateway:owner` and `gateway:viewer` to others |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
-| `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a spoke control-plane service account to call `POST /managed-clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
+| `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a spoke control-plane service account to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 
 ### Permission Matrix
 
@@ -501,7 +501,7 @@ A separate migration SHALL seed the `managed-cluster-registrar` role record with
 
 - `name: "managed-cluster-registrar"`
 - `display_name: "Managed Cluster Registrar"`
-- `description: "Allows a spoke control-plane service account to self-register via POST /managed-clusters/registration"`
+- `description: "Allows a spoke control-plane service account to self-register via POST /managed_clusters/registration"`
 - `built_in: true`
 
 `managed-cluster-registrar` is seeded for role discoverability (`GET /roles`) only. It is
@@ -534,7 +534,7 @@ appropriate role receive 403 on mutation endpoints and 404 on singleton GETs.
 
 ### Requirement: Managed Cluster Self-Registration RBAC
 
-The `POST /api/hypershell/v1/managed-clusters/registration` endpoint SHALL require the
+The `POST /api/hypershell/v1/managed_clusters/registration` endpoint SHALL require the
 `managed-cluster-registrar` role in the caller's JWT `realm_access.roles` claim.
 
 **Enforcement mechanism:** `managed-cluster-registrar` is a JWT-direct role -- it is
@@ -567,7 +567,7 @@ grants. This is the required production configuration.
 #### Scenario: Spoke with role can self-register
 
 - GIVEN a spoke service account with `managed-cluster-registrar` assigned in Keycloak
-- WHEN it calls `POST /managed-clusters/registration`
+- WHEN it calls `POST /managed_clusters/registration`
 - THEN the `isAuthorized` JWT-direct check passes
 - AND the request proceeds to the handler
 - AND a `ManagedCluster` record is created (or the existing one is returned)
@@ -575,7 +575,7 @@ grants. This is the required production configuration.
 #### Scenario: Spoke without role is rejected
 
 - GIVEN a spoke service account without `managed-cluster-registrar` in Keycloak
-- WHEN it calls `POST /managed-clusters/registration`
+- WHEN it calls `POST /managed_clusters/registration`
 - THEN the RBAC middleware returns 403 Forbidden
 - AND no `ManagedCluster` record is created or modified
 

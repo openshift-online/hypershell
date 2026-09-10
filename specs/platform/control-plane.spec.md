@@ -64,7 +64,7 @@ Holds connection configuration for the API server gRPC endpoint, Kubernetes clie
 ### Requirement: Spoke Self-Registration at Startup
 
 Before opening any gRPC watch stream, the control plane SHALL call
-`POST /api/hypershell/v1/managed-clusters/registration` using its OIDC
+`POST /api/hypershell/v1/managed_clusters/registration` using its OIDC
 `client_credentials` token. The registration endpoint is idempotent; the returned
 `cluster_id` is stable across restarts. The control plane SHALL use this `cluster_id`
 as the cluster filter for `WatchGateways` for the lifetime of the process.
@@ -83,15 +83,22 @@ no-ops for registration data and return the same `cluster_id`. See
 - GIVEN the spoke service account has `managed-cluster-registrar` in Keycloak
 - AND `HYPERSHELL_MANAGED_CLUSTER_NAME` is set
 - WHEN the control plane starts
-- THEN it calls `POST /managed-clusters/registration` before opening `WatchGateways`
+- THEN it calls `POST /managed_clusters/registration` before opening `WatchGateways`
 - AND uses the returned `cluster_id` to filter the watch stream to this cluster's gateways
 
-#### Scenario: Registration failure blocks startup
+#### Scenario: Transient failure retried with backoff
 
-- GIVEN the API server returns 403 (role not yet assigned)
+- GIVEN the API server is temporarily unreachable at startup
+- WHEN the control plane attempts to register
+- THEN it SHALL retry with exponential backoff
+- AND it SHALL NOT open `WatchGateways` until registration succeeds
+
+#### Scenario: 403 exits immediately
+
+- GIVEN the API server returns 403 (managed-cluster-registrar not assigned in Keycloak)
 - WHEN the control plane attempts to start
-- THEN it SHALL NOT open `WatchGateways`
-- AND it SHALL log the error and exit (or retry with backoff per operator configuration)
+- THEN it SHALL NOT retry and SHALL NOT open `WatchGateways`
+- AND it SHALL log a clear error identifying the missing role and exit
 
 #### Scenario: Re-registration after restart returns same cluster_id
 
