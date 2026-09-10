@@ -21,6 +21,7 @@ select.
   - [OpenShift per-component swap](#openshift-per-component-swap)
   - [OpenShift environment variables](#openshift-environment-variables)
 - [Gateway Access](#gateway-access)
+- [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -568,6 +569,49 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
 ```
 
 Wait ~30s for the control plane to reconcile, then port-forward and register.
+
+## Testing
+
+### Unit tests
+
+Run the full local unit test suite (API server, control plane, CLI/SDK
+generators, frontend packages, and shell tests) before pushing:
+
+```bash
+make unit-test-all
+```
+
+| Target | Runs |
+|--------|------|
+| `make unit-test-all` | Every unit test suite: `install-js`, `make ci-test`, `components/api-server` (`make test`), `components/control-plane` (`go test ./...`), `components/cli`, `scripts/cli-generator`, `scripts/sdk-generator` (`go test ./...`), and `pnpm run test:web` (frontend packages) |
+| `make ci-test` | Only the auto-discovered `*_test.sh` shell unit tests (see below) |
+
+Component-scoped runs are also available:
+
+```bash
+cd components/api-server && make test              # Go unit tests
+cd components/api-server && make test-integration   # Integration tests (requires PostgreSQL)
+cd components/control-plane && go test ./...        # Go unit tests
+```
+
+Shell unit tests (`*_test.sh`, e.g. `scripts/kind/lib_test.sh`) are
+auto-discovered by `make ci-test` and `scripts/run-shell-unit-tests.sh` -
+adding a new `*_test.sh` file next to the script it tests is enough; no
+Makefile or CI allowlist update is needed.
+
+### CI
+
+`.github/workflows/unit-tests.yml` runs the same suites in CI, split into
+per-component jobs that only run when their inputs changed. It waits for the
+`Lint CI gate` to pass, and the `e2e.yml` workflow waits for the resulting
+`Unit Tests CI gate` before creating the Kind cluster, so a broken unit test
+blocks e2e instead of spending cluster time on a doomed run.
+
+### E2E tests
+
+See `specs/platform/e2e-testing.spec.md` for the e2e and performance test
+suites (`make e2e`, `make e2e-performance`), which run against Kind or an
+existing OpenShift cluster.
 
 ## Troubleshooting
 

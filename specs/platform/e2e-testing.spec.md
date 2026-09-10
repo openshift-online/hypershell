@@ -522,6 +522,15 @@ The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT d
 
 The system SHALL provide a GitHub Actions workflow at `.github/workflows/unit-tests.yml` that runs unit tests after Lint and before E2E. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile. The Kind e2e job SHALL NOT start until the unit-test summary gate succeeds.
 
+The root Makefile SHALL provide a `make unit-test-all` target that runs the same unit test suites as the CI jobs (API server, control plane, CLI/SDK generators, frontend packages, and shell tests) unconditionally -- without the per-component change detection the CI workflow uses -- so a developer can run the full suite locally before pushing. It SHALL provide a `make ci-test` target that runs only the auto-discovered `*_test.sh` shell tests, matching the CI shell-test job.
+
+#### Scenario: Local Unit Test Run Mirrors CI
+
+- GIVEN a developer has made changes across multiple components
+- WHEN they run `make unit-test-all`
+- THEN the API server, control plane, CLI/SDK generator, frontend, and shell unit test suites SHALL all run
+- AND a failure in any suite SHALL fail the `make unit-test-all` command
+
 #### Scenario: Unit Tests Wait for Lint
 
 - GIVEN a pull request is opened or updated
