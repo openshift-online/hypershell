@@ -5,8 +5,9 @@ name: Lint
 # concurrency group, the lint -> unit -> e2e ordering, and change detection: the
 # per-component flags below arrive as inputs instead of being detected here.
 # Running only via workflow_call keeps this from also firing as a standalone
-# workflow (which would double every lint run). This stage has no summary/gate
-# job -- the `CI / Lint` caller job in ci.yml is the aggregate check.
+# workflow (which would double every lint run). The stage's rolled-up result is
+# turned into a single required check by the `Lint CI Gate` job in ci.yml, so
+# this workflow needs no summary/gate job of its own.
 on:
   workflow_call:
     inputs:

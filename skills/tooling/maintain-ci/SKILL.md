@@ -18,9 +18,12 @@ Keep required CI coverage complete while running expensive checks only for affec
    once in the `detect-changes` job of `.github/workflows/ci.yml`: add a detector output
    there and pass it into the `lint` (and `unit`/`e2e`) stage as a `with:` input. In
    `.github/workflows/lint.yml`, declare the matching `workflow_call` input and add the
-   component job gated on `inputs.<component> == 'true'`. There is no summary/gate job:
-   the reusable-workflow caller job (`CI / Lint`) is the aggregate check, and a skipped
-   component job is acceptable. `make check` enforces this wiring end to end.
+   component job gated on `inputs.<component> == 'true'`. The stage workflow needs no
+   summary job of its own: `ci.yml` has one rollup gate job per stage (`Lint CI Gate`,
+   `Unit Tests CI Gate`, `E2E CI Gate`) that runs `if: always()`, reads the stage's
+   rolled-up `result`, and is the required branch-protection check; a skipped component
+   job is acceptable and still passes the gate. `make check` enforces this wiring end to
+   end.
 4. Update `.github/workflows/unit-tests.yml` the same way when the component has unit
    tests: add its `workflow_call` input (and the `with:` pass-through in `ci.yml`) and
    gate the job on `inputs.<component>`. Frontend packages share `test-frontend`; Go

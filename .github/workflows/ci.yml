@@ -18,12 +18,17 @@ name: CI
 # Change detection runs exactly once here (the detect-changes job) and is passed
 # into each stage as inputs; the stage workflows no longer detect internally.
 #
-# Because each stage is a reusable-workflow call, its own job status is the
-# aggregate of every job inside it: the `lint`, `unit`, and `e2e` jobs below
-# surface as the `CI / Lint`, `CI / Unit`, and `CI / E2E` status checks and go
-# green only when their whole stage succeeds (skipped conditional jobs do not
-# fail the stage). Those three are the checks to mark required in branch
-# protection -- there is no separate summary/gate job.
+# Each stage is a reusable-workflow call, so its individual jobs surface as
+# `Lint / <job>`, `Unit / <job>`, and (once it runs) `E2E / <job>` checks --
+# there is no single check named just `Lint`/`Unit`/`E2E`. To give branch
+# protection one stable, always-present check per stage, the three `*-gate` jobs
+# below (`Lint CI Gate`, `Unit Tests CI Gate`, `E2E CI Gate`) run with
+# `if: always()`, read the stage's rolled-up `result` via `needs`, and fail
+# unless detect-changes succeeded and the stage did not fail or cancel. Because
+# they always run, they are never left pending by path-filtered skips, so THESE
+# are the checks to mark required in branch protection (a skipped stage still
+# passes its gate; a stage skipped because an earlier gate failed is blocked by
+# that earlier gate, not double-reported here).
 on:
   pull_request:
   push:
@@ -119,3 +124,77 @@ jobs:
       control_plane: ${{ needs.detect-changes.outputs.control_plane }}
       e2e: ${{ needs.detect-changes.outputs.e2e }}
       pr_test: ${{ needs.detect-changes.outputs.pr_test }}
+
+  # Stable rollup checks for branch protection. Each always runs, so a
+  # path-filtered stage that skips its internal jobs never leaves a required
+  # check pending. A stage that was skipped (result 'skipped') passes its gate;
+  # only an actual 'failure'/'cancelled' -- or a detect-changes that did not
+  # succeed -- fails it.
+  lint-gate:
+    name: Lint CI Gate
+    needs:
+      - detect-changes
+      - lint
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify lint stage passed
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          STAGE_RESULT: ${{ needs.lint.result }}
+        run: |
+          if [[ "${DETECT_RESULT}" != "success" ]]; then
+            echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
+            exit 1
+          fi
+          if [[ "${STAGE_RESULT}" == "failure" || "${STAGE_RESULT}" == "cancelled" ]]; then
+            echo "Lint stage did not pass (result: ${STAGE_RESULT})"
+            exit 1
+          fi
+          echo "Lint stage OK (result: ${STAGE_RESULT})"
+
+  unit-gate:
+    name: Unit Tests CI Gate
+    needs:
+      - detect-changes
+      - unit
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify unit stage passed
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          STAGE_RESULT: ${{ needs.unit.result }}
+        run: |
+          if [[ "${DETECT_RESULT}" != "success" ]]; then
+            echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
+            exit 1
+          fi
+          if [[ "${STAGE_RESULT}" == "failure" || "${STAGE_RESULT}" == "cancelled" ]]; then
+            echo "Unit stage did not pass (result: ${STAGE_RESULT})"
+            exit 1
+          fi
+          echo "Unit stage OK (result: ${STAGE_RESULT})"
+
+  e2e-gate:
+    name: E2E CI Gate
+    needs:
+      - detect-changes
+      - e2e
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify e2e stage passed
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          STAGE_RESULT: ${{ needs.e2e.result }}
+        run: |
+          if [[ "${DETECT_RESULT}" != "success" ]]; then
+            echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
+            exit 1
+          fi
+          if [[ "${STAGE_RESULT}" == "failure" || "${STAGE_RESULT}" == "cancelled" ]]; then
+            echo "E2E stage did not pass (result: ${STAGE_RESULT})"
+            exit 1
+          fi
+          echo "E2E stage OK (result: ${STAGE_RESULT})"

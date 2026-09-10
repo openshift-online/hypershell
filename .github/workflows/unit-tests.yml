@@ -5,8 +5,9 @@ name: Unit
 # `needs: [lint, unit]`), so a lint failure never delays unit tests and vice
 # versa. ci.yml owns the triggers, concurrency group, stage sequencing, and
 # change detection: the per-component flags below arrive as inputs instead of
-# being detected here. This stage has no summary/gate job -- the `CI / Unit`
-# caller job in ci.yml is the aggregate check.
+# being detected here. The stage's rolled-up result is turned into a single
+# required check by the `Unit Tests CI Gate` job in ci.yml, so this workflow
+# needs no summary/gate job of its own.
 on:
   workflow_call:
     inputs:

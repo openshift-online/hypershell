@@ -611,12 +611,20 @@ passing the detection results in as inputs and wiring the stages with native
 [detect-changes, lint, unit]`). e2e is the expensive stage - it provisions Kind
 and runs the full test matrix - so gating it behind the two cheap stages means
 Kind is never created for a SHA whose lint or unit tests failed, and such
-failures show up as a clean red `CI / Lint` or `CI / Unit` check instead of a
-misleading e2e environment failure. Nothing sits polling for a preceding gate.
-The wall-clock cost is small: Konflux image builds are triggered by the push
-itself and run during lint/unit regardless, so by the time the join clears they
-are mostly done. The `CI / Lint`, `CI / Unit`, and `CI / E2E` caller jobs are
-the aggregate checks to mark required in branch protection.
+failures show up as a clean red `Lint CI Gate` or `Unit Tests CI Gate` check
+instead of a misleading e2e environment failure. Nothing sits polling for a
+preceding gate. The wall-clock cost is small: Konflux image builds are triggered
+by the push itself and run during lint/unit regardless, so by the time the join
+clears they are mostly done.
+
+Each stage's jobs appear as `Lint / <job>`, `Unit / <job>`, and `E2E / <job>`
+checks, so there is no single check named just `Lint`/`Unit`/`E2E`. To give
+branch protection one stable check per stage, `ci.yml` adds three rollup gate
+jobs - `Lint CI Gate`, `Unit Tests CI Gate`, and `E2E CI Gate` - that run with
+`if: always()`, read the stage's rolled-up result, and pass unless
+`detect-changes` failed or the stage failed/cancelled (a fully skipped stage
+still passes its gate). Mark those three gates as the required checks in branch
+protection.
 
 ### E2E tests
 
