@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-web-console
+spec:
+  template:
+    spec:
+      serviceAccountName: hypershell-web-console-metrics
+      automountServiceAccountToken: false
+      containers:
+        - name: web-console
+          env:
+            - name: PROMETHEUS_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CLUSTER_PROMETHEUS_URL
+              value: https://thanos-querier.openshift-monitoring.svc:9091
+            - name: CLUSTER_PROMETHEUS_TOKEN_FILE
+              value: /var/run/secrets/hypershell-metrics/token
+            - name: CLUSTER_PROMETHEUS_CA_FILE
+              value: /var/run/secrets/hypershell-metrics/service-ca.crt
+          volumeMounts:
+            - name: dashboard-metrics
+              mountPath: /var/run/secrets/hypershell-metrics
+              readOnly: true
+      volumes:
+        - name: dashboard-metrics
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: hypershell-metrics-service-ca
+                  items:
+                    - key: service-ca.crt
+                      path: service-ca.crt

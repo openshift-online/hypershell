@@ -77,14 +77,14 @@ The BFF proxies `/api/*` to the fixed `HYPERSHELL_API_ORIGIN` origin, which defa
 The BFF queries Prometheus from the server. The browser does not receive metrics
 credentials. Existing dashboard access rules still apply.
 
-| Variable | Purpose |
-| --- | --- |
-| `PROMETHEUS_URL` | Application metrics endpoint. Defaults to `http://127.0.0.1:9090` for local development. |
-| `PROMETHEUS_NAMESPACE` | Instance namespace for gateway counts and provision duration. Omit only for a dedicated metrics store. |
-| `CLUSTER_PROMETHEUS_URL` | CPU, memory, node, and pod metrics endpoint. Defaults to `PROMETHEUS_URL`. |
-| `CLUSTER_PROMETHEUS_TOKEN_FILE` | File with the bearer token for the cluster endpoint. |
-| `CLUSTER_PROMETHEUS_CA_FILE` | File with the trusted CA bundle for the cluster endpoint. |
-| `PROMETHEUS_QUERY_TIMEOUT_MS` | Timeout for each query. Defaults to 10 seconds. |
+| Variable                        | Purpose                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `PROMETHEUS_URL`                | Application metrics endpoint. Defaults to `http://127.0.0.1:9090` for local development.               |
+| `PROMETHEUS_NAMESPACE`          | Instance namespace for gateway counts and provision duration. Omit only for a dedicated metrics store. |
+| `CLUSTER_PROMETHEUS_URL`        | CPU, memory, node, and pod metrics endpoint. Defaults to `PROMETHEUS_URL`.                             |
+| `CLUSTER_PROMETHEUS_TOKEN_FILE` | File with the bearer token for the cluster endpoint.                                                   |
+| `CLUSTER_PROMETHEUS_CA_FILE`    | File with the trusted CA bundle for the cluster endpoint.                                              |
+| `PROMETHEUS_QUERY_TIMEOUT_MS`   | Timeout for each query. Defaults to 10 seconds.                                                        |
 
 On OpenShift, use the application Prometheus endpoint for gateway metrics and
 `https://thanos-querier.openshift-monitoring.svc:9091` for cluster metrics. Give
@@ -100,3 +100,14 @@ namespace. Repeated gateway gauge samples from API replicas do not add to counts
 The instance filter is fixed by server configuration, not by browser input.
 Query failures return HTTP 502. Provision duration has no data until a gateway
 provision operation supplies observations.
+
+Both metrics paths limit each response to 4 MiB. The application path applies
+the limit after decompression. Credential failures identify the environment
+variable and the failure type in server logs. File paths and credential values
+are not logged; the browser still receives only `Metrics unavailable`.
+
+The reusable OpenShift deployment settings are in
+[`deploy/gitops-base/components/openshift-dashboard-metrics`](../../deploy/gitops-base/components/openshift-dashboard-metrics/README.md).
+Site overlays select that component and supply their application metrics endpoint
+and instance RoleBinding. This component can also be used with the GitOps wrapper
+from PR #251. The application owns its deployment patch and credential mounts.

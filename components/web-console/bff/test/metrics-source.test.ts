@@ -8,6 +8,7 @@ import {
 import { createServer as httpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -92,6 +93,54 @@ const sample = (value: string) =>
   });
 
 describe("metrics sources", () => {
+  for (const tls of [false, true]) {
+    const protocol = tls ? "HTTPS" : "HTTP";
+    it(`accepts a response at the 4 MiB limit over ${protocol}`, async () => {
+      const body = sample("4").padEnd(4 * 1024 * 1024, " ");
+      const url = await serve((_req, res) => {
+        res.end(body);
+      }, tls);
+      const source = tls ? { url, caFile } : url;
+      const response = await fetchMetrics(
+        source,
+        "up",
+        AbortSignal.timeout(5000),
+      );
+      expect(await response.json()).toEqual(JSON.parse(sample("4")));
+    });
+
+    it(`rejects oversized chunked responses and closes the ${protocol} stream`, async () => {
+      let closed = false;
+      const url = await serve((_req, res) => {
+        res.on("close", () => {
+          closed = true;
+        });
+        res.write(" ".repeat(4 * 1024 * 1024));
+        res.write("x");
+        // Leave the stream open: rejection must not wait for the response to end.
+      }, tls);
+      const source = tls ? { url, caFile } : url;
+      await expect(
+        fetchMetrics(source, "up", AbortSignal.timeout(5000)),
+      ).rejects.toThrow("Metrics response too large");
+      await expect.poll(() => closed).toBe(true);
+    });
+  }
+
+  it("limits the decoded application response, including compressed bodies", async () => {
+    const body = gzipSync(" ".repeat(4 * 1024 * 1024 + 1));
+    const url = await serve((_req, res) => {
+      res.writeHead(200, {
+        "Content-Encoding": "gzip",
+        "Content-Length": body.byteLength,
+      });
+      res.end(body);
+    }, false);
+    await expect(
+      fetchMetrics(url, "up", AbortSignal.timeout(5000)),
+    ).rejects.toThrow("Metrics response too large");
+  });
+
   it("validates TLS and reads a rotated token on each request", async () => {
     const tokens: (string | undefined)[] = [];
     const url = await serve((req, res) => {
@@ -156,6 +205,81 @@ describe("metrics sources", () => {
           AbortSignal.timeout(1000),
         ),
       ).rejects.toThrow("Could not read metrics credentials");
+    }
+  });
+
+  it("identifies credential failures without revealing file paths or contents", async () => {
+    const url = "https://127.0.0.1";
+    const invalid = path.join(directory, "private-mount-name");
+    await writeFile(invalid, "private-token\ninvalid-header");
+    const empty = path.join(directory, "empty");
+    await writeFile(empty, " \n");
+    const missing = path.join(directory, "missing-private-mount");
+    const cases = [
+      {
+        source: { url, tokenFile: missing },
+        variable: "CLUSTER_PROMETHEUS_TOKEN_FILE",
+        reason: "is missing",
+      },
+      {
+        source: { url, tokenFile: directory },
+        variable: "CLUSTER_PROMETHEUS_TOKEN_FILE",
+        reason: "is unreadable",
+      },
+      {
+        source: { url, tokenFile: empty },
+        variable: "CLUSTER_PROMETHEUS_TOKEN_FILE",
+        reason: "is empty",
+      },
+      {
+        source: { url, tokenFile: invalid },
+        variable: "CLUSTER_PROMETHEUS_TOKEN_FILE",
+        reason: "has an invalid token format",
+      },
+      {
+        source: { url, caFile: missing },
+        variable: "CLUSTER_PROMETHEUS_CA_FILE",
+        reason: "is missing",
+      },
+      {
+        source: { url, caFile: directory },
+        variable: "CLUSTER_PROMETHEUS_CA_FILE",
+        reason: "is unreadable",
+      },
+      {
+        source: { url, caFile: empty },
+        variable: "CLUSTER_PROMETHEUS_CA_FILE",
+        reason: "is empty",
+      },
+    ];
+    for (const { source, variable, reason } of cases) {
+      await expect(
+        fetchMetrics(source, "up", AbortSignal.timeout(1000)),
+      ).rejects.toThrow(
+        `Could not read metrics credentials: ${variable} ${reason}`,
+      );
+    }
+    const app = await buildApp(
+      loadConfig({
+        NODE_ENV: "test",
+        LOG_LEVEL: "silent",
+        STATIC_ROOT: directory,
+        CLUSTER_PROMETHEUS_URL: url,
+        CLUSTER_PROMETHEUS_TOKEN_FILE: invalid,
+      }),
+    );
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/metrics/cluster-cpu",
+      });
+      expect(response.statusCode).toBe(502);
+      expect(response.json()).toEqual({
+        error: "Metrics unavailable",
+        statusCode: 502,
+      });
+    } finally {
+      await app.close();
     }
   });
 

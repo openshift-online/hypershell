@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hypershell-web-console-metrics
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hypershell-metrics-service-ca
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
