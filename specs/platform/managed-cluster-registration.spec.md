@@ -98,7 +98,7 @@ The `managed-cluster-registrar` role is required on both the initial registratio
 
 An administrator assigns `managed-cluster-registrar` to the spoke's OIDC client in Keycloak before the spoke is deployed. This is an explicit, out-of-band admin step -- it is not automated. Keycloak is the trusted source of truth; the API server does not re-verify role assignment beyond reading the JWT claim.
 
-**Note on gateway access:** In the default deployment (`RBAC_DEFAULT_ROLES=gateway:creator`), spoke service accounts also receive `gateway:creator` automatically. To restrict spokes to registration-only access, deploy with `RBAC_DEFAULT_ROLES=` so that no roles are auto-assigned; only the Keycloak-assigned `managed-cluster-registrar` applies.
+**Isolation guarantee:** In production (`RBAC_DEFAULT_ROLES=`, `RBAC_ENFORCE=true`), a spoke holding only `managed-cluster-registrar` has no gateway permissions. All permissions flow exclusively from Keycloak. A spoke gains gateway access only if an administrator also explicitly grants `gateway:creator` or a gateway-scoped binding in Keycloak.
 
 ---
 
