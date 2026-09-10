@@ -101,6 +101,19 @@ The instance filter is fixed by server configuration, not by browser input.
 Query failures return HTTP 502. Provision duration has no data until a gateway
 provision operation supplies observations.
 
+The metric families have different namespace labels. API scrape metrics use
+`hypershell_gateways_total{namespace="<instance>"}`. The controller sends provision
+duration through OTLP, so `gateway_provision_duration_seconds_*` uses
+`k8s_namespace_name="<instance>"`. Its `namespace` label identifies the collector's
+namespace, not the instance. Do not use that scrape label for duration queries.
+
+Cluster queries accept samples with a value of zero, including idle CPU use,
+zero ready nodes, and zero pod counts in a phase. An empty result means the
+required series is absent, not that its value is zero. The backend returns 502
+in that case. A new CPU series also needs enough samples for `rate()`;
+the chart can be unavailable until those samples exist. Provision duration is
+unavailable when the selected instance has no retained observations.
+
 Both metrics paths limit each response to 4 MiB. The application path applies
 the limit after decompression. Credential failures identify the environment
 variable and the failure type in server logs. File paths and credential values

@@ -82,6 +82,8 @@ export async function queryGatewayProvisionDuration(
   timeoutMs: number,
   namespace?: string,
 ): Promise<GatewayProvisionDurationSeconds> {
+  // OTLP resource attributes identify the controller namespace. The scrape
+  // namespace label identifies the collector, which serves multiple instances.
   const selector = namespaceSelector(namespace, "k8s_namespace_name");
   const count = namespace
     ? `sum(gateway_provision_duration_seconds_count${selector})`

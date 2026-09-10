@@ -37,6 +37,7 @@ export async function queryGatewayPhaseCounts(
   timeoutMs: number,
   namespace?: string,
 ): Promise<GatewayPhaseCounts> {
+  // API gauges use the scrape target's namespace label.
   const query = namespace
     ? `max by (phase) (hypershell_gateways_total${namespaceSelector(namespace)})`
     : "hypershell_gateways_total";

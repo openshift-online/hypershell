@@ -16,6 +16,9 @@ import { buildApp } from "../src/app.js";
 import { browserRuntimeConfig, loadConfig } from "../src/config.js";
 import { fetchMetrics } from "../src/metrics-source.js";
 import { queryClusterCpu } from "../src/metrics-cluster-cpu.js";
+import { queryClusterMemory } from "../src/metrics-cluster-memory.js";
+import { queryClusterNodes } from "../src/metrics-cluster-nodes.js";
+import { queryClusterPods } from "../src/metrics-cluster-pods.js";
 import { queryGatewayPhaseCounts } from "../src/metrics-gateways.js";
 import { queryGatewayProvisionDuration } from "../src/metrics-gateway-provision-duration.js";
 
@@ -418,6 +421,47 @@ describe("metrics sources", () => {
     await expect(queryGatewayPhaseCounts(url, 1000, "hyp1")).rejects.toThrow(
       "No gateway metrics",
     );
+  });
+
+  it("accepts zero CPU use, available memory, ready nodes, and pod phase counts", async () => {
+    const values = new Map([
+      ['sum(count by (instance) (node_cpu_seconds_total{mode="idle"}))', "4"],
+      ["sum(node_memory_MemTotal_bytes)", "100"],
+      ["count(kube_node_info)", "4"],
+      ['sum(kube_node_status_allocatable{resource="pods"})', "100"],
+      ["count(kube_pod_info)", "1"],
+      ['sum(kube_pod_status_phase{phase="Running"})', "1"],
+    ]);
+    const url = await serve((req, res) => {
+      const query =
+        new URL(req.url ?? "", "http://unused").searchParams.get("query") ?? "";
+      res.end(sample(values.get(query) ?? "0"));
+    }, false);
+    expect(await queryClusterCpu(url, 1000)).toEqual({
+      capacity_cores: 4,
+      used_cores: 0,
+      available_cores: 4,
+    });
+    expect(await queryClusterMemory(url, 1000)).toEqual({
+      capacity_bytes: 100,
+      used_bytes: 100,
+      available_bytes: 0,
+    });
+    expect(await queryClusterNodes(url, 1000)).toEqual({
+      total_nodes: 4,
+      ready_nodes: 0,
+      not_ready_nodes: 4,
+    });
+    expect(await queryClusterPods(url, 1000)).toEqual({
+      capacity_pods: 100,
+      used_pods: 1,
+      available_pods: 99,
+      phase_running_pods: 1,
+      phase_pending_pods: 0,
+      phase_failed_pods: 0,
+      phase_succeeded_pods: 0,
+      phase_unknown_pods: 0,
+    });
   });
 
   it("rejects unsafe credential origins and invalid namespace selectors", () => {

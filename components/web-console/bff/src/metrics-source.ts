@@ -126,8 +126,8 @@ export async function fetchMetrics(
         res.on("data", (chunk: Buffer) => {
           size += chunk.length;
           if (size > metricsResponseLimit) {
-            reject(new Error("Metrics response too large"));
             req.destroy();
+            reject(new Error("Metrics response too large"));
             return;
           }
           chunks.push(chunk);
