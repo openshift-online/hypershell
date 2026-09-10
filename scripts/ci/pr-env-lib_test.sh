@@ -85,7 +85,8 @@ assert_not_reapable 'reserved openshift- namespace refused' \
 
 # --- Comment body ---
 body="$(pr_env_comment_body 232 abcdef1234567 hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak \
-  https://console.example.com https://api.pr-232.example.com https://web.pr-232.example.com false)"
+  https://console.example.com https://api.pr-232.example.com https://web.pr-232.example.com \
+  https://api.cluster.example.com:6443 false)"
 case "${body}" in
   *"<!-- hypershell-pr-environment -->"*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing hidden marker' ;;
@@ -94,12 +95,16 @@ case "${body}" in
   *'abcdef1'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing short SHA' ;;
 esac
-# The CLI template must use --web, never carry a real token.
+# The CLI template must use --web against the cluster API, never the app Route.
 case "${body}" in
-  *'--web'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body oc login missing --web' ;;
+  *'oc login --server=https://api.cluster.example.com:6443 --web'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body oc login missing cluster API --web' ;;
 esac
-updated_body="$(pr_env_comment_body 232 abcdef1234567 ns ns-keycloak c a w true)"
+case "${body}" in
+  *'oc login --server=https://api.pr-232.example.com'*) FAIL=$((FAIL + 1)); echo 'FAIL: oc login used app API Route' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+updated_body="$(pr_env_comment_body 232 abcdef1234567 ns ns-keycloak c a w https://api.cluster.example.com true)"
 case "${updated_body}" in
   *'updated to commit'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: updated comment missing update wording' ;;

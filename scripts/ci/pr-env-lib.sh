@@ -122,17 +122,18 @@ pr_env_is_reapable() {
 }
 
 # pr_env_comment_body <pr-number> <head-sha> <platform-ns> <keycloak-ns> \
-#                     <console-url> <api-url> <web-url> <updated>
+#                     <console-url> <api-url> <web-url> <cluster-api-url> <updated>
 #
 # Render the pull-request access comment (Pull-Request Comment requirement).
 # Carries the hidden marker so later runs find and update this comment, presents
 # the same non-secret access facts `make openshift-up` prints, and contains no
-# credential -- the `oc login` template uses `--web` so OpenShift handles token
-# retrieval and refresh interactively. <updated> is "true" for the per-commit
-# update wording, "false" for the initial comment.
+# credential -- the `oc login` template uses `--web` against the OpenShift
+# cluster API (not the HyperShell API Route) so OpenShift handles token
+# retrieval interactively. <updated> is "true" for the per-commit update
+# wording, "false" for the initial comment.
 pr_env_comment_body() {
   local pr_number="$1" head_sha="$2" platform_ns="$3" keycloak_ns="$4"
-  local console_url="$5" api_url="$6" web_url="$7" updated="$8"
+  local console_url="$5" api_url="$6" web_url="$7" cluster_api_url="$8" updated="$9"
   local short_sha="${head_sha:0:7}"
   local heading
   if [[ "${updated}" == "true" ]]; then
@@ -161,7 +162,7 @@ and refreshed on every new commit.
 <details><summary>CLI access</summary>
 
 \`\`\`
-oc login --server=${api_url} --web
+oc login --server=${cluster_api_url} --web
 \`\`\`
 
 </details>
