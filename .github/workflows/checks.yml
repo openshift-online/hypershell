@@ -25,7 +25,12 @@ name: Checks
 # job failed or was cancelled (a job skipped by path filtering still passes
 # the gate). Because it always runs, it is never left pending by
 # path-filtered skips, so THIS is the check to mark required in branch
-# protection alongside Tests CI Gate (from tests.yml).
+# protection alongside tests.yml's own CI Gate job. Both are named plain
+# `CI Gate` (not `Checks CI Gate` / `Tests CI Gate`) since the workflow run
+# they belong to (Checks vs Tests) already disambiguates them in the PR
+# checks list and the branch-protection required-checks picker; a job's own
+# name is not prefixed with its workflow's name (only reusable-workflow-call
+# jobs get a prefix, from the calling job).
 on:
   pull_request:
   push:
@@ -350,7 +355,7 @@ jobs:
   # A job that was skipped passes the gate; only an actual failure/cancel --
   # or a detect-changes that did not succeed -- fails it.
   checks-gate:
-    name: Checks CI Gate
+    name: CI Gate
     needs:
       - detect-changes
       - repository-policy

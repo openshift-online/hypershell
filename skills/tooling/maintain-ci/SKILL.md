@@ -25,10 +25,10 @@ sharing one.
    job. Add a detector output to its own `detect-changes` job, then add the component's
    lint job with `needs: detect-changes` gated on
    `needs.detect-changes.outputs.<component> == 'true'`. The workflow needs no separate
-   summary job for this: `checks.yml` has one rollup gate job, `checks-gate` (`Checks CI
-   Gate`), that runs `if: always()`, reads every job's rolled-up `result`, and is the
-   required branch-protection check. A skipped component job is acceptable and still
-   passes the gate. `make check` enforces this wiring end to end.
+   summary job for this: `checks.yml` has one rollup gate job, `checks-gate` (`CI Gate`),
+   that runs `if: always()`, reads every job's rolled-up `result`, and is the required
+   branch-protection check. A skipped component job is acceptable and still passes the
+   gate. `make check` enforces this wiring end to end.
 4. Update `.github/workflows/unit-tests.yml` the same way when the component has unit
    tests: add its `workflow_call` input (and the `with:` pass-through in
    `.github/workflows/tests.yml`'s own `detect-changes` job) and gate the job on
@@ -39,10 +39,12 @@ sharing one.
    workflow_call`) with no event triggers of their own. `unit` depends only on
    `detect-changes`, and `e2e` joins on it (`needs: [detect-changes, unit]`) so the
    expensive Kind run is gated behind the cheap unit stage. `tests.yml`'s `tests-gate` job
-   (`Tests CI Gate`) rolls both stages' results into the other required branch-protection
-   check. Do not add `pull_request`/`push` triggers to a stage workflow (that would double
-   every run) and do not add a job that polls for a preceding stage's gate, or for the
-   separate `checks.yml` workflow.
+   (`CI Gate`) rolls both stages' results into the other required branch-protection check.
+   Both `checks.yml`'s and `tests.yml`'s gate jobs are named plain `CI Gate` rather than
+   `Checks CI Gate` / `Tests CI Gate`, since the workflow run they belong to already
+   disambiguates them. Do not add `pull_request`/`push` triggers to a stage workflow (that
+   would double every run) and do not add a job that polls for a preceding stage's gate, or
+   for the separate `checks.yml` workflow.
 5. Add or update a generated-code drift check as a job in `.github/workflows/checks.yml`,
    gated on `needs.detect-changes.outputs.<component>` for the component(s) whose paths
    affect the generator (e.g. `needs.detect-changes.outputs.sdk_go == 'true' ||

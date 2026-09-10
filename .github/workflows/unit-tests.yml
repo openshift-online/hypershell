@@ -10,9 +10,8 @@ name: Unit
 # tests.yml owns the triggers, concurrency group, stage sequencing, and
 # change detection: the per-component flags below arrive as inputs instead
 # of being detected here. The stage's rolled-up result, together with e2e's,
-# is turned into a single required check by the `Tests CI Gate` job in
-# tests.yml, so this workflow
-# needs no summary/gate job of its own.
+# is turned into a single required check by the `CI Gate` job in tests.yml,
+# so this workflow needs no summary/gate job of its own.
 on:
   workflow_call:
     inputs:

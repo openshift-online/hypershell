@@ -13,8 +13,8 @@ name: E2E
 # group, stage sequencing, and change detection: the per-component flags
 # used by plan-images arrive as inputs instead of being detected here. The
 # stage's rolled-up result, together with unit's, is turned into a single
-# required check by the `Tests CI Gate` job in tests.yml, so this workflow
-# needs no summary/gate job of its own. The `checks: read` permission and
+# required check by the `CI Gate` job in tests.yml, so this workflow needs
+# no summary/gate job of its own. The `checks: read` permission and
 # the wait-on-check-action steps below remain: they gate on Konflux image
 # builds, which are an external system this workflow cannot order with
 # `needs:`.
@@ -357,7 +357,7 @@ jobs:
 
 
   e2e-kind:
-    name: E2E Kind (${{ matrix.database-provider }})
+    name: Kind (${{ matrix.database-provider }})
     needs: plan-images
     if: needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04

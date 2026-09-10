@@ -28,8 +28,13 @@ name: Tests
 # fails unless detect-changes succeeded and neither stage failed or was
 # cancelled. Because it always runs, it is never left pending by
 # path-filtered skips (a skipped stage still passes the gate), so THIS is
-# the check to mark required in branch protection alongside Checks CI Gate
-# (from checks.yml).
+# the check to mark required in branch protection alongside checks.yml's own
+# CI Gate job. Both are named plain `CI Gate` (not `Tests CI Gate` /
+# `Checks CI Gate`) since the workflow run they belong to (Tests vs Checks)
+# already disambiguates them in the PR checks list and the branch-protection
+# required-checks picker; a job's own name is not prefixed with its
+# workflow's name (only reusable-workflow-call jobs get a prefix, from the
+# calling job).
 on:
   pull_request:
   push:
@@ -115,7 +120,7 @@ jobs:
   # gate; only an actual 'failure'/'cancelled' -- or a detect-changes that did
   # not succeed -- fails it.
   tests-gate:
-    name: Tests CI Gate
+    name: CI Gate
     needs:
       - detect-changes
       - unit
