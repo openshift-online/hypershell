@@ -1,41 +1,35 @@
 name: Tests
 
-# Single orchestrator for the checks/unit/e2e pipeline. Each stage is a
-# reusable workflow (on: workflow_call) wired with native `needs:` gating --
-# no cross-workflow `wait-on-check-action` polling.
+# Orchestrator for the unit/e2e pipeline. Checks (lint, repository policy,
+# SDK drift) lives in the separate, independently-triggered
+# .github/workflows/checks.yml so it shows as its own entry in the PR checks
+# list and runs fully concurrently with this workflow -- GitHub Actions
+# `needs:` only works within a single workflow file, so the two cannot gate
+# each other without a cross-workflow poller, and this repo deliberately
+# avoids that pattern. Each triggers its own `detect-changes` job rather than
+# sharing one, which is the cost of that split.
 #
-# Topology is fan-out then join: checks and unit both run straight after
-# detect-changes (concurrently, so a checks failure never delays unit and vice
-# versa), and e2e joins on BOTH. e2e is the expensive stage -- it provisions
-# Kind and runs the full test matrix -- so gating it behind the cheap stages
-# means we never spend a deploy+test cycle on a SHA that checks or unit
-# already failed, and such failures surface as a clean red Checks/Unit check
-# instead of a misleading e2e "environment did not deploy". The wall-clock
-# cost is small: Konflux image builds are triggered by the push itself and
-# run during checks/unit regardless, so by the time the join clears they are
-# mostly done and e2e's build wait is short.
+# Within this workflow, unit and e2e are reusable workflows (on:
+# workflow_call) wired with native `needs:` gating: e2e joins on unit
+# (`needs: [detect-changes, unit]`) so Kind is never created for a SHA whose
+# unit tests are failing -- no wasted e2e run, and no in-workflow poller. It
+# no longer waits on Checks; a lint/policy/drift failure alone will not stop
+# e2e from starting.
 #
 # Change detection runs exactly once here (the detect-changes job) and is
 # passed into each stage as inputs; the stage workflows no longer detect
-# internally. Repository policy (`make check`) and OpenAPI SDK drift, which
-# used to be their own independently-triggered workflows, are now jobs inside
-# the `checks` stage so they run off this same detection pass instead of
-# duplicating change detection.
+# internally.
 #
 # Each stage is a reusable-workflow call, so its individual jobs surface as
-# `Checks / <job>`, `Unit / <job>`, and (once it runs) `E2E / <job>` checks --
-# there is no single check named just `Checks`/`Unit`/`E2E`. To give branch
-# protection stable, always-present required checks, the two `*-gate` jobs
-# below run with `if: always()`, read the relevant stage(s) rolled-up
-# `result` via `needs`, and fail unless detect-changes succeeded and no
-# covered stage failed or was cancelled:
-#   - `Checks CI Gate` covers the `checks` stage alone.
-#   - `Tests CI Gate` covers both `unit` and `e2e` as a single required check,
-#     since they are both "running the code" stages as opposed to static
-#     checks.
-# Because they always run, they are never left pending by path-filtered
-# skips (a skipped stage still passes its gate), so THESE are the checks to
-# mark required in branch protection.
+# `Unit / <job>` and (once it runs) `E2E / <job>` checks -- there is no
+# single check named just `Unit`/`E2E`. To give branch protection a stable,
+# always-present required check, the `tests-gate` job below runs with
+# `if: always()`, reads both stages' rolled-up `result` via `needs`, and
+# fails unless detect-changes succeeded and neither stage failed or was
+# cancelled. Because it always runs, it is never left pending by
+# path-filtered skips (a skipped stage still passes the gate), so THIS is
+# the check to mark required in branch protection alongside Checks CI Gate
+# (from checks.yml).
 on:
   pull_request:
   push:
@@ -83,23 +77,6 @@ jobs:
         id: detect
         run: bash .github/scripts/detect-components.sh
 
-  checks:
-    name: Checks
-    needs: detect-changes
-    uses: ./.github/workflows/checks.yml
-    permissions:
-      contents: read
-    with:
-      api_server: ${{ needs.detect-changes.outputs.api_server }}
-      cli: ${{ needs.detect-changes.outputs.cli }}
-      control_plane: ${{ needs.detect-changes.outputs.control_plane }}
-      gateway_management_ui: ${{ needs.detect-changes.outputs.gateway_management_ui }}
-      operational_dashboard_ui: ${{ needs.detect-changes.outputs.operational_dashboard_ui }}
-      pr_test: ${{ needs.detect-changes.outputs.pr_test }}
-      sdk_go: ${{ needs.detect-changes.outputs.sdk_go }}
-      sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
-      web_console: ${{ needs.detect-changes.outputs.web_console }}
-
   unit:
     name: Unit
     needs: detect-changes
@@ -121,7 +98,6 @@ jobs:
     name: E2E
     needs:
       - detect-changes
-      - checks
       - unit
     uses: ./.github/workflows/e2e.yml
     permissions:
@@ -133,34 +109,11 @@ jobs:
       e2e: ${{ needs.detect-changes.outputs.e2e }}
       pr_test: ${{ needs.detect-changes.outputs.pr_test }}
 
-  # Stable rollup checks for branch protection. Each always runs, so a
+  # Stable rollup check for branch protection. Always runs, so a
   # path-filtered stage that skips its internal jobs never leaves a required
-  # check pending. A stage that was skipped (result 'skipped') passes its
+  # check pending. A stage that was skipped (result 'skipped') passes the
   # gate; only an actual 'failure'/'cancelled' -- or a detect-changes that did
   # not succeed -- fails it.
-  checks-gate:
-    name: Checks CI Gate
-    needs:
-      - detect-changes
-      - checks
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Verify checks stage passed
-        env:
-          DETECT_RESULT: ${{ needs.detect-changes.result }}
-          STAGE_RESULT: ${{ needs.checks.result }}
-        run: |
-          if [[ "${DETECT_RESULT}" != "success" ]]; then
-            echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
-            exit 1
-          fi
-          if [[ "${STAGE_RESULT}" == "failure" || "${STAGE_RESULT}" == "cancelled" ]]; then
-            echo "Checks stage did not pass (result: ${STAGE_RESULT})"
-            exit 1
-          fi
-          echo "Checks stage OK (result: ${STAGE_RESULT})"
-
   tests-gate:
     name: Tests CI Gate
     needs:

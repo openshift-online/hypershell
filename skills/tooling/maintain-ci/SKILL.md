@@ -9,45 +9,51 @@ Keep required CI coverage complete while running expensive checks only for affec
 
 ## Workflow
 
+HyperShell's CI is two independently-triggered, top-level workflows that run
+fully concurrently: `.github/workflows/checks.yml` (lint, repository policy,
+SDK drift) and `.github/workflows/tests.yml` (unit tests, e2e). GitHub
+Actions `needs:` only orders jobs within one workflow file, so the two do
+not gate each other, and each runs its own `detect-changes` job rather than
+sharing one.
+
 1. Inspect the component's language, module files, build commands, generated artifacts,
    and dependencies on other components.
 2. Update `.github/component-paths.json`. Register the component's own paths plus any
    shared contracts or upstream paths that can affect it. Set `directory` and `lint_job`;
    `make check` rejects missing or stale component registrations.
-3. Wire the component through change detection and the checks stage. Change detection runs
-   once in the `detect-changes` job of `.github/workflows/tests.yml`: add a detector output
-   there and pass it into the `checks` (and `unit`/`e2e`) stage as a `with:` input. In
-   `.github/workflows/checks.yml`, declare the matching `workflow_call` input and add the
-   component's lint job gated on `inputs.<component> == 'true'`. The stage workflow needs no
-   summary job of its own: `tests.yml` has two rollup gate jobs (`Checks CI Gate`,
-   `Tests CI Gate`) that run `if: always()`, read the covered stage(s)' rolled-up
-   `result`, and are the required branch-protection checks; `Checks CI Gate` covers
-   `checks` alone, `Tests CI Gate` covers `unit` and `e2e` together. A skipped component
-   job is acceptable and still passes the gate. `make check` enforces this wiring end to
-   end.
+3. Wire the component through `.github/workflows/checks.yml`'s change detection and lint
+   job. Add a detector output to its own `detect-changes` job, then add the component's
+   lint job with `needs: detect-changes` gated on
+   `needs.detect-changes.outputs.<component> == 'true'`. The workflow needs no separate
+   summary job for this: `checks.yml` has one rollup gate job, `checks-gate` (`Checks CI
+   Gate`), that runs `if: always()`, reads every job's rolled-up `result`, and is the
+   required branch-protection check. A skipped component job is acceptable and still
+   passes the gate. `make check` enforces this wiring end to end.
 4. Update `.github/workflows/unit-tests.yml` the same way when the component has unit
-   tests: add its `workflow_call` input (and the `with:` pass-through in `tests.yml`) and
-   gate the job on `inputs.<component>`. Frontend packages share `test-frontend`; Go
-   modules get their own jobs; `*_test.sh` files are auto-discovered by `make ci-test`
-   and do not need a job allowlist. Stage wiring is owned by the
-   `.github/workflows/tests.yml` orchestrator via native `needs:` edges, not by
-   in-workflow poller jobs: checks, unit, and e2e are reusable workflows
-   (`on: workflow_call`) with no event triggers of their own. The shape is
-   fan-out then join -- checks and unit each `needs: detect-changes` and run
-   concurrently, and e2e joins on both (`needs: [detect-changes, checks, unit]`)
-   so the expensive Kind run is gated behind the two cheap stages without
-   serializing checks and unit against each other. Do not add
-   `pull_request`/`push` triggers to a stage workflow (that would double every
-   run) and do not add a job that polls for a preceding stage's gate.
+   tests: add its `workflow_call` input (and the `with:` pass-through in
+   `.github/workflows/tests.yml`'s own `detect-changes` job) and gate the job on
+   `inputs.<component>`. Frontend packages share `test-frontend`; Go modules get their own
+   jobs; `*_test.sh` files are auto-discovered by `make ci-test` and do not need a job
+   allowlist. Stage wiring is owned by the `tests.yml` orchestrator via native `needs:`
+   edges, not by in-workflow poller jobs: unit and e2e are reusable workflows (`on:
+   workflow_call`) with no event triggers of their own. `unit` depends only on
+   `detect-changes`, and `e2e` joins on it (`needs: [detect-changes, unit]`) so the
+   expensive Kind run is gated behind the cheap unit stage. `tests.yml`'s `tests-gate` job
+   (`Tests CI Gate`) rolls both stages' results into the other required branch-protection
+   check. Do not add `pull_request`/`push` triggers to a stage workflow (that would double
+   every run) and do not add a job that polls for a preceding stage's gate, or for the
+   separate `checks.yml` workflow.
 5. Add or update a generated-code drift check as a job in `.github/workflows/checks.yml`,
-   gated on the `workflow_call` input(s) for the component(s) whose paths affect the
-   generator (e.g. `inputs.sdk_go == 'true' || inputs.sdk_typescript == 'true'`). Do not
-   create a new standalone, independently-triggered workflow for this -- that would
-   duplicate change detection instead of sharing the one `detect-changes` pass. Whole-repo
-   checks that are not tied to a specific component (e.g. repository policy) go in
-   `checks.yml` with no `if:` condition, so they always run.
-6. For the checks/unit-tests/e2e pipeline, event triggers live only on `tests.yml`; the
-   stage workflows stay `on: workflow_call`.
+   gated on `needs.detect-changes.outputs.<component>` for the component(s) whose paths
+   affect the generator (e.g. `needs.detect-changes.outputs.sdk_go == 'true' ||
+   needs.detect-changes.outputs.sdk_typescript == 'true'`). Do not create a new standalone,
+   independently-triggered workflow for this -- that would duplicate change detection
+   instead of sharing `checks.yml`'s one `detect-changes` pass. Whole-repo checks that are
+   not tied to a specific component (e.g. repository policy) go in `checks.yml` with no
+   `if:` condition, so they always run.
+6. Event triggers for the checks pipeline live only on `checks.yml`; for the
+   unit-tests/e2e pipeline they live only on `tests.yml`. The unit-tests and e2e stage
+   workflows stay `on: workflow_call`.
 7. Pin every action to a full commit SHA, every container image to a digest, and every
    installed tool to an exact version. Register tools that are not part of a module or
    lockfile in `dependency-age-tools.json`. Run `make check` to enforce immutable pins
@@ -57,20 +63,22 @@ Keep required CI coverage complete while running expensive checks only for affec
 
 For an added or renamed component, verify all of the following:
 
-- The `detect-changes` job in `tests.yml` emits a dedicated output and matches
-  component-local changes.
+- The `detect-changes` job in `checks.yml` emits a dedicated output and matches
+  component-local changes; if the component has unit tests, `tests.yml`'s own
+  `detect-changes` job does too.
 - Changes to shared or upstream contracts also select every affected downstream component.
-- The detector output is passed into each stage as a `with:` input, and the stage jobs
-  gate on `inputs.<component>`.
+- The `checks.yml` lint job gates on `needs.detect-changes.outputs.<component>`; a
+  component with unit tests also gets a `with:` input pass-through in `tests.yml` and
+  gates its `unit-tests.yml` job on `inputs.<component>`.
 - The lint job uses the component's own toolchain and dependency cache files.
-- Unit tests for the component run in `.github/workflows/unit-tests.yml` (concurrently with Checks).
+- Unit tests for the component run in `.github/workflows/unit-tests.yml`.
 - Committed generated code has a reproducible regeneration command and a drift check job
   in `checks.yml`.
 - `CLAUDE.md` documents any new local development command.
 
-For a removed component, remove its detector output and `with:` pass-through in `tests.yml`,
-its `workflow_call` input and job in the stage workflows, its detector paths, and its
-generation gate together.
+For a removed component, remove its detector output and job in `checks.yml`, its detector
+output and `with:` pass-through in `tests.yml` (if it had unit tests), its `workflow_call`
+input and job in `unit-tests.yml`, its detector paths, and its generation gate together.
 
 ## Validation
 

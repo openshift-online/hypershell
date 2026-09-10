@@ -1,18 +1,23 @@
 name: E2E
 
 # Reusable final stage of the Tests pipeline. Invoked by
-# .github/workflows/tests.yml only after both the Checks and Unit stages
-# succeed (parent-level `needs: [detect-changes, checks, unit]`), so Kind
-# never spins up against a SHA whose checks or unit tests are failing -- no
-# wasted e2e run, and no in-workflow poller waiting on those gates. tests.yml
-# owns the triggers, concurrency group, stage sequencing, and change
-# detection: the per-component flags used by plan-images arrive as inputs
-# instead of being detected here. The stage's rolled-up result, together with
-# unit's, is turned into a single required check by the `Tests CI Gate` job
-# in tests.yml, so this workflow needs no summary/gate job of its own. The
-# `checks: read` permission and the wait-on-check-action steps below remain: they
-# gate on Konflux image builds, which are an external system this workflow cannot
-# order with `needs:`.
+# .github/workflows/tests.yml only after the Unit stage succeeds
+# (parent-level `needs: [detect-changes, unit]`), so Kind never spins up
+# against a SHA whose unit tests are failing -- no wasted e2e run, and no
+# in-workflow poller waiting on that gate. It does NOT wait on the separate
+# Checks workflow (.github/workflows/checks.yml, lint/policy/drift) -- that
+# workflow runs fully concurrently with Tests as its own top-level entry in
+# the PR checks list, and GitHub Actions `needs:` cannot gate across
+# independently-triggered workflows without a cross-workflow poller, which
+# this repo deliberately avoids. tests.yml owns the triggers, concurrency
+# group, stage sequencing, and change detection: the per-component flags
+# used by plan-images arrive as inputs instead of being detected here. The
+# stage's rolled-up result, together with unit's, is turned into a single
+# required check by the `Tests CI Gate` job in tests.yml, so this workflow
+# needs no summary/gate job of its own. The `checks: read` permission and
+# the wait-on-check-action steps below remain: they gate on Konflux image
+# builds, which are an external system this workflow cannot order with
+# `needs:`.
 on:
   workflow_call:
     inputs:

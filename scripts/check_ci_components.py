@@ -9,7 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "components", ROOT / "packages")
 CONFIG_PATH = ROOT / ".github" / "component-paths.json"
-TESTS_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "tests.yml"
 CHECKS_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "checks.yml"
 
 
@@ -24,12 +23,6 @@ def main() -> int:
 
     if not isinstance(config, dict):
         print(f"{CONFIG_PATH.relative_to(ROOT)} must contain a JSON object.")
-        return 1
-
-    try:
-        tests_workflow = TESTS_WORKFLOW_PATH.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"Unable to read {TESTS_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
         return 1
 
     try:
@@ -91,29 +84,16 @@ def main() -> int:
         if lint_job is None:
             continue
 
-        # Detection runs once in tests.yml and is passed into the reusable
-        # checks stage as an input; the lint jobs gate on `inputs.<component>`.
-        # Verify the whole wiring: detector output and pass-through live in
-        # tests.yml, the input declaration, lint job, and gating condition
-        # live in checks.yml.
+        # checks.yml is a standalone, independently-triggered workflow (not
+        # called from tests.yml) with its own detect-changes job. Verify the
+        # whole wiring lives there: detector output, lint job, and the job's
+        # gating condition on that same job's output.
         component_checks = (
             (
                 "detector output",
-                tests_workflow,
-                TESTS_WORKFLOW_PATH,
-                rf"steps\.detect\.outputs\.{re.escape(component)}\b",
-            ),
-            (
-                "detection input passed to the checks stage",
-                tests_workflow,
-                TESTS_WORKFLOW_PATH,
-                rf"needs\.detect-changes\.outputs\.{re.escape(component)}\b",
-            ),
-            (
-                "workflow_call input",
                 checks_workflow,
                 CHECKS_WORKFLOW_PATH,
-                rf"(?m)^      {re.escape(component)}:\s*$",
+                rf"steps\.detect\.outputs\.{re.escape(component)}\b",
             ),
             (
                 "lint job",
@@ -125,7 +105,7 @@ def main() -> int:
                 "job condition",
                 checks_workflow,
                 CHECKS_WORKFLOW_PATH,
-                rf"inputs\.{re.escape(component)}\b",
+                rf"needs\.detect-changes\.outputs\.{re.escape(component)}\b",
             ),
         )
         for description, text, path, pattern in component_checks:

@@ -1,57 +1,74 @@
 name: Checks
 
-# Reusable checks stage of the Tests pipeline. Invoked by
-# .github/workflows/tests.yml, which owns the
-# pull_request/push/merge_group/workflow_dispatch triggers, the concurrency
-# group, the checks -> (unit, e2e) ordering, and change detection: the
-# per-component flags below arrive as inputs instead of being detected here.
-# Running only via workflow_call keeps this from also firing as a standalone
-# workflow (which would double every checks run). The stage's rolled-up
-# result is turned into a single required check by the `Checks CI Gate` job
-# in tests.yml, so this workflow needs no summary/gate job of its own.
+# Independently-triggered workflow (sibling to .github/workflows/tests.yml)
+# covering static and whole-repo checks: per-component lint jobs, repository
+# policy (`make check`), and OpenAPI SDK drift. It is its own top-level
+# workflow, not a stage called by Tests, so it shows as its own entry in the
+# PR checks list and runs fully concurrently with Tests -- GitHub Actions
+# `needs:` only works within a single workflow file, so this workflow cannot
+# gate (or be gated by) Tests without a cross-workflow poller, which this
+# repo deliberately avoids. The cost of that split: this workflow runs its
+# own `detect-changes` job rather than sharing the one in tests.yml, and
+# Tests' e2e stage no longer waits on Checks passing -- only on Unit (see
+# tests.yml).
 #
-# Repository policy (`make check`) and OpenAPI SDK drift used to be their own
+# Repository policy and OpenAPI SDK drift used to be their own
 # independently-triggered workflows (repository-policy.yml,
 # sdk-drift-check.yml). They are jobs here instead so they share this
-# workflow's single detect-changes pass rather than each re-detecting changes
-# on their own trigger.
+# workflow's single detect-changes pass rather than each re-detecting
+# changes on their own trigger. Repository policy runs unconditionally (a
+# whole-repo check, not tied to a single component); SDK drift gates on the
+# sdk_go/sdk_typescript detection outputs.
+#
+# The `checks-gate` job below runs with `if: always()`, reads every other
+# job's result via `needs`, and fails unless detect-changes succeeded and no
+# job failed or was cancelled (a job skipped by path filtering still passes
+# the gate). Because it always runs, it is never left pending by
+# path-filtered skips, so THIS is the check to mark required in branch
+# protection alongside Tests CI Gate (from tests.yml).
 on:
-  workflow_call:
-    inputs:
-      api_server:
-        type: string
-        default: 'false'
-      cli:
-        type: string
-        default: 'false'
-      control_plane:
-        type: string
-        default: 'false'
-      gateway_management_ui:
-        type: string
-        default: 'false'
-      operational_dashboard_ui:
-        type: string
-        default: 'false'
-      pr_test:
-        type: string
-        default: 'false'
-      sdk_go:
-        type: string
-        default: 'false'
-      sdk_typescript:
-        type: string
-        default: 'false'
-      web_console:
-        type: string
-        default: 'false'
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  detect-changes:
+    name: Detect changed components
+    runs-on: ubuntu-24.04
+    outputs:
+      api_server: ${{ steps.detect.outputs.api_server }}
+      cli: ${{ steps.detect.outputs.cli }}
+      control_plane: ${{ steps.detect.outputs.control_plane }}
+      gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
+      pr_test: ${{ steps.detect.outputs.pr_test }}
+      sdk_go: ${{ steps.detect.outputs.sdk_go }}
+      sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
+      web_console: ${{ steps.detect.outputs.web_console }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect changed components
+        id: detect
+        run: bash .github/scripts/detect-components.sh
+
   repository-policy:
     name: Repository policy
+    needs: detect-changes
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -61,7 +78,8 @@ jobs:
 
   sdk-drift:
     name: OpenAPI SDK drift
-    if: inputs.sdk_go == 'true' || inputs.sdk_typescript == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk_go == 'true' || needs.detect-changes.outputs.sdk_typescript == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -97,7 +115,8 @@ jobs:
 
   lint-api-server:
     name: Go - API server
-    if: inputs.api_server == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.api_server == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -139,7 +158,8 @@ jobs:
 
   lint-cli:
     name: Go - CLI
-    if: inputs.cli == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cli == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -172,7 +192,8 @@ jobs:
 
   lint-control-plane:
     name: Go - control plane
-    if: inputs.control_plane == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.control_plane == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -205,7 +226,8 @@ jobs:
 
   lint-sdk-typescript:
     name: TypeScript - SDK
-    if: inputs.sdk_typescript == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk_typescript == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -223,7 +245,8 @@ jobs:
 
   lint-gateway-management-ui:
     name: Gateway management UI package quality gates
-    if: inputs.gateway_management_ui == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.gateway_management_ui == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -246,7 +269,8 @@ jobs:
 
   lint-operational-dashboard-ui:
     name: Operational dashboard UI package quality gates
-    if: inputs.operational_dashboard_ui == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.operational_dashboard_ui == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -267,7 +291,8 @@ jobs:
 
   lint-pr-test:
     name: PR test script validation
-    if: inputs.pr_test == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.pr_test == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -277,7 +302,8 @@ jobs:
 
   lint-web-console:
     name: Web console quality gates
-    if: inputs.web_console == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web_console == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -318,3 +344,41 @@ jobs:
           key: ${{ steps.playwright-chromium-cache.outputs.cache-primary-key }}
       - name: Run critical Chromium journey
         run: pnpm test:e2e:chromium
+
+  # Stable rollup check for branch protection. Always runs, so a
+  # path-filtered job that is skipped never leaves a required check pending.
+  # A job that was skipped passes the gate; only an actual failure/cancel --
+  # or a detect-changes that did not succeed -- fails it.
+  checks-gate:
+    name: Checks CI Gate
+    needs:
+      - detect-changes
+      - repository-policy
+      - sdk-drift
+      - lint-api-server
+      - lint-cli
+      - lint-control-plane
+      - lint-sdk-typescript
+      - lint-gateway-management-ui
+      - lint-operational-dashboard-ui
+      - lint-pr-test
+      - lint-web-console
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify all checks passed
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          if [[ "${DETECT_RESULT}" != "success" ]]; then
+            echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
+            exit 1
+          fi
+          for result in ${RESULTS}; do
+            if [[ "${result}" == "failure" || "${result}" == "cancelled" ]]; then
+              echo "At least one checks job did not pass (result: ${result})"
+              exit 1
+            fi
+          done
+          echo "Checks stage OK"
