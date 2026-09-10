@@ -621,7 +621,7 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 		// co-owns this Route (we own termination + destinationCACertificate, it
 		// owns the edge cert), so carry forward any certificate/key it has already
 		// injected -- otherwise each reconcile strips the cert and flaps h2.
-		if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace); cert != "" {
+		if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace, gatewayRouteName); cert != "" {
 			tlsConfig["certificate"] = cert
 			if key != "" {
 				tlsConfig["key"] = key
@@ -1663,6 +1663,11 @@ const (
 const (
 	RouteTerminationPassthrough = "passthrough"
 	RouteTerminationReencrypt   = "reencrypt"
+
+	// gatewayRouteName is the OpenShift Route serving the gateway itself.
+	// openshift-routes injects the issued certificate into it, and each reconcile
+	// must carry that injection forward (see readInjectedRouteCert).
+	gatewayRouteName = "openshell-gateway"
 )
 
 // routeTermination resolves the Route TLS termination for the "route" ingress
@@ -1692,9 +1697,9 @@ func routeTLSIssuer() string {
 // The route reconcile does a full replace, so reconcileRouteResources carries
 // these forward to avoid clobbering the injected edge certificate (which would
 // flap ALPN h2, and hence gRPC, on every reconcile).
-func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (string, string) {
+func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace, routeName string) (string, string) {
 	gvr := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
-	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, "openshell-gateway", metav1.GetOptions{})
+	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
 	if err != nil {
 		return "", ""
 	}

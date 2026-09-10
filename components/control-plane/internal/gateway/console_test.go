@@ -640,3 +640,79 @@ func TestReconcileConsoleSecret_PreservesCookieOnUpdate(t *testing.T) {
 		t.Errorf("client-secret = %q, want refreshed %q", v, "client-v2")
 	}
 }
+
+// TestReconcileConsoleExposureTLSIssuer covers GATEWAY_ROUTE_TLS_ISSUER on the
+// console Route. Without a per-host certificate the console rides the router
+// default certificate, which only covers the cluster ingress domain -- so on a
+// custom gateway domain every browser rejects the console.
+func TestReconcileConsoleExposureTLSIssuer(t *testing.T) {
+	const (
+		namespace = "openshell-abc"
+		host      = "console-openshell-abc.gwlb.hyp8.example.com"
+	)
+
+	t.Run("issuer annotates the console Route", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
+		dc := newConsoleRouteDynamicClient()
+
+		if err := reconcileConsoleExposure(context.Background(), dc, namespace, host, IngressModeRoute); err != nil {
+			t.Fatalf("reconcileConsoleExposure: %v", err)
+		}
+
+		route, err := dc.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get console Route: %v", err)
+		}
+		ann, _, _ := unstructured.NestedStringMap(route.Object, "metadata", "annotations")
+		if ann["cert-manager.io/issuer-name"] != "letsencrypt-http01" {
+			t.Errorf("issuer-name annotation = %q, want letsencrypt-http01", ann["cert-manager.io/issuer-name"])
+		}
+		if ann["cert-manager.io/issuer-kind"] != "ClusterIssuer" {
+			t.Errorf("issuer-kind annotation = %q, want ClusterIssuer", ann["cert-manager.io/issuer-kind"])
+		}
+	})
+
+	t.Run("no issuer leaves the Route unannotated", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "")
+		dc := newConsoleRouteDynamicClient()
+
+		if err := reconcileConsoleExposure(context.Background(), dc, namespace, host, IngressModeRoute); err != nil {
+			t.Fatalf("reconcileConsoleExposure: %v", err)
+		}
+
+		route, err := dc.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get console Route: %v", err)
+		}
+		ann, _, _ := unstructured.NestedStringMap(route.Object, "metadata", "annotations")
+		if _, ok := ann["cert-manager.io/issuer-name"]; ok {
+			t.Errorf("unexpected issuer annotation: %v", ann)
+		}
+	})
+
+	// reconcileResource replaces the whole Route and the built spec omits
+	// certificate/key, which openshift-routes owns. Losing the injection on each
+	// reconcile would make the console flap between a valid and a default cert.
+	t.Run("carries forward an injected certificate", func(t *testing.T) {
+		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
+		existing := buildConsoleOpenShiftRoute(namespace, host)
+		_ = unstructured.SetNestedField(existing.Object, "CERT", "spec", "tls", "certificate")
+		_ = unstructured.SetNestedField(existing.Object, "KEY", "spec", "tls", "key")
+		existing.SetGroupVersionKind(consoleOpenShiftRouteGVR.GroupVersion().WithKind("Route"))
+		dc := newConsoleRouteDynamicClient(existing)
+
+		if err := reconcileConsoleExposure(context.Background(), dc, namespace, host, IngressModeRoute); err != nil {
+			t.Fatalf("reconcileConsoleExposure: %v", err)
+		}
+
+		route, err := dc.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get console Route: %v", err)
+		}
+		cert, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "certificate")
+		key, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "key")
+		if cert != "CERT" || key != "KEY" {
+			t.Errorf("injected cert not carried forward: cert=%q key=%q", cert, key)
+		}
+	})
+}
