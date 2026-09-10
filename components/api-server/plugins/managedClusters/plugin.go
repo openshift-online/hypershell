@@ -53,6 +53,7 @@ func init() {
 
 		managedClustersRouter := apiV1Router.PathPrefix("/managed_clusters").Subrouter()
 		managedClustersRouter.HandleFunc("", managedClusterHandler.List).Methods(http.MethodGet)
+		managedClustersRouter.HandleFunc("/registration", managedClusterHandler.Register).Methods(http.MethodPost)
 		managedClustersRouter.HandleFunc("/{id}", managedClusterHandler.Get).Methods(http.MethodGet)
 		managedClustersRouter.HandleFunc("", managedClusterHandler.Create).Methods(http.MethodPost)
 		managedClustersRouter.HandleFunc("/{id}", managedClusterHandler.Patch).Methods(http.MethodPatch)
@@ -95,4 +96,5 @@ func init() {
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationDropFleetId())
 	db.RegisterMigration(migrationAddTraceContext())
+	db.RegisterMigration(migrationAddRegistrationFields())
 }

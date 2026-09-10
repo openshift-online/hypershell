@@ -47,3 +47,12 @@ func (d *managedClusterDaoMock) FindByIDs(ctx context.Context, ids []string) (Ma
 func (d *managedClusterDaoMock) All(ctx context.Context) (ManagedClusterList, error) {
 	return d.managedClusters, nil
 }
+
+func (d *managedClusterDaoMock) FindByOIDCSubject(ctx context.Context, subject string) (*ManagedCluster, error) {
+	for _, mc := range d.managedClusters {
+		if mc.OIDCSubject == subject {
+			return mc, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}

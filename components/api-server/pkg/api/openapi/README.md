@@ -111,6 +111,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ListRoleBindings**](docs/DefaultAPI.md#listrolebindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 *DefaultAPI* | [**ListRoles**](docs/DefaultAPI.md#listroles) | **Get** /api/hypershell/v1/roles | List all roles
 *DefaultAPI* | [**ListUsers**](docs/DefaultAPI.md#listusers) | **Get** /api/hypershell/v1/users | List registered users
+*DefaultAPI* | [**RegisterManagedCluster**](docs/DefaultAPI.md#registermanagedcluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a spoke control-plane as a managed cluster
 *DefaultAPI* | [**RevokeGatewayServiceAccount**](docs/DefaultAPI.md#revokegatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 *DefaultAPI* | [**UpdateGatewayNetwork**](docs/DefaultAPI.md#updategatewaynetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
@@ -136,6 +137,8 @@ Class | Method | HTTP request | Description
  - [ManagedCluster](docs/ManagedCluster.md)
  - [ManagedClusterList](docs/ManagedClusterList.md)
  - [ManagedClusterPatchRequest](docs/ManagedClusterPatchRequest.md)
+ - [ManagedClusterRegistrationRequest](docs/ManagedClusterRegistrationRequest.md)
+ - [ManagedClusterRegistrationResponse](docs/ManagedClusterRegistrationResponse.md)
  - [ManagedDatabase](docs/ManagedDatabase.md)
  - [ManagedDatabaseList](docs/ManagedDatabaseList.md)
  - [ManagedDatabasePatchRequest](docs/ManagedDatabasePatchRequest.md)

@@ -117,6 +117,15 @@ func isExemptEndpoint(r *http.Request) bool {
 	return false
 }
 
+func hasManagedClusterRegistrar(jwtRoles []string) bool {
+	for _, role := range jwtRoles {
+		if role == "managed-cluster-registrar" {
+			return true
+		}
+	}
+	return false
+}
+
 func hasGatewayCreator(bindings []BindingSummary) bool {
 	for _, b := range bindings {
 		if b.RoleName == "gateway:creator" {
@@ -244,6 +253,11 @@ func extractGatewayIDFromPath(path string) (resource string, gatewayID string) {
 }
 
 func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string) bool {
+	// JWT-direct: managed-cluster-registrar is never DB-synced; check JWT claim only.
+	if resource == "registration" && method == http.MethodPost {
+		return hasManagedClusterRegistrar(jwtRoles)
+	}
+
 	if resource == "users" {
 		return hasUsersInventoryAccess(bindings, jwtRoles)
 	}

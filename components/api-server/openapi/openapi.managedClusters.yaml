@@ -87,6 +87,67 @@ paths:
             application/json:
               schema:
                 $ref: 'openapi.yaml#/components/schemas/Error'
+  /api/hypershell/v1/managed_clusters/registration:
+    post:
+      operationId: registerManagedCluster
+      summary: Self-register a spoke control-plane as a managed cluster
+      description: |
+        Idempotent. Creates a ManagedCluster record on first call; returns the existing
+        cluster_id on subsequent calls from the same OIDC identity. Updates last_seen_at
+        on every call, making this endpoint double as a heartbeat. Requires the
+        managed-cluster-registrar Keycloak realm role.
+      security:
+        - Bearer: []
+      requestBody:
+        description: Registration request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedClusterRegistrationRequest'
+      responses:
+        '200':
+          description: Already registered; last_seen_at updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedClusterRegistrationResponse'
+        '201':
+          description: Registered for the first time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedClusterRegistrationResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '403':
+          description: Missing managed-cluster-registrar role
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '409':
+          description: Same OIDC subject already registered under a different name
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
   # NEW ENDPOINT START
   /api/hypershell/v1/managed_clusters/{id}:
   # NEW ENDPOINT END
@@ -240,6 +301,34 @@ components:
               type: string
             api_server_url:
               type: string
+            oidc_subject:
+              type: string
+              readOnly: true
+              description: OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable.
+            last_seen_at:
+              type: string
+              format: date-time
+              readOnly: true
+              description: Timestamp of the most recent registration call. Updated on every POST /registration.
+    ManagedClusterRegistrationRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call.
+        description:
+          type: string
+          description: Optional description of the spoke.
+    ManagedClusterRegistrationResponse:
+      type: object
+      required:
+        - cluster_id
+      properties:
+        cluster_id:
+          type: string
+          description: Stable KSUID assigned to this managed cluster. Use as the cluster filter for WatchGateways.
     # NEW SCHEMA START
     ManagedClusterList:
     # NEW SCHEMA END

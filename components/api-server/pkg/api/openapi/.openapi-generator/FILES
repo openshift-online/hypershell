@@ -22,6 +22,8 @@ docs/List.md
 docs/ManagedCluster.md
 docs/ManagedClusterList.md
 docs/ManagedClusterPatchRequest.md
+docs/ManagedClusterRegistrationRequest.md
+docs/ManagedClusterRegistrationResponse.md
 docs/ManagedDatabase.md
 docs/ManagedDatabaseList.md
 docs/ManagedDatabasePatchRequest.md
@@ -61,6 +63,8 @@ model_list.go
 model_managed_cluster.go
 model_managed_cluster_list.go
 model_managed_cluster_patch_request.go
+model_managed_cluster_registration_request.go
+model_managed_cluster_registration_response.go
 model_managed_database.go
 model_managed_database_list.go
 model_managed_database_patch_request.go

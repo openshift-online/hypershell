@@ -15,6 +15,8 @@ Name | Type | Description | Notes
 **KubeconfigSecret** | **string** |  | 
 **Status** | Pointer to **string** |  | [optional] 
 **ApiServerUrl** | Pointer to **string** |  | [optional] 
+**OidcSubject** | Pointer to **string** | OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable. | [optional] [readonly] 
+**LastSeenAt** | Pointer to **time.Time** | Timestamp of the most recent registration call. Updated on every POST /registration. | [optional] [readonly] 
 
 ## Methods
 
@@ -294,6 +296,56 @@ SetApiServerUrl sets ApiServerUrl field to given value.
 `func (o *ManagedCluster) HasApiServerUrl() bool`
 
 HasApiServerUrl returns a boolean if a field has been set.
+
+### GetOidcSubject
+
+`func (o *ManagedCluster) GetOidcSubject() string`
+
+GetOidcSubject returns the OidcSubject field if non-nil, zero value otherwise.
+
+### GetOidcSubjectOk
+
+`func (o *ManagedCluster) GetOidcSubjectOk() (*string, bool)`
+
+GetOidcSubjectOk returns a tuple with the OidcSubject field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetOidcSubject
+
+`func (o *ManagedCluster) SetOidcSubject(v string)`
+
+SetOidcSubject sets OidcSubject field to given value.
+
+### HasOidcSubject
+
+`func (o *ManagedCluster) HasOidcSubject() bool`
+
+HasOidcSubject returns a boolean if a field has been set.
+
+### GetLastSeenAt
+
+`func (o *ManagedCluster) GetLastSeenAt() time.Time`
+
+GetLastSeenAt returns the LastSeenAt field if non-nil, zero value otherwise.
+
+### GetLastSeenAtOk
+
+`func (o *ManagedCluster) GetLastSeenAtOk() (*time.Time, bool)`
+
+GetLastSeenAtOk returns a tuple with the LastSeenAt field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetLastSeenAt
+
+`func (o *ManagedCluster) SetLastSeenAt(v time.Time)`
+
+SetLastSeenAt sets LastSeenAt field to given value.
+
+### HasLastSeenAt
+
+`func (o *ManagedCluster) HasLastSeenAt() bool`
+
+HasLastSeenAt returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
