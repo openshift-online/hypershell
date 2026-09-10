@@ -876,7 +876,10 @@ wait_for_named_rollout() {
 }
 
 wait_for_keycloak() {
-  wait_for_named_rollout keycloak "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+  # The shared e2e cluster can need to scale up a node for this pod (cluster
+  # autoscaler), which alone can take several minutes before it is even
+  # Scheduled. The default rollout timeout is too tight for that.
+  wait_for_named_rollout keycloak "${OPENSHIFT_KEYCLOAK_NAMESPACE}" 600s
 }
 
 configure_oidc_from_routes() {
