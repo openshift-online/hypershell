@@ -424,13 +424,13 @@ environment has been updated to commit `<sha>` and SHALL refresh the same login
 details. The `<sha>` in the comment SHALL be the commit whose digest swap
 completed, so the comment never claims a commit the swap did not deploy.
 
-The comment SHALL NOT contain any credential. It MAY include an `oc login`
-template with the credential redacted (for example
-`oc login --server=<api-url> --token=<redacted>`). The credential itself SHALL be
-delivered only through a channel that only an authorized developer can read, and
-SHALL be short-lived and namespace-scoped, as `openshift-development.spec.md`
-requires. No kubeconfig, token, or password SHALL appear in the comment, the job
-logs, or a public artifact.
+The comment SHALL NOT contain any credential. It SHALL include an `oc login`
+template using the `--web` flag (for example `oc login --server=<api-url>
+--web`), so OpenShift drives the developer's browser through the same
+GitHub-organization-gated OAuth flow the web console uses and handles token
+issuance and refresh itself. No separate credential delivery step is needed: no
+kubeconfig, token, or password SHALL appear in the comment, the job logs, or a
+public artifact.
 
 #### Scenario: Initial comment on pull-request open
 
@@ -457,7 +457,8 @@ logs, or a public artifact.
 - GIVEN the workflow delivers access details
 - WHEN a reader inspects the comment, the job logs, and public artifacts
 - THEN no kubeconfig, token, or password appears in any of them
-- AND the credential is available only through a secure channel
+- AND the `oc login` template uses `--web` so OpenShift issues the credential
+  interactively through the developer's own browser session
 
 ### Requirement: Pull-Request Trust Boundary
 

@@ -127,8 +127,9 @@ pr_env_is_reapable() {
 # Render the pull-request access comment (Pull-Request Comment requirement).
 # Carries the hidden marker so later runs find and update this comment, presents
 # the same non-secret access facts `make openshift-up` prints, and contains no
-# credential -- only a redacted `oc login` template. <updated> is "true" for the
-# per-commit update wording, "false" for the initial comment.
+# credential -- the `oc login` template uses `--web` so OpenShift handles token
+# retrieval and refresh interactively. <updated> is "true" for the per-commit
+# update wording, "false" for the initial comment.
 pr_env_comment_body() {
   local pr_number="$1" head_sha="$2" platform_ns="$3" keycloak_ns="$4"
   local console_url="$5" api_url="$6" web_url="$7" updated="$8"
@@ -148,10 +149,9 @@ This pull request has a live ephemeral OpenShift environment running commit
 
 | Fact | Value |
 |------|-------|
-| Platform namespace | \`${platform_ns}\` |
-| Keycloak namespace | \`${keycloak_ns}\` |
+| Namespaces | Platform: \`${platform_ns}\` Keycloak: \`${keycloak_ns}\` |
 | OpenShift console | ${console_url} |
-| API Route | ${api_url} |
+| API | ${api_url} |
 | Web console | ${web_url} |
 
 Log in through the web console with your GitHub account (you must be a member of
@@ -161,11 +161,9 @@ and refreshed on every new commit.
 <details><summary>CLI access</summary>
 
 \`\`\`
-oc login --server=${api_url} --token=<redacted>
+oc login --server=${api_url} --web
 \`\`\`
 
-The token is delivered only through a secure channel, never in this comment or
-the job logs.
 </details>
 EOF
 }

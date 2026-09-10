@@ -14,10 +14,20 @@ name: E2E
 # used by plan-images arrive as inputs instead of being detected here. The
 # stage's rolled-up result, together with unit's, is turned into a single
 # required check by the `Tests CI Gate` job in tests.yml, so this workflow needs
-# no summary/gate job of its own. The `checks: read` permission and
-# the wait-on-check-action steps below remain: they gate on Konflux image
-# builds, which are an external system this workflow cannot order with
-# `needs:`.
+# no summary/gate job of its own for the workflow_call path. The `checks: read`
+# permission and the wait-on-check-action steps below remain: they gate on
+# Konflux image builds, which are an external system this workflow cannot
+# order with `needs:`.
+#
+# Separately, this workflow also self-triggers via `workflow_run` once the
+# "PR Environment" workflow completes (ephemeral-pr-environments.spec.md), to
+# run the OpenShift e2e suite against the environment that workflow just
+# deployed. That path is entirely independent of the tests.yml orchestration
+# above -- it is its own standalone workflow run, not a reusable-workflow
+# call -- so `plan-images` and `e2e-kind` (which exist only to serve the
+# workflow_call path) are guarded off for it, and its jobs (`e2e-openshift`,
+# `e2e-openshift-main`) surface as their own checks rather than folding into
+# `Tests CI Gate`.
 on:
   workflow_call:
     inputs:
@@ -33,10 +43,14 @@ on:
       pr_test:
         type: string
         default: 'false'
+  workflow_run:
+    workflows: ["PR Environment"]
+    types: [completed]
 
 permissions:
   contents: read
   checks: read
+  pull-requests: read
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
@@ -45,6 +59,11 @@ env:
 jobs:
   plan-images:
     name: Plan component images
+    # Exists only to serve the workflow_call path (invoked from tests.yml);
+    # skip it for the workflow_run-triggered OpenShift e2e path below, which
+    # has its own image handling and would otherwise waste a runner spinning
+    # up the Kind pipeline's image planning for no reason.
+    if: github.event_name != 'workflow_run'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -622,3 +641,231 @@ jobs:
           name: e2e-diagnostics
           path: e2e-diagnostics/
           retention-days: 7
+
+  # Runs the OpenShift e2e suite against the environment the "PR Environment"
+  # workflow just deployed (ephemeral-pr-environments.spec.md). Gated behind
+  # that workflow via workflow_run rather than running inline there, so a
+  # deploy failure and an e2e failure surface as distinct checks. Only fires
+  # for the pull_request-triggered runs of that workflow (never its
+  # closed-PR release run) and only after it completed successfully.
+  e2e-openshift:
+    name: E2E OpenShift
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.workflow_run.pull_requests[0].number }}
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      # A fork PR's "PR Environment" run reports overall conclusion: success
+      # even though its deploy job is skipped (fork PRs never get an
+      # environment, per that workflow's trust boundary) -- the top-level
+      # `if:` on this job cannot see that, only the run's aggregate
+      # conclusion. Check the deploy job's own conclusion directly. Also
+      # re-check the PR is still open: the deploy run this job is gated
+      # behind can be superseded by a newer push, or the PR can close,
+      # between that run finishing and this job starting, and testing a
+      # namespace the reaper (or the "release" job) is tearing down would
+      # just produce confusing failures.
+      - name: Verify the PR environment actually deployed
+        id: pr-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state="$(gh pr view "${PR_NUMBER}" --repo "${{ github.repository }}" --json state -q .state)"
+          deploy_conclusion="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" \
+            --jq '.jobs[] | select(.name == "Deploy PR environment") | .conclusion')"
+          echo "state=${state}" >> "${GITHUB_OUTPUT}"
+          echo "deploy_conclusion=${deploy_conclusion}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install oc and openshell CLI
+        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        run: |
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar -xz -C /usr/local/bin oc kubectl
+          oc version --client
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | OPENSHELL_VERSION=v0.0.110 sh
+          openshell --version
+
+      - name: Log in to the target cluster
+        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        env:
+          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+        run: |
+          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
+            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
+            exit 1
+          fi
+          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+          echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+
+      - name: Read hypershell-e2e client secret
+        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        id: e2e-secret
+        run: |
+          secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
+          echo "::add-mask::${secret}"
+          echo "value=${secret}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run OpenShift e2e suite
+        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        env:
+          E2E_INFRA_DRIVER: openshift
+          E2E_OIDC_GRANT: client_credentials
+          E2E_OIDC_SA_CLIENT_ID: hypershell-e2e
+          E2E_OIDC_SA_CLIENT_SECRET: ${{ steps.e2e-secret.outputs.value }}
+          TERM: dumb
+          NO_COLOR: "1"
+        run: bash tests/e2e/e2e-openshell.sh
+
+      - name: Collect diagnostics
+        if: failure() && steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        run: |
+          mkdir -p e2e-diagnostics
+          oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
+          oc get events --sort-by=.lastTimestamp -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/events.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/api-server.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
+
+      - name: Upload diagnostics
+        if: failure() && steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-env-diagnostics-${{ env.PR_NUMBER }}
+          path: e2e-diagnostics/
+          retention-days: 7
+
+  # Push to main has no persistent PR environment to gate behind, so this runs
+  # the traditional bring-up-test-tear-down cycle in one job: make
+  # openshift-up (with baseline seeding deferred until this push's images are
+  # swapped in, mirroring e2e-kind's push path), swap in the on-push Konflux
+  # images, seed, run the e2e suite, then always tear the environment down so
+  # it does not linger on the shared, capacity-constrained cluster between
+  # runs. No hypershell-github-oauth Secret is provisioned here, so this is
+  # the "traditional" admin/admin auth path (github_idp_enabled() in
+  # scripts/cluster/drivers/openshift.sh is false), not GitHub brokering.
+  e2e-openshift-main:
+    name: E2E OpenShift (main)
+    needs: plan-images
+    if: github.event_name == 'push' && needs.plan-images.outputs.should_run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      OPENSHIFT_NAMESPACE: hypershell-ci-main
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install oc and openshell CLI
+        run: |
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar -xz -C /usr/local/bin oc kubectl
+          oc version --client
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | OPENSHELL_VERSION=v0.0.110 sh
+          openshell --version
+
+      - name: Log in to the target cluster
+        env:
+          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+        run: |
+          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
+            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
+            exit 1
+          fi
+          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+          echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+
+      - name: Deploy / reconcile environment (make openshift-up)
+        env:
+          SKIP_SEED: "true"
+        run: make openshift-up
+
+      - name: Wait for api-server Konflux build
+        if: needs.plan-images.outputs.wait_api_server == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.sha }}
+          check-regexp: 'hypershell-api-server-main-on-push$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for control-plane Konflux build
+        if: needs.plan-images.outputs.wait_control_plane == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.sha }}
+          check-regexp: 'hypershell-control-plane-main-on-push$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for web-console Konflux build
+        if: needs.plan-images.outputs.wait_web_console == 'true'
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.sha }}
+          check-regexp: 'hypershell-web-console-main-on-push$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Swap component images
+        env:
+          API_SERVER_IMAGE: ${{ needs.plan-images.outputs.api_server_image }}
+          CONTROL_PLANE_IMAGE: ${{ needs.plan-images.outputs.control_plane_image }}
+          WEB_CONSOLE_IMAGE: ${{ needs.plan-images.outputs.web_console_image }}
+        run: bash scripts/ci/swap-openshift-images-by-digest.sh
+
+      - name: Seed platform resources
+        env:
+          SEED_STRICT: "true"
+        run: make openshift-seed
+
+      - name: Run e2e tests
+        env:
+          E2E_INFRA_DRIVER: openshift
+          TERM: dumb
+          NO_COLOR: "1"
+        run: make e2e
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p e2e-diagnostics
+          oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
+          oc get events --sort-by=.lastTimestamp -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/events.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/api-server.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-openshift-main-diagnostics
+          path: e2e-diagnostics/
+          retention-days: 7
+
+      - name: Tear down environment (make openshift-down)
+        if: always()
+        run: make openshift-down
