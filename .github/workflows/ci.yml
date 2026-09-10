@@ -1,0 +1,52 @@
+name: CI
+
+# Single orchestrator for the lint -> unit-tests -> e2e pipeline. Each stage is
+# a reusable workflow (on: workflow_call) called in sequence with native
+# `needs:` gating, so a later stage never starts until the earlier one
+# succeeds. This replaces the previous cross-workflow `wait-on-check-action`
+# poller jobs: there is nothing to poll because the dependency edges live in
+# one workflow graph. A failing lint stage short-circuits unit-tests and e2e;
+# a failing unit-tests stage short-circuits e2e -- no wasted Kind run.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Union of the permissions the called workflows need. A reusable workflow can
+# never be granted more than its caller, so this ceiling must cover e2e's
+# `checks: read` (Konflux build waits) in addition to the shared `contents:
+# read`.
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    uses: ./.github/workflows/lint.yml
+    permissions:
+      contents: read
+
+  unit-tests:
+    name: Unit Tests
+    needs: lint
+    uses: ./.github/workflows/unit-tests.yml
+    permissions:
+      contents: read
+
+  e2e:
+    name: E2E
+    needs: unit-tests
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+      checks: read

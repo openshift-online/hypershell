@@ -8,7 +8,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "control_plane": {
@@ -24,7 +25,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "sdk_typescript": {
@@ -42,7 +44,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "gateway_management_ui": {
@@ -58,7 +61,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "operational_dashboard_ui": {
@@ -73,7 +77,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "e2e": {
@@ -86,7 +91,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/e2e.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "pr_test": {
@@ -96,7 +102,8 @@
       "components/pr-test/**",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml"
+      ".github/workflows/lint.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "cli": {
@@ -112,7 +119,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "sdk_go": {
@@ -125,7 +133,8 @@
       "scripts/openapi-ir/**",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   },
   "web_console": {
@@ -143,7 +152,8 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/lint.yml",
-      ".github/workflows/unit-tests.yml"
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/ci.yml"
     ]
   }
 }

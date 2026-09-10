@@ -1,21 +1,15 @@
 name: Lint
 
+# Reusable stage of the CI pipeline. Invoked by .github/workflows/ci.yml, which
+# owns the pull_request/push/merge_group/workflow_dispatch triggers, the
+# concurrency group, and the lint -> unit-tests -> e2e ordering. Running only via
+# workflow_call keeps this from also firing as a standalone workflow (which would
+# double every lint run).
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-  merge_group:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: lint-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   detect-changes:
@@ -272,7 +266,7 @@ jobs:
         run: pnpm test:e2e:chromium
 
   summary:
-    name: Lint CI gate
+    name: CI gate
     if: ${{ always() && !cancelled() }}
     needs:
       - detect-changes

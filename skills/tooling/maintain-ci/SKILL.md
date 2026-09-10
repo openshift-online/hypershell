@@ -15,18 +15,25 @@ Keep required CI coverage complete while running expensive checks only for affec
    shared contracts or upstream paths that can affect it. Set `directory` and `lint_job`;
    `make check` rejects missing or stale component registrations.
 3. Update `.github/workflows/lint.yml` with a detector output, component job, and entry
-   in the stable `Lint CI gate` summary. A skipped component job is acceptable; detector
+   in the stable `Lint / CI gate` summary. A skipped component job is acceptable; detector
    failures, cancellations, and component failures must fail the summary.
 4. Update `.github/workflows/unit-tests.yml` the same way when the component has unit
    tests. Frontend packages share `test-frontend`; Go modules get their own jobs;
    `*_test.sh` files are auto-discovered by `make ci-test` and do not need a job
-   allowlist. Unit tests wait for `Lint CI gate`. E2E waits for `Unit Tests CI gate`
-   before creating the Kind cluster.
+   allowlist. Stage ordering (lint -> unit-tests -> e2e) is owned by the
+   `.github/workflows/ci.yml` orchestrator via native `needs:` edges, not by
+   in-workflow poller jobs: lint, unit-tests, and e2e are reusable workflows
+   (`on: workflow_call`) with no event triggers of their own. Do not add
+   `pull_request`/`push` triggers to a stage workflow (that would double every
+   run) and do not add a job that polls for a preceding stage's gate.
 5. Add or update a path-filtered drift workflow when generated output is committed.
    Include generator inputs, generated outputs, generator configuration, and the workflow
    itself in its path filters.
-6. Use `pull_request` for PR validation and restrict `push` to `main` to avoid duplicate
-   feature-branch runs. Include `merge_group` when the check is required for merge queues.
+6. For the lint/unit-tests/e2e pipeline, event triggers live only on `ci.yml`; the
+   stage workflows stay `on: workflow_call`. For a standalone workflow (e.g. a drift
+   gate), use `pull_request` for PR validation and restrict `push` to `main` to avoid
+   duplicate feature-branch runs. Include `merge_group` when the check is required for
+   merge queues.
 7. Pin every action to a full commit SHA, every container image to a digest, and every
    installed tool to an exact version. Register tools that are not part of a module or
    lockfile in `dependency-age-tools.json`. Run `make check` to enforce immutable pins

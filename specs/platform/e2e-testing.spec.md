@@ -520,7 +520,9 @@ The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT d
 
 ### Requirement: CI Unit Test Workflow
 
-The system SHALL provide a GitHub Actions workflow at `.github/workflows/unit-tests.yml` that runs unit tests after Lint and before E2E. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile. The Kind e2e job SHALL NOT start until the unit-test summary gate succeeds.
+The lint, unit-test, and e2e stages SHALL be ordered by a single orchestrator workflow at `.github/workflows/ci.yml` rather than by cross-workflow status-check polling. `ci.yml` SHALL own the `pull_request`, `push` (to `main`), `merge_group`, and `workflow_dispatch` triggers, the concurrency group, and SHALL call `lint.yml`, `unit-tests.yml`, and `e2e.yml` as reusable workflows (`on: workflow_call`) chained with native `needs:` edges (`lint` -> `unit-tests` -> `e2e`). Because ordering is a dependency edge, a later stage SHALL NOT start until the earlier stage concludes successfully, and there SHALL be no in-workflow job that polls for a preceding stage's summary check. The stage workflows SHALL NOT declare their own event triggers (only `workflow_call`) so they never run as standalone duplicates.
+
+The system SHALL provide a GitHub Actions workflow at `.github/workflows/unit-tests.yml` that runs unit tests as the stage between Lint and E2E. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (component detection, conditional jobs, summary gate). Frontend, Go, and shell unit tests SHALL run in separate jobs and SHALL run only when their inputs changed. Shell unit tests SHALL be auto-discovered (`*_test.sh`) rather than listed in the workflow or Makefile. The Kind e2e stage SHALL NOT start until the unit-test stage succeeds.
 
 The root Makefile SHALL provide a `make unit-test-all` target that runs the same unit test suites as the CI jobs (API server, control plane, CLI/SDK generators, frontend packages, and shell tests) unconditionally -- without the per-component change detection the CI workflow uses -- so a developer can run the full suite locally before pushing. It SHALL provide a `make ci-test` target that runs only the auto-discovered `*_test.sh` shell tests, matching the CI shell-test job.
 
@@ -531,12 +533,12 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 - THEN the API server, control plane, CLI/SDK generator, frontend, and shell unit test suites SHALL all run
 - AND a failure in any suite SHALL fail the `make unit-test-all` command
 
-#### Scenario: Unit Tests Wait for Lint
+#### Scenario: Unit Tests Run After Lint
 
 - GIVEN a pull request is opened or updated
-- WHEN the unit-test workflow starts
-- THEN it SHALL wait for the `Lint CI gate` check to conclude successfully before running any unit test job
-- AND a failing or cancelled lint gate SHALL fail the unit-test summary gate
+- WHEN the `ci.yml` orchestrator runs
+- THEN the `unit-tests` stage SHALL declare `needs: lint` so it does not start until the `lint` stage concludes successfully
+- AND a failing or cancelled `lint` stage SHALL leave the `unit-tests` stage un-started (skipped), not polled for
 
 #### Scenario: Path-Filtered Unit Test Jobs
 
@@ -551,24 +553,24 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 - WHEN `make ci-test` or the shell unit-test job runs
 - THEN that file SHALL be discovered and executed without updating a Makefile allowlist or workflow job list
 
-#### Scenario: E2E Waits for Unit Tests
+#### Scenario: E2E Runs After Unit Tests
 
-- GIVEN the e2e planner decides the Kind suite should run
-- WHEN the e2e workflow proceeds past image planning
-- THEN it SHALL wait for the `Unit Tests CI gate` check to conclude successfully before creating the Kind cluster
-- AND a failing unit-test gate SHALL fail the e2e summary gate without starting Kind
+- GIVEN a pull request is opened or updated
+- WHEN the `ci.yml` orchestrator runs
+- THEN the `e2e` stage SHALL declare `needs: unit-tests` so no e2e job (including image planning and Kind creation) starts until the `unit-tests` stage concludes successfully
+- AND a failing unit-test stage SHALL leave the entire e2e stage un-started (skipped), so Kind is never created for a SHA with failing unit tests
 
 ### Requirement: CI E2E Workflow
 
-The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (concurrency groups, component detection, conditional jobs, summary gate). The workflow SHALL wait for the unit-test summary gate before creating the Kind cluster. The workflow SHALL gate on Konflux image builds completing and pull those images by digest -- it SHALL NOT rebuild component images itself.
+The system SHALL provide a GitHub Actions workflow at `.github/workflows/e2e.yml` that runs the e2e test suite against a Kind cluster. It SHALL run as the final stage of `ci.yml`, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. The workflow SHALL follow the same structural patterns as `.github/workflows/lint.yml` (component detection, conditional jobs, summary gate). The orchestrator's `needs: unit-tests` edge SHALL ensure Kind is never created until the unit-test stage succeeds; the e2e workflow itself SHALL NOT contain a job that polls for the unit-test gate. The workflow SHALL still gate on Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
 #### Scenario: PR Triggers Workflow
 
 - GIVEN a pull request is opened or updated
-- AND the unit-test summary gate has succeeded
+- AND the unit-test stage has succeeded (satisfying the orchestrator's `needs: unit-tests` edge)
 - AND Konflux has built images for changed components
-- WHEN the `e2e` workflow triggers
-- THEN it SHALL: check out the repository, detect which components changed (using `.github/scripts/detect-components.sh`), wait for the `Unit Tests CI gate`, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
+- WHEN the `e2e` stage runs
+- THEN it SHALL: check out the repository, detect which components changed (using `.github/scripts/detect-components.sh`), create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
 
 #### Scenario: Tests Pass
 
@@ -789,9 +791,11 @@ deploy/
       kustomization.yaml
       gatewayclass.yaml
 .github/workflows/
-  lint.yml                 -- CI lint workflow
-  unit-tests.yml           -- CI unit-test workflow (after lint, before e2e)
-  e2e.yml                  -- CI e2e workflow
+  ci.yml                   -- CI orchestrator: calls lint -> unit-tests -> e2e as
+                              reusable workflows, gated with native `needs:`
+  lint.yml                 -- CI lint stage (reusable, on: workflow_call)
+  unit-tests.yml           -- CI unit-test stage (reusable, on: workflow_call)
+  e2e.yml                  -- CI e2e stage (reusable, on: workflow_call)
 ```
 
 `components/pr-test/e2e-openshell.sh` SHALL be deprecated as `ephemeral-pr-environments.spec.md` specifies. Removal is deferred until manual usage migrates; the ROKS variant is out of that deprecation.

@@ -1,49 +1,18 @@
 name: Unit Tests
 
+# Reusable stage of the CI pipeline. Invoked by .github/workflows/ci.yml only
+# after the Lint stage succeeds (parent-level `needs: lint`), so there is no
+# in-workflow wait for lint -- the ordering is a native dependency edge, not a
+# poller. ci.yml owns the triggers, concurrency group, and stage sequencing.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-  merge_group:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
-  checks: read
-
-concurrency:
-  group: unit-tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  wait-for-lint:
-    name: Wait for lint
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - name: Wait for Lint CI gate
-        if: github.event_name != 'workflow_dispatch'
-        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          check-regexp: '(^|/)Lint CI gate$'
-          repo-token: ${{ github.token }}
-          wait-interval: 15
-          # Lint CI gate is the summary job, so it does not appear until every
-          # lint job finishes. Discovery must cover the slowest lint job
-          # (web-console static checks plus the Chromium journey).
-          checks-discovery-timeout: 2400
-          allowed-conclusions: success
-      - name: Skip wait on workflow_dispatch
-        if: github.event_name == 'workflow_dispatch'
-        run: echo "workflow_dispatch does not wait for Lint."
-
   detect-changes:
     name: Detect changed components
-    needs: wait-for-lint
     runs-on: ubuntu-24.04
     outputs:
       api_server: ${{ steps.detect.outputs.api_server }}
@@ -171,10 +140,9 @@ jobs:
         run: make ci-test
 
   summary:
-    name: Unit Tests CI gate
+    name: CI gate
     if: ${{ always() && !cancelled() }}
     needs:
-      - wait-for-lint
       - detect-changes
       - test-frontend
       - test-api-server
@@ -185,7 +153,6 @@ jobs:
     steps:
       - name: Check unit test results
         env:
-          LINT_WAIT_RESULT: ${{ needs.wait-for-lint.result }}
           DETECTION_RESULT: ${{ needs.detect-changes.result }}
           FRONTEND_RESULT: ${{ needs.test-frontend.result }}
           API_SERVER_RESULT: ${{ needs.test-api-server.result }}
@@ -193,7 +160,7 @@ jobs:
           CLI_RESULT: ${{ needs.test-cli.result }}
           BASH_RESULT: ${{ needs.test-bash.result }}
         run: |
-          for result in "${LINT_WAIT_RESULT}" "${DETECTION_RESULT}" "${FRONTEND_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${CLI_RESULT}" "${BASH_RESULT}"; do
+          for result in "${DETECTION_RESULT}" "${FRONTEND_RESULT}" "${API_SERVER_RESULT}" "${CONTROL_PLANE_RESULT}" "${CLI_RESULT}" "${BASH_RESULT}"; do
             if [[ "${result}" == failure || "${result}" == cancelled ]]; then
               echo "One or more unit test jobs failed or were cancelled."
               exit 1

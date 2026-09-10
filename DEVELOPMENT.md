@@ -602,10 +602,13 @@ Makefile or CI allowlist update is needed.
 ### CI
 
 `.github/workflows/unit-tests.yml` runs the same suites in CI, split into
-per-component jobs that only run when their inputs changed. It waits for the
-`Lint CI gate` to pass, and the `e2e.yml` workflow waits for the resulting
-`Unit Tests CI gate` before creating the Kind cluster, so a broken unit test
-blocks e2e instead of spending cluster time on a doomed run.
+per-component jobs that only run when their inputs changed. The
+`.github/workflows/ci.yml` orchestrator calls lint, unit-tests, and e2e as
+reusable workflows chained with native `needs:` edges (lint -> unit-tests ->
+e2e), so unit tests only start once lint succeeds and Kind is only created once
+unit tests succeed - a broken lint or unit test blocks the next stage outright
+rather than spending cluster time on a doomed run, and nothing sits polling for
+a preceding gate.
 
 ### E2E tests
 
