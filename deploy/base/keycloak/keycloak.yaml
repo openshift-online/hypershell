@@ -14,6 +14,8 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         # Keycloak's declarative `--import-realm` does not perform ${VAR:default}
         # substitution on imported realm JSON (upstream keycloak#20199,
@@ -26,6 +28,9 @@ spec:
           image: registry.access.redhat.com/hi/python:3.13-builder@sha256:75f0b15a73e9510e97dc3c3613a8c17794a0efbfc42ecfb4203e419450163763
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop: ["ALL"]
           resources:
@@ -120,6 +125,9 @@ spec:
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop: ["ALL"]
           args:
