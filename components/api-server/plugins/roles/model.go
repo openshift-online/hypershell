@@ -33,10 +33,11 @@ func (d *Role) BeforeCreate(tx *gorm.DB) error {
 }
 
 const (
-	RolePlatformAdmin  = "platform:admin"
-	RoleGatewayCreator = "gateway:creator"
-	RoleGatewayOwner   = "gateway:owner"
-	RoleGatewayViewer  = "gateway:viewer"
+	RolePlatformAdmin           = "platform:admin"
+	RoleGatewayCreator          = "gateway:creator"
+	RoleGatewayOwner            = "gateway:owner"
+	RoleGatewayViewer           = "gateway:viewer"
+	RoleManagedClusterRegistrar = "managed-cluster-registrar"
 )
 
 var JWTSyncedRoles = map[string]bool{

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -24,6 +26,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/registration"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountprovisioner"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/supervisor"
@@ -34,6 +37,35 @@ import (
 )
 
 const defaultManifestsDir = "/manifests/gateway"
+
+// registerWithBackoff calls regClient.Register with exponential backoff until it
+// succeeds. A 403 response is non-retryable: the spoke lacks the required Keycloak
+// role, so it logs a fatal message and exits immediately.
+func registerWithBackoff(ctx context.Context, regClient *registration.Client) (string, error) {
+	backoff := time.Second
+	const maxBackoff = 60 * time.Second
+	for {
+		clusterID, err := regClient.Register(ctx)
+		if err == nil {
+			return clusterID, nil
+		}
+
+		if errors.Is(err, registration.ErrForbidden) {
+			return "", fmt.Errorf("managed-cluster-registrar role not assigned in Keycloak; assign the role and restart: %w", err)
+		}
+
+		log.Printf("WARN spoke registration failed (retrying in %s): %v", backoff, err)
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("registration cancelled: %w", ctx.Err())
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
+}
 
 // instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
 // this instance's identity label onto its legacy gateway namespaces, so a stalled
@@ -72,6 +104,7 @@ func main() {
 	}
 	dialOpts = append(dialOpts, cpotel.GRPCDialOptions()...)
 
+	var tokenProvider *auth.TokenProvider
 	oidcIssuer := os.Getenv("OIDC_ISSUER")
 	if oidcIssuer != "" {
 		oidcClientID := os.Getenv("OIDC_CLIENT_ID")
@@ -83,15 +116,54 @@ func main() {
 			log.Fatalf("OIDC_CLIENT_SECRET is required when OIDC_ISSUER is set")
 		}
 
-		tp := auth.NewTokenProvider(oidcIssuer, oidcClientID, oidcClientSecret)
+		tokenProvider = auth.NewTokenProvider(oidcIssuer, oidcClientID, oidcClientSecret)
 		if endpoint := os.Getenv("OIDC_TOKEN_ENDPOINT"); endpoint != "" {
-			tp.SetTokenEndpoint(endpoint)
+			tokenProvider.SetTokenEndpoint(endpoint)
 			log.Printf("INFO using explicit OIDC token endpoint: %s", endpoint)
 		}
-		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tp)))
+		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tokenProvider)))
 		log.Printf("INFO OIDC authentication enabled for gRPC connections")
 	} else {
 		log.Printf("INFO OIDC authentication disabled for gRPC connections")
+	}
+
+	// Spoke self-registration: resolve cluster_id at runtime before any gRPC watch.
+	// Requires both HYPERSHELL_MANAGED_CLUSTER_NAME and OIDC credentials.
+	if cfg.ManagedClusterName != "" && tokenProvider != nil {
+		regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, tokenProvider)
+
+		clusterID, regErr := registerWithBackoff(ctx, regClient)
+		if regErr != nil {
+			log.Fatalf("FATAL spoke registration failed: %v", regErr)
+		}
+		cfg.ClusterID = clusterID
+		log.Printf("INFO spoke registered as cluster_id=%s (name=%s)", cfg.ClusterID, cfg.ManagedClusterName)
+
+		// Heartbeat: re-register every 60s to update last_seen_at on the hub.
+		go func() {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			var consecutiveFailures int
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if _, err := regClient.Register(ctx); err != nil {
+						consecutiveFailures++
+						if consecutiveFailures >= 5 {
+							log.Printf("ERROR heartbeat has failed %d consecutive times; hub may be unreachable: %v", consecutiveFailures, err)
+						} else {
+							log.Printf("WARN heartbeat registration failed: %v", err)
+						}
+					} else {
+						consecutiveFailures = 0
+					}
+				}
+			}
+		}()
+	} else if cfg.ManagedClusterName != "" {
+		log.Printf("WARN HYPERSHELL_MANAGED_CLUSTER_NAME is set but OIDC is not configured; skipping self-registration")
 	}
 
 	conn, err := grpc.NewClient(cfg.GRPCServerAddr, dialOpts...)

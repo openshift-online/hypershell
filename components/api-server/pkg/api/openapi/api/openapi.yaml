@@ -154,6 +154,67 @@ paths:
       security:
       - Bearer: []
       summary: Create a new managedCluster
+  /api/hypershell/v1/managed_clusters/registration:
+    post:
+      description: |
+        Idempotent. Creates a ManagedCluster record on first call; returns the existing
+        cluster_id on subsequent calls from the same OIDC identity. Updates last_seen_at
+        on every call, making this endpoint double as a heartbeat. Requires the
+        managed-cluster-registrar Keycloak realm role.
+      operationId: registerManagedCluster
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedClusterRegistrationRequest"
+        description: Registration request
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedClusterRegistrationResponse"
+          description: Already registered; last_seen_at updated
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedClusterRegistrationResponse"
+          description: Registered for the first time
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Missing managed-cluster-registrar role
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Same OIDC subject already registered under a different name
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error
+      security:
+      - Bearer: []
+      summary: Self-register a spoke control-plane as a managed cluster
   /api/hypershell/v1/managed_clusters/{id}:
     delete:
       operationId: deleteManagedCluster
@@ -2290,21 +2351,34 @@ components:
             type: string
           api_server_url:
             type: string
+          oidc_subject:
+            description: OIDC sub claim of the service account that registered this
+              cluster. Server-assigned; not writable.
+            readOnly: true
+            type: string
+          last_seen_at:
+            description: Timestamp of the most recent registration call. Updated on
+              every POST /registration.
+            format: date-time
+            readOnly: true
+            type: string
         required:
         - kubeconfig_secret
         - name
         - provider
         type: object
       example:
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        oidc_subject: oidc_subject
         updated_at: 2000-01-23T04:56:07.000+00:00
         provider: provider
-        kind: kind
         name: name
-        created_at: 2000-01-23T04:56:07.000+00:00
         kubeconfig_secret: kubeconfig_secret
         id: id
         href: href
         region: region
+        last_seen_at: 2000-01-23T04:56:07.000+00:00
         status: status
         api_server_url: api_server_url
     ManagedClusterList:
@@ -2326,26 +2400,30 @@ components:
         id: id
         href: href
         items:
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
-          kind: kind
-          name: name
+        - kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
           region: region
+          last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
-          kind: kind
-          name: name
+        - kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
           region: region
+          last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
     ManagedClusterPatchRequest:
@@ -2369,6 +2447,32 @@ components:
           type: string
         api_server_url:
           type: string
+      type: object
+    ManagedClusterRegistrationRequest:
+      example:
+        name: name
+        description: description
+      properties:
+        name:
+          description: "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1).\
+            \ Must match on every subsequent call."
+          type: string
+        description:
+          description: Optional description of the spoke.
+          type: string
+      required:
+      - name
+      type: object
+    ManagedClusterRegistrationResponse:
+      example:
+        cluster_id: cluster_id
+      properties:
+        cluster_id:
+          description: Stable KSUID assigned to this managed cluster. Use as the cluster
+            filter for WatchGateways.
+          type: string
+      required:
+      - cluster_id
       type: object
     ManagedDatabase:
       allOf:

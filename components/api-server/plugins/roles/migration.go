@@ -209,6 +209,49 @@ func migrationAddPlatformAdminRole() *gormigrate.Migration {
 	}
 }
 
+func migrationSeedManagedClusterRegistrarRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026091000000002",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			if err := tx.Where("name = ?", RoleManagedClusterRegistrar).First(&existing).Error; err == nil {
+				return nil
+			}
+			permissions := map[string]interface{}{
+				"managed_clusters": []string{"register"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return err
+			}
+			permStr := string(permJSON)
+			displayName := "Managed Cluster Registrar"
+			description := "Allows a spoke control-plane to self-register via POST /managed_clusters/registration. JWT-direct: no DB binding lifecycle."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleManagedClusterRegistrar,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleManagedClusterRegistrar).Delete(&Role{}).Error
+		},
+	}
+}
+
 func SeedRoles(ctx context.Context, dao RoleDao) error {
 	for _, seed := range builtInRoleSeeds {
 		_, err := dao.GetByName(ctx, seed.Name)

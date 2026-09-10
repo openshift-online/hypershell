@@ -9,6 +9,10 @@ import (
 	"github.com/golang/glog"
 
 	"github.com/openshift-online/hypershell/components/api-server/test"
+
+	// Register the rbac plugin so that UserProvisioningMiddleware is wired onto
+	// apiV1Router for HTTP-path integration tests.
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
 )
 
 func TestMain(m *testing.M) {

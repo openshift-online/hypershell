@@ -26,11 +26,13 @@ erDiagram
     ManagedCluster {
         string ID PK
         string name
+        string oidc_subject
         string provider
         string region
         string kubeconfig_secret
         string status
         string api_server_url
+        time last_seen_at
         time created_at
         time updated_at
         time deleted_at
@@ -225,6 +227,7 @@ All routes under `/api/hypershell/v1/`:
 | GET/PATCH/DELETE | `/gateway_releases/{id}` | Get/Update/Delete |
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
+| POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
 | GET/POST | `/managed_databases` | List/Create |
 | GET/PATCH/DELETE | `/managed_databases/{id}` | Get/Update/Delete |
 

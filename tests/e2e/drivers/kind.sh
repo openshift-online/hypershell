@@ -11,8 +11,83 @@
 
 # Kind uses locally issued certificates. Other drivers may override this seam
 # while reusing the production OIDC and role-assignment behavior below.
+
+# Kind's self-signed CA is not in the system trust store. Instruct the
+# openshell CLI to skip TLS verification for gateway connections. curl already
+# uses -sk (insecure) for all driver requests; this extends the same treatment
+# to the openshell binary.
+export OPENSHELL_GATEWAY_INSECURE=true
+
+# Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind
+# envoy ephemeral port. Two problems motivate this:
+#   1. DNS stub returns both 127.0.0.1 and ::1 for *.localhost; the envoy proxy
+#      only binds IPv4, so curl must prefer IPv4 (--ipv4).
+#   2. Without sudo, iptables cannot redirect port 443 to the ephemeral port
+#      (typically 32768). curl's --connect-to lets us rewrite the TCP target at
+#      the connection layer while keeping the SNI as the original hostname, so
+#      the envoy proxy can route by hostname as normal.
+_KINDCCM_PORT="${_KINDCCM_PORT:-}"
+# _KINDCCM_GW_PORT: IPv4-only socat port used exclusively for the openshell CLI
+# gateway endpoint. curl requests use _KINDCCM_PORT directly (--ipv4 already
+# prevents IPv6). The socat forwarder is started lazily by discover_gateway_endpoint.
+_KINDCCM_GW_PORT="${_KINDCCM_GW_PORT:-}"
+_KINDCCM_SOCAT_PID="${_KINDCCM_SOCAT_PID:-}"
+_kind_discover_port() {
+  if [[ -z "${_KINDCCM_PORT}" ]]; then
+    local proxy_container
+    proxy_container=$(${CONTAINER_ENGINE:-docker} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+    if [[ -n "$proxy_container" ]]; then
+      _KINDCCM_PORT=$(${CONTAINER_ENGINE:-docker} port "${proxy_container}" 443 2>/dev/null \
+        | head -1 | grep -oE '[0-9]+$' || true)
+    fi
+  fi
+}
+# _kind_gw_port - return an IPv4-only port for the openshell CLI gateway endpoint.
+# The openshell CLI (Rust/hyper) prefers IPv6 for *.gw.localhost and does NOT
+# fall back after a TLS RST (Docker's IPv6 NAT is unreliable on some kernels).
+# We front the envoy port with a socat listener bound to 127.0.0.1 only: ::1
+# then gets ECONNREFUSED and hyper retries on 127.0.0.1. curl is unaffected
+# because it already uses --ipv4. Sets _KINDCCM_GW_PORT.
+_kind_start_gw_socat() {
+  [[ -n "${_KINDCCM_GW_PORT}" ]] && return
+  _kind_discover_port
+  local raw_port="${_KINDCCM_PORT}"
+  # When sudo set up iptables (port 443 redirected), socat isn't needed:
+  # the openshell CLI can reach port 443 directly on IPv4 and IPv6 doesn't
+  # matter because port 443 is forwarded by the kernel.
+  if [[ -z "${raw_port}" || "${raw_port}" == "443" ]]; then
+    _KINDCCM_GW_PORT="${raw_port:-443}"
+    return
+  fi
+  if ! command -v socat &>/dev/null; then
+    # socat unavailable; fall back to the raw port and accept that IPv6 may fail.
+    _KINDCCM_GW_PORT="${raw_port}"
+    return
+  fi
+  local socat_port
+  socat_port=$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)" 2>/dev/null)
+  if [[ -z "${socat_port}" ]]; then
+    _KINDCCM_GW_PORT="${raw_port}"
+    return
+  fi
+  socat TCP4-LISTEN:"${socat_port}",bind=127.0.0.1,reuseaddr,fork \
+    TCP4:127.0.0.1:"${raw_port}" &>/dev/null &
+  _KINDCCM_SOCAT_PID=$!
+  _KINDCCM_GW_PORT="${socat_port}"
+}
 _driver_curl() {
-  curl -sk "$@"
+  _kind_discover_port
+  local connect_args=()
+  if [[ -n "${_KINDCCM_PORT}" && "${_KINDCCM_PORT}" != "443" ]]; then
+    connect_args+=(
+      --connect-to "api.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+      --connect-to "keycloak.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+      --connect-to "console.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+      --connect-to "health.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+      --connect-to "observability.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+    )
+  fi
+  curl -sk --ipv4 "${connect_args[@]}" "$@"
 }
 
 # discover_api_host - find the HyperShell API server base URL.
@@ -34,9 +109,11 @@ discover_api_host() {
   local code
   code=$(_driver_curl --connect-timeout 5 -o /dev/null -w '%{http_code}' \
     "${url}/api/hypershell/v1/gateways" 2>/dev/null || true)
+
   # Any HTTP response (401 unauthenticated, 200, 404, ...) proves the route
   # reaches the API server. "000" means the connection never completed -- route
   # not programmed, 443->LB mapping down, or the api-server pod not serving.
+  # _driver_curl handles port remapping transparently when iptables is unavailable.
   if [[ -z "$code" || "$code" == "000" ]]; then
     red "  API route ${url} is not reachable (no HTTP response)"
     red "  Verify: Gateway Programmed, api-server pod Ready, and 443->LB mapping active"
@@ -94,7 +171,12 @@ discover_gateway_endpoint() {
         -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
-        _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
+        _kind_start_gw_socat
+        if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
+          _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"
+        else
+          _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
+        fi
         return
       fi
     fi

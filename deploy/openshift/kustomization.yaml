@@ -115,6 +115,12 @@ patches:
             value: "true"
           - name: RBAC_SERVICE_ACCOUNTS
             value: "service-account-hypershell-control-plane"
+          # Explicit empty: disable the gateway:creator default grant so spoke
+          # service accounts holding only managed-cluster-registrar receive no
+          # gateway permissions. Remove this line to re-enable defaults for
+          # human users if the Keycloak realm role mapping is not yet in place.
+          - name: RBAC_DEFAULT_ROLES
+            value: ""
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--enable-jwt=true"

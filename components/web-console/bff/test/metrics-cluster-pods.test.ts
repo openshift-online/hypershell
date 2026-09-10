@@ -144,7 +144,7 @@ describe("queryClusterPods", () => {
     try {
       await expect(
         queryClusterPods(`http://127.0.0.1:${String(prometheus.port)}`, 5_000),
-      ).rejects.toThrow("No cluster pod capacity data");
+      ).rejects.toThrow("Prometheus query returned no samples");
     } finally {
       prometheus.close();
     }

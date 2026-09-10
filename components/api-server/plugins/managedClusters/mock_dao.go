@@ -33,7 +33,13 @@ func (d *managedClusterDaoMock) Create(ctx context.Context, managedCluster *Mana
 }
 
 func (d *managedClusterDaoMock) Replace(ctx context.Context, managedCluster *ManagedCluster) (*ManagedCluster, error) {
-	return nil, errors.NotImplemented("ManagedCluster").AsError()
+	for i, mc := range d.managedClusters {
+		if mc.ID == managedCluster.ID {
+			d.managedClusters[i] = managedCluster
+			return managedCluster, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
 }
 
 func (d *managedClusterDaoMock) Delete(ctx context.Context, id string) error {
@@ -46,4 +52,13 @@ func (d *managedClusterDaoMock) FindByIDs(ctx context.Context, ids []string) (Ma
 
 func (d *managedClusterDaoMock) All(ctx context.Context) (ManagedClusterList, error) {
 	return d.managedClusters, nil
+}
+
+func (d *managedClusterDaoMock) FindByOIDCSubject(ctx context.Context, subject string) (*ManagedCluster, error) {
+	for _, mc := range d.managedClusters {
+		if mc.OIDCSubject == subject {
+			return mc, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
 }

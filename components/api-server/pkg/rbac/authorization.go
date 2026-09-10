@@ -66,6 +66,19 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			return
 		}
 
+		// Registration is JWT-direct: managed-cluster-registrar is checked from the
+		// JWT claim, never from DB role bindings. This runs before the userID gate so
+		// a transient user-provisioning DB failure never produces a fatal non-retryable
+		// 403 that causes the spoke to exit instead of retrying.
+		if strings.HasSuffix(r.URL.Path, "/managed_clusters/registration") && r.Method == http.MethodPost {
+			if hasManagedClusterRegistrar(extractJWTRoles(r)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		userID := GetUserIDFromContext(r.Context())
 		if userID == "" {
 			http.Error(w, "Forbidden", http.StatusForbidden)
@@ -114,6 +127,19 @@ func isExemptEndpoint(r *http.Request) bool {
 		return true
 	}
 
+	return false
+}
+
+// roleManagedClusterRegistrar mirrors roles.RoleManagedClusterRegistrar; kept
+// local to avoid an import cycle with the managedClusters plugin package.
+const roleManagedClusterRegistrar = "managed-cluster-registrar"
+
+func hasManagedClusterRegistrar(jwtRoles []string) bool {
+	for _, role := range jwtRoles {
+		if role == roleManagedClusterRegistrar {
+			return true
+		}
+	}
 	return false
 }
 
@@ -244,6 +270,11 @@ func extractGatewayIDFromPath(path string) (resource string, gatewayID string) {
 }
 
 func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string) bool {
+	// JWT-direct: managed-cluster-registrar is never DB-synced; check JWT claim only.
+	if resource == "registration" && method == http.MethodPost {
+		return hasManagedClusterRegistrar(jwtRoles)
+	}
+
 	if resource == "users" {
 		return hasUsersInventoryAccess(bindings, jwtRoles)
 	}

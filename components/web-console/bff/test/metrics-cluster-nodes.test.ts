@@ -101,7 +101,7 @@ describe("queryClusterNodes", () => {
     try {
       await expect(
         queryClusterNodes(`http://127.0.0.1:${String(prometheus.port)}`, 5_000),
-      ).rejects.toThrow("No cluster node data");
+      ).rejects.toThrow("Prometheus query returned no samples");
     } finally {
       prometheus.close();
     }

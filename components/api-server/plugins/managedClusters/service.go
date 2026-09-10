@@ -2,6 +2,10 @@ package managedClusters
 
 import (
 	"context"
+	stderrors "errors"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
@@ -20,6 +24,9 @@ type ManagedClusterService interface {
 	All(ctx context.Context) (ManagedClusterList, *errors.ServiceError)
 
 	FindByIDs(ctx context.Context, ids []string) (ManagedClusterList, *errors.ServiceError)
+	// Register upserts a ManagedCluster by (oidcSubject, name). Returns the cluster,
+	// whether it was newly created (true=201, false=200), and any error.
+	Register(ctx context.Context, name, description, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
@@ -147,4 +154,53 @@ func (s *sqlManagedClusterService) All(ctx context.Context) (ManagedClusterList,
 		return nil, errors.GeneralError("Unable to get all managedClusters: %s", err)
 	}
 	return managedClusters, nil
+}
+
+func (s *sqlManagedClusterService) Register(ctx context.Context, name, description, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
+	lockOwnerID, lockErr := s.lockFactory.NewAdvisoryLock(ctx, oidcSubject, managedClustersLockType)
+	if lockErr != nil {
+		return nil, false, errors.DatabaseAdvisoryLock(lockErr)
+	}
+	defer s.lockFactory.Unlock(ctx, lockOwnerID)
+
+	existing, err := s.managedClusterDao.FindByOIDCSubject(ctx, oidcSubject)
+	if err != nil && !stderrors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, errors.GeneralError("registration lookup failed: %s", err)
+	}
+
+	if existing != nil {
+		if existing.Name != name {
+			return nil, false, errors.Conflict("managed cluster already registered under a different name %q", existing.Name)
+		}
+		now := time.Now()
+		existing.LastSeenAt = &now
+		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)
+		if replaceErr != nil {
+			return nil, false, services.HandleUpdateError("ManagedCluster", replaceErr)
+		}
+		return updated, false, nil
+	}
+
+	now := time.Now()
+	cluster := &ManagedCluster{
+		Name:        name,
+		OIDCSubject: oidcSubject,
+		LastSeenAt:  &now,
+	}
+	cluster.CaptureTraceContext(ctx)
+	created, createErr := s.managedClusterDao.Create(ctx, cluster)
+	if createErr != nil {
+		return nil, false, services.HandleCreateError("ManagedCluster", createErr)
+	}
+
+	_, evErr := s.events.Create(ctx, &api.Event{
+		Source:    "ManagedClusters",
+		SourceID:  created.ID,
+		EventType: api.CreateEventType,
+	})
+	if evErr != nil {
+		return nil, false, services.HandleCreateError("ManagedCluster", evErr)
+	}
+
+	return created, true, nil
 }

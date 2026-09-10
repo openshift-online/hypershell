@@ -28,6 +28,8 @@ paths:
                 $ref: '#/components/schemas/ObjectReference'
   /api/hypershell/v1/managed_clusters:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters'
+  /api/hypershell/v1/managed_clusters/registration:
+    $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters~1registration'
   /api/hypershell/v1/managed_clusters/{id}:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters~1{id}'
   /api/hypershell/v1/managed_databases:
@@ -112,6 +114,10 @@ components:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterList'
     ManagedClusterPatchRequest:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterPatchRequest'
+    ManagedClusterRegistrationRequest:
+      $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterRegistrationRequest'
+    ManagedClusterRegistrationResponse:
+      $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterRegistrationResponse'
     ManagedDatabase:
       $ref: 'openapi.managedDatabases.yaml#/components/schemas/ManagedDatabase'
     ManagedDatabaseList:

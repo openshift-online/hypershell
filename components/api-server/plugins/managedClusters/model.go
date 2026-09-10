@@ -1,6 +1,8 @@
 package managedClusters
 
 import (
+	"time"
+
 	hypershellapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"gorm.io/gorm"
@@ -9,12 +11,14 @@ import (
 type ManagedCluster struct {
 	api.Meta
 	hypershellapi.TraceMeta
-	Name             string  `json:"name"`
-	Provider         string  `json:"provider"`
-	Region           *string `json:"region"`
-	KubeconfigSecret string  `json:"kubeconfig_secret"`
-	Status           *string `json:"status"`
-	ApiServerUrl     *string `json:"api_server_url"`
+	Name             string     `json:"name"`
+	Provider         string     `json:"provider"`
+	Region           *string    `json:"region"`
+	KubeconfigSecret string     `json:"kubeconfig_secret"`
+	Status           *string    `json:"status"`
+	ApiServerUrl     *string    `json:"api_server_url"`
+	OIDCSubject      string     `json:"oidc_subject" gorm:"column:oidc_subject"`
+	LastSeenAt       *time.Time `json:"last_seen_at" gorm:"column:last_seen_at"`
 }
 
 type ManagedClusterList []*ManagedCluster

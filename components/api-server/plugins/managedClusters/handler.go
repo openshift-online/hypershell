@@ -1,16 +1,25 @@
 package managedClusters
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
+	"regexp"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/pkg/handlers"
 	"github.com/openshift-online/rh-trex-ai/pkg/services"
 )
+
+// dns1123LabelRE validates K8s DNS label format (RFC 1123): lowercase alphanumeric
+// and hyphens, start/end with alphanumeric, max 63 characters.
+var dns1123LabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
 
 var _ handlers.RestHandler = managedClusterHandler{}
 
@@ -23,6 +32,72 @@ func NewManagedClusterHandler(managedCluster ManagedClusterService, generic serv
 	return &managedClusterHandler{
 		managedCluster: managedCluster,
 		generic:        generic,
+	}
+}
+
+func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) {
+	body, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		handlers.HandleError(r.Context(), w, errors.MalformedRequest("unable to read request body: %s", readErr))
+		return
+	}
+
+	var req openapi.ManagedClusterRegistrationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		handlers.HandleError(r.Context(), w, errors.MalformedRequest("invalid request format: %s", err))
+		return
+	}
+
+	if svcErr := handlers.ValidateNotEmpty(&req, "Name", "name")(); svcErr != nil {
+		handlers.HandleError(r.Context(), w, svcErr)
+		return
+	}
+	if !dns1123LabelRE.MatchString(req.Name) {
+		handlers.HandleError(r.Context(), w, errors.MalformedRequest(
+			"name %q is not a valid K8s DNS label: must be lowercase alphanumeric or hyphens, start and end with alphanumeric, max 63 characters",
+			req.Name,
+		))
+		return
+	}
+
+	ctx := r.Context()
+	token, tokenErr := auth.TokenFromContext(ctx)
+	if tokenErr != nil || token == nil {
+		handlers.HandleError(r.Context(), w, errors.Unauthenticated("missing identity"))
+		return
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		handlers.HandleError(r.Context(), w, errors.Unauthenticated("invalid token claims"))
+		return
+	}
+	oidcSubject, _ := claims["sub"].(string)
+	if oidcSubject == "" {
+		handlers.HandleError(r.Context(), w, errors.Unauthenticated("missing sub claim"))
+		return
+	}
+
+	description := ""
+	if req.Description != nil {
+		description = *req.Description
+	}
+
+	cluster, created, svcErr := h.managedCluster.Register(ctx, req.Name, description, oidcSubject)
+	if svcErr != nil {
+		handlers.HandleError(r.Context(), w, svcErr)
+		return
+	}
+
+	resp := PresentRegistrationResponse(cluster.ID)
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Vary", "Authorization")
+	w.WriteHeader(status)
+	if payload, err := json.Marshal(resp); err == nil {
+		_, _ = w.Write(payload)
 	}
 }
 

@@ -42,8 +42,15 @@ type Config struct {
 	// watches, seeds, and health-checks to those whose cluster_id matches, so a
 	// managed-cluster spoke only ever provisions its own gateways (the pull
 	// model). Empty preserves the single-cluster behaviour of handling every
-	// gateway. Sourced from HYPERSHELL_CLUSTER_ID.
+	// gateway. Sourced from HYPERSHELL_CLUSTER_ID; in production, resolved at
+	// runtime via spoke self-registration and should NOT be set in gitops.
 	ClusterID string
+
+	// ManagedClusterName is the human-readable name of this spoke cluster, unique
+	// per fleet (e.g. hyp0-mc1). When set together with OIDC credentials, the
+	// control plane self-registers on startup, resolving ClusterID dynamically.
+	// Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
+	ManagedClusterName string
 
 	// ServiceAccountProvisionerAddress is the in-cluster bind address for the
 	// internal service-account provisioner gRPC server. A NetworkPolicy restricts
@@ -91,6 +98,7 @@ func Load() (*Config, error) {
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
 		ClusterID:                        getEnv("HYPERSHELL_CLUSTER_ID", ""),
+		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
 		ServiceAccountProvisionerAddress: getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS", ""),
 
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),

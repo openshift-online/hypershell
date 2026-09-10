@@ -55,6 +55,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/platform/naming-multitenancy.spec.md` | standards | - | ALL | cross-cutting, global-architecture |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
+| `platform/managed-cluster-registration.spec.md` | platform | ManagedCluster self-registration, oidc_subject upsert, last_seen_at heartbeat loop | API, CP | data-model, rbac-enforcement, control-plane |
 | `security/rbac-enforcement.spec.md` | security | User, Role, RoleBinding, RBAC middleware | API | data-model |
 | `standards/security/security.spec.md` | standards | - | ALL | - |
 | `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |
