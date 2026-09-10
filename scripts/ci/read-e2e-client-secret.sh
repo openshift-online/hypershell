@@ -7,9 +7,10 @@
 # credentials for the admin path, token exchange for the developer path), never
 # through a brokered GitHub user's password grant. The client secret is per-PR:
 # it is the same value the workflow put in the hypershell-github-oauth Secret in
-# the Keycloak namespace, which the realm import substitutes into the
-# hypershell-e2e client via the ${HYPERSHELL_E2E_CLIENT_SECRET} placeholder. This
-# script prints that secret to stdout so the workflow can mask it and export
+# the Keycloak namespace, which the render-realm-config init container splices
+# into the hypershell-e2e client via the ${HYPERSHELL_E2E_CLIENT_SECRET}
+# placeholder. This script prints that secret to stdout so the workflow can
+# mask it and export
 # E2E_OIDC_SA_CLIENT_SECRET; it must never be echoed into logs, the pull-request
 # comment, or a public artifact.
 #
