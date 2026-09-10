@@ -9,9 +9,12 @@ name: PR Environment
 # (out-of-band reaper, deploy/e2e/reaper) so a developer can use it as a live
 # debug target.
 #
-# The OpenShift e2e suite does NOT run here. It is a separate job (E2E
-# OpenShift in e2e.yml), gated behind this workflow via a workflow_run
-# trigger so a deploy failure and an e2e failure surface as distinct checks.
+# The OpenShift e2e suite does NOT run here. Once deploy succeeds, the "e2e"
+# job below calls e2e.yml's "E2E OpenShift" job directly (workflow_call), so
+# a deploy failure and an e2e failure surface as distinct checks. A relative-
+# path workflow_call resolves against this branch's own e2e.yml, unlike a
+# workflow_run listener (which is only ever matched against the workflow file
+# on the default branch and so would never fire from a PR that adds it).
 #
 # Trust boundary: pull_request only (never pull_request_target). Every job is
 # additionally guarded on head.repo == this repo, so a fork PR receives no
@@ -75,10 +78,6 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
-          baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
-          baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
-
           # Deploy is unconditional for a PR environment, but only components this
           # PR actually built get their on-pr image (waited for and swapped by
           # digest). Patterns MUST mirror each component's pull-request Konflux CEL
@@ -90,7 +89,10 @@ jobs:
           if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
 
           tag="on-pr-${PR_HEAD_SHA}"
-          api_img="${baseline_api}"; cp_img="${baseline_cp}"; wc_img="${baseline_wc}"
+          # Empty image refs leave the component on whatever make openshift-up
+          # deployed (baseline). Only components this PR actually built are
+          # swapped, so we do not re-roll unchanged deployments every run.
+          api_img=""; cp_img=""; wc_img=""
           wait_api=false; wait_cp=false; wait_wc=false
           if [[ "${api_konflux}" == "true" ]]; then api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"; wait_api=true; fi
           if [[ "${cp_konflux}" == "true" ]]; then cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"; wait_cp=true; fi
@@ -150,6 +152,12 @@ jobs:
           fi
           oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
           echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+          # Cluster global pull secret so skopeo/oc image info can inspect the
+          # private Konflux registry. CI SA is cluster-admin on the PR cluster.
+          mkdir -p "${HOME}/.docker"
+          oc get secret pull-secret -n openshift-config \
+            -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > "${HOME}/.docker/config.json"
+          echo "Installed cluster pull secret for registry inspect"
 
       # Provision the GitHub-broker Secret BEFORE Keycloak's first boot, so the
       # realm import substitutes it into the GitHub identity provider and the
@@ -175,8 +183,16 @@ jobs:
           fi
           kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
           oc create namespace "${kc_ns}" --dry-run=client -o yaml | oc apply -f - >/dev/null
-          # Per-PR hypershell-e2e client secret; masked so it never lands in logs.
-          e2e_secret="$(openssl rand -hex 24)"
+          # Reuse the first-boot e2e client secret. Keycloak --import-realm
+          # stamps hypershell-e2e only on first boot; rotating the Secret on
+          # synchronize would desync E2E_OIDC_SA_CLIENT_SECRET from the realm.
+          existing="$(oc get secret hypershell-github-oauth -n "${kc_ns}" \
+            -o jsonpath='{.data.e2e-client-secret}' 2>/dev/null || true)"
+          if [[ -n "${existing}" ]]; then
+            e2e_secret="$(printf '%s' "${existing}" | base64 -d)"
+          else
+            e2e_secret="$(openssl rand -hex 24)"
+          fi
           echo "::add-mask::${e2e_secret}"
           # FAIL-CLOSED: idp-enabled stays false until the first-broker-login
           # org-gate/allowlist authenticator (PR-ENV-8 SPI) is deployed. The
@@ -194,6 +210,7 @@ jobs:
             --from-literal=callback-url="${GITHUB_OAUTH_CALLBACK_URL}" \
             --from-literal=org="${PR_ENV_GITHUB_ORG}" \
             --from-literal=allowlist="${PR_ENV_GITHUB_ALLOWLIST}" \
+            --from-literal=e2e-client-enabled=true \
             --from-literal=e2e-client-secret="${e2e_secret}" \
             --dry-run=client -o yaml | oc apply -f - >/dev/null
           echo "Provisioned hypershell-github-oauth in ${kc_ns} (GitHub IdP disabled until org-gate SPI)"
@@ -268,6 +285,7 @@ jobs:
             echo "api_url=https://${api_host}"
             echo "web_url=https://${web_host}"
             echo "console_url=$(oc whoami --show-console 2>/dev/null || echo '')"
+            echo "cluster_api_url=$(oc whoami --show-server 2>/dev/null || echo '')"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Post / update access comment
@@ -279,6 +297,7 @@ jobs:
           CONSOLE_URL: ${{ steps.urls.outputs.console_url }}
           API_URL: ${{ steps.urls.outputs.api_url }}
           WEB_URL: ${{ steps.urls.outputs.web_url }}
+          CLUSTER_API_URL: ${{ steps.urls.outputs.cluster_api_url }}
         run: bash scripts/ci/upsert-pr-comment.sh
 
       - name: Collect diagnostics
@@ -297,6 +316,18 @@ jobs:
           name: pr-env-diagnostics-${{ github.event.pull_request.number }}
           path: e2e-diagnostics/
           retention-days: 7
+
+  # --- Run the OpenShift e2e suite against the deployed environment ---------
+  # needs: deploy means this is skipped by default job-dependency semantics
+  # whenever deploy is skipped (fork PR, closed-PR run) or fails, with no
+  # extra `if:` needed here.
+  e2e:
+    name: E2E OpenShift
+    needs: deploy
+    uses: ./.github/workflows/e2e.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+    secrets: inherit
 
   # --- Release the environment on merge/close (timebox is the backstop) -----
   release:

@@ -19,15 +19,23 @@ name: E2E
 # Konflux image builds, which are an external system this workflow cannot
 # order with `needs:`.
 #
-# Separately, this workflow also self-triggers via `workflow_run` once the
-# "PR Environment" workflow completes (ephemeral-pr-environments.spec.md), to
-# run the OpenShift e2e suite against the environment that workflow just
-# deployed. That path is entirely independent of the tests.yml orchestration
-# above -- it is its own standalone workflow run, not a reusable-workflow
-# call -- so `plan-images` and `e2e-kind` (which exist only to serve the
-# workflow_call path) are guarded off for it, and its jobs (`e2e-openshift`,
-# `e2e-openshift-main`) surface as their own checks rather than folding into
-# `Tests CI Gate`.
+# Separately, .github/workflows/pr-environment.yml's `deploy` job also calls
+# this workflow directly (workflow_call, relative path), passing `pr_number`,
+# once it has stood up an ephemeral PR environment
+# (ephemeral-pr-environments.spec.md) -- a workflow_run listener was tried
+# first, but workflow_run triggers only match the workflow file already on
+# the default branch, so it would never fire on the PR introducing it.
+#
+# `github.event_name` cannot tell these two callers apart: it is inherited
+# from whichever event originally triggered the top of the call chain (a
+# reusable workflow's own `github.event_name` is NOT the literal string
+# "workflow_call" -- this is a common GitHub Actions gotcha, see
+# actions/runner#3146), and tests.yml's pull_request-triggered runs and
+# pr-environment.yml's pull_request-triggered runs both report
+# `github.event_name == 'pull_request'` regardless of which one is calling.
+# `inputs.pr_number` is therefore the only reliable signal: tests.yml never
+# passes it, so `plan-images`/`e2e-kind` (which exist only to serve that
+# path) gate on its absence, and `e2e-openshift` gates on its presence.
 on:
   workflow_call:
     inputs:
@@ -43,14 +51,18 @@ on:
       pr_test:
         type: string
         default: 'false'
-  workflow_run:
-    workflows: ["PR Environment"]
-    types: [completed]
+      pr_number:
+        description: >-
+          Pull request number to run the OpenShift e2e suite against. Set
+          only by pr-environment.yml; left empty by tests.yml's orchestration
+          call, which instead drives plan-images/e2e-kind via the flags above.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
   checks: read
-  pull-requests: read
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
@@ -59,11 +71,12 @@ env:
 jobs:
   plan-images:
     name: Plan component images
-    # Exists only to serve the workflow_call path (invoked from tests.yml);
-    # skip it for the workflow_run-triggered OpenShift e2e path below, which
-    # has its own image handling and would otherwise waste a runner spinning
-    # up the Kind pipeline's image planning for no reason.
-    if: github.event_name != 'workflow_run'
+    # Exists only to serve tests.yml's orchestration call; skip it for the
+    # pr-environment.yml-invoked OpenShift e2e path below, which has its own
+    # image handling and would otherwise waste a runner planning Kind images
+    # nobody asked for. See the `on:` block above for why this checks
+    # `inputs.pr_number` rather than `github.event_name`.
+    if: inputs.pr_number == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -643,53 +656,32 @@ jobs:
           retention-days: 7
 
   # Runs the OpenShift e2e suite against the environment the "PR Environment"
-  # workflow just deployed (ephemeral-pr-environments.spec.md). Gated behind
-  # that workflow via workflow_run rather than running inline there, so a
-  # deploy failure and an e2e failure surface as distinct checks. Only fires
-  # for the pull_request-triggered runs of that workflow (never its
-  # closed-PR release run) and only after it completed successfully.
+  # workflow's deploy job just deployed (ephemeral-pr-environments.spec.md).
+  # Invoked directly by that job via workflow_call (needs: deploy) rather than
+  # running inline there, so a deploy failure and an e2e failure surface as
+  # distinct checks. needs: deploy already means this only runs once deploy
+  # has succeeded -- a skipped deploy (fork PR, or a closed-PR run) skips this
+  # too by default job-dependency semantics, and pr-environment.yml's own
+  # concurrency group (cancel-in-progress) cancels this run along with the
+  # rest of that workflow run if the PR is superseded or closed mid-flight.
   e2e-openshift:
     name: E2E OpenShift
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
+    # See the `on:` block for why this checks inputs.pr_number rather than
+    # github.event_name.
+    if: inputs.pr_number != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.workflow_run.pull_requests[0].number }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ inputs.pr_number }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
-      # A fork PR's "PR Environment" run reports overall conclusion: success
-      # even though its deploy job is skipped (fork PRs never get an
-      # environment, per that workflow's trust boundary) -- the top-level
-      # `if:` on this job cannot see that, only the run's aggregate
-      # conclusion. Check the deploy job's own conclusion directly. Also
-      # re-check the PR is still open: the deploy run this job is gated
-      # behind can be superseded by a newer push, or the PR can close,
-      # between that run finishing and this job starting, and testing a
-      # namespace the reaper (or the "release" job) is tearing down would
-      # just produce confusing failures.
-      - name: Verify the PR environment actually deployed
-        id: pr-check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          state="$(gh pr view "${PR_NUMBER}" --repo "${{ github.repository }}" --json state -q .state)"
-          deploy_conclusion="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" \
-            --jq '.jobs[] | select(.name == "Deploy PR environment") | .conclusion')"
-          echo "state=${state}" >> "${GITHUB_OUTPUT}"
-          echo "deploy_conclusion=${deploy_conclusion}" >> "${GITHUB_OUTPUT}"
-
       - name: Install oc and openshell CLI
-        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
         run: |
           mkdir -p "$(dirname "${KUBECONFIG}")"
           curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
@@ -699,7 +691,6 @@ jobs:
           openshell --version
 
       - name: Log in to the target cluster
-        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
         env:
           SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
           TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
@@ -711,27 +702,21 @@ jobs:
           oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
           echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
 
-      - name: Read hypershell-e2e client secret
-        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
-        id: e2e-secret
-        run: |
-          secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
-          echo "::add-mask::${secret}"
-          echo "value=${secret}" >> "${GITHUB_OUTPUT}"
-
       - name: Run OpenShift e2e suite
-        if: steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
         env:
           E2E_INFRA_DRIVER: openshift
           E2E_OIDC_GRANT: client_credentials
           E2E_OIDC_SA_CLIENT_ID: hypershell-e2e
-          E2E_OIDC_SA_CLIENT_SECRET: ${{ steps.e2e-secret.outputs.value }}
           TERM: dumb
           NO_COLOR: "1"
-        run: bash tests/e2e/e2e-openshell.sh
+        run: |
+          secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
+          echo "::add-mask::${secret}"
+          export E2E_OIDC_SA_CLIENT_SECRET="${secret}"
+          bash tests/e2e/e2e-openshell.sh
 
       - name: Collect diagnostics
-        if: failure() && steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        if: failure()
         run: |
           mkdir -p e2e-diagnostics
           oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
@@ -740,10 +725,10 @@ jobs:
           oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
 
       - name: Upload diagnostics
-        if: failure() && steps.pr-check.outputs.state == 'OPEN' && steps.pr-check.outputs.deploy_conclusion == 'success'
+        if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: pr-env-diagnostics-${{ env.PR_NUMBER }}
+          name: pr-env-diagnostics-${{ inputs.pr_number }}
           path: e2e-diagnostics/
           retention-days: 7
 
@@ -771,12 +756,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install oc and openshell CLI
+      - name: Install oc, skopeo, and openshell CLI
         run: |
           mkdir -p "$(dirname "${KUBECONFIG}")"
           curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
             | sudo tar -xz -C /usr/local/bin oc kubectl
           oc version --client
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+          skopeo --version
           curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | OPENSHELL_VERSION=v0.0.110 sh
           openshell --version
 
@@ -791,6 +779,9 @@ jobs:
           fi
           oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
           echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+          mkdir -p "${HOME}/.docker"
+          oc get secret pull-secret -n openshift-config \
+            -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > "${HOME}/.docker/config.json"
 
       - name: Deploy / reconcile environment (make openshift-up)
         env:

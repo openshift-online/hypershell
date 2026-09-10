@@ -77,6 +77,12 @@ spec:
                   name: hypershell-github-oauth
                   key: e2e-client-secret
                   optional: true
+            - name: HYPERSHELL_E2E_CLIENT_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: e2e-client-enabled
+                  optional: true
           command:
             - /bin/bash
             - -c
@@ -94,14 +100,16 @@ spec:
                   return json.dumps(value)[1:-1]
 
               idp_enabled = os.environ.get("PR_ENV_GITHUB_IDP_ENABLED", "false").strip().lower() == "true"
+              e2e_enabled = os.environ.get("HYPERSHELL_E2E_CLIENT_ENABLED", "false").strip().lower() == "true"
 
               replacements = {
                   '"${PR_ENV_GITHUB_IDP_ENABLED:false}"': "true" if idp_enabled else "false",
+                  '"${HYPERSHELL_E2E_CLIENT_ENABLED:false}"': "true" if e2e_enabled else "false",
                   "${PR_ENV_GITHUB_CLIENT_ID:}": esc(os.environ.get("PR_ENV_GITHUB_CLIENT_ID", "")),
                   "${PR_ENV_GITHUB_CLIENT_SECRET:}": esc(os.environ.get("PR_ENV_GITHUB_CLIENT_SECRET", "")),
                   "${PR_ENV_GITHUB_ORG:openshift-online}": esc(os.environ.get("PR_ENV_GITHUB_ORG", "openshift-online")),
                   "${PR_ENV_GITHUB_ALLOWLIST:}": esc(os.environ.get("PR_ENV_GITHUB_ALLOWLIST", "")),
-                  "${HYPERSHELL_E2E_CLIENT_SECRET:e2e-secret}": esc(os.environ.get("HYPERSHELL_E2E_CLIENT_SECRET", "e2e-secret")),
+                  "${HYPERSHELL_E2E_CLIENT_SECRET:}": esc(os.environ.get("HYPERSHELL_E2E_CLIENT_SECRET", "")),
               }
 
               for placeholder, value in replacements.items():
@@ -225,15 +233,16 @@ spec:
       targetPort: 8080
 ---
 # hypershell-e2e client: confidential CI client for the OpenShift pull-request
-# e2e suite (ephemeral-pr-environments.spec.md). Its service account holds
-# platform:admin + gateway:creator so E2E_OIDC_GRANT=client_credentials can
-# obtain admin tokens without a GitHub login (the brokered PR environments
-# have no password grant). Standard token exchange is enabled so the suite
-# can impersonate the seeded developer principal for the developer-tier RBAC
-# areas. Distinct from hypershell-provisioner, which is too privileged
-# (manage-clients / manage-users) for e2e. Its "description" field below is
-# kept short because Keycloak's CLIENT.DESCRIPTION column is VARCHAR(255);
-# exceeding that fails the whole realm import at boot.
+# e2e suite (ephemeral-pr-environments.spec.md). Disabled by default so Kind,
+# local, and stage realms do not ship an enabled admin client with a well-known
+# secret. PR environments set e2e-client-enabled=true and a random secret via
+# hypershell-github-oauth. Its service account holds platform:admin +
+# gateway:creator so E2E_OIDC_GRANT=client_credentials can obtain admin tokens
+# without a GitHub login. Standard token exchange is enabled so the suite can
+# impersonate the seeded developer principal. Distinct from
+# hypershell-provisioner (manage-clients / manage-users). The "description"
+# field below is kept short because Keycloak's CLIENT.DESCRIPTION column is
+# VARCHAR(255); exceeding that fails the whole realm import at boot.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -391,12 +400,12 @@ data:
         {
           "clientId": "hypershell-e2e",
           "description": "Confidential CI client for the OpenShift e2e suite (ephemeral-pr-environments.spec.md)",
-          "enabled": true,
+          "enabled": "${HYPERSHELL_E2E_CLIENT_ENABLED:false}",
           "publicClient": false,
           "serviceAccountsEnabled": true,
           "standardFlowEnabled": false,
           "directAccessGrantsEnabled": false,
-          "secret": "${HYPERSHELL_E2E_CLIENT_SECRET:e2e-secret}",
+          "secret": "${HYPERSHELL_E2E_CLIENT_SECRET:}",
           "attributes": {
             "standard.token.exchange.enabled": "true"
           },

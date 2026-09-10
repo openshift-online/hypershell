@@ -31,6 +31,9 @@ spec:
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
+          # OpenShift SCC assigns a numeric UID. On a non-OpenShift cluster the
+          # ose-cli image must resolve to a non-root user or the pod fails
+          # admission (runAsNonRoot is set without runAsUser).
           containers:
             - name: reaper
               # OVERRIDE: any image carrying bash + a Kubernetes CLI. ose-cli
@@ -49,6 +52,13 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities:
                   drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
               volumeMounts:
                 - name: reaper-scripts
                   mountPath: /opt/reaper

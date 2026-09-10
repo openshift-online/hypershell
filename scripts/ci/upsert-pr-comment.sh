@@ -16,7 +16,7 @@
 #   PR_HEAD_SHA                   head commit SHA (required)
 #   PR_ENV_UPDATED                "true" for the per-commit update wording
 #   PLATFORM_NS / KEYCLOAK_NS     namespace group
-#   CONSOLE_URL / API_URL / WEB_URL   access URLs
+#   CONSOLE_URL / API_URL / WEB_URL / CLUSTER_API_URL   access URLs
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,6 +35,7 @@ body="$(pr_env_comment_body \
   "${CONSOLE_URL:-}" \
   "${API_URL:-}" \
   "${WEB_URL:-}" \
+  "${CLUSTER_API_URL:-}" \
   "${PR_ENV_UPDATED:-false}")"
 
 # Find an existing marked comment (paginate; the marker is unique to this bot).
