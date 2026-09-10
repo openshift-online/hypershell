@@ -14,43 +14,28 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-      containers:
-        - name: keycloak
-          image: quay.io/keycloak/keycloak:26.7.2@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669
-          imagePullPolicy: IfNotPresent
+      initContainers:
+        # Keycloak's declarative `--import-realm` does not perform ${VAR:default}
+        # substitution on imported realm JSON (upstream keycloak#20199,
+        # keycloak#12069) - it only stores or chokes on the literal placeholder
+        # text. This container resolves the placeholders itself from the same
+        # Secret-backed env vars the realm comments describe, writing the
+        # rendered realm to an emptyDir that the keycloak container imports from
+        # instead of the raw ConfigMap.
+        - name: render-realm-config
+          image: registry.access.redhat.com/hi/python:3.13-builder@sha256:75f0b15a73e9510e97dc3c3613a8c17794a0efbfc42ecfb4203e419450163763
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-          args:
-            - start-dev
-            - --import-realm
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
           env:
-            - name: JAVA_OPTS_APPEND
-              value: "-Djava.security.egd=file:/dev/./urandom"
-            - name: KC_BOOTSTRAP_ADMIN_USERNAME
-              value: admin
-            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
-              value: admin
-            - name: KC_HTTP_PORT
-              value: "8080"
-            - name: KC_HEALTH_ENABLED
-              value: "true"
-            # KC_HOSTNAME pins the issuer/frontend URL to HTTPS; a TLS-terminating
-            # proxy (the networking Gateway in Kind, the Route on OpenShift)
-            # fronts the plain-HTTP listener below. Overlays patch this to their
-            # own external hostname (deploy/kind, deploy/keycloak).
-            - name: KC_HOSTNAME
-              value: "https://keycloak.hypershell.localhost"
-            - name: KC_PROXY_HEADERS
-              value: "xforwarded"
-            # GitHub-brokered login for ephemeral pull-request environments
-            # (ephemeral-pr-environments.spec.md). These feed the ${...}
-            # placeholders in the realm import. The Secret is optional and absent
-            # on Kind/local/stage, so the realm resolves its defaults there (IdP
-            # disabled, empty client, e2e client secret "e2e-secret"). The
-            # pull-request workflow creates hypershell-github-oauth in this
-            # namespace before Keycloak's first boot to enable brokering.
             - name: PR_ENV_GITHUB_IDP_ENABLED
               valueFrom:
                 secretKeyRef:
@@ -87,6 +72,78 @@ spec:
                   name: hypershell-github-oauth
                   key: e2e-client-secret
                   optional: true
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              python3 - <<'PY'
+              import json
+              import os
+
+              with open("/config/hypershell-realm.json") as f:
+                  text = f.read()
+
+              def esc(value):
+                  # JSON-escape a value for splicing between existing quotes.
+                  return json.dumps(value)[1:-1]
+
+              idp_enabled = os.environ.get("PR_ENV_GITHUB_IDP_ENABLED", "false").strip().lower() == "true"
+
+              replacements = {
+                  '"${PR_ENV_GITHUB_IDP_ENABLED:false}"': "true" if idp_enabled else "false",
+                  "${PR_ENV_GITHUB_CLIENT_ID:}": esc(os.environ.get("PR_ENV_GITHUB_CLIENT_ID", "")),
+                  "${PR_ENV_GITHUB_CLIENT_SECRET:}": esc(os.environ.get("PR_ENV_GITHUB_CLIENT_SECRET", "")),
+                  "${PR_ENV_GITHUB_ORG:openshift-online}": esc(os.environ.get("PR_ENV_GITHUB_ORG", "openshift-online")),
+                  "${PR_ENV_GITHUB_ALLOWLIST:}": esc(os.environ.get("PR_ENV_GITHUB_ALLOWLIST", "")),
+                  "${HYPERSHELL_E2E_CLIENT_SECRET:e2e-secret}": esc(os.environ.get("HYPERSHELL_E2E_CLIENT_SECRET", "e2e-secret")),
+              }
+
+              for placeholder, value in replacements.items():
+                  text = text.replace(placeholder, value)
+
+              # Fail the init container (not Keycloak's boot) on malformed output.
+              json.loads(text)
+
+              with open("/rendered/hypershell-realm.json", "w") as f:
+                  f.write(text)
+              PY
+          volumeMounts:
+            - name: realm-config-source
+              mountPath: /config
+              readOnly: true
+            - name: realm-config
+              mountPath: /rendered
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.7.2@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          args:
+            - start-dev
+            - --import-realm
+          env:
+            - name: JAVA_OPTS_APPEND
+              value: "-Djava.security.egd=file:/dev/./urandom"
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: admin
+            - name: KC_HTTP_PORT
+              value: "8080"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            # KC_HOSTNAME pins the issuer/frontend URL to HTTPS; a TLS-terminating
+            # proxy (the networking Gateway in Kind, the Route on OpenShift)
+            # fronts the plain-HTTP listener below. Overlays patch this to their
+            # own external hostname (deploy/kind, deploy/keycloak).
+            - name: KC_HOSTNAME
+              value: "https://keycloak.hypershell.localhost"
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
           ports:
             - containerPort: 8080
               name: http
@@ -135,9 +192,11 @@ spec:
               mountPath: /opt/keycloak/themes/hypershell/login/messages/messages_en.properties
               subPath: messages_en.properties
       volumes:
-        - name: realm-config
+        - name: realm-config-source
           configMap:
             name: keycloak-realm
+        - name: realm-config
+          emptyDir: {}
         - name: hypershell-theme
           configMap:
             name: keycloak-hypershell-theme
