@@ -38,12 +38,10 @@ user confidence and actionable failure context, not operational telemetry.
 
 ### Scope note
 
-This spec covers the **data model** (provisioning conditions on the Gateway
-resource) and the **behavioral contract** (when each condition transitions). UI
-layout, animation, and visual design are out of scope - the UI consumes the
-conditions and renders them according to its own design system. The spec does
-define the user-facing step labels and ordering so that all consumers present a
-consistent provisioning narrative.
+This spec covers three concerns end-to-end: the **data model** (provisioning
+conditions on the Gateway resource), the **behavioral contract** (when each
+condition transitions), and the **UI presentation** (how the gateway detail view
+renders provisioning progress using PatternFly's `ProgressStepper` component).
 
 ---
 
@@ -92,10 +90,10 @@ The Gateway resource SHALL carry an ordered list of provisioning conditions that
 describe sub-phase progress during provisioning. The conditions SHALL be
 persisted in the API server and exposed via both the REST and gRPC APIs.
 
-The conditions list SHALL only be present (non-null) while the gateway `phase` is
-`Pending`, `Provisioning`, or `Failed`. When a gateway reaches `Running`, the
-platform MAY clear the conditions list or retain it with all steps `Complete` -
-the UI treats `Running` phase as the authoritative "done" signal regardless.
+The conditions list SHALL be retained across all gateway phases, including
+`Running`. When a gateway reaches `Running`, all conditions SHALL have `status`
+set to `Complete`. Retaining the list allows the UI to show which provisioning
+steps the gateway went through, even after provisioning finishes.
 
 #### Scenario: Conditions appear on a newly created gateway
 
@@ -145,7 +143,9 @@ conditions are `Complete`.
 - GIVEN the GatewayReconciler is processing the `DatabaseReady` step
 - WHEN the ManagedDatabase resolution or DDL provisioning fails
 - THEN it SHALL set `DatabaseReady` to `Failed`
-- AND it SHALL populate `message` with the failure reason
+- AND it SHALL populate `message` with a high-level, user-facing failure reason
+- AND the `message` SHALL NOT expose low-level infrastructure details (e.g.,
+  Kubernetes error messages, internal resource names, or stack traces)
 - AND subsequent conditions SHALL remain in `Pending` status
 - AND the gateway `phase` SHALL be set to `Failed`
 
@@ -160,45 +160,63 @@ conditions are `Complete`.
 
 ### Requirement: GPP-03 -- UI Renders Provisioning Progress as a Stepper
 
-The gateway management UI SHALL render provisioning conditions as an ordered
-stepper (or equivalent flow-chart visualization) when a gateway's `phase` is
-`Pending`, `Provisioning`, or `Failed`. Each step SHALL display a visual
-indicator corresponding to its condition status.
+The gateway detail view in `gateway-management-ui` SHALL render provisioning
+conditions as a vertical `ProgressStepper` (`@patternfly/react-core`) on the
+gateway detail page. The stepper SHALL be visible in all gateway phases so the
+user can always see which provisioning steps the gateway went through.
 
-| Condition Status | Visual Indicator |
-|---|---|
-| `Pending` | Inactive / not yet reached |
-| `InProgress` | Loading / in-progress animation |
-| `Complete` | Success indicator (e.g., green check) |
-| `Failed` | Failure indicator (e.g., red X) with failure message |
+#### PatternFly Component Mapping
+
+The UI SHALL use PatternFly's `ProgressStepper` with `isVertical` layout. Each
+provisioning condition maps to a `ProgressStep` as follows:
+
+| Condition Status | `ProgressStep` variant | `isCurrent` | Behavior |
+|---|---|---|---|
+| `Pending` | `default` | `false` | Step appears inactive, not yet reached |
+| `InProgress` | `pending` | `true` | Step shows a spinner animation indicating work in progress |
+| `Complete` | `success` | `false` | Step shows a green check mark |
+| `Failed` | `danger` | `false` | Step shows a red X icon |
+
+Each `ProgressStep` SHALL use the condition's user-facing label (from the
+Provisioning Steps table) as its title. When a condition has `status` `Failed`
+and a non-empty `message`, the `ProgressStep` SHALL display the message using
+the `description` prop so the failure reason is visible inline beneath the step
+title.
 
 #### Scenario: User sees provisioning progress after creating a gateway
 
 - GIVEN a user has just created a gateway
 - WHEN the gateway detail view loads and the gateway `phase` is `Provisioning`
-- THEN the UI SHALL display the provisioning stepper
-- AND completed steps SHALL show a success indicator
-- AND the current step SHALL show an in-progress indicator
-- AND future steps SHALL appear inactive
+- THEN the UI SHALL display a vertical `ProgressStepper`
+- AND completed steps SHALL render as `ProgressStep` with `variant="success"`
+- AND the current step SHALL render as `ProgressStep` with `variant="pending"`
+  and `isCurrent={true}`
+- AND future steps SHALL render as `ProgressStep` with `variant="default"`
 
 #### Scenario: User sees failure context on a failed step
 
 - GIVEN a gateway with `phase` `Failed`
-- AND the `DatabaseReady` condition has `status` `Failed` and a non-empty
-  `message`
+- AND the `DatabaseReady` condition has `status` `Failed` with `message`
+  "Database provisioning failed - please verify your database configuration"
 - WHEN the user views the gateway detail
-- THEN the UI SHALL display the stepper with `DatabaseReady` showing a failure
-  indicator
-- AND the failure `message` SHALL be visible to the user
-- AND subsequent steps SHALL appear inactive
+- THEN the failed step SHALL render as `ProgressStep` with `variant="danger"`
+- AND the `description` prop SHALL display the failure message
+- AND subsequent steps SHALL render as `variant="default"` (inactive)
 
 #### Scenario: Provisioning completes successfully
 
-- GIVEN a gateway transitions from `phase` `Provisioning` to `Running`
-- WHEN the UI polls and receives the updated gateway
-- THEN the UI SHALL show all provisioning steps as complete
-- AND it MAY transition to the standard gateway detail view (connection command,
-  console link, etc.)
+- GIVEN a gateway with `phase` `Running`
+- WHEN the user views the gateway detail
+- THEN the stepper SHALL show all provisioning steps as `variant="success"`
+- AND the gateway detail view SHALL also display the standard ready-state
+  affordances (connection command, console link, etc.)
+
+#### Scenario: Stepper visible on a Running gateway
+
+- GIVEN a gateway that completed provisioning and has `phase` `Running`
+- WHEN the user views the gateway detail
+- THEN the stepper SHALL remain visible with all steps showing `variant="success"`
+- AND the user SHALL be able to see which provisioning steps were performed
 
 ---
 
@@ -216,6 +234,41 @@ condition changes without a separate subscription or endpoint.
   and `IdentityProviderReady` from `Pending` to `InProgress`
 - THEN the next poll response SHALL reflect both condition updates
 - AND the UI SHALL update the stepper accordingly
+
+---
+
+### Requirement: GPP-05 -- Failure Messages Are User-Facing
+
+Condition failure messages SHALL be written for end users, not platform
+operators. Messages SHALL describe what went wrong at the level of the
+provisioning step ("Database provisioning failed") and MAY include actionable
+guidance ("please verify your database configuration"). Messages SHALL NOT
+expose low-level infrastructure details such as Kubernetes API error strings,
+internal resource names, namespace identifiers, or stack traces.
+
+The control plane MAY log the full infrastructure-level error for operator
+debugging, but the `message` field persisted on the condition SHALL contain
+only the user-facing summary.
+
+#### Scenario: Database provisioning error produces a user-facing message
+
+- GIVEN the ManagedDatabase DDL provisioning fails because the CNPG Cluster is
+  unreachable
+- WHEN the control plane sets `DatabaseReady` to `Failed`
+- THEN the `message` SHALL be a user-facing summary (e.g., "Database
+  provisioning failed - the database service is currently unavailable")
+- AND the `message` SHALL NOT contain the raw Kubernetes or PostgreSQL error
+  string
+
+#### Scenario: IdP provisioning error produces a user-facing message
+
+- GIVEN Keycloak client creation fails because the Keycloak service returns an
+  HTTP 503
+- WHEN the control plane sets `IdentityProviderReady` to `Failed`
+- THEN the `message` SHALL be a user-facing summary (e.g., "Identity provider
+  configuration failed - the authentication service is currently unavailable")
+- AND the `message` SHALL NOT contain the HTTP status code, Keycloak API path,
+  or internal client name
 
 ---
 
