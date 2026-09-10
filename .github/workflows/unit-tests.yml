@@ -74,6 +74,28 @@ jobs:
     if: inputs.api_server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    # Most plugins/* packages self-provision PostgreSQL via testcontainers-go
+    # once API_ENV=integration_testing is set (see the Makefile's test
+    # target). plugins/users is the one exception: its testmain_test.go
+    # hardcodes DB_FACTORY_MODE=external, opting out of testcontainers and
+    # requiring a real, reachable PostgreSQL at the same host/port/user/
+    # password/database as components/api-server/Makefile's db/setup target.
+    # This service exists for that one package; the rest ignore it and use
+    # their own ephemeral testcontainer instead.
+    services:
+      postgres:
+        image: postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypershell
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
