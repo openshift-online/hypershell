@@ -115,9 +115,9 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Client | `hypershell-frontend` (public, standard flow + direct access grants, used by web console BFF) |
 | CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
-| Admin role | `hypershell-admins` |
+| Admin groups | `hypershell-admins`, `platform:admin` (dashboard-operator access requires `platform:admin`) |
 | User role | `hypershell-users` |
-| Users | `admin` / `admin` (admin role), `developer` / `developer` (user role) - password matches username (local dev only) |
+| Users | `admin` / `admin` (admin groups), `developer` / `developer` (user role) - password matches username (local dev only) |
 
 The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
 

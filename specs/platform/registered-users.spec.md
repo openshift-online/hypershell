@@ -19,7 +19,7 @@ The **Users** widget (widget type `registered-users`) SHALL present:
 
 - Hero total: registered user count
 - **Added** counts for rolling 7-day and 30-day windows (from `created_at`)
-- **Unique logins** rollups for rolling 7-day and 30-day windows (sum of daily unique-login counts; see RU-10)
+- **Unique logins** rollups for rolling 7-day and 30-day UTC calendar windows (distinct registered users with API activity; see RU-10)
 - A 30-day sparkline of daily unique logins (UTC calendar days)
 
 The usage summary **Users** row SHALL show the same total registered user count with an optional trend arrow driven by unique-login activity (RU-13).
@@ -83,7 +83,7 @@ The schema SHALL NOT expose internal RBAC bindings, Keycloak subject identifiers
 
 User inventory endpoints SHALL require **dashboard-operator authorization**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04):
 
-- Caller holds an effective `platform:admin` RoleBinding (including JWT-synced realm role)
+- Caller holds an effective `platform:admin` RoleBinding (including JWT-synced `platform:admin` realm role)
 
 All other callers SHALL be denied:
 
@@ -148,8 +148,8 @@ The operational dashboard host adapter SHALL populate an `OperationalMetric` wit
 | `value` | `total_registered` | Total registered users (decimal string) |
 | `createdLast7Days` | `created_last_7_days` | Users whose `created_at` falls in the last 7 × 24 hours UTC |
 | `createdLast30Days` | `created_last_30_days` | Users whose `created_at` falls in the last 30 × 24 hours UTC |
-| `uniqueLoginsLast7Days` | `unique_logins_last_7_days` | Sum of daily unique-login counts over the last 7 UTC calendar days inclusive of today |
-| `uniqueLoginsLast30Days` | `unique_logins_last_30_days` | Sum of daily unique-login counts over the last 30 UTC calendar days inclusive of today |
+| `uniqueLoginsLast7Days` | `unique_logins_last_7_days` | Distinct registered users with API activity over the last 7 UTC calendar days inclusive of today |
+| `uniqueLoginsLast30Days` | `unique_logins_last_30_days` | Distinct registered users with API activity over the last 30 UTC calendar days inclusive of today |
 | `trend.points` | `daily_unique_logins` | One point per UTC calendar day for the last 30 days; `label` is `YYYY-MM-DD`, `value` is the daily unique-login count |
 
 The adapter SHALL obtain all fields from the BFF Prometheus proxy. The adapter SHALL NOT paginate the users List API for dashboard aggregates.
@@ -301,12 +301,12 @@ Activity recording SHALL be best-effort: persistence failures SHALL be logged an
 - WHEN activity recording runs
 - THEN exactly one daily activity row SHALL exist for `alice` on `2026-09-11`
 
-#### Scenario: Same user on two UTC days counts twice in rollups
+#### Scenario: Same user on two UTC days counts once in rollups
 
 - GIVEN registered user `alice` has activity on UTC days `2026-09-10` and `2026-09-11`
 - WHEN unique-login rollups are computed
 - THEN the daily sparkline SHALL show `1` on each day
-- AND the 7-day unique-login rollup SHALL count `2` (sum of daily counts, not distinct users across the window)
+- AND the 7-day unique-login rollup SHALL count `1` (distinct users across the window, not the sum of daily counts)
 
 ---
 
@@ -320,8 +320,8 @@ The users metrics collector SHALL emit the following Prometheus series on each s
 | `hypershell_users_created_last_7_days_total` | Gauge | Users with `created_at` in the last 7 × 24 hours UTC |
 | `hypershell_users_created_last_30_days_total` | Gauge | Users with `created_at` in the last 30 × 24 hours UTC |
 | `hypershell_users_unique_logins_daily_total` | Gauge | Daily unique registered users with API activity; label `activity_date` (`YYYY-MM-DD` UTC) |
-| `hypershell_users_unique_logins_last_7_days_total` | Gauge | Sum of `hypershell_users_unique_logins_daily_total` over the last 7 UTC calendar days inclusive of today |
-| `hypershell_users_unique_logins_last_30_days_total` | Gauge | Sum of daily counts over the last 30 UTC calendar days inclusive of today |
+| `hypershell_users_unique_logins_last_7_days_total` | Gauge | Distinct registered users with API activity over the last 7 UTC calendar days inclusive of today |
+| `hypershell_users_unique_logins_last_30_days_total` | Gauge | Distinct registered users with API activity over the last 30 UTC calendar days inclusive of today |
 
 There SHALL be no historical backfill for login metrics before this instrumentation ships. Days without instrumentation SHALL appear as zero in the sparkline after rollout.
 

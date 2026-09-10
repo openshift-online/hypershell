@@ -124,7 +124,7 @@ When OIDC is enabled, the route SHALL require dashboard-operator authorization m
 
 Managed cluster and managed database List endpoints SHALL be readable by **dashboard operators**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04) and registered user inventory (`platform/registered-users.spec.md` RU-03):
 
-- Caller holds an effective `platform:admin` RoleBinding (including JWT-synced realm role), **or**
+- Caller holds an effective `platform:admin` RoleBinding (including JWT-synced `platform:admin` realm role), **or**
 - Caller holds an effective `gateway:creator` RoleBinding (existing behavior)
 
 Holding only the legacy Keycloak realm role `hypershell-admins` SHALL NOT grant dashboard-inventory List access when `platform:admin` is absent.
