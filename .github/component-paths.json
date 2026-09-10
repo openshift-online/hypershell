@@ -7,9 +7,9 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
+      ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   },
   "control_plane": {
@@ -24,9 +24,9 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
+      ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   },
   "sdk_typescript": {
@@ -43,9 +43,10 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
+      ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml",
+      "components/api-server/Dockerfile.openapi"
     ]
   },
   "gateway_management_ui": {
@@ -60,9 +61,9 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
+      ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   },
   "operational_dashboard_ui": {
@@ -76,9 +77,9 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
+      ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   },
   "e2e": {
@@ -92,7 +93,7 @@
       ".github/scripts/detect-components.sh",
       ".github/workflows/e2e.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   },
   "pr_test": {
@@ -102,8 +103,8 @@
       "components/pr-test/**",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/checks.yml",
+      ".github/workflows/tests.yml"
     ]
   },
   "cli": {
@@ -118,9 +119,9 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
+      ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   },
   "sdk_go": {
@@ -134,7 +135,7 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   },
   "web_console": {
@@ -151,9 +152,9 @@
       "Makefile",
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
-      ".github/workflows/lint.yml",
+      ".github/workflows/checks.yml",
       ".github/workflows/unit-tests.yml",
-      ".github/workflows/ci.yml"
+      ".github/workflows/tests.yml"
     ]
   }
 }

@@ -1,34 +1,41 @@
-name: CI
+name: Tests
 
-# Single orchestrator for the lint/unit/e2e pipeline. Each stage is a reusable
-# workflow (on: workflow_call) wired with native `needs:` gating -- no
-# cross-workflow `wait-on-check-action` polling.
+# Single orchestrator for the checks/unit/e2e pipeline. Each stage is a
+# reusable workflow (on: workflow_call) wired with native `needs:` gating --
+# no cross-workflow `wait-on-check-action` polling.
 #
-# Topology is fan-out then join: lint and unit both run straight after
-# detect-changes (concurrently, so a lint failure never delays unit and vice
+# Topology is fan-out then join: checks and unit both run straight after
+# detect-changes (concurrently, so a checks failure never delays unit and vice
 # versa), and e2e joins on BOTH. e2e is the expensive stage -- it provisions
-# Kind and runs the full test matrix -- so gating it behind the cheap tests
-# means we never spend a deploy+test cycle on a SHA that lint or unit already
-# failed, and such failures surface as a clean red Lint/Unit check instead of a
-# misleading e2e "environment did not deploy". The wall-clock cost is small:
-# Konflux image builds are triggered by the push itself and run during lint/unit
-# regardless, so by the time the join clears they are mostly done and e2e's
-# build wait is short.
+# Kind and runs the full test matrix -- so gating it behind the cheap stages
+# means we never spend a deploy+test cycle on a SHA that checks or unit
+# already failed, and such failures surface as a clean red Checks/Unit check
+# instead of a misleading e2e "environment did not deploy". The wall-clock
+# cost is small: Konflux image builds are triggered by the push itself and
+# run during checks/unit regardless, so by the time the join clears they are
+# mostly done and e2e's build wait is short.
 #
-# Change detection runs exactly once here (the detect-changes job) and is passed
-# into each stage as inputs; the stage workflows no longer detect internally.
+# Change detection runs exactly once here (the detect-changes job) and is
+# passed into each stage as inputs; the stage workflows no longer detect
+# internally. Repository policy (`make check`) and OpenAPI SDK drift, which
+# used to be their own independently-triggered workflows, are now jobs inside
+# the `checks` stage so they run off this same detection pass instead of
+# duplicating change detection.
 #
 # Each stage is a reusable-workflow call, so its individual jobs surface as
-# `Lint / <job>`, `Unit / <job>`, and (once it runs) `E2E / <job>` checks --
-# there is no single check named just `Lint`/`Unit`/`E2E`. To give branch
-# protection one stable, always-present check per stage, the three `*-gate` jobs
-# below (`Lint CI Gate`, `Unit Tests CI Gate`, `E2E CI Gate`) run with
-# `if: always()`, read the stage's rolled-up `result` via `needs`, and fail
-# unless detect-changes succeeded and the stage did not fail or cancel. Because
-# they always run, they are never left pending by path-filtered skips, so THESE
-# are the checks to mark required in branch protection (a skipped stage still
-# passes its gate; a stage skipped because an earlier gate failed is blocked by
-# that earlier gate, not double-reported here).
+# `Checks / <job>`, `Unit / <job>`, and (once it runs) `E2E / <job>` checks --
+# there is no single check named just `Checks`/`Unit`/`E2E`. To give branch
+# protection stable, always-present required checks, the two `*-gate` jobs
+# below run with `if: always()`, read the relevant stage(s) rolled-up
+# `result` via `needs`, and fail unless detect-changes succeeded and no
+# covered stage failed or was cancelled:
+#   - `Checks CI Gate` covers the `checks` stage alone.
+#   - `Tests CI Gate` covers both `unit` and `e2e` as a single required check,
+#     since they are both "running the code" stages as opposed to static
+#     checks.
+# Because they always run, they are never left pending by path-filtered
+# skips (a skipped stage still passes its gate), so THESE are the checks to
+# mark required in branch protection.
 on:
   pull_request:
   push:
@@ -48,7 +55,7 @@ permissions:
   checks: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -76,10 +83,10 @@ jobs:
         id: detect
         run: bash .github/scripts/detect-components.sh
 
-  lint:
-    name: Lint
+  checks:
+    name: Checks
     needs: detect-changes
-    uses: ./.github/workflows/lint.yml
+    uses: ./.github/workflows/checks.yml
     permissions:
       contents: read
     with:
@@ -89,6 +96,7 @@ jobs:
       gateway_management_ui: ${{ needs.detect-changes.outputs.gateway_management_ui }}
       operational_dashboard_ui: ${{ needs.detect-changes.outputs.operational_dashboard_ui }}
       pr_test: ${{ needs.detect-changes.outputs.pr_test }}
+      sdk_go: ${{ needs.detect-changes.outputs.sdk_go }}
       sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
       web_console: ${{ needs.detect-changes.outputs.web_console }}
 
@@ -113,7 +121,7 @@ jobs:
     name: E2E
     needs:
       - detect-changes
-      - lint
+      - checks
       - unit
     uses: ./.github/workflows/e2e.yml
     permissions:
@@ -127,74 +135,57 @@ jobs:
 
   # Stable rollup checks for branch protection. Each always runs, so a
   # path-filtered stage that skips its internal jobs never leaves a required
-  # check pending. A stage that was skipped (result 'skipped') passes its gate;
-  # only an actual 'failure'/'cancelled' -- or a detect-changes that did not
-  # succeed -- fails it.
-  lint-gate:
-    name: Lint CI Gate
+  # check pending. A stage that was skipped (result 'skipped') passes its
+  # gate; only an actual 'failure'/'cancelled' -- or a detect-changes that did
+  # not succeed -- fails it.
+  checks-gate:
+    name: Checks CI Gate
     needs:
       - detect-changes
-      - lint
+      - checks
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - name: Verify lint stage passed
+      - name: Verify checks stage passed
         env:
           DETECT_RESULT: ${{ needs.detect-changes.result }}
-          STAGE_RESULT: ${{ needs.lint.result }}
+          STAGE_RESULT: ${{ needs.checks.result }}
         run: |
           if [[ "${DETECT_RESULT}" != "success" ]]; then
             echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
             exit 1
           fi
           if [[ "${STAGE_RESULT}" == "failure" || "${STAGE_RESULT}" == "cancelled" ]]; then
-            echo "Lint stage did not pass (result: ${STAGE_RESULT})"
+            echo "Checks stage did not pass (result: ${STAGE_RESULT})"
             exit 1
           fi
-          echo "Lint stage OK (result: ${STAGE_RESULT})"
+          echo "Checks stage OK (result: ${STAGE_RESULT})"
 
-  unit-gate:
-    name: Unit Tests CI Gate
+  tests-gate:
+    name: Tests CI Gate
     needs:
       - detect-changes
       - unit
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Verify unit stage passed
-        env:
-          DETECT_RESULT: ${{ needs.detect-changes.result }}
-          STAGE_RESULT: ${{ needs.unit.result }}
-        run: |
-          if [[ "${DETECT_RESULT}" != "success" ]]; then
-            echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
-            exit 1
-          fi
-          if [[ "${STAGE_RESULT}" == "failure" || "${STAGE_RESULT}" == "cancelled" ]]; then
-            echo "Unit stage did not pass (result: ${STAGE_RESULT})"
-            exit 1
-          fi
-          echo "Unit stage OK (result: ${STAGE_RESULT})"
-
-  e2e-gate:
-    name: E2E CI Gate
-    needs:
-      - detect-changes
       - e2e
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - name: Verify e2e stage passed
+      - name: Verify unit and e2e stages passed
         env:
           DETECT_RESULT: ${{ needs.detect-changes.result }}
-          STAGE_RESULT: ${{ needs.e2e.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           if [[ "${DETECT_RESULT}" != "success" ]]; then
             echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
             exit 1
           fi
-          if [[ "${STAGE_RESULT}" == "failure" || "${STAGE_RESULT}" == "cancelled" ]]; then
-            echo "E2E stage did not pass (result: ${STAGE_RESULT})"
+          if [[ "${UNIT_RESULT}" == "failure" || "${UNIT_RESULT}" == "cancelled" ]]; then
+            echo "Unit stage did not pass (result: ${UNIT_RESULT})"
             exit 1
           fi
-          echo "E2E stage OK (result: ${STAGE_RESULT})"
+          if [[ "${E2E_RESULT}" == "failure" || "${E2E_RESULT}" == "cancelled" ]]; then
+            echo "E2E stage did not pass (result: ${E2E_RESULT})"
+            exit 1
+          fi
+          echo "Tests stages OK (unit: ${UNIT_RESULT}, e2e: ${E2E_RESULT})"

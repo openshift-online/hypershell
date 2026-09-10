@@ -9,8 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "components", ROOT / "packages")
 CONFIG_PATH = ROOT / ".github" / "component-paths.json"
-CI_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
-LINT_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "lint.yml"
+TESTS_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "tests.yml"
+CHECKS_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "checks.yml"
 
 
 def main() -> int:
@@ -27,15 +27,15 @@ def main() -> int:
         return 1
 
     try:
-        ci_workflow = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
+        tests_workflow = TESTS_WORKFLOW_PATH.read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"Unable to read {CI_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
+        print(f"Unable to read {TESTS_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
         return 1
 
     try:
-        lint_workflow = LINT_WORKFLOW_PATH.read_text(encoding="utf-8")
+        checks_workflow = CHECKS_WORKFLOW_PATH.read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"Unable to read {LINT_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
+        print(f"Unable to read {CHECKS_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
         return 1
 
     source_directories = {
@@ -91,39 +91,40 @@ def main() -> int:
         if lint_job is None:
             continue
 
-        # Detection runs once in ci.yml and is passed into the reusable lint
-        # stage as an input; the lint jobs gate on `inputs.<component>`. Verify
-        # the whole wiring: detector output and pass-through live in ci.yml, the
-        # input declaration, lint job, and gating condition live in lint.yml.
+        # Detection runs once in tests.yml and is passed into the reusable
+        # checks stage as an input; the lint jobs gate on `inputs.<component>`.
+        # Verify the whole wiring: detector output and pass-through live in
+        # tests.yml, the input declaration, lint job, and gating condition
+        # live in checks.yml.
         component_checks = (
             (
                 "detector output",
-                ci_workflow,
-                CI_WORKFLOW_PATH,
+                tests_workflow,
+                TESTS_WORKFLOW_PATH,
                 rf"steps\.detect\.outputs\.{re.escape(component)}\b",
             ),
             (
-                "detection input passed to the lint stage",
-                ci_workflow,
-                CI_WORKFLOW_PATH,
+                "detection input passed to the checks stage",
+                tests_workflow,
+                TESTS_WORKFLOW_PATH,
                 rf"needs\.detect-changes\.outputs\.{re.escape(component)}\b",
             ),
             (
                 "workflow_call input",
-                lint_workflow,
-                LINT_WORKFLOW_PATH,
+                checks_workflow,
+                CHECKS_WORKFLOW_PATH,
                 rf"(?m)^      {re.escape(component)}:\s*$",
             ),
             (
                 "lint job",
-                lint_workflow,
-                LINT_WORKFLOW_PATH,
+                checks_workflow,
+                CHECKS_WORKFLOW_PATH,
                 rf"(?m)^  {re.escape(lint_job)}:$",
             ),
             (
                 "job condition",
-                lint_workflow,
-                LINT_WORKFLOW_PATH,
+                checks_workflow,
+                CHECKS_WORKFLOW_PATH,
                 rf"inputs\.{re.escape(component)}\b",
             ),
         )
@@ -146,7 +147,7 @@ def main() -> int:
             print(f"- {error}")
         print(
             "Use the maintain-ci skill and update .github/component-paths.json and "
-            ".github/workflows/lint.yml together."
+            ".github/workflows/checks.yml together."
         )
         return 1
 

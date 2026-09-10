@@ -439,7 +439,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 - Live gateway and sandbox metrics load via RBAC-scoped REST list pagination, not the Prometheus BFF route. This matches the spec's relationship table vs `gateway-metrics-dashboard.spec.md`.
 - `dashboard.layout.template.invalid` probe name is declared but never published; invalid saved templates silently fall back to default (acceptable for v1; no gap recorded).
-- CI registers `packages/operational-dashboard-ui` with `pnpm check` in `.github/workflows/lint.yml`.
+- CI registers `packages/operational-dashboard-ui` with `pnpm check` in `.github/workflows/checks.yml`.
 - OP-DASH-16 (2026-08-31): shared `StatusDonutChart` stack; `nodes` widget at `NODE_STATUS_WIDGET_HEIGHT`; layout persistence key `hypershell.operational-dashboard.layout.v17`.
 - OP-DASH-17 (2026-08-31): `pods` widget uses `PodCapacityChart` (phase segments + gray Unused); BFF phase PromQL; layout persistence key `hypershell.operational-dashboard.layout.v18`.
 - Post-OP-DASH-17 polish (2026-08-31): system-summary failed pod count; taller system-summary widget; expanded compact donut for pods subtitle; Storybook mock aligned to production adapter; layout persistence key `hypershell.operational-dashboard.layout.v19`.

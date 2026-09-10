@@ -1,13 +1,20 @@
-name: Lint
+name: Checks
 
-# Reusable lint stage of the CI pipeline. Invoked by .github/workflows/ci.yml,
-# which owns the pull_request/push/merge_group/workflow_dispatch triggers, the
-# concurrency group, the lint -> unit -> e2e ordering, and change detection: the
+# Reusable checks stage of the Tests pipeline. Invoked by
+# .github/workflows/tests.yml, which owns the
+# pull_request/push/merge_group/workflow_dispatch triggers, the concurrency
+# group, the checks -> (unit, e2e) ordering, and change detection: the
 # per-component flags below arrive as inputs instead of being detected here.
 # Running only via workflow_call keeps this from also firing as a standalone
-# workflow (which would double every lint run). The stage's rolled-up result is
-# turned into a single required check by the `Lint CI Gate` job in ci.yml, so
-# this workflow needs no summary/gate job of its own.
+# workflow (which would double every checks run). The stage's rolled-up
+# result is turned into a single required check by the `Checks CI Gate` job
+# in tests.yml, so this workflow needs no summary/gate job of its own.
+#
+# Repository policy (`make check`) and OpenAPI SDK drift used to be their own
+# independently-triggered workflows (repository-policy.yml,
+# sdk-drift-check.yml). They are jobs here instead so they share this
+# workflow's single detect-changes pass rather than each re-detecting changes
+# on their own trigger.
 on:
   workflow_call:
     inputs:
@@ -29,6 +36,9 @@ on:
       pr_test:
         type: string
         default: 'false'
+      sdk_go:
+        type: string
+        default: 'false'
       sdk_typescript:
         type: string
         default: 'false'
@@ -40,6 +50,51 @@ permissions:
   contents: read
 
 jobs:
+  repository-policy:
+    name: Repository policy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run repository policy checks
+        run: make check
+
+  sdk-drift:
+    name: OpenAPI SDK drift
+    if: inputs.sdk_go == 'true' || inputs.sdk_typescript == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: scripts/sdk-generator/go.mod
+          cache-dependency-path: scripts/sdk-generator/go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Regenerate OpenAPI SDK
+        working-directory: components/api-server
+        run: make generate generate-sdk
+      - name: Check for drift
+        run: |
+          drift="$(git status --porcelain --untracked-files=all -- components/api-server/pkg/api/openapi components/sdk-typescript/src)"
+          if [[ -n "${drift}" ]]; then
+            echo "Generated OpenAPI SDK files are out of date."
+            echo "Run 'cd components/api-server && make generate generate-sdk' and commit the result."
+            echo "Changed files:"
+            echo "${drift}"
+            git diff -- components/api-server/pkg/api/openapi components/sdk-typescript/src
+            exit 1
+          fi
+          echo "Generated OpenAPI SDK files are up to date."
+
   lint-api-server:
     name: Go - API server
     if: inputs.api_server == 'true'
