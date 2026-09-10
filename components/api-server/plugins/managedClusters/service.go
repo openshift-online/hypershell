@@ -2,6 +2,7 @@ package managedClusters
 
 import (
 	"context"
+	stderrors "errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -163,7 +164,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
 	existing, err := s.managedClusterDao.FindByOIDCSubject(ctx, oidcSubject)
-	if err != nil && err != gorm.ErrRecordNotFound {
+	if err != nil && !stderrors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, errors.GeneralError("registration lookup failed: %s", err)
 	}
 
@@ -185,9 +186,6 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		Name:        name,
 		OIDCSubject: oidcSubject,
 		LastSeenAt:  &now,
-	}
-	if description != "" {
-		cluster.Status = &description
 	}
 	cluster.CaptureTraceContext(ctx)
 	created, createErr := s.managedClusterDao.Create(ctx, cluster)

@@ -455,6 +455,86 @@ func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_RegistrarRoleAllowsRegistration(t *testing.T) {
+	jwtRoles := []string{roleManagedClusterRegistrar}
+	if !isAuthorized(http.MethodPost, "registration", "", "", nil, jwtRoles) {
+		t.Error("managed-cluster-registrar JWT role must authorize POST /managed_clusters/registration")
+	}
+}
+
+func TestIsAuthorized_RegistrationDeniedWithoutRole(t *testing.T) {
+	if isAuthorized(http.MethodPost, "registration", "", "", nil, nil) {
+		t.Error("POST /managed_clusters/registration must be denied without managed-cluster-registrar role")
+	}
+	if isAuthorized(http.MethodPost, "registration", "", "", nil, []string{"gateway:creator"}) {
+		t.Error("gateway:creator must not authorize managed_cluster registration")
+	}
+}
+
+func TestIsAuthorized_RegistrationOnlyForPost(t *testing.T) {
+	jwtRoles := []string{roleManagedClusterRegistrar}
+	for _, method := range []string{http.MethodGet, http.MethodPatch, http.MethodDelete} {
+		if isAuthorized(method, "registration", "", "", nil, jwtRoles) {
+			t.Errorf("%s on registration resource must not be authorized via managed-cluster-registrar", method)
+		}
+	}
+}
+
+func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
+	lookup := authorizationLookup{bindings: nil}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+
+	router := mux.NewRouter()
+	reached := false
+	router.Handle("/api/hypershell/v1/managed_clusters/registration", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusCreated)
+	}))).Methods(http.MethodPost)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/managed_clusters/registration", nil)
+	// Inject JWT token with managed-cluster-registrar role; intentionally do NOT
+	// set ContextUserIDKey to simulate a transient user-provisioning failure.
+	token := &jwt.Token{Claims: jwt.MapClaims{
+		"preferred_username": "spoke-sa",
+		"realm_access": map[string]interface{}{
+			"roles": []interface{}{roleManagedClusterRegistrar},
+		},
+	}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if !reached {
+		t.Fatalf("registration request with correct role did not reach handler; status = %d", recorder.Code)
+	}
+}
+
+func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
+	lookup := authorizationLookup{bindings: nil}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+
+	router := mux.NewRouter()
+	router.Handle("/api/hypershell/v1/managed_clusters/registration", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("request without role must not reach handler")
+	}))).Methods(http.MethodPost)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/managed_clusters/registration", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{
+		"preferred_username": "spoke-sa",
+		"realm_access": map[string]interface{}{
+			"roles": []interface{}{"gateway:creator"},
+		},
+	}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+}
+
 func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
 	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})

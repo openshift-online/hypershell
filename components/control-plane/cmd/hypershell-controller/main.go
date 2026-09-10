@@ -45,7 +45,7 @@ func registerWithBackoff(ctx context.Context, regClient *registration.Client) (s
 	backoff := time.Second
 	const maxBackoff = 60 * time.Second
 	for {
-		clusterID, err := regClient.Register()
+		clusterID, err := regClient.Register(ctx)
 		if err == nil {
 			return clusterID, nil
 		}
@@ -143,13 +143,21 @@ func main() {
 		go func() {
 			ticker := time.NewTicker(60 * time.Second)
 			defer ticker.Stop()
+			var consecutiveFailures int
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					if _, err := regClient.Register(); err != nil {
-						log.Printf("WARN heartbeat registration failed: %v", err)
+					if _, err := regClient.Register(ctx); err != nil {
+						consecutiveFailures++
+						if consecutiveFailures >= 5 {
+							log.Printf("ERROR heartbeat has failed %d consecutive times; hub may be unreachable: %v", consecutiveFailures, err)
+						} else {
+							log.Printf("WARN heartbeat registration failed: %v", err)
+						}
+					} else {
+						consecutiveFailures = 0
 					}
 				}
 			}

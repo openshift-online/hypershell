@@ -2,12 +2,14 @@ package registration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // ErrForbidden is returned when the API server responds 403.
@@ -33,7 +35,7 @@ func NewClient(apiServerURL, clusterName string, tokens TokenSource) *Client {
 		apiServerURL: strings.TrimRight(apiServerURL, "/"),
 		clusterName:  clusterName,
 		tokens:       tokens,
-		httpClient:   &http.Client{},
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -48,7 +50,7 @@ type registrationResponse struct {
 // Register calls POST /api/hypershell/v1/managed_clusters/registration.
 // Returns (clusterID, nil) on success, (ErrForbidden, nil) on 403, or an
 // error for transient failures that should be retried.
-func (c *Client) Register() (string, error) {
+func (c *Client) Register(ctx context.Context) (string, error) {
 	token, err := c.tokens.Token()
 	if err != nil {
 		return "", fmt.Errorf("get OIDC token: %w", err)
@@ -60,7 +62,7 @@ func (c *Client) Register() (string, error) {
 	}
 
 	url := c.apiServerURL + "/api/hypershell/v1/managed_clusters/registration"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("build registration request: %w", err)
 	}

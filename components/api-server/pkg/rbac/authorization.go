@@ -66,6 +66,19 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			return
 		}
 
+		// Registration is JWT-direct: managed-cluster-registrar is checked from the
+		// JWT claim, never from DB role bindings. This runs before the userID gate so
+		// a transient user-provisioning DB failure never produces a fatal non-retryable
+		// 403 that causes the spoke to exit instead of retrying.
+		if strings.HasSuffix(r.URL.Path, "/managed_clusters/registration") && r.Method == http.MethodPost {
+			if hasManagedClusterRegistrar(extractJWTRoles(r)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		userID := GetUserIDFromContext(r.Context())
 		if userID == "" {
 			http.Error(w, "Forbidden", http.StatusForbidden)
@@ -117,9 +130,13 @@ func isExemptEndpoint(r *http.Request) bool {
 	return false
 }
 
+// roleManagedClusterRegistrar mirrors roles.RoleManagedClusterRegistrar; kept
+// local to avoid an import cycle with the managedClusters plugin package.
+const roleManagedClusterRegistrar = "managed-cluster-registrar"
+
 func hasManagedClusterRegistrar(jwtRoles []string) bool {
 	for _, role := range jwtRoles {
-		if role == "managed-cluster-registrar" {
+		if role == roleManagedClusterRegistrar {
 			return true
 		}
 	}
