@@ -14,6 +14,23 @@ oc_cli() {
   oc "$@"
 }
 
+# Whether this environment brokers interactive login to GitHub instead of the
+# realm's seeded admin/developer passwords
+# (ephemeral-pr-environments.spec.md: GitHub-Brokered Keycloak Authentication).
+# Brokered environments have no password grant, so seeding and the banner
+# must use the hypershell-e2e service account instead of admin/admin.
+github_idp_enabled() {
+  local enabled
+  enabled="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.idp-enabled}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  [[ "${enabled}" == "true" ]]
+}
+
+hypershell_e2e_client_secret() {
+  oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.e2e-client-secret}' 2>/dev/null | base64 -d 2>/dev/null || true
+}
+
 require_openshift_cluster() {
   if ! command -v oc >/dev/null 2>&1; then
     error "oc is not installed. Install the OpenShift CLI and retry."
@@ -1030,11 +1047,28 @@ seed_via_api() {
     fi
     return 0
   fi
+  local -a token_args
+  if github_idp_enabled; then
+    # Brokered environments have no password grant (ephemeral-pr-environments
+    # .spec.md); seed as the hypershell-e2e service account instead, which
+    # holds platform:admin + gateway:creator for exactly this purpose.
+    local e2e_secret
+    e2e_secret="$(hypershell_e2e_client_secret)"
+    if [[ -z "${e2e_secret}" ]]; then
+      warn "GitHub IDP is enabled but hypershell-github-oauth has no e2e-client-secret; skip automatic seeding"
+      if seed_strict; then
+        error "Platform seeding failed and SEED_STRICT=true - failing"
+        return 1
+      fi
+      return 0
+    fi
+    token_args=(-d grant_type=client_credentials -d client_id=hypershell-e2e -d "client_secret=${e2e_secret}")
+  else
+    token_args=(-d grant_type=password -d client_id=hypershell-frontend -d username=admin -d password=admin)
+  fi
   info "Obtaining API token from Keycloak Route..."
   for i in $(seq 1 30); do
-    resp="$(openshift_curl -X POST "${kc_token_url}" \
-      -d grant_type=password -d client_id=hypershell-frontend \
-      -d username=admin -d password=admin || true)"
+    resp="$(openshift_curl -X POST "${kc_token_url}" "${token_args[@]}" || true)"
     token="$(printf '%s' "${resp}" | json_string_field access_token || true)"
     if [[ -n "${token}" ]]; then
       break
@@ -1212,7 +1246,11 @@ print_banner() {
   info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME} (admin/admin)"
   info "OIDC Issuer:   ${OPENSHIFT_OIDC_ISSUER}"
   info "Login:         https://${OPENSHIFT_CONSOLE_HOST}/auth/login"
-  info "Test users:    admin/admin (admins + users), developer/developer (users only)"
+  if github_idp_enabled; then
+    info "Interactive login is GitHub-brokered (openshift-online org, or allowlisted user)"
+  else
+    info "Test users:    admin/admin (admins + users), developer/developer (users only)"
+  fi
   echo ""
   info "API Server Logs:    oc logs -f -l app=hypershell-api-server -n ${OPENSHIFT_NAMESPACE}"
   info "Control Plane Logs: oc logs -f -l app=hypershell-controller -n ${OPENSHIFT_NAMESPACE}"
