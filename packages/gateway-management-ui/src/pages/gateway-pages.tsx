@@ -697,7 +697,9 @@ export function GatewayPage({
             <GatewayConnectionSteps
               gateway={connection}
               isProvisioning={
-                connection.phase?.toLocaleLowerCase() !== "running"
+                !connection.phase ||
+                connection.phase.toLocaleLowerCase() === "pending" ||
+                connection.phase.toLocaleLowerCase() === "provisioning"
               }
             />
           </Tab>
