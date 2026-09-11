@@ -220,7 +220,9 @@ the next pass. A version observation failure SHALL NOT prevent a valid `phase`
 or `status` update.
 
 The dedicated `openshell-gateway-health` Service SHALL expose the health
-endpoint on an internal port. A NetworkPolicy SHALL permit access to this port
+endpoint on an internal port. The health reconciler SHALL be the only writer
+for this Service and its controller NetworkPolicy. Provisioning manifests SHALL
+NOT contain a second definition of either resource. A NetworkPolicy SHALL permit access to this port
 only from the control plane controller in the control plane namespace. Before
 the first version request, the health reconciler SHALL reconcile this Service
 and NetworkPolicy with update-or-create operations. After success, it SHALL

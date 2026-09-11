@@ -77,7 +77,7 @@ func LoadGatewayManifests(manifestsDir string) (map[string][]*unstructured.Unstr
 	return manifests, nil
 }
 
-func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace, controlPlaneNamespace string, config GatewayConfig, images ImageDefaults) (*unstructured.Unstructured, error) {
+func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace string, config GatewayConfig, images ImageDefaults) (*unstructured.Unstructured, error) {
 	obj := manifest.DeepCopy()
 
 	jsonBytes, err := obj.MarshalJSON()
@@ -86,12 +86,6 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace, co
 	}
 
 	manifestJSON := string(jsonBytes)
-	if strings.Contains(manifestJSON, "CONTROL_PLANE_NAMESPACE_PLACEHOLDER") {
-		if strings.TrimSpace(controlPlaneNamespace) == "" {
-			return nil, fmt.Errorf("control plane namespace is required")
-		}
-		manifestJSON = strings.ReplaceAll(manifestJSON, "CONTROL_PLANE_NAMESPACE_PLACEHOLDER", controlPlaneNamespace)
-	}
 	manifestJSON = strings.ReplaceAll(manifestJSON, "NAMESPACE_PLACEHOLDER", namespace)
 
 	supervisorImage := cmp.Or(config.SupervisorImage, images.DefaultSupervisorImage())
@@ -137,7 +131,7 @@ func RenderGatewayConfigTOML(manifests map[string][]*unstructured.Unstructured, 
 			continue
 		}
 
-		obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, "", nsConfig.Gateway, images)
+		obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, nsConfig.Gateway, images)
 		if err != nil {
 			return "", fmt.Errorf("render config manifest substitutions: %w", err)
 		}

@@ -795,7 +795,7 @@ func deployGateway(
 				continue
 			}
 
-			obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, opts.ControlPlaneNamespace, nsConfig.Gateway, images)
+			obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, nsConfig.Gateway, images)
 			if err != nil {
 				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
 			}
