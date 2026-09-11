@@ -3,6 +3,14 @@
 **Date:** 2026-08-03
 **Status:** Active
 
+**Status scope:** Active applies to the existing watch, registration, status,
+and Kubernetes reconciliation contracts. Controller-local execution ownership,
+changes to watched resource kinds, local PostgreSQL configuration, API-generation
+rejection, and durable SQL cleanup
+are Draft under the [database contract](./openshell-gateway-database.spec.md).
+This Draft scope includes their descriptions in Overview, Architecture,
+Components, Gateway Reconciliation, and Resource Cleanup.
+
 ## Overview
 
 The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into Kubernetes resources in its local execution cluster. Each controller processes only its assigned gateways. It follows the informer-reconciler pattern without depending on controller-runtime.
@@ -134,6 +142,8 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
 - AND set the Gateway's `phase` to `Provisioning` while applying manifests, and to `Running` only after the `openshell-gateway` Deployment is observed Ready - see [health spec](./openshell-gateway-health.spec.md)
 
 ### Requirement: Controller-Local Database Configuration
+
+**Status:** Draft; follows the [database contract](./openshell-gateway-database.spec.md).
 
 The controller SHALL use its installation-supplied PostgreSQL configuration for
 all database operations on its assigned gateways. It SHALL NOT watch a database

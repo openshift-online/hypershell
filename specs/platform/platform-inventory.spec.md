@@ -10,6 +10,13 @@ API contains managed cluster data only. Older database inventory consumers are
 not supported on the replacement installation; existing installations remain on
 their own release until explicit teardown.
 
+**Status scope:** Existing managed-cluster aggregation, authorization, refresh,
+and error behavior retain Active status. The cluster-only API and widget catalog,
+and the absence of database inventory fields, collectors, and series, are Draft
+under the [database contract](./openshell-gateway-database.spec.md). That Draft
+scope applies wherever those changes appear in PI-01 through PI-10 and their
+scenarios; it does not mark the existing cluster metrics as unimplemented.
+
 ## Purpose
 
 Expose **platform inventory counts** - totals and breakdowns for HyperShell infrastructure resources registered in the API server - on the operational dashboard so administrators can assess platform footprint at a glance.
@@ -62,7 +69,6 @@ execution controller, not a central server inventory.
 - WHEN the dashboard requests platform inventory
 - THEN cluster totals and dimensions SHALL load successfully
 - AND the response SHALL contain no database inventory field
-
 
 #### Scenario: Inventory excludes gateway-only references
 

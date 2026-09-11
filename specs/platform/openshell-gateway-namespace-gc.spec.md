@@ -3,6 +3,12 @@
 **Date:** 2026-08-17
 **Status:** Active
 
+**Status scope:** The existing namespace cleanup, ownership-label checks, grace
+period, and event recording retain Active status. Controller-local assignment,
+installation-owned PostgreSQL namespace exclusions, and durable SQL cleanup are
+Draft under the [database contract](./openshell-gateway-database.spec.md), including
+their definitions, requirements, scenarios, and design decisions below.
+
 ## Purpose
 
 This spec defines how the HyperShell control plane reclaims the Kubernetes

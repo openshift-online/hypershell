@@ -3,6 +3,13 @@
 **Date:** 2026-08-14
 **Status:** Active
 
+**Status scope:** Controller-local execution, installation ownership of gateway
+PostgreSQL, and independent SQL cleanup are Draft under the
+[database contract](./openshell-gateway-database.spec.md). This scope applies to
+their text and diagrams in Overview, Three-Tier Topology, Control Plane
+Reconciliation Flow, Tooling Stack, Database Strategy, Namespace Strategy, and
+Design Decisions. The other architecture contracts retain Active status.
+
 ## Overview
 
 HyperShell deploys as a global fleet management platform spanning multiple clouds and regions. The architecture uses a **three-tier hub-and-spoke topology**: a Global Hub provides federated identity root, Cloud Hubs run the operational platform (API, control plane, databases), and ManagedClusters host OpenShell Gateway workloads. Each cluster runs the platform dependencies required by its instances. CNPG is required only where the installation selects it for PostgreSQL server infrastructure.
@@ -961,6 +968,8 @@ it does not run.
 | Local development PostgreSQL | Development setup scripts and manifests | Same controller SQL contract |
 
 ### Requirement: Independent Server Lifecycle
+
+**Status:** Draft; follows the [database contract](./openshell-gateway-database.spec.md).
 
 The controller SHALL create and delete only per-gateway SQL databases, roles,
 and credentials. It SHALL NOT provision a server or register it with the API.
