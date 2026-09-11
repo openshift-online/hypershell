@@ -3,6 +3,11 @@
 **Date:** 2026-08-03
 **Status:** Active
 
+The controller-local runtime below operates only on gateways assigned to it.
+The existing provider runtime remains available until explicit ownership transfer,
+including its database watches and infrastructure lifecycle. Mixed-version rollout
+and migration follow the [compatibility contract](./gateway-database-migration.spec.md).
+
 ## Overview
 
 The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into Kubernetes resources in its local execution cluster. Each controller processes only its assigned gateways. It follows the informer-reconciler pattern without depending on controller-runtime.

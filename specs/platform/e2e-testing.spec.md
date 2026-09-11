@@ -11,6 +11,11 @@
              `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
              `openshell-gateway-sandbox-count.spec.md` -- active sandbox count accounting
 
+Controller-local tests use the new setup and API. Compatibility coverage SHALL
+also run existing clients and provider seed workflows against the upgraded API,
+and verify migration with stored gateway data. See the
+[migration contract](./gateway-database-migration.spec.md).
+
 ## Purpose
 
 HyperShell requires infrastructure-agnostic end-to-end testing that validates the full provisioning path: API creation of a Gateway, control plane reconciliation, gateway pod readiness, route connectivity, and sandbox lifecycle. The same test suite SHALL run against Kind (local development, CI, and the merge-queue gate) and OpenShift (manual on-demand runs, and origin pull-request environments specified in `ephemeral-pr-environments.spec.md`) with infrastructure-specific logic isolated into driver scripts. A Kind CI workflow SHALL execute these tests automatically on pull requests that modify e2e-relevant components.

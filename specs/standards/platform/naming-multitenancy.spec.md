@@ -3,6 +3,11 @@
 **Related operational document:** The [DNS strategy](https://github.com/openshift-online/hypershell-gitops/blob/main/dns-strategy.md)
 defines the public DNS hierarchy, delegation, and name inventory.
 
+Controller-local naming applies to new resources. Migration SHALL preserve
+existing SQL and Kubernetes names unless an approved transfer changes them.
+Legacy database namespaces and Secrets retain their access and cleanup boundaries
+under the [migration contract](../../platform/gateway-database-migration.spec.md).
+
 ## Abstract
 
 HyperShell employs a hub-and-spoke GitOps architecture in which multiple control

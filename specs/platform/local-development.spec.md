@@ -5,6 +5,12 @@
 **Jira:** ENGPROD-10281
 **Related:** `openshift-development.spec.md` -- OpenShift lifecycle (`make openshift-up`)
 
+The default fresh environment uses the controller-local runtime. Existing local
+environments SHALL remain usable after tooling upgrades. Setup SHALL detect their
+runtime and retain its seeding, credentials, and ownership until an explicit
+migration. Compatibility tests SHALL also exercise the existing provider modes.
+See the [migration contract](./gateway-database-migration.spec.md).
+
 ## Purpose
 
 HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. Setup supplies separate PostgreSQL servers for the API and gateway workloads. The controller creates gateway SQL databases on the configured gateway server. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all images from the working tree instead of pulling from the registry. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.

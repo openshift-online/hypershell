@@ -7,6 +7,12 @@
 
 ---
 
+The SQL rotation procedure below applies to controller-local gateways. Before
+migration, CNPG retains its operator-based rotation and deployment/external
+annotations retain their existing behavior. Transfer SHALL NOT activate an old,
+previously inert rotation request. See the
+[migration contract](./gateway-database-migration.spec.md).
+
 ## Purpose
 
 The control plane SHALL support explicit rotation of gateway database passwords

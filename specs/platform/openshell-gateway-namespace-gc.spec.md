@@ -3,6 +3,11 @@
 **Date:** 2026-08-17
 **Status:** Active
 
+Cleanup SHALL respect the gateway's active runtime and any migration ownership
+fence. The controller SHALL NOT reap source server namespaces, credentials, or
+rollback resources during migration. Existing database namespaces remain outside
+gateway namespace GC. See the [migration contract](./gateway-database-migration.spec.md).
+
 ## Purpose
 
 This spec defines how the HyperShell control plane reclaims the Kubernetes

@@ -241,7 +241,7 @@ Version 1 of the operational dashboard SHALL distinguish **connected** metrics (
 | `cpu` | Yes | BFF `GET /api/metrics/cluster-cpu` (Prometheus node-exporter); see `platform/cluster-cpu.spec.md` |
 | `pods` | Yes | BFF `GET /api/metrics/cluster-pods` (Prometheus kube-state-metrics); see `platform/cluster-pods.spec.md` |
 | `provision-time` | Yes | BFF `GET /api/metrics/gateway-provision-duration` (Prometheus control-plane histogram); see `platform/gateway-provision-time.spec.md` |
-| `managed-clusters` | Yes | BFF `GET /api/metrics/platform-inventory` (Prometheus); see `platform/platform-inventory.spec.md` |
+| `managed-clusters` | Yes | BFF `GET /api/metrics/platform-inventory?scope=clusters` (Prometheus); see `platform/platform-inventory.spec.md` |
 
 Widgets for placeholder metrics SHALL remain in the default layout and in the add-widgets drawer. When a metric ID is missing from the adapter response - whether because the metric is not yet connected or because its data source failed (OP-DASH-19) - the widget body SHALL render a localized "Metric unavailable" empty state (title and recovery guidance) instead of failing the entire dashboard.
 
@@ -314,7 +314,7 @@ The host `DashboardControlPlane` adapter SHALL load operational metrics from ind
 | BFF `GET /api/metrics/cluster-cpu` | `cpu` |
 | BFF `GET /api/metrics/cluster-pods` | `pods` |
 | BFF `GET /api/metrics/cluster-nodes` | `nodes` |
-| BFF `GET /api/metrics/platform-inventory` (`platform-inventory`) | `managed-clusters` |
+| BFF `GET /api/metrics/platform-inventory?scope=clusters` (`platform-inventory`) | `managed-clusters` |
 
 The adapter SHALL fetch these sources concurrently. When a source fails (network error, non-success HTTP status, inconsistent pagination, or other adapter validation error for that source), the adapter SHALL:
 
@@ -354,7 +354,7 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 #### Scenario: Platform inventory failure does not hide other metrics
 
 - GIVEN every other metric source succeeds
-- AND `GET /api/metrics/platform-inventory` fails
+- AND `GET /api/metrics/platform-inventory?scope=clusters` fails
 - WHEN the operator opens `/dashboard`
 - THEN gateway, sandbox, registered-user, and cluster metric widgets SHALL display loaded values
 - AND inventory widgets and summary rows SHALL render the localized metric-unavailable state
@@ -689,13 +689,13 @@ A separate `/dashboard/inventory` route SHALL NOT be added in version 1.
 - THEN the grid SHALL render a status donut for managed cluster inventory
 - AND the widget SHALL omit a trend sparkline
 
-### Requirement: Removed Database Inventory Widgets
+### Requirement: Database Inventory Is Absent from the New Widget Catalog
 
 The widget catalog, default layout, add-widgets drawer, summary card, and
 localization messages SHALL omit database inventory widgets and totals. Saved
 layouts containing retired widget types SHALL discard those entries while
-preserving unrelated widgets. This is layout cleanup, not support for old API
-contracts.
+preserving unrelated widgets. The existing unscoped BFF response and metrics SHALL remain available to older
+dashboard builds under the [migration contract](../platform/gateway-database-migration.spec.md).
 
 #### Scenario: A saved layout contains a removed widget
 

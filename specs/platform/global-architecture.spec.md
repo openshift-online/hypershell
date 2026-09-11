@@ -3,6 +3,11 @@
 **Date:** 2026-08-14
 **Status:** Active
 
+The controller-local topology is the target for new installations and completed
+migrations. Existing provider runtimes and interfaces remain supported. Adoption
+of existing servers, transfer of SQL data, and mixed-version rollout follow the
+[migration contract](./gateway-database-migration.spec.md).
+
 ## Overview
 
 HyperShell deploys as a global fleet management platform spanning multiple clouds and regions. The architecture uses a **three-tier hub-and-spoke topology**: a Global Hub provides federated identity root, Cloud Hubs run the operational platform (API, control plane, databases), and ManagedClusters host OpenShell Gateway workloads. Each cluster runs the platform dependencies required by its instances. CNPG is required only where the installation selects it for PostgreSQL server infrastructure.
