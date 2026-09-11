@@ -249,13 +249,12 @@ _driver_token_request() {
 #   client_credentials -- the GitHub-brokered pull-request path. Brokered GitHub
 #       users have no password grant, so tokens come from the confidential
 #       hypershell-e2e client instead:
-#         * admin path (username == E2E_OIDC_USERNAME) -- a straight
-#           client-credentials grant on hypershell-e2e, whose service account
-#           holds platform:admin + gateway:creator.
-#         * developer path (any other username) -- Keycloak token exchange
-#           impersonating that seeded principal for the requested audience (the
-#           HyperShell API client for area 9, or a per-gateway client via
-#           acquire_gateway_token_with_role). Never a password grant.
+#         * admin HyperShell API token (username == E2E_OIDC_USERNAME and
+#           client_id == E2E_OIDC_CLIENT_ID) -- client-credentials on
+#           hypershell-e2e.
+#         * every other call, including acquire_gateway_token_with_role --
+#           Keycloak token-exchange impersonating that principal for the
+#           requested audience. Never a password grant.
 _driver_acquire_oidc_token() {
   _OIDC_ACCESS_TOKEN=""
   local username="${1:-${E2E_OIDC_USERNAME}}"
@@ -276,18 +275,18 @@ _driver_acquire_oidc_token() {
         red "  (the ${E2E_OIDC_SA_CLIENT_ID} client secret read from the Keycloak namespace after openshift-up)"
         return 1
       fi
-      if [[ "${username}" == "${E2E_OIDC_USERNAME}" ]]; then
-        # Admin path: client-credentials grant on the hypershell-e2e service
-        # account. Its audience mapper stamps the HyperShell API audience so the
-        # API accepts the token; the username/password arguments are unused.
+      if [[ "${username}" == "${E2E_OIDC_USERNAME}" && "${client_id}" == "${E2E_OIDC_CLIENT_ID}" ]]; then
+        # Admin HyperShell API token: client-credentials on hypershell-e2e.
+        # Per-gateway tokens (a different client_id) must not use this path:
+        # the CC token is issued for hypershell-e2e / hypershell-frontend and
+        # never carries openshell-admin on the gateway client.
         _driver_token_request \
           -d "grant_type=client_credentials" \
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
           -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
       else
-        # Developer path: impersonate the seeded principal through Keycloak token
-        # exchange, scoped to the requested audience (the HyperShell API client
-        # for area 9, or a per-gateway client via acquire_gateway_token_with_role).
+        # Developer API tokens and every per-gateway token: impersonate the
+        # requested principal targeting that audience (e2e-testing.spec.md).
         _driver_token_request \
           -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \

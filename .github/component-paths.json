@@ -101,9 +101,11 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/e2e.yml",
+      ".github/workflows/e2e-openshift-main.yml",
       ".github/workflows/unit-tests.yml",
       ".github/workflows/tests.yml",
-      ".github/workflows/pr-environment.yml"
+      ".github/workflows/pr-environment.yml",
+      ".github/workflows/pr-environment-release.yml"
     ]
   },
   "pr_test": {

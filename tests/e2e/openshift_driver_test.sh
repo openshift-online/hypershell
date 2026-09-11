@@ -138,6 +138,15 @@ case "$(captured_curl_args)" in
   *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange developer args (got=%q)\n' "$(captured_curl_args)" ;;
 esac
 
+# Admin + per-gateway client must also token-exchange. Straight client_credentials
+# on hypershell-e2e never carries openshell-admin for that gateway client
+# (e2e-testing.spec.md acquire_gateway_token_with_role).
+E2E_OIDC_GRANT=client_credentials acquire_oidc_token admin admin openshell-gw-1 >/dev/null
+case "$(captured_curl_args)" in
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' requested_subject=admin '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange admin gateway args (got=%q)\n' "$(captured_curl_args)" ;;
+esac
+
 # client_credentials without the service-account secret fails fast.
 if (E2E_OIDC_GRANT=client_credentials E2E_OIDC_SA_CLIENT_SECRET='' acquire_oidc_token >/dev/null 2>&1); then
   FAIL=$((FAIL + 1)); echo 'FAIL: client_credentials without secret was accepted'
