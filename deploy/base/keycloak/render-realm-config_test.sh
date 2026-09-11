@@ -80,6 +80,19 @@ else
 fi
 pr_idp="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); idp=next(i for i in realm["identityProviders"] if i["alias"]=="github"); print(json.dumps({"enabled": idp["enabled"], "clientId": idp["config"]["clientId"]}))' "${WORKDIR}/pr.json")"
 assert_eq '{"enabled": true, "clientId": "Iv1.example"}' "${pr_idp}" "PR env GitHub IdP enabled with OAuth client id"
+pr_broker="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); idp=next(i for i in realm["identityProviders"] if i["alias"]=="github"); print(json.dumps({"storeToken": idp.get("storeToken"), "addReadTokenRoleOnCreate": idp.get("addReadTokenRoleOnCreate")}))' "${WORKDIR}/pr.json")"
+assert_eq '{"storeToken": true, "addReadTokenRoleOnCreate": true}' \
+  "${pr_broker}" "GitHub IdP stores the token and grants broker read-token on first login"
+pr_mappers="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(",".join(sorted({m["identityProviderMapper"] for m in realm["identityProviderMappers"]})))' "${WORKDIR}/pr.json")"
+assert_eq 'oidc-hardcoded-role-idp-mapper' \
+  "${pr_mappers}" "GitHub IdP hardcoded-role mapper uses the Keycloak 26 provider id"
+
+if grep -q 'value: "token-exchange,admin-fine-grained-authz:v1"' "${REALM_YAML}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Keycloak Deployment must enable token-exchange and admin-fine-grained-authz:v1'
+fi
 
 printf 'render-realm-config tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "${FAIL}" -eq 0 ]]

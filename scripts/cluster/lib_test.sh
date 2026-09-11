@@ -154,6 +154,12 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: openshift-up does not pin HYPERSHELL_CONSOLE_HOST for realm import'
 fi
+if grep 'Keycloak:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'admin/admin'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Keycloak banner still prints admin/admin outside the test-user branch'
+else
+  PASS=$((PASS + 1))
+fi
 if grep -A3 '^cluster_teardown()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cluster_down'; then
   PASS=$((PASS + 1))
 else

@@ -131,11 +131,13 @@ spec:
               value: "https://keycloak.hypershell.localhost"
             - name: KC_PROXY_HEADERS
               value: "xforwarded"
-            # Legacy token-exchange (requested_subject impersonation). Keycloak
-            # 26 standard token-exchange rejects that parameter, and the e2e
-            # suite uses impersonation for per-gateway tokens.
+            # Legacy token-exchange (requested_subject impersonation) plus FGAP
+            # v1. Keycloak 26 standard token-exchange rejects that parameter,
+            # and FGAP v2 (the 26.2+ default) has no token-exchange permission.
+            # The e2e suite impersonates seeded users onto gateway and frontend
+            # audiences, which needs both features.
             - name: KC_FEATURES
-              value: "token-exchange"
+              value: "token-exchange,admin-fine-grained-authz:v1"
           ports:
             - containerPort: 8080
               name: http
@@ -751,6 +753,7 @@ data:
           "enabled": "${PR_ENV_GITHUB_IDP_ENABLED:false}",
           "trustEmail": true,
           "storeToken": true,
+          "addReadTokenRoleOnCreate": true,
           "firstBrokerLoginFlowAlias": "first broker login",
           "config": {
             "clientId": "${PR_ENV_GITHUB_CLIENT_ID:}",
@@ -765,13 +768,13 @@ data:
         {
           "name": "github-grant-platform-admin",
           "identityProviderAlias": "github",
-          "identityProviderMapper": "hardcoded-role-idp-mapper",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
           "config": { "role": "platform:admin", "syncMode": "FORCE" }
         },
         {
           "name": "github-grant-gateway-creator",
           "identityProviderAlias": "github",
-          "identityProviderMapper": "hardcoded-role-idp-mapper",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
           "config": { "role": "gateway:creator", "syncMode": "FORCE" }
         }
       ]
