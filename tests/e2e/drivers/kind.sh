@@ -12,6 +12,15 @@
 # Kind uses locally issued certificates. Other drivers may override this seam
 # while reusing the production OIDC and role-assignment behavior below.
 
+# Auto-detect container engine (docker or podman) if not explicitly set.
+if [[ -z "${CONTAINER_ENGINE:-}" ]]; then
+  if command -v podman &>/dev/null; then
+    export CONTAINER_ENGINE=podman
+  elif command -v docker &>/dev/null; then
+    export CONTAINER_ENGINE=docker
+  fi
+fi
+
 # Kind's self-signed CA is not in the system trust store. Instruct the
 # openshell CLI to skip TLS verification for gateway connections. curl already
 # uses -sk (insecure) for all driver requests; this extends the same treatment
@@ -76,18 +85,33 @@ _kind_start_gw_socat() {
   _KINDCCM_GW_PORT="${socat_port}"
 }
 _driver_curl() {
-  _kind_discover_port
-  local connect_args=()
-  if [[ -n "${_KINDCCM_PORT}" && "${_KINDCCM_PORT}" != "443" ]]; then
-    connect_args+=(
-      --connect-to "api.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
-      --connect-to "keycloak.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
-      --connect-to "console.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
-      --connect-to "health.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
-      --connect-to "observability.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
-    )
+  # Try direct HTTPRoute access first. This works in most setups where the
+  # routes are directly accessible on port 443 (docker, podman, or iptables-
+  # forwarded 443). If direct access fails (connection refused/timeout), fall
+  # back to port-remapping via the ephemeral kindccm-gw port.
+  local output status
+  output=$(curl -sk --ipv4 "$@" 2>&1)
+  status=$?
+
+  # If direct access failed due to connection error, try port-remapping
+  if [[ $status -eq 7 ]]; then
+    _kind_discover_port
+    local connect_args=()
+    if [[ -n "${_KINDCCM_PORT}" && "${_KINDCCM_PORT}" != "443" ]]; then
+      connect_args+=(
+        --connect-to "api.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "keycloak.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "console.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "health.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "observability.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+      )
+      output=$(curl -sk --ipv4 "${connect_args[@]}" "$@" 2>&1)
+      status=$?
+    fi
   fi
-  curl -sk --ipv4 "${connect_args[@]}" "$@"
+
+  echo "$output"
+  return $status
 }
 
 # discover_api_host - find the HyperShell API server base URL.
