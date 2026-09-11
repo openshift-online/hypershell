@@ -117,13 +117,13 @@ const validConditionStatuses = new Set<string>([
 ]);
 
 function parseProvisioningConditions(
-  raw: string,
+  raw: unknown,
 ): readonly ProvisioningCondition[] | undefined {
   if (!raw) {
     return undefined;
   }
   try {
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!Array.isArray(parsed)) {
       return undefined;
     }

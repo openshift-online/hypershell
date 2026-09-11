@@ -96,7 +96,7 @@ export function resolveGatewayDisplayStatus(
     return phaseValue;
   }
 
-  return healthStatus || phaseValue || "Unknown";
+  return healthStatus || phaseValue || "Provisioning";
 }
 
 function gatewayDisplayStatusBucket(
@@ -394,6 +394,6 @@ export function toGatewayConnection(
     ...(gateway.oidcClientId ? { oidcClientId: gateway.oidcClientId } : {}),
     ...(gateway.oidcIssuer ? { oidcIssuer: gateway.oidcIssuer } : {}),
     ...(phase ? { phase } : {}),
-    status: status || "Unknown",
+    status: status || "Provisioning",
   };
 }

@@ -136,6 +136,12 @@ export const messages = defineMessages({
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
   },
+  connectionWaitingForProvisioning: {
+    id: "app.gateway.connection.waitingForProvisioning",
+    defaultMessage: "Waiting for gateway provisioning...",
+    description:
+      "Shown in the connection tab while the gateway is still being provisioned.",
+  },
   connectionSandboxConnectDescription: {
     id: "app.gateway.connection.sandboxConnect.description",
     defaultMessage:
@@ -168,6 +174,12 @@ export const messages = defineMessages({
     id: "app.gateway.connection.setup.title",
     defaultMessage: "One-time setup",
     description: "Title for the consolidated one-time setup connection step.",
+  },
+  connectionLoginConfigureTitle: {
+    id: "app.gateway.connection.loginConfigure.title",
+    defaultMessage: "Log in and configure",
+    description:
+      "Sub-header for the login and configuration command within one-time setup.",
   },
   connectionTab: {
     id: "app.gateway.connection.tab",
@@ -1018,6 +1030,51 @@ export const messages = defineMessages({
     id: "app.gateway.provisioningProgress.step.health",
     defaultMessage: "Verifying gateway health",
     description: "Label for the gateway health verification provisioning step.",
+  },
+  provisioningStepProvisioned: {
+    id: "app.gateway.provisioningProgress.step.provisioned",
+    defaultMessage: "Provisioned",
+    description: "Label for the final provisioning step indicating completion.",
+  },
+  provisioningStepEnvironmentReady: {
+    id: "app.gateway.provisioningProgress.step.environmentReady",
+    defaultMessage: "Environment ready",
+    description:
+      "Completed-state label for the environment preparation step.",
+  },
+  provisioningStepDatabaseReady: {
+    id: "app.gateway.provisioningProgress.step.databaseReady",
+    defaultMessage: "Database ready",
+    description: "Completed-state label for the database provisioning step.",
+  },
+  provisioningStepIdentityProviderReady: {
+    id: "app.gateway.provisioningProgress.step.identityProviderReady",
+    defaultMessage: "IdP ready",
+    description:
+      "Completed-state label for the identity provider configuration step.",
+  },
+  provisioningStepGatewayDeployed: {
+    id: "app.gateway.provisioningProgress.step.gatewayDeployed",
+    defaultMessage: "Gateway deployed",
+    description: "Completed-state label for the gateway deployment step.",
+  },
+  provisioningStepHealthVerified: {
+    id: "app.gateway.provisioningProgress.step.healthVerified",
+    defaultMessage: "Health verified",
+    description:
+      "Completed-state label for the gateway health verification step.",
+  },
+  provisioningStepStartingConsole: {
+    id: "app.gateway.provisioningProgress.step.startingConsole",
+    defaultMessage: "Starting console",
+    description:
+      "Active-state label for the console readiness provisioning step.",
+  },
+  provisioningStepConsoleReady: {
+    id: "app.gateway.provisioningProgress.step.consoleReady",
+    defaultMessage: "Console ready",
+    description:
+      "Completed-state label for the console readiness provisioning step.",
   },
   /* eslint-enable sort-keys */
   unavailableGatewayConsole: {

@@ -2,6 +2,14 @@
   overflow-wrap: anywhere;
 }
 
+.provisioningStepper {
+  max-width: 60rem;
+}
+
+.provisioningStepper :global(.pf-v6-c-progress-stepper__step-title) {
+  font-size: var(--pf-v6-global--FontSize--sm);
+}
+
 .endpointCopy :global(.pf-v6-c-clipboard-copy__group),
 .endpointCopy :global(.pf-v6-c-text-input-group__text-input) {
   background-color: var(--pf-t--global--background--color--primary--default);
