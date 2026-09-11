@@ -12,28 +12,28 @@ import (
 type Gateway struct {
 	ObjectReference
 
-	ActiveSandboxCount int32  `json:"active_sandbox_count,omitempty"`
-	ClusterID          string `json:"cluster_id"`
-	ConsoleAddress     string `json:"console_address,omitempty"`
-	CreatedBy          string `json:"created_by,omitempty"`
-	CredentialDriver   string `json:"credential_driver,omitempty"`
-	DatabaseID         string `json:"database_id"`
-	ExternalDNS        string `json:"external_dns,omitempty"`
-	GatewayVersion     string `json:"gateway_version,omitempty"`
-	Image              string `json:"image,omitempty"`
-	Name               string `json:"name"`
-	Namespace          string `json:"namespace"`
-	Oidc               string `json:"oidc,omitempty"`
-	Phase              string `json:"phase,omitempty"`
+	ActiveSandboxCount     int32  `json:"active_sandbox_count,omitempty"`
+	ClusterID              string `json:"cluster_id"`
+	ConsoleAddress         string `json:"console_address,omitempty"`
+	CreatedBy              string `json:"created_by,omitempty"`
+	CredentialDriver       string `json:"credential_driver,omitempty"`
+	DatabaseID             string `json:"database_id"`
+	ExternalDNS            string `json:"external_dns,omitempty"`
+	GatewayVersion         string `json:"gateway_version,omitempty"`
+	Image                  string `json:"image,omitempty"`
+	Name                   string `json:"name"`
+	Namespace              string `json:"namespace"`
+	Oidc                   string `json:"oidc,omitempty"`
+	Phase                  string `json:"phase,omitempty"`
 	ProvisioningConditions string `json:"provisioning_conditions,omitempty"`
-	ReleaseID          string `json:"release_id"`
-	Route              string `json:"route,omitempty"`
-	RouteAddress       string `json:"route_address,omitempty"`
-	ServerDNSNames     string `json:"server_dns_names,omitempty"`
-	ServiceType        string `json:"service_type,omitempty"`
-	Status             string `json:"status,omitempty"`
-	SupervisorImage    string `json:"supervisor_image,omitempty"`
-	TLSMode            string `json:"tls_mode,omitempty"`
+	ReleaseID              string `json:"release_id"`
+	Route                  string `json:"route,omitempty"`
+	RouteAddress           string `json:"route_address,omitempty"`
+	ServerDNSNames         string `json:"server_dns_names,omitempty"`
+	ServiceType            string `json:"service_type,omitempty"`
+	Status                 string `json:"status,omitempty"`
+	SupervisorImage        string `json:"supervisor_image,omitempty"`
+	TLSMode                string `json:"tls_mode,omitempty"`
 }
 
 type GatewayList struct {
@@ -42,9 +42,9 @@ type GatewayList struct {
 }
 
 func (l *GatewayList) GetItems() []Gateway { return l.Items }
-func (l *GatewayList) GetTotal() int                  { return l.Total }
-func (l *GatewayList) GetPage() int                   { return l.Page }
-func (l *GatewayList) GetSize() int                   { return l.Size }
+func (l *GatewayList) GetTotal() int       { return l.Total }
+func (l *GatewayList) GetPage() int        { return l.Page }
+func (l *GatewayList) GetSize() int        { return l.Size }
 
 type GatewayBuilder struct {
 	resource Gateway
@@ -54,7 +54,6 @@ type GatewayBuilder struct {
 func NewGatewayBuilder() *GatewayBuilder {
 	return &GatewayBuilder{}
 }
-
 
 func (b *GatewayBuilder) ClusterID(v string) *GatewayBuilder {
 	b.resource.ClusterID = v
@@ -126,7 +125,6 @@ func (b *GatewayBuilder) TLSMode(v string) *GatewayBuilder {
 	return b
 }
 
-
 func (b *GatewayBuilder) Build() (*Gateway, error) {
 	if b.resource.ClusterID == "" {
 		b.errors = append(b.errors, fmt.Errorf("cluster_id is required"))
@@ -156,7 +154,6 @@ type GatewayPatchBuilder struct {
 func NewGatewayPatchBuilder() *GatewayPatchBuilder {
 	return &GatewayPatchBuilder{patch: make(map[string]any)}
 }
-
 
 func (b *GatewayPatchBuilder) ClusterID(v string) *GatewayPatchBuilder {
 	b.patch["cluster_id"] = v
@@ -238,8 +235,6 @@ func (b *GatewayPatchBuilder) TLSMode(v string) *GatewayPatchBuilder {
 	return b
 }
 
-
 func (b *GatewayPatchBuilder) Build() map[string]any {
 	return b.patch
 }
-
