@@ -220,8 +220,11 @@ or `status` update.
 The dedicated `openshell-gateway-health` Service SHALL expose the health
 endpoint on an internal port. A NetworkPolicy SHALL permit access to this port
 only from the control plane controller in the control plane namespace. Before
-each version request, the health reconciler SHALL reconcile this Service and
-NetworkPolicy with update-or-create operations. This reconciliation SHALL repair
+the first version request, the health reconciler SHALL reconcile this Service
+and NetworkPolicy with update-or-create operations. After success, it SHALL
+repeat access checks every five minutes. A failed version observation SHALL
+force an access check on the next health pass. Each Service or policy operation
+SHALL have its own three-second timeout, including conflict retries. This reconciliation SHALL repair
 existing gateways after a control plane upgrade and SHALL repair later drift or
 deletion. It SHALL also remove old TCP health-port permissions from the owned
 sandbox and router policies. It SHALL keep their other permissions. If a rule

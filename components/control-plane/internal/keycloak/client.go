@@ -18,6 +18,8 @@ import (
 const deviceAuthorizationGrantAttribute = "oauth2.device.authorization.grant.enabled"
 
 // Client wraps the Keycloak Admin REST API for gateway OIDC provisioning.
+// Configuration and httpClient do not change after construction. The HTTP
+// client supports concurrent requests. mu protects token and tokenExpiry.
 type Client struct {
 	serverURL    string
 	realm        string

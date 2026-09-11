@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	gatewayHealthAccessInterval   = 5 * time.Minute
 	defaultGatewayVersionTimeout  = 3 * time.Second
 	maxGatewayHealthResponseBytes = 4 * 1024
 	maxGatewayVersionLength       = 128
@@ -40,12 +41,23 @@ func (h *GatewayHealthReconciler) reconcileGatewayVersion(ctx context.Context, c
 		return
 	}
 
-	if err := gateway.ReconcileGatewayHealthAccess(ctx, h.clientset, namespace, h.controlPlaneNamespace, h.skipNetworkPolicies); err != nil {
-		log.Printf("WARN gateway version: reconcile access for %s: %v", gatewayID, err)
-		return
+	if h.healthAccessCheckDue(namespace) {
+		if err := gateway.ReconcileGatewayHealthAccess(ctx, h.clientset, namespace, h.controlPlaneNamespace, h.skipNetworkPolicies); err != nil {
+			log.Printf("WARN gateway version: reconcile access for %s: %v", gatewayID, err)
+			return
+		}
+		h.mu.Lock()
+		if h.healthAccessCheckedAt == nil {
+			h.healthAccessCheckedAt = make(map[string]time.Time)
+		}
+		h.healthAccessCheckedAt[namespace] = h.now()
+		h.mu.Unlock()
 	}
 	observedVersion, err := h.versionObserver.Observe(ctx, namespace)
 	if err != nil {
+		h.mu.Lock()
+		delete(h.healthAccessCheckedAt, namespace)
+		h.mu.Unlock()
 		log.Printf("WARN gateway version: observe runtime for %s: %v", gatewayID, err)
 		return
 	}
@@ -139,4 +151,24 @@ func (o *httpGatewayVersionObserver) Observe(ctx context.Context, namespace stri
 	}
 
 	return version, nil
+}
+
+// A failed observation removes its entry so the next health pass repairs
+// access before it retries. Successful checks remain valid for five minutes.
+func (h *GatewayHealthReconciler) healthAccessCheckDue(namespace string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	checkedAt, ok := h.healthAccessCheckedAt[namespace]
+	return !ok || h.now().Sub(checkedAt) >= gatewayHealthAccessInterval
+}
+
+// Expire access checks on each successful inventory pass.
+func (h *GatewayHealthReconciler) pruneHealthAccessChecks() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for namespace, checkedAt := range h.healthAccessCheckedAt {
+		if h.now().Sub(checkedAt) >= gatewayHealthAccessInterval {
+			delete(h.healthAccessCheckedAt, namespace)
+		}
+	}
 }

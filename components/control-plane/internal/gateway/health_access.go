@@ -43,16 +43,13 @@ func ReconcileGatewayHealthAccess(ctx context.Context, clientset kubernetes.Inte
 		return fmt.Errorf("control plane namespace is required")
 	}
 
-	reconcileCtx, cancel := context.WithTimeout(ctx, gatewayHealthAccessTimeout)
-	defer cancel()
-
-	if err := reconcileGatewayHealthService(reconcileCtx, clientset, namespace); err != nil {
+	if err := reconcileGatewayHealthService(ctx, clientset, namespace); err != nil {
 		return err
 	}
 	if skipNetworkPolicies {
 		return nil
 	}
-	if err := reconcileGatewayHealthNetworkPolicy(reconcileCtx, clientset, namespace, controlPlaneNamespace); err != nil {
+	if err := reconcileGatewayHealthNetworkPolicy(ctx, clientset, namespace, controlPlaneNamespace); err != nil {
 		return err
 	}
 	for _, name := range []string{
@@ -60,7 +57,7 @@ func ReconcileGatewayHealthAccess(ctx context.Context, clientset kubernetes.Inte
 		"openshell-gateway-allow-sandbox-v2",
 		"openshell-gateway-allow-router",
 	} {
-		if err := removeLegacyHealthAccess(reconcileCtx, clientset, namespace, name); err != nil {
+		if err := removeLegacyHealthAccess(ctx, clientset, namespace, name); err != nil {
 			return err
 		}
 	}
@@ -71,6 +68,9 @@ func ReconcileGatewayHealthAccess(ctx context.Context, clientset kubernetes.Inte
 // an old sandbox or router permission. Repair those policies on existing
 // gateways, which can skip the normal provisioning pass after an upgrade.
 func removeLegacyHealthAccess(ctx context.Context, clientset kubernetes.Interface, namespace, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, gatewayHealthAccessTimeout)
+	defer cancel()
+
 	policies := clientset.NetworkingV1().NetworkPolicies(namespace)
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		policy, err := policies.Get(ctx, name, metav1.GetOptions{})
@@ -119,6 +119,9 @@ func removeLegacyHealthAccess(ctx context.Context, clientset kubernetes.Interfac
 }
 
 func reconcileGatewayHealthService(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
+	ctx, cancel := context.WithTimeout(ctx, gatewayHealthAccessTimeout)
+	defer cancel()
+
 	services := clientset.CoreV1().Services(namespace)
 	desiredPorts := []corev1.ServicePort{{
 		Name:       gatewayHealthPortName,
@@ -221,6 +224,9 @@ func reconcileGatewayHealthService(ctx context.Context, clientset kubernetes.Int
 }
 
 func reconcileGatewayHealthNetworkPolicy(ctx context.Context, clientset kubernetes.Interface, namespace, controlPlaneNamespace string) error {
+	ctx, cancel := context.WithTimeout(ctx, gatewayHealthAccessTimeout)
+	defer cancel()
+
 	policies := clientset.NetworkingV1().NetworkPolicies(namespace)
 	desiredSpec := gatewayHealthNetworkPolicySpec(controlPlaneNamespace)
 

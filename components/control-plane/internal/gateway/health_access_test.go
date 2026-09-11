@@ -2,8 +2,14 @@ package gateway
 
 import (
 	"context"
+	"io"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"net/http"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -227,5 +233,45 @@ func TestReconcileGatewayHealthAccessUpgradesExistingPolicies(t *testing.T) {
 	}
 	if got := mutationCount(client.Actions()); got != mutations {
 		t.Fatalf("repeat pass wrote resources: %d != %d", got, mutations)
+	}
+}
+
+type healthAccessTransport func(*http.Request) (*http.Response, error)
+
+func (f healthAccessTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestHealthAccessOperationsHaveSeparateTimeouts(t *testing.T) {
+	var lastOperation string
+	var lastDeadline time.Time
+	operations := 0
+	transport := healthAccessTransport(func(r *http.Request) (*http.Response, error) {
+		deadline, ok := r.Context().Deadline()
+		if !ok || time.Until(deadline) > gatewayHealthAccessTimeout {
+			t.Fatal("access request has no bounded deadline")
+		}
+		if r.URL.Path != lastOperation {
+			if !lastDeadline.IsZero() && !deadline.After(lastDeadline) {
+				t.Fatal("next resource reused the previous resource's deadline")
+			}
+			operations++
+			lastOperation, lastDeadline = r.URL.Path, deadline
+		}
+		body := `{"apiVersion":"v1","kind":"Service","metadata":{"name":"openshell-gateway-health"}}`
+		if strings.Contains(r.URL.Path, "networkpolicies") {
+			body = `{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"openshell-gateway-allow-controller-health"}}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	clientset, err := kubernetes.NewForConfig(&rest.Config{Host: "http://kubernetes.test", Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ReconcileGatewayHealthAccess(context.Background(), clientset, "gateway", "control-plane", false); err != nil {
+		t.Fatal(err)
+	}
+	if operations != 5 {
+		t.Fatalf("checked %d resources, want Service and four policies", operations)
 	}
 }

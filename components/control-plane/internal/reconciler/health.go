@@ -97,6 +97,8 @@ type GatewayHealthReconciler struct {
 	routeNotReadySince map[string]time.Time
 	routeTornDown      map[string]bool
 	routeVerifiedAt    map[string]time.Time
+	// mu also protects healthAccessCheckedAt. Entries expire after five minutes.
+	healthAccessCheckedAt map[string]time.Time
 }
 
 func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID, controlPlaneNamespace string) *GatewayHealthReconciler {
@@ -188,6 +190,7 @@ func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 		return
 	}
 
+	h.pruneHealthAccessChecks()
 	h.reconcileGateways(ctx, client, gateways)
 }
 

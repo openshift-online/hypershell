@@ -2,6 +2,9 @@ package reconciler
 
 import (
 	"context"
+	"fmt"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -206,4 +209,65 @@ func TestObservedGatewayHealthUpdateWithoutVersion(t *testing.T) {
 			t.Fatalf("request = %#v, want nil", request)
 		}
 	})
+}
+
+type versionObserverFunc func(context.Context, string) (string, error)
+
+func (f versionObserverFunc) Observe(ctx context.Context, namespace string) (string, error) {
+	return f(ctx, namespace)
+}
+
+func TestGatewayVersionAccessChecks(t *testing.T) {
+	accessChecks := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			accessChecks++
+		}
+		_, _ = w.Write([]byte(`{"apiVersion":"v1","kind":"Service","metadata":{"name":"openshell-gateway-health"}}`))
+	}))
+	defer server.Close()
+	clientset, err := kubernetes.NewForConfig(&rest.Config{Host: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	observationFails := false
+	observations := 0
+	h := &GatewayHealthReconciler{
+		clientset:           clientset,
+		skipNetworkPolicies: true,
+		now:                 func() time.Time { return now },
+		versionObserver: versionObserverFunc(func(context.Context, string) (string, error) {
+			observations++
+			if observationFails {
+				return "", fmt.Errorf("health endpoint is unavailable")
+			}
+			return "0.0.109", nil
+		}),
+	}
+	version := "0.0.109"
+	record := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gateway-1"}, GatewayVersion: &version}
+	check := func(wantAccess, wantObservations int) {
+		t.Helper()
+		h.reconcileGatewayVersion(context.Background(), nil, record, "gateway-1")
+		if accessChecks != wantAccess || observations != wantObservations {
+			t.Fatalf("access checks = %d, observations = %d; want %d, %d", accessChecks, observations, wantAccess, wantObservations)
+		}
+	}
+	check(1, 1)
+	now = now.Add(defaultHealthInterval)
+	check(1, 2)
+	now = now.Add(gatewayHealthAccessInterval)
+	check(2, 3)
+	observationFails = true
+	check(2, 4)
+	observationFails = false
+	check(3, 5)
+	// Entries for deleted gateways must not remain in memory without a limit.
+	now = now.Add(gatewayHealthAccessInterval)
+	h.pruneHealthAccessChecks()
+	if len(h.healthAccessCheckedAt) != 0 {
+		t.Fatal("expired access checks remain in memory")
+	}
 }
