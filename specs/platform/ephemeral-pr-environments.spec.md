@@ -417,12 +417,20 @@ namespace, the API Route URL, and the web-console Route URL -- presented as the
 same login guidance `make openshift-up` prints at the end of a successful
 bring-up, so the comment and the command agree.
 
-On the pull request's first deployment, the workflow SHALL post the initial
-comment once the environment is ready. On each later deployment for the same pull
-request, the workflow SHALL update the marked comment to state that the
-environment has been updated to commit `<sha>` and SHALL refresh the same login
-details. The `<sha>` in the comment SHALL be the commit whose digest swap
-completed, so the comment never claims a commit the swap did not deploy.
+The workflow SHALL post the marked comment as the first step of a deploy run,
+before cluster login, deploy, or e2e, stating that the environment is
+deploying to commit `<sha>` and containing no access facts yet. This keeps the
+access comment near the top of the pull request's timeline: because it is
+normally the first comment the workflow ever adds, later edits do not need to
+reorder it among other bots' checks and comments. Once the environment is
+ready, the workflow SHALL edit that same marked comment in place with the
+access facts rather than posting a second comment. On each later deployment
+for the same pull request, the workflow SHALL repeat this sequence against the
+one marked comment: an early edit stating the environment is deploying to the
+new commit, then a final edit stating it has been updated to commit `<sha>`
+with refreshed login details. The `<sha>` in the final comment SHALL be the
+commit whose digest swap completed, so the comment never claims a commit the
+swap did not deploy.
 
 The comment SHALL NOT contain any credential. It SHALL include an `oc login`
 template using the `--web` flag (for example `oc login --server=<api-url>
@@ -432,22 +440,34 @@ issuance and refresh itself. No separate credential delivery step is needed: no
 kubeconfig, token, or password SHALL appear in the comment, the job logs, or a
 public artifact.
 
+#### Scenario: Deploying placeholder posted first
+
+- GIVEN a pull request is opened
+- WHEN the deploy job starts, before cluster login or deploy
+- THEN it SHALL post one pull-request comment stating the environment is
+  deploying to the head commit
+- AND the comment SHALL contain the hidden marker `<!-- hypershell-pr-environment -->`
+- AND the comment SHALL contain no access facts or credential
+
 #### Scenario: Initial comment on pull-request open
 
 - GIVEN a pull request is opened and its environment becomes ready
 - WHEN the workflow finishes deploying
-- THEN it SHALL post one pull-request comment with the namespaces, console URL,
-  API Route URL, and web-console Route URL
-- AND the comment SHALL contain the hidden marker `<!-- hypershell-pr-environment -->`
+- THEN it SHALL edit the marked comment in place with the namespaces, console
+  URL, API Route URL, and web-console Route URL, rather than posting a second
+  comment
 - AND the comment SHALL present the same login details `make openshift-up` prints
 - AND the comment SHALL NOT contain a credential
 
 #### Scenario: Comment updated on each new commit
 
 - GIVEN a pull request already has an access comment that carries the marker
-- WHEN a new commit's digest swap completes
-- THEN the workflow SHALL update that marked comment to say the environment was
-  updated to commit `<sha>`
+- WHEN a new commit's deploy run starts
+- THEN the workflow SHALL edit that marked comment to say the environment is
+  deploying to the new commit
+- AND WHEN that commit's digest swap completes
+- THEN the workflow SHALL edit the same marked comment again to say the
+  environment was updated to commit `<sha>`
 - AND `<sha>` SHALL be the commit whose digest swap completed
 - AND the workflow SHALL NOT post a second access comment
 - AND the comment SHALL refresh the login details
@@ -512,36 +532,42 @@ unset, the workflow SHALL fail before the access comment is posted, rather than
 leave an environment nobody can log into.
 
 The Keycloak SHALL configure a GitHub identity provider using that OAuth App
-and the OAuth `read:org` scope so it can read the authenticating user's
-organization membership. The realm SHALL restrict which GitHub identities may
-complete authentication:
+and the OAuth `read:org` scope so HyperShell can read the authenticating user's
+organization membership. Interactive login SHALL restrict which GitHub
+identities may use the environment:
 
 - **Organization membership is the default gate.** A GitHub user who is a member
   of the `openshift-online` organization SHALL be allowed to authenticate.
-- **An allowlist admits extra usernames outside the organization.** The realm
-  SHALL support an allowlist of individual GitHub usernames that MAY authenticate
-  even when they are not members of `openshift-online`, so an outside contributor
-  can log in without being added to the organization. The allowlist is
-  additive: it widens login beyond the organization gate, never narrows it, and
-  it does not grant the listed user a CI deploy.
-- **Everyone else is denied.** A GitHub user who is neither an `openshift-online`
-  member nor on the allowlist SHALL be denied at authentication; the environment
-  SHALL NOT create a HyperShell session for them.
+- **An allowlist admits extra usernames outside the organization.** The
+  environment SHALL support an allowlist of individual GitHub usernames that MAY
+  authenticate even when they are not members of `openshift-online`, so an
+  outside contributor can log in without being added to the organization. The
+  allowlist is additive: it widens login beyond the organization gate, never
+  narrows it, and it does not grant the listed user a CI deploy.
+- **Everyone else is denied.** A GitHub user who is neither an
+  `openshift-online` member nor on the allowlist SHALL be denied a HyperShell
+  session.
 
-The organization gate and the allowlist SHALL be enforced during authentication
-(for example through a first-broker-login flow step or an equivalent authenticator
-that checks `read:org` membership and the configured allowlist), not merely by
-post-hoc role assignment, so a denied user never obtains a token. The organization
-name, the allowlist, the GitHub OAuth client id and secret, and the stable
-callback URL SHALL come from configuration, not code, so a different
+The organization gate and the allowlist SHALL be enforced by the web-console BFF
+after the OIDC callback, using the Keycloak-stored GitHub token
+(`storeToken`) to call GitHub `GET /user/orgs` and comparing
+`preferred_username` against the allowlist. This is a weaker guarantee than a
+Keycloak first-broker-login SPI: Keycloak may still issue an SSO session, but
+the BFF SHALL NOT persist a HyperShell session for a denied user. The console's
+API bearer is that session's access token, so a denied login SHALL NOT produce a
+token the BFF can forward. The API server is not separately org-gated; e2e and
+control-plane callers keep using their own service-account clients. These are
+developer environments; the BFF check avoids a custom Keycloak image. Kind and
+local SHALL leave `GITHUB_ORG_GATE` unset so seeded password users stay ungated.
+The organization name, the allowlist, the GitHub OAuth client id and secret, and
+the stable callback URL SHALL come from configuration, not code, so a different
 organization, allowlist, or OAuth App does not require an overlay edit.
 
 #### Scenario: Organization member authenticates
 
 - GIVEN a GitHub user who is a member of `openshift-online`
 - WHEN they log in to a pull-request environment through GitHub
-- THEN Keycloak SHALL allow the authentication
-- AND SHALL create their HyperShell session
+- THEN the web console SHALL create their HyperShell session
 
 #### Scenario: Allowlisted non-member authenticates
 
@@ -549,15 +575,17 @@ organization, allowlist, or OAuth App does not require an overlay edit.
 - AND that username is on the environment's allowlist
 - AND an origin-repo pull request has already deployed the environment
 - WHEN they log in through GitHub
-- THEN Keycloak SHALL allow the authentication
+- THEN the web console SHALL create their HyperShell session
 - AND that allowlist entry SHALL NOT have caused CI to deploy a fork pull request
 
 #### Scenario: Non-member, non-allowlisted user is denied
 
 - GIVEN a GitHub user who is neither an `openshift-online` member nor allowlisted
 - WHEN they attempt to log in through GitHub
-- THEN Keycloak SHALL deny the authentication
-- AND SHALL NOT issue a token or create a session
+- THEN the web console SHALL deny the login
+- AND SHALL NOT create a HyperShell session
+- AND SHALL show an access-denied error in the console
+- AND SHALL NOT forward an API bearer on later `/api/*` calls from that login
 
 #### Scenario: GitHub redirects to the stable callback
 
@@ -798,7 +826,7 @@ exists).
 | Close releases as primary path, timebox as backstop | The merge/close event frees the environment promptly in the common case; the timebox covers the case where the event does not fire or release cannot be confirmed |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
-| Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both during authentication (not by post-hoc roles) means a denied user never gets a token |
+| Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
 | Authenticated users get `platform:admin` and `gateway:creator`; developer tier by impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no admin-or-developer account picker. A seeded `gateway:viewer` / `openshell-user` principal plus impersonation lets an admin still verify the developer boundary with the same login |
 | Dedicated `hypershell-e2e` client; secret read from the deployed Keycloak | Brokered GitHub users have no password grant. A per-PR realm cannot share a repo-held provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. `E2E_OIDC_GRANT` keeps Kind and manual OpenShift on the password grant |
 | Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |

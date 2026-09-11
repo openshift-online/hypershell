@@ -108,6 +108,34 @@ describe("loadConfig", () => {
       }),
     ).toThrow(/OTEL_TRACES_SAMPLE_RATIO/u);
   });
+
+  it("defaults GitHub org-gate settings to unset", () => {
+    const config = loadConfig({ STATIC_ROOT: "./public" });
+
+    expect(config.githubOrgGate).toBeUndefined();
+    expect(config.githubUsernameAllowlist).toBeUndefined();
+    expect(config.githubApiOrigin).toBe("https://api.github.com");
+  });
+
+  it("loads the GitHub org gate and allowlist from the environment", () => {
+    const config = loadConfig({
+      GITHUB_ORG_GATE: "openshift-online",
+      GITHUB_USERNAME_ALLOWLIST: "alice,bob",
+      STATIC_ROOT: "./public",
+    });
+
+    expect(config.githubOrgGate).toBe("openshift-online");
+    expect(config.githubUsernameAllowlist).toBe("alice,bob");
+  });
+
+  it("treats a blank GitHub org gate as unset", () => {
+    const config = loadConfig({
+      GITHUB_ORG_GATE: "  ",
+      STATIC_ROOT: "./public",
+    });
+
+    expect(config.githubOrgGate).toBeUndefined();
+  });
 });
 
 describe("browserRuntimeConfig", () => {
@@ -133,6 +161,7 @@ describe("browserRuntimeConfig", () => {
 
   it("exposes no server-only configuration to the browser", () => {
     const config = loadConfig({
+      GITHUB_ORG_GATE: "openshift-online",
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.example.test:4318",
       SESSION_SECRET: "a".repeat(64),
       STATIC_ROOT: "./public",
@@ -141,6 +170,7 @@ describe("browserRuntimeConfig", () => {
     const serialized = JSON.stringify(browserRuntimeConfig(config));
     expect(serialized).not.toContain("collector.example.test");
     expect(serialized).not.toContain("a".repeat(64));
+    expect(serialized).not.toContain("openshift-online");
     expect(Object.keys(browserRuntimeConfig(config))).toEqual(["tracing"]);
   });
 });

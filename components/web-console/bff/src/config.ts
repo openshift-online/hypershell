@@ -52,6 +52,15 @@ const configSchema = z.object({
     .min(1)
     .default("hypershell-web-console-bff"),
   OTEL_TRACES_SAMPLE_RATIO: z.coerce.number().min(0).max(1).default(1),
+  GITHUB_API_ORIGIN: httpOrigin.default("https://api.github.com"),
+  GITHUB_ORG_GATE: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) =>
+      value === undefined || value === "" ? undefined : value,
+    ),
+  GITHUB_USERNAME_ALLOWLIST: z.string().optional(),
   OIDC_CLIENT_ID: z.string().trim().min(1).optional(),
   OIDC_ISSUER: httpUrl.optional(),
   OIDC_POST_LOGOUT_REDIRECT_URI: httpUrl.optional(),
@@ -102,6 +111,9 @@ export interface TracingConfig {
 export interface ServerConfig {
   apiOrigin: string;
   apiTimeoutMs: number;
+  githubApiOrigin?: string;
+  githubOrgGate?: string;
+  githubUsernameAllowlist?: string;
   host: string;
   logLevel: z.infer<typeof configSchema>["LOG_LEVEL"];
   nodeEnv: z.infer<typeof configSchema>["NODE_ENV"];
@@ -194,6 +206,9 @@ export function loadConfig(
   return {
     apiOrigin: result.data.HYPERSHELL_API_ORIGIN,
     apiTimeoutMs: result.data.HYPERSHELL_API_TIMEOUT_MS,
+    githubApiOrigin: result.data.GITHUB_API_ORIGIN,
+    githubOrgGate: result.data.GITHUB_ORG_GATE,
+    githubUsernameAllowlist: result.data.GITHUB_USERNAME_ALLOWLIST,
     host: result.data.HOST,
     logLevel: result.data.LOG_LEVEL,
     nodeEnv: result.data.NODE_ENV,

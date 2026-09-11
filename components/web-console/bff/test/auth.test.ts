@@ -51,6 +51,8 @@ const testSessionSecret =
 // ---------------------------------------------------------------------------
 
 interface OidcContext {
+  brokerStatus: number;
+  githubOrgs: string[];
   nonce: string;
   port: number;
 }
@@ -135,6 +137,23 @@ function createOidcServer(ctx: OidcContext): Server {
       return;
     }
 
+    if (url.pathname === "/broker/github/token") {
+      res.statusCode = ctx.brokerStatus;
+      if (res.statusCode !== 200) {
+        res.end("broker error");
+        return;
+      }
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ access_token: "gho-test-token" }));
+      return;
+    }
+
+    if (url.pathname === "/user/orgs") {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(ctx.githubOrgs.map((login) => ({ login }))));
+      return;
+    }
+
     res.statusCode = 404;
     res.end();
   });
@@ -180,12 +199,29 @@ describe("OIDC configuration validation", () => {
     expect(config.sessionSecret).toBeInstanceOf(Buffer);
     expect(config.sessionSecret?.length).toBe(32);
     expect(config.sessionTtlSeconds).toBe(28_800);
+    expect(config.githubOrgGate).toBeUndefined();
+    expect(config.githubApiOrigin).toBe("https://api.github.com");
   });
 
   it("accepts configuration without any OIDC settings", () => {
     const config = loadConfig({});
     expect(config.oidcIssuer).toBeUndefined();
     expect(config.sessionSecret).toBeUndefined();
+    expect(config.githubOrgGate).toBeUndefined();
+  });
+
+  it("treats a blank GITHUB_ORG_GATE as unset so Kind stays ungated", () => {
+    const config = loadConfig({ GITHUB_ORG_GATE: "  " });
+    expect(config.githubOrgGate).toBeUndefined();
+  });
+
+  it("loads the GitHub org gate and allowlist", () => {
+    const config = loadConfig({
+      GITHUB_ORG_GATE: "openshift-online",
+      GITHUB_USERNAME_ALLOWLIST: "alice,bob",
+    });
+    expect(config.githubOrgGate).toBe("openshift-online");
+    expect(config.githubUsernameAllowlist).toBe("alice,bob");
   });
 });
 
@@ -204,10 +240,18 @@ describe("web-console BFF with OIDC enabled", () => {
     method: string | undefined;
     url: string | undefined;
   }[];
-  const oidcCtx: OidcContext = { nonce: "", port: 0 };
+  const oidcCtx: OidcContext = {
+    brokerStatus: 200,
+    githubOrgs: ["openshift-online"],
+    nonce: "",
+    port: 0,
+  };
 
   beforeEach(async () => {
     apiRequests = [];
+    oidcCtx.brokerStatus = 200;
+    oidcCtx.githubOrgs = ["openshift-online"];
+    oidcCtx.nonce = "";
 
     // --- mock upstream API ---
     apiServer = createServer(
@@ -950,5 +994,134 @@ describe("web-console BFF with OIDC enabled", () => {
     });
 
     expect(response.statusCode).toBe(200);
+  });
+
+  describe("GitHub org gate", () => {
+    let gatedApp: FastifyInstance;
+
+    async function completeOidcLogin(target: FastifyInstance) {
+      const login = await target.inject({ method: "GET", url: "/auth/login" });
+      if (typeof login.headers.location !== "string") {
+        throw new Error("Expected location header");
+      }
+      const redirectUrl = new URL(login.headers.location);
+      const state = redirectUrl.searchParams.get("state");
+      const nonce = redirectUrl.searchParams.get("nonce");
+      if (!state || !nonce) {
+        throw new Error("Expected state and nonce in redirect URL");
+      }
+      oidcCtx.nonce = nonce;
+      return target.inject({
+        headers: { cookie: sessionCookie(login) },
+        method: "GET",
+        url: `/auth/callback?code=test-code&state=${state}`,
+      });
+    }
+
+    function gatedConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
+      const apiAddr = apiServer.address();
+      if (apiAddr === null || typeof apiAddr === "string") {
+        throw new Error("Expected TCP address for API server");
+      }
+      return {
+        apiOrigin: `http://127.0.0.1:${String(apiAddr.port)}`,
+        apiTimeoutMs: 5000,
+        githubApiOrigin: `http://127.0.0.1:${String(oidcCtx.port)}`,
+        githubOrgGate: "openshift-online",
+        host: "127.0.0.1",
+        logLevel: "silent",
+        nodeEnv: "test",
+        oidcClientId: "test-client",
+        oidcIssuer: `http://127.0.0.1:${String(oidcCtx.port)}`,
+        oidcRedirectUri: "http://127.0.0.1:8080/auth/callback",
+        port: 8080,
+        prometheusQueryTimeoutMs: 10_000,
+        prometheusUrl: "http://127.0.0.1:9090",
+        sessionSecret: Buffer.from(testSessionSecret, "hex"),
+        sessionTtlSeconds: 28_800,
+        staticRoot,
+        ...overrides,
+      };
+    }
+
+    afterEach(async () => {
+      await gatedApp.close();
+    });
+
+    it("creates a session for an organization member", async () => {
+      gatedApp = await buildApp(gatedConfig());
+      const callback = await completeOidcLogin(gatedApp);
+
+      expect(callback.statusCode).toBe(302);
+      expect(callback.headers.location).toBe("/");
+
+      const session = await gatedApp.inject({
+        headers: { cookie: sessionCookie(callback) },
+        method: "GET",
+        url: "/auth/session",
+      });
+      expect(session.json()).toMatchObject({ authenticated: true });
+    });
+
+    it("creates a session for an allowlisted username without calling GitHub", async () => {
+      oidcCtx.brokerStatus = 404;
+      oidcCtx.githubOrgs = [];
+      gatedApp = await buildApp(
+        gatedConfig({ githubUsernameAllowlist: "TestUser" }),
+      );
+      const callback = await completeOidcLogin(gatedApp);
+
+      expect(callback.statusCode).toBe(302);
+      expect(callback.headers.location).toBe("/");
+
+      const session = await gatedApp.inject({
+        headers: { cookie: sessionCookie(callback) },
+        method: "GET",
+        url: "/auth/session",
+      });
+      expect(session.json()).toMatchObject({ authenticated: true });
+    });
+
+    it("redirects non-members to /auth/denied without a session", async () => {
+      oidcCtx.githubOrgs = ["acme"];
+      gatedApp = await buildApp(gatedConfig());
+      const callback = await completeOidcLogin(gatedApp);
+
+      expect(callback.statusCode).toBe(302);
+      expect(callback.headers.location).toBe("/auth/denied");
+
+      const session = await gatedApp.inject({
+        headers: { cookie: sessionCookie(callback) },
+        method: "GET",
+        url: "/auth/session",
+      });
+      expect(session.json()).toEqual({ authenticated: false });
+
+      const denied = await gatedApp.inject({
+        method: "GET",
+        url: "/auth/denied",
+      });
+      expect(denied.statusCode).toBe(403);
+      expect(denied.headers["content-type"]).toContain("text/html");
+      expect(denied.body).toContain("Access denied");
+
+      const api = await gatedApp.inject({
+        headers: { cookie: sessionCookie(callback) },
+        method: "GET",
+        url: "/api/hypershell/v1/gateways",
+      });
+      expect(api.statusCode).toBe(401);
+      expect(api.json()).toMatchObject({ error: "reauth_required" });
+      expect(apiRequests).toHaveLength(0);
+    });
+
+    it("denies login when the GitHub broker token cannot be read", async () => {
+      oidcCtx.brokerStatus = 401;
+      gatedApp = await buildApp(gatedConfig());
+      const callback = await completeOidcLogin(gatedApp);
+
+      expect(callback.statusCode).toBe(302);
+      expect(callback.headers.location).toBe("/auth/denied");
+    });
   });
 });

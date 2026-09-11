@@ -129,6 +129,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # Posted before cluster login, deploy, or e2e, so this is normally the
+      # first comment the workflow adds to the pull request and the access
+      # comment stays near the top of the timeline once it is edited in place
+      # below, rather than landing wherever deploy happens to finish.
+      - name: Post initial "deploying" comment
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_ENV_PHASE: deploying
+        run: bash scripts/ci/upsert-pr-comment.sh
+
       - name: Install oc, skopeo, and openshell CLI
         run: |
           mkdir -p "$(dirname "${KUBECONFIG}")"
@@ -197,10 +207,10 @@ jobs:
           # Enable the GitHub identity provider whenever the OAuth App secrets
           # are present (this step already fail-closes if they are missing).
           # Kind/local/stage have no hypershell-github-oauth Secret, so the
-          # init container leaves the IdP disabled there. Org-gate/allowlist
-          # enforcement is still the first-broker-login SPI handoff; until that
-          # ships, any GitHub user who completes OAuth receives the hardcoded
-          # platform:admin + gateway:creator mappers.
+          # init container leaves the IdP disabled there. The web-console BFF
+          # enforces org membership / allowlist after OIDC callback when
+          # GITHUB_ORG_GATE is set (openshift-up copies org+allowlist from
+          # this Secret). Denied users get no HyperShell session.
           oc create secret generic hypershell-github-oauth -n "${kc_ns}" \
             --from-literal=idp-enabled=true \
             --from-literal=client-id="${GITHUB_OAUTH_CLIENT_ID}" \
@@ -286,8 +296,9 @@ jobs:
           SEED_STRICT: "true"
         run: make openshift-seed
 
-      # Post/update the access comment now that the environment is ready, so it
-      # survives a failing e2e run and always reflects the deployed head commit.
+      # Edit the same comment posted at job start now that the environment is
+      # ready, so it survives a failing e2e run and always reflects the
+      # deployed head commit.
       - name: Discover access URLs
         id: urls
         run: |
