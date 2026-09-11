@@ -194,17 +194,15 @@ jobs:
             e2e_secret="$(openssl rand -hex 24)"
           fi
           echo "::add-mask::${e2e_secret}"
-          # FAIL-CLOSED: idp-enabled stays false until the first-broker-login
-          # org-gate/allowlist authenticator (PR-ENV-8 SPI) is deployed. The
-          # hardcoded-role mappers grant platform:admin + gateway:creator to any
-          # GitHub identity that completes broker login; stock Keycloak does not
-          # read github.org.gate / github.username.allowlist. Enabling the IdP
-          # before that SPI is present would make every GitHub user a platform
-          # admin on the shared cluster. Keep provisioning the OAuth client
-          # id/secret so flipping this to true is a one-line change after the
-          # authenticator ships. Do not set this to true from a GitHub variable.
+          # Enable the GitHub identity provider whenever the OAuth App secrets
+          # are present (this step already fail-closes if they are missing).
+          # Kind/local/stage have no hypershell-github-oauth Secret, so the
+          # init container leaves the IdP disabled there. Org-gate/allowlist
+          # enforcement is still the first-broker-login SPI handoff; until that
+          # ships, any GitHub user who completes OAuth receives the hardcoded
+          # platform:admin + gateway:creator mappers.
           oc create secret generic hypershell-github-oauth -n "${kc_ns}" \
-            --from-literal=idp-enabled=false \
+            --from-literal=idp-enabled=true \
             --from-literal=client-id="${GITHUB_OAUTH_CLIENT_ID}" \
             --from-literal=client-secret="${GITHUB_OAUTH_CLIENT_SECRET}" \
             --from-literal=callback-url="${GITHUB_OAUTH_CALLBACK_URL}" \
@@ -213,7 +211,7 @@ jobs:
             --from-literal=e2e-client-enabled=true \
             --from-literal=e2e-client-secret="${e2e_secret}" \
             --dry-run=client -o yaml | oc apply -f - >/dev/null
-          echo "Provisioned hypershell-github-oauth in ${kc_ns} (GitHub IdP disabled until org-gate SPI)"
+          echo "Provisioned hypershell-github-oauth in ${kc_ns} (GitHub IdP enabled)"
 
       # Deploy unconditionally (idempotent + reconciling). Defer seeding until the
       # PR's images are swapped in so the seed exercises this PR's contract.
@@ -221,6 +219,21 @@ jobs:
         env:
           SKIP_SEED: "true"
         run: make openshift-up
+
+      # start-dev --import-realm only loads the rendered JSON into an empty
+      # data dir. A Keycloak pod that already booted (this PR, or a
+      # synchronize after idp-enabled flipped) keeps the old realm. Stamp the
+      # oauth secret hash onto the pod template so a change recycles Keycloak
+      # and the init container re-renders GitHub IdP enabled=true.
+      - name: Recycle Keycloak when GitHub OAuth secret changes
+        run: |
+          kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
+          hash="$(oc get secret hypershell-github-oauth -n "${kc_ns}" \
+            -o jsonpath='{.data.idp-enabled}{.data.client-id}{.data.e2e-client-enabled}' \
+            | sha256sum | awk '{print $1}')"
+          oc patch deploy/keycloak -n "${kc_ns}" --type=merge -p \
+            "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"hypershell.redhat.io/oauth-secret\":\"${hash}\"}}}}}"
+          oc rollout status deploy/keycloak -n "${kc_ns}" --timeout=600s
 
       # Overwrite the opaque environment id with pr-<number> and stamp the
       # timebox. make openshift-up does neither. Fails the job on any error.
