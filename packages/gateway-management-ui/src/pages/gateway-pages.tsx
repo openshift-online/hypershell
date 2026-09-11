@@ -35,6 +35,7 @@ import {
   GatewayDetailHeader,
   GatewayEndpointCopy,
 } from "../gateways/gateway-detail-header";
+import { GatewayProvisioningStepper } from "../gateways/gateway-provisioning-stepper";
 import {
   gatewayListQueryKey,
   gatewayNeedsStatusPolling,
@@ -649,6 +650,15 @@ export function GatewayPage({
           onRenamed={setRenamedGatewayName}
         />
       </PageSection>
+      {visibleGateway.provisioningConditions &&
+        visibleGateway.provisioningConditions.length > 0 && (
+          <PageSection hasBodyWrapper={false}>
+            <GatewayProvisioningStepper
+              conditions={visibleGateway.provisioningConditions}
+              phase={visibleGateway.phase}
+            />
+          </PageSection>
+        )}
       <PageSection hasBodyWrapper={false} isFilled variant="secondary">
         <Tabs
           activeKey={currentTab}

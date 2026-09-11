@@ -1754,6 +1754,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
 	}
 
+	conditions := gateway.InitConditions(r.keycloakConfig != nil)
+	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
+	opts.ReportProgress = func(step, status, message string) {
+		gateway.SetCondition(conditions, step, status, message)
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+	}
+
 	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
@@ -1775,11 +1783,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return reconcileErr
 	}
 
+	// Step 5: GatewayHealthy
+	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
+	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
 	// Manifests are applied, but the gateway is not Running until its workload is
 	// observed Ready. Wait within the provisioning readiness window; if the
 	// Deployment never becomes ready, set Degraded and record why.
 	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
 	if !ready {
+		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusFailed, "Gateway health check timed out - the gateway workload is not yet ready")
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseDegraded), reason)
 		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
 		return nil
@@ -1799,6 +1813,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	routed := isRoutedGateway(gw)
 	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
+			gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
+			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 			// The observation guard rejects work that started in Running or Degraded.
 			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 				observeGatewayProvisionDuration(ctx, runningGateway)
@@ -1809,6 +1825,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
 	} else {
+		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		// The observation guard rejects work that started in Running or Degraded.
 		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 			observeGatewayProvisionDuration(ctx, runningGateway)
@@ -2201,6 +2219,40 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 	})
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s phase to %s: %v", gatewayID, phase, err)
+	}
+}
+
+func conditionStatusToProto(s string) pb.ProvisioningConditionStatus {
+	switch s {
+	case gateway.StatusPending:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_PENDING
+	case gateway.StatusInProgress:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_IN_PROGRESS
+	case gateway.StatusComplete:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE
+	case gateway.StatusFailed:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED
+	default:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_UNSPECIFIED
+	}
+}
+
+func (r *GatewayReconciler) updateProvisioningConditions(ctx context.Context, gatewayID string, conditions []gateway.ProvisioningCondition) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	pbConditions := make([]*pb.ProvisioningCondition, len(conditions))
+	for i, c := range conditions {
+		pbConditions[i] = &pb.ProvisioningCondition{
+			Type:            c.Type,
+			ConditionStatus: conditionStatusToProto(c.ConditionStatus),
+			Message:         c.Message,
+		}
+	}
+	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:                     gatewayID,
+		ProvisioningConditions: pbConditions,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update provisioning conditions for gateway %s: %v", gatewayID, err)
 	}
 }
 

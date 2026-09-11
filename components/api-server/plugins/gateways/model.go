@@ -34,7 +34,8 @@ type Gateway struct {
 	Oidc               *string `json:"oidc" gorm:"type:jsonb"`
 	Route              *string `json:"route" gorm:"type:jsonb"`
 	CredentialDriver   *string `json:"credential_driver" gorm:"type:jsonb"`
-	ActiveSandboxCount *int    `json:"active_sandbox_count"`
+	ActiveSandboxCount      *int    `json:"active_sandbox_count"`
+	ProvisioningConditions  *string `json:"provisioning_conditions" gorm:"type:jsonb"`
 }
 
 type GatewayList []*Gateway
