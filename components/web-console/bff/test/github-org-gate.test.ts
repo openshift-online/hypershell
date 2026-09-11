@@ -186,6 +186,43 @@ describe("evaluateGithubOrgGate", () => {
     ).resolves.toBe(false);
   });
 
+  it("admits an org member when Keycloak labels a form-encoded broker token as JSON", async () => {
+    // Keycloak 26 retrieveToken always sets Content-Type application/json even
+    // when GitHub stored access_token=...&token_type=bearer (the default
+    // GitHub token response unless githubJsonFormat is enabled).
+    const fetchImpl = vi.fn((input: Parameters<typeof fetch>[0]) => {
+      const href = hrefOf(input);
+      if (href.endsWith("/broker/github/token")) {
+        return Promise.resolve(
+          new Response(
+            "access_token=gho-test&token_type=bearer&scope=read%3Aorg",
+            {
+              headers: { "content-type": "application/json" },
+              status: 200,
+            },
+          ),
+        );
+      }
+      if (href.includes("/user/orgs")) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ login: "openshift-online" }]), {
+            headers: { "content-type": "application/json" },
+            status: 200,
+          }),
+        );
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+
+    await expect(
+      evaluateGithubOrgGate({
+        ...baseInput,
+        allowlistRaw: "",
+        fetchImpl,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("denies when the broker token body is neither JSON nor form-encoded", async () => {
     const fetchImpl = vi.fn((input: Parameters<typeof fetch>[0]) => {
       const href = hrefOf(input);

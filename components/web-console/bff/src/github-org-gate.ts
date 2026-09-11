@@ -7,6 +7,7 @@ export interface GithubOrgGateInput {
   fetchImpl?: typeof fetch;
   githubApiOrigin: string;
   oidcIssuer: string;
+  onLookupError?: (error: unknown) => void;
   orgGate: string;
   username: string | undefined;
 }
@@ -84,7 +85,8 @@ export async function evaluateGithubOrgGate(
       orgLogins,
       username: input.username,
     });
-  } catch {
+  } catch (error) {
+    input.onLookupError?.(error);
     return false;
   }
 }
@@ -176,27 +178,36 @@ function readBrokerAccessToken(
   if (trimmed.length === 0) {
     return undefined;
   }
+  // Keycloak 26 retrieveToken sets Content-Type application/json for whatever
+  // GitHub stored, including the default form-encoded access_token=... body.
   if (contentType.includes("json") || trimmed.startsWith("{")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "access_token" in parsed &&
-        typeof parsed.access_token === "string"
-      ) {
-        return parsed.access_token;
-      }
-    } catch {
-      return undefined;
+    const fromJson = jsonAccessToken(trimmed);
+    if (fromJson !== undefined) {
+      return fromJson;
     }
-    return undefined;
   }
   if (
     contentType.includes("application/x-www-form-urlencoded") ||
     trimmed.includes("access_token=")
   ) {
     return new URLSearchParams(trimmed).get("access_token") ?? undefined;
+  }
+  return undefined;
+}
+
+function jsonAccessToken(body: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "access_token" in parsed &&
+      typeof parsed.access_token === "string"
+    ) {
+      return parsed.access_token;
+    }
+  } catch {
+    return undefined;
   }
   return undefined;
 }

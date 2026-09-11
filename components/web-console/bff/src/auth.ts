@@ -245,12 +245,86 @@ export async function registerAuth(
 <html lang="en">
   <head>
     <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>Access denied</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --hs-bg: #f2f2f2;
+        --hs-card-bg: #ffffff;
+        --hs-border: #e0e0e0;
+        --hs-text: #151515;
+        --hs-text-secondary: #4d4d4d;
+        --hs-accent: #0066cc;
+        --hs-accent-hover: #004d99;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --hs-bg: #1b1d21;
+          --hs-card-bg: #292e34;
+          --hs-border: #3c3f42;
+          --hs-text: #e0e0e0;
+          --hs-text-secondary: #a2a2a2;
+          --hs-accent: #73bcf7;
+          --hs-accent-hover: #bee1f4;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--hs-bg);
+        color: var(--hs-text);
+        font-family: "Red Hat Text", system-ui, -apple-system, sans-serif;
+      }
+      .card {
+        width: 100%;
+        max-width: 30rem;
+        margin: 1.5rem;
+        padding: 2.5rem 2rem;
+        background: var(--hs-card-bg);
+        border: 1px solid var(--hs-border);
+        border-radius: 0.625rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        text-align: center;
+      }
+      .brand {
+        font-size: 1.75rem;
+        font-weight: 600;
+        margin: 0 0 1.5rem;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 1rem;
+      }
+      p {
+        color: var(--hs-text-secondary);
+        line-height: 1.5;
+        margin: 0 0 1rem;
+      }
+      a {
+        color: var(--hs-accent);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      a:hover {
+        color: var(--hs-accent-hover);
+        text-decoration: underline;
+      }
+    </style>
   </head>
   <body>
-    <h1>Access denied</h1>
-    <p>This HyperShell environment is limited to members of the configured GitHub organization and allowlisted usernames.</p>
-    <p><a href="/auth/logout">Sign out</a> and try a different GitHub account.</p>
+    <main class="card">
+      <p class="brand">HyperShell</p>
+      <h1>Access denied</h1>
+      <p>This HyperShell environment is limited to members of the configured GitHub organization and allowlisted usernames.</p>
+      <p><a href="/auth/logout">Sign out</a> and try a different GitHub account or contact the maintainers of this project to be added to the allowlist.</p>
+    </main>
   </body>
 </html>
 `;
@@ -300,6 +374,12 @@ export async function registerAuth(
           allowlistRaw: config.githubUsernameAllowlist,
           githubApiOrigin: config.githubApiOrigin ?? "https://api.github.com",
           oidcIssuer: config.oidcIssuer,
+          onLookupError: (error) => {
+            request.log.warn(
+              { err: error, preferredUsername: username },
+              "GitHub org gate lookup failed",
+            );
+          },
           orgGate: config.githubOrgGate,
           username,
         });
