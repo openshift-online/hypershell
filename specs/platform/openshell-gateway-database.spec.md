@@ -1,5 +1,7 @@
 # OpenShell Gateway Database Specification
 
+**Status:** Draft
+
 ## Purpose
 
 Each HyperShell execution controller uses one configured PostgreSQL server to
@@ -8,8 +10,6 @@ installation system owns the PostgreSQL server. The HyperShell API owns gateway
 placement on execution clusters, but does not select or register database
 servers. This contract removes the `ManagedDatabase` entity and the Gateway
 `database_id` field. It applies to fresh installations only.
-
-**Status:** Proposed. This PR defines desired behavior; it does not implement it.
 
 ## Scope and Terminology
 
