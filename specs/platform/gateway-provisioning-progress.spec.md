@@ -57,8 +57,13 @@ Each condition carries:
 | Field | Type | Description |
 |---|---|---|
 | `type` | string | The condition identifier (e.g., `EnvironmentReady`) |
-| `status` | enum | `Pending`, `InProgress`, `Complete`, `Failed` |
+| `condition_status` | enum | `Pending`, `InProgress`, `Complete`, `Failed` |
 | `message` | string | Human-readable detail (empty when `Pending`; failure reason when `Failed`) |
+
+**Naming note:** The per-condition status field is named `condition_status` (and
+the protobuf enum `ProvisioningConditionStatus`) to avoid collision with the
+Gateway's existing top-level `status` field, which carries a different semantic
+(a human-readable health descriptor).
 
 ### Provisioning Steps
 
@@ -91,24 +96,37 @@ describe sub-phase progress during provisioning. The conditions SHALL be
 persisted in the API server and exposed via both the REST and gRPC APIs.
 
 The conditions list SHALL be retained across all gateway phases, including
-`Running`. When a gateway reaches `Running`, all conditions SHALL have `status`
-set to `Complete`. Retaining the list allows the UI to show which provisioning
-steps the gateway went through, even after provisioning finishes.
+`Running`. When a gateway reaches `Running`, all conditions SHALL have
+`condition_status` set to `Complete`. Retaining the list allows the UI to show
+which provisioning steps the gateway went through, even after provisioning
+finishes.
 
-#### Scenario: Conditions appear on a newly created gateway
+#### Condition Initialization Ownership
+
+The control plane SHALL own initialization of provisioning conditions. When the
+GatewayReconciler first processes a newly created Gateway whose
+`provisioning_conditions` field is null, it SHALL initialize the conditions list
+based on the gateway's configuration (e.g., omitting `IdentityProviderReady`
+when OIDC is not configured). The API server persists and exposes conditions but
+does not populate them - this avoids duplicating reconciler domain logic (such as
+which steps apply for a given configuration) in the API server.
+
+#### Scenario: Control plane initializes conditions on first reconciliation
 
 - GIVEN a user creates a new Gateway resource
-- WHEN the API server persists the Gateway
-- THEN the Gateway SHALL have a `provisioning_conditions` field
-- AND the field SHALL contain the ordered list of condition types applicable to
-  this gateway's configuration
-- AND each condition SHALL have `status` set to `Pending`
+- AND the API server persists it with `provisioning_conditions` set to null
+- WHEN the GatewayReconciler first processes the Gateway
+- THEN it SHALL initialize the `provisioning_conditions` field with the ordered
+  list of condition types applicable to this gateway's configuration
+- AND each condition SHALL have `condition_status` set to `Pending`
+- AND the control plane SHALL persist the initialized conditions via the API
+  server
 
 #### Scenario: Conditions reflect gateway configuration
 
 - GIVEN a Gateway with no OIDC configuration (`oidc` is null or `oidc.issuer` is
   empty)
-- WHEN the provisioning conditions are initialized
+- WHEN the control plane initializes provisioning conditions
 - THEN the `IdentityProviderReady` condition SHALL be omitted from the list
 - AND the remaining conditions SHALL retain their relative order
 
@@ -130,7 +148,7 @@ conditions are `Complete`.
 
 #### Scenario: Successful provisioning progresses through all steps
 
-- GIVEN a Gateway with all conditions in `Pending` status
+- GIVEN a Gateway with all conditions at `condition_status` `Pending`
 - WHEN the GatewayReconciler begins reconciliation
 - THEN it SHALL set `EnvironmentReady` to `InProgress` before creating the
   namespace
@@ -146,7 +164,7 @@ conditions are `Complete`.
 - AND it SHALL populate `message` with a high-level, user-facing failure reason
 - AND the `message` SHALL NOT expose low-level infrastructure details (e.g.,
   Kubernetes error messages, internal resource names, or stack traces)
-- AND subsequent conditions SHALL remain in `Pending` status
+- AND subsequent conditions SHALL remain at `condition_status` `Pending`
 - AND the gateway `phase` SHALL be set to `Failed`
 
 #### Scenario: IdP step skipped for non-OIDC gateways
@@ -155,6 +173,27 @@ conditions are `Complete`.
 - WHEN the GatewayReconciler completes the `DatabaseReady` step
 - THEN it SHALL proceed directly to `GatewayDeployed`
 - AND the `IdentityProviderReady` condition SHALL not be present
+
+#### Scenario: Conditions reset on re-provisioning
+
+- GIVEN a Gateway with `phase` `Running` and all conditions with `condition_status` `Complete`
+- WHEN the gateway is modified (e.g., image change, config update) and the
+  reconciler re-enters full provisioning, setting `phase` to `Provisioning`
+- THEN the control plane SHALL reset all provisioning conditions to `Pending`
+  (re-evaluating which conditions apply based on the updated configuration)
+- AND the reconciler SHALL progress through conditions from the beginning as
+  with initial provisioning
+- AND the UI SHALL reflect the reset, showing the stepper in its initial state
+
+#### Scenario: Failed phase is a terminal stepper state
+
+- GIVEN a Gateway with `phase` `Failed` and a condition with `condition_status` `Failed`
+- WHEN the UI renders the gateway detail
+- THEN polling SHALL have stopped (per the phase vocabulary spec, `Failed` is
+  non-recoverable and stops polling)
+- AND the stepper SHALL remain frozen in its current state until the user takes
+  corrective action (e.g., updating the gateway configuration) which triggers a
+  new reconciliation
 
 ---
 
@@ -176,9 +215,10 @@ provisioning condition maps to a `ProgressStep` as follows:
 | `InProgress` | `pending` | `true` | Step shows a spinner animation indicating work in progress |
 | `Complete` | `success` | `false` | Step shows a green check mark |
 | `Failed` | `danger` | `false` | Step shows a red X icon |
+| `Failed` (on `GatewayHealthy` when `phase` is `Degraded`) | `warning` | `false` | Step shows a warning icon (recoverable, polling continues) |
 
 Each `ProgressStep` SHALL use the condition's user-facing label (from the
-Provisioning Steps table) as its title. When a condition has `status` `Failed`
+Provisioning Steps table) as its title. When a condition has `condition_status` `Failed`
 and a non-empty `message`, the `ProgressStep` SHALL display the message using
 the `description` prop so the failure reason is visible inline beneath the step
 title.
@@ -196,7 +236,7 @@ title.
 #### Scenario: User sees failure context on a failed step
 
 - GIVEN a gateway with `phase` `Failed`
-- AND the `DatabaseReady` condition has `status` `Failed` with `message`
+- AND the `DatabaseReady` condition has `condition_status` `Failed` with `message`
   "Database provisioning failed - please verify your database configuration"
 - WHEN the user views the gateway detail
 - THEN the failed step SHALL render as `ProgressStep` with `variant="danger"`
@@ -218,6 +258,18 @@ title.
 - THEN the stepper SHALL remain visible with all steps showing `variant="success"`
 - AND the user SHALL be able to see which provisioning steps were performed
 
+#### Scenario: Degraded gateway shows health step with warning
+
+- GIVEN a gateway that completed provisioning but later entered `phase` `Degraded`
+  (e.g., deployment readiness window timed out, pod crash-looping)
+- WHEN the user views the gateway detail
+- THEN the `GatewayHealthy` condition SHALL have `condition_status` set to
+  `Failed` with a user-facing message describing the health issue
+- AND the corresponding `ProgressStep` SHALL render with `variant="warning"`
+- AND all prior provisioning steps SHALL remain `variant="success"`
+- AND the UI SHALL continue polling (per the phase vocabulary spec, `Degraded` is
+  a recoverable phase that keeps polling)
+
 ---
 
 ### Requirement: GPP-04 -- Conditions Are Polling-Compatible
@@ -227,6 +279,12 @@ endpoints so that the existing console polling mechanism (which already polls
 during recoverable phases per `gateway-phase-vocabulary.spec.md`) picks up
 condition changes without a separate subscription or endpoint.
 
+Polling follows the phase vocabulary spec's existing rules: recoverable phases
+(`Pending`, `Provisioning`, `Degraded`) keep polling, `Running` stops polling
+(stepper is complete), and `Failed` stops polling (stepper is frozen in its
+terminal state until the user takes corrective action that triggers a new
+reconciliation).
+
 #### Scenario: Polling captures step transitions
 
 - GIVEN the UI is polling a Gateway in `Provisioning` phase
@@ -234,6 +292,15 @@ condition changes without a separate subscription or endpoint.
   and `IdentityProviderReady` from `Pending` to `InProgress`
 - THEN the next poll response SHALL reflect both condition updates
 - AND the UI SHALL update the stepper accordingly
+
+#### Scenario: Polling stops on Failed phase
+
+- GIVEN a Gateway whose `phase` transitions to `Failed`
+- WHEN the UI receives the updated gateway
+- THEN polling SHALL stop per the phase vocabulary spec
+- AND the stepper SHALL remain frozen showing the failed step and its message
+- AND the stepper SHALL only update when the user modifies the gateway
+  configuration, triggering a new reconciliation that resets conditions
 
 ---
 
@@ -276,7 +343,8 @@ only the user-facing summary.
 
 - Per-step duration tracking or timing estimates ("ETA: 30 seconds")
 - Retry controls in the UI (e.g., "Retry database provisioning")
-- Provisioning progress for gateway updates (only initial provisioning)
+- Partial re-provisioning (conditions always reset fully on re-provision; there
+  is no "only re-run the steps that changed" optimization)
 - Sub-step granularity within a condition (e.g., individual cert-manager
   Certificate status within `GatewayDeployed`)
 - WebSocket or server-sent event streaming for real-time updates (polling is
