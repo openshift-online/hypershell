@@ -1,0 +1,40 @@
+# provider-template.yaml - annotated credential bundle skeleton
+#
+# A provider grants sandboxes access to an external API or service.
+# Register providers in the gateway workspace before creating sandboxes.
+# Copy this file and customize per service your agent needs to reach.
+#
+# Registration (one-time, manual or via CI):
+#   openshell provider create --file provider.yaml
+
+# Unique name for this provider within the workspace.
+# Referenced via --provider <name> in sandbox create calls.
+name: my-service-provider   # REPLACE
+
+# Human-readable description shown in the gateway UI.
+description: "Access credentials for my-service"
+
+# Endpoint rules: the gateway uses these to allow sandbox egress
+# to the provider's API. Must match the policy.yaml network.egress entries.
+endpoints:
+  - url: "https://api.my-service.example.com"  # REPLACE
+    # Optional: restrict to specific HTTP methods
+    # methods: ["GET", "POST"]
+
+# Credential bundle injected into sandboxes that use this provider.
+# Secrets must be pre-loaded into the gateway workspace secret store.
+credentials:
+  # Environment variable injection (values resolved from gateway secret store)
+  env:
+    MY_SERVICE_TOKEN: "{{ secret.my-service-token }}"   # REPLACE key
+    MY_SERVICE_URL:   "https://api.my-service.example.com"
+
+  # File injection - for tools that read config from disk
+  # files:
+  #   /etc/my-service/config.json: "{{ secret.my-service-config }}"
+
+# Optional: bind this provider to specific workspaces or sandbox labels
+# scope:
+#   workspaces: ["my-workspace"]
+#   labels:
+#     managed-by: my-agent

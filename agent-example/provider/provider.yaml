@@ -1,0 +1,19 @@
+# provider.yaml - example agent provider credential bundle
+#
+# Register this provider in the gateway workspace before deploying the agent:
+#   openshell provider create --file provider.yaml
+#
+# The gateway resolves {{ secret.<key> }} from the workspace secret store.
+# Upload credentials first:
+#   openshell secret set my-service-token --value "$MY_SERVICE_TOKEN"
+
+name: my-service-provider
+description: "Access credentials for my-service (example agent)"
+
+endpoints:
+  - url: "https://api.my-service.example.com"
+
+credentials:
+  env:
+    MY_SERVICE_TOKEN: "{{ secret.my-service-token }}"
+    MY_SERVICE_URL:   "https://api.my-service.example.com"
