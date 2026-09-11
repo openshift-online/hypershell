@@ -29,7 +29,7 @@ message Gateway {
   optional string credential_driver = 20;
   optional int32 active_sandbox_count = 21;
   optional string console_address = 22;
-  optional string gateway_version = 23;
+  optional string gateway_version = 24;
 }
 
 message CreateGatewayRequest {

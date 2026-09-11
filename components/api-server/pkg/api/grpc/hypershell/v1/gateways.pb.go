@@ -43,7 +43,7 @@ type Gateway struct {
 	CredentialDriver   *string                `protobuf:"bytes,20,opt,name=credential_driver,json=credentialDriver,proto3,oneof" json:"credential_driver,omitempty"`
 	ActiveSandboxCount *int32                 `protobuf:"varint,21,opt,name=active_sandbox_count,json=activeSandboxCount,proto3,oneof" json:"active_sandbox_count,omitempty"`
 	ConsoleAddress     *string                `protobuf:"bytes,22,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
-	GatewayVersion     *string                `protobuf:"bytes,23,opt,name=gateway_version,json=gatewayVersion,proto3,oneof" json:"gateway_version,omitempty"`
+	GatewayVersion     *string                `protobuf:"bytes,24,opt,name=gateway_version,json=gatewayVersion,proto3,oneof" json:"gateway_version,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1374,7 +1374,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"R\x10credentialDriver\x88\x01\x01\x125\n" +
 	"\x14active_sandbox_count\x18\x15 \x01(\x05H\vR\x12activeSandboxCount\x88\x01\x01\x12,\n" +
 	"\x0fconsole_address\x18\x16 \x01(\tH\fR\x0econsoleAddress\x88\x01\x01\x12,\n" +
-	"\x0fgateway_version\x18\x17 \x01(\tH\rR\x0egatewayVersion\x88\x01\x01B\x0f\n" +
+	"\x0fgateway_version\x18\x18 \x01(\tH\rR\x0egatewayVersion\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
